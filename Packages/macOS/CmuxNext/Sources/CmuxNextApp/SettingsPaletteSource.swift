@@ -22,24 +22,64 @@ final class SettingsPaletteSource: PaletteSettingsSource {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "palette.settings")
     /// Values committed whose write has not landed, by setting id: the rows show them at once
     /// (nil: the default). Each write's token, so only the latest write of a row clears it.
-    private var pending: [String: (token: Int, value: JSONValue?)] = [:]
+    private var pending: [String: (token: Int, value: JSONValue?)] = [:] { didSet { pendingRevision += 1 } }
+    private var pendingRevision = 0
     private var writeCount = 0
     /// The palette's page reload (`observeChanges`).
     private var onChange: (@MainActor () -> Void)?
+    /// Opens the Settings page at a row (the `openSettings setting:` action); nil offers no Show in Settings.
+    private let openSetting: (@MainActor (String) -> Void)?
 
-    init(settings: SettingsController, themes: ThemeCatalog? = nil, themeColors: @escaping @MainActor () -> [ThemeRGB]) {
+    init(settings: SettingsController, themes: ThemeCatalog? = nil, openSetting: (@MainActor (String) -> Void)? = nil,
+         themeColors: @escaping @MainActor () -> [ThemeRGB]) {
         self.settings = settings
         self.themes = themes
+        self.openSetting = openSetting
         self.themeColors = themeColors
     }
 
+    var revealsInSettings: Bool { openSetting != nil }
+
+    func reveal(row: String) {
+        openSetting?(row)
+    }
+
+    /// What the rows are built from. The loaded settings, managed keys and theme files change only in a
+    /// load that applied something (`appliedCount`); the rest changes here or in the theme catalog.
+    private struct RowsInputs: Equatable {
+        let loads: Int
+        let pending: Int
+        let colors: [ThemeRGB]
+        let themes: Int?
+        let recentFonts: [String]
+        let developerTools: Bool
+        /// Numbers and durations are formatted for it.
+        let locale: String
+    }
+
+    /// The rows last built and their inputs: an open with the same inputs lists them again.
+    private var built: (inputs: RowsInputs, rows: [PaletteSettingRow])?
+    /// Times the rows were built (the reuse tests).
+    private(set) var rowBuilds = 0
+
+    /// Every palette setting's row with its whole value list (formatted numbers and durations, the
+    /// theme and font lists): about 8 ms of the main thread, read after each Cmd-Shift-P's first
+    /// frame. Built again only when an input changed, not on every open.
     var rows: [PaletteSettingRow] {
-        let root = settings.snapshot.root
         let colors = themeColors()
-        return SettingsSchema.all.filter { $0.isPaletteListed(developerTools: DevTools.isEnabled) }.map { descriptor in
+        let developerTools = DevTools.isEnabled
+        let inputs = RowsInputs(loads: settings.appliedCount, pending: pendingRevision, colors: colors, themes: themes?.revision,
+                                recentFonts: settings.recentFonts.families, developerTools: developerTools,
+                                locale: Locale.autoupdatingCurrent.identifier)
+        if let built, built.inputs == inputs { return built.rows }
+        let root = settings.snapshot.root
+        let rows = SettingsSchema.all.filter { $0.isPaletteListed(developerTools: developerTools) }.map { descriptor in
             let current = pending[descriptor.id].map { $0.value ?? settings.defaultValue(of: descriptor) } ?? descriptor.effectiveValue(in: root)
-            return row(descriptor, current: current, colors: colors)
+            return row(descriptor, current: current, inherited: descriptor.inheritedValue(in: root), colors: colors)
         }
+        built = (inputs, rows)
+        rowBuilds += 1
+        return rows
     }
 
     func observeChanges(_ onChange: @escaping @MainActor () -> Void) {
@@ -52,7 +92,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
             settings.endPreview()
             return
         }
-        settings.preview(descriptor, Self.value(option))
+        settings.preview(descriptor, SettingOption.value(option))
     }
 
     func commit(row: String, option: String) {
@@ -60,7 +100,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         let value: JSONValue? = switch option {
         case "on": .bool(true)
         case "off": .bool(false)
-        default: Self.value(option)
+        default: SettingOption.value(option)
         }
         commitValue(descriptor, value)
     }
@@ -94,18 +134,18 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         SettingsSchema.descriptor(for: id.split(separator: ".").map(String.init))
     }
 
-    private func row(_ descriptor: SettingDescriptor, current: JSONValue?, colors: [ThemeRGB]) -> PaletteSettingRow {
+    private func row(_ descriptor: SettingDescriptor, current: JSONValue?, inherited: JSONValue?, colors: [ThemeRGB]) -> PaletteSettingRow {
         let isFont = descriptor.kind == .fontFamily
         let options = if descriptor.kind == .theme, let themes {
-            Self.themeOptions(current: current?.stringValue, names: themes.names, defaultLabel: descriptor.defaultLabel ?? "",
+            SettingOption.themeOptions(current: current?.stringValue, names: themes.names, defaultLabel: descriptor.defaultLabel ?? "",
                               strip: themes.swatches(for:))
         } else if isFont {
-            settings.recentFonts.options(current: current?.stringValue, families: SettingsPageDomains.fontFamilies, defaultLabel: descriptor.defaultLabel ?? descriptor.title)
+            settings.recentFonts.options(current: current?.stringValue, families: AppFontSetting.families(for: descriptor.id, fixedPitch: TerminalFontSetting.installedFamilies), defaultLabel: descriptor.defaultLabel ?? descriptor.title)
         } else {
-            settings.paletteOptions(descriptor, current: current, themeColors: colors)
+            settings.paletteOptions(descriptor, current: current, inherited: inherited, themeColors: colors)
         }
         let currentOption = options.first(where: \.isCurrent)
-        let label = currentOption?.title ?? current?.compactText ?? descriptor.defaultLabel ?? ""
+        let label = descriptor.paletteSummary(current: current, options: options) ?? currentOption?.title ?? current?.compactText ?? descriptor.defaultLabel ?? ""
         let kind: PaletteSettingRow.Kind
         if descriptor.kind == .toggle {
             kind = .toggle(isOn: current?.boolValue ?? false)
@@ -138,28 +178,6 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         case .sound, .url, .theme, .fontFamily, .text:
             PaletteSettingCustomInput(placeholder: descriptor.title) { descriptor.value(typed: $0) != nil }
         }
-    }
-
-    /// The value behind an option id (`SettingOption.id`): "reset" is nil.
-    static func value(_ option: String) -> JSONValue? {
-        guard option != "reset" else { return nil }
-        return (try? JSONValue.parse(Data(option.utf8))) ?? .string(option)
-    }
-
-    /// A theme setting's values (R98): the Ghostty config (reset) first,
-    /// onboarding's themes, then every other theme in `names`, each with its
-    /// swatch strip from `strip`; a current value not listed (a light/dark
-    /// pair, a path) is kept after the config row.
-    static func themeOptions(current: String?, names: [String], defaultLabel: String,
-                             strip: (String) -> [ThemeRGB]) -> [SettingOption] {
-        let curated = ActionArgument.curatedThemes.filter(names.contains)
-        let listed = curated + names.filter { !curated.contains($0) }
-        var options = [SettingOption(value: nil, title: defaultLabel, isCurrent: current == nil)]
-        if let current, !listed.contains(current) {
-            options.append(SettingOption(value: .string(current), title: current, swatches: strip(current), isCurrent: true))
-        }
-        options += listed.map { SettingOption(value: .string($0), title: $0, swatches: strip($0), isCurrent: current == $0) }
-        return options
     }
 
     /// A color setting's swatches from `tokens`: the foreground, the

@@ -27,13 +27,13 @@ jobs:
   benches:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
-    # The script's 90-minute bench budget plus setup.
-    timeout-minutes: 115
+    # The script's 90-minute bench budget plus setup, plus the state read's rate-limit waits.
+    timeout-minutes: 160
     permissions:
       actions: read
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -50,6 +50,8 @@ jobs:
 
       # An unread state stops the job (after retries): the plan and the state are never written from nothing.
       - name: Read the last state
+        # Room for two waits on GitHub's rate-limit reset (20 min cap each).
+        timeout-minutes: 45
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 -I scripts/ci/nightly_interaction_latency.py fetch-state --repo "$GITHUB_REPOSITORY" --dir "$RUNNER_TEMP/prev"
@@ -63,12 +65,18 @@ jobs:
             --head "$GITHUB_SHA" --before "$BEFORE" --out "$RUNNER_TEMP/plan.json"
           echo "count=$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["run"]))' "$RUNNER_TEMP/plan.json")" >> "$GITHUB_OUTPUT"
 
+      - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: steps.plan.outputs.count != '0'
+        shell: bash
+        continue-on-error: true
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
+
       - name: Setup Bun
         if: steps.plan.outputs.count != '0'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
       - name: Install webview dependencies
         if: steps.plan.outputs.count != '0'

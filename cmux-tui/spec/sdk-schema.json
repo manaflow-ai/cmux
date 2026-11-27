@@ -2040,6 +2040,87 @@
      "constraints": [
       "With limit: the after of the next page, on every page that is not the last."
      ]
+    },
+    "delta": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "True when the reply answers since with only what changed: workspaces is then empty; apply changed and removed to the tree you hold."
+     ]
+    },
+    "epoch": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "Opaque, random per daemon run; only in replies to a request with since. Send it back in since."
+     ]
+    },
+    "seq": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "Only in replies to a request with since. Send it back in since."
+     ]
+    },
+    "changed": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Workspace"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "With delta: every workspace entry that changed past the cursor, as the whole tree renders it; replace the entry with the same id, or add it."
+     ]
+    },
+    "removed": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "With delta: the ids of the workspaces no longer in the tree."
+     ]
+    },
+    "order": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "Id"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "capability": "workspace-list-delta-v1",
+     "constraints": [
+      "With delta, when the order of the workspaces changed: every id, in the tree's order."
+     ]
     }
    },
    "additional_properties": false
@@ -2102,6 +2183,34 @@
      "default": null,
      "constraints": [
       "Opaque; from the tree_revision of the last whole tree."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "ListWorkspacesSince": {
+   "kind": "object",
+   "fields": {
+    "epoch": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Opaque; the epoch of the last reply applied (\"\" when none)."
+     ]
+    },
+    "seq": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The seq of the last reply applied (0 when none)."
      ]
     }
    },
@@ -2252,6 +2361,28 @@
      "nullable": true,
      "constraints": [
       "The oldest API revision this daemon translates to and from for a client that declares it with set-client-info. Only with identify {revisions: true}."
+     ]
+    },
+    "api_version": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The newest dated API version this daemon serves (YYYY-MM-DD; cmux-tui/spec/api-versioning.md). Only with identify {revisions: true}."
+     ]
+    },
+    "min_api_version": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The oldest dated API version this daemon still serves for a client that pins it with set-client-info api_version. Only with identify {revisions: true}."
      ]
     },
     "install": {
@@ -4223,6 +4354,30 @@
      },
      "presence": "required",
      "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ReleaseWorkspaceNamesResult": {
+   "kind": "object",
+   "fields": {
+    "released": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "Workspace names this call handed back to the automatic namer."
+    },
+    "still_pinned": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "User-owned names left pinned: a row renamed between the read and its release."
     }
    },
    "additional_properties": false
@@ -6830,6 +6985,7 @@
     "locks is present only when the request names it in include.",
     "hook_queue is present only when the request names it in include and the session serves a socket.",
     "disk is present only when the request names it in include and the session keeps its registry on disk.",
+    "disk.checkpoints is present only when the request names both disk and disk_checkpoints in include.",
     "commands is present only when the request names it in include.",
     "journal_followers is present only when the request names it in include."
    ]
@@ -7759,6 +7915,56 @@
     "Sealed journal segments by codec; kinds lists at most 16 kinds by the number of segments that hold them."
    ]
   },
+  "ServerStatsDiskCheckpoints": {
+   "kind": "object",
+   "fields": {
+    "checkpoints": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "largest_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "budget_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "over_budget": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "checkpoints counts the rows of the registry's journal_checkpoints table; bytes sums each row's id, state and content references plus 96 bytes, and largest_bytes is the largest row.",
+    "budget_bytes is the daemon's checkpoint disk budget: the newest 16 checkpoints that pruning keeps plus 8 not yet sealed, 2 MiB each; over_budget is true when bytes exceeds it."
+   ]
+  },
   "ServerStatsDisk": {
    "kind": "object",
    "fields": {
@@ -7853,6 +8059,15 @@
      "presence": "required",
      "nullable": true
     },
+    "checkpoints": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsDiskCheckpoints"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12
+    },
     "error": {
      "type": {
       "kind": "scalar",
@@ -7866,7 +8081,8 @@
    "constraints": [
     "registry_bytes, wal_bytes and shm_bytes are the sizes of the registry file and its -wal and -shm files.",
     "files lists at most 32 entries of the registry's directory, largest first; files_unlisted counts the others, and files_truncated is true when the listing stopped at 20000 entries.",
-    "journal and segments are null when the registry could not be read, and error says why.",
+    "journal and segments are null when the registry could not be read, and error says why; so is checkpoints when present.",
+    "checkpoints is present only when the request's include also names disk_checkpoints; older daemons never send it.",
     "Reads on its own read-only connection, never under the registry lock and never a scan of the live journal."
    ]
   },
@@ -10958,6 +11174,30 @@
      },
      "presence": "required",
      "nullable": true
+    },
+    "last_person_attach_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "echo_input_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "echo_at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "optional",
+     "nullable": true
     }
    },
    "additional_properties": false,
@@ -10966,6 +11206,8 @@
     "live_agents counts agents whose state is working or blocked.",
     "last_user_input_at_ms is the wall-clock time of the newest keyboard, paste or mouse input from an attached client; null until the first.",
     "last_agent_action_at_ms is the wall-clock time of the newest agent hook commit or agent state report; null until the first.",
+    "last_person_attach_at_ms is the wall-clock time a person's client (tui, web, mac or frontend) last attached; absent from daemons without the vm-activity-echo-v1 capability, null until the first.",
+    "echo_input_at_ms and echo_at_ms pair the first person input after that attach with the first terminal output that followed it on the same terminal (input-to-echo timing); null until measured, reset by the next person attach.",
     "Times and counts only: no content and no surface ids."
    ]
   },
@@ -11674,6 +11916,34 @@
     }
    },
    "additional_properties": false
+  },
+  "SetClientInfoResult": {
+   "kind": "object",
+   "fields": {
+    "api_version": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "constraints": [
+      "The dated API version that serves this connection (YYYY-MM-DD). Only when the request sent api_version."
+     ]
+    },
+    "api_revision": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint32"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "constraints": [
+      "The numbered revision behind api_version. Only when the request sent api_version."
+     ]
+    }
+   },
+   "additional_properties": false
   }
  },
  "commands": {
@@ -11740,7 +12010,7 @@
       "nullable": false,
       "since": 12,
       "constraints": [
-       "Adds api_revision, min_api_revision, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
+       "Adds api_revision, min_api_revision, api_version, min_api_version, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
       ]
      }
     },
@@ -11898,6 +12168,19 @@
        "The API revision the client reads and writes. An older revision within the daemon's range is translated both ways by the daemon; a newer client translates for itself; an older one than min_api_revision is refused. Absent: revision 12."
       ]
      },
+     "api_version": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "constraints": [
+       "A dated API version, YYYY-MM-DD (for example 2026-11-24). The daemon serves the newest revision dated on or before it and answers with api_version and api_revision; a date before min_api_version is refused; with api_revision too, both must name the same revision. Absent: unchanged behaviour. Promise: cmux-tui/spec/api-versioning.md."
+      ]
+     },
      "version": {
       "type": {
        "kind": "scalar",
@@ -11943,7 +12226,7 @@
    },
    "result": {
     "kind": "ref",
-    "name": "EmptyResult"
+    "name": "SetClientInfoResult"
    },
    "stream": null,
    "constraints": []
@@ -12250,6 +12533,19 @@
       "constraints": [
        "With limit: skip this many workspaces in sidebar order first (the next of the page before). Ignored without limit."
       ]
+     },
+     "since": {
+      "type": {
+       "kind": "ref",
+       "name": "ListWorkspacesSince"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "workspace-list-delta-v1",
+      "constraints": [
+       "The cursor of the last reply the client applied. When the daemon still holds every change past it, the result is delta: true with only the changed workspace entries (changed, keyed by id) and the ids that went away (removed); otherwise the whole tree. Both carry the epoch and seq to send next. Takes precedence over known, limit and after."
+      ]
      }
     },
     "additional_properties": false
@@ -12414,6 +12710,35 @@
    },
    "stream": null,
    "constraints": []
+  },
+  "flush-launch-snapshot": {
+   "authority": "control",
+   "since": 12,
+   "capability": "launch-snapshot-flush-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "flushed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "Writes the launch snapshot (launch-snapshot-v1) now, with no settle, max delay or byte-budget wait, and answers once it landed or after 1 s: flushed is true when the file holds the session's state as of the request (written now, or already the same), false when the session has no launch snapshot writer, the write failed or the wait passed (the write still happens).",
+    "The daemon writes the same way on its own when a connection that wrote a native frontend projection closes (a quit, force quit, crash or kill of the app); a client sends this when it wants the answer. Other changes keep the settled timing."
+   ]
   },
   "export-layout": {
    "authority": "control",
@@ -12797,6 +13122,107 @@
    "stream": null,
    "constraints": [
     "PTY surfaces only; row indexes are snapshot-relative and not durable."
+   ]
+  },
+  "terminal-find": {
+   "authority": "control",
+   "since": 7,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "query": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "Empty matches nothing."
+     },
+     "case_sensitive": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "whole_word": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "regex": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "query is a Rust regex pattern, not a literal."
+     },
+     "before": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "Marker the page ends above (exclusive): the previous page's next_before."
+     },
+     "epoch": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "The previous page's epoch; a different one restarts at the bottom."
+     },
+     "page_rows": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "max_matches": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       {
+        "minimum": 1,
+        "maximum": 10000
+       }
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "PTY surfaces only; matches newest first, named by history marker (spec/commands.md terminal-find)."
    ]
   },
   "wait-for": {
@@ -14129,6 +14555,16 @@
       "default": null,
       "capability": "workspace-first-tab-v1",
       "description": "The workspace's first tab, made in the same request: {kind: \"browser\"} with the fields of new-frontend-browser-tab except pane, workspace, split and after. A first tab that cannot be made takes the workspace back; a replayed create replays a keyed tab and makes no second unkeyed one. The reply's first_tab is new-frontend-browser-tab's reply."
+     },
+     "name_source": {
+      "type": {
+       "kind": "ref",
+       "name": "NameSource"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "description": "user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace."
      },
      "origin": {
       "type": {
@@ -17162,6 +17598,24 @@
     "Provider-managed workspaces reject this ordinary mutation."
    ]
   },
+  "release-workspace-names": {
+   "authority": "control",
+   "since": 12,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "ReleaseWorkspaceNamesResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Idempotent: a second call releases nothing."
+   ]
+  },
   "resize-surface": {
    "authority": "control",
    "since": 5,
@@ -18842,6 +19296,16 @@
       "nullable": true,
       "default": null,
       "capability": "terminal-resume-v1"
+     },
+     "resume_max_bytes": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "capability": "terminal-resume-bounded-v1"
      }
     },
     "additional_properties": false,
@@ -19363,7 +19827,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands, journal_followers); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands, journal_followers, and disk_checkpoints, which adds checkpoints to disk); unknown names are ignored."
    ]
   },
   "process-census": {
@@ -21604,6 +22068,16 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "stats": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "description": "true: the reply also carries agent_notice_stats."
      }
     },
     "additional_properties": false
@@ -21988,6 +22462,17 @@
       "default": null,
       "since": 12,
       "capability": "notification-mark-unread-v1"
+     },
+     "keep_awake": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "workspace-keep-awake-v1"
      },
      "origin": {
       "type": {
@@ -24472,6 +24957,14 @@
        "name": "JsonValue"
       },
       "presence": "required",
+      "nullable": true
+     },
+     "op_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
       "nullable": true
      }
     },
@@ -28273,7 +28766,7 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only; the caller's principal must be an agent participant (not_agent) and the run its own (not_run_author). run is {id, turn?, answers?, thread_root?, status?, title?, started_at?, usage?, cost_usd?, model?, harness?, error?, session?, workspace?}; steps (at most 64, 1 MiB) are replaced by id; a run keeps at most 2000 steps (run_full). Refusals are run_rejected or conversation_rejected. See spec/commands.md."
+    "Trusted local connections only; the caller's principal must be an agent participant (not_agent) and the run its own (not_run_author). run is {id, turn?, answers?, thread_root?, status?, title?, started_at?, usage?, cost_usd?, model?, harness?, error?, session?, workspace?}; steps (at most 64, 1 MiB) are replaced by id; a run keeps every step (no count cap). Refusals are run_rejected or conversation_rejected. See spec/commands.md."
    ]
   },
   "conversation-runs": {
@@ -34881,6 +35374,59 @@
      }
     },
     "additional_properties": false
+   }
+  },
+  "apps-cloud-machine": {
+   "since": 12,
+   "capability": "apps-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "apps-cloud-machine"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "machine": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "kind": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "record",
+        "live",
+        "lost"
+       ]
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "record": {
+      "type": {
+       "kind": "ref",
+       "name": "JsonValue"
+      },
+      "presence": "optional",
+      "nullable": false
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Targeted only to the verified app connection whose apps-machine-state-watch names this machine; nothing is sent after that connection's list replaces or drops it. record (kind record only) is the platform's machine record. No bearer or raw frame."
+    ]
    }
   }
  }

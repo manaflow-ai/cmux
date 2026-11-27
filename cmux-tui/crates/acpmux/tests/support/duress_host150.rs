@@ -27,8 +27,14 @@ use super::*;
 use std::sync::atomic::AtomicUsize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+#[path = "duress_starved.rs"]
+mod starved;
+
 /// Legs beside `ALL_LEGS` that a run names on purpose (`all` does not take them).
-pub(super) const EXTRA_LEGS: [&str; 2] = ["host150", "peerscale"];
+pub(super) const EXTRA_LEGS: [&str; 5] =
+    ["host150", "peerscale", starved::LEG, BURST_LEG, super::rfd0050::LEG];
+/// All ready peer links cut in one instant, then let redial (`peer_burst`).
+pub(super) const BURST_LEG: &str = "peerburst";
 /// The peer counts of `peerscale`.
 pub(super) const PEERSCALE: [usize; 4] = [1, 10, 20, 40];
 /// Peers in the host150 leg, at least (Leo's Mac held ~40 links).
@@ -51,7 +57,11 @@ const HOG_MEMORY_HIGH: &str = "256M";
 const HOG_MAX_BYTES: u64 = 16 << 30;
 
 pub(super) fn is_extra(leg: &str) -> bool {
-    leg == "host150" || peerscale_n(leg).is_some()
+    leg == "host150"
+        || leg == starved::LEG
+        || leg == BURST_LEG
+        || leg == super::rfd0050::LEG
+        || peerscale_n(leg).is_some()
 }
 
 /// `peerscale` names four legs; the rest pass through.
@@ -75,6 +85,8 @@ fn peerscale_n(leg: &str) -> Option<usize> {
 pub(super) fn peers_for(leg: &str, knob: usize) -> usize {
     match leg {
         "host150" => knob.max(HOST150_PEERS),
+        starved::LEG => knob.max(starved::PEERS),
+        BURST_LEG => knob.max(HOST150_PEERS),
         _ => peerscale_n(leg).unwrap_or(knob),
     }
 }
@@ -85,6 +97,13 @@ pub(super) fn extra_cap(leg: &str) -> Duration {
         RAMP_MAX
     } else if peerscale_n(leg).is_some() {
         QUIET
+    } else if leg == starved::LEG {
+        starved::SETTLE
+    } else if leg == BURST_LEG {
+        BURST_READY + BURST_WATCH
+    } else if leg == super::rfd0050::LEG {
+        // The longer window, and the 30 s the RAM hog may take to hold its pages.
+        super::rfd0050::WINDOW_MIN + Duration::from_secs(30)
     } else {
         Duration::ZERO
     }
@@ -97,6 +116,76 @@ pub(super) fn host150_memory_high() -> String {
         .ok()
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(|| "192M".into())
+}
+
+// ---------------------------------------------------------------------------------------------
+// peerburst: every ready link cut at once.
+
+/// The longest peerburst waits for every peer's link to be open before the cut.
+const BURST_READY: Duration = Duration::from_secs(60);
+/// How long peerburst watches the redials after the cut.
+const BURST_WATCH: Duration = Duration::from_secs(15);
+
+/// The 2026-11-23 shape (one relay cut or one daemon stall drops every link together): wait for
+/// every proxy to hold an open link, cut them all in one instant while still accepting, and read
+/// the proxies' accepts: dials in the first 250 ms and first second, the most dialing in any
+/// 100 ms, and how long until every peer dialed again and every link is open again.
+pub(super) fn peer_burst(proxies: &[Proxy]) -> Value {
+    let ready_by = Instant::now() + BURST_READY;
+    let all_open = || proxies.iter().all(|p| p.wire.open.load(Ordering::Relaxed) >= 1);
+    while !all_open() && Instant::now() < ready_by {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let ready_before = proxies.iter().filter(|p| p.wire.open.load(Ordering::Relaxed) >= 1).count();
+    // Let the first dials' own burst window pass so the cut starts a fresh one.
+    std::thread::sleep(Duration::from_secs(3));
+    let base: Vec<u64> = proxies.iter().map(|p| p.wire.accepts.load(Ordering::Relaxed)).collect();
+    let t0 = Instant::now();
+    for p in proxies {
+        p.cut(false);
+    }
+    let new_dials = || -> Vec<u64> {
+        proxies
+            .iter()
+            .zip(&base)
+            .map(|(p, b)| p.wire.accepts.load(Ordering::Relaxed).saturating_sub(*b))
+            .collect()
+    };
+    let mut timeline: Vec<(u128, u64)> = vec![];
+    let (mut all_dialed_ms, mut all_open_ms) = (None, None);
+    while t0.elapsed() < BURST_WATCH {
+        std::thread::sleep(Duration::from_millis(10));
+        let ms = t0.elapsed().as_millis();
+        let d = new_dials();
+        timeline.push((ms, d.iter().sum()));
+        if all_dialed_ms.is_none() && d.iter().all(|n| *n >= 1) {
+            all_dialed_ms = Some(ms);
+        }
+        if all_dialed_ms.is_some() && all_open_ms.is_none() && all_open() {
+            all_open_ms = Some(ms);
+            break;
+        }
+    }
+    let at = |limit: u128| timeline.iter().filter(|(ms, _)| *ms <= limit).map(|(_, n)| *n).max();
+    // The most new dials inside any 100 ms of the timeline.
+    let mut most_100ms = 0u64;
+    for (i, (ms, n)) in timeline.iter().enumerate() {
+        let before =
+            timeline[..i].iter().rev().find(|(m, _)| *m + 100 <= *ms).map_or(0, |(_, n0)| *n0);
+        most_100ms = most_100ms.max(n - before);
+    }
+    let v = json!({
+        "peers": proxies.len(),
+        "readyBeforeCut": ready_before,
+        "dialsFirst250ms": at(250).unwrap_or(0),
+        "dialsFirst1s": at(1000).unwrap_or(0),
+        "mostDialsIn100ms": most_100ms,
+        "allDialedMs": all_dialed_ms,
+        "allOpenMs": all_open_ms,
+        "dialsTotal": new_dials().iter().sum::<u64>(),
+    });
+    println!("DURESS-PEERBURST {v}");
+    v
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -225,6 +314,11 @@ async fn copy_counting(
         };
         wire.bytes.fetch_add(n as u64, Ordering::Relaxed);
         frames.feed(&buf[..n], &wire);
+        // The starved leg's distance: delay, jitter, and the stall of every peer at once.
+        let hold = starved::hold();
+        if !hold.is_zero() {
+            tokio::time::sleep(hold).await;
+        }
         if to.write_all(&buf[..n]).await.is_err() {
             break;
         }
@@ -514,7 +608,7 @@ impl Presence {
                     }
                 }
                 // Once a second: the daemon's tree, the load, swap, RSS and memory pressure.
-                if tick_n % 4 == 0 {
+                if tick_n.is_multiple_of(4) {
                     out.seen.extend(descendants(daemon_pid));
                     if let Some(l) = load1() {
                         out.load1.push(l);
@@ -577,6 +671,8 @@ pub(super) struct Extras {
     load_at_clock: Option<f64>,
     swap_before_kib: Option<u64>,
     ramp_secs: Option<f64>,
+    /// The starved leg's pinning, cgroup and network shaping.
+    starved: Option<starved::Starved>,
 }
 
 /// The hog: `bytes` touched a page at a time, then touched again every 5 s, so its pages that
@@ -621,7 +717,14 @@ fn spawn_script() -> String {
 impl Extras {
     /// host150: starts its stressors and waits (deadline [`RAMP_MAX`]) for its load; peerscale:
     /// its quiet span. Other legs: nothing.
-    pub(super) fn start(leg: &str, daemon_pid: u32, wire: &Wire, cap: Duration) -> Self {
+    ///
+    /// `wire` sums the proxies' counters at the call: the quiet span reads it before and after.
+    pub(super) fn start(
+        leg: &str,
+        daemon_pid: u32,
+        wire: &dyn Fn() -> Wire,
+        cap: Duration,
+    ) -> Self {
         let mut x = Extras {
             stressors: vec![],
             notes: vec![],
@@ -630,12 +733,18 @@ impl Extras {
             load_at_clock: None,
             swap_before_kib: None,
             ramp_secs: None,
+            starved: None,
         };
+        if leg == starved::LEG {
+            x.starved =
+                Some(starved::Starved::start(daemon_pid, cap, &mut x.stressors, &mut x.notes));
+            return x;
+        }
         if peerscale_n(leg).is_some() {
-            let (cpu0, w0, t0) = (cpu_secs(daemon_pid), wire.snapshot(), Instant::now());
+            let (cpu0, w0, t0) = (cpu_secs(daemon_pid), wire().snapshot(), Instant::now());
             std::thread::sleep(QUIET);
             let secs = t0.elapsed().as_secs_f64();
-            let w1 = wire.snapshot();
+            let w1 = wire().snapshot();
             let per_s = |i: usize| (w1[i] - w0[i]) as f64 / secs;
             x.quiet = Some(json!({
                 "secs": secs,
@@ -723,7 +832,12 @@ impl Extras {
     }
 
     pub(super) fn stop(&mut self) -> Vec<String> {
-        self.stressors.iter_mut().filter_map(|s| s.stop().err()).collect()
+        let mut errs: Vec<String> =
+            self.stressors.iter_mut().filter_map(|s| s.stop().err()).collect();
+        if let Some(st) = self.starved.as_mut() {
+            errs.extend(st.stop().1);
+        }
+        errs
     }
 }
 
@@ -831,6 +945,9 @@ pub(super) fn close(
         json!({"framesPerSec": per_s(1), "pingsPerSec": per_s(2), "pongsPerSec": per_s(3),
                "dataPerSec": per_s(4), "bytesPerSec": per_s(5), "quiet": x.quiet}),
     );
+    if let Some(st) = &x.starved {
+        f.insert("starved".into(), st.report());
+    }
     // Notices.
     let notices_json = match (&w.notices, &notices_end) {
         (Ok(a), Ok(b)) => {
@@ -946,7 +1063,7 @@ pub(super) fn summary_tail(row: &Value) -> String {
     format!(
         "; load max {} (target {}); presence gap worst {} ({} of {} peers over 2s); link drops \
          {} (stopped-answering {}, dials {}); send p50/p95 local {}/{} peer {}/{}; peer links {} \
-         ({} frames/s); notices peak queue {}; spawns {}/s; tool call p95 {}",
+         ({} frames/s); notices peak queue {}; spawns {}/s; tool call p95 {}{}",
         n(&row["load"]["max"]),
         n(&row["load"]["target"]),
         ms(row["presenceGapMs"]["worst"].as_f64()),
@@ -964,6 +1081,17 @@ pub(super) fn summary_tail(row: &Value) -> String {
         row["peerNotices"]["peakQueuedEnd"],
         n(&row["spawns"]["hostPerSec"]),
         ms(pct(row, "toolcall", "cli", "p95Ms")),
+        row.get("starved").map_or(String::new(), |s| format!(
+            "; starved: {} on {} cpus, {} loops/core, daemon run-queue wait {} ms/s, memory.high {} ({} events), stall {}ms every {}s",
+            s["cpu"]["how"].as_str().unwrap_or("-"),
+            s["cpu"]["cpus"].as_array().map_or(0, Vec::len),
+            n(&s["cpu"]["loopsPerDaemonCore"]),
+            n(&s["daemonRunqueueWaitMsPerSec"]),
+            if s["cgroup"]["applied"].as_bool() == Some(true) { s["cgroup"]["memoryHigh"].as_str().unwrap_or("-") } else { "not applied" },
+            s["cgroup"]["memoryHighEvents"],
+            s["network"]["stallMs"],
+            s["network"]["stallEverySecs"],
+        )),
     )
 }
 

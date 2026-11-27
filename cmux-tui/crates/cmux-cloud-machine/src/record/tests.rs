@@ -203,6 +203,21 @@ fn a_next_record_carries_its_size() {
 }
 
 #[test]
+fn a_next_record_carries_the_guests_disk_report() {
+    let record = next(json!({"id": "vm_d", "status": "running", "disk_health": {"total_mb": 20480,
+        "used_mb": 10240, "free_mb": 10240, "system_mb": 4096, "project_mb": 5120, "caches_mb": 1024}}));
+    let disk = record.disk.unwrap();
+    assert_eq!(disk.used_bytes, Some(10 << 30));
+    assert_eq!(disk.caches_bytes, Some(1 << 30));
+    // The app decodes it from the record's JSON as the report's own names.
+    let encoded = serde_json::to_value(&record).unwrap();
+    assert_eq!(encoded["disk"]["project_bytes"], json!(5u64 << 30));
+    // No sample yet, or one it cannot read: no disk, nothing else dropped.
+    assert_eq!(next(json!({"id": "vm_d"})).disk, None);
+    assert_eq!(next(json!({"id": "vm_d", "disk_health": "soon"})).disk, None);
+}
+
+#[test]
 fn a_next_record_carries_when_a_paused_machine_is_deleted() {
     let paused = next(json!({"id": "vm_p", "status": "paused", "evict_at": 1_800_000_000_000_i64}));
     assert_eq!(paused.evict_at, Some(1_800_000_000_000.0));

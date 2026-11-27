@@ -46,8 +46,10 @@ in `design/icons/neko-evaluation.md`; a round records coverage separately from v
   error = x in circle (NOT the triangle), info = i in circle, running = 3/4 arc (static; animation is
   the app's job), needs input = circle with dot pulse ring, idle = hollow circle, off = slashed circle.
 - fork (agent.fork), git.branch and git.pullrequest must differ: branch = git graph (two nodes and a
-  curve); fork = the fork mark, two top nodes whose tines join one stem to a bottom node (Leo 2026-11-09,
-  "and this fork symbol is so bad", of the arrow drawings); pull request = two columns and an arrow. handoff = baton: arrow passing between two hands is too
+  curve); fork = the split arrow Claude and Codex draw for branching a chat, a stem from the left that runs
+  on up and right while a detached arm peels off down and right, no nodes (Leo 2026-11-22: "i think this is
+  too cute for a fork chat button. it's reminiscent of github stuff. dont get cute about it; let's just do
+  claude and codex's symbol for branching/forking chats"); pull request = two columns and an arrow. handoff = baton: arrow passing between two hands is too
   detailed; use an arrow crossing from one small rounded square into another.
 - permission (site permissions) icons: the noun icon (camera, mic, location...); ".blocked" variants =
   same icon with a diagonal slash (slash drawn with a 1.5 knockout gap on its left side).

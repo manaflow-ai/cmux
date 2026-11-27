@@ -73,7 +73,7 @@ afterEach(() => {
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
-  for (const popup of dom.window.document.querySelectorAll(".acpmux-quick-menu")) popup.remove();
+  for (const popup of dom.window.document.querySelectorAll(".acpmux-cols, .acpmux-quick-menu")) popup.remove();
 });
 
 afterAll(async () => {
@@ -188,12 +188,16 @@ async function render(shot: Snapshot, options: { catalog?: boolean } = {}) {
 const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
 const chip = () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!;
 const chipBolt = () => chip().querySelector(".acpmux-model-name ~ .acpmux-model-bolt");
-const menu = () => dom.window.document.querySelector<HTMLElement>(".acpmux-quick-menu");
-const fastRow = () => menu()?.querySelector<HTMLElement>('.acpmux-quick-fast[role="menuitemcheckbox"]') ?? null;
+// Every chat's model button opens the one shared columns picker (cmux#55750); Fast is the switch at
+// the foot of its Reasoning column.
+const menu = () => dom.window.document.querySelector<HTMLElement>(".acpmux-cols");
+const fastRow = () => menu()?.querySelector<HTMLElement>('.acpmux-cols-tune-foot [role="switch"]') ?? null;
+/// The Reasoning column's rows in order: its levels, then Fast.
 const rows = () =>
-  [...(menu()?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? [])].map((item) =>
-    item.textContent?.replace("✓", "").trim(),
-  );
+  [
+    ...(menu()?.querySelectorAll<HTMLElement>('.acpmux-cols-tune [role="radio"], .acpmux-cols-tune [role="switch"]') ??
+      []),
+  ].map((item) => item.querySelector(".acpmux-cols-name")?.textContent?.trim());
 async function open() {
   if (!menu()) await act(async () => chip().click());
   await settle();
@@ -237,7 +241,8 @@ test("Claude: no bolt button; a bolt beside the model while Fast is on; the menu
   expect(chipBolt()).toBeNull();
   expect(host.querySelector(".acpmux-composer-inner .acpmux-composer-actions .acpmux-mic")).not.toBeNull();
   await open();
-  expect(rows().at(-1)).toBe("Fast mode");
+  // Fast closes the Reasoning column, under the levels.
+  expect(rows().at(-1)).toBe("Fast");
   expect(fastRow()!.getAttribute("aria-checked")).toBe("false");
   await toggleFast();
   expect(sent).toEqual(["fast-mode=on"]);

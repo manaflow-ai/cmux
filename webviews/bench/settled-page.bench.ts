@@ -94,10 +94,16 @@ function printProfile(label: string, profile: CpuProfile) {
   };
   const self = new Map<string, number>();
   const total = new Map<string, number>();
+  // The window starts at the switch's first busy sample, not the profile's start: the first time delta carries the
+  // profiler's own start offset, which alone ran past the window and left the report empty.
+  const idle = (id: number) => ["(idle)", "(program)"].includes(byId.get(id)!.callFrame.functionName);
   let t = 0;
+  let from: number | undefined;
   for (let i = 0; i < profile.samples.length; i += 1) {
     t += profile.timeDeltas[i]! / 1000;
-    if (t > 150) break;
+    if (from === undefined && !idle(profile.samples[i]!)) from = t;
+    if (from === undefined) continue;
+    if (t - from > 150) break;
     const dt = (profile.timeDeltas[i + 1] ?? 100) / 1000;
     const leaf = profile.samples[i]!;
     self.set(name(leaf), (self.get(name(leaf)) ?? 0) + dt);
@@ -139,7 +145,11 @@ const WORD = new Map([
   [B, "Reply"],
   [S, "Answer"],
 ]);
-const markOf = (chat: string) => `${WORD.get(chat)} ${TURNS}:`;
+/// The text a painted page of `chat` shows at its end: its newest prompt. Each workspace_switch round adds a turn to its
+/// target (`newTurn`), so after a dozen rounds the seed's last turn ("Answer 120:") is above the rows a page mounts at
+/// the latest row, and a wait for it never ended (the 60 s first-paint timeout in round 13 of workspace_switch.stream).
+const newestMark = new Map<string, string>();
+const markOf = (chat: string) => newestMark.get(chat) ?? `${WORD.get(chat)} ${TURNS}:`;
 const SEQ_SPAN = 100_000;
 const SEQ_BASE = new Map([
   [A, 0],
@@ -181,18 +191,43 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
   const chat = chats.get(String(params.sessionId)) ?? chats.get(A)!;
   switch (method) {
     case "initialize":
-      return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+      // As acpmux (capabilities.rs): it serves the settled attach, so the app asks for it as it does on a person's Mac.
+      return {
+        protocolVersion: 1,
+        _meta: { acpmux: { origin: "local", extensions: [], operations: [], capabilities: ["settled-attach-v1"] } },
+      };
     case "_acpmux/watch":
       return { sessions: [...chats.values()].map((one) => one.session) };
     case "_acpmux/attach": {
       const limit = Number(params.limit ?? 400);
       const events = chat.events.slice(-limit);
-      return { session: chat.session, lastSeq: lastSeq(chat), events, hasMore: events.length < chat.events.length };
+      // As acpmux's attach (server/requests/turn_opener.rs): a page that starts inside a turn carries that turn's prompt.
+      const first = events[0];
+      const turnOpener =
+        first && first.kind !== "user_message" && events.length < chat.events.length
+          ? ([...chat.events]
+              .reverse()
+              .find((event) => event.kind === "user_message" && Number(event.seq) < Number(first.seq)) ?? null)
+          : null;
+      return {
+        session: chat.session,
+        lastSeq: lastSeq(chat),
+        events,
+        hasMore: events.length < chat.events.length,
+        turnOpener,
+        // As acpmux's settled attach (server/requests/settled_attach.rs): the view written through the chat's last record.
+        settled: params.settled === true ? { lastSeq: lastSeq(chat), forkSeqs: [] } : null,
+      };
     }
     case "_acpmux/events": {
       if (params.beforeSeq !== undefined) {
         const before = Number(params.beforeSeq);
-        const older = chat.events.filter((event) => Number(event.seq) < before);
+        // acpmux reads only the kinds asked: a read without "transcript" (the turn opener's, the prompt index's) is
+        // those records alone. With it, every record here is a transcript one.
+        const kinds = Array.isArray(params.kinds) ? (params.kinds as string[]) : undefined;
+        const asked = (event: { kind?: unknown }) =>
+          !kinds || kinds.includes("transcript") || kinds.includes(String(event.kind));
+        const older = chat.events.filter((event) => Number(event.seq) < before && asked(event));
         const page = older.slice(-Number(params.limit ?? 400));
         return { events: page, hasMore: page.length < older.length, lastSeq: lastSeq(chat) };
       }
@@ -235,14 +270,18 @@ function stopStream() {
   if (streamTimer) clearInterval(streamTimer);
   streamTimer = undefined;
 }
-/// A finished turn arriving in `sessionId` (the workspace-switch arm: what changed while the page was hidden).
+/// A turn arriving in `sessionId` while the page is hidden (the workspace-switch arm). Idle: a finished turn. Running
+/// (the stream arm): the running turn ends and a new one starts and stays open, so the stream that follows is that
+/// turn's reply, as acpmux sends it; a chunk after a turn's result opens no turn there.
 let extraTurns = 0;
-const newTurn = (sessionId: string) => {
+const newTurn = (sessionId: string, running = false) => {
   extraTurns += 1;
-  append(sessionId, "mux", "user_message", { text: `Follow-up ${extraTurns}` });
+  if (running) append(sessionId, "mux", "turn_result", { status: "completed" });
+  append(sessionId, "mux", "user_message", { text: `Follow-up ${extraTurns}: what is left?` });
+  newestMark.set(sessionId, `Follow-up ${extraTurns}:`);
   append(sessionId, "mux", "turn_started", {});
   chunk(sessionId, `Follow-up answer ${extraTurns}: done, the branch is pushed and the checks are queued.`);
-  append(sessionId, "mux", "turn_result", { status: "completed" });
+  if (!running) append(sessionId, "mux", "turn_result", { status: "completed" });
 };
 
 const releases: (() => unknown)[] = [];
@@ -260,9 +299,10 @@ function installFrameReader() {
   type Rec = {
     t: number;
     copyShown: boolean;
-    rows: { id: string; top: number }[];
+    rows: { id: string; top: number; bottom: number }[];
     composer: { top: number; height: number } | null;
     scrollTop: number | null;
+    drawnBy?: number;
   };
   const w = window as unknown as {
     __settle?: {
@@ -300,9 +340,14 @@ function installFrameReader() {
     }
     send(data: string | ArrayBufferLike | Blob | ArrayBufferView) {
       try {
-        const msg = JSON.parse(String(data)) as { id?: unknown; method?: string };
+        const msg = JSON.parse(String(data)) as { id?: unknown; method?: string; params?: Record<string, unknown> };
         if (msg.method) asked.set(msg.id, msg.method);
-        mark(`out ${msg.method ?? "answer"}`);
+        // A read of records names its cursor, so a large catch-up says which read asked for it.
+        const cursor = ["afterSeq", "beforeSeq", "limit", "kinds"]
+          .filter((key) => msg.params?.[key] !== undefined)
+          .map((key) => `${key}=${JSON.stringify(msg.params![key])}`)
+          .join(" ");
+        mark(`out ${msg.method ?? "answer"}${cursor ? ` ${cursor}` : ""}`);
       } catch {
         mark("out ?");
       }
@@ -336,7 +381,7 @@ function installFrameReader() {
       for (const row of Array.from(scope.querySelectorAll<HTMLElement>(".acpmux-row[data-row-id]"))) {
         const box = row.getBoundingClientRect();
         if (box.height > 0 && box.bottom > view.top && box.top < view.bottom)
-          rows.push({ id: row.dataset.rowId ?? "", top: box.top });
+          rows.push({ id: row.dataset.rowId ?? "", top: box.top, bottom: box.bottom });
       }
     rows.sort((x, y) => x.top - y.top);
     const composer = rootHidden
@@ -350,6 +395,23 @@ function installFrameReader() {
       rows,
       composer: composer ? { top: composer.top, height: composer.height } : null,
       scrollTop: scroller && !rootHidden ? scroller.scrollTop : null,
+      // How far the thread is drawn from its place (the follow glide's translate): a row's place in the content is
+      // its box less this, as VirtualTranscript's own `drawnBy` reads it.
+      drawnBy: (() => {
+        const thread = scroller?.querySelector<HTMLElement>(".acpmux-thread");
+        const translate = thread ? getComputedStyle(thread).translate : "none";
+        return translate && translate !== "none" ? Number.parseFloat(translate.split(" ")[1] ?? "") || 0 : 0;
+      })(),
+      ...(scroller
+        ? {
+            geo: `sh=${scroller.scrollHeight} ch=${scroller.clientHeight} thread=${(() => {
+              const thread = scroller.querySelector<HTMLElement>(".acpmux-thread");
+              return thread
+                ? `${thread.style.cssText.replace(/\s+/g, "")}|h=${thread.getBoundingClientRect().height.toFixed(1)}`
+                : "-";
+            })()}`,
+          }
+        : {}),
     };
   };
   const tick = () => {
@@ -387,7 +449,13 @@ function installFrameReader() {
   };
 }
 
-type Read = { t0: number; frames: FrameRecord[]; lastChange: number; marks: { t: number; what: string }[] };
+type Read = {
+  t0: number;
+  frames: FrameRecord[];
+  lastChange: number;
+  marks: { t: number; what: string }[];
+  vt?: string[];
+};
 type Reader = { start(t0: number): void; peek(): { lastChange: number; now: number }; stop(): Read };
 /** Reads until the page painted `mark`, MIN_WATCH_MS passed and nothing changed for QUIET_MS (or MAX_WATCH_MS); returns
  * every frame read since the transition. */
@@ -408,10 +476,20 @@ async function framesOf(page: Page, mark: string): Promise<Read> {
   return page.evaluate(() => (window as unknown as { __settle: Reader }).__settle.stop());
 }
 
-/** The stream arm's view of a frame: rows in content coordinates, the streaming (bottom-most) row left out. */
+/** A row's bottom edge in the frame, its top when the frame did not read one. */
+const bottomOfRow = (row: FrameRecord["rows"][number]) => (row as { bottom?: number }).bottom ?? row.top;
+
+/** How far a frame's thread was drawn from its place (the follow glide), 0 when not read. */
+const drawnBy = (frame: FrameRecord) => (frame as { drawnBy?: number }).drawnBy ?? 0;
+
+/**
+ * The stream arm's view of a frame: rows in content coordinates, the streaming (bottom-most) row left out. A row's
+ * place in the content leaves out the follow glide's translate: the glide eases the view after the reply, so with it
+ * counted every row above crept ~1.6 px a frame in the content for 2.5 s (109 "shifts" in workspace_switch stream).
+ */
 function streamView(frame: FrameRecord): FrameRecord {
-  const offset = frame.scrollTop ?? 0;
-  const rows = frame.rows.map((row) => ({ id: row.id, top: row.top + offset }));
+  const offset = (frame.scrollTop ?? 0) - drawnBy(frame);
+  const rows = frame.rows.map((row) => ({ id: row.id, top: row.top + offset, bottom: bottomOfRow(row) + offset }));
   let bottom = -1;
   rows.forEach((row, at) => {
     if (bottom < 0 || row.top >= rows[bottom]!.top) bottom = at;
@@ -430,12 +508,35 @@ function streamView(frame: FrameRecord): FrameRecord {
 function judgeStream(frames: FrameRecord[], t0: number): Judged {
   const views = frames.map(streamView);
   const moved = (a: FrameRecord, b: FrameRecord): string | null => {
-    const before = new Map(a.rows.map((row) => [row.id, row.top]));
-    const offset = (frame: FrameRecord) => frame.scrollTop ?? 0;
+    const before = new Map(a.rows.map((row) => [row.id, row]));
+    const offset = (frame: FrameRecord) => (frame.scrollTop ?? 0) - drawnBy(frame);
+    // The reply streaming above the live row: the bottom-most row left after `streamView` took the live row out. When
+    // it grew with its foot held in the view, the view followed it: its top and every row above it rose by its growth
+    // in the view. In a frame where nothing above changed that is a view move only, which the content check below
+    // already passes; in the frame where the history mounts above (every row's content top moves, the offset absorbs
+    // it), the same follow read as a shift of the reply and each row above it.
+    const reply = b.rows.reduce<FrameRecord["rows"][number] | undefined>(
+      (best, row) => (!best || row.top >= best.top ? row : best),
+      undefined,
+    );
+    const replyBefore = reply && before.get(reply.id);
+    let follow: number | undefined;
+    if (reply && replyBefore) {
+      const rise = reply.top - offset(b) - (replyBefore.top - offset(a));
+      const footMoved = bottomOfRow(reply) - offset(b) - (bottomOfRow(replyBefore) - offset(a));
+      const grew = bottomOfRow(reply) - reply.top - (bottomOfRow(replyBefore) - replyBefore.top);
+      if (
+        grew > MOVE_TOLERANCE_PX &&
+        Math.abs(footMoved) <= 2 * MOVE_TOLERANCE_PX &&
+        Math.abs(rise + grew) <= 2 * MOVE_TOLERANCE_PX
+      )
+        follow = rise;
+    }
     for (const row of b.rows) {
-      const top = before.get(row.id);
+      const top = before.get(row.id)?.top;
       if (top === undefined || Math.abs(top - row.top) <= MOVE_TOLERANCE_PX) continue;
       const [viewA, viewB] = [top - offset(a), row.top - offset(b)];
+      if (follow !== undefined && Math.abs(viewB - viewA - follow) <= 2 * MOVE_TOLERANCE_PX) continue;
       if (Math.abs(viewA - viewB) > MOVE_TOLERANCE_PX)
         return `row ${row.id} view ${viewA.toFixed(1)} -> ${viewB.toFixed(1)}, content ${top.toFixed(1)} -> ${row.top.toFixed(1)}`;
     }
@@ -614,8 +715,10 @@ try {
   });
   releases.push(() => statics.stop(true));
   const base = `http://127.0.0.1:${statics.port}`;
+  // `scheme=cmux`, a shipped build's, as every other bench passes: the default `cmux-dev` turns on the dev-only
+  // layout-motion audit (devMotionAudit.ts), a box read every frame after each DOM change that Release and NIGHTLY never pay.
   const urlFor = (session: string) =>
-    `${base}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&session=${session}`;
+    `${base}/#endpoint=${encodeURIComponent(`ws://127.0.0.1:${daemon.port}/`)}&token=t&scheme=cmux&session=${session}`;
 
   const browser: Browser = await chromium.launch({ headless: true });
   releases.push(() => browser.close());
@@ -683,7 +786,7 @@ try {
           (window as unknown as { __hidden: boolean }).__hidden = true;
           document.dispatchEvent(new Event("visibilitychange"));
         });
-        newTurn(target);
+        newTurn(target, arm === "stream");
         await settleIdle(page);
         if (arm === "stream") startStream();
         await page.evaluate(() => {
@@ -719,6 +822,26 @@ try {
           .sort((x, y) => x.t - y.t);
         console.log(`  ${scenario}.${arm} timeline:`);
         for (const one of lines) console.log(`    +${(one.t - read.t0).toFixed(1)}ms ${one.what}`);
+        // What held the settle back: the moves the judge saw, and each frame where the bottom-most row changed.
+        for (const reason of judged.why) console.log(`    moved ${reason}`);
+        if (process.env.FRAMES === "1" && judged.shifts > 0)
+          for (const line of read.vt ?? [])
+            console.log(`    vt ${(Number(line.split(" ")[0]) - read.t0).toFixed(1)} ${line}`);
+        if (process.env.FRAMES === "1" && judged.shifts > 0)
+          for (const frame of read.frames.filter((one) => one.t >= read.t0))
+            console.log(
+              `    frame +${(frame.t - read.t0).toFixed(1)} st=${frame.scrollTop?.toFixed(1)} ${(frame as { geo?: string }).geo ?? ""} ${frame.rows.map((row) => `${row.id}@${row.top.toFixed(1)}`).join(" ")}`,
+            );
+        let bottom: string | undefined;
+        for (const frame of read.frames) {
+          if (frame.t < read.t0) continue;
+          const last = frame.rows.reduce<{ id: string; top: number } | undefined>(
+            (best, row) => (!best || row.top >= best.top ? row : best),
+            undefined,
+          )?.id;
+          if (last !== bottom) console.log(`    +${(frame.t - read.t0).toFixed(1)}ms bottom row ${last}`);
+          bottom = last;
+        }
       }
       const copy = await settledCopy(page);
       const boundMs = await boundInPage(page, copy);
