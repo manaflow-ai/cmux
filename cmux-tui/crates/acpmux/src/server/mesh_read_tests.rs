@@ -1411,6 +1411,189 @@ async fn a_web_device_enrolls_through_the_join_path() {
     assert!(bad.is_err(), "{bad:?}");
 }
 
+/// The fake hub's half of a bound device (RFD 0083; cmux-platform verifies the real ECDSA P-256
+/// signature): a challenge issues a fresh nonce, a session spends it and answers only the
+/// signature `GOOD_PROOF` over a nonce it issued and never spent; then only the session credential
+/// reads. The raw device credential is refused everywhere else, as the hub refuses a bound one.
+const GOOD_PROOF: &str = "the-browser-keys-signature-for-tests";
+const SESSION: &str = "cmm_session_credential_for_tests";
+
+fn bound_hub() -> Respond {
+    let issued = Arc::new(Mutex::new(Vec::<String>::new()));
+    let info = json!({"sessionId": LISTED, "name": "own-e2e"});
+    Box::new(move |index, s| {
+        let refused = (401, json!({"code": "device.proof_refused", "message": "no"}));
+        if s.line.starts_with("POST /v1/machines/credentials/self/challenge ") {
+            if s.bearer != format!("Bearer {DEVICE}") {
+                return (401, json!({"code": "machine.revoked", "message": "no"}));
+            }
+            let nonce = format!("nonce-{index}");
+            issued.lock().unwrap().push(nonce.clone());
+            return (200, json!({"machineId": "mch_web_1", "nonce": nonce, "expiresAt": "x"}));
+        }
+        if s.line.starts_with("POST /v1/machines/credentials/self/session ") {
+            let nonce = s.body["nonce"].as_str().unwrap_or_default().to_owned();
+            let mut issued = issued.lock().unwrap();
+            let Some(at) = issued.iter().position(|n| *n == nonce) else { return refused };
+            issued.remove(at); // spent, signature valid or not
+            let binding = s.body["binding"].as_str().unwrap_or_default();
+            if s.body["signature"] != GOOD_PROOF || !binding.starts_with("acpmux:") {
+                return refused;
+            }
+            return (
+                200,
+                json!({"credential": SESSION, "machineId": "mch_web_1", "binding": binding,
+                       "expiresAt": "x"}),
+            );
+        }
+        if s.bearer != format!("Bearer {SESSION}") {
+            return (401, json!({"code": "machine.revoked", "message": "bound credential"}));
+        }
+        mesh_answer(s, &info)
+    })
+}
+
+/// A bound device proves its key on the connection: the challenge names this connection's binding,
+/// the valid signature is traded for a session credential, and every read and prompt goes with that
+/// credential alone, never the raw one.
+#[tokio::test]
+async fn a_bound_device_with_a_valid_proof_is_admitted() {
+    let (url, seen) = http_hub(bound_hub()).await;
+    let own = Arc::new(DaemonIdentity::default());
+    let a = daemon_a(&url, Arc::clone(&own));
+    let mut web = Client::connect(&a, Origin::Web);
+    let challenge =
+        web.request("_acpmux/device_challenge", json!({"credential": DEVICE})).await.unwrap();
+    assert_eq!(challenge["machineId"], "mch_web_1", "{challenge}");
+    let binding = challenge["binding"].as_str().unwrap().to_owned();
+    assert!(binding.starts_with("acpmux:"), "{challenge}");
+    let hello = web
+        .request(
+            "_acpmux/device_hello",
+            json!({"credential": DEVICE, "nonce": challenge["nonce"], "signature": GOOD_PROOF}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(hello["auth"], "webDevice", "{hello}");
+    assert!(!hello.to_string().contains(SESSION), "the session credential was echoed: {hello}");
+    web.read().await.unwrap();
+    assert_eq!(web.prompt().await.unwrap()["via"], "mesh");
+
+    let seen = seen.lock().unwrap().clone();
+    let session = seen.iter().find(|s| s.line.contains("/self/session")).unwrap();
+    assert_eq!(session.body["binding"], binding.as_str(), "{session:?}");
+    let mesh: Vec<_> = seen.iter().filter(|s| s.line.contains("/v1/mesh/")).collect();
+    assert!(mesh.len() >= 2, "{seen:?}");
+    assert!(mesh.iter().all(|s| s.bearer == format!("Bearer {SESSION}")), "{mesh:?}");
+    assert_eq!(own.used(), 0);
+
+    // Another connection's binding differs: a proof is good for the connection it names.
+    let mut other = Client::connect(&a, Origin::Web);
+    let theirs = other.request("_acpmux/device_challenge", json!({"credential": DEVICE})).await;
+    assert_ne!(theirs.unwrap()["binding"], binding.as_str());
+}
+
+/// A stolen credential without the key: the thief gets a nonce, but no signature it can make buys
+/// a session, the connection holds no device, and the raw credential reads nothing.
+#[tokio::test]
+async fn a_stolen_bound_credential_without_the_key_is_refused() {
+    let (url, seen) = http_hub(bound_hub()).await;
+    let own = Arc::new(DaemonIdentity::default());
+    let a = daemon_a(&url, Arc::clone(&own));
+    let mut thief = Client::connect(&a, Origin::Web);
+    let challenge =
+        thief.request("_acpmux/device_challenge", json!({"credential": DEVICE})).await.unwrap();
+    let forged = json!({"credential": DEVICE, "nonce": challenge["nonce"], "signature": "forged"});
+    let refused = thief.request("_acpmux/device_hello", forged).await.unwrap_err();
+    assert_eq!(reason(&refused), "device.proof_refused", "{refused}");
+    assert!(!refused.to_string().contains(DEVICE), "{refused}");
+    assert!(thief.read().await.is_err(), "a refused proof left a device on the connection");
+    assert!(thief.prompt().await.is_err());
+
+    // The bearer hello (no proof) holds the raw credential, which the hub refuses for a bound
+    // device: the first call says so and the device is dropped.
+    let mut bearer = Client::connect(&a, Origin::Web);
+    bearer.request("_acpmux/device_hello", json!({"credential": DEVICE})).await.unwrap();
+    assert_eq!(reason(&bearer.read().await.unwrap_err()), "device.revoked");
+    assert!(
+        !seen.lock().unwrap().iter().any(|s| s.bearer == format!("Bearer {SESSION}")),
+        "a session was issued without the key"
+    );
+    assert_eq!(own.used(), 0);
+}
+
+/// A replayed proof (the same nonce and signature, on a new connection) is refused: the hub spent
+/// the nonce on its first use.
+#[tokio::test]
+async fn a_replayed_device_proof_is_refused() {
+    let (url, _seen) = http_hub(bound_hub()).await;
+    let own = Arc::new(DaemonIdentity::default());
+    let a = daemon_a(&url, Arc::clone(&own));
+    let mut web = Client::connect(&a, Origin::Web);
+    let challenge =
+        web.request("_acpmux/device_challenge", json!({"credential": DEVICE})).await.unwrap();
+    let proof = json!({"credential": DEVICE, "nonce": challenge["nonce"], "signature": GOOD_PROOF});
+    web.request("_acpmux/device_hello", proof.clone()).await.unwrap();
+
+    let mut replay = Client::connect(&a, Origin::Web);
+    let refused = replay.request("_acpmux/device_hello", proof).await.unwrap_err();
+    assert_eq!(reason(&refused), "device.proof_refused", "{refused}");
+    assert!(replay.read().await.is_err());
+    // A challenge or a proof is the web listener's alone.
+    let mut local = Client::connect(&a, Origin::LocalApp);
+    let asked = local.request("_acpmux/device_challenge", json!({"credential": DEVICE})).await;
+    assert!(asked.is_err(), "{asked:?}");
+}
+
+/// Enrollment with a device key sends it to the hub's redeem as `deviceKey`; a key that is not a
+/// raw P-256 point is refused before the hub is asked.
+#[tokio::test]
+async fn a_web_device_enrolls_with_its_device_key() {
+    let key = base64::engine::general_purpose::STANDARD.encode([7u8; 32]);
+    let mut point = [9u8; 65];
+    point[0] = 4;
+    let device_key = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(point);
+    let (url, seen) = http_hub(Box::new(|_, s| {
+        if s.line.contains("/v1/machines/join-tokens/redeem") {
+            (
+                200,
+                json!({"credential": "cmm_minted_by_the_hub", "machineId": "mch_web_1",
+                       "joinTokenId": "join_1", "teamId": "team_1",
+                       "wgPublicKey": s.body["wgPublicKey"],
+                       "expiresAt": "2027-11-17T12:00:00.000Z", "userId": "user_1"}),
+            )
+        } else {
+            (
+                200,
+                json!({"joinTokenId": "join_1", "token": "cmj_minted_for_web", "teamId": "team_1",
+                       "expiresAt": "2026-11-17T12:10:00.000Z"}),
+            )
+        }
+    }))
+    .await;
+    let a = daemon_a(&url, Arc::new(DaemonIdentity::default()));
+    let mut web = Client::connect(&a, Origin::Web);
+    let access = "person-access-token-for-tests";
+    for bad in ["nope", &base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([4u8; 33])] {
+        let refused = web
+            .request(
+                "_acpmux/device_enroll",
+                json!({"accessToken": access, "publicKey": key, "deviceKey": bad}),
+            )
+            .await;
+        assert!(refused.is_err(), "{bad}: {refused:?}");
+    }
+    assert!(seen.lock().unwrap().is_empty(), "a bad device key reached the hub");
+    web.request(
+        "_acpmux/device_enroll",
+        json!({"accessToken": access, "publicKey": key, "deviceKey": device_key}),
+    )
+    .await
+    .unwrap();
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen[1].body["deviceKey"], device_key.as_str(), "{:?}", seen[1]);
+}
+
 /// A prompt's `mesh:` delivery id goes back to the browser, and the browser may ask its status.
 /// That status read goes with the device's credential alone: never with this daemon's identity,
 /// neither after the hub revoked the device nor for a web connection that has no device.
