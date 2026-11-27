@@ -45,6 +45,7 @@ export const READINESS_ACTION_KEY: Record<ReadinessAction, string> = {
   install: "signIn.install",
   signIn: "signIn.account.signIn",
   addAccount: "signIn.account.add",
+  // retry-prompt-ok: trying a failed provider again reruns its install or starts a new sign-in (a fresh code, a provider page).
   tryAgain: "signIn.tryAgain",
 };
 
