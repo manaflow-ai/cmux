@@ -38,7 +38,7 @@ pub fn split_once_omitting_empty(text: &str, separator: char) -> Vec<String> {
         if ch != separator {
             continue;
         }
-        let piece = &text[start..index];
+        let piece = text.get(start..index).unwrap_or_default();
         start = index + ch.len_utf8();
         if !piece.is_empty() {
             pieces.push(piece.to_owned());
@@ -47,8 +47,8 @@ pub fn split_once_omitting_empty(text: &str, separator: char) -> Vec<String> {
             }
         }
     }
-    if start < text.len() {
-        pieces.push(text[start..].to_owned());
+    if let Some(rest) = text.get(start..).filter(|rest| !rest.is_empty()) {
+        pieces.push(rest.to_owned());
     }
     pieces
 }

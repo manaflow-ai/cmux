@@ -492,7 +492,9 @@ pub fn call(op: &str, request: Value) -> Result<Value, OpError> {
             let ToastRequest { mut limit, tabs, shown, window, now } = parse(request)?;
             let show = undo::toast(&mut limit, tabs, shown.as_ref(), &window, now);
             let mut reply = encode(&show);
-            reply["limit"] = encode(&limit);
+            if let Some(fields) = reply.as_object_mut() {
+                fields.insert("limit".to_owned(), encode(&limit));
+            }
             Ok(reply)
         }
         "closed_tabs_undo_message" => {

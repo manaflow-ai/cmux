@@ -250,10 +250,12 @@ fn state_decimal<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::E
 /// `UInt64(text, radix: 10)`: an optional sign, then only ASCII digits, within range; a minus
 /// sign only before a zero value (`-0` is 0, `-1` does not parse).
 pub fn parse_decimal(text: &str) -> Option<u64> {
-    let (negative, digits) = match text.as_bytes().first() {
-        Some(b'+') => (false, &text[1..]),
-        Some(b'-') => (true, &text[1..]),
-        _ => (false, text),
+    let (negative, digits) = if let Some(digits) = text.strip_prefix('+') {
+        (false, digits)
+    } else if let Some(digits) = text.strip_prefix('-') {
+        (true, digits)
+    } else {
+        (false, text)
     };
     if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
