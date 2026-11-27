@@ -36,6 +36,7 @@ export function AddAccountDialog({
   family,
   kinds = ["direct-subscription", "direct-api-key"],
   existing = [],
+  initialWay,
   onClose,
   onAdded,
 }: {
@@ -44,6 +45,8 @@ export function AddAccountDialog({
   kinds?: Kind[];
   /** The ids of the routes there are, so a new one never asks to replace one. */
   existing?: readonly string[];
+  /** The way the sheet opens on, when it is one of the family's (the gallery's states). */
+  initialWay?: Way;
   onClose(): void;
   onAdded(): void;
 }) {
@@ -56,7 +59,7 @@ export function AddAccountDialog({
     ...(kinds.includes("direct-subscription") && family === "claude" ? (["token"] as const) : []),
     ...(kinds.includes("direct-api-key") ? (["key"] as const) : []),
   ];
-  const [way, setWay] = useState<Way>(ways[0] ?? "key");
+  const [way, setWay] = useState<Way>(initialWay && ways.includes(initialWay) ? initialWay : (ways[0] ?? "key"));
   const [name, setName] = useState("");
   const [secret, setSecret] = useState("");
   const [token, setToken] = useState("");

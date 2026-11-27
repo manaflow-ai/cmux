@@ -1,9 +1,9 @@
 # path	count	reason (check-dev-build-state.py: reviewed sites; a rise fails the pre-push gate)
-Packages/macOS/CmuxNext/Sources/CmuxNextAccounts/SettingsModels+Live.swift	1	not a shared read: each stored model key gets its own random account and a keychain:SERVICE/ACCOUNT reference only the storing build keeps (as cmux harness secret set), so no build reads or overwrites another's key (base #40159)
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPageFlickerLog.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneFinishSound.swift	1	reads macOS's own com.apple.systemsound domain (the system alert volume), an input
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneImageCopies.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPanePromptJournal.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
+Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/ClaudeSetupToken.swift	1	not a shared read: each stored model key gets its own random account and a keychain:SERVICE/ACCOUNT reference only the storing build keeps (as cmux harness secret set), so no build reads or overwrites another's key (base #40159)
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserDownloadHistory.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserProfiles/BrowserProfileService.swift	1	per build: the folder is named after the bundle id (a DEV build has its own)
 Packages/macOS/CmuxNext/Sources/CmuxNextApp/ChromiumRuntimeService.swift	1	per build: the Chromium runtime installer folder under the bundle id (ChromiumRuntimeService.make)

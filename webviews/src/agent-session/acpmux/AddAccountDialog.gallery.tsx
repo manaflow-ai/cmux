@@ -14,15 +14,18 @@ export default componentEntry({
       family = "claude",
       kinds = ["direct-subscription", "direct-api-key"],
       unavailable,
+      way,
     }: {
       family?: string;
       kinds?: ("direct-subscription" | "direct-api-key")[];
       unavailable?: boolean;
+      way?: "token";
     }) => (
       <AddAccountDialog
         family={family}
         kinds={kinds}
         existing={["coderouter", "chatgpt-2"]}
+        {...(way ? { initialWay: way } : {})}
         add={async () => {
           if (unavailable) throw new Error("The local agent service is unavailable.");
         }}
@@ -35,6 +38,7 @@ export default componentEntry({
   variants: {
     subscription: { props: { family: "claude" } },
     codex: { props: { family: "codex" } },
+    "setup-token": { props: { family: "claude", way: "token" } },
     "api-key": { props: { kinds: ["direct-api-key"] } },
     "other-family": { props: { family: "gemini", kinds: ["direct-subscription"] } },
     unavailable: { props: { family: "codex", unavailable: true } },
