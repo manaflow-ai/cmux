@@ -33,11 +33,20 @@
 //!
 //! Every failure leaves the folder as it was and the seed carries or clones as before; the
 //! job's status notes `borrowed` or `borrow_failed`.
+//!
+//! `git.seed.borrowable` (`git-seed-borrow-v1`, [`borrowable`]) answers the same question
+//! before a seed starts, so a sender skips building and uploading its carry pack for a
+//! machine that will borrow anyway: the same mirror, the same repository check and the same
+//! `rev-list --missing=print` of the base, with nothing written and nothing fetched.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use super::super::SeedRefusal;
+use super::super::git::{Credential, Git};
+use super::super::params::{check_local_path, check_sha, check_url};
 use super::{Failure, Seed, check_folder, clean_folder, place, same_github_repo};
+use crate::fs_ops::Roots;
 
 /// A local repository's object store and config: a bare repository or a checkout's `.git`.
 struct Local {
@@ -82,6 +91,72 @@ pub(crate) fn mirror_under(root: &str, url: &str) -> Option<String> {
     let repo = url.strip_prefix("https://github.com/")?.strip_suffix(".git")?;
     let mirror = format!("{}/{repo}.git", root.trim_end_matches('/'));
     Path::new(&mirror).is_dir().then_some(mirror)
+}
+
+/// `git.seed.borrowable`'s params: the seed's folder, repository and base, and its own
+/// `mirror` when it names one (as [`StartParams::mirror`](super::super::params::StartParams)).
+/// Unknown fields are ignored: a newer sender may ask with more.
+#[derive(serde::Deserialize)]
+struct Asked {
+    folder: String,
+    url: String,
+    repo: String,
+    base: String,
+    #[serde(default)]
+    mirror: Option<String>,
+}
+
+/// Whether a fresh seed of `folder` at `base` would borrow a warm mirror here ([`Seed::borrow_in`]):
+/// `{"borrow": true}`, or `{"borrow": false, "why": STEP}` with the first check that failed
+/// (`folder`: it holds a repository already; `no_mirror`; `other_repo`: the mirror's `origin`
+/// is another repository; `no_base`; `lacks_objects`: some object of the base's tree is not
+/// in it). Reads only: a `false` costs the sender nothing but this answer.
+pub(in crate::git_seed) fn borrowable(
+    git: &Git,
+    roots: &Roots,
+    params: &serde_json::Value,
+) -> Result<serde_json::Value, SeedRefusal> {
+    let asked: Asked = serde_json::from_value(params.clone())
+        .map_err(|error| SeedRefusal::bad_request(format!("invalid params: {error}")))?;
+    check_url(&asked.url, &asked.repo)?;
+    check_sha("base", &asked.base)?;
+    if let Some(mirror) = &asked.mirror {
+        check_local_path("mirror", mirror)?;
+    }
+    let folder = place::folder(roots, &asked.folder)?;
+    let no = |why: &str| Ok(serde_json::json!({ "borrow": false, "why": why }));
+    if std::fs::symlink_metadata(folder.join(".git")).is_ok() {
+        return no("folder");
+    }
+    let Some(mirror) = asked.mirror.clone().or_else(|| configured_mirror(&asked.url)) else {
+        return no("no_mirror");
+    };
+    let Some(local) = Local::at(&mirror) else { return no("no_mirror") };
+    let config = local.config.display().to_string();
+    let origin = git.quiet(
+        None,
+        &Credential::Anonymous,
+        &["config", "--file", &config, "--get", "remote.origin.url"],
+    );
+    if !origin.is_ok_and(|url| same_github_repo(String::from_utf8_lossy(&url).trim(), &asked.url)) {
+        return no("other_repo");
+    }
+    let git_dir = local.objects.parent().map(Path::to_path_buf).unwrap_or_default();
+    let commit = format!("{}^{{commit}}", asked.base);
+    // A promisor mirror would fetch an object it lacks; this answer reads only.
+    let lazy = [("GIT_NO_LAZY_FETCH", std::ffi::OsStr::new("1"))];
+    let anonymous = Credential::Anonymous;
+    let verify = ["cat-file", "-e", commit.as_str()];
+    if git.run_env(Some(&git_dir), &anonymous, &verify, &lazy, &mut |_| {}).is_err() {
+        return no("no_base");
+    }
+    let list = ["rev-list", "--objects", "--no-walk", "--missing=print", asked.base.as_str()];
+    match git.run_env(Some(&git_dir), &anonymous, &list, &lazy, &mut |_| {}) {
+        Ok(out) if !out.split(|byte| *byte == b'\n').any(|line| line.starts_with(b"?")) => {
+            Ok(serde_json::json!({ "borrow": true }))
+        }
+        _ => no("lacks_objects"),
+    }
 }
 
 impl Seed {
