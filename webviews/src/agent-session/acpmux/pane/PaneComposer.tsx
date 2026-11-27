@@ -24,7 +24,7 @@ import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
 import { rememberStartedProject, rememberCloudPick } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
-import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
+import { Composer, type ComposerHandle, type ComposerRelay, type ComposerWake } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
