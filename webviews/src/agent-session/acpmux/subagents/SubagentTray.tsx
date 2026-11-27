@@ -966,6 +966,7 @@ export const SubagentTray = memo(function SubagentTray({
                   size={ROW_ICON}
                   fallback={mark.icon}
                   plain
+                  blankUnknown={mark.tone !== undefined}
                 />
               ))}
             </span>
@@ -1749,6 +1750,7 @@ function HeadKind({
           size={ROW_ICON}
           fallback={part.icon}
           plain
+          blankUnknown
         />
       ) : (
         <Icon name={part.icon} size={ROW_ICON} row />
@@ -1773,6 +1775,7 @@ function KindMark({ part, chatHarness }: { part: TrayHeadPart; chatHarness: stri
       size={ROW_ICON}
       fallback={part.icon}
       plain
+      blankUnknown
     />
   ) : (
     <Icon name={part.icon} size={ROW_ICON} row />
