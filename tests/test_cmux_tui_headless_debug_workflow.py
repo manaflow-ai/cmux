@@ -103,7 +103,11 @@ class HeadlessDebugDaemon(unittest.TestCase):
             self.assertEqual(produced[field], consumed[field], field)
         self.assertEqual(produced["workspaces"], "cmux-tui -> target")
         self.assertEqual(str(produced["cache-workspace-crates"]).lower(), "true")
-        self.assertNotIn("save-if", produced)
+        # The producer saves on its trusted feat/main pushes; a pull request or merge group never writes it.
+        if "save-if" in produced:
+            for event in ("pull_request", "pull_request_target", "merge_group"):
+                self.assertIn(f"github.event_name != '{event}'", produced["save-if"])
+            self.assertIn("refs/heads/feat-cmux-next", produced["save-if"])
         # Pull request caches stay read-only, like the exact binary's.
         self.assertIs(consumed["save-if"], False)
 
