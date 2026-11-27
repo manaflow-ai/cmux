@@ -254,12 +254,12 @@ jobs:
   # step found that only after its runner came. The same check runs here first, on the
   # one-minute control pool (RUNNER_POOLS.linux_2: the 2 vCPU size started its jobs in a
   # median 23 s while GitHub-hosted Ubuntu waited a median 3 h, scripts/ci/linux_pool_spill.py);
-  # it reads branch heads over git and holds no secret. Trunk and integration pushes, which
-  # the check never supersedes, skip this job and go straight to tree-preflight. A failed
+  # it reads branch heads over git and holds no secret. Trunk and integration pushes (but
+  # feat-cmux-next-*, for the branch-inputs step), which the check never supersedes, skip this job and go straight to tree-preflight. A failed
   # or slow gate answers "not superseded": tree-preflight then runs and checks again.
   push-gate:
     name: cmux-tui superseded push gate
-    if: ${{ github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
+    if: ${{ github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The superseded check takes seconds; the branch-inputs check fetches commit history and one tree (seconds; it ran
     # into its 60 s git timeout until its fetches passed --no-recurse-submodules, 2026-11-23).
@@ -303,7 +303,10 @@ jobs:
       # BRANCH-INPUTS-GATE: a pull request head whose tree key equals its merge base's (it changes no
       # tree-key input) builds nothing: no musl, macOS or daemon-test leg (interim-coord, 2026-11-21:
       # "have the musl builds path-filtered on PRs and main, and run the full set only on merge queue or
-      # nightly"). feat-cmux-next, nightly-next, main and dispatches never take this job. Any failure
+      # nightly"). feat-cmux-next, nightly-next, main and dispatches never take this job. A feat-cmux-next-*
+      # head does (Leo asked us to look at the iOS verification loop and make it faster, 2026-11-27: 9 of 15
+      # iOS pull requests on such heads changed no tree-key input, yet each waited on the cmux-tui darwin build,
+      # 37 min on #61389), with the unchanged-key rule only, never BASE-MOVED. Any failure
       # answers "changed" (scripts/ci/cmux_tui_branch_inputs.py). Undo: vars.CMUX_TUI_BRANCH_INPUT_GATE = '0'.
       # BASE-MOVED: a head that changes a tree-key input builds nothing either once feat-cmux-next moved its own
       # tree key since the merge base: the pull request's route then reads its merge's tree, never this head's

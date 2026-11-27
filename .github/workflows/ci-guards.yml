@@ -1967,6 +1967,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_cmux_binaries_prune.py
 
+      - name: Validate the cmux-vmd autocloud template bake
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_vmd_autocloud_template.py
+
       - name: Validate the Actions artifact pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_actions_artifact_prune.py
@@ -2000,6 +2004,10 @@ jobs:
       - name: Validate the PR media privacy check and its writers
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_pr_media_privacy.py
+
+      - name: Validate the warn-only PR media lint
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_media_lint.py
 
       - name: Validate nightly prune Python compatibility
         if: ${{ !cancelled() && matrix.group == 'release-tooling' }}
