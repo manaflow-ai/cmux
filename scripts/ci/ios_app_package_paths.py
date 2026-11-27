@@ -17,8 +17,16 @@ The CmuxMobileKit tests are also the `ios-kit` step of ci/steps.toml on a feat-c
 `inputs` are held to the same set (its `ignore` drops notes and cmux-next-ios/verify/ evidence, as the workflow's
 negations do).
 
+The Rust side is held the same way: the kit links CmuxMobileLinkFFI, built from cmux-mobile-link-ffi and every
+crate it compiles, read from the Cargo graph by scripts/ci/ios_link_ffi_key.py (its `closure`). Each of those
+outside cmux-next-ios/ (the cmux-tui crates and vendored crates, their workspace manifests and locks, the pinned
+toolchain) must be a `ios-kit` input, and no cmux-tui crate the FFI does not compile may be one, so a crate an iOS
+PR shares with cmux-tui starts the iOS checks (cmux#55399: a cmux-tui crate change broke the iOS build, nothing iOS
+ran) and a new shared crate is named here the day the FFI links it.
+
 Usage:
   scripts/ci/ios_app_package_paths.py           print the `<package>/**` lines
+  scripts/ci/ios_app_package_paths.py --rust    also print the ios-kit Rust input lines (toml form)
   scripts/ci/ios_app_package_paths.py --check   exit 1 and list each drift
 """
 
@@ -32,6 +40,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ci_steps  # noqa: E402
+import ios_link_ffi_key  # noqa: E402
 
 # The app's manifests: the XcodeGen project and the kit package.
 APP_MANIFESTS = ("cmux-next-ios/project.yml", "cmux-next-ios/CmuxMobileKit/Package.swift")
@@ -119,7 +128,34 @@ def workflow_filters(text: str) -> dict[str, list[str]]:
     return out
 
 
-def check(root: Path = ROOT) -> list[str]:
+# Rust package directories the filter may only name when the FFI compiles them.
+RUST_ROOTS = ("cmux-tui/crates/", "cmux-tui/vendor/")
+
+
+def rust_inputs(packages: list[str], roots: list[str]) -> list[str]:
+    """The ios-kit input patterns the FFI's Cargo closure needs outside cmux-next-ios/ (which `cmux-next-ios/**`
+    covers): each package's tree, each workspace root's manifest and lock, the fixed files the build reads."""
+    want = {f"{pkg}/**" for pkg in packages}
+    for root in roots:
+        want |= {f"{root}/Cargo.toml", f"{root}/Cargo.lock"}
+    want |= set(ios_link_ffi_key.FIXED)
+    return sorted(p for p in want if not p.startswith("cmux-next-ios/"))
+
+
+def ffi_closure(root: Path) -> tuple[list[str], list[str]]:
+    """ios_link_ffi_key.closure at HEAD, read in ROOT's repository."""
+    cwd = Path.cwd()
+    try:
+        import os
+        os.chdir(root)
+        return ios_link_ffi_key.closure("HEAD")
+    finally:
+        os.chdir(cwd)
+
+
+def check(root: Path = ROOT, rust: tuple[list[str], list[str]] | None = None) -> list[str]:
+    """Drift in each filter. RUST is the FFI's (packages, roots); None reads it from ROOT's git HEAD when ROOT is a
+    checkout with the FFI (a test's bare tree skips the Rust half)."""
     pkgs = app_packages(root)
     want = {p + "/**" for p in pkgs}
     problems: list[str] = []
@@ -130,9 +166,20 @@ def check(root: Path = ROOT) -> list[str]:
         found = workflow_filters((root / wf).read_text())
         for event in WORKFLOW_EVENTS.get(wf, ("pull_request", "push")):
             filters.append((f"{wf}: {event}", found.get(event)))
+    step = None
     if (root / TABLE).is_file():
         step = ci_steps.load(root / TABLE).steps.get(TABLE_STEP)
         filters.append((f"{TABLE}: step {TABLE_STEP}", list(step.inputs) if step else None))
+    if rust is None and (root / ".git").exists() and (root / ios_link_ffi_key.FFI / "Cargo.toml").is_file():
+        rust = ffi_closure(root)
+    if rust is not None and step is not None:
+        lines = set(step.inputs)
+        rust_want = set(rust_inputs(*rust))
+        for pattern in sorted(rust_want - lines):
+            problems.append(f"{TABLE}: step {TABLE_STEP} misses {pattern} (CmuxMobileLinkFFI compiles it)")
+        for line in sorted(lines):
+            if line.startswith(RUST_ROOTS) and line not in rust_want:
+                problems.append(f"{TABLE}: step {TABLE_STEP} names {line}, which CmuxMobileLinkFFI does not compile")
     for where, lines in filters:
         if lines is None:
             problems.append(f"{where} has no paths filter")
@@ -157,6 +204,9 @@ def main(argv: list[str]) -> int:
         return 1 if problems else 0
     for pkg in app_packages():
         print(f'      - "{pkg}/**"')
+    if "--rust" in argv:
+        for line in rust_inputs(*ffi_closure(ROOT)):
+            print(f'  "{line}",')
     return 0
 
 

@@ -3492,8 +3492,23 @@ while True:
             send({'jsonrpc': '2.0', 'method': '_acpmux/prompt_accepted', 'params': {'sessionId': 's-2', 'promptId': m['params']['_meta']['acpmux']['promptId']}})
             done = True
             break
+        if m['method'] == '_acpmux/resolve':
+            send({'jsonrpc': '2.0', 'id': m['id'], 'result': {'session': {'sessionId': 's-1', 'name': m['params']['query']}}})
+            done = True
+            break
         if m['method'] == 'session/new':
             news += 1
+            if mode == 'made-then-cut':
+                # Run 45885585817: the first start made the session, then acpmux restarted before it answered.
+                if news == 1:
+                    send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32000, 'message': 'acpmux is restarting', 'data': {'errorKind': 'daemon.restarting', 'retryable': True}}})
+                else:
+                    send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32602, 'message': 'session name "s" is taken'}})
+                continue
+            if mode == 'taken':
+                send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32602, 'message': 'session name "s" is taken'}})
+                done = True
+                break
             if news == 1 and mode not in ('late', 'prompt-cut'):
                 data = {'errorKind': 'daemon.restarting', 'retryable': True} if mode == 'retryable' else {'errorKind': 'refused', 'retryable': False}
                 send({'jsonrpc': '2.0', 'id': m['id'], 'error': {'code': -32000, 'message': 'acpmux is restarting', 'data': data}})
@@ -3510,7 +3525,7 @@ while True:
         break
 open(out, 'w').write(json.dumps(seen))
 `;
-  const runRestarting = (mode: "retryable" | "refused" | "late" | "prompt-cut") => {
+  const runRestarting = (mode: "retryable" | "refused" | "late" | "prompt-cut" | "made-then-cut" | "taken") => {
     const home = mkdtempSync("/tmp/jr-");
     try {
       mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
@@ -3558,6 +3573,22 @@ open(out, 'w').write(json.dumps(seen))
     const prompts = seen.filter((m) => m.startsWith("session/prompt:"));
     expect(prompts).toHaveLength(2);
     expect(prompts[0]).toBe(prompts[1]);
+  });
+  test("a start whose session was made before acpmux's restart cut its answer takes that session", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("made-then-cut");
+    expect(r.stdout).toContain("@@retry ");
+    expect(r.stdout).toContain("@@adopted s-1");
+    expect(r.stdout).toContain("@@session s-1");
+    expect(r.status).toBe(0);
+    expect(seen.filter((m) => m === "session/new")).toHaveLength(2);
+    expect(seen.filter((m) => m === "_acpmux/resolve")).toHaveLength(1);
+  });
+  test("a taken name with no cut start before it stays a failed start", { timeout: 30_000 }, () => {
+    const { r, seen } = runRestarting("taken");
+    expect(r.stdout).toContain("@@nostart");
+    expect(r.stdout).not.toContain("@@adopted");
+    expect(r.status).toBe(1);
+    expect(seen).not.toContain("_acpmux/resolve");
   });
   test("no acpmux socket is a failed start that names the paths it tried, after the retry window", { timeout: 30_000 }, () => {
     const home = mkdtempSync(join(tmpdir(), "journey-launch-"));
