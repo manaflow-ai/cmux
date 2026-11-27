@@ -1377,14 +1377,21 @@ struct SweepFacts {
     replayed: Option<(u64, u64)>,
 }
 
-async fn sweep_one(offset: u64, cut: Cut) -> (SweepFacts, Result<String, String>) {
+async fn sweep_one(seed: u64, offset: u64, cut: Cut) -> (SweepFacts, Result<String, String>) {
     let mut facts = SweepFacts::default();
-    let outcome = sweep_run(offset, cut, &mut facts).await;
+    let outcome = sweep_run(seed, offset, cut, &mut facts).await;
     (facts, outcome)
 }
 
-async fn sweep_run(offset: u64, cut: Cut, facts: &mut SweepFacts) -> Result<String, String> {
-    let tag = format!("sweep-{offset}");
+async fn sweep_run(
+    seed: u64,
+    offset: u64,
+    cut: Cut,
+    facts: &mut SweepFacts,
+) -> Result<String, String> {
+    // The seed is in the tag: both sweeps run at once in one process, and the scratch
+    // folder is named for the tag and the pid.
+    let tag = format!("sweep-{seed}-{offset}");
     let w = world(&tag, Route::Ws).await;
     let gate = w.scratch.join("gate");
     // B's own journal of the turn: what the agent's machine holds.
@@ -1487,7 +1494,7 @@ async fn sweep(seed: u64) {
     for offset in offsets {
         let cut = sweep_cut(seed, offset);
         // Each offset in its own task, so one offset's panic is a row of the list, not the end.
-        let (facts, outcome) = match tokio::spawn(sweep_one(offset, cut)).await {
+        let (facts, outcome) = match tokio::spawn(sweep_one(seed, offset, cut)).await {
             Ok(r) => r,
             Err(e) => (SweepFacts::default(), Err(format!("panicked: {e}"))),
         };
