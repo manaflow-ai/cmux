@@ -24,6 +24,7 @@ mod catch_up;
 mod chat_prompt_outbox;
 mod classic_leftovers;
 mod cloud_wake;
+mod cmux_link;
 mod composer_outbox;
 mod feed_list_edit;
 mod follow_camera;
@@ -53,6 +54,7 @@ mod window_layout;
 mod workspace_arrangement;
 mod workspace_groups;
 mod workspace_moves;
+mod workspace_row_actions;
 
 pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
@@ -71,6 +73,7 @@ pub use cloud_wake::{
     CloudWakeAnswer, CloudWakeHint, CloudWakeIdle, CloudWakeOutcome, cloud_wake_hint, cloud_wake_idle,
     cloud_wake_input, cloud_wake_resumed, cloud_wake_version,
 };
+pub use cmux_link::{CmuxLinkTarget, ParsedCmuxLink, cmux_link_parse};
 pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
 };
@@ -113,6 +116,10 @@ pub use workspace_groups::{
 pub use workspace_moves::{
     WorkspaceSortStep, neighbor_move_reordered, neighbor_move_targets, personal_index_moving,
     personal_index_placing, workspace_sort_steps,
+};
+pub use workspace_row_actions::{
+    WorkspaceRowFacts, WorkspaceRowPlacement, workspace_merge_targets, workspace_new_row_anchor,
+    workspace_row_placements,
 };
 
 uniffi::setup_scaffolding!();
