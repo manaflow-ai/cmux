@@ -205,7 +205,7 @@ class Declared(unittest.TestCase):
         # No new credential: the token the overflow switch already mints writes RUNNER_POOLS.
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
         steps = workflow["jobs"]["watch"]["steps"]
-        [step] = [s for s in steps if "runner_pools.py" in str(s.get("run", ""))]
+        [step] = [s for s in steps if s.get("id") == "pools"]
         self.assertEqual(step["env"]["SWITCH_TOKEN"], "${{ steps.switch-token.outputs.token }}")
         self.assertEqual(step["env"]["RUNNER_POOLS"], "${{ vars.RUNNER_POOLS }}")
         self.assertIn("always()", str(step.get("if")))
@@ -217,7 +217,7 @@ class Declared(unittest.TestCase):
         # earlier in the same job, keeps those reads off the repository GITHUB_TOKEN pool every workflow shares.
         workflow = yaml.safe_load((ROOT / ".github/workflows/ci-cloud-overflow-probe.yml").read_text())
         steps = workflow["jobs"]["watch"]["steps"]
-        [step] = [s for s in steps if "runner_pools.py" in str(s.get("run", ""))]
+        [step] = [s for s in steps if s.get("id") == "pools"]
         [mint] = [s for s in steps if s.get("id") == "cmux-bot-token"]
         self.assertEqual(mint["with"]["permission-actions"], "read")
         self.assertEqual(step["env"]["GH_TOKEN"], "${{ steps.cmux-bot-token.outputs.token || github.token }}")
@@ -247,7 +247,7 @@ class Declared(unittest.TestCase):
                          {"scripts/ci/linux_pool_spill.py", "scripts/ci/runner_pool_reconcile.py",
                           "scripts/ci/expected_wait.py", "scripts/ci/deadline_http.py"})
         self.assertTrue(checkout.get("continue-on-error"))
-        [step] = [s for s in steps if "runner_pools.py" in str(s.get("run", ""))]
+        [step] = [s for s in steps if s.get("id") == "pools"]
         self.assertIn('--policy-root "$GITHUB_WORKSPACE"', step["run"])
         # Without the checkout, or when the spill fails, main's policy still runs alone.
         self.assertEqual(step["run"].count("python3 scripts/ci/runner_pools.py"), 2)
@@ -517,10 +517,20 @@ class Evidence(unittest.TestCase):
                 self.assertNotIn(gcp, dead)
                 value, _ = runner_pools.reconcile(fresh, pools, dead_now=dead, served_now=started, now=NOW,
                                                   covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
-                for name in FREESTYLE_LED:
-                    self.assertEqual(value[name], gcp if moves else rung, name)
-                for name in GCP_LED:
-                    self.assertEqual(value[name], gcp, name)
+                # GCP leads every pool (cmux#59644) and is live here, so nothing leaves it.
+                for name, spec in pools.items():
+                    if spec.get("members") and spec["members"][0] == gcp:
+                        self.assertEqual(value[name], gcp, name)
+                # Once GCP is full too, a pool with the rung behind it overflows to the rung, or past it once
+                # the rung waited 2 min.
+                value, _ = runner_pools.reconcile(fresh, pools, dead_now=set(dead) | {gcp}, served_now=started,
+                                                  now=NOW, covered=runner_pools.evidence_covers(None, snapshot, pools,
+                                                                                                 now=NOW))
+                rung_pools = [name for name, spec in pools.items() if rung in (spec.get("members") or [])]
+                self.assertTrue(rung_pools)
+                for name in rung_pools:
+                    members = pools[name]["members"]
+                    self.assertEqual(value[name], members[members.index(rung) + 1] if moves else rung, name)
         self.assertFalse(runner_pools.owned_stalled(rung, 0, 30))
         self.assertFalse(runner_pools.owned_stalled(gcp, 3, runner_pools.simple_pool_picker.BLACKSMITH_STALL_MINUTES - 1))
         self.assertTrue(runner_pools.owned_stalled(gcp, 3, runner_pools.simple_pool_picker.BLACKSMITH_STALL_MINUTES))
