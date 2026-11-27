@@ -90,7 +90,8 @@ jobs:
         with:
           github-token: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           script: |
-            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            // Reads fall over to github.token's budget when the cmux-bot installation's is spent (run 45848953731).
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core, spare: process.env.FALLBACK_TOKEN ? getOctokit(process.env.FALLBACK_TOKEN) : undefined });
             const { owner, repo } = context.repo;
             const agent = process.env.AGENT;
             // GITHUB_RUN_ATTEMPT, not context: a rerun must never find the run an earlier attempt started.

@@ -85,6 +85,9 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          # A listing the job token's spent budget refused is sent again once, after the reset, when that is at most
+          # this far off: the wait, the lint (about 3 min on a large PR) and the push fit inside timeout-minutes.
+          RATE_LIMIT_WAIT_S: '300'
         run: |
           set -euo pipefail
           if [ -z "$APP_TOKEN" ]; then
@@ -163,10 +166,51 @@ jobs:
           # installation", cmux#58259 at 18:17Z and 18:30Z on 2026-11-26), so a
           # failed listing falls back to git: deepen both depth-1 histories until
           # they meet and diff from their merge base, the same three-dot diff.
+          # A listing the budget refused (403/429, core remaining 0) is first sent
+          # again once, after the reset, when that is at most RATE_LIMIT_WAIT_S
+          # away: the git fallback found no merge base within 8500 commits on
+          # runs 45924331840 (01:45:47Z) and 45965901335 (08:28:43Z) on
+          # 2026-11-27, red until a rerun after the reset
+          # (tests/test_ci_namespace_autofix_rate_limit_wait.py).
           listed="$RUNNER_TEMP/namespace-listed.txt"
-          if ! GH_TOKEN="$READ_TOKEN" gh api --paginate \
-            "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
-            --jq '.[] | select(.status != "removed") | .filename' > "$listed"; then
+          list_err="$RUNNER_TEMP/namespace-listed.err"
+          list_files() {
+            GH_TOKEN="$READ_TOKEN" gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
+              --jq '.[] | select(.status != "removed") | .filename' > "$listed" 2> "$list_err"
+          }
+          # The core budget's reset epoch when the last listing was a quota refusal, else nothing
+          # (rate_limit reads spend no budget).
+          refused_until() {
+            grep -qiE 'rate limit|HTTP 429' "$list_err" || return 0
+            GH_TOKEN="$READ_TOKEN" gh api rate_limit \
+              --jq 'select(.resources.core.remaining == 0) | .resources.core.reset' 2>/dev/null || true
+          }
+          listed_ok=""
+          reset=""
+          if list_files; then
+            listed_ok=1
+          else
+            cat "$list_err" >&2
+            reset="$(refused_until)"
+            if [ -n "$reset" ]; then
+              wait=$(( reset - $(date +%s) + 5 ))
+              [ "$wait" -ge 1 ] || wait=1
+              if [ "$wait" -le "$RATE_LIMIT_WAIT_S" ]; then
+                echo "::notice::The budget refused the PR's file listing; listing again in ${wait}s, after the reset at $(date -u -d "@$reset" +%H:%M:%SZ)."
+                sleep "$wait"
+                if list_files; then
+                  listed_ok=1
+                else
+                  cat "$list_err" >&2
+                  reset="$(refused_until)"
+                fi
+              else
+                echo "::warning::The budget refused the PR's file listing; its reset ($(date -u -d "@$reset" +%H:%M:%SZ)) is past the ${RATE_LIMIT_WAIT_S}s wait."
+              fi
+            fi
+          fi
+          if [ -z "$listed_ok" ]; then
             echo "::warning::Listing the PR's files through the API failed (see above); using git's merge-base diff instead."
             merge_base=""
             fetch_failed=""
@@ -189,7 +233,9 @@ jobs:
               if [ -n "$fetch_failed" ]; then
                 echo "::error::Both sources of the PR's files failed: the API listing (above) and git, whose fetch failed while $fetch_failed (above). Rerun the job."
               else
-                echo "::error::Both sources of the PR's files failed: the API listing (above) and git, which found no merge base of $BASE_SHA and $HEAD_SHA within 8500 commits. Rerun once the API quota resets."
+                rerun="once the API quota resets"
+                [ -z "$reset" ] || rerun="after $(date -u -d "@$reset" +%H:%M:%SZ), when the API quota resets"
+                echo "::error::Both sources of the PR's files failed: the API listing (above) and git, which found no merge base of $BASE_SHA and $HEAD_SHA within 8500 commits. Rerun $rerun."
               fi
               exit 1
             fi

@@ -133,4 +133,4 @@ jobs:
           name: customize-prompts-cold-model
           path: ${{ runner.temp }}/prompts.json
           if-no-files-found: ignore
-          retention-days: 3
+          retention-days: 3  # retention-class: report
