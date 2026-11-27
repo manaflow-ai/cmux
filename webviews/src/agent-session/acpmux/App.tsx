@@ -135,6 +135,7 @@ import { findSession } from "./sessionIndex";
 import { useSettledToasts } from "./settledToasts";
 import {
   DRAFT_SETTLE_MS,
+  useDraftActionsVersion,
   hasPendingDraftWrite,
   readDurableDraftState,
   readPersistedDraft,
@@ -690,7 +691,6 @@ import {
   startedSessions,
 } from "./started/startedSessions";
 import { experimentArm } from "../../experiments/experiment";
-import { useSessionStatus } from "./sessionStatus";
 import { usePaneView } from "./paneViewStore";
 import { useExperimentSwitch } from "../../experiments/switches";
 import { holdWebSwap } from "../../pages/shared/webSwap";
@@ -707,6 +707,8 @@ import {
 import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHintClaim } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
+import { nativeUnsentPrompts } from "./unsentPrompts";
+import { OfflineSends, lostToLink, untilLinked, withOfflineSends, type OfflineSend } from "./offlineSends";
 import { evacuateActions } from "./place/usePlace";
 import { ComputerStatusLine, PlaceChip } from "./place/PlaceMounts";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
@@ -1420,21 +1422,37 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ),
     [startingRows, clientSnapshot],
   );
+  /// Prompts sent while the pane has no link to acpmux (offlineSends.ts): each shows at once as its
+  /// pending row, is kept on disk, and goes once, in order, when the link is back.
+  const [offlineSends] = useState(() => new OfflineSends(nativeUnsentPrompts(callNative)));
+  const offlineVersion = useSyncExternalStore(
+    (listener) => offlineSends.subscribe(listener),
+    () => offlineSends.version,
+    () => offlineSends.version,
+  );
+  const shownOffline = useMemo(
+    () => offlineSends.in(clientSnapshot.sessionId || undefined),
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- offlineVersion names when the queue changed.
+    [offlineSends, offlineVersion, clientSnapshot.sessionId],
+  );
   // The client's own snapshot never carries the catalog: every view of the pane (the Harnesses
   // page, the picker catalog, the composer) reads the fetched one from here.
   const snapshot = useMemo(
     () =>
       liveAsk(
-        withStartingPrompt(
-          applySwitch(
-            catalog === clientSnapshot.catalog ? clientSnapshot : { ...clientSnapshot, catalog },
-            switchView,
-            catalog,
+        withOfflineSends(
+          withStartingPrompt(
+            applySwitch(
+              catalog === clientSnapshot.catalog ? clientSnapshot : { ...clientSnapshot, catalog },
+              switchView,
+              catalog,
+            ),
+            shownStarting,
           ),
-          shownStarting,
+          shownOffline,
         ),
       ),
-    [clientSnapshot, switchView, catalog, shownStarting],
+    [clientSnapshot, switchView, catalog, shownStarting, shownOffline],
   );
   // Unsettle (a settle toast's Undo, the home's Settled shelf): Unarchive by id (direct.ts
   // `unsettle`); a refusal says so in a toast.
@@ -5068,6 +5086,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudSendDeps = (): CloudSendDeps => ({
     cloudPlanHeld,
     composerHandle,
+    cloudStart,
     setCloudStart,
     sendToCloudLatest,
     cloudOfferable,
@@ -6812,6 +6831,65 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     newChatDraft.kept = [];
     for (const text of kept) composer.restore(text, [], true);
   }, [snapshot.sessionId]);
+  // The link is back (the client's action map installed): the shown chat's prompts sent while it
+  // was down go, one at a time and in order, each under its own prompt id, so acpmux runs each once
+  // (a resend it already has answers `duplicate`). A reload reads the ones still on disk first.
+  const draftActionsVersion = useDraftActionsVersion();
+  const offlineShownChat = snapshot.sessionId;
+  useEffect(() => {
+    if (!offlineShownChat) return;
+    let current = true;
+    void nativeUnsentPrompts(callNative)
+      .read(offlineShownChat)
+      .then((records) => {
+        if (current) offlineSends.adopt(offlineShownChat, records);
+      });
+    return () => {
+      current = false;
+    };
+  }, [offlineSends, offlineShownChat]);
+  // A new link (or its loss) ends a send's back-off: the next flush goes at once.
+  useEffect(() => offlineSends.linkChanged(), [offlineSends, draftActionsVersion]);
+  useEffect(() => {
+    if (!offlineShownChat || !offlineSends.in(offlineShownChat).length || !window.cmuxAcpmuxActions?.["chat.send"])
+      return;
+    void offlineSends.flush(
+      offlineShownChat,
+      () => Boolean(window.cmuxAcpmuxActions?.["chat.send"]) && sessionIdRef.current === offlineShownChat,
+      (item: OfflineSend) =>
+        new Promise<void>((resolve, reject) => {
+          // No `accepted`: a refusal stays in the chat as its own Not sent row with Retry, never
+          // lost. `taken` settles it once acpmux has it; the turn's end is the transcript's.
+          callNative("chat.send", {
+            text: item.text,
+            attachments: item.attachments,
+            expectedSessionId: item.chat,
+            gesture: { promptId: item.id, ticket: Promise.resolve(undefined) },
+            taken: () => resolve(),
+          }).then(() => resolve(), reject);
+        }),
+      (item, error) => {
+        // The link went again, or the new client has not selected the chat yet: it waits.
+        if (
+          lostToLink(error) ||
+          isStartCancelled(error) ||
+          (error as { message?: unknown } | null)?.message === translate("error.notOpen")
+        )
+          return "wait";
+        // A failed row with Retry, or the folder's trust hold, has it now.
+        if (keptInChat(error) || heldRefusal(error)) return "dropped";
+        // The send put it back into the composer itself.
+        if ((error as { message?: unknown } | null)?.message === "agent_session.changed_during_send") {
+          offlineSends.remove(item.id);
+          return "dropped";
+        }
+        // Any other refusal before it reached the chat: back into the composer, never lost.
+        offlineSends.remove(item.id);
+        restoreComposerDraft(composerHandle, heldBack, item.text, item.attachments);
+        return "dropped";
+      },
+    );
+  }, [offlineSends, offlineShownChat, offlineVersion, draftActionsVersion]);
   holdRefused.current = (text, attachments, error, sentFrom) => {
     trustHeld.hold(text, attachments, sentFrom);
     if (error && typeof error === "object") heldRefusals.add(error);
@@ -7437,6 +7515,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   );
   sendTrustHeld.current = async (entry) => {
     const ticket = await entry.ticket;
+    // While the pane reconnects the held prompt waits for the link; it is never handed back for it
+    // (offlineSends.ts).
+    await untilLinked();
     // This render's send, as the chat shown now has it: the ticket may have come after another
     // chat showed.
     return sendTrustHeldNow.current(entry, ticket);
@@ -10828,6 +10909,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     pickedProject,
     remoteChat,
     startingSends,
+    offlineSends,
     individualPermission,
     promptLanded,
     cancelOpenInWindow,
