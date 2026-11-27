@@ -4326,6 +4326,19 @@ export function machineIds(rows: any[]): string[] {
 }
 
 /**
+ * The account's machines counted by state, "running 3, create_overdue 78": the sweep's detail, read just before each
+ * create, so a slow create can be set against how full the drill account was (staging-create-stall, 2026-11-27).
+ */
+export function machineCountByState(rows: ReadonlyArray<{ status?: unknown }>): string {
+  const counts = new Map<string, number>();
+  for (const r of rows) {
+    const s = typeof r.status === "string" && r.status ? r.status : "unknown";
+    counts.set(s, (counts.get(s) ?? 0) + 1);
+  }
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([s, n]) => `${s} ${n}`).join(", ") || "none";
+}
+
+/**
  * How old a journey's own machine must be before a later run may sweep it: well past the longest job that runs a
  * journey (up to 90 min; cloud-journey.test.ts checks every timeout-minutes in a workflow job that runs it to be at
  * most half of this; a job that runs none, like backend.yml's 95 min `test`, makes no journey machine), so a journey that is still running never loses its machine. A long run (--resume-matrix, --chaos-move,
@@ -5713,7 +5726,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           console.log(`sweep: deleting ${m.id} "${m.name}" status ${m.status} created ${m.created}`);
           await api.deleteMachine(m.id, `${tag}-sweep-${m.id}`).catch((e) => failed.push(`${m.id}: ${err(e)}`));
         }
-        const detail = `${stale.length - failed.length} of ${stale.length} leaked deleted (${rows.length} machines)${stale.length ? `: ${stale.map((m) => m.id).join(", ")}` : ""}${failed.length ? `; failed ${failed.join("; ")}` : ""}`;
+        const detail = `${stale.length - failed.length} of ${stale.length} leaked deleted (${rows.length} machines: ${machineCountByState(rows)})${stale.length ? `: ${stale.map((m) => m.id).join(", ")}` : ""}${failed.length ? `; failed ${failed.join("; ")}` : ""}`;
         J.record({ step: name, status: failed.length ? "skip" : "pass", ms: Date.now() - t0, detail });
       } catch (e) {
         J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `list failed: ${err(e)}` });
