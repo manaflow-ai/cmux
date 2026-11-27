@@ -212,7 +212,8 @@ mod tests {
         assert_eq!(ops[0]["props"], json!({"text": "3", "tone": "attention", "size": "sm"}));
         assert_eq!(ops[1]["props"], json!({"text": "x", "tone": null, "size": null}));
         assert_eq!(refused.len(), 2);
-        assert!(refused[0].starts_with("Pill b: tone refused"), "{refused:?}");
+        assert!(refused.iter().any(|line| line.starts_with("Pill b: tone refused")), "{refused:?}");
+        assert!(refused.iter().any(|line| line.starts_with("Pill b: size refused")), "{refused:?}");
     }
 
     #[test]
