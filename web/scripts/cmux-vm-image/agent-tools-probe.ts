@@ -493,6 +493,31 @@ function displayWindowCommand(page: string): string {
   ].join("\n");
 }
 
+/**
+ * Where a browser that never answered the host is stuck (rolls 43958052175 and bake 43943580728: the
+ * host's first CDP call, Browser.setPermission, timed out after 10 s; the host sends Chrome's stderr to
+ * /dev/null). As root: each of the work user's Chrome and host processes with its state, kernel wait
+ * channel, stack and open files; the host's environment names (values only for display, font and
+ * browser-host settings); then, as the work user, a cold fontconfig scan and a fresh headless Chrome
+ * start, timed, with its stderr kept.
+ */
+export function browserStallDiagnosticsCommand(): string {
+  const user = DEVBOX_WORK_USER;
+  const asUser = `setpriv --reuid=${user} --regid=${user} --init-groups env HOME=${DEVBOX_WORK_HOME}`;
+  return [
+    `chrome=$(tr '\\0' '\\n' < /proc/$(pgrep -f 'cmux-tui server [s]tart' | head -1)/environ 2>/dev/null | sed -n 's/^CMUX_BROWSER_HOST_CHROMIUM=//p')`,
+    `for p in $(pgrep -u ${user} -f '[c]hrome|[c]mux-browser-host'); do`,
+    `  echo "== pid $p $(awk '{print "state="$3}' /proc/$p/stat 2>/dev/null) wchan=$(cat /proc/$p/wchan 2>/dev/null) etime=$(ps -o etime= -p $p 2>/dev/null | tr -d ' ')"`,
+    `  tr '\\0' ' ' < /proc/$p/cmdline 2>/dev/null | cut -c1-300; echo`,
+    `  sed 's/^/  stack /' /proc/$p/stack 2>/dev/null | head -12`,
+    `  ls -l /proc/$p/fd 2>/dev/null | awk 'NR>1 {print "  fd "$9" "$10" "$11}' | grep -v -E 'socket:|pipe:|anon_inode:|/dev/null' | head -20`,
+    "done",
+    `h=$(pgrep -u ${user} -f '[c]mux-browser-host serve' | head -1); [ -n "$h" ] && { echo "== host env"; tr '\\0' '\\n' < /proc/$h/environ | sed -E '/^(DISPLAY|XAUTHORITY|WAYLAND_DISPLAY|FONTCONFIG_[A-Z_]*|XDG_[A-Z_]*|HOME|CMUX_BROWSER_HOST_[A-Z_]*)=/!s/=.*/=(set)/' | sort; }`,
+    `echo "== fc-list"; s=$(date +%s%N); ${asUser} timeout 60 fc-list 2>&1 | wc -l; echo "fc-list-ms=$(( ($(date +%s%N) - s) / 1000000 ))"`,
+    `echo "== fresh headless start"; d=$(mktemp -d); chown ${user} "$d"; s=$(date +%s%N); ${asUser} timeout 60 "$chrome" --headless --no-first-run --user-data-dir="$d/p" --dump-dom about:blank >"$d/out" 2>"$d/err"; echo "exit=$? chrome-start-ms=$(( ($(date +%s%N) - s) / 1000000 ))"; tail -20 "$d/err"; rm -rf "$d"`,
+  ].join("\n");
+}
+
 /** Each recorded server started as acpmux would start it, from a daemon terminal; tools listed and called. */
 async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: string, servers: RecordedServer[]): Promise<void> {
   const calls: Record<string, { before?: string; calls: unknown[] }> = {
@@ -563,6 +588,11 @@ async function callServers(vm: Vm, check: Checker, result: ProbeResult, outDir: 
   }
   const mcpBrowser = await readGuest(vm, `${PROBE_DIR}/mcp-cmux.json`).catch(() => "");
   check("browser-page-title", mcpBrowser.includes(PAGE_TITLE), `the browser host ${mcpBrowser.includes(PAGE_TITLE) ? "returned" : "did not return"} "${PAGE_TITLE}"`);
+  if (!mcpBrowser.includes(PAGE_TITLE)) {
+    const stall = await run(vm, browserStallDiagnosticsCommand(), 180_000);
+    writeFileSync(path.join(outDir, "browser-stall.txt"), `${stall.stdout}\n${stall.stderr}`);
+    console.log(`INFO browser-stall (browser-stall.txt):\n${stall.stdout.split("\n").slice(0, 60).join("\n")}`);
+  }
   await pngCheck(vm, check, result, outDir, "browser");
   await pngCheck(vm, check, result, outDir, "cua", AGENT_DISPLAY_SIZE);
   const host = await run(vm, `pgrep -u ${DEVBOX_WORK_USER} -f '[c]mux-browser-host serve' | wc -l; tr '\\0' ' ' < /proc/$(pgrep -u ${DEVBOX_WORK_USER} -f '[c]hrome-linux64/chrome' | head -1)/cmdline 2>/dev/null | grep -cE -- '--no-sandbox|--disable-setuid-sandbox' || true`);

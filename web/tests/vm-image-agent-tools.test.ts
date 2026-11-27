@@ -3,7 +3,28 @@ import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentStepPlan, attachedComputerUse, computerUseWorkerCommand, CU_SERVER, gatewayProblems, LEGACY_CU_SERVER, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, recorderScript, requiredTools, screenshotShowsDisplay, staticCheckCommand, toolListProblems, videoToolProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
+import {
+  agentStepPlan,
+  browserStallDiagnosticsCommand,
+  parseRecordedLaunch,
+  probeOptionsFromArgv,
+  rdActivateCommand,
+  rdConnectCommand,
+  rdOtherUserCommand,
+  rdReadCommand,
+  rdStaticCheckCommand,
+  recorderScript,
+  requiredTools,
+  staticCheckCommand,
+  toolListProblems,
+  attachedComputerUse,
+  computerUseWorkerCommand,
+  CU_SERVER,
+  gatewayProblems,
+  LEGACY_CU_SERVER,
+  screenshotShowsDisplay,
+  videoToolProblems,
+} from "../scripts/cmux-vm-image/agent-tools-probe";
 import { readFileSync as readSource } from "node:fs";
 import {
   A11Y_SCRIPT,
@@ -1032,6 +1053,17 @@ describe("refusedFirstUsePackages", () => {
     expect(refused).not.toContain("xterm");
     expect(refused).toContain("ffmpeg");
     expect(refused).toEqual(all.filter((name) => !(name in closures.browser) && !(name in closures["display-wm"])));
+  });
+});
+
+describe("browserStallDiagnosticsCommand", () => {
+  test("parses as shell, and prints only the host env values it names", async () => {
+    const command = browserStallDiagnosticsCommand();
+    expect((await runChild("bash", ["-n", "-c", command], { timeout: 20_000 })).status).toBe(0);
+    const env = "DISPLAY=:99\nCMUX_BROWSER_HOST_EGRESS=isolated\nGITHUB_TOKEN=ghp_secret\nFONTCONFIG_FILE=/etc/fonts/fonts.conf\n";
+    const sed = /sed -E '([^']+)'/.exec(command)?.[1] ?? "";
+    const out = (await runChild("sed", ["-E", sed], { input: env, timeout: 20_000 })).stdout;
+    expect(out).toBe("DISPLAY=:99\nCMUX_BROWSER_HOST_EGRESS=isolated\nGITHUB_TOKEN=(set)\nFONTCONFIG_FILE=/etc/fonts/fonts.conf\n");
   });
 });
 
