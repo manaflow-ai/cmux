@@ -67,19 +67,24 @@ export function runReducer(state: RunState, event: RunEvent): RunState {
   return { phase, back: phase, failed: false, ...kept };
 }
 
-/// The one line that puts `target` on someone else's cmux, for Share: code anyone with the repo can
-/// fetch (`pr:N`, `branch:B`, `sha:S`). A folder or a profile name lives on this Mac only, so it
-/// has no line (RFD 0150's next pass: `cmux setup export` and its `cmux setup install` line).
+/// The one line that puts `target` on someone else's cmux, for Share when the daemon cannot say:
+/// code anyone with the repo can fetch (`pr:N`, `branch:B`, `sha:S`). A folder or a profile name
+/// lives on this Mac, so only the daemon's Share (customize_run.rs `share`) has a line for it: the
+/// setup repo it writes from the profile, or the branch the folder's checkout is pushed to.
 export function shareLine(target: string | undefined): string | undefined {
   if (!target || !/^(?:pr|branch|sha):/.test(target)) return undefined;
   const run = readRun({ customize: "try", target });
   return run ? `cmux customize try ${target}` : undefined;
 }
 
+/// The card's own Share button (never an agent's action: `readRun` does not take it).
+export type ShareRun = { customize: "share"; target: string };
+export type RunResult = { ok: boolean; output: string; line?: string };
+
 type Runner = {
   /// Whether the daemon serves `_acpmux/customize_run` now: when not, a typed answer sends its label.
   available(): boolean;
-  run(run: CustomizeRun): Promise<{ ok: boolean; output: string }>;
+  run(run: CustomizeRun | ShareRun): Promise<RunResult>;
 };
 let runner: Runner | undefined;
 
@@ -92,11 +97,22 @@ export function hasCustomizeRunner(): boolean {
   return runner?.available() === true;
 }
 
-export async function runCustomize(run: CustomizeRun): Promise<{ ok: boolean; output: string }> {
+export async function runCustomize(run: CustomizeRun | ShareRun): Promise<RunResult> {
   if (!runner) return { ok: false, output: "" };
   try {
     return await runner.run(run);
   } catch {
     return { ok: false, output: "" };
   }
+}
+
+/// What Share copies and says for `target`: the daemon's line (a profile's setup repo, a folder's
+/// pushed branch, code as it is), else the page's own for code; `note` is the daemon's words, where
+/// the setup repo is or why there is no line.
+export async function shareTarget(target: string): Promise<{ line?: string; note: string }> {
+  const fallback = shareLine(target);
+  if (!hasCustomizeRunner()) return { line: fallback, note: "" };
+  const result = await runCustomize({ customize: "share", target });
+  if (result.ok && result.line) return { line: result.line, note: result.output };
+  return { line: fallback, note: fallback ? "" : result.output };
 }
