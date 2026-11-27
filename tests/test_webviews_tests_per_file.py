@@ -702,6 +702,25 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertTrue(out.exists())
 
+    def test_the_batch_records_its_reused_files_as_passes(self):
+        """CMUX_WEB_TEST_REUSED_AS_PASS=1 (the post-merge batch): a reused file is FILE: true in the results, so the
+        base's history still holds a verdict for it; without it a reused file is left out, as for a pull request."""
+        temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        reused = temp / "reused"
+        reused.write_text("test/a.test.ts\n", encoding="utf-8")
+        for flag, want in (("1", {"test/a.test.ts": True, "src/b.test.tsx": True}), ("0", {"src/b.test.tsx": True})):
+            out = temp / f"head-{flag}.json"
+            result, _, calls = self.run_runner(["test/a.test.ts", "src/b.test.tsx"], extra_env={
+                "CMUX_WEB_TEST_REUSED": str(reused), "CMUX_WEB_TEST_RESULTS": str(out),
+                "CMUX_WEB_TEST_REUSED_AS_PASS": flag})
+            self.assertEqual((result.returncode, calls), (0, ["./src/b.test.tsx"]), result.stdout + result.stderr)
+            self.assertEqual(json.loads(out.read_text(encoding="utf-8")), want)
+        out = temp / "all-reused.json"
+        result, _, calls = self.run_runner(["test/a.test.ts"], extra_env={
+            "CMUX_WEB_TEST_REUSED": str(reused), "CMUX_WEB_TEST_RESULTS": str(out), "CMUX_WEB_TEST_REUSED_AS_PASS": "1"})
+        self.assertEqual((result.returncode, calls), (0, []), result.stdout + result.stderr)
+        self.assertEqual(json.loads(out.read_text(encoding="utf-8")), {"test/a.test.ts": True})
+
     def test_held_base_reds_are_left_to_the_batch_runs(self):
         """A pull request's shard drops the files red on the base for a day (CMUX_WEB_TEST_HELD_REDS) and runs the rest."""
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))

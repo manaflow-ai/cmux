@@ -431,6 +431,19 @@ PY
     if [ -n "${CMUX_WEB_TEST_PASSED_OUT:-}" ]; then cat "$results/reused" >> "$CMUX_WEB_TEST_PASSED_OUT"; fi
   fi
 fi
+# CMUX_WEB_TEST_REUSED_AS_PASS=1 (the feat-cmux-next post-merge batch, whose verdicts are the base's history): each reused
+# file is a PASS in the summary, so the results (FILE: true) and the history still hold a verdict for it, as when it ran.
+# A pull request leaves them out: its head results feed only react-apps-base-check, which reads reds.
+record_reused_passes() {
+  [ "${CMUX_WEB_TEST_REUSED_AS_PASS:-0}" = 1 ] && [ -s "$results/reused" ] || return 0
+  local file log
+  while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    log="$results/$(printf '%s' "$file" | tr '/' '_').log"
+    printf 'reused: passed at the previous batch run, and no change since reaches it\n' > "$log"
+    printf 'PASS %s %s\n' "$file" "$log" >> "$results/summary"
+  done < "$results/reused"
+}
 # CMUX_WEB_TEST_HELD_REDS: a file of test files (one a line) red on every base push for a day or more
 # (webviews_test_history.py held-red-files). A pull request drops them after the split, as the reused files above, and
 # reports no verdict for them; the batch runs keep running them, so the history says when one goes green.
@@ -456,6 +469,7 @@ if [ "$count" -eq 0 ] && { [ -s "$results/reused" ] || [ -s "$results/held" ]; }
   echo "### webviews tests: 0 files; $(cat "$results/reused" "$results/held" | grep -c .) of this shard passed at the previous head or are held base reds"
   if [ -n "${CMUX_WEB_TEST_RESULTS:-}" ]; then
     : > "$results/summary"
+    record_reused_passes
     python3 "$(dirname "$self")/webviews_test_results.py" "$results/summary" "$CMUX_WEB_TEST_RESULTS"
   fi
   exit 0
@@ -952,6 +966,7 @@ if [ -n "${CMUX_WEB_TEST_RAW_LOG_DIR:-}" ]; then
   done
 fi
 
+record_reused_passes
 failed=0
 while read -r result file log; do
   # A passing file's workflow annotations (prScope.ts warns about base-branch findings) still reach the run.
