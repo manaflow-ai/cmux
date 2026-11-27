@@ -33,7 +33,10 @@ jobs:
     name: composer + terminal keyboard screenshots
     runs-on: macos-26
     continue-on-error: true
-    timeout-minutes: 75
+    # The hosted simulator build and both UI suites can exceed an hour. Keep the
+    # fire-and-forget run alive long enough to produce its screenshots instead of
+    # turning the informational check into a cancelled failure at 75 minutes.
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
