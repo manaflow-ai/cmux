@@ -129,6 +129,7 @@ pub(super) async fn catch_up(
                         record: Arc::new(record),
                         remote: None,
                         update_line: Default::default(),
+                        event_params: Default::default(),
                         row: Default::default(),
                         list_seq: 0,
                         peer_batch: false,
