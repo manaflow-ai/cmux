@@ -715,7 +715,13 @@ export interface TeamAllotment {
   snoozed_until: number | null;
   changed_at: number;
   changed_by: string;
+  /** How long a person's machine stays ready after a reply before it may pause, in seconds. Absent:
+   * the deployment's own window. */
+  person_hold_seconds?: number;
 }
+
+/** The holds a team can choose for its people's machines, in seconds (the platform's choices). */
+export type PersonHoldSeconds = 300 | 900 | 1800;
 
 /** One member's Cloud use over this month and the last 14 days. `spare_micros` is warm-spare time,
  * the platform's cost, shown to the team as $0. */
@@ -759,6 +765,9 @@ export interface AllotmentView {
   decision: AllotmentDecision;
   hard_cap_micros: number | null;
   as_of: number;
+  /** Each member id's display name, as the platform's view carries it; a member missing here is
+   * shown by id. */
+  names?: Record<string, string>;
 }
 
 export type AllotmentPosition = AllotmentDecision["position"];
@@ -767,7 +776,12 @@ export type AllotmentPosition = AllotmentDecision["position"];
  * snoozes proposals 14 days. `auto` sets the mode. */
 /** No `action`: only the mode changes (the Auto switch); the commit and any snooze are kept, as the platform's
  * cloud.allotment.set does. `hold` snoozes proposals. */
-export type AllotmentSet = { action?: AllotmentPosition; auto?: boolean };
+/** `person_hold_seconds`: the team's hold for its people; null clears it. */
+export type AllotmentSet = {
+  action?: AllotmentPosition;
+  auto?: boolean;
+  person_hold_seconds?: PersonHoldSeconds | null;
+};
 
 /** Which way of paying for a model a Settings > Models connection is (cmux-tui/docs/model-connections.md). */
 export type ModelConnectionKind =
@@ -999,7 +1013,7 @@ export type HarnessRow = {
   update?: { command: string; elevated: boolean } | null;
   /** The update owner runs this channel (npm, Bun or native); without it Update is not offered. */
   ownerUpdate?: boolean;
-  /** acpmux runs its update on its own when a check finds it outdated (off by default). */
+  /** acpmux runs its update on its own when a check finds it outdated (on unless turned off). */
   autoUpdate?: boolean;
   /** What auto-update last did for it. */
   lastAutoUpdate?: { ok: boolean; detail: string } | null;
@@ -2485,6 +2499,9 @@ export type IntegrationsRun = { action: "refresh" } | { action: "install" | "rep
 
 /** The v2 mutation result: `revision` is a decimal string. */
 export type MutationResult = { value: { keys: string[] }; revision: string; replayed: boolean };
+/** A write of the durable settings history: also the daemon's revision of the change it recorded
+ * (`history_revision`, what settings.restore takes), beside the host's own load revision. */
+export type HistoryMutationResult = MutationResult & { history_revision?: string };
 
 type Mutation<P> = P & { idempotency_key: string; if_revision?: string };
 
@@ -2580,6 +2597,17 @@ export type SettingsOps = {
   "cmux.settings.set": [Mutation<{ key: string; value: unknown }>, MutationResult];
   "cmux.settings.reset": [Mutation<{ key: string }>, MutationResult];
   "cmux.settings.reset_all": [Mutation<object>, MutationResult];
+  /** The daemon's durable settings history (settings-history-v1), newest first, which the host
+   * forwards (durableHistory.ts); absent from older hosts. */
+  "cmux.settings.history": [Record<string, never>, { entries: unknown[] }];
+  /** settings.undo as the person: takes back the newest change of any writer. */
+  "cmux.settings.undo": [Mutation<object>, HistoryMutationResult];
+  /** settings.restore as the person: the file just before the change that produced `revision`. */
+  "cmux.settings.restore": [Mutation<{ revision: string }>, HistoryMutationResult];
+  /** settings.reset_group as the person: a section or `section.group` back to its defaults. */
+  "cmux.settings.reset_group": [Mutation<{ group: string }>, HistoryMutationResult];
+  /** One settings.edit of resets (a card that is not one schema group): one history entry. */
+  "cmux.settings.reset_keys": [Mutation<{ keys: string[] }>, HistoryMutationResult];
   /** Native: spaces, machines and browser profiles from the app's live stores. */
   "cmux.settings.host.lists": [Record<string, never>, HostLists];
   /** Native: every release channel's recent builds, read on demand (Settings > Updates). */
@@ -2825,8 +2853,12 @@ export type SettingsOps = {
   "cmux.settings.section.actions": [{ section: string }, Array<{ id: string; title: string; enabled: boolean }>];
   /** Native: show the settings file in Finder. */
   "cmux.settings.file.reveal": [Record<string, never>, unknown];
-  /** Native: show `value` live while a gesture runs; never written. */
-  "cmux.settings.preview": [{ key: string; value: unknown }, unknown];
+  /** Native: show `value` live while a gesture runs; never written. `also` previews more keys
+   * with it as one preview (the whole-app theme preview). */
+  "cmux.settings.preview": [
+    { key: string; value: unknown; also?: readonly { key: string; value: unknown }[] },
+    unknown,
+  ];
   /** Native: drop the live preview of `key`. */
   "cmux.settings.preview.end": [{ key: string }, unknown];
   /** Native: play a notification sound. */

@@ -20,6 +20,7 @@ pub mod peer_state;
 pub mod permission;
 pub mod presence;
 pub mod process;
+pub mod range;
 pub mod session;
 pub mod signature;
 pub mod sync;
@@ -233,6 +234,9 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::StatusParams>(method::MUX_STATUS, Request),
         // The live perf commentator (perf_watch.rs).
         untyped(method::MUX_PERF, Request),
+        // The app's and webviews' own trace spans, written to the daemon's trace sink (perf_trace.rs).
+        untyped(crate::perf_trace::METHOD_SPANS, Request),
+        untyped(crate::perf_trace::METHOD_STATUS, Request),
         // Each caller's requests over a recent window (caller_stats.rs).
         untyped(method::MUX_CALLERS, Request),
         // The felt-latency histograms (cmux-felt).
@@ -257,6 +261,8 @@ pub fn registry() -> Vec<MethodDecl> {
         request::<events::SessionRef, events::Done>(method::MUX_DETACH),
         request::<events::ViewParams, events::ViewDone>(method::MUX_VIEW),
         request::<presence::TypingParams, events::Done>(method::MUX_TYPING),
+        request::<presence::LiveParams, presence::LiveResult>(method::MUX_LIVE),
+        request::<presence::LiveListParams, presence::LiveListResult>(method::MUX_LIVE_LIST),
         request::<presence::RoomsParams, presence::RoomsResult>(method::MUX_ROOMS),
         request::<presence::FollowParams, presence::FollowResult>(method::MUX_FOLLOW),
         request::<here::HereBeatParams, here::HereBeatDone>(method::MUX_HERE_BEAT),
@@ -360,6 +366,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_GOAL_SET, Request),
         untyped(method::MUX_GOAL_UPDATE, Request),
         untyped(method::MUX_GOAL_GET, Request),
+        untyped(method::MUX_HISTORY_READ, Request),
         untyped(method::MUX_SURGERY, Request),
         untyped(method::MUX_PLAN_BUILD, Request),
         untyped(method::MUX_PLAN_COMPARE, Request),
@@ -373,6 +380,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_RETENTION, Request),
         untyped(method::MUX_HISTORY_DELETE, Request),
         untyped(method::MUX_HISTORY_OFFLOAD, Request),
+        untyped(method::MUX_LIFECYCLE, Request),
         untyped(method::MUX_TRANSCRIPT_OFFLOAD, Request),
         untyped(method::MUX_COLD_ARCHIVE, Request),
         untyped(method::MUX_AUTO_SESSION_SET, Request),
@@ -391,6 +399,8 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::WatchTakeOverParams>(method::MUX_WATCH_TAKE_OVER, Request),
         keyed::<params::ReleaseToWatchParams>(method::MUX_RELEASE_TO_WATCH, Request),
         keyed::<params::ArchiveParams>(method::MUX_ARCHIVE, Request),
+        keyed::<params::UndeleteParams>(method::MUX_UNDELETE, Request),
+        untyped(method::MUX_DELETED, Request),
         keyed::<params::SideParams>(method::MUX_SIDE, Request),
         keyed::<params::BtwParams>(method::MUX_BTW, Request),
         untyped(method::MUX_TAG, Request),
@@ -400,6 +410,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_SESSION_RESYNC, Request),
         untyped(method::MUX_MACHINE_INFO, Request),
         untyped(method::MUX_SCORECARD, Request),
+        untyped(method::MUX_SCORECARD_REPLAY, Request),
         untyped(method::MUX_SESSION_FILES, Request),
         untyped(method::MUX_PAUSED_FILES, Request),
         request::<events::EventsParams, events::EventsResult>(method::MUX_EVENTS),
@@ -416,6 +427,9 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_TEAM_READ, Request),
         untyped(method::MUX_TEAM_ACK, Request),
         untyped(method::MUX_TEAM_LISTEN, Request),
+        untyped(method::MUX_TEAM_NAVIGATOR, Request),
+        untyped(method::MUX_TEAM_PICK, Request),
+        untyped(method::MUX_TEAM_SESSION_INFO, Request),
         untyped(method::MUX_HISTORY, Request),
         untyped(method::MUX_SESSION_SEARCH, Request),
         untyped(method::MUX_COMPLETE, Request),
@@ -627,9 +641,11 @@ pub fn registry() -> Vec<MethodDecl> {
         // schema would describe itself.
         request::<ProtocolParams, Value>(method::MUX_PROTOCOL),
         untyped(method::MUX_SHUTDOWN, Request),
+        untyped(method::MUX_HEAP_PROFILE, Request),
         keyed::<params::PeersParams>("_acpmux/peers", Request),
         untyped("_acpmux/peer_status", Request),
         untyped("_acpmux/host_health", Request),
+        untyped("_acpmux/wireguard_admit", Request),
         untyped("_acpmux/host_overload", Request),
         untyped("_acpmux/vm_host", Request),
         untyped("_acpmux/autocloud_enroll", Request),
@@ -650,8 +666,6 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped("_acpmux/peer_snapshots_clear", Request),
         untyped("_acpmux/journal_restore", Request),
         untyped("_acpmux/attachments_held", Request),
-        untyped(crate::perf_trace::METHOD_SPANS, Request),
-        untyped(crate::perf_trace::METHOD_STATUS, Request),
         untyped(crate::agent_credentials::UPDATE_METHOD, Request),
         untyped(method::MUX_PAIR_TICKET_NEW, Request),
         untyped(method::MUX_PAIR_LIST, Request),
@@ -662,6 +676,12 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_CONSENT_SET, Request),
         untyped(method::MUX_MACHINE_CONSENT_GET, Request),
         untyped(method::MUX_MACHINE_CONSENT_REFUSED, Request),
+        untyped(method::MUX_CONSENT_REMOTE_STATUS, Request),
+        untyped(method::MUX_CONSENT_REMOTE_SET, Request),
+        untyped(method::MUX_CONSENT_GRANTOR_TRUST, Request),
+        untyped(method::MUX_CONSENT_ACCOUNT_SET, Request),
+        untyped(method::MUX_CONSENT_TRUST_REFRESH, Request),
+        untyped(method::MUX_CONSENT_SCREEN_AUTO, Request),
         untyped(method::MUX_MACHINE_ROUTES, Request),
         untyped(method::MUX_MACHINE_ROUTE_PROBE, Request),
         untyped(method::MUX_SHARE_HOST_STATUS, Request),

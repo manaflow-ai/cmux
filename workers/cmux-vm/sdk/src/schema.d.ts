@@ -461,6 +461,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/vms/{vmId}/files/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search the text of files under a folder in a VM
+         * @description Search the text of files under a folder in a VM. Requires the vm:files scope. One request instead of a listing and a read per file. On a paused VM it never wakes the guest: it answers from the replica seeded at pause (POST files/replica) while the VM is unchanged since, and otherwise reads the saved disk and keeps what it read as the replica. On a running VM it reads the disk. Folders named .git, node_modules, target, .cache, .venv, __pycache__, .next, dist and build are skipped; binary files are not matched. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        get: operations["files.searchFiles"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/vms/{vmId}/files/replica": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Seed a paused VM's read replica
+         * @description Seed a paused VM's read replica. Requires the vm:files scope. Reads the text under the path from the paused VM's saved disk once and keeps it off the VM, so later searches under it answer in one read with no wake. Call it right after a pause. Replaces the previous replica. A VM that is not paused is 409. The replica answers only while the VM is unchanged; a resume makes it stale. Another tenant's resource is always 404; a tenant's per-minute rate limit answers 429.
+         */
+        post: operations["files.seedFileReplica"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/snapshot-creations": {
         parameters: {
             query?: never;
@@ -1593,10 +1633,10 @@ export interface components {
         Conflict: {
             message: string;
             /**
-             * @description mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again.
+             * @description mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again. creation.intent_refused: this Idempotency-Key's recorded create refuses this attempt (its intent changed, it was cancelled or completed, or its reservation expired); retrying the same key never creates it.
              * @enum {string}
              */
-            code?: "mesh.device.intent_revoked";
+            code?: "mesh.device.intent_revoked" | "creation.intent_refused";
             creationKey?: components["schemas"]["VmCreationKey"];
             /** @description a string matching the pattern ^snap_[0123456789abcdefghjkmnpqrstvwxyz]{26}$ */
             pendingSnapshotId?: string;
@@ -1963,6 +2003,55 @@ export interface components {
             name: string;
             /** @enum {string} */
             kind: "file" | "directory" | "symlink" | "other";
+        };
+        FileSearch: {
+            /**
+             * @description replica: answered from the copy of the text seeded while this VM has been paused, in one read. disk: read from the saved disk file by file (no replica, or the VM changed since it was seeded).
+             * @enum {string}
+             */
+            source: "replica" | "disk";
+            /** @description False when a bound (5000 files, 2000 folders, 16 MiB) left files under the path unread, or the limit cut the matches. */
+            complete: boolean;
+            /**
+             * nonNegative
+             * @description Files under the path that were searched.
+             */
+            scanned: components["schemas"]["Int"];
+            matches: components["schemas"]["SearchMatch"][];
+        };
+        SearchMatch: {
+            path: string;
+            /**
+             * positive
+             * @description a positive number
+             */
+            line: components["schemas"]["Int"];
+            /** @description The matching line, at most 400 characters. */
+            text: string;
+        };
+        FileReplica: {
+            root: components["schemas"]["GuestPath"];
+            complete: boolean;
+            /**
+             * nonNegative
+             * @description a non-negative number
+             */
+            files: components["schemas"]["Int"];
+            /**
+             * nonNegative
+             * @description a non-negative number
+             */
+            bytes: components["schemas"]["Int"];
+            /**
+             * nonNegative
+             * @description Files over 256 KiB: only their first 256 KiB are searched.
+             */
+            truncated: components["schemas"]["Int"];
+            /**
+             * nonNegative
+             * @description a non-negative number
+             */
+            seedMs: components["schemas"]["Int"];
         };
         SnapshotCreationList: {
             items: components["schemas"]["SnapshotCreationStatus"][];
@@ -4836,6 +4925,190 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FileList"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "files.searchFiles": {
+        parameters: {
+            query: {
+                path: components["schemas"]["GuestPath"];
+                /** @description A literal, case-sensitive substring, matched line by line. */
+                query: string;
+                /** @description a string to be decoded into a number */
+                limit?: string;
+            };
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description FileSearch */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileSearch"];
+                };
+            };
+            /** @description The request did not match the expected schema */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HttpApiDecodeError"] | components["schemas"]["BadRequest"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Forbidden"];
+                };
+            };
+            /** @description NotFound */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotFound"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Conflict"];
+                };
+            };
+            /** @description QuotaExceeded */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QuotaExceeded"];
+                };
+            };
+            /** @description ServiceUnavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ServiceUnavailable"];
+                };
+            };
+        };
+    };
+    "files.seedFileReplica": {
+        parameters: {
+            query: {
+                path: components["schemas"]["GuestPath"];
+            };
+            header?: {
+                /** @description a string at most 128 character(s) long */
+                "x-cmux-team-id"?: string;
+            };
+            path: {
+                vmId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description FileReplica */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FileReplica"];
                 };
             };
             /** @description The request did not match the expected schema */

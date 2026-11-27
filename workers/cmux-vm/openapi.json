@@ -554,6 +554,17 @@
             },
             "required": false,
             "description": "a string at most 255 character(s) long"
+          },
+          {
+            "name": "x-cmux-create-priority",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "background"
+              ]
+            },
+            "required": false
           }
         ],
         "security": [
@@ -11277,9 +11288,10 @@
           "code": {
             "type": "string",
             "enum": [
-              "mesh.device.intent_revoked"
+              "mesh.device.intent_revoked",
+              "creation.intent_refused"
             ],
-            "description": "mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again."
+            "description": "mesh.device.intent_revoked: the enroll's intentId was revoked (or its device deleted); this intent never makes a device again. creation.intent_refused: this Idempotency-Key's recorded create refuses this attempt (its intent changed, it was cancelled or completed, or its reservation expired); retrying the same key never creates it."
           },
           "creationKey": {
             "$ref": "#/components/schemas/VmCreationKey"

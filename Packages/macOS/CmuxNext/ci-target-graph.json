@@ -31,9 +31,21 @@
       "targets": [],
       "packages": []
     },
+    "BackdropArtEntriesPlugin": {
+      "kind": "plugin",
+      "path": "Packages/macOS/CmuxNext/Plugins/BackdropArtEntriesPlugin",
+      "targets": [],
+      "packages": []
+    },
     "CCmuxAppFFI": {
       "kind": "binary",
       "path": null,
+      "targets": [],
+      "packages": []
+    },
+    "CCmuxScreenshots": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CCmuxScreenshots",
       "targets": [],
       "packages": []
     },
@@ -340,6 +352,7 @@
         "CmuxNextCloud",
         "CmuxNextCloudCredentials",
         "CmuxNextCloudPlace",
+        "CmuxNextCloudStart",
         "CmuxNextCloudUI",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
@@ -595,16 +608,17 @@
         "CmuxVisibleRows"
       ],
       "reads": [
-        "Native/OptChat/optchat-chief/inspector/index.html",
         "Packages/macOS/CLAUDE.md",
-        "Packages/macOS/CmuxNext/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextApp/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Localizable.xcstrings.d/",
+        "Packages/macOS/CmuxNext/Sources/CmuxNextWebUpdates/",
+        "Packages/macOS/CmuxNext/Tests/Fixtures/default-render/native.txt",
         "Resources/cmux-themes/",
         "Resources/ghostty/themes/",
         "Resources/markdown-viewer/ondine.min.js",
         "Resources/sidebar-looks/",
         "Resources/theme-files/",
         "cmux-tui/crates/acpmux/tests/fake_agent.py",
-        "cmux-tui/crates/cmux-layout-reducer/tests/data/closing_panes_corpus.txt",
         "cmux-tui/crates/cmux-layout-reducer/tests/data/shown_resize_corpus.txt",
         "cmux-tui/crates/cmux-tui/src/cli/app.rs",
         "cmux-tui/spec/",
@@ -752,6 +766,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserCore",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
@@ -1009,6 +1024,15 @@
       ],
       "packages": []
     },
+    "CmuxNextCloudStart": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCloudStart",
+      "targets": [
+        "CmuxNextCloud",
+        "CmuxNextDaemon"
+      ],
+      "packages": []
+    },
     "CmuxNextCloudTests": {
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextCloudTests",
@@ -1240,6 +1264,7 @@
       ],
       "packages": [],
       "reads": [
+        "cmux-tui/spec/gui-capabilities.json",
         "plans/cmux-next/daemon-capabilities.json",
         "scripts/cmux-next/pin-cmux-tui.sh"
       ]
@@ -1601,7 +1626,6 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine",
       "targets": [
-        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextAgentPane",
         "CmuxNextCloud",
@@ -1958,11 +1982,14 @@
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextMobileHost",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
-      "packages": []
+      "packages": [
+        "CmuxVisibleRows"
+      ]
     },
     "CmuxNextNowPlaying": {
       "kind": "regular",
@@ -2218,6 +2245,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextRemoteViewSessions",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextBrowser",
         "CmuxNextCompat",
         "CmuxNextDesign",
@@ -2253,6 +2281,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots",
       "targets": [
+        "CCmuxAppFFI",
+        "CCmuxScreenshots",
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextFileGrid",
@@ -2331,6 +2361,15 @@
         "CmuxNextCompat",
         "CmuxNextDesign",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextSettingsExport": {
+      "kind": "executable",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsExport",
+      "targets": [
+        "CmuxNextCompat",
+        "CmuxNextSettings"
       ],
       "packages": []
     },
@@ -2697,6 +2736,12 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "DaemonCapabilitiesPlugin": {
+      "kind": "plugin",
+      "path": "Packages/macOS/CmuxNext/Plugins/DaemonCapabilitiesPlugin",
+      "targets": [],
+      "packages": []
     },
     "DaemonWireTypesPlugin": {
       "kind": "plugin",
