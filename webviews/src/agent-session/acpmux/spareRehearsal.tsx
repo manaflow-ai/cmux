@@ -1,7 +1,7 @@
 // l10n-allow-file: a built-in sample chat drawn offscreen once to warm the page's code, never shown.
 // The spare page's rehearsal (trading systems' "warm up before market open"): the prewarmed New Tab page
 // premounts its chat view with no rows, so the row, markdown, fold and layout code first runs, unoptimized,
-// on the person's first open. Once the page has painted and is idle, this folds a small sample chat through
+// on the person's first open. Once the page is idle, this folds a small sample chat through
 // the real reducer (AcpmuxDirectClient.replay), draws it once offscreen, inert and unseen, then unmounts it.
 // The first real open then runs code V8 has already parsed, compiled and gathered type feedback for.
 // Off: `window.__cmuxSpareRehearse = "off"` (the bench's A/B, REHEARSE=off).
@@ -131,7 +131,7 @@ const OFFSCREEN: React.CSSProperties = {
 let rehearsed = false;
 const noToggle = () => {};
 
-/// Draws the sample once per page, when the page is idle and still shown, then nothing.
+/// Draws the sample once per page, when the page is idle, shown or not, then nothing.
 export function SpareRehearsal() {
   const [rows, setRows] = useState<ReturnType<typeof turnView> | undefined>();
   useEffect(() => {
@@ -139,10 +139,9 @@ export function SpareRehearsal() {
     let cancelled = false;
     const run = () => {
       if (cancelled || rehearsed) return;
-      // A hidden page folds no snapshot (direct.ts emit), and the next show is the person's open: a parked
-      // Chromium spare reports hidden once it painted (PageWebView+AwayDrawing). Rehearsing then would land
-      // in the open it is meant to speed up, so a page that is hidden by now skips it.
-      if (document.visibilityState === "hidden") return;
+      // A parked Chromium spare reports hidden once it painted (PageWebView+AwayDrawing), and its next show is
+      // the person's open: the rehearsal runs hidden too (a replay emits while hidden, direct.ts emit), so it
+      // never lands in that open.
       rehearsed = true;
       setRows(turnView(rehearsalRows(), NO_FOLD_TOGGLES, { working: false, clockOffset: 0 }));
     };
