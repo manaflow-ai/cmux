@@ -111,6 +111,7 @@ dependencies = [
  "getrandom 0.3.4",
  "glob",
  "hpke",
+ "ignore",
  "imbl",
  "inotify",
  "iroh",

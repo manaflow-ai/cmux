@@ -935,7 +935,7 @@ async fn reconnect(
     let path_change = matches!(disruption, Some(Disruption::AddressChange { .. }));
     let dark_ms = match disruption {
         Some(Disruption::Blackout { duration_ms }) => duration_ms,
-        Some(Disruption::AddressChange { stall_ms }) => stall_ms[1],
+        Some(Disruption::AddressChange { stall_ms, .. }) => stall_ms[1],
         // The LAN link this bench dials never drops; nothing here rides the internet path yet.
         Some(Disruption::InternetDown) | None => return,
     };

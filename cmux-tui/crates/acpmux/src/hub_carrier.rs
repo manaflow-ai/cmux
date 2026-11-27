@@ -1585,6 +1585,10 @@ impl HubCarrier {
     /// One pass of [`Self::keep_reopening`]: every machine at once, each slot locked while its
     /// circuit opens, so a dial to that machine waits on this open rather than racing it.
     pub async fn reopen_closed(&self) -> usize {
+        // Machines with nothing kept go first, so the map is only those with something to keep.
+        self.kept.prune();
+        self.direct.kept.prune();
+        self.iroh.kept.prune();
         let slots: Vec<_> = self
             .kept
             .to_reopen()
@@ -3264,3 +3268,7 @@ mod silent_circuit_tests;
 #[cfg(test)]
 #[path = "hub_carrier_kept_hedge_tests.rs"]
 mod kept_hedge_tests;
+
+#[cfg(test)]
+#[path = "hub_carrier_kept_prune_tests.rs"]
+mod kept_prune_tests;
