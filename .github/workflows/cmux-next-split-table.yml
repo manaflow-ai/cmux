@@ -38,7 +38,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: cmux-next-split-table-${{ github.event.pull_request.number || github.run_id }}
+  group: cmux-next-split-table-${{ github.event.pull_request.number || github.run_id }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:

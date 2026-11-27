@@ -14,7 +14,7 @@ permissions:
 concurrency:
   # Reusable calls inherit the caller's `github.workflow` value. Keep this
   # explicit so a CI call cannot collide with and cancel its own caller.
-  group: cmux-browser-${{ github.ref }}
+  group: cmux-browser-${{ github.ref }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:

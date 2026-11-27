@@ -19,7 +19,7 @@ permissions: {}
 # The description only matters through its `Swift-growth:` line: an edit with none before or after it measures
 # nothing and takes its own group, so it never cancels a push's run (pattern pr-edit-fans-out-ci).
 concurrency:
-  group: swift-logic-ratchet-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Swift-growth:') || contains(github.event.changes.body.from, 'Swift-growth:'))) && format('-edit-{0}', github.run_id) || '' }}
+  group: swift-logic-ratchet-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Swift-growth:') || contains(github.event.changes.body.from, 'Swift-growth:'))) && format('-edit-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 jobs:

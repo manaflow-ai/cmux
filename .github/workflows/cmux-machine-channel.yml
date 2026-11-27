@@ -82,7 +82,7 @@ permissions:
 concurrency:
   # A pull request's newer head supersedes its build (pr-router.yml cancels its run too). A push is never held
   # as a whole run: its stages wait in the job-level groups below, so a run's journey never holds the next build.
-  group: cmux-machine-channel-${{ github.event_name == 'push' && format('run-{0}', github.run_id) || github.ref }}
+  group: cmux-machine-channel-${{ github.event_name == 'push' && format('run-{0}', github.run_id) || github.ref }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:

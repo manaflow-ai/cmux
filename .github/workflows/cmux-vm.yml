@@ -193,7 +193,7 @@ on:
 concurrency:
   # A label event for any other label gets a group of its own, so it never
   # cancels the running check; `check` skips on it.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok') && format('-label-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["cmux-vm-breaking-change-ok","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'cmux-vm-breaking-change-ok') && format('-label-{0}', github.run_id) || '' }}${{ github.event_name == 'workflow_dispatch' && format('-dispatch-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:

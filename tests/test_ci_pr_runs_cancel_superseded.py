@@ -53,6 +53,18 @@ cancel-in-progress. Its group is checked against the target's, so a change to
 either one's group that stops them matching goes red here; a `no-janitor` label
 must keep the run (a group of its own).
 
+A ready_for_review run is the same head as the draft run before it, so it
+must never cancel that run (pattern same-head-event-cancels-the-heads-run in
+cmuxterm-hq docs/handbook; cmux#61962: a draft marked ready 15 s after it
+opened cancelled every draft run, and the cancelled check runs left 43 failed
+checks on the head until a person reran them). same_head_problems evaluates
+each workflow's group and every job's, for an opened draft run and a
+ready_for_review run of one pull request (a reusable workflow as its
+pull_request caller would call it): the two must not share a group while the
+ready run cancels. Each workflow appends READY_GROUP_SUFFIX to its group, so
+the ready run takes a group of its own; a newer push still cancels both
+(ci-pr-superseded-cancel.yml cancels the older head's runs).
+
 Run: python3 tests/test_ci_pr_runs_cancel_superseded.py
 """
 
@@ -769,8 +781,105 @@ def self_check() -> list[str]:
     return failures
 
 
+
+
+# --- A same-head event never cancels the head's run (pattern same-head-event-cancels-the-heads-run) --------------
+
+# A draft pull request marked ready 15 s after it opened (cmux#61962 at 47b31bb6, 2026-11-27): the ready_for_review
+# runs shared each workflow's per-PR group with the draft runs and cancelled them all (cmux-next run 46014928072, CI
+# run 46014927711, pr router 46014928322 and more). The ready runs reported every one of those checks again, but the
+# cancelled check runs stayed on the commit beside them, GitHub showed 43 failed checks, and the land sat until a
+# person reran the cancelled runs 30 min later. A ready_for_review run is the same head: it must queue behind the
+# draft run (cancel-in-progress false for it) or run in a group of its own, never cancel it. A newer push still
+# cancels the old head's run (its synchronize run cancels, and ci-pr-superseded-cancel.yml).
+SAME_HEAD_ACTIONS = ("ready_for_review",)
+# What each workflow appends (cmux-next-guards.yml did first, cmux#60334): a ready run gets a group of its own.
+READY_GROUP_SUFFIX = ("${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && "
+                      "format('-ready-{0}', github.run_id) || '' }}")
+
+
+def same_head_context(workflow: dict, event: str, action: str, draft: bool) -> dict[str, Any]:
+    """The contexts of an ACTION run of pull request 101 at the head its opened run had."""
+    context = pr_context(workflow, event, 101, 1)
+    context["github"]["event"]["action"] = action
+    context["github"]["event"]["pull_request"]["draft"] = draft
+    return context
+
+
+def event_types(trigger: Any) -> list[str]:
+    if not isinstance(trigger, dict) or not trigger.get("types"):
+        return ["opened", "synchronize", "reopened"]  # GitHub's default activity types
+    types = trigger["types"]
+    return [types] if isinstance(types, str) else list(types)
+
+
+def same_head_problems(workflow: dict) -> list[str]:
+    """Why a ready_for_review run of this workflow (or, for a reusable workflow, of its pull request caller, whose
+    event it inherits) cancels the in-flight draft run of the same head, in the workflow's group or a job's."""
+    on = triggers(workflow)
+    events = [(event, action) for event in PR_EVENTS if event in on
+              for action in SAME_HEAD_ACTIONS if action in event_types(on[event])]
+    if "workflow_call" in on and not any(event in on for event in PR_EVENTS):
+        events = [("pull_request", action) for action in SAME_HEAD_ACTIONS]
+    scopes = [("workflow", workflow.get("concurrency"))] + [
+        (f"job {job_id}", job.get("concurrency"))
+        for job_id, job in (workflow.get("jobs") or {}).items() if isinstance(job, dict)]
+    out: list[str] = []
+    for event, action in events:
+        earlier = same_head_context(workflow, event, "opened", True)
+        later = same_head_context(workflow, event, action, False)
+        for scope, concurrency in scopes:
+            if not concurrency:
+                continue
+            try:
+                shared = group_of(concurrency, earlier) == group_of(concurrency, later)
+                cancels = isinstance(concurrency, dict) and _truthy(
+                    resolve(concurrency.get("cancel-in-progress", False), later))
+            except (ExpressionError, KeyError, IndexError, TypeError, ValueError) as error:
+                out.append(f"{event} {action}: cannot evaluate {scope}'s concurrency: {error}")
+                continue
+            if shared and cancels:
+                out.append(f"{event} {action}: in {scope}, a {action} run shares the draft run's group "
+                           f"{group_of(concurrency, later)!r} and cancels it at the same head: append "
+                           f"{READY_GROUP_SUFFIX!r} to its group (or queue: "
+                           f"`&& github.event.action != '{action}'` on its cancel-in-progress)")
+    return out
+
+
+def same_head_self_check() -> list[str]:
+    failures = []
+    on = {"on": {"pull_request": {"types": ["opened", "synchronize", "ready_for_review"]}}}
+    group = "w-${{ github.event.pull_request.number }}"
+    naive = {**on, "concurrency": {"group": group, "cancel-in-progress": True}}
+    if not same_head_problems(naive):
+        failures.append("self-check: a ready_for_review run that cancels the draft run must fail")
+    queued = {**on, "concurrency": {"group": group,
+                                    "cancel-in-progress": "${{ github.event.action != 'ready_for_review' }}"}}
+    if same_head_problems(queued) or workflow_problem(queued) is not None:
+        failures.append("self-check: a ready run that queues must pass, and a push must still cancel: "
+                        f"{same_head_problems(queued)} {workflow_problem(queued)}")
+    per_head = {**on, "concurrency": {"group": group + "${{ github.event.action == 'ready_for_review' && "
+                                      "format('-ready-{0}', github.event.pull_request.head.sha) || '' }}",
+                                      "cancel-in-progress": True}}
+    if same_head_problems(per_head):
+        failures.append(f"self-check: a ready run in a group of its own must pass: {same_head_problems(per_head)}")
+    suffixed = {**on, "concurrency": {"group": group + READY_GROUP_SUFFIX, "cancel-in-progress": True}}
+    if same_head_problems(suffixed) or workflow_problem(suffixed) is not None:
+        failures.append("self-check: the READY_GROUP_SUFFIX group must pass, and a push must still cancel: "
+                        f"{same_head_problems(suffixed)} {workflow_problem(suffixed)}")
+    job = {**on, "jobs": {"j": {"concurrency": {"group": group, "cancel-in-progress": True}}}}
+    if not same_head_problems(job):
+        failures.append("self-check: a job-level group that cancels at the same head must fail")
+    callee = {"on": {"workflow_call": None}, "concurrency": {"group": group, "cancel-in-progress": True}}
+    if not same_head_problems(callee):
+        failures.append("self-check: a reusable workflow inherits its caller's ready_for_review event")
+    if same_head_problems({"on": {"pull_request": None}, "concurrency": {"group": group, "cancel-in-progress": True}}):
+        failures.append("self-check: a workflow with no ready_for_review type gets no ready run")
+    return failures
+
+
 def main() -> int:
-    failures = self_check()
+    failures = self_check() + same_head_self_check()
     checked = 0
     for path in sorted(WORKFLOWS.glob("*.y*ml")):
         workflow = load(path)
@@ -780,7 +889,7 @@ def main() -> int:
             if not edits:
                 failures.append(f"EDIT_SKIP_PENDING names {path.name}, which passes the edit rule now: remove it")
             edits = []
-        for reason in edits + comment_problems(workflow):
+        for reason in edits + comment_problems(workflow) + same_head_problems(workflow):
             failures.append(f"{path.relative_to(ROOT)}: {reason}")
         if not any(event in triggers(workflow) for event in PR_EVENTS):
             continue

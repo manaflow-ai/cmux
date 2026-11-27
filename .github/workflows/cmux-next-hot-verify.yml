@@ -121,7 +121,7 @@ permissions: {}
 # its own group, so it never cancels a head look still queued or running when the PR merged. A result run has its
 # own group per head: it never cancels a newer head's request run, nor one that one cancels it.
 concurrency:
-  group: cmux-next-hot-verify-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.pr || github.sha }}${{ (github.event.action == 'closed' || inputs.kind == 'merge') && '-merge' || '' }}${{ inputs.look_result != '' && format('-result-{0}', inputs.head) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: cmux-next-hot-verify-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.pr || github.sha }}${{ (github.event.action == 'closed' || inputs.kind == 'merge') && '-merge' || '' }}${{ inputs.look_result != '' && format('-result-{0}', inputs.head) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:

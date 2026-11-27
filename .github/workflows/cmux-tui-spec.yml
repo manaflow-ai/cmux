@@ -168,7 +168,7 @@ on:
 concurrency:
   # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
   # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
-  group: cmux-tui-spec-${{ github.workflow }}-${{ github.ref }}-${{ inputs.commit }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
+  group: cmux-tui-spec-${{ github.workflow }}-${{ github.ref }}-${{ inputs.commit }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   # A newer push to a pull request supersedes its run; base-branch pushes each finish
   # (the clippy job saves its cargo cache from them).
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

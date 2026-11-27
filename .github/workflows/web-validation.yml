@@ -78,7 +78,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: web-validation-${{ github.ref }}
+  group: web-validation-${{ github.ref }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

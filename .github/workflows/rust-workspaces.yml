@@ -216,7 +216,7 @@ concurrency:
   # Every feat-cmux-next push gets its own run: the next one only diffs against its own parent.
   # A post-merge call (inputs.sha set) is keyed by its caller's run too: same-commit calls (a confirm round's red-1/red-2,
   # back-to-back probes) evicted or cancelled each other, and each lost call was dispatched again (cmux runs 45988834788, 45997396504).
-  group: rust-workspaces-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}
+  group: rust-workspaces-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ inputs.sha && format('-call-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:

@@ -189,7 +189,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ios-review-gate-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.ref || github.ref }}-${{ inputs.lane || 'appstore' }}
+  group: ios-review-gate-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.ref || github.ref }}-${{ inputs.lane || 'appstore' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   # Latest wins for pull requests. A feat-cmux-next push run finishes: the
   # group holds one running and one pending run, and a newer push replaces
   # only the pending one, so base gets a verdict at its tip every run's length.

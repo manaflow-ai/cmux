@@ -113,7 +113,7 @@ concurrency:
   # A label event into feat-cmux-next for a label nothing here reads gets a
   # group of its own, so it neither waits behind the running run nor replaces a
   # pending one; every job but ci-status skips, and the run ends in seconds.
-  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name == 'dev-build' && '-dev-build' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: ${{ github.workflow }}-${{ github.ref }}${{ github.event.action == 'labeled' && github.event.label.name == 'dev-build' && '-dev-build' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","dev-build","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   # A label-only rerun can escalate the same head to full-ci. Let the current
   # compile finish and publish its app-host product so the queued run can reuse
   # it instead of throwing away a long compile and starting from zero.

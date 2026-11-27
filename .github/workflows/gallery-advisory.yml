@@ -74,7 +74,7 @@ permissions:
 # A body edit that does not touch a `Gallery:` or `Visual-change:` line gets its own group, so it
 # never cancels a capture in flight; every job then skips.
 concurrency:
-  group: gallery-advisory-${{ github.event.pull_request.number || github.sha }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:') || contains(github.event.pull_request.body, 'isual-change:') || contains(github.event.changes.body.from, 'isual-change:'))) && format('-noop-{0}', github.run_id) || '' }}
+  group: gallery-advisory-${{ github.event.pull_request.number || github.sha }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'allery:') || contains(github.event.changes.body.from, 'allery:') || contains(github.event.pull_request.body, 'isual-change:') || contains(github.event.changes.body.from, 'isual-change:'))) && format('-noop-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:

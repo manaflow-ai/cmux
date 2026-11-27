@@ -27,7 +27,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: pool-build-path-${{ github.ref }}
+  group: pool-build-path-${{ github.ref }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 permissions:

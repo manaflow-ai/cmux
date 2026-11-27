@@ -103,7 +103,7 @@ permissions: {}
 # starts no runner and takes a group of its own, so it cancels neither
 # (tests/test_ci_edit_events_start_no_runner.py).
 concurrency:
-  group: pr-checks-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && ((github.event.changes.body && (contains(github.event.pull_request.body, 'Size:') || contains(github.event.changes.body.from, 'Size:'))) || (github.event.changes.body && (contains(github.event.pull_request.body, 'UI review') || contains(github.event.changes.body.from, 'UI review') || contains(github.event.pull_request.body, 'Verdict:') || contains(github.event.changes.body.from, 'Verdict:')))) && 'edited' || github.event.action == 'edited' && format('edit-{0}', github.run_id) || 'push' }}
+  group: pr-checks-${{ github.event.pull_request.number }}-${{ github.event.action == 'edited' && ((github.event.changes.body && (contains(github.event.pull_request.body, 'Size:') || contains(github.event.changes.body.from, 'Size:'))) || (github.event.changes.body && (contains(github.event.pull_request.body, 'UI review') || contains(github.event.changes.body.from, 'UI review') || contains(github.event.pull_request.body, 'Verdict:') || contains(github.event.changes.body.from, 'Verdict:')))) && 'edited' || github.event.action == 'edited' && format('edit-{0}', github.run_id) || 'push' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:

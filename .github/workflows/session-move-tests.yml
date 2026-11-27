@@ -49,7 +49,7 @@ permissions:
 
 # A pull request's newer push supersedes its run; each feat-cmux-next push is judged on its own commit.
 concurrency:
-  group: session-move-tests-${{ github.event_name == 'push' && github.sha || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+  group: session-move-tests-${{ github.event_name == 'push' && github.sha || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

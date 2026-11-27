@@ -53,7 +53,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: remote-daemon-${{ github.ref }}
+  group: remote-daemon-${{ github.ref }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:

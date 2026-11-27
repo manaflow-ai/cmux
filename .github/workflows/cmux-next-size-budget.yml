@@ -33,7 +33,7 @@ permissions: {}
 # checker's REASON_LINE does (pattern pr-edit-fans-out-ci in cmuxterm-hq docs/handbook: 130 HOLD-line
 # edits on 2026-11-17 queued this workflow 41 times).
 concurrency:
-  group: cmux-next-size-budget-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:'))) && format('-edit-{0}', github.run_id) || '' }}
+  group: cmux-next-size-budget-${{ github.event.pull_request.number }}${{ github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:'))) && format('-edit-{0}', github.run_id) || '' }}${{ startsWith(github.event_name, 'pull_request') && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 env:
