@@ -298,7 +298,7 @@ export { RowContent } from "./transcript/RowFrame";
 export { broughtSentPrompt } from "./transcript/arrivals";
 export { heldReaderPlace } from "./transcript/scrollAnchors";
 export type { ScrollAnchor } from "./transcript/scrollAnchors";
-export { JumpToLatest, JumpUp } from "./transcript/JumpButtons";
+export { JumpToLatest } from "./transcript/JumpButtons";
 import { JumpToLatest } from "./transcript/JumpButtons";
 
 /// How soon after the last width step's work finished a new width counts as the same live resize,
