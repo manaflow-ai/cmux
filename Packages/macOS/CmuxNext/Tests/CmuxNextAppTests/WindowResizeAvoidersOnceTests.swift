@@ -70,8 +70,7 @@ struct WindowResizeAvoidersOnceTests {
         window.contentView = root
         root.sidebar.isHidden = true
         root.sidebarHidden = true
-        // WindowController.observeSidebarHidden: each move of the main pane card re-checks the window's avoiders.
-        root.onMainPaneMove = { [weak window] in WindowControlsAvoiders.refresh(in: window) }
+        root.refreshesAvoidersOnMainPaneMove() // as WindowController.observeSidebarHidden wires it
         let column = HomeChatColumnView(content: NSView(), compose: HomeChatComposeButton(label: "New Message"))
         column.showsCompose = true
         root.show(Workspace(page: column))
@@ -114,13 +113,93 @@ struct WindowResizeAvoidersOnceTests {
         func updateWindowControlsAvoidance() { checks += 1 }
     }
 
-    /// A batch an exception left open ends at the window's next update. AppKit catches an Objective-C exception thrown
-    /// in a layout pass (a layout loop it stops), which skips the Swift `defer` that ends the batch: every later re-check
-    /// of the window then waited for an end that never came. A Swift test cannot raise and catch one, so the batch's body
-    /// calls the window's `update()` (what `NSApplication.updateWindows` calls once per event loop turn) while the batch
-    /// is open: the re-check asked before it runs there, one asked after it runs at once, and once the body ends the next
-    /// re-check runs at once too (the batch's own end does not count it twice).
-    @Test func theWindowsUpdateEndsABatchLeftOpen() {
+    /// A content view that asks its window's avoiders to re-check in each of its frame changes and layouts, as the main
+    /// pane card's move does (`WindowRootView.onMainPaneMove`), and notes how many re-checks had run when it asked.
+    final class AskingContent: NSView {
+        let probe: CheckCounter
+        var seenInFrameChange: [Int] = []
+        var seenInLayout: [Int] = []
+        init(probe: CheckCounter) {
+            self.probe = probe
+            super.init(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) { nil }
+
+        override func setFrameSize(_ newSize: NSSize) {
+            super.setFrameSize(newSize)
+            guard let window else { return }
+            WindowControlsAvoiders.refresh(in: window)
+            seenInFrameChange.append(probe.checks)
+        }
+
+        override func layout() {
+            super.layout()
+            WindowControlsAvoiders.refresh(in: window)
+            seenInLayout.append(probe.checks)
+        }
+    }
+
+    /// The window's two wrappers, each on its own: a re-check asked inside the window's frame change (`setFrame`, where a
+    /// live resize's step lays out) runs once at its end, and so does one asked inside the window's layout pass
+    /// (`layoutIfNeeded`), never inside either. Whichever of the two lays the window out in the test above, the other is
+    /// pinned here.
+    @Test func aReCheckAskedInAFrameChangeOrALayoutPassRunsAtItsEnd() {
+        _ = NSApplication.shared
+        let window = ShellWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 400),
+                                 styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let probe = CheckCounter(frame: NSRect(x: 0, y: 360, width: 100, height: 40))
+        let content = AskingContent(probe: probe)
+        window.contentView = content
+        content.addSubview(probe)
+        WindowControlsAvoiders.join(probe)
+        window.layoutIfNeeded()
+
+        probe.checks = 0
+        content.seenInFrameChange = []
+        content.seenInLayout = []
+        var frame = window.frame
+        frame.size.height += 20
+        window.setFrame(frame, display: false)
+        #expect(!content.seenInFrameChange.isEmpty, "SETUP: the content view's frame did not change in the window's")
+        #expect(content.seenInFrameChange.allSatisfy { $0 == 0 },
+                "a re-check asked in the window's frame change ran inside it: \(content.seenInFrameChange)")
+        #expect(content.seenInLayout.allSatisfy { $0 == 0 },
+                "a re-check asked in a layout inside the window's frame change ran inside it: \(content.seenInLayout)")
+        #expect(probe.checks == 1, "the re-checks asked in the window's frame change ran \(probe.checks) times at its end")
+
+        content.seenInLayout = []
+        content.needsLayout = true
+        window.layoutIfNeeded()
+        #expect(!content.seenInLayout.isEmpty, "SETUP: the window's layout pass did not lay out its content view")
+        #expect(content.seenInLayout.allSatisfy { $0 == 1 },
+                "a re-check asked in the window's layout pass ran inside it: \(content.seenInLayout)")
+        #expect(probe.checks == 2, "the re-checks asked in the window's layout pass ran \(probe.checks - 1) times at its end")
+    }
+
+    /// Runs the main run loop in `mode` until it has slept once (a timer in that mode wakes it), as the app's event loop
+    /// and a live resize's or a menu's tracking loop do between events. In the app AppKit makes the event-tracking mode
+    /// one of the main run loop's common modes; this makes sure the test process has it too.
+    static func sleepOnce(in mode: RunLoop.Mode) {
+        let cfMode = CFRunLoopMode(rawValue: mode.rawValue as CFString)
+        CFRunLoopAddCommonMode(CFRunLoopGetMain(), cfMode)
+        let timer = Timer(timeInterval: 0.01, repeats: false) { _ in }
+        RunLoop.main.add(timer, forMode: mode)
+        _ = CFRunLoopRunInMode(cfMode, 0.05, false)
+        timer.invalidate()
+    }
+
+    /// A batch an exception left open ends when the main run loop next goes to sleep, in each of its common modes. AppKit
+    /// catches an Objective-C exception thrown in a layout pass (a layout loop it stops), which skips the Swift `defer`
+    /// that ends the batch: every later re-check of the window then waited for an end that never came. A Swift test
+    /// cannot raise and catch one, so the batch's body runs the main run loop in the event-tracking mode (a live resize's
+    /// tracking loop, where the app's event loop does not run) until it sleeps, while the batch is open: the re-check
+    /// asked before runs there, one asked after runs at once, and once the body ends the next re-check runs at once too
+    /// (the batch's own end does not count it twice).
+    @Test func theRunLoopsSleepEndsABatchLeftOpen() {
         _ = NSApplication.shared
         let window = ShellWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 400),
                                  styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
@@ -134,10 +213,10 @@ struct WindowResizeAvoidersOnceTests {
         window.windowControlsAvoiders.batching(in: window) {
             WindowControlsAvoiders.refresh(in: window)
             #expect(probe.checks == 0, "a re-check inside a batch ran before its end")
-            window.update()
-            #expect(probe.checks == 1, "the window's update did not run the re-check an open batch held")
+            Self.sleepOnce(in: .eventTracking)
+            #expect(probe.checks == 1, "the run loop's sleep did not run the re-check an open batch held")
             WindowControlsAvoiders.refresh(in: window)
-            #expect(probe.checks == 2, "after the window's update a re-check still waited for the batch's end")
+            #expect(probe.checks == 2, "after the run loop's sleep a re-check still waited for the batch's end")
         }
         WindowControlsAvoiders.refresh(in: window)
         #expect(probe.checks == 3, "after the batch a re-check waited: the batch's end left it open")
