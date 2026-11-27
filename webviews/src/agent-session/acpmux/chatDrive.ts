@@ -22,6 +22,7 @@ import {
   visibilitySummary,
 } from "./chatPerfCapture";
 import { focusRoute } from "../../ui/focusRoute";
+import { intl } from "../../ui/intl";
 import { focusedArea } from "./composerFocus";
 import { composerProbe, type ComposerPart } from "./composerProbe";
 import { COMPOSER_EDITOR } from "./composerSelectors";
@@ -238,7 +239,7 @@ export class ChatDrive {
     const text =
       typeof typing?.text === "string"
         ? Array.from(
-            new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(typing.text),
+            intl.Segmenter(undefined, { granularity: "grapheme" }).segment(typing.text),
             (part) => part.segment,
           )
         : [];
