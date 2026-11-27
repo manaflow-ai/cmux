@@ -157,7 +157,9 @@ pub async fn serve(
         "file" => file(&config, &args, &sender, false).await,
         "file-preview" => file(&config, &args, &sender, true).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
+        "bundle" => crate::bundle::serve(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
+        crate::lan::SERVICE => crate::lan::enroll(&peer, &args, &sender).await,
         "machine" => {
             let grants = machine_grants.and_then(Result::ok).unwrap_or_default();
             let name = std::env::var("CMUX_MOBILE_DEVICE_NAME").unwrap_or_else(|_| crate::config::hostname());
@@ -271,8 +273,10 @@ const ACPMUX_MAX_MESSAGE_BYTES: usize = 64 << 20;
 /// with deltas and content-addressed blobs, `tab_snapshots.rs`).
 /// `mailbox-send-v1`: the mailbox takes `send` and `compose` items, held up to 24 hours and
 /// applied once in each phone's `seq` order (`mailbox.rs`, PROTOCOL.md "Store and forward").
+/// `bundle-v1`: the `bundle` service (attachment `put` and file `get` as sealed
+/// content-defined chunks, `bundle.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 11] = [
+pub const CAPABILITIES: [&str; 12] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -284,6 +288,7 @@ pub const CAPABILITIES: [&str; 11] = [
     names::PHONE_FRAMES,
     names::TAB_SNAPSHOTS,
     names::MAILBOX_SEND,
+    names::BUNDLE,
 ];
 /// Added to [`CAPABILITIES`] when this Mac can stream browser tabs (`browser`).
 pub const BROWSER_STREAM: &str = names::BROWSER_STREAM;
@@ -315,6 +320,10 @@ pub fn capabilities(config: &ServiceConfig) -> Vec<&'static str> {
     }
     if config.surface.streams_mac_display() {
         out.push(MAC_DISPLAY);
+    }
+    if crate::lan::running() {
+        // The phone may enroll for the LAN direct path (`lan`, lan.rs).
+        out.push(crate::lan::CAPABILITY);
     }
     out
 }
@@ -1313,9 +1322,14 @@ async fn connect_acpmux_as(target: &AcpmuxTarget, credential: Option<&str>) -> R
     let limits = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
         .max_message_size(Some(ACPMUX_MAX_MESSAGE_BYTES))
         .max_frame_size(Some(ACPMUX_MAX_MESSAGE_BYTES));
-    let (socket, _) = tokio_tungstenite::connect_async_with_config(request, Some(limits), false)
-        .await
-        .map_err(|e| Refusal::new("unavailable", format!("acpmux: {e}")))?;
+    let (socket, _) = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(limits),
+        false,
+        "cmux_mobile_host::services::acpmux",
+    )
+    .await
+    .map_err(|e| Refusal::new("unavailable", format!("acpmux: {e}")))?;
     Ok(socket)
 }
 
@@ -1980,16 +1994,13 @@ pub fn shared_file_roots(file_roots: &[PathBuf], folders: Vec<PathBuf>, home: &P
     roots
 }
 
-/// `file`: stream one regular file of any size inside a workspace root, then
-/// close with `eof`. The roots are the Chat Folders, then (only when the file is
-/// outside them) the Mac's workspace folders as they are now. `file-preview`
-/// prepends metadata from the same open descriptor before streaming those bytes.
-async fn file(
+/// The regular file `args.path` names, opened inside the shared roots (the Chat Folders, then the
+/// Mac's workspace folders as they are now), checked again where the open descriptor points. `file`,
+/// `file-preview` and `bundle` `get` read only through it.
+pub(crate) async fn open_shared_file(
     config: &ServiceConfig,
     args: &Value,
-    sender: &ChannelSender,
-    preview_metadata: bool,
-) -> Result<(), Refusal> {
+) -> Result<(tokio::fs::File, std::fs::Metadata), Refusal> {
     let requested = args
         .get("path")
         .and_then(Value::as_str)
@@ -2022,6 +2033,20 @@ async fn file(
     if !metadata.is_file() {
         return Err(Refusal::new("bad_request", "not a regular file"));
     }
+    Ok((file, metadata))
+}
+
+/// `file`: stream one regular file of any size inside a workspace root, then
+/// close with `eof`. The roots are the Chat Folders, then (only when the file is
+/// outside them) the Mac's workspace folders as they are now. `file-preview`
+/// prepends metadata from the same open descriptor before streaming those bytes.
+async fn file(
+    config: &ServiceConfig,
+    args: &Value,
+    sender: &ChannelSender,
+    preview_metadata: bool,
+) -> Result<(), Refusal> {
+    let (file, metadata) = open_shared_file(config, args).await?;
     // A distinct service keeps old hosts' raw file bytes from being mistaken for
     // metadata. Read the size from this descriptor, after all confinement checks,
     // so the phone can check free storage before accepting the file's contents.
@@ -2333,7 +2358,7 @@ async fn upload_folder(config: &ServiceConfig, peer: &Peer, cwd: Option<&str>) -
     Ok(resolved)
 }
 
-fn create_private_dir(path: &Path) -> Result<(), Refusal> {
+pub(crate) fn create_private_dir(path: &Path) -> Result<(), Refusal> {
     use std::os::unix::fs::DirBuilderExt;
     match std::fs::DirBuilder::new().recursive(true).mode(0o700).create(path) {
         Ok(()) => Ok(()),
@@ -2343,7 +2368,7 @@ fn create_private_dir(path: &Path) -> Result<(), Refusal> {
 
 /// `<folder>/<name>`, or `<stem> 2.<ext>`, ... when that name is taken:
 /// links `part` there without replacing anything.
-fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Refusal> {
+pub(crate) fn publish_upload(folder: &Path, name: &str, part: &Path) -> Result<PathBuf, Refusal> {
     let (stem, extension) = match name.rfind('.') {
         Some(dot) if dot > 0 => (&name[..dot], &name[dot..]),
         _ => (name, ""),
@@ -2397,12 +2422,13 @@ async fn upload(
     }
 }
 
-async fn receive_upload(
+/// An `upload`'s (or a `bundle` `put`'s) `{name, size, cwd?}`: the safe file name, the declared size
+/// and the folder it lands in ([`upload_folder`]).
+pub(crate) async fn upload_target(
     config: &ServiceConfig,
     peer: &Peer,
     args: &Value,
-    mut receiver: ChannelReceiver,
-) -> Result<(PathBuf, u64), Refusal> {
+) -> Result<(String, u64, PathBuf), Refusal> {
     let name = args
         .get("name")
         .and_then(Value::as_str)
@@ -2416,6 +2442,16 @@ async fn receive_upload(
     let name = safe_file_name(name);
     let cwd = args.get("cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty());
     let folder = upload_folder(config, peer, cwd).await?;
+    Ok((name, size, folder))
+}
+
+async fn receive_upload(
+    config: &ServiceConfig,
+    peer: &Peer,
+    args: &Value,
+    mut receiver: ChannelReceiver,
+) -> Result<(PathBuf, u64), Refusal> {
+    let (name, size, folder) = upload_target(config, peer, args).await?;
     let part = folder.join(format!(".{}.part", uuid::Uuid::new_v4()));
     let mut file = tokio::fs::OpenOptions::new()
         .write(true)
@@ -2608,7 +2644,8 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
-                "mailbox-send-v1"
+                "mailbox-send-v1",
+                "bundle-v1"
             ]
         );
         let launcher: crate::browser::Launcher = std::sync::Arc::new(|_| {
@@ -2629,6 +2666,7 @@ mod tests {
                 "phone-frames-v1",
                 "tab-snapshots-v1",
                 "mailbox-send-v1",
+                "bundle-v1",
                 BROWSER_STREAM,
                 BROWSER_VIDEO_TRACK
             ]

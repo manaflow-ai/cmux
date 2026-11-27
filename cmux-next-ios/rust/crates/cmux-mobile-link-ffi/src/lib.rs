@@ -8,7 +8,8 @@ use std::time::Duration;
 
 use cmux_mobile_link::api::ApiClient;
 use cmux_mobile_link::api::{HttpClient, IceCache, IceServer};
-use cmux_mobile_link::link::ChannelSender;
+use cmux_mobile_link::link::{ChannelReceiver, ChannelSender};
+use cmux_mobile_link::signaling::{AfterNetworkChange, after_network_change};
 use cmux_mobile_link::viewport::{PhoneViewport, ViewportReceiver};
 use cmux_mobile_link::{
     BuildSpace, ChannelEvent, DialError, DialOptions, LinkConfig, SignalingClient, Timeline,
@@ -18,46 +19,88 @@ use tokio::runtime::Runtime;
 mod auth_coordinator;
 mod auto_chats;
 mod browser;
+#[doc(hidden)]
+pub mod bundle;
+mod catch_up;
 mod chat_prompt_outbox;
 mod classic_leftovers;
+mod cloud_wake;
+mod cmux_link;
 mod composer_outbox;
+mod feed_list_edit;
 mod follow_camera;
+mod lan;
 mod last_place;
+mod link_progress;
 mod link_side;
 pub mod local_link;
+mod mac_reachability;
 mod mac_screen;
 mod mailbox_client;
 mod pair_requests;
+mod pane_filter;
 mod read_store;
+mod relay_hold;
 mod row_layout;
+mod screen;
 mod share_approval;
 mod tabs;
+mod task_composer;
 mod terminal_chat;
 mod terminal_fit;
 mod terminal_prediction;
 mod terminal_projection;
+mod vnc;
 mod window_layout;
+mod workspace_arrangement;
+mod workspace_groups;
+mod workspace_moves;
+mod workspace_row_actions;
 
 pub use auth_coordinator::AuthCoordinator;
 pub use auto_chats::{
     AutoChat, AutoChatError, AutoChats, AutoHttp, AutoHttpError, AutoHttpReply, AutoHttpRequest,
 };
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
+pub use catch_up::{
+    CatchUpAnswer, CatchUpAsk, CatchUpChatAsk, CatchUpChatPage, CatchUpCut, CatchUpError, CatchUpTree,
+    PhoneCatchUp, catch_up_falls_back, catch_up_service,
+};
 pub use chat_prompt_outbox::{
     ChatAttachment, ChatCancelStep, ChatEditStep, ChatPromptDone, ChatPromptLook, ChatPromptOutbox,
     ChatPromptOutcome, ChatPromptRequest, ChatPromptTaken, ChatUploadState, ChatUploadedAttachment,
 };
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
+pub use cloud_wake::{
+    CloudWakeAnswer, CloudWakeHint, CloudWakeIdle, CloudWakeOutcome, cloud_wake_hint, cloud_wake_idle,
+    cloud_wake_input, cloud_wake_resumed, cloud_wake_version,
+};
+pub use cmux_link::{CmuxLinkTarget, ParsedCmuxLink, cmux_link_parse};
 pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
 };
 pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlaceStore};
+pub use link_progress::{HeldKeysExpiryReason, LinkProgressClock, held_keys_expiry};
 pub use link_side::{LinkOpenSide, link_open_side};
+pub use mac_reachability::{
+    MacLinkFailureKind, MacLinkState, MacReachabilityInput, MacReachabilityKind, MacRecoveryActionKind,
+    MacRecoveryAttemptState, MacRecoveryObservation, MacRecoveryResult, MacRecoveryStep,
+    mac_reachability_action, mac_reachability_late_quiet, mac_reachability_resolve, mac_reachability_span,
+    mac_recovery_advanced, mac_recovery_combined, mac_recovery_timed_out,
+};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
+pub use pane_filter::{
+    PaneFilter, PaneFilterResult, PaneKind, PaneScope, pane_filter_apply, pane_filter_decode,
+    pane_filter_default, pane_filter_encode, pane_filter_shows,
+};
 pub use read_store::{PhoneReadKey, PhoneReadStore, PhoneReadStoreError};
 pub use share_approval::{ShareApprovalDraft, ShareAsk, share_approval_draft, share_approval_signed};
 pub use tabs::{TabsEvent, TabsMirror, TabsRow, TabsViewport};
+pub use task_composer::{
+    TaskPickChange, TaskPickToggle, TaskTerminalLaunch, task_image_mime_type, task_pick_toggle,
+    task_terminal_line,
+};
 pub use terminal_chat::{
     TabFace, TerminalChatCandidate, TerminalChatFaces, TerminalChatFacts, TerminalChatSwap,
 };
@@ -66,7 +109,20 @@ pub use terminal_fit::{
 };
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 pub use terminal_projection::{ProjectionSegment, ProjectionStats, TerminalProjection};
+pub use vnc::{VncJsonError, vnc_json};
 pub use window_layout::{WindowLayout, overview_columns, window_layout};
+pub use workspace_groups::{
+    GROUP_EDIT_CONFIRM_WINDOW, GROUP_EDIT_UNANSWERED_WINDOW, GroupEditStep, PendingGroupEdit,
+    PhoneSidebarRow, PhoneWorkspaceGroup, WorkspaceGroupSlot, pending_group_edit_step, workspace_group_slots,
+};
+pub use workspace_moves::{
+    WorkspaceSortStep, neighbor_move_reordered, neighbor_move_targets, personal_index_moving,
+    personal_index_placing, workspace_sort_steps,
+};
+pub use workspace_row_actions::{
+    WorkspaceRowFacts, WorkspaceRowPlacement, workspace_merge_targets, workspace_new_row_anchor,
+    workspace_row_placements,
+};
 
 uniffi::setup_scaffolding!();
 
@@ -325,8 +381,9 @@ fn timing_marks(timeline: &Timeline) -> Vec<TimingMark> {
 pub struct LinkHandle {
     link: cmux_mobile_link::Link,
     /// The (shared, warm) signaling socket this link was dialed on; it
-    /// stays open for the next dial while the warm pool holds it.
-    /// `None` for a link resumed on a dormant tunnel (no signaling ran).
+    /// stays open for the next dial while the warm pool holds it. `None` for a
+    /// link resumed on a dormant tunnel (no signaling ran) or one that came up
+    /// directly on the LAN (`lan.rs`).
     _signaling: Option<Arc<WarmSocket>>,
     transport: Transport,
     path: tokio::sync::watch::Receiver<cmux_mobile_link::LinkPath>,
@@ -343,6 +400,8 @@ pub struct LinkHandle {
     /// The phone end of viewport sync (cmux_mobile_link::viewport): what
     /// daemon channels ask for, and the link's datagram receivers.
     viewport: PhoneViewport,
+    /// The Mac refused `bundle` (`unknown_service`, an older hostd): files go the old way on this link.
+    bundle_refused: std::sync::atomic::AtomicBool,
 }
 
 impl Drop for LinkHandle {
@@ -527,6 +586,13 @@ impl LinkHandle {
         Ok(u32::try_from(rtt.as_millis()).unwrap_or(u32::MAX))
     }
 
+    /// Wake the radio before a keystroke (the terminal's keyboard took focus
+    /// or a finger touched it): one datagram ping on a link quiet for a
+    /// second. Free when the link is busy, parked or closed. `true` when sent.
+    pub fn prewake(&self) -> bool {
+        self.link.prewake()
+    }
+
     /// Whether the link is alive within `timeout_ms`: the round trip in
     /// milliseconds on the pong, `None` when other frames from the Mac came
     /// first (a slow relay's queue; the link is alive), an error only when
@@ -560,6 +626,17 @@ impl LinkHandle {
     /// it was parked and its hold has not passed. The tunnel then moves onto
     /// a fresh socket (as on a network change) and the caller probes; the
     /// first frame back ends the park on both sides.
+    /// This link's relay-held send route (RFD 0142 R8), or `None` while [`relay_hold::set_relay_hold_enabled`]
+    /// is off or the link is not a WireGuard session. One per link: keep it while the link lives.
+    pub fn relay_hold(&self) -> Option<Arc<relay_hold::RelayHoldRoute>> {
+        if !relay_hold::enabled() {
+            return None;
+        }
+        let _runtime = runtime().enter();
+        let ports = cmux_mobile_link::dial::wireguard::relay_hold_port(&self.session_id, true)?;
+        Some(Arc::new(relay_hold::RelayHoldRoute::new(cmux_mobile_link::hold_route::HoldRoute::start(ports))))
+    }
+
     pub fn resume(&self) -> bool {
         if !self.link.resume() {
             return false;
@@ -804,6 +881,18 @@ pub struct ConnectOptions {
     /// TLS on 443 (path `TurnTls`). WebRTC ignores it.
     #[uniffi(default = false)]
     pub block_udp: bool,
+    /// Debug "simulate a network whose only way out is its proxy": like
+    /// `block_udp`, and TURN over TLS must leave through the system's proxy
+    /// (Settings > Wi-Fi > HTTP Proxy, PAC, an MDM profile); with none for the
+    /// TURN server the dial fails at once and says so. WebRTC ignores it.
+    #[uniffi(default = false)]
+    pub proxy_only: bool,
+    /// Debug "simulate a firewall that drops WireGuard": STUN and TURN's own
+    /// requests pass, every UDP datagram carrying WireGuard (plain, or inside
+    /// TURN over UDP) is dropped both ways, so WireGuard falls through to TURN
+    /// over TLS (path `TurnTls`). WebRTC ignores it.
+    #[uniffi(default = false)]
+    pub drop_wireguard: bool,
     /// Debug "Relay via cmux (HTTPS) only": WireGuard sends no plain UDP and
     /// takes no TURN allocation; it joins cmux's WebSocket relay at once and
     /// rides it (path `HttpsRelay`). WebRTC ignores it.
@@ -876,6 +965,8 @@ pub async fn connect_with_options(
         include_loopback: false,
         relay_only: options.relay_only,
         block_udp: options.block_udp,
+        proxy_only: options.proxy_only,
+        drop_wireguard: options.drop_wireguard,
         force_relay: options.force_relay,
         video_lane: !options.no_video_lane,
         webrtc_media: !options.no_webrtc_media
@@ -909,6 +1000,10 @@ pub struct ConnectRequest {
     pub include_loopback: bool,
     pub relay_only: bool,
     pub block_udp: bool,
+    /// `ConnectOptions::proxy_only`.
+    pub proxy_only: bool,
+    /// `ConnectOptions::drop_wireguard`.
+    pub drop_wireguard: bool,
     /// Debug: ride cmux's WebSocket relay only (`ConnectOptions::force_relay`).
     pub force_relay: bool,
     /// Offer the media lane (browser video as RTP: a WebRTC track, or UDP inside the WireGuard tunnel).
@@ -943,7 +1038,11 @@ async fn connect_on(
     let timeline = Timeline::new();
     let transport = request.transport;
     emit(&observer, LinkEvent::Connecting { transport });
-    let result = dial(pool, &request, &timeline).await;
+    // The relay dial may itself come back without a socket (a dormant resume), so the race's
+    // "no socket" and the dial's fold into one.
+    let result = lan::race(&request.mac_device_id, &timeline, dial(pool, &request, &timeline))
+        .await
+        .map(|(connected, signaling)| (connected, signaling.flatten()));
     let (connected, signaling) = match result {
         Ok(ok) => ok,
         Err(error) => {
@@ -971,6 +1070,7 @@ async fn finish_link(
         Some(socket) if connected.webrtc_media => Some(media_manager(pool, request, &connected, socket)),
         _ => None,
     };
+    lan::enroll_later(connected.link.clone(), request.mac_device_id.clone());
     let mut media_status = media.as_ref().map(cmux_mobile_link::hybrid::MediaManager::status);
     let link = connected.link.clone();
     let watcher = tokio::spawn(async move {
@@ -1040,6 +1140,7 @@ async fn finish_link(
         timeline.clone(),
         match &signaling {
             Some(socket) => current_signaling(pool, socket),
+            // A LAN direct link (lan.rs) has no socket of its own: the pool's, when one is open.
             None => pooled_signaling(pool, request),
         },
         connected.session_id.clone(),
@@ -1056,6 +1157,7 @@ async fn finish_link(
         tunnel_keys: connected.tunnel_keys,
         media,
         viewport,
+        bundle_refused: std::sync::atomic::AtomicBool::new(false),
     }))
 }
 
@@ -1310,53 +1412,16 @@ async fn network_changed_on(
     let roam = tokio::spawn(cmux_mobile_link::dial::wireguard::network_changed());
     let timeline = Timeline::new();
     let key = SocketKey { base_url, team_id, device_id, build_space: build_space() };
-    // A changed path is proof that the old socket's is gone (its TCP connection is bound to the
-    // old interface or route), as Chromium treats an IP address change for its TCP sockets
-    // (`ERR_NETWORK_CHANGED`, no probe): a new socket opens at once, and every session moves onto
-    // it (`open` rehomes them). Waiting first on the old socket was four of its round trips, half
-    // of a roam's reconnect (ask-48f698fc26). The old one is kept only when no new one opens.
-    //
-    // The open is bounded while there is an old socket to keep: a new route that drops every
-    // packet would otherwise hold the roam until the OS gives up on the TCP connect. The old
-    // socket is probed beside the open, so once the budget passes its answer is already known.
+    // The new socket opens at once, the old one probed beside it, never before it
+    // (`after_network_change`); a new socket moves every session onto it (`open` rehomes them).
     let old = pool.pooled(&key).await;
-    let mut probe = old.clone().map(|socket| {
-        tokio::spawn(async move { socket.client.probe(network_probe(socket.client.rtt())).await })
-    });
-    let mut alive = None;
     let open = pool.open_after_change(&key, &token, old.as_ref(), &timeline);
-    tokio::pin!(open);
-    let first = match &old {
-        None => Some(open.as_mut().await),
-        Some(socket) => {
-            tokio::time::timeout(network_open_budget(socket.client.rtt()), open.as_mut()).await.ok()
-        }
-    };
-    let opened = match first {
-        Some(result) => result.is_ok(),
-        None => {
-            // The budget passed with the open still going: keep the old socket if it answered,
-            // else the new one is the only way back, so wait for it.
-            let answered = probed(&mut probe).await;
-            alive = Some(answered);
-            if answered {
-                timeline.mark("open_slow");
-                false
-            } else {
-                open.as_mut().await.is_ok()
-            }
-        }
-    };
-    if opened {
-        if let Some(probe) = probe {
-            probe.abort();
-        }
-    } else {
-        let answered = match alive {
-            Some(answered) => answered,
-            None => probed(&mut probe).await,
-        };
-        pool.fall_back(&key, old.as_ref(), answered, &timeline).await;
+    let outcome = after_network_change(old.as_ref().map(|socket| &socket.client), open).await;
+    if let AfterNetworkChange::OldAnswered { open_slow: true } = outcome {
+        timeline.mark("open_slow");
+    }
+    if !matches!(outcome, AfterNetworkChange::Opened(_)) {
+        pool.fall_back(&key, old.as_ref(), outcome.old_answered(), &timeline).await;
     }
     let roamed = roam.await.unwrap_or_default();
     let mut marks = roamed.first().map(|(_, timeline)| timing_marks(timeline)).unwrap_or_default();
@@ -1366,14 +1431,6 @@ async fn network_changed_on(
             .map(|mark| TimingMark { name: format!("signaling:{}", mark.name), millis: mark.millis }),
     );
     marks
-}
-
-/// Whether the old socket's probe after a network change was answered (false with no old socket).
-async fn probed(probe: &mut Option<tokio::task::JoinHandle<bool>>) -> bool {
-    match probe.take() {
-        Some(probe) => probe.await.unwrap_or(false),
-        None => false,
-    }
 }
 
 /// How long `GET /v1/ice` may take before a dial goes on with host candidates only.
@@ -1578,6 +1635,16 @@ pub fn set_cellular_path(cellular: bool) {
     cmux_mobile_link::dial::wireguard::set_cellular_path(cellular);
 }
 
+/// Keep the IP literals every dialed host (TURN, STUN, signaling, API) last resolved to in the
+/// file at `path` (an Application Support file of this build's own), so a dial after a relaunch
+/// with DNS down still reaches them (`cmux_mobile_link::route_literals`). Without a call they
+/// are kept for this process only. Returns how many hosts the file remembered.
+#[uniffi::export]
+pub fn set_route_literals_path(path: String) -> u32 {
+    let loaded = cmux_mobile_link::route_literals::RouteLiterals::shared().set_file(path);
+    u32::try_from(loaded).unwrap_or(u32::MAX)
+}
+
 /// The Mac answered a typed batch's `send` `ack_ms` after its first key's tap
 /// (`DaemonTerminalSession`). The next `link_stat` carries it (PROTOCOL.md "Link stats").
 #[uniffi::export]
@@ -1590,6 +1657,35 @@ pub fn record_key_ack(ack_ms: u32) {
 #[uniffi::export]
 pub fn record_key_echo(echo_ms: u32, ack_ms: Option<u32>) {
     cmux_mobile_link::key_echo::record_echo(echo_ms, ack_ms);
+}
+
+/// A typed key's echo was painted `paint_ms` after its tap (the terminal's
+/// first frame showing the Mac's echo of it, `TerminalViewController`).
+/// Counted in the key-to-paint histogram under the current network and route.
+#[uniffi::export]
+pub fn record_key_paint(paint_ms: u32) {
+    cmux_mobile_link::key_paint::record(paint_ms);
+}
+
+/// The device's network now, `wifi`, `lte` (any cellular), `wired` or
+/// `other` (iOS `NWPathMonitor`, every path update): the key-to-paint tag.
+#[uniffi::export]
+pub fn set_network_kind(kind: String) {
+    cmux_mobile_link::key_paint::set_network(&kind);
+}
+
+/// The key-to-paint histogram as JSON: per network and route p50/p95/p99,
+/// max and bucket counts; the newest spikes, the gaps between them and the
+/// period they share, if any (named by the link timer it matches).
+#[uniffi::export]
+pub fn key_paint_snapshot() -> String {
+    cmux_mobile_link::key_paint::snapshot_json()
+}
+
+/// Empty the key-to-paint histogram.
+#[uniffi::export]
+pub fn reset_key_paint() {
+    cmux_mobile_link::key_paint::reset();
 }
 
 /// This process's build space (`set_build_space`); nil: none (no header).
@@ -1630,58 +1726,6 @@ pub fn keepalive_beat_delay_ms(period_ms: u64) -> u64 {
     u64::try_from(delay.as_millis()).unwrap_or(u64::MAX)
 }
 
-/// How long the old signaling socket may take to answer after a network
-/// change when no new one could open (the old network's socket is usually
-/// dead, and `bye` and new dials need a live one).
-const NETWORK_PROBE: Duration = Duration::from_millis(1000);
-/// The shortest wait for that answer: a few round trips of a fast network, plus scheduling.
-const NETWORK_PROBE_FLOOR: Duration = Duration::from_millis(300);
-
-/// How long to wait for the old socket after a network change: four of its measured round
-/// trips (a live socket answers in one), between [`NETWORK_PROBE_FLOOR`] and [`NETWORK_PROBE`].
-/// A flat 1 s was 90% of a roam's reconnect at an 80 ms round trip (ask-48f698fc26); a socket
-/// that never timed a pong keeps the full second.
-fn network_probe(rtt: Option<Duration>) -> Duration {
-    rtt.map_or(NETWORK_PROBE, |rtt| (rtt * 4).clamp(NETWORK_PROBE_FLOOR, NETWORK_PROBE))
-}
-
-/// The shortest wait for a new signaling socket after a network change while an old one could
-/// be kept: a WebSocket open on a new path (TCP, TLS, upgrade) at a slow cellular round trip.
-const NETWORK_OPEN_FLOOR: Duration = Duration::from_millis(1000);
-/// The longest such wait, and the wait for an old socket that never timed a pong.
-const NETWORK_OPEN_CAP: Duration = Duration::from_millis(3000);
-
-/// How long a new signaling socket may take to open after a network change before a live old
-/// socket is kept instead: eight of the old socket's round trips (an open takes three or four),
-/// between [`NETWORK_OPEN_FLOOR`] and [`NETWORK_OPEN_CAP`]. Unbounded, a new route that drops
-/// every packet held the roam until the OS gave up on the TCP connect.
-fn network_open_budget(rtt: Option<Duration>) -> Duration {
-    rtt.map_or(NETWORK_OPEN_CAP, |rtt| (rtt * 8).clamp(NETWORK_OPEN_FLOOR, NETWORK_OPEN_CAP))
-}
-
-#[cfg(test)]
-mod network_probe_tests {
-    use super::*;
-
-    #[test]
-    fn the_wait_after_a_network_change_follows_the_sockets_round_trip() {
-        assert_eq!(network_probe(None), NETWORK_PROBE);
-        assert_eq!(network_probe(Some(Duration::from_millis(10))), NETWORK_PROBE_FLOOR);
-        assert_eq!(network_probe(Some(Duration::from_millis(100))), Duration::from_millis(400));
-        assert_eq!(network_probe(Some(Duration::from_secs(2))), NETWORK_PROBE);
-    }
-
-    #[test]
-    fn the_new_sockets_open_after_a_network_change_is_bounded_by_the_old_ones_round_trip() {
-        assert_eq!(network_open_budget(None), NETWORK_OPEN_CAP);
-        assert_eq!(network_open_budget(Some(Duration::from_millis(80))), NETWORK_OPEN_FLOOR);
-        assert_eq!(network_open_budget(Some(Duration::from_millis(200))), Duration::from_millis(1600));
-        assert_eq!(network_open_budget(Some(Duration::from_secs(1))), NETWORK_OPEN_CAP);
-        // Past the budget the old socket's probe has its answer: the probe is never longer.
-        assert!(NETWORK_PROBE <= NETWORK_OPEN_FLOOR);
-    }
-}
-
 #[cfg(test)]
 mod redial_tests {
     use super::*;
@@ -1699,6 +1743,8 @@ mod redial_tests {
             relay_only: true,
             force_relay: false,
             block_udp: false,
+            proxy_only: false,
+            drop_wireguard: false,
             video_lane: false,
             webrtc_media: false,
             ultra: cmux_mobile_link::UltraSetting::Off,
@@ -1957,7 +2003,17 @@ fn dial_options(request: &ConnectRequest, ice_servers: Vec<IceServer>, timeline:
         relay_only: request.relay_only || std::env::var_os("CMUX_MOBILE_DEV_RELAY_ONLY").is_some(),
         // The rig's UDP-blocked runs (simulator:
         // SIMCTL_CHILD_CMUX_MOBILE_DEV_BLOCK_UDP=1) without touching app settings.
-        block_udp: request.block_udp || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some(),
+        // A proxy-only network blocks UDP too.
+        block_udp: request.block_udp
+            || std::env::var_os("CMUX_MOBILE_DEV_BLOCK_UDP").is_some()
+            || proxy_only(request),
+        // The corporate network simulations (PROTOCOL.md "Corporate networks";
+        // simulator: SIMCTL_CHILD_CMUX_MOBILE_DEV_DROP_WIREGUARD=1,
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_PROXY_ONLY=1, and
+        // SIMCTL_CHILD_CMUX_MOBILE_DEV_PROXY=http://host:port for the proxy).
+        drop_wireguard_udp: request.drop_wireguard
+            || std::env::var_os("CMUX_MOBILE_DEV_DROP_WIREGUARD").is_some(),
+        egress: cmux_mobile_link::egress::Egress { require_proxy: proxy_only(request), ..Default::default() },
         video_lane: request.video_lane,
         webrtc_media: request.webrtc_media,
         ultra: request.ultra,
@@ -2072,12 +2128,19 @@ async fn dial_service(
         }
         Ok::<_, CmuxMobileError>((socket, reused))
     };
-    let (ice_servers, socket) =
-        tokio::join!(pool.ice_servers(&request.base_url, &request.token, timeline), socket);
+    // Once ICE answers, a WireGuard dial's TURN allocation starts
+    // (`EarlyTurn`, as a redial's does beside its reconnect), beside the rest
+    // of the socket's open, instead of after it inside the dial.
+    let ice = async {
+        let ice_servers =
+            without_turn_if_asked(pool.ice_servers(&request.base_url, &request.token, timeline).await);
+        let options = dial_options(request, ice_servers, timeline);
+        let early = cmux_mobile_link::dial::EarlyTurn::for_dial(request.transport.into(), &options);
+        (options, early)
+    };
+    let ((options, early), socket) = tokio::join!(ice, socket);
     let (socket, reused) = socket?;
-    let ice_servers = without_turn_if_asked(ice_servers);
-    let options = dial_options(request, ice_servers, timeline);
-    let attempt = dial_on(&socket, request, &options, reused).await;
+    let attempt = dial_on(&socket, request, &options, reused, early).await;
     match attempt {
         Ok(connected) => Ok((connected, socket)),
         Err(Attempt::Stale) => {
@@ -2089,6 +2152,11 @@ async fn dial_service(
         }
         Err(Attempt::Failed(error)) => Err(fail(pool, &socket, error).await),
     }
+}
+
+/// The debug "Proxy only" network, from the app or the rig's environment.
+fn proxy_only(request: &ConnectRequest) -> bool {
+    request.proxy_only || std::env::var_os("CMUX_MOBILE_DEV_PROXY_ONLY").is_some()
 }
 
 /// Measurement support (simulator: SIMCTL_CHILD_CMUX_MOBILE_DEV_NO_TURN=1): no
@@ -2175,21 +2243,24 @@ async fn fail(pool: &Warm, socket: &Arc<WarmSocket>, error: DialError) -> CmuxMo
     error.into()
 }
 
-/// Dial on `socket`. A reused socket is probed while the dial runs: when it
-/// does not answer within `STALE_PROBE`, the dial is abandoned as stale
-/// instead of waiting out its whole timeout.
+/// Dial on `socket`, taking `early`, the TURN allocation started when ICE
+/// answered. A reused socket is probed while the dial runs: when it does not
+/// answer within `STALE_PROBE`, the dial is abandoned as stale instead of
+/// waiting out its whole timeout.
 async fn dial_on(
     socket: &Arc<WarmSocket>,
     request: &ConnectRequest,
     options: &DialOptions,
     probe: bool,
+    early: Option<cmux_mobile_link::dial::EarlyTurn>,
 ) -> Result<cmux_mobile_link::Connected, Attempt> {
-    let dial = cmux_mobile_link::dial::connect(
+    let dial = cmux_mobile_link::dial::connect_with_early_turn(
         &socket.client,
         &request.mac_device_id,
         request.transport.into(),
         options,
         if options.aligned_keepalives { LinkConfig::aligned() } else { LinkConfig::default() },
+        early,
     );
     if !probe {
         return dial.await.map_err(Attempt::Failed);

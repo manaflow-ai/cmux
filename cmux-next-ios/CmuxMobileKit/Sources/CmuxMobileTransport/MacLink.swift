@@ -82,6 +82,9 @@ public protocol MacLink: AnyObject, Sendable {
     var states: AsyncStream<LinkState> { get }
     /// Opens a named service channel (`daemon`, `acpmux`, `file`, `echo`).
     func openChannel(service: String, args: [String: String]) async throws -> any LinkChannel
+    /// Opens a service channel whose open args are any JSON object (`catch-up` takes nested
+    /// cursors). A link without its own sends flat string args only.
+    func openChannel(service: String, argsJSON: String) async throws -> any LinkChannel
     /// Opens a channel on the input lane (PROTOCOL.md "Lanes"): terminal
     /// keystrokes and their replies, which then never wait behind bulk
     /// output. A link without one opens an ordinary channel.
@@ -99,6 +102,11 @@ public protocol MacLink: AnyObject, Sendable {
     /// not. The Rust link probes more often while it is (every 3 s on its
     /// datagram lane); a link without one ignores it.
     func setForegroundProbe(_ on: Bool)
+    /// The person is about to type (the keyboard is coming up): wake the
+    /// phone's radio with one tiny datagram so the first key does not pay
+    /// the LTE/5G idle-to-connected promotion (RFD 0142 hypothesis 2). The
+    /// Rust link sends at most one per second, and only on a quiet link.
+    func prewake()
     func close() async
     /// The path of a link that is already up when the dial returns (nil:
     /// unknown until its first `states` element). The controller then adopts
@@ -141,6 +149,13 @@ public struct TunnelKeys: Sendable, Equatable {
 }
 
 extension MacLink {
+    public func openChannel(service: String, argsJSON: String) async throws -> any LinkChannel {
+        let object = try? JSONSerialization.jsonObject(with: Data(argsJSON.utf8))
+        guard let args = object as? [String: String] else {
+            throw LinkError(code: "bad_request", message: "this link sends flat string args only")
+        }
+        return try await openChannel(service: service, args: args)
+    }
     public var connectedPath: LinkPathKind? { nil }
     public var peerScope: String { "" }
     public var receivedAgo: Duration? { nil }
@@ -148,6 +163,7 @@ extension MacLink {
     public var tunnelKeys: TunnelKeys? { nil }
     public func probeTimeout(floor: Duration) -> Duration { floor }
     public func setForegroundProbe(_ on: Bool) {}
+    public func prewake() {}
 
     /// A link that only pings: the pong or nothing.
     public func probe(timeout: Duration) async throws -> UInt32? {
@@ -222,16 +238,18 @@ public struct LinkError: Error, Equatable, Sendable {
 /// What a person reads for a link error: never the code or the type.
 extension LinkError: LocalizedError {
     /// The codes with fixed copy: a fragment for status lines ("WebRTC failed: …")
-    /// and a sentence for alerts and failure states.
+    /// and a sentence for alerts and failure states. None asks the person to repeat the step: the link
+    /// redials on its own (backoff, the Mac's signal, foreground), so allowing the iPhone or
+    /// opening cmux on the Mac is noticed without the person repeating anything.
     private var known: (reason: String, sentence: String)? {
         switch code {
         case _ where isTimeout:
             return (reason: LinkError.timeoutReason, sentence: LinkError.timeoutSentence)
         case "not_admitted":
             return (reason: "the Mac refused this phone",
-                    sentence: "Your Mac didn't allow this iPhone. Allow it on your Mac, then try again.")
+                    sentence: "Your Mac didn't allow this iPhone. Allow it on your Mac.")
         case "offline":
-            return (reason: "the Mac is offline", sentence: "Your Mac isn't connected. Open cmux on your Mac, then try again.")
+            return (reason: "the Mac is offline", sentence: "Your Mac isn't connected. Open cmux on your Mac.")
         case LinkError.unauthorized:
             return (reason: "the cmux service refused the request", sentence: "Your session expired. Sign in again.")
         case LinkError.networkBlocked:
@@ -246,10 +264,17 @@ extension LinkError: LocalizedError {
     /// Its raw message is a diagnostic; a person reads only the fixed, calm copy below, which
     /// says what to do (Leo 2026-11-21: no "didn't answer in time").
     public var isTimeout: Bool { ["timeout", "reply_timeout", "write_timeout"].contains(code) }
+    /// The link is coming back on its own (a timeout, a dropped or not-yet-open link): nothing
+    /// for a person to do or read. A call that failed this way waits for the link and goes again
+    /// (Leo 2026-11-22: "i dont wanna see reconnecting to the Mac in a toast, i want it to just
+    /// connect").
+    public var isTransient: Bool {
+        isTimeout || ["closed", "offline", "eof", "transport", "signaling"].contains(code)
+    }
     /// A status line's fragment for a timeout: the connection is being re-established.
     public static let timeoutReason = "reconnecting to the Mac"
     /// A failure state's sentence for a timeout that outlasted the quiet retries.
-    public static let timeoutSentence = "Can't reach your Mac right now. Make sure it's awake and cmux is open, then try again."
+    public static let timeoutSentence = "Can't reach your Mac right now. Make sure it's awake and cmux is open."
 
     /// The Mac's or the link's own message, when it reads as a sentence for a person (never
     /// for a timeout: that message is a diagnostic).
@@ -271,7 +296,7 @@ extension LinkError: LocalizedError {
     /// A sentence: the Mac's own message when it is prose, else the code's copy.
     public var errorDescription: String? {
         if code == LinkError.unauthorized { return known?.sentence }
-        return proseMessage ?? known?.sentence ?? "Something went wrong talking to your Mac. Try again."
+        return proseMessage ?? known?.sentence ?? "Something went wrong talking to your Mac."
     }
 }
 
@@ -385,18 +410,28 @@ public struct LinkEndpoint: Sendable, Hashable {
     /// Debug "Relay via cmux (HTTPS) only": WireGuard rides cmux's WebSocket
     /// relay alone (path `httpsRelay`). WebRTC ignores it.
     public var forceRelay: Bool = false
+    /// Debug "simulate a network whose only way out is its proxy": WireGuard
+    /// rides TURN over TLS through the system's proxy, or fails saying there
+    /// is none. WebRTC ignores it.
+    public var proxyOnly: Bool
+    /// Debug "simulate a firewall that drops WireGuard": WireGuard falls
+    /// through to TURN over TLS (path `turnTLS`). WebRTC ignores it.
+    public var dropWireGuard: Bool
     /// Debug baseline: do not offer the media lane, so browser video rides
     /// its reliable channel even over WebRTC (verify/browser-video-track.md).
     public var browserVideoOnChannel: Bool
 
     public init(baseURL: URL, teamID: String, deviceID: String, macDeviceID: String, relayOnly: Bool = false,
-                blockUDP: Bool = false, browserVideoOnChannel: Bool = false) {
+                blockUDP: Bool = false, proxyOnly: Bool = false, dropWireGuard: Bool = false,
+                browserVideoOnChannel: Bool = false) {
         self.baseURL = baseURL
         self.teamID = teamID
         self.deviceID = deviceID
         self.macDeviceID = macDeviceID
         self.relayOnly = relayOnly
         self.blockUDP = blockUDP
+        self.proxyOnly = proxyOnly
+        self.dropWireGuard = dropWireGuard
         self.browserVideoOnChannel = browserVideoOnChannel
     }
 }

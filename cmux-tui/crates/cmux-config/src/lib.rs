@@ -1,6 +1,7 @@
 //! `cmux-config`: the owner of the settings file
-//! (`~/.config/cmux/cmux-next.json`, "cmux.json" in the plans) inside the
-//! cmux daemon (plans/cmux-next/settings-react.md sections 1-3 and 6).
+//! (`~/.config/cmux/cmux-next.json`, in `~/.config/cmux-next/` on macOS;
+//! "cmux.json" in the plans) inside the cmux daemon
+//! (plans/cmux-next/settings-react.md sections 1-3 and 6).
 //!
 //! - [`app_ops`]: the Mac app's reads of the file as JSON ops (the app
 //!   FFI's `cmux_settings_call`).
@@ -42,6 +43,7 @@ pub mod location;
 pub mod managed;
 pub mod migrations;
 pub mod owner;
+pub mod project;
 pub mod project_actions;
 pub mod refusal;
 pub mod render;
@@ -54,6 +56,7 @@ pub mod theme_file;
 pub mod transcript_look;
 pub mod value;
 pub mod watch;
+pub mod worktree_names;
 pub mod youtube;
 
 pub use diagnostics::{Diagnostic, DiagnosticKind};
@@ -64,7 +67,9 @@ pub use keybindings::owner::{
     KeybindingsApplied, KeybindingsChange, KeybindingsOp, KeybindingsOutcome, KeybindingsRefusal,
     KeybindingsStore,
 };
-pub use location::{CONFIG_OVERRIDE, config_path, keybindings_path, seed_path};
+pub use location::{
+    CONFIG_OVERRIDE, NEXT_DIR, cache_dir, cache_dir_from, config_path, keybindings_path, seed_path,
+};
 pub use managed::{ManagedPreferences, ManagedReader, ManagedSource, Policy, TeamPolicyLayer};
 pub use owner::{ApplyResult, ConfigStore};
 pub use refusal::Refusal;

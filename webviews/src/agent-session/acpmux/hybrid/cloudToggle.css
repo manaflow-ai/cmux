@@ -142,18 +142,22 @@
   stroke: var(--agent-accent, var(--acpmux-hybrid-4));
 }
 
-/* The turn-on, once per click. `acpmux-hybrid-settle` is the one whose end disarms it. */
-.acpmux-hybrid-toggle[data-fresh][data-lit] .acpmux-hybrid-cloud__shape {
-  animation: acpmux-hybrid-settle var(--cmux-motion-large) var(--cmux-ease-out) both;
-}
-.acpmux-hybrid-toggle[data-fresh][data-lit]:not([data-look="aurora"]) .acpmux-hybrid-arc {
-  animation: acpmux-hybrid-arc-show var(--cmux-motion-large) var(--cmux-ease-out) both;
-}
-.acpmux-hybrid-toggle[data-fresh][data-lit]:not([data-look="aurora"]) .acpmux-hybrid-arc__band {
-  animation: acpmux-hybrid-arc-draw var(--cmux-motion-large) var(--cmux-ease-out) both;
-}
-.acpmux-hybrid-toggle[data-fresh][data-lit][data-look="aurora"] .acpmux-hybrid-glyph::before {
-  animation: acpmux-hybrid-bloom var(--cmux-motion-large) var(--cmux-ease-out) both;
+/* The turn-on, once per click. `acpmux-hybrid-settle` is the one whose end disarms it. Only where
+   motion is allowed (the app's setting on the root, and the system's): these selectors outrank any
+   "animation: none" a reduced-motion rule could set, so the guard is on them, not after them. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="reduced"], [data-agent-motion="off"]) .acpmux-hybrid-toggle[data-fresh][data-lit] .acpmux-hybrid-cloud__shape {
+    animation: acpmux-hybrid-settle var(--cmux-motion-large) var(--cmux-ease-out) both;
+  }
+  :root:not([data-cmux-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="reduced"], [data-agent-motion="off"]) .acpmux-hybrid-toggle[data-fresh][data-lit]:not([data-look="aurora"]) .acpmux-hybrid-arc {
+    animation: acpmux-hybrid-arc-show var(--cmux-motion-large) var(--cmux-ease-out) both;
+  }
+  :root:not([data-cmux-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="reduced"], [data-agent-motion="off"]) .acpmux-hybrid-toggle[data-fresh][data-lit]:not([data-look="aurora"]) .acpmux-hybrid-arc__band {
+    animation: acpmux-hybrid-arc-draw var(--cmux-motion-large) var(--cmux-ease-out) both;
+  }
+  :root:not([data-cmux-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="reduced"], [data-agent-motion="off"]) .acpmux-hybrid-toggle[data-fresh][data-lit][data-look="aurora"] .acpmux-hybrid-glyph::before {
+    animation: acpmux-hybrid-bloom var(--cmux-motion-large) var(--cmux-ease-out) both;
+  }
 }
 @keyframes acpmux-hybrid-settle {
   0% { transform: scale(0.8); }
@@ -174,13 +178,18 @@
   50% { opacity: 0.9; transform: scale(1.6) rotate(0deg); }
   100% { opacity: 0.55; transform: scale(1) rotate(40deg); }
 }
-:root[data-cmux-motion="reduced"] .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band, .acpmux-hybrid-glyph::before),
-:root[data-cmux-motion="off"] .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band, .acpmux-hybrid-glyph::before) {
+/* A pseudo-element is not valid inside :is(), and one there drops the whole rule (Chrome): the
+   glow's ::before gets its own selector. */
+:root[data-cmux-motion="reduced"] .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band),
+:root[data-cmux-motion="reduced"] .acpmux-hybrid-toggle .acpmux-hybrid-glyph::before,
+:root[data-cmux-motion="off"] .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band),
+:root[data-cmux-motion="off"] .acpmux-hybrid-toggle .acpmux-hybrid-glyph::before {
   animation: none;
   transition: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band, .acpmux-hybrid-glyph::before) {
+  .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band),
+  .acpmux-hybrid-toggle .acpmux-hybrid-glyph::before {
     animation: none;
     transition: none;
   }
@@ -199,9 +208,10 @@
 }
 .acpmux-hybrid-row__count + .acpmux-session-info-switch__input { margin-inline-start: 8px; }
 .acpmux-hybrid-row .acpmux-hybrid-toggle { margin-inline-start: auto; }
-.acpmux-hybrid-where {
-  margin-left: auto;
-  color: var(--agent-muted);
+/* Runs On: a whole-row menu trigger, as the list's other action rows; open, it keeps their hover
+   fill. Its value is the row's muted end (sessionInfo.css .acpmux-session-info-row__end). */
+.acpmux-session-info-row--button.acpmux-hybrid-row[data-popup-open] {
+  background: var(--acpmux-session-info-row-hover);
 }
 
 /* The sidebar mark's web sketch (the rows themselves are native): a lit cloud at the row's end. */
@@ -264,8 +274,11 @@
   fill: currentColor;
 }
 .acpmux-hybrid-tri__glyph { transform-origin: 50% 60%; }
-:is(.acpmux-hybrid-tri__segment, .acpmux-hybrid-tri[data-form="cycle"])[data-fresh] .acpmux-hybrid-tri__glyph {
-  animation: acpmux-hybrid-settle var(--cmux-motion-large) var(--cmux-ease-out) both;
+/* Guarded as the on/off cloud's turn-on is, for the same reason. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="reduced"], [data-agent-motion="off"]) :is(.acpmux-hybrid-tri__segment, .acpmux-hybrid-tri[data-form="cycle"])[data-fresh] .acpmux-hybrid-tri__glyph {
+    animation: acpmux-hybrid-settle var(--cmux-motion-large) var(--cmux-ease-out) both;
+  }
 }
 .acpmux-hybrid-tri__name { margin-inline-start: 4px; color: var(--agent-text); }
 /* Where the chat runs now, after the name: quieter than the name, cut before the name is. */
@@ -323,4 +336,36 @@ button.acpmux-hybrid-tri__name {
   font-size: var(--text-detail);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Three-state, a hybrid start (RFD 0078 "the start"): the chosen glyph alone says the step. Booting:
+   the cloud breathes, dull, while the chat already runs here. Ready and moving: the cloud takes the
+   look's color; moving adds a sweep across it. Live: lit and still. Failed: dull with the warning
+   dot, and the name says the chat keeps running here. Reduced motion: no breath, no sweep. */
+:is(.acpmux-hybrid-tri__segment, .acpmux-hybrid-tri[data-form="cycle"])[data-start="booting"] .acpmux-hybrid-tri__cloud {
+  animation: acpmux-hybrid-breathe var(--cmux-breath-period, 2.4s) var(--cmux-breath-ease, ease-in-out) infinite;
+}
+:is(.acpmux-hybrid-tri__segment, .acpmux-hybrid-tri[data-form="cycle"])[data-start="moving"] .acpmux-hybrid-tri__cloud {
+  stroke-dasharray: 3 2;
+  animation: acpmux-hybrid-sweep calc(var(--cmux-breath-period, 2.4s) / 2) linear infinite;
+}
+:is(.acpmux-hybrid-tri__segment, .acpmux-hybrid-tri[data-form="cycle"])[data-start="failed"] .acpmux-hybrid-tri__cloud {
+  opacity: 0.6;
+  fill: none;
+}
+.acpmux-hybrid-tri__name[data-start] { cursor: default; }
+@keyframes acpmux-hybrid-breathe {
+  0%, 100% { opacity: 0.45; }
+  50% { opacity: 1; }
+}
+@keyframes acpmux-hybrid-sweep {
+  to { stroke-dashoffset: -10; }
+}
+:root[data-cmux-motion="reduced"] .acpmux-hybrid-tri [data-start] .acpmux-hybrid-tri__cloud,
+:root[data-cmux-motion="off"] .acpmux-hybrid-tri [data-start] .acpmux-hybrid-tri__cloud,
+:root[data-cmux-motion="reduced"] .acpmux-hybrid-tri[data-start] .acpmux-hybrid-tri__cloud,
+:root[data-cmux-motion="off"] .acpmux-hybrid-tri[data-start] .acpmux-hybrid-tri__cloud { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  .acpmux-hybrid-tri [data-start] .acpmux-hybrid-tri__cloud,
+  .acpmux-hybrid-tri[data-start] .acpmux-hybrid-tri__cloud { animation: none; }
 }

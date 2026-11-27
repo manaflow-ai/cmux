@@ -47,6 +47,36 @@ fn claude_profile_variant_carries_its_project_file() {
 }
 
 #[test]
+fn claude_subagent_transcripts_travel_beside_the_project_file() {
+    let src_home = tempfile::tempdir().unwrap();
+    let sid = "4b3c2d1e-aaaa-bbbb-cccc-111122223333";
+    let dir = src_home.path().join(".claude/projects/-src");
+    put(&dir.join(format!("{sid}.jsonl")), "{\"type\":\"user\"}\n");
+    put(&dir.join(sid).join("subagents/agent-a1.jsonl"), "{\"agentId\":\"a1\"}\n");
+    // Another session's children stay behind.
+    put(&dir.join("other-session/subagents/agent-b1.jsonl"), "{}\n");
+    let here = meta("claude", "claude", sid, "/src");
+    let found = native::locate_in(&here, src_home.path());
+    let mut found_labels = labels(&found);
+    found_labels.sort();
+    assert_eq!(found_labels, ["claude-project", "claude-subagent"]);
+
+    let bundle = tempfile::tempdir().unwrap();
+    for (label, src) in &found {
+        native::copy_into_from(src, &bundle.path().join("native"), label, src_home.path()).unwrap();
+    }
+    let dst_home = tempfile::tempdir().unwrap();
+    let there = meta("claude", "claude", sid, "/elsewhere/dst");
+    assert_eq!(native::restore_in(bundle.path(), &there, dst_home.path()).unwrap(), 2);
+    let moved = dst_home.path().join(".claude/projects/-elsewhere-dst");
+    assert_eq!(
+        std::fs::read_to_string(moved.join(sid).join("subagents/agent-a1.jsonl")).unwrap(),
+        "{\"agentId\":\"a1\"}\n"
+    );
+    assert!(moved.join(format!("{sid}.jsonl")).exists());
+}
+
+#[test]
 fn codex_acp_profile_carries_its_rollout() {
     let home = tempfile::tempdir().unwrap();
     let sid = "019a3c2e-7f41-7a2b-9c3d-5e6f7a8b9c0d";
@@ -59,6 +89,39 @@ fn codex_acp_profile_carries_its_rollout() {
     );
     let found = native::locate_in(&meta("codex-acp", "codex", sid, "/src"), home.path());
     assert_eq!(labels(&found), ["codex-rollout"]);
+}
+
+/// A bundle says which agent session it is of. A word that is merely part of another session's
+/// rollout name (the review's `rollout`) is not that session's id: nothing is carried for it,
+/// and a bundle that brings the file under it puts nothing in the file's place.
+#[test]
+fn a_codex_rollout_is_a_sessions_only_when_its_name_ends_with_the_id() {
+    let home = tempfile::tempdir().unwrap();
+    let sid = "019a3c2e-7f41-7a2b-9c3d-5e6f7a8b9c0d";
+    let rel = format!(".codex/sessions/2026/11/24/rollout-2026-11-24T01-02-03-{sid}.jsonl");
+    let here = home.path().join(&rel);
+    put(&here, "this session's own words\n");
+    let bundle = tempfile::tempdir().unwrap();
+    put(&bundle.path().join("native/codex-rollout").join(&rel), "a copy's words\n");
+
+    for part in ["rollout", "2026-11-24", "019a3c2e", "7f41-7a2b", "jsonl"] {
+        let named = meta("codex", "codex", part, "/src");
+        let found = native::locate_in(&named, home.path());
+        assert!(found.is_empty(), "{part}: {found:?}");
+        assert_eq!(native::restore_in(bundle.path(), &named, home.path()).unwrap(), 0, "{part}");
+        let replaced = native::restore_replacing_in(bundle.path(), &named, home.path()).unwrap();
+        assert_eq!(replaced, 0, "{part}");
+        assert_eq!(std::fs::read_to_string(&here).unwrap(), "this session's own words\n");
+    }
+
+    // The session's own id still carries its rollout, and the copy that is the chat replaces
+    // it, with what was here kept beside it.
+    let own = meta("codex", "codex", sid, "/src");
+    assert_eq!(labels(&native::locate_in(&own, home.path())), ["codex-rollout"]);
+    assert_eq!(native::restore_replacing_in(bundle.path(), &own, home.path()).unwrap(), 1);
+    assert_eq!(std::fs::read_to_string(&here).unwrap(), "a copy's words\n");
+    let kept = PathBuf::from(format!("{}{}", here.display(), native::REPLACED_SUFFIX));
+    assert_eq!(std::fs::read_to_string(kept).unwrap(), "this session's own words\n");
 }
 
 #[test]
@@ -216,8 +279,20 @@ fn a_claude_chat_carries_the_file_of_its_own_folder() {
     put(&home.path().join(".claude/projects/-Users-me-old").join(&name), "{\"old\":1}\n");
     let own = home.path().join(".claude/projects/-Users-me-src").join(&name);
     put(&own, "{\"turn\":1}\n");
+    // Its own folder's `Task` children go with it (the session-move matrix's
+    // claude-subagents row went red when this path left them); the old folder's stay.
+    let child = own.with_extension("").join("subagents/agent-a1.jsonl");
+    put(&child, "{\"agentId\":\"a1\"}\n");
+    put(
+        &home
+            .path()
+            .join(".claude/projects/-Users-me-old")
+            .join(sid)
+            .join("subagents/agent-b1.jsonl"),
+        "{}\n",
+    );
     let found = native::locate_in(&meta("claude", "claude", sid, "/Users/me/src"), home.path());
-    assert_eq!(found, [("claude-project".to_owned(), own)]);
+    assert_eq!(found, [("claude-project".to_owned(), own), ("claude-subagent".to_owned(), child)]);
 }
 
 /// A history-later move's bundle takes the prepare's copy of the agent's transcript and only

@@ -85,6 +85,10 @@ def route(paths, event="pull_request", macos="false"):
 
 
 class LinuxGuardRoutingTests(unittest.TestCase):
+    def test_suite_helpers_reach_the_preflight_guard(self):
+        for helper in ('scripts/ci/package-test-lane/swift_suite_outcomes.py', 'scripts/ci/require_swift_test_execution.py'):
+            self.assertIn('ci', groups_for_path(helper))
+
     def test_guard_ownership_manifest_has_no_duplicate_literal_keys(self):
         source = (ROOT / "scripts/ci/workflow_guard_groups.py").read_text(encoding="utf-8")
         tree = ast.parse(source)
@@ -792,7 +796,7 @@ class FeatGuardRoutingTests(unittest.TestCase):
             "release-notes/next/highlights/x.md", "release-notes/next/retired-feed-announcements.json",
             "cmux.nightly.entitlements", "cmux-helper.entitlements", "Resources/cmux.entitlements",
             "cmux-next-ios/App/CmuxMobileApp-Production.entitlements",
-            "Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift",
+            "Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift",
             "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AppcastParser.swift",
             "Native/OptChat/optchat-chief/inspector/index.html", "ghostty", "ghostty-next",
             "cmux-tui/Cargo.toml",

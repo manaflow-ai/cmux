@@ -32,6 +32,12 @@ harness = false
 name = "turn_overhead"
 harness = false
 
+# Instruction counts of the hot paths under Callgrind, checked against
+# benches/icount_baseline.json (ci/steps.toml step acpmux-icount).
+[[bench]]
+name = "icount"
+harness = false
+
 [features]
 default = ["build-id"]
 # The stamped build id (acpmux-build-id) as the default of `hub::build()`.
@@ -70,23 +76,32 @@ cmux-cloud-api.workspace = true
 # The share host (`src/share_host/`): this Mac's device hub device, its hub link and serving one
 # share through the Screen Sharing helper, the same code `cmux-rd linux-host` runs.
 cmux-hub-host.workspace = true
-cmux-felt.workspace = true
 # The share host's verified copy of the Screen Sharing helper outside the app.
 cmux-signed-bundle.workspace = true
 cmux-tailnet = { workspace = true, optional = true }
-# The stable node's front and its placement messages (the tsnet part only with `tailnet`).
-cmux-tailnet-front.workspace = true
 # The join request and its checks (`tailnet/embedded_join.rs`).
 cmux-tailnet-join = { workspace = true, optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"], optional = true }
 
 [dependencies]
+cmux-transport-rewrite.workspace = true
+# Felt-latency metrics (`server/felt.rs`); portable, so every OS builds it.
+cmux-felt.workspace = true
+# The stable node's front and its placement messages (the tsnet part only with `tailnet`, and only
+# on unix); the placement table is portable, so every OS builds it.
+cmux-tailnet-front.workspace = true
+cmux-presence.workspace = true
 # A hybrid start's tool calls: held, then routed (`hub/hybrid_hold.rs`); the Cloud account and hybrid
 # rule a new chat's place weighs (place_mode.rs). One dependency, named once: the base merge that
 # brought both comments in also brought the line twice, which is a TOML duplicate key.
 cmux-cloud-start-core.workspace = true
+# The disk budget the evictor shares with the disk bar and the Cloud grow (`disk_evict.rs`).
+cmux-cloud-disk.workspace = true
 cmux-sync.workspace = true
 cmux-session-cloud.workspace = true
+# The opt-in tailnet carrier's path read: tailscaled's LocalAPI first, the CLI when it is
+# unavailable (peer_tailnet.rs).
+cmux-tailnet-local.workspace = true
 acpmux-book = { path = "../acpmux-book" }
 # The model catalog, RPC schema, secret rules and web page compiled in compressed.
 cmux-embed.workspace = true
@@ -95,6 +110,8 @@ acpmux-client = { path = "../acpmux-client", features = ["tokio"] }
 acpmux-core = { path = "../acpmux-core" }
 # cmux.share-approval.v1, shared with the iPhone that asks with it (share_approval.rs).
 cmux-share-approval.workspace = true
+# The resume failure classes and their retry budgets (`acpmux_list_types::resume`).
+acpmux-list-types = { path = "../acpmux-list-types" }
 acpmux-build-id = { path = "../acpmux-build-id", optional = true }
 acpmux-hot = { workspace = true, optional = true, features = ["wasm"] }
 arc-swap.workspace = true
@@ -108,6 +125,8 @@ cmux-json.workspace = true
 # and one deadline per wait (daemon/watchdog.rs: a hello waits until systemd's own limit).
 cmux-deadline = { workspace = true, features = ["tokio"] }
 cmux-netwatch.workspace = true
+# The agent dot signature (`session/signature`, src/server/requests/signature.rs).
+cmux-wallpaper = { path = "../cmux-wallpaper", features = ["schema"] }
 # The settings file's path and JSONC reader (src/user_settings.rs), the settings owner's.
 cmux-config.workspace = true
 # Auto mode's shared core (src/auto_session/): the Cloud API's types, the holder's state machine
@@ -151,7 +170,8 @@ cmux-tui-platform.workspace = true
 # SKILL.md frontmatter, read as YAML (`agent_guidance::frontmatter`), shared with `cmux agent-config skills`.
 cmux-agent-customize.workspace = true
 cmux-file-lock.workspace = true
-# Session Info's per-chat usage stats, invalidated by chat and transcript tag (`hub/usage_view.rs`).
+# Session Info's per-chat usage stats, invalidated by chat and transcript tag (`hub/usage_view.rs`),
+# and the model picker's lists, served stale while a probe refreshes them (`hub/model_lists.rs`).
 cmux-tag-cache.workspace = true
 cmux-supervise-core.workspace = true
 cmux-git.workspace = true
@@ -172,6 +192,7 @@ cmux-usage-share.workspace = true
 # What package installs a shell call runs (`hub/tool_installs.rs`).
 cmux-command-class.workspace = true
 clap = { version = "4.5", features = ["derive"] }
+cmux-intent.workspace = true
 dirs = "6"
 # Read the containing app identity for DEV helper discovery and the app orphan exit
 # (src/daemon/app_orphan.rs).
@@ -195,6 +216,7 @@ thiserror = "2"
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "net", "sync", "time", "fs", "signal"] }
 tokio-tungstenite.workspace = true
 cmux-process.workspace = true
+cmux-pool-pod.workspace = true
 # Bounded waits (`hub/forward_wait.rs`): every waiting state declares its bound and recovery.
 cmux-bounded = { workspace = true, features = ["tokio"] }
 cmux-scope.workspace = true
@@ -219,6 +241,7 @@ bytes.workspace = true
 tempfile = "3"
 # Model-sized copies of large PNG uploads (src/model_copies.rs).
 png.workspace = true
+jpeg-encoder.workspace = true
 cmux-image-linear.workspace = true
 # NFC tool call paths on macOS, as git shows them (src/path_canon.rs).
 unicode-normalization.workspace = true
@@ -276,6 +299,8 @@ windows-sys = { workspace = true, features = [
 
 [dev-dependencies]
 cmux-build-space = { workspace = true, features = ["testing"] }
+# Seeded-secret tests: gated clients send to a local capture server (hub/forum_hosted.rs).
+cmux-egress = { workspace = true, features = ["capture"] }
 # Release gates print and compare their rounds through `acpmux_book::gate_rounds`.
 acpmux-book = { path = "../acpmux-book", features = ["gate-rounds"] }
 # Property tests of the stores under random operations, restarts and torn writes (src/stress/).
@@ -287,6 +312,8 @@ cmux-auto-session = { workspace = true, features = ["test-support"] }
 cmux-journal = { workspace = true, features = ["sim"] }
 cmux-server-core = { path = "../cmux-server-core" }
 rcgen = "0.14"
+# The protocol IR's compat gate (`protocol::tests::protocol_abi_breaks_have_rules`, RFD hq 0178).
+cmux-api-compat = { workspace = true }
 # Paused time for the media handle sweeper's tests (`hub/media_handles_tests.rs`).
 tokio = { version = "1.52", features = ["test-util"] }
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
@@ -327,6 +354,11 @@ required-features = ["sim"]
 [[test]]
 name = "hub_carrier"
 path = "tests/hub_carrier.rs"
+required-features = ["hub-carrier"]
+
+[[test]]
+name = "pair_matrix_desktop"
+path = "tests/pair_matrix_desktop.rs"
 required-features = ["hub-carrier"]
 
 # Relay re-homing: the relay a host serves on dies and the host and its dialers move to the next.

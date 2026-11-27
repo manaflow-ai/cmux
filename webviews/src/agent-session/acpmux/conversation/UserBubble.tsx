@@ -40,6 +40,7 @@ import { PromptText } from "./PromptText";
 import { InlinePromptContent, PromptFile } from "./InlinePromptContent";
 import { readsAsText } from "./inlinePromptContentModel";
 import { recordedPromptParts } from "../inlinePrompt";
+import { withoutAttachedFileNotes } from "../attachments";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { attachmentOnly, imageOriginals } from "./bubbleParts";
 import { Slot } from "../../../slots/Slot";
@@ -50,22 +51,16 @@ import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
 
 import { SourceBadge } from "../composer/SourceBadge";
 import { useSourceLabel, withSourceLabel } from "../composer/sourceBadgeModel";
-import { ForkButton, MessageCopy, MessageFooterRow, MessageTime, PinButton, RewindButton } from "./MessageActions";
+import { ForkButton, MessageCopy, MessageTime, PinButton, RewindButton } from "./MessageActions";
+import { RowSlots } from "./RowSlots";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { TurnActionsContext, type QueuedActions } from "./turnActions";
 import { pickedSkillsOf, withSkillDollars, withoutSkillDollars, type SkillCatalog } from "../slashCommands";
 import { SkillWordsContext } from "./skillWords";
 import { tourBubbleText } from "../repoTour/tourModel";
 import { SentVideoTile } from "./SentVideoTile";
-import { sentVideoFor, sentVideoOf, sentVideosOf, withoutRepeatedVideos, type SentVideo } from "./sentVideos";
-import {
-  recordedFiles,
-  isImageOriginal,
-  linkedImagePath,
-  SENT_IMAGE_HEIGHT,
-  sentImageWidth,
-  sentImageSize,
-} from "./userBubbleModel";
+import { sentVideoOf, sentVideosOf, type SentVideo, sentVideoFor, withoutRepeatedVideos } from "./sentVideos";
+import { recordedFiles, isImageOriginal, sentImageSize, linkedImagePath, withoutFileNotes } from "./userBubbleModel";
 import { readLinkedImage } from "../chips/host";
 import { useMessageScope } from "../chips/messageScope";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -85,7 +80,8 @@ export function UserBubble({
   // in the bubble, its Copy and its editor; Retry sends the prompt as it went.
   // Only a skill of the chat's list reads so (skillWords.ts).
   const skills = useContext(SkillWordsContext);
-  const row = useMemo(() => shownSkills(withoutVideoFrames(given), skills), [given, skills]);
+  // A linked file's note ("Attached file: …") went to the agent only too (userBubbleModel.ts).
+  const row = useMemo(() => shownSkills(withoutFileNotes(withoutVideoFrames(given)), skills), [given, skills]);
   // Read before the frames go: a video's note and first frame are its tile (sentVideos.ts).
   const videos = useMemo(() => sentVideosOf(given), [given]);
   // A repo tour's prompt reads as its first line; the rest is instructions to the agent (repoTour/).
@@ -93,7 +89,9 @@ export function UserBubble({
     () =>
       tourBubbleText(givenText) ??
       withoutSkillDollars(
-        withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
+        withoutAttachedFileNotes(
+          withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
+        ),
         skills,
       ),
     [givenText, given, skills],
@@ -139,13 +137,12 @@ export function UserBubble({
     return recordedPromptParts(row)?.filter((part) => !isImageOriginal(part, kept));
   }, [row]);
   // A prompt whose attachments the composer placed draws in its recorded order, each attachment
-  // where it was put, the last part included. Placed: the pane marked it so (`placed`, acpmux
+  // where it was put, the last part included (Leo, 2026-11-22: "there should be no problem doing so
+  // for inline attachments after send"; each at its final size from the first frame, sentImageSize
+  // and sentVideoSize, which the row's estimate reads too). Placed: the pane marked it so (`placed`, acpmux
   // keeps it; inlinePrompt.ts), or text follows an attachment, which the old shape never has.
   // The old shape (its text, then its pastes, then its attachments), and a prompt with nothing
-  // to read beside its attachments, keep the legacy bands above the bubble. Each attachment's box
-  // is its sent size from its first frame (SentImage, SentVideoTile), and the row's estimate flows
-  // the same boxes (model.ts `inlinePromptHeight`), so nothing on its line moves when it loads
-  // (Leo, 2026-11-22: "there should be no problem doing so for inline attachments after send").
+  // to read beside its attachments, keep the legacy bands above the bubble.
   const placed = orderedParts?.some((part) => part.kind !== "text" && part.placed === true) ?? false;
   // The row's height estimate reads the same rule (promptCollapse.ts `inlineBubbleParts`).
   const hasInterleaved = orderedParts !== undefined && inlineBubbleParts(orderedParts) !== undefined;
@@ -181,7 +178,7 @@ export function UserBubble({
       if (video)
         return (
           <span className="cv-user__inline-image">
-            <SentVideoTile video={video} width={sentImageWidth(video)} height={SENT_IMAGE_HEIGHT} />
+            <SentVideoTile video={video} />
           </span>
         );
       // An image that went as its file's link is its thumbnail (userBubbleModel.ts `linkedImagePath`).
@@ -314,29 +311,40 @@ export function UserBubble({
                 }))
             }
           >
-            <MessageFooterRow>
-              {branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="footer" />}
-              {pendingShown && row.delivery ? (
-                <PendingDelivery delivery={row.delivery} />
-              ) : (
-                <MessageTime at={row.at} className="cv-user__time" />
-              )}
-              <MessageCopy text={row.text ?? text} />
-              {through !== undefined && (
-                <button
-                  type="button"
-                  className="cv-iconbtn cv-iconbtn--compact"
-                  aria-label={t("message.edit")}
-                  title={t("message.edit")}
-                  onClick={() => setEditing(true)}
-                >
-                  <Pencil size={ROW_ICON} />
-                </button>
-              )}
-              {forkButton}
-              <RewindButton rowId={row.id} />
-              <PinButton rowId={row.id} bookmark />
-            </MessageFooterRow>
+            {/* The footer fills RowFrame's slots (RowSlots.tsx): the switcher leads, the age or the
+                delivery note is its meta, and the buttons sit in the end slot, so on a prompt still on
+                its way (its note under the bubble's text) Copy keeps the row's right edge at every
+                text length, as on a landed one (doc rule 10). */}
+            <RowSlots
+              className="cv-message-footer-row"
+              lead={branch && branches && <VersionSwitcher branch={branch} branches={branches} slot="footer" />}
+              meta={
+                pendingShown && row.delivery ? (
+                  <PendingDelivery delivery={row.delivery} />
+                ) : (
+                  <MessageTime at={row.at} className="cv-user__time" />
+                )
+              }
+              actions={
+                <>
+                  <MessageCopy text={row.text ?? text} />
+                  {through !== undefined && (
+                    <button
+                      type="button"
+                      className="cv-iconbtn cv-iconbtn--compact"
+                      aria-label={t("message.edit")}
+                      title={t("message.edit")}
+                      onClick={() => setEditing(true)}
+                    >
+                      <Pencil size={ROW_ICON} />
+                    </button>
+                  )}
+                  {forkButton}
+                  <RewindButton rowId={row.id} />
+                  <PinButton rowId={row.id} bookmark />
+                </>
+              }
+            />
           </UserFooter>
         )}
       </div>
@@ -393,16 +401,9 @@ export const SentImages = memo(function SentImages({
   );
 });
 
-/// A prompt's videos, each at a sent image's height in its own shape.
+/// A prompt's videos, each in its own shape under a sent image's rule (userBubbleModel.ts `sentVideoSize`).
 export function SentVideoTiles({ videos }: { videos: readonly SentVideo[] }) {
-  return videos.map((video) => (
-    <SentVideoTile
-      key={`${video.name}\n${video.path}`}
-      video={video}
-      width={sentImageWidth(video)}
-      height={SENT_IMAGE_HEIGHT}
-    />
-  ));
+  return videos.map((video) => <SentVideoTile key={`${video.name}\n${video.path}`} video={video} />);
 }
 
 /// One sent image, read from acpmux by its id (conversation/imageEntries.ts keeps it, so a
@@ -499,6 +500,9 @@ export const SentImage = memo(function SentImage({
   const opened = openImage ? (
     <button
       type="button"
+      // Its own class, not its band's: an image sent as its file's link draws in the file band
+      // (`cv-user__files`), where no band rule reaches it (conversation.css).
+      className="cv-user__image-open"
       /* The image drags out as a file (conversation/dragOut.ts). */
       draggable
       /* tooltip-allow: an image thumbnail shows no name */ title={withSourceLabel(label, from)}

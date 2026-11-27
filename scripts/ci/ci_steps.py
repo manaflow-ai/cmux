@@ -2,7 +2,7 @@
 """Route a diff to the step table's steps and run one job's steps (ci/steps.toml).
 
   ci/run route --paths-file F            the routed steps by job, as JSON
-  ci/run run --job JOB [--paths-file F] [--label NAME] [--only NAMES]
+  ci/run run --job JOB [--paths-file F] [--label NAME] [--only NAMES] [--pr-scope]
 
 `ci/run` is the entry (it calls this file). `run` starts the job's routed steps, as many at
 once as the machine has CPUs, each as `bash -euo pipefail -c RUN` in the current directory
@@ -14,7 +14,9 @@ lists `needs = ["bun"]` also gets that `[tools]` command run first (bun, node: a
 routed steps that need it pay for), all of them at once after the setup, each in `$CI_TOOLS`. A
 setup or tool that fails fails the job. It exits 1 only when a step with `blocks = true` failed. A step with
 `blocks = false` that fails or runs past its timeout is a warning annotation: an advisory
-step never turns its job red. A step with `alone = true` runs by itself, after the others, in table order.
+step never turns its job red. A step with `alone = true` runs by itself, after the others, in table order,
+and is skipped (a notice, not a failure) once a step with `blocks = true` has failed: the job is red
+already, and the re-run that fixes it runs the step anyway.
 `--label NAME` says the event is a label change of NAME;
 then only the steps that list NAME in `labels` run. `--only NAMES` (comma or space separated)
 runs only those of the routed steps; empty means every routed step. A name the table does
@@ -29,6 +31,12 @@ A step's `inputs` are path globs (`**` crosses `/`, `*` and `?` do not). A chang
 step when it touches one of them; a step with no inputs, an unknown change, and a change to
 the pipeline itself (PIPELINE_PATHS: the table, this runner, the entry, the workflow) route it
 always.
+
+`--pr-scope` (a pull request's linux job, pr-pipeline.yml) routes a step only by the inputs that name its files:
+a literal path or a one-directory glob (`*`, `?`, no `**`). A step a change reaches only through a whole-directory
+glob (`dir/**`, `**`) or a change to the pipeline itself is left to the post-merge batch, which runs every linux
+step at the merged tip (cmux-next-pr-pipeline-linux-batch.yml) and bisects a new red there. A step with
+`pr_scope = false` keeps its whole route on a pull request. An unknown diff still routes every step.
 
 Step results by input hash (the CI v2 design, "Caches: three, content-addressed", item 3). Before a
 routed step runs, `run` keys it: sha256 over the step's own table entry, the job's setup and the
@@ -63,6 +71,7 @@ import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -75,6 +84,9 @@ SETUP_TIMEOUT = 600
 TOOL_TIMEOUT = 180
 # The pipeline's own definition: a change to any of them routes every step, so the change runs what it moved.
 CONTROLLER = "http://100.89.225.106:18765"
+PUBLIC_CONTROLLER = "https://gh-events.cmux.com"  # the controller's public listener (hq build-fleet/cmd/controller)
+OIDC_AUDIENCE = "cmux-ci-step-results"
+USER_AGENT = "cmux-ci-steps/1"
 STEP_KEY_VERSION = 1
 AUDIT_PERCENT = 5
 # A run that reads one of these depends on the event, not only on the tree: it is never reused.
@@ -112,6 +124,9 @@ class Step:
     needs: tuple[str, ...] = ()
     alone: bool = False
     reuse: bool = True
+    # False: a pull request's --pr-scope route keeps every input of this step (security-holes: a secret or a
+    # workflow hole must not land to be found post-merge).
+    pr_scope: bool = True
 
 
 @dataclass
@@ -185,6 +200,7 @@ def parse(doc: dict) -> Table:
             needs=tuple(raw.get("needs", ())),
             alone=raw.get("alone", False),
             reuse=raw.get("reuse", True),
+            pr_scope=raw.get("pr_scope", True),
         )
         if step.job not in jobs:
             raise TableError(f"step {name}: job {step.job!r} is not one of [jobs] {sorted(jobs)}")
@@ -194,6 +210,8 @@ def parse(doc: dict) -> Table:
             raise TableError(f"step {name}: `alone` is true or false")
         if not isinstance(step.reuse, bool):
             raise TableError(f"step {name}: `reuse` is true or false")
+        if not isinstance(step.pr_scope, bool):
+            raise TableError(f"step {name}: `pr_scope` is true or false")
         if step.klass not in CLASSES:
             raise TableError(f"step {name}: class {step.klass!r} is not one of {CLASSES}")
         if not step.blocks and (step.job != ADVISORY_JOB or step.klass != "idle"):
@@ -217,11 +235,19 @@ def load(path: Path = TABLE) -> Table:
     return parse(tomllib.loads(path.read_text(encoding="utf-8")))
 
 
-def routed(step: Step, paths: list[str] | None) -> bool:
-    """Whether a diff of `paths` needs the step. No inputs, or an unknown diff, routes it."""
-    if not step.inputs or paths is None or any(p in PIPELINE_PATHS for p in paths):
+def named_input(glob: str) -> bool:
+    """An input that names the step's own files: a literal path or a glob inside one directory (no `**`). A `**`
+    glob reaches a whole directory tree, so a pull request leaves a step it alone routes to the post-merge batch."""
+    return "**" not in glob
+
+
+def routed(step: Step, paths: list[str] | None, pr_scope: bool = False) -> bool:
+    """Whether a diff of `paths` needs the step. No inputs, or an unknown diff, routes it. PR_SCOPE: only the step's
+    named inputs route it, and a change to the pipeline does not route every step (see the module's `--pr-scope`)."""
+    narrow = pr_scope and step.pr_scope
+    if not step.inputs or paths is None or (not narrow and any(p in PIPELINE_PATHS for p in paths)):
         return True
-    patterns = [glob_pattern(g) for g in step.inputs]
+    patterns = [glob_pattern(g) for g in step.inputs if not narrow or named_input(g)]
     ignored = [(g.startswith("!"), glob_pattern(g.lstrip("!"))) for g in reversed(step.ignore)]
 
     def kept(path: str) -> bool:
@@ -230,12 +256,13 @@ def routed(step: Step, paths: list[str] | None) -> bool:
     return any(p.match(path) and kept(path) for path in paths for p in patterns)
 
 
-def route(table: Table, paths: list[str] | None, label: str | None = None) -> dict[str, list[str]]:
+def route(table: Table, paths: list[str] | None, label: str | None = None,
+          pr_scope: bool = False) -> dict[str, list[str]]:
     jobs: dict[str, list[str]] = {}
     for step in table.steps.values():
         if label is not None and label not in step.labels:
             continue
-        if routed(step, paths):
+        if routed(step, paths, pr_scope):
             jobs.setdefault(step.job, []).append(step.name)
     return jobs
 
@@ -247,10 +274,11 @@ class Result:
     seconds: float
     output: str
     reused: str = ""  # the run whose pass this step reused; empty when it ran
+    skipped: bool = False  # an alone step not started: a blocking step had failed
 
     @property
     def ok(self) -> bool:
-        return self.code == 0
+        return self.skipped or self.code == 0
 
 
 def reusable(step: Step) -> bool:
@@ -298,7 +326,7 @@ def step_key(step: Step, table: Table, files: list[tuple[str, str, str]], tree: 
         changed = None if paths is None else sorted(paths)
     doc = {
         "v": STEP_KEY_VERSION,
-        "step": {f: getattr(step, f) for f in Step.__dataclass_fields__ if f not in ("title", "about")},
+        "step": {f: getattr(step, f) for f in Step.__dataclass_fields__ if f not in ("title", "about", "pr_scope")},
         "setup": table.setup.get(step.job, ""),
         "tools": {t: table.tools[t] for t in sorted(step.needs)},
         "pipeline": {p: oids.get(p, "") for p in PIPELINE_PATHS if p != "ci/steps.toml"},
@@ -313,11 +341,41 @@ def step_key(step: Step, table: Table, files: list[tuple[str, str, str]], tree: 
 class StepResults:
     """The fleet controller's step-result store. Every error is a miss and a write that did not happen."""
 
-    def __init__(self, url: str, write: bool, meta: dict[str, str], timeout: float = 4.0) -> None:
-        self.url = url.rstrip("/") + "/v1/ci/step-results"
+    def __init__(self, url: str, write: bool, meta: dict[str, str], timeout: float = 4.0,
+                 oidc: tuple[str, str] | None = None) -> None:
+        # With oidc (the job's ACTIONS_ID_TOKEN_REQUEST_URL and _TOKEN) the store is the controller's public route,
+        # which takes a GitHub Actions OIDC token: the Linux runner pool is off the tailnet, so the tailnet route
+        # timed out there and nothing was ever stored (2026-11-25).
+        self.oidc = oidc
+        self.url = url.rstrip("/") + ("/github/step-results" if oidc else "/v1/ci/step-results")
         self.write = write
         self.meta = meta
         self.timeout = timeout
+        self.error = ""  # the first failed call, for the job's summary line: a silent miss hides a refusal
+        self.down = False  # an unreachable store costs one timeout, not one per step and write
+
+    def failed(self, what: str, err: Exception) -> None:
+        if not self.error:
+            code = getattr(err, "code", None)
+            reason = getattr(err, "reason", None) or err
+            self.error = f"{what} {'HTTP ' + str(code) if code else 'failed'}: {str(reason)[:160]}"
+
+    def headers(self) -> dict[str, str]:
+        """A fresh OIDC token per call: one lives minutes, and a job's writes come at its end.
+
+        Always a named User-Agent: Cloudflare in front of gh-events.cmux.com refuses Python's default
+        one ("Python-urllib/3.x") with 403, error code 1010, before the controller sees the request."""
+        if not self.oidc:
+            return {"User-Agent": USER_AGENT}
+        url, bearer = self.oidc
+        sep = "&" if "?" in url else "?"
+        req = urllib.request.Request(f"{url}{sep}audience={OIDC_AUDIENCE}", headers={"Authorization": f"bearer {bearer}"})
+        # user-agent: GitHub's OIDC token URL, no CDN of ours
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            token = json.loads(resp.read()).get("value") or ""
+        if not token:
+            raise ValueError("the OIDC token request returned no token")
+        return {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
 
     @classmethod
     def from_env(cls, env: dict[str, str]) -> "StepResults | None":
@@ -339,28 +397,43 @@ class StepResults:
             run_url += f"/attempts/{env['GITHUB_RUN_ATTEMPT']}"
         meta = {"repo": env.get("GITHUB_REPOSITORY", ""), "sha": env.get("GITHUB_SHA", ""), "run_url": run_url,
                 "runner": env.get("RUNNER_NAME", "")}
+        oidc = (env.get("ACTIONS_ID_TOKEN_REQUEST_URL", ""), env.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", ""))
+        if all(oidc):
+            return cls(env.get("CI_STEP_RESULTS_PUBLIC_URL") or PUBLIC_CONTROLLER, write, meta, oidc=oidc)
         return cls(env.get("CI_STEP_RESULTS_URL") or CONTROLLER, write, meta)
 
     def lookup(self, key: str, step: str, audit: bool = False) -> dict | None:
+        if self.down:
+            return None
         query = urllib.parse.urlencode({"key": key, "step": step, **({"audit": "1"} if audit else {})})
         try:
-            with urllib.request.urlopen(f"{self.url}?{query}", timeout=self.timeout) as resp:
+            req = urllib.request.Request(f"{self.url}?{query}", headers=self.headers())
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 found = json.loads(resp.read())
-        except (OSError, ValueError, urllib.error.URLError):
+        except urllib.error.HTTPError as err:
+            if err.code != 404:  # 404 is the store's plain miss
+                self.failed("lookup", err)
+            return None
+        except (OSError, ValueError) as err:
+            self.failed("lookup", err)
+            self.down = isinstance(err, OSError)
             return None
         return found if isinstance(found, dict) and found.get("key") == key else None
 
     def post(self, key: str, step: str, outcome: str, seconds: float, audit: bool = False) -> None:
-        if not self.write:
+        if not self.write or self.down:
             return
         body = json.dumps({"key": key, "step": step, "outcome": outcome, "seconds": round(seconds, 1),
                            "audit": audit, **self.meta}).encode()
-        req = urllib.request.Request(self.url, data=body, method="POST",
-                                     headers={"Content-Type": "application/json"})
         try:
+            req = urllib.request.Request(self.url, data=body, method="POST",
+                                         headers={"Content-Type": "application/json", **self.headers()})
             urllib.request.urlopen(req, timeout=self.timeout).close()
-        except (OSError, urllib.error.URLError):
-            pass
+        except urllib.error.HTTPError as err:
+            self.failed("write", err)
+        except (OSError, ValueError) as err:
+            self.failed("write", err)
+            self.down = isinstance(err, OSError)
 
 
 def audited(key: str, env: dict[str, str]) -> bool:
@@ -404,7 +477,8 @@ def report(results: list[Result], job: str, out=sys.stdout, logs: bool = True) -
     for r in results:
         if logs:
             print_log(r, out)
-        result = "reused" if r.reused else "passed" if r.ok else ("timed out" if r.code is None else f"exit {r.code}")
+        result = ("skipped" if r.skipped else "reused" if r.reused else "passed" if r.ok
+                  else ("timed out" if r.code is None else f"exit {r.code}"))
         if not r.ok:
             level = "error" if r.step.blocks else "warning"
             what = f"ran past its {r.step.timeout} s" if r.code is None else f"exited {r.code}"
@@ -447,10 +521,30 @@ def reuse_passes(table: Table, steps: list[Step], paths: list[str] | None, store
     return reused, keys, audit
 
 
+def step_env(base: Mapping[str, str], tools: str) -> dict[str, str]:
+    """The environment every step of a job runs with: the caller's, `$CI_TOOLS/bin` first on PATH, and on a
+    GitHub Actions Linux runner CARGO_INCREMENTAL=0 unless the caller set it.
+
+    Each Linux job builds into a fresh workspace's target, so rustc's incremental state (target/*/incremental, a
+    copy of every workspace crate's query cache and object files, written for every lib, bin and test target) is
+    never read again. It filled a pool VM's disk in run 45531606824 (the cmux_next_ daemon tests, "No space left on
+    device" writing cmux-tui/target/debug/incremental), and sccache refuses to cache an incremental compile.
+    A laptop or lane keeps cargo's default."""
+    env = dict(base, CI_TOOLS=tools, PATH=f"{tools}/bin{os.pathsep}{base.get('PATH', '')}")
+    if base.get("GITHUB_ACTIONS") == "true" and base.get("RUNNER_OS") == "Linux":
+        env.setdefault("CARGO_INCREMENTAL", "0")
+    return env
+
+
 def run_job(table: Table, job: str, paths: list[str] | None, label: str | None = None, out=sys.stdout,
             workers: int | None = None, only: list[str] | None = None, store: StepResults | None = None,
-            root: Path = ROOT) -> int:
-    names = route(table, paths, label).get(job, [])
+            root: Path = ROOT, pr_scope: bool = False) -> int:
+    names = route(table, paths, label, pr_scope).get(job, [])
+    if pr_scope:
+        deferred = [n for n in route(table, paths, label).get(job, []) if n not in names]
+        if deferred:
+            print(f"--pr-scope: {len(deferred)} step(s) this change reaches only through a whole-directory input or the "
+                  f"pipeline's own files run in the post-merge batch, not here: {', '.join(deferred)}", file=out)
     if only:
         for name in only:
             if name not in table.steps:
@@ -478,7 +572,7 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
     # A tool a step leaves unremovable (a root-owned install) must not turn a job of green steps red at cleanup.
     with tempfile.TemporaryDirectory(prefix="ci-tools-", dir=os.environ.get("RUNNER_TEMP") or None,
                                      ignore_cleanup_errors=True) as tools:
-        env = dict(os.environ, CI_TOOLS=tools, PATH=f"{tools}/bin{os.pathsep}{os.environ.get('PATH', '')}")
+        env = step_env(os.environ, tools)
         # The change's paths, one a line, for a step whose own router is finer than path globs (a web subarea):
         # unset when the change is unknown, which a step reads as "everything changed".
         env.pop("CI_PATHS_FILE", None)
@@ -517,17 +611,29 @@ def run_job(table: Table, job: str, paths: list[str] | None, label: str | None =
                     return result
                 results += pool.map(run_and_print, [s for s in steps if not s.alone])
             # An `alone` step takes the whole machine: it runs by itself, after the others, in table order.
-            results += [run_and_print(s) for s in steps if s.alone]
+            # Once a blocking step failed the job is red, and the re-run runs every step again: an alone step
+            # (the long ones: 15 to 65 minutes) would only spend the machine, so it is skipped.
+            for s in steps:
+                if not s.alone:
+                    continue
+                failed = next((r.step.name for r in results if not r.ok and r.step.blocks), None)
+                if failed is None:
+                    results.append(run_and_print(s))
+                    continue
+                print(f"::notice title=Step table::step {s.name} skipped: blocking step {failed} failed", file=out)
+                results.append(Result(s, 0, 0.0, "", skipped=True))
     if store is not None:
         for r in results:
             key = keys.get(r.step.name)
-            if not key or r.reused or r.code is None:
+            if not key or r.reused or r.skipped or r.code is None:
                 continue
             if r.ok or r.step.name in audit:
                 store.post(key, r.step.name, "pass" if r.ok else "fail", r.seconds, audit=r.step.name in audit)
             if r.step.name in audit and not r.ok:
                 print(f"::error title=Step results::step {r.step.name} failed its audit: a stored pass of the same "
                       f"inputs did not hold (the key is evicted)", file=out)
+        if store.error:
+            print(f"::warning title=Step results::{store.url} {store.error}; nothing reused or stored", file=out)
     return finish(results, job, out)
 
 
@@ -556,24 +662,28 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     r = sub.add_parser("route")
     r.add_argument("--paths-file")
+    r.add_argument("--pr-scope", action="store_true", help="route by named inputs only (see the module's docs)")
     x = sub.add_parser("run")
     x.add_argument("--job", required=True)
     x.add_argument("--paths-file")
     x.add_argument("--label", default="", help="the label of a labeled or unlabeled event; empty for other events")
     x.add_argument("--workers", type=int, default=0, help="steps at once (default: the machine's CPUs)")
     x.add_argument("--only", default="", help="run only these routed steps (comma or space separated); empty: all")
+    x.add_argument("--pr-scope", action="store_true",
+                   help="a pull request's route: a step reached only by a whole-directory input or the pipeline's own "
+                        "files is left to the post-merge batch")
     args = parser.parse_args(argv)
     table = load(Path(args.table))
     paths = read_paths(args.paths_file)
     if args.command == "route":
-        print(json.dumps(route(table, paths), indent=1, sort_keys=True))
+        print(json.dumps(route(table, paths, pr_scope=args.pr_scope), indent=1, sort_keys=True))
         return 0
     if args.job not in table.jobs:
         parser.error(f"--job {args.job!r} is not one of {sorted(table.jobs)}")
     # A label event runs only the steps that name the label: those read the event, so none is reused.
     store = None if args.label else StepResults.from_env(dict(os.environ))
     return run_job(table, args.job, paths, args.label or None, workers=args.workers or None,
-                   only=parse_only(args.only), store=store, root=Path.cwd())
+                   only=parse_only(args.only), store=store, root=Path.cwd(), pr_scope=args.pr_scope)
 
 
 if __name__ == "__main__":

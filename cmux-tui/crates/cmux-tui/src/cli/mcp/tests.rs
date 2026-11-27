@@ -70,6 +70,9 @@ struct Fake {
     /// The requests `Backend::resource_sender` sent (a live file's reloads); no sender
     /// when unset.
     reloads: Option<std::sync::Arc<std::sync::Mutex<Vec<Value>>>>,
+    /// `Backend::resource_job`: a terminal wait sent from its own thread answers
+    /// `resource_result` after this long; none (a wait on the server's thread) when unset.
+    wait_job: Option<Duration>,
     sent: RefCell<Vec<Value>>,
 }
 
@@ -190,6 +193,21 @@ impl Backend for Fake {
         Some(std::sync::Arc::new(move |plan: RequestPlan| {
             reloads.lock().unwrap().push(request_value(&plan).expect("a valid request"));
             Ok(json!({}))
+        }))
+    }
+
+    fn resource_job(&self, _session: Option<&str>) -> Option<ResourceJob> {
+        let delay = self.wait_job?;
+        let answer = self.resource_result.clone().unwrap_or_else(|| json!({}));
+        Some(Box::new(move |plan, _prefixes| {
+            assert!(matches!(
+                plan.operation,
+                super::super::command::WireOperation::Typed(
+                    ResourceOperation::TerminalWait | ResourceOperation::TerminalWaitExit
+                )
+            ));
+            std::thread::sleep(delay);
+            Ok(answer)
         }))
     }
 
@@ -999,7 +1017,7 @@ fn fake_env(
 fn the_settings_file_follows_the_app_override() {
     assert_eq!(
         config::path_from(fake_env(&[("HOME", "/Users/u")])),
-        PathBuf::from("/Users/u/.config/cmux/cmux-next.json")
+        PathBuf::from("/Users/u/.config").join(cmux_config::NEXT_DIR).join("cmux-next.json")
     );
     assert_eq!(
         config::path_from(fake_env(&[
@@ -1731,6 +1749,7 @@ mod retained;
 mod settings;
 mod slides;
 mod terminal_wait_timeout;
+mod wait_head_of_line;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {
     let mut server = Server::new(fake, None);

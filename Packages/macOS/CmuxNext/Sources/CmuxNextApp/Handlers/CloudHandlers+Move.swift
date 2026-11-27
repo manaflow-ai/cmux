@@ -70,11 +70,11 @@ extension CloudHandlers {
         // (the page's gesture-gated `action.run`, the palette) runs them; Auto's own moves run Move to Cloud and Bring Back directly.
         let place = services.cloud.placeDriver ?? CloudPlaceDriver(place: services.cloud.place, host: services)
         if services.cloud.placeDriver == nil { services.cloud.placeDriver = place; place.start() }
-        for id in [AppServices.placeSet, AppServices.placeRetry, AppServices.placeEvacuate, AppServices.placeCancel, AppServices.placeEvacuateCancel, AppServices.placeBringBackAll] {
+        for id in [AppServices.placeSet, AppServices.prioritySet, AppServices.placeRetry, AppServices.placeEvacuate, AppServices.placeCancel, AppServices.placeEvacuateCancel, AppServices.placeBringBackAll] {
             let cancels = id == AppServices.placeCancel || id == AppServices.placeEvacuateCancel
             // A cancel is never refused.
-            let allowed: @MainActor () -> String? = { nil }
-            bind(id, registry, reason: cancels ? allowed : reason) { invocation in
+            let allowed: @MainActor () -> String? = { nil }, gated: @MainActor () -> String? = { reason() ?? CloudMoveStrings.placeOff(services.settings?.snapshot.experimentSwitches) }
+            bind(id, registry, reason: cancels ? allowed : gated) { invocation in
                 guard !CloudMoveAsks.isAgent(invocation), !invocation.viaControlSocket else { throw ActionFailure(message: CloudMoveStrings.placeIsPersons) }
                 let tab = context.daemonTab(invocation)?.0.id, named = CloudPlaceDriver.named(invocation["sessions"]?.stringValue), row = CloudPlaceDriver.row(named)
                 switch id {
@@ -82,6 +82,7 @@ extension CloudHandlers {
                     guard let mode = invocation["mode"]?.stringValue, ["local", "cloud", "auto"].contains(mode) else { throw ActionFailure(message: "mode must be local, cloud or auto") }
                     // A move refused at once fails in the chat's flow (with Retry) and answers the page with why.
                     if let refusal = place.setMode(mode, tab: tab, session: row, claims: CloudPlaceClaims(invocation)) { throw ActionFailure(message: refusal.message) }
+                case AppServices.prioritySet: if let refusal = place.setPriority(invocation["priority"]?.stringValue, tab: tab, session: row) { throw ActionFailure(message: refusal.message) }
                 case AppServices.placeRetry:
                     if let refusal = place.retry(tab: tab, session: row, claims: CloudPlaceClaims(invocation)) { throw ActionFailure(message: refusal.message) }
                 case AppServices.placeCancel: place.cancel(tab: tab, session: row ?? invocation["session"]?.stringValue)
@@ -178,14 +179,6 @@ extension CloudHandlers {
     }
 }
 
-extension CloudPlaceClaims {
-    /// The cargo the page sent with its action (strings, as every page argument is); none when it sent none.
-    init(_ invocation: ActionInvocation) {
-        self.init(queued: invocation["queued"].flatMap { $0.intValue ?? $0.stringValue.flatMap(Int.init) },
-                  hasDraft: invocation["hasDraft"].flatMap { $0.boolValue ?? $0.stringValue.map { $0 == "true" } })
-    }
-}
-
 extension CloudPlaceRefusal {
     /// What the page and the person read.
     @MainActor var message: String {
@@ -222,6 +215,7 @@ extension CloudPlaceFlows.Cargo {
 /// The app's side of the chat place controls (``CloudPlaceDriver``): its chats, how it runs a move, what its ledger knows.
 extension AppServices: CloudPlaceHost {
     static let placeSet: ActionID = "chatPlace.set"
+    static let prioritySet: ActionID = "chatPriority.set"
     static let placeCancel: ActionID = "chatMove.cancel"
     static let placeRetry: ActionID = "chatMove.retry"
     static let placeEvacuate: ActionID = "cloudEvacuate"
@@ -236,9 +230,7 @@ extension AppServices: CloudPlaceHost {
                     guard let record = tab.agentSession, let session = record.session ?? agentTabs.sessions[agentTabs.tabKey(of: tab)] else { continue }
                     let onCloud = record.host.hasPrefix(MachineRegistry.registryHostPrefix)
                     // Eligible first, then once per session: a tab that may not move never hides a later one of the same chat that may.
-                    guard daemon.isLocal && !onCloud && !record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix)
-                        || onCloud && cloud.movedChats.entry(host: record.host, session: session) != nil,
-                          seen.insert(session).inserted else { continue }
+                    guard placeEligible(record, session: session, on: daemon), seen.insert(session).inserted else { continue }
                     found.append(CloudPlaceChat(id: tab.id, session: session, title: tab.titleText, onCloud: onCloud, turnRunning: CloudPlaceFlows.Cargo.read(tab: tab, session: session, services: self).turnRunning,
                                                 turnStartedAtMs: AgentTurnStateStore.shared.detail(for: record)?.turnStartedAtMs.map(Double.init),
                                                 moving: cloud.place.isMoving(session) || cloud.movingBack.contains(tab.id),
@@ -249,16 +241,17 @@ extension AppServices: CloudPlaceHost {
         return found
     }
 
+    /// Whether the place actions can move this chat: one on this Mac's own acpmux (not an SSH machine's, not the Chief's), or
+    /// a Cloud chat a move took there (its ledger entry is what Bring Back reads). The header's `place` and ``placeChats()``
+    /// both ask this, so the composer and Runs On offer a control only where a pick does something.
+    func placeEligible(_ record: AgentSessionRef, session: String, on daemon: DaemonService) -> Bool {
+        let onCloud = record.host.hasPrefix(MachineRegistry.registryHostPrefix)
+        if onCloud { return cloud.movedChats.entry(host: record.host, session: session) != nil }
+        return daemon.isLocal && !record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix)
+    }
+
     func placeRun(_ chat: CloudPlaceChat, toCloud: Bool, machine: CloudPlaceMachine?, trigger: CloudPlaceFlows.Trigger, claims: CloudPlaceClaims) -> CloudPlaceRun {
-        var arguments: [String: ActionValue] = ["trigger": .string(trigger.argument)]
-        if let queued = claims.queued { arguments["queued"] = .int(queued) }
-        if let hasDraft = claims.hasDraft { arguments["hasDraft"] = .bool(hasDraft) }
-        switch machine {
-        case .reuse(let id): arguments["machine"] = .string(id)
-        case .create: arguments["newMachine"] = .bool(true)
-        case nil: break
-        }
-        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: chat.id), arguments: arguments, origin: .user)
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: chat.id), arguments: claims.arguments(trigger: trigger, machine: machine), origin: .user)
         let registry = self.registry
         let action = toCloud ? CloudMove.action : CloudBringBack.action
         var ran = false, work: [ActionWork] = []
@@ -275,7 +268,8 @@ extension AppServices: CloudPlaceHost {
 
     func placeOwnFacts(_ session: String) -> (before: String?, machines: [CloudPlaceOwnMachine]) {
         let ledger = cloud.movedChats.all()
-        return (ledger.first { $0.session == session || $0.broughtBack?.session == session }?.machineID,
+        // The ledger's entry while the chat is on Cloud or coming back; after a Bring Back ended it, the machine it ran on.
+        return (ledger.first { $0.session == session || $0.broughtBack?.session == session }?.machineID ?? cloud.place.lastMachine(of: session),
                 machines.cloud.map { machine in
                     CloudPlaceOwnMachine(id: machine.machineID, sessions: ledger.filter { $0.machineID == machine.machineID && $0.broughtBack == nil }.map(\.session),
                                          gone: [.deleting, .destroyed].contains(machine.machine.status))

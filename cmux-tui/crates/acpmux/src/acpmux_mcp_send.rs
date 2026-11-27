@@ -45,7 +45,7 @@ const _: () = assert!(CALL_BUDGET.as_millis() < 60_000, "the call must end befor
 pub(super) fn tool() -> Value {
     json!({
         "name": "send",
-        "description": "Message another agent session (or host/name on a peer): the `cmux agent send` front door, not a shell command; for several, batch them in one call with messages. Returns in seconds with promptId and deliveryId (the outbox retries); no reply wait. class question or block: the answering turn comes back to you as a report (same machine), so do not poll; else read replies with last. It steers into a running turn at its next tool step unless steer: false. messages or tag: one result row per recipient.",
+        "description": "Message another agent session (or host/name on a peer): the `cmux agent send` front door, not a shell command; for several, batch them in one call with messages. Returns promptId and deliveryId in seconds (the outbox retries). class question or block: the answer comes back to you as a report, so do not poll; else read replies with last. Steers into a running turn unless steer: false.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -55,14 +55,14 @@ pub(super) fn tool() -> Value {
                 "class": {"type": "string", "enum": ["block", "question", "result", "fyi", "blocker", "action"], "description": "block/blocker: you are stuck until it acts; question: you wait on its answer (both wake it). result/action (default): wakes it only if you started it or gave it work. fyi: wakes no one."},
                 "pr": {"type": "integer", "description": "The PR it is about; the receiver's inbox threads by it."},
                 "thread": {"type": "string", "description": "A topic or an inbox_read threadId (default: by the PR its first line names, else all yours)."},
-                "file": {"type": "string", "description": "Instead of text: a file holding it, any size."},
-                "attach": {"type": "array", "items": {"type": "string"}, "description": "Absolute paths of files to send with it, any size: images show as images, others as links. Never a provider file id (libfile_...)."},
+                "file": {"type": "string", "description": "Instead of text: a file with it, any size."},
+                "attach": {"type": "array", "items": {"type": "string"}, "description": "Absolute file paths, any size: images show inline, others as links. Never a provider file id (libfile_...)."},
                 "tag": {"type": "string", "description": "Instead of to: every live session with this tag (key or key=value), not you."},
-                "supersede": {"type": "string", "description": "A key: your message still queued at the receiver under it is replaced by this one."},
+                "supersede": {"type": "string", "description": "A key: replaces your message still queued at the receiver under it."},
                 "notice": notice_schema("Send as a tool's notice (severity, title, links); text is its body."),
                 "messages": {
                     "type": "array",
-                    "description": "A batch, sent in order: each item takes the fields above, which are its defaults.",
+                    "description": "A batch, sent in order; the fields above are each item's defaults.",
                     "items": {
                         "type": "object",
                         "properties": {

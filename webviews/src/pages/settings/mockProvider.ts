@@ -9,6 +9,7 @@
 import { runMockAgentKeys } from "./mockAgentKeys";
 import { mockAutocloudState, runMockAutocloud } from "./mockAutocloud";
 import { mockHubState, runMockHub } from "./mockHub";
+import { mockTokensState, runMockTokens } from "./mockTokens";
 import { mockConnectionsState, runMockConnections } from "./mockConnections";
 import { mockModels, runMockModels } from "./mockModels";
 import { mockAllotments, runMockAllotment } from "./mockAllotments";
@@ -24,6 +25,7 @@ import { Session, type EventSourceContext } from "../../protocol/session";
 import {
   settingsPageActions,
   type BrowserProfile,
+  type ComputerUseApproval,
   type HostLists,
   type AccountsCmux,
   type AccountsRow,
@@ -38,10 +40,10 @@ import {
   type DevicesRelay,
   type CloudEnvironmentsRun,
   type CloudEnvironmentsState,
-  type LibraryListing,
-  type LibraryRun,
-  type ChecklistFact,
+  type LooksGallery,
+  type LooksRun,
   type SharesState,
+  type KeysState,
   type TailnetState,
   type DevicesRun,
   type DevicesRunResult,
@@ -51,7 +53,11 @@ import {
   type HarnessesState,
   type ProviderAccount,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
+  type McpServersRun,
+  type McpServersState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -63,40 +69,41 @@ import {
   type ThemeOverride,
   type WorkspaceBackground,
   type CustomizeTryOn,
-  type KeysState,
+  type LibraryListing,
+  type LibraryRun,
   type ModelsRun,
   type ModelsState,
-  type ComputerUseApproval,
-  type AgentToolsCardRun,
-  type AgentToolsCardState,
-  type McpServersRun,
-  type McpServersState,
-  type AgentSkillsRun,
-  type AgentSkillsState,
   type AgentMcpRun,
   type AgentMcpState,
+  type AllotmentSet,
+  type AllotmentView,
+  type AgentSkillsRun,
+  type AgentSkillsState,
   type AgentHooksRun,
   type AgentHooksState,
   type AgentConfigAgent,
   type AgentConfigRun,
   type AgentConfigState,
-  type AllotmentSet,
-  type AllotmentView,
+  type AccountsRunReply,
+  type AgentSkillRow,
   type HubRun,
   type HubState,
-  type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
   type LibraryAnswer,
-  type AgentSkillRow,
   type AutocloudAction,
   type AutocloudState,
   type ConnectionsRun,
   type ConnectionsState,
   type ArchivedRun,
   type ArchivedState,
+  type ChecklistFact,
+  type PreviousBuild,
+  type DeveloperTokensRun,
+  type DeveloperTokensState,
 } from "./ops";
-import { hostRowsByKey, rowsByKey, schema } from "./schema";
+import { mockLooks, previewLook, runLooks } from "./mockLooks";
+import { rowsByKey, schema, hostRowsByKey } from "./schema";
 import { withEdits, type ThemeEditMap } from "../../theme/themeEdits";
 import { validate } from "./validate";
 import { MockAgents } from "./mockAgents";
@@ -107,6 +114,7 @@ import { mockLibrary, runLibrary } from "./mockLibrary";
 import { mockEmptyDoctor, runDoctor } from "./mockDoctor";
 import { mockAgentConfig, runAgentConfigMock } from "./mockAgentConfig";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import type { SlackConnection } from "./slackConnection";
 import type { WorktreeRecipe } from "../../worktreeRecipe";
 
 export type MockOptions = {
@@ -143,6 +151,16 @@ export type MockOptions = {
   doctorRefusal?: string;
   /** A customization being tried on (`cmux customize try`); absent: none. */
   tryOn?: CustomizeTryOn;
+  /** Updates > App Update's Go Back to Previous Build (null: nothing kept); default none. */
+  previousBuild?: PreviousBuild | null;
+  /** The host's refusal of that row's Go Back; default none (it runs). */
+  previousBuildRefusal?: string;
+  /** Settings > Appearance > Looks (`cmux setup gallery`); default the catalog, nothing installed. */
+  looks?: LooksGallery;
+  /** The CLI refuses every Looks change with this message. */
+  looksRefusal?: string;
+  /** Looks whose repo has no preview image (`setup.preview_missing`). */
+  looksPreviewMissing?: string[];
   /** Writes of these keys the daemon refuses with this reason and details (a json row's
    * `accepted.problems`, as cmux-config's refusal carries them). */
   refusals?: Record<string, { message: string; details: Record<string, unknown> }>;
@@ -158,17 +176,25 @@ export const mockDevicesJoin: DevicesJoinState = {
   known: true,
   revoke_all: null,
   switches: [
-    { surface: "screen", title: "Screen sharing", help: "Your team's machines can see this screen", on: false },
+    {
+      surface: "screen",
+      title: "Screen sharing",
+      help: "Your team's machines can see this screen",
+      keywords: ["screen sharing", "share screen", "see my screen", "let my team see"],
+      on: false,
+    },
     {
       surface: "control",
       title: "Control",
       help: "Your team's machines can move the pointer and type here",
+      keywords: ["remote control", "let my team control", "take control", "mouse and keyboard"],
       on: false,
     },
     {
       surface: "signedInMachines",
       title: "Your other Macs",
       help: "Your other Macs signed in to this account can open workspaces and terminals here",
+      keywords: ["other macs", "open workspaces", "remote workspaces", "same account"],
       on: false,
     },
   ],
@@ -232,6 +258,7 @@ export const mockCmuxAccount: Record<"signedIn" | "signedOut" | "signingIn", Acc
     statusKind: "quiet",
     busy: false,
     buttons: [cmuxButton("cmux.signIn", "Sign In to cmux")],
+    signInBackend: "Signs in to cmux.com",
     note: null,
     error: null,
   },
@@ -282,6 +309,8 @@ export type MockWorktreeProject = {
 };
 
 export class MockSettingsProvider {
+  slack: SlackConnection = { connected: false, teams: [] };
+  slackAllowance: number | null = null;
   readonly log: Array<{ op: string; params: unknown }> = [];
   /** The colors `cmux.settings.theme.colors` answers (the gallery installs every bundled theme). */
   themeColors: GhosttyTheme[] = mockThemeColors;
@@ -292,6 +321,8 @@ export class MockSettingsProvider {
   domains: Domains | null;
   /** The theme file the mock picker returns for `cmux.settings.theme.import`; null: the person left it. */
   importable: GhosttyTheme | null = null;
+  /** The sound name the mock open panel imports for `cmux.settings.sound.import`; null: the person left it. */
+  importableSound: string | null = null;
   private readonly importTokens = new Map<string, GhosttyTheme>();
   private readonly chatFolders: ListRow["folders"];
   private actionRan: boolean;
@@ -329,11 +360,16 @@ export class MockSettingsProvider {
     this.actionRan = options.actionRan ?? true;
     this.connected = options.connected ?? true;
     this.tryOn = options.tryOn ?? null;
+    this.previousBuild = options.previousBuild ?? null;
+    this.previousBuildRefusal = options.previousBuildRefusal ?? null;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     if (options.themeOverrides) this.host = { ...this.host, theme_overrides: options.themeOverrides };
     if (options.devicesJoin) this.host = { ...this.host, devices_join: options.devicesJoin };
     if (options.library) this.library = options.library;
     if (options.libraryRefusal) this.libraryRefusal = options.libraryRefusal;
+    if (options.looks) this.looks = options.looks;
+    if (options.looksRefusal) this.looksRefusal = options.looksRefusal;
+    if (options.looksPreviewMissing) this.looksPreviewMissing = options.looksPreviewMissing;
     if (options.doctor) this.doctor = options.doctor;
     if (options.doctorRefusal) this.doctorRefusal = options.doctorRefusal;
     this.importable = options.importable ?? null;
@@ -357,11 +393,34 @@ export class MockSettingsProvider {
       "cmux.settings.preview": () => ({}),
       "cmux.settings.preview.end": () => ({}),
       "cmux.settings.sound.play": () => ({}),
+      "cmux.settings.sound.import": (params) => this.importSound(params.key as string),
       "cmux.settings.host.lists": async () => {
         if (this.holdHost) await this.holdHost;
         return this.host;
       },
       "cmux.settings.accounts.state": () => this.accountsState(),
+      "cmux.settings.slack.request": (params) => {
+        if (params.method === "POST") return { url: "https://platform.example/v1/slack/install?ticket=example" };
+        if (params.method === "DELETE") this.slack = { connected: false, teams: [] };
+        return this.slack;
+      },
+      "cmux.settings.slack.create_app": () => ({
+        rid: "r0",
+        appId: "A0EXAMPLE",
+        name: "Acme",
+        installUrl: "https://platform.example/v1/slack/apps/r0/install?ticket=example",
+      }),
+      "cmux.settings.slack.open": () => ({}),
+      "cmux.settings.slack.awake": (params) => {
+        if ("allowance_seconds" in params) this.slackAllowance = params.allowance_seconds as number | null;
+        return {
+          allowance_seconds: this.slackAllowance ?? 7200,
+          default_seconds: 7200,
+          max_seconds: 86400,
+          days: 7,
+          senders: [],
+        };
+      },
       "cmux.settings.server.restart": () => ({}),
       "cmux.settings.server.pair": () => ({}),
       "cmux.settings.mobile.allow_again": () => {
@@ -653,6 +712,11 @@ export class MockSettingsProvider {
       "cmux.settings.art.search": () => ({ results: this.museumArt }),
       "cmux.settings.art.use": () => ({ id: "" }),
       "cmux.settings.app_update.run": () => ({}),
+      "cmux.settings.app_update.previous": () => this.previousBuild,
+      "cmux.settings.app_update.rollback": () => {
+        if (this.previousBuildRefusal) throw new ProtocolError("cmux.page.refused", this.previousBuildRefusal);
+        return {};
+      },
       "cmux.settings.web_updates.check": () => ({}),
       "cmux.settings.web_updates.rollback": () => ({}),
       "cmux.settings.language.relaunch": () => ({}),
@@ -713,6 +777,7 @@ export class MockSettingsProvider {
       "cmux.settings.archived.list": () => this.archived,
       "cmux.settings.archived.run": (params) => this.runArchived(params as ArchivedRun),
       "cmux.settings.customize.library": (params) => this.runLibrary(params as LibraryRun),
+      "cmux.settings.looks": (params) => this.runLooks(params as LooksRun),
       "cmux.settings.customize.checklist": (params) => ({
         checklist: mockChecklist(this.values, (params as { has?: ChecklistFact[] }).has ?? []),
       }),
@@ -1004,6 +1069,14 @@ export class MockSettingsProvider {
         this.hub = runMockHub(this.hub, run);
         return {};
       },
+      "cmux.settings.tokens.state": () => this.tokens,
+      "cmux.settings.tokens.run": (params) => {
+        const run = params as DeveloperTokensRun;
+        if (run.action !== "refresh") this.tokensRuns.push(run);
+        const { state, created } = runMockTokens(this.tokens, run);
+        this.tokens = state;
+        return created ? { ok: true, created } : { ok: true };
+      },
       "cmux.settings.connections.state": () => this.connections,
       "cmux.settings.connections.run": (params) => {
         const run = params as ConnectionsRun;
@@ -1075,6 +1148,7 @@ export class MockSettingsProvider {
       "cmux.settings.preview",
       "cmux.settings.preview.end",
       "cmux.settings.sound.play",
+      "cmux.settings.sound.import",
       "cmux.settings.host.lists",
       "cmux.settings.devices.remove",
       "cmux.settings.devices.full_access",
@@ -1082,6 +1156,10 @@ export class MockSettingsProvider {
       "cmux.settings.machines.vm_host",
       "cmux.settings.accounts.state",
       "cmux.settings.accounts.run",
+      "cmux.settings.slack.request",
+      "cmux.settings.slack.create_app",
+      "cmux.settings.slack.open",
+      "cmux.settings.slack.awake",
       "cmux.settings.channels.state",
       "cmux.settings.channels.go_back",
       "cmux.settings.channels.update_machine",
@@ -1109,6 +1187,7 @@ export class MockSettingsProvider {
       "cmux.settings.customize.run",
       "cmux.settings.shares.list",
       "cmux.settings.customize.library",
+      "cmux.settings.looks",
       "cmux.settings.customize.checklist",
       "cmux.settings.shares.revoke",
       "cmux.settings.archived.list",
@@ -1132,6 +1211,8 @@ export class MockSettingsProvider {
       "cmux.settings.autocloud.run",
       "cmux.settings.hub.state",
       "cmux.settings.hub.run",
+      "cmux.settings.tokens.state",
+      "cmux.settings.tokens.run",
       "cmux.settings.connections.state",
       "cmux.settings.connections.run",
       "cmux.settings.agentSkills.state",
@@ -1161,6 +1242,8 @@ export class MockSettingsProvider {
       "cmux.settings.art.search",
       "cmux.settings.art.use",
       "cmux.settings.app_update.run",
+      "cmux.settings.app_update.previous",
+      "cmux.settings.app_update.rollback",
       "cmux.settings.web_updates.check",
       "cmux.settings.web_updates.rollback",
       "cmux.settings.language.relaunch",
@@ -1200,6 +1283,7 @@ export class MockSettingsProvider {
     provide("cmux.settings.devices.changed", (ctx) => this.track(this.devicesChanged, ctx));
     provide("cmux.settings.models.changed", (ctx) => this.track(this.modelsChanged, ctx));
     provide("cmux.settings.keys.changed", (ctx) => this.track(this.keysChanged, ctx));
+    provide("cmux.settings.extensions.changed", (ctx) => this.track(this.extensionsWatch, ctx));
     provide("cmux.settings.channels.machines.changed", (ctx) => this.track(this.machinesChanged, ctx));
     provide("cmux.settings.channels.switch.changed", (ctx) => this.track(this.switchChanged, ctx));
   }
@@ -1273,6 +1357,12 @@ export class MockSettingsProvider {
     if (!("name" in run)) return { code: "customize.library", message: `unknown verb "${run.verb}"` };
     this.libraryRuns.push(run);
     if (this.libraryRefusal) return { code: "customize.library", message: this.libraryRefusal };
+    const code = this.library.entries.find((item) => item.name === run.name)?.code;
+    if (run.verb === "on" && code && !code.web) {
+      const lines = code.needs_build?.join("; ");
+      const why = lines ? `needs a build: ${lines}` : "it needs a build";
+      return { code: "customize.library", message: `${run.name} has nothing that applies to a running cmux; ${why}` };
+    }
     const next = runLibrary(this.library, run);
     if (!next) return { code: "customize.library", message: `there is no library entry "${run.name}"` };
     this.library = next;
@@ -1448,6 +1538,13 @@ export class MockSettingsProvider {
   ];
   /** While true, `cmux.settings.extensions.list` is unknown (a host without the route). */
   extensionsUnsupported = false;
+  private readonly extensionsWatch = new Set<EventSourceContext>();
+
+  /** Tells the page the installed extensions changed, as the app does on the daemon's `apps-changed`
+   * (an install, a removal, or a saved manifest it reloaded). */
+  extensionsChanged(): void {
+    for (const ctx of this.extensionsWatch) ctx.emit(null);
+  }
 
   private extensionValues(app: MockExtensionApp): Record<string, unknown> {
     const values: Record<string, unknown> = {};
@@ -1743,6 +1840,39 @@ export class MockSettingsProvider {
   switchHold: Promise<void> | null = null;
   /** The way back the host answers with (Nightly's: the fixture runs a Dev build). */
   channelSwitch: ChannelSwitch | null = null;
+  /** Updates > App Update's Go Back to Previous Build; null: nothing kept. */
+  previousBuild: PreviousBuild | null = null;
+  /** Why the host refuses that row's Go Back; null: it runs. */
+  previousBuildRefusal: string | null = null;
+
+  /** What `cmux setup gallery` lists (Settings > Appearance > Looks). */
+  looks: LooksGallery = mockLooks();
+  /** The CLI's refusal of every Looks change; null: changes run. */
+  looksRefusal: string | null = null;
+  /** Looks whose repo has no preview image. */
+  looksPreviewMissing: string[] = [];
+  /** Every Looks verb the page ran but `gallery` and `preview`, in order (tests). */
+  readonly looksRuns: LooksRun[] = [];
+
+  /** `cmux --json setup VERB`: its JSON, or the CLI's error envelope as the host answers it (a
+   * refusal, and an install's consent card, are answers, not failed calls). */
+  private runLooks(run: LooksRun): unknown {
+    if (run.verb === "gallery") return this.looks;
+    if (run.verb === "preview") return previewLook(run.id, run.scheme, this.looksPreviewMissing);
+    this.looksRuns.push(run);
+    if (this.looksRefusal && !(run.verb === "install" && !run.yes))
+      return { code: "setup.refused", message: this.looksRefusal, details: {} };
+    const outcome = runLooks(this.looks, run);
+    if ("refusal" in outcome) return { code: "setup.refused", message: outcome.refusal, details: {} };
+    if ("consent" in outcome)
+      return {
+        code: "setup.needs_consent",
+        message: "nothing was changed: show the person this card, then run it again with --yes (install)",
+        details: outcome.consent,
+      };
+    this.looks = outcome.gallery;
+    return { ok: true, verb: run.verb };
+  }
   /** The build the card's Go Back asked for. */
   wentBack: string | null = null;
   /** The build the card's last Switch asked for. */
@@ -1879,6 +2009,11 @@ export class MockSettingsProvider {
   hub: HubState = mockHubState();
   /** Every Integrations gesture but refresh, in order (the key a Link sent included). */
   hubRuns: HubRun[] = [];
+
+  /** Settings > Developer as the app serves it (`SettingsDeveloperTokens.state`). */
+  tokens: DeveloperTokensState = mockTokensState();
+  /** Every Developer gesture but refresh, in order. */
+  tokensRuns: DeveloperTokensRun[] = [];
 
   /** Settings > Connections as the app serves it (`SettingsConnections.state`). */
   connections: ConnectionsState = mockConnectionsState();
@@ -2706,6 +2841,16 @@ export class MockSettingsProvider {
     if (this.domains && rowsByKey.get(key)?.kind === "font_family" && typeof value === "string")
       this.domains = { ...this.domains, recent_fonts: recentAfterPick(this.domains.recent_fonts, value) };
     return this.commit([key], "user");
+  }
+
+  /** Custom Sound…: the host copies the picked file into its sounds folder, lists it, and sets `key`. */
+  private importSound(key: string): { name: string | null } {
+    const name = this.importableSound;
+    if (name === null) return { name: null };
+    if (this.domains && !this.domains.sounds.includes(name))
+      this.domains = { ...this.domains, sounds: [...this.domains.sounds, name].sort() };
+    this.set(key, name);
+    return { name };
   }
 
   private reset(key: string): MutationResult {

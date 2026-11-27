@@ -26,7 +26,7 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
             for p in walk(&root, 4) {
                 let name =
                     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                if name.ends_with(".jsonl") && name.contains(sid) {
+                if is_codex_rollout(&name, sid) {
                     out.push(("codex-rollout".to_owned(), p));
                 }
             }
@@ -40,13 +40,13 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
             // also spares a snapshot the walk of every project.
             let own = root.join(claude_project_dir(&meta.cwd)).join(format!("{sid}.jsonl"));
             if std::fs::symlink_metadata(&own).is_ok_and(|m| m.file_type().is_file()) {
-                return vec![("claude-project".to_owned(), own)];
+                return claude_transcript_with_children(own);
             }
             for p in walk(&root, 2) {
                 let name =
                     p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 if name == format!("{sid}.jsonl") {
-                    out.push(("claude-project".to_owned(), p));
+                    out.extend(claude_transcript_with_children(p));
                 }
             }
         }
@@ -64,6 +64,57 @@ pub fn locate_in(meta: &SessionMeta, home: &Path) -> Vec<(String, PathBuf)> {
         _ => {}
     }
     out
+}
+
+/// Whether the file named `name` is the Codex rollout of the session `sid`:
+/// `rollout-<time>-<sid>.jsonl`. The id is the name's whole end after a dash, so a word that is
+/// merely somewhere in a name (`rollout`, a date, the start of another id) names no file.
+fn is_codex_rollout(name: &str, sid: &str) -> bool {
+    name.starts_with("rollout-") && name.ends_with(&format!("-{sid}.jsonl"))
+}
+
+/// The folder beside a Claude transcript (`<session-id>/subagents`) that holds its subagents'.
+/// A Claude transcript and its `Task` children's transcripts
+/// (`<session-id>/subagents/*.jsonl` beside it, which Claude reads back for the subagents
+/// it ran). Both the chat's own folder and the walk of every project list through this, so
+/// neither leaves the children behind.
+fn claude_transcript_with_children(transcript: PathBuf) -> Vec<(String, PathBuf)> {
+    let children = transcript.with_extension("").join(CLAUDE_SUBAGENTS);
+    let mut out = vec![("claude-project".to_owned(), transcript)];
+    for child in walk(&children, 0) {
+        if child.extension().is_some_and(|e| e == "jsonl") {
+            out.push((CLAUDE_SUBAGENT_LABEL.to_owned(), child));
+        }
+    }
+    out
+}
+
+const CLAUDE_SUBAGENTS: &str = "subagents";
+/// The bundle label of a Claude subagent's transcript (`<session-id>/subagents/*.jsonl`).
+pub const CLAUDE_SUBAGENT_LABEL: &str = "claude-subagent";
+
+/// Where a bundled Claude subagent transcript goes: `rel` must be
+/// `.claude/projects/<dir>/<sid>/subagents/<name>.jsonl`, and it lands under the target cwd's
+/// project directory, beside the session's own transcript.
+fn claude_subagent_target(meta: &SessionMeta, sid: &str, rel: &Path) -> Option<PathBuf> {
+    let parts: Vec<&str> = rel.iter().map(|p| p.to_str()).collect::<Option<_>>()?;
+    match parts.as_slice() {
+        [".claude", "projects", dir, s, CLAUDE_SUBAGENTS, name]
+            if !dir.is_empty()
+                && *s == sid
+                && name.len() > ".jsonl".len()
+                && name.ends_with(".jsonl") =>
+        {
+            Some(
+                PathBuf::from(".claude/projects")
+                    .join(claude_project_dir(&meta.cwd))
+                    .join(sid)
+                    .join(CLAUDE_SUBAGENTS)
+                    .join(name),
+            )
+        }
+        _ => None,
+    }
 }
 
 /// pi's session folder under the home folder.
@@ -240,10 +291,9 @@ fn restore_target(meta: &SessionMeta, label: &str, rel: &Path) -> Option<PathBuf
             // the destination cwd may differ from the exporting machine's.
             Some(PathBuf::from(".claude/projects").join(claude_project_dir(&meta.cwd)).join(name))
         }
+        ("claude", CLAUDE_SUBAGENT_LABEL) => claude_subagent_target(meta, sid, rel),
         ("codex", "codex-rollout")
-            if rel.starts_with(".codex/sessions")
-                && name.ends_with(".jsonl")
-                && name.contains(sid) =>
+            if rel.starts_with(".codex/sessions") && is_codex_rollout(&name, sid) =>
         {
             Some(rel.to_path_buf())
         }
@@ -469,10 +519,9 @@ fn guarded_target(meta: &SessionMeta, sid: &str, label: &str, rel: &Path) -> Opt
         {
             Some(PathBuf::from(".claude/projects").join(claude_project_dir(&meta.cwd)).join(name))
         }
+        ("claude", CLAUDE_SUBAGENT_LABEL) => claude_subagent_target(meta, sid, rel),
         ("codex", "codex-rollout")
-            if rel.starts_with(".codex/sessions")
-                && name.starts_with("rollout-")
-                && name.ends_with(&format!("-{sid}.jsonl")) =>
+            if rel.starts_with(".codex/sessions") && is_codex_rollout(name, sid) =>
         {
             Some(rel.to_path_buf())
         }

@@ -46,8 +46,6 @@ public final class SidebarModel {
     @ObservationIgnored private var storedSections: [SidebarSection] { didSet { contentRevision &+= 1 } }
     /// The settled chats of `contentRevision` (`settledChats()`): one Rust call per change of the rows, not per layout.
     @ObservationIgnored var settleCache: (revision: UInt64, settled: Set<WorkspaceID>)?
-    /// The automatic sessions of `contentRevision` (`automaticSessions()`): one Rust call per change of the rows.
-    @ObservationIgnored var automaticCache: (revision: UInt64, automatic: Set<WorkspaceID>)?
     /// The latest document projection before user customization. Keeping this
     /// source lets a live settings reload restore sections or rows that were
     /// hidden by the previous value.
@@ -279,9 +277,6 @@ public final class SidebarModel {
     public var showsTimestamps = false
     /// Seen, finished agent chats fold behind a "Settled (N)" row (`sidebar.settleFinished`, off by default).
     public var settlesFinished = false
-    /// Sessions no person started and no chat's subagent draw in place (`sidebar.showAutomaticSessions`, off by
-    /// default: they fold behind an "Automatic (N)" row).
-    public var showsAutomaticSessions = false
     /// `sidebar.showColors` (off: no workspace or group color) and `workspaceColors.indicatorStyle`.
     public var showsColors = true
     public var colorIndicator: WorkspaceColorIndicatorStyle = .leftRail
@@ -337,6 +332,9 @@ public final class SidebarModel {
 
     /// Receives every intent. When nil, `send` applies intents locally.
     @ObservationIgnored public var onIntent: ((SidebarIntent) -> Void)?
+    /// The machines a workspace row's chat can move to (its Move to… targets; none for a row that is no lone chat),
+    /// from the App: a drag of that one row may drop on them, which moves the chat (`SidebarChatMove`).
+    @ObservationIgnored public var chatMoveTargets: ((WorkspaceID) -> [MachineID])?
     /// A workspace's pin state and the Pin/Unpin Workspace action, from the
     /// App (layout tiles or the daemon flag): an expanded row's hover pin.
     @ObservationIgnored public var workspacePin: (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)?
@@ -392,7 +390,25 @@ public final class SidebarModel {
     public var locksReorder: Bool { (isFiltering && docDrag == nil) || grouping.isGrouped }
     /// The sidebar document's drag half (sidebar-v2 S5), set by the App
     /// while the document is active.
-    @ObservationIgnored public var docDrag: SidebarDocDrag?
+    @ObservationIgnored public var docDrag: SidebarDocDrag? {
+        didSet { if docDrag != nil { awaitsDocument = false } } // the document is back
+    }
+    /// The launch's saved sidebar drew the document (`SidebarSnapshot.drawsDocument`) and it is not back yet: the
+    /// apps after the list wait for it rather than take the band below, which the list's blocks would take from them
+    /// a moment later (the band closed, the list grew, its rows moved: c-9197de7242's launch video, frame 4).
+    /// The App clears it when the document is back or the launch ends without it.
+    @ObservationIgnored public var awaitsDocument = false {
+        didSet { if oldValue != awaitsDocument { onAwaitsDocumentChange?() } }
+    }
+    /// The sidebar view lays its bands out again when `awaitsDocument` changes.
+    @ObservationIgnored public var onAwaitsDocumentChange: (() -> Void)?
+
+    /// The window's view state from its saved sidebar (snapshot-first launch): its collapsed sections, saved only
+    /// there, and whether it waits for the document (`awaitsDocument`; not when `documentShown` already).
+    package func seedView(from saved: SidebarSnapshot?, documentShown: Bool) {
+        collapsedSections = Set((saved?.sidebarSections ?? []).filter(\.isCollapsed).map(\.id))
+        awaitsDocument = saved?.drawsDocument == true && !documentShown
+    }
     /// The document's group sorts the last `setSections` arranged its groups in.
     @ObservationIgnored private var arrangedSorts: [String: SidebarGroupSort] = [:]
     /// The document's archived items the last `setSections` marked its rows by.
@@ -417,6 +433,9 @@ public final class SidebarModel {
     /// The favicon at a page icon address, when the App has it (it fetches a missing one); link rows draw it. Set by
     /// the App's bridge from its own favicon store.
     @ObservationIgnored public var itemFavicon: ((String) -> SidebarFavicon?)?
+    /// `appearance.agentSignature`: the app's one store of agent dot glyphs, which this window's agent rows read
+    /// (``WorkspaceRowView`` takes it on dequeue); nil draws none.
+    @ObservationIgnored public var agentSignatures: SidebarAgentSignatures?
     /// Posted when favicons arrived: every list draws its link rows again.
     public static let itemFaviconsChanged = Notification.Name("cmux.sidebar.itemFaviconsChanged")
 
@@ -533,6 +552,7 @@ public final class SidebarModel {
                     copy.rowState = old.rowState
                     copy.machineID = old.machineID
                     copy.isArchived = old.isArchived
+                    copy.isPinnedInGroup = old.isPinnedInGroup
                     SidebarRowIndex.set(copy, at: path, in: &sourceSections)
                 }
             }
@@ -558,7 +578,11 @@ public final class SidebarModel {
         let added = filterText.isEmpty ? SidebarSection.looseInsertion(from: storedSections, to: next) : nil
         // A set that only closes or moves one loose workspace row: the list takes it out (and puts it back) the same way.
         let removal = splicesRemovals && filterText.isEmpty && added == nil ? looseRemoval(to: next) : nil
+        // A set that adds and closes several loose rows (a batch of sessions started and ended, a row moved to another
+        // computer's list): the list takes each out and splices each in the same way (cmuxterm-hq#13493).
+        let edits = splicesEdits && filterText.isEmpty && added == nil && removal == nil ? looseEdits(to: next) : nil
         setDisplayedSections(next) // the setter skips an unchanged list
+        rowEdits = edits.map { SidebarLooseEdits(from: from, to: sectionsRevision, content: contentRevision, sections: $0) }
         rowInsertion = added.map { SidebarRowInsertion(from: from, to: sectionsRevision, content: contentRevision, section: storedSections[$0.section], node: $0.node) }
         rowRemoval = removal.map { removal in
             let insertion = removal.insertion.map {
@@ -616,6 +640,37 @@ public final class SidebarModel {
     @ObservationIgnored public private(set) var rowRemoval: SidebarRowRemoval?
     /// Off, a close or a move lays the list out in full as before the removal splice (a bench's before numbers).
     @ObservationIgnored var splicesRemovals = true
+    /// The last structural set when it only added and closed loose workspace rows, several or across sections
+    /// (`setSections`), read as `rowInsertion`.
+    @ObservationIgnored public private(set) var rowEdits: SidebarLooseEdits?
+    /// Off, a batch of adds and closes lays the list out in full as before the batch splice (a bench's before numbers).
+    @ObservationIgnored var splicesEdits = true
+
+    /// The loose rows `next` takes out of the stored sections and adds, per changed section, when nothing else changed
+    /// and each such workspace is listed once: taken out where it was listed, added where it was not, or both for a
+    /// move to another section. Nil for any other change. A walk of the changed sections' nodes and the row index.
+    private func looseEdits(to next: [SidebarSection]) -> [SidebarLooseEdits.Section]? {
+        let old = storedSections
+        guard let edits = SidebarSection.looseEdits(from: old, to: next) else { return nil }
+        var gone: Set<WorkspaceID> = [], added: Set<WorkspaceID> = []
+        var sections: [SidebarLooseEdits.Section] = []
+        for edit in edits {
+            var removed: [SidebarWorkspace] = []
+            for k in edit.removed {
+                guard case let .workspace(ws) = old[edit.section].nodes[k], listedPaths(of: ws.id).count == 1,
+                      gone.insert(ws.id).inserted else { return nil }
+                removed.append(ws)
+            }
+            for k in edit.inserted {
+                guard case let .workspace(ws) = next[edit.section].nodes[k], added.insert(ws.id).inserted else { return nil }
+            }
+            sections.append(SidebarLooseEdits.Section(section: next[edit.section], removedNodes: edit.removed, removed: removed,
+                                                    insertedNodes: edit.inserted))
+        }
+        // An added workspace is new to the list, or one this set takes out of its other place (a move).
+        for id in added where !gone.contains(id) { guard listedPaths(of: id).isEmpty else { return nil } }
+        return sections
+    }
 
     /// Writes `next` when it changes only listed rows' content, every row in its place (a create's stand-in row
     /// becoming its workspace's row, SIDEBAR INSERT): in place and told to `onRowsPatched`, as `patchWorkspaces` does,
@@ -657,6 +712,7 @@ public final class SidebarModel {
             row.rowState = old.rowState
             row.machineID = old.machineID
             row.isArchived = old.isArchived // the document's, set by `arrange`; the feed does not know it
+            row.isPinnedInGroup = old.isPinnedInGroup // the document's too
             guard row != old else { continue }
             guard !movesRows(from: old, to: row) else { return false }
             // A rename into or out of the name of a group it is the one member of changes the group's rows: one row in
@@ -793,7 +849,6 @@ public final class SidebarModel {
         detailedStatus = preferences.detailedStatusIcons
         showsTimestamps = preferences.showTimestamps
         settlesFinished = preferences.settleFinished
-        showsAutomaticSessions = preferences.showAutomaticSessions
         (showsColors, colorIndicator) = (preferences.showColors, preferences.workspaceColorIndicator)
         showsLocalMachine = preferences.showLocalMachine
         groupHeaderDetails = GroupHeaderDetails(memberCount: preferences.groupHeaderMemberCount,
@@ -801,6 +856,7 @@ public final class SidebarModel {
                                                 background: preferences.groupHeaderBackground)
         hidesWorkspaces = !preferences.showProjects
         grouping.by = preferences.groupBy
+        grouping.folderlessUngrouped = preferences.folderlessUngrouped
         groupsByComputer = preferences.groupsByComputer
         if style != preferences.style { (style, isRailOpen) = (preferences.style, false) }
     }
@@ -848,7 +904,6 @@ public final class SidebarModel {
         (o.openDoneFolds, o.openShowMore) = (openDoneFolds, openShowMore)
         o.grouping = settledGrouping()
         if settlesFinished { o.settled = settledChats() }
-        o.automatic = automaticSessions()
         o.subagentLook = SidebarTunables.subagentLook.value
         return o
     }
@@ -874,5 +929,16 @@ public final class SidebarModel {
             return
         }
         presentation = presentation == .hidden ? .shown : .hidden
+    }
+
+    /// ``toggle()`` timed from this key press or click to the first frame its slide resizes the panes in (`side_open`,
+    /// `side_close`; the layout's `ScreenContentView+FrameTiming`). A toggle that moves no pane (a floating sidebar, the
+    /// rail's overlay) times nothing: its arm lapses. Measurement only.
+    public func toggle(timing: TransitionFrameLog?) {
+        if let timing {
+            timing.arm(isHidden ? .sideOpen : .sideClose)
+            timing.input()
+        }
+        toggle()
     }
 }

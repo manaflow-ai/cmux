@@ -548,6 +548,7 @@ pub(super) fn routes_line_on(
 /// is its [`detail_code`], after the route it failed on when the route
 /// runner named one ([`route_of`]). A captured ssh
 /// stderr tail is left out: it has its own quoted field.
+#[cfg(test)]
 pub(super) fn why_codes(detail: &str) -> Option<String> {
     why_codes_on(detail, None)
 }
