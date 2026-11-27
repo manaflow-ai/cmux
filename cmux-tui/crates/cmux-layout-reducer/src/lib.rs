@@ -1003,4 +1003,7 @@ pub mod sidebar_row;
 pub mod sidebar_row_layout;
 pub mod sidebar_sections;
 pub mod sidebar_session_tree;
+pub mod window_registry;
+#[cfg(test)]
+mod window_registry_tests;
 pub mod workspace_port_links;
