@@ -110,7 +110,7 @@ impl Writer {
 
     /// Replaces the file with `lines` through a temporary file and a rename: a crash leaves the
     /// old file or the new one, never part of either.
-    fn rewrite(&mut self, lines: &[Line]) {
+    fn rewrite(&mut self, lines: &[Line]) -> bool {
         let tmp = self.dir.join(format!("{FILE}.tmp"));
         let text: String = lines.iter().filter_map(encode).collect();
         let written = crate::config::private_state_dir(&self.dir)
@@ -123,10 +123,14 @@ impl Writer {
             })
             .and_then(|()| crate::home_fs::rename(&tmp, &self.path).map_err(anyhow::Error::from));
         match written {
-            Ok(()) => self.file = None,
+            Ok(()) => {
+                self.file = None;
+                true
+            }
             Err(e) => {
                 let _ = crate::home_fs::remove_file(&tmp);
                 tracing::warn!("asks: rewrite failed: {e:#}");
+                false
             }
         }
     }
@@ -143,9 +147,12 @@ impl Writer {
                         }
                     }
                     Work::Rewrite(lines) => {
-                        // The snapshot holds every line queued before it.
-                        text.clear();
-                        self.rewrite(&lines);
+                        // The snapshot replaces queued lines only after it reaches disk.
+                        // On failure, append them, including the purge tombstone, so a
+                        // restart cannot resurrect the deleted chat or lose other captures.
+                        if self.rewrite(&lines) {
+                            text.clear();
+                        }
                     }
                     #[cfg(test)]
                     Work::Flush(done) => {
@@ -200,5 +207,60 @@ pub(crate) fn spawn_writer(dir: PathBuf, path: PathBuf) -> Option<(Sender<Work>,
             tracing::warn!("asks: no writer thread: {e}");
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hub::asks::{Ask, AskKind};
+
+    fn ask(sid: &str) -> Ask {
+        Ask {
+            id: format!("ask-{sid}"),
+            ts: 1,
+            text: format!("words of {sid}"),
+            harness: "codex".into(),
+            session_id: sid.into(),
+            host: "test".into(),
+            message_id: "p1".into(),
+            kind: AskKind::Ask,
+        }
+    }
+
+    #[test]
+    fn failed_rewrite_preserves_batched_purge_and_capture_across_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILE);
+        let gone = ask("gone");
+        let kept = ask("kept");
+        std::fs::write(&path, encode(&Line::Ask(gone.clone())).unwrap()).unwrap();
+
+        // A directory at the temporary filename forces the rewrite to fail even as root,
+        // while the original ledger remains writable for the append fallback.
+        let tmp = dir.path().join(format!("{FILE}.tmp"));
+        std::fs::create_dir(&tmp).unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        tx.send(Work::Line(Box::new(Line::Ask(kept.clone())))).unwrap();
+        tx.send(Work::Line(Box::new(Line::Purge { sid: "gone".into() }))).unwrap();
+        tx.send(Work::Rewrite(vec![Line::Ask(kept.clone())])).unwrap();
+        drop(tx);
+        // Prequeue the whole batch, so the test never depends on writer scheduling.
+        Writer { dir: dir.path().to_owned(), path: path.clone(), file: None }.run(rx);
+
+        let mut restarted = State::default();
+        fold(&path, &mut restarted);
+        assert!(!restarted.asks.contains_key(&gone.id), "a failed rewrite must not undo a purge");
+        assert_eq!(restarted.asks.get(&kept.id), Some(&kept), "pending captures must survive");
+
+        // Once the failure clears, compaction also removes the purged plaintext.
+        std::fs::remove_dir(&tmp).unwrap();
+        let mut writer = Writer { dir: dir.path().to_owned(), path: path.clone(), file: None };
+        assert!(writer.rewrite(&crate::hub::asks::snapshot(&restarted)));
+        assert!(!std::fs::read_to_string(&path).unwrap().contains(&gone.text));
+        let mut compacted = State::default();
+        fold(&path, &mut compacted);
+        assert_eq!(compacted.asks.get(&kept.id), Some(&kept));
+        assert!(!compacted.asks.contains_key(&gone.id));
     }
 }
