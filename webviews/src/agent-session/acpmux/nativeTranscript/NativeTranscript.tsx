@@ -17,13 +17,7 @@ type Link = { endpoint: string; protocols?: string[] };
 /** The scroller follows the bottom when it is within this many px of it. */
 const BOTTOM_SLACK_PX = 4;
 
-export function NativeTranscript({
-  link,
-  sessionId,
-}: {
-  link: () => Link | undefined;
-  sessionId: string | undefined;
-}) {
+export function NativeTranscript({ link, sessionId }: { link: () => Link | undefined; sessionId: string | undefined }) {
   const on = useExperimentSwitch("nativeTranscript");
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [atBottom, setAtBottom] = useState(true);
