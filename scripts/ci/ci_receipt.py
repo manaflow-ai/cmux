@@ -337,10 +337,17 @@ def check_run(fetch: Fetch, *, repo: str, run_id: str, job: str, head_tree: str,
 
 
 def base_covers(fetch: Fetch, *, repo: str, job: str, where: str, receipt_base: str, receipt_tree: str, base: str,
-                merge_tree: str, rust_roots: list[str] | None) -> None:
+                merge_tree: str, rust_roots: list[str] | None, same_head: bool = False) -> None:
     """A receipt's merge covers this run's: the same base and merge tree, or an older base that is an ancestor of
     ours (for rust-workspaces, one whose commits since change no Rust input). Raises Rejected otherwise."""
     if receipt_base == base:
+        if not merge_tree:
+            # A merger's dispatch has no merge ref to read the tree from. The lane merged this very head commit onto
+            # this very base, which is the merge this run would test; any other head on this base cannot be told.
+            if same_head:
+                return
+            raise Rejected(f"{where} merged another head onto this run's base {base}, and this run has no merge tree "
+                           "to match (a dispatch)")
         if receipt_tree != merge_tree:
             raise Rejected(f"{where} tested merge tree {receipt_tree}, not this run's {merge_tree} (same base {base})")
     else:
@@ -432,7 +439,8 @@ def lane_receipt(ask: LaneAsk, fetch: Fetch, args: argparse.Namespace) -> dict |
                     and SHA.match(receipt_tree)):
                 raise Rejected(f"{where} names no base and merge tree")
             base_covers(fetch, repo=args.repo, job=args.job, where=where, receipt_base=receipt_base,
-                        receipt_tree=receipt_tree, base=args.base, merge_tree=args.merge_tree, rust_roots=None)
+                        receipt_tree=receipt_tree, base=args.base, merge_tree=args.merge_tree, rust_roots=None,
+                        same_head=receipt.get("head") == args.head)
         except Rejected as error:
             reasons.append(str(error))
             continue
@@ -461,7 +469,9 @@ def verify(args: argparse.Namespace, fetch: Fetch | None = None, lane_ask_fn: La
     if not runs and not pr and not lane:
         out["reason"] = f"no CI-Receipt: {args.job} line in the pull request body"
         return out
-    for value in (args.head, args.base, args.head_tree, args.merge_tree):
+    # A dispatch (the merger's land-time run, 78 of 100 fast-gates runs on 2026-11-26) has no merge ref: it passes
+    # an empty merge tree, which base_covers accepts only for a receipt on an older base.
+    for value in (args.head, args.base, args.head_tree, *((args.merge_tree,) if args.merge_tree else ())):
         if not SHA.match(value or ""):
             out["reason"] = f"unresolved head, base or tree ({value!r})"
             return out
