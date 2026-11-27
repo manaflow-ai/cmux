@@ -66,7 +66,7 @@ jobs:
 
   swift-results:
     name: Read the fleet's Swift suite results
-    if: ${{ (inputs.only == '' || inputs.only == 'swift') && github.repository == 'manaflow-ai/cmux' && vars.CI_COMPILE_CHECK_GATEWAY != '' }}
+    if: ${{ (inputs.only == '' || inputs.only == 'swift-fleet' || inputs.only == 'swift') && github.repository == 'manaflow-ai/cmux' && vars.CI_COMPILE_CHECK_GATEWAY != '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
@@ -111,7 +111,7 @@ jobs:
   swift-fleet:
     name: fast tier (Swift entries, build fleet)
     needs: swift-results
-    if: ${{ !cancelled() && (inputs.only == '' || inputs.only == 'swift') && needs.swift-results.result != 'skipped' }}
+    if: ${{ !cancelled() && (inputs.only == '' || inputs.only == 'swift-fleet' || inputs.only == 'swift') && needs.swift-results.result != 'skipped' }}
     # Only a registry or commit the public route cannot serve needs the private gateway.
     runs-on: ${{ needs.swift-results.outputs.verdict == 'unavailable' && 'glaeda-gateway-xcode-26.6' || 'cmux-linux' }}
     permissions:

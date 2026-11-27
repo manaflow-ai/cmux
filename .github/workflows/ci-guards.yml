@@ -1000,6 +1000,7 @@ jobs:
         run: |
           set -euo pipefail
           ./scripts/ci/install-actionlint.sh
+          ACTIONLINT="$RUNNER_TEMP/actionlint" python3 tests/test_ci_workflow_start_lint.py
           "$RUNNER_TEMP/actionlint"
 
       # zizmor over the workflows and composite actions this change adds or edits, at its base and its head: a
@@ -1474,6 +1475,18 @@ jobs:
       - name: Validate registered ci branch history fetch
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_branch_history_fetch.py
+
+      - name: Validate registered cargo delta matched entry
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cargo_delta_matched_entry.py
+
+      - name: Validate registered live base merge jobs
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_merge_live_base_jobs.py
+
+      - name: Validate registered private names fetch wait
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_private_names_fetch_wait.py
 
       - name: Validate registered ci cmux tui mac warm target
         if: ${{ !cancelled() && matrix.group == 'ci' }}
