@@ -2048,6 +2048,50 @@ export async function createWithRoom<T>(create: (attempt: number) => Promise<T>,
   }
 }
 
+/** The capacity preflight's step: read before the first create, so a full cap is named before any create is refused. */
+export const CAPACITY_PREFLIGHT_STEP = "capacity preflight (quota headroom)";
+
+/**
+ * The team's room for `need` machines at once, from its cloud.plan.get answer (limits.max_active, which carries the
+ * team's CLOUD_TEAM_MAX_ACTIVE floor, usage.active, and spend_cap where the cap is on). `reason` names what is short in
+ * one token a gate can show: `quota_headroom:TEAM used A/M, need N`, `quota_cap:TEAM max_active M < need N` (a cap
+ * that never holds this run: final) or `spend_cap:TEAM at cap`. Each reason carries the `cloud.quota.headroom` code,
+ * so cmux-platform journey-after-deploy.sh reads it as a capacity refusal (verdict not-run), never as the deploy's
+ * own red.
+ */
+export function capacityHeadroom(plan: any, need: number, team: string): { ok: true; detail: string } | { ok: false; final: boolean; reason: string } {
+  const max = Number(plan?.limits?.max_active);
+  const active = Number(plan?.usage?.active);
+  if (!Number.isInteger(max) || !Number.isInteger(active)) return { ok: true, detail: `cloud.plan.get named no max_active/active (${JSON.stringify({ limits: plan?.limits ?? null, usage: plan?.usage ?? null }).slice(0, 200)}); not judged` };
+  if (plan?.spend_cap?.state === "at_cap") return { ok: false, final: true, reason: `cloud.quota.headroom spend_cap:${team} at cap (${plan.spend_cap.spent_usd ?? "?"} of ${plan.spend_cap.cap_usd ?? "?"} USD)` };
+  if (max < need) return { ok: false, final: true, reason: `cloud.quota.headroom quota_cap:${team} max_active ${max} < need ${need}` };
+  if (max - active < need) return { ok: false, final: false, reason: `cloud.quota.headroom quota_headroom:${team} used ${active}/${max}, need ${need}` };
+  return { ok: true, detail: `quota_headroom:${team} used ${active}/${max}, need ${need}: room` };
+}
+
+/**
+ * The preflight before the journey's first create: reads cloud.plan.get, and while the team lacks room for `need`
+ * machines asks again every ROOM_POLL_MS until `budgetMs` (createWithRoom's budget: other journeys' machines are
+ * deleted within minutes), then throws the named reason. A final reason (a cap below `need`, the spend cap) throws at
+ * once. A read that fails is no verdict on capacity: it answers `ok` with the error, and the creates judge room.
+ */
+export async function capacityPreflight(read: () => Promise<any>, need: number, team: string, budgetMs = Number(process.env.CLOUD_JOURNEY_ROOM_WAIT_MS ?? ROOM_WAIT_MS), pause: (ms: number) => Promise<unknown> = sleep, now: () => number = Date.now): Promise<{ detail: string; waitedMs: number }> {
+  const t0 = now();
+  for (let reads = 1; ; reads++) {
+    let plan: any;
+    try {
+      plan = await read();
+    } catch (e) {
+      return { detail: `cloud.plan.get failed, not judged: ${String((e as Error)?.message ?? e).slice(0, 200)}`, waitedMs: now() - t0 };
+    }
+    const h = capacityHeadroom(plan, need, team);
+    if (h.ok) return { detail: reads > 1 ? `${h.detail} (after ${Math.round((now() - t0) / 1000)} s, ${reads} reads)` : h.detail, waitedMs: now() - t0 };
+    if (h.final) throw new Error(h.reason);
+    if (now() - t0 >= budgetMs) throw new Error(`${h.reason} (no room after ${Math.round((now() - t0) / 1000)} s, ${reads} reads)`);
+    await pause(ROOM_POLL_MS);
+  }
+}
+
 /**
  * Why a running machine has not paused, from its record: `last_active_at` (Idle.ts idleClockStart: null means no
  * report speaks for its activity, so the idle rule never runs; a recent time means something keeps it in use), the
@@ -5398,6 +5442,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       } catch (e) {
         J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `list failed: ${err(e)}` });
       }
+    }
+    // Capacity preflight (cmuxterm-hq goal dead-lanes-zero): the team's room for this run's machines at once, read
+    // before any create, so a full cap fails here with its name (quota_headroom:TEAM used 5/5, need 2) instead of as
+    // 16 refused creates over 246 s (cmux-platform run 45900673648). The chat machine, plus the cold cell's.
+    if (!reuse) {
+      const need = 1 + (only.has("cold") ? 0 : 1);
+      await J.step(CAPACITY_PREFLIGHT_STEP, async () => {
+        const r = await capacityPreflight(() => api.read("cloud.plan.get", {}), need, api.team ?? team ?? "account-team");
+        return { value: null, detail: r.detail };
+      });
     }
     // The app's part on a warm spare (SpareReady), before create and so outside the first-text window: the login is
     // copied on spare.ready. Anything short of a spare with the login installed starts the agent on its launch credential.

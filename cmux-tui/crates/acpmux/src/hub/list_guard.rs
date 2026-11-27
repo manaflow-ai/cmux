@@ -303,6 +303,7 @@ impl Events {
             }),
             remote: Some(RemoteRef { peer: peer.to_owned(), summary: Value::Null.into() }),
             update_line: Default::default(),
+            event_params: Default::default(),
             row: Default::default(),
             list_seq: rows.head(),
             peer_batch: false,

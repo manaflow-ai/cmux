@@ -3016,6 +3016,22 @@ def marker_ids(lines) -> collections.Counter:
     return found
 
 
+def owner_specs(base: str, head: str) -> list[tuple[str, str]]:
+    """The OWNERS.md reads owners_text needs, for the caller's one blobs() batch (no git call of its own)."""
+    return [(head, OWNERS), (base, OWNERS), (UPSTREAM, OWNERS)]
+
+
+def owners_text(texts: dict[tuple[str, str], str], base: str, head: str) -> str | None:
+    """OWNERS.md as merged upstream, unless the push itself (BASE..HEAD) edits it. Who holds an area is the merged
+    table's answer: 2026-11-27 a lane cut before cmux#60006 dropped `design-*motion*` from Layout motion still sent
+    its pushes to the transcript-motion lane, because the hook read the row from the lane's own stale copy. A push
+    that rewrites the table means its own rows, so those stand. None: no table anywhere."""
+    mine, merged = texts.get((head, OWNERS)), texts.get((UPSTREAM, OWNERS))
+    if merged is None or (mine is not None and texts.get((base, OWNERS)) != mine):
+        return mine
+    return merged
+
+
 def parse_owners(text: str) -> list[tuple[str, list[str], str, str]]:
     """(area, path globs, owner, doc) from OWNERS.md's table (columns: Area | Paths | Owner | Read first)."""
     rows, header = [], None
@@ -3133,10 +3149,10 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
         if not own.head:
             continue
         try:
-            owners = parse_owners(git(repo, "show", f"{own.head}:{OWNERS}"))
-        except (Exception, SystemExit):
+            owners = parse_owners(owners_text(blobs(repo, owner_specs(own.base, own.head)), own.base, own.head) or "")
+            names = owner_route_files(repo, own)
+        except (Exception, SystemExit):  # an unreadable head (a range the push could not name) routes nothing
             continue
-        names = owner_route_files(repo, own)
         for area, cell, doc, files in owner_hits(names, owners):
             prev = hits.get(area)
             hits[area] = (cell, doc, sorted(set(files) | set(prev[2] if prev else [])), own.head)
@@ -3151,9 +3167,9 @@ def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None 
         branch = None
     out = []
     for area, (cell, doc, files, head) in hits.items():
-        who, how = live.holder(cell, rows, coordinator)
+        who, how = live.holder(cell, rows, coordinator, area)
         if not who:
-            out.append(f"owner: {area}: {how}. Tag a holder: `acpmux session tag SESSION owns=WORKSTREAM`.")
+            out.append(f"owner: {area}: {how}. Tag a holder: `acpmux session tag SESSION owns={live.tag_hint(area, cell)}`.")
             continue
         fallback = live.is_fallback(how)
         text = (live.unheld_notice if fallback else live.notice)(area, cell, files, head, branch, doc)
@@ -3267,7 +3283,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     names = git(repo, "diff", "--name-only", "--no-renames", base, head, check=False)
     early = sorted(p for p in set(names.split("\n")) if p and in_diff_scope(p))
     blob_ids: dict[tuple[str, str], str] = {}
-    texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
+    texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES)] + owner_specs(base, head)
                   + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST)], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
@@ -3329,10 +3345,11 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
         warnings += [("perf-hot", w) for w in perf_hot_warnings(changes, benches)]
     except Exception as error:  # a broken warning must not switch off the refusals above
         warnings.append(("guardrails", check_failure("perf-hot", error)))
-    if (head, OWNERS) in texts:
+    owners = owners_text(texts, base, head)
+    if owners is not None:
         names_list = [f for f in names.split("\n") if f]
         try:
-            warnings += [("owner", w) for w in owner_warnings(names_list, parse_owners(texts[(head, OWNERS)]))]
+            warnings += [("owner", w) for w in owner_warnings(names_list, parse_owners(owners))]
         except Exception as error:  # a broken warning must not switch off the refusals above
             warnings.append(("guardrails", check_failure("owner", error)))
     return found, warnings

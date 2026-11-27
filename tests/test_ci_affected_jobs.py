@@ -772,6 +772,28 @@ class TheRepository(unittest.TestCase):
         self.assertTrue(jobs.gate(ROOT, None, workflow, **follows)[0])
         self.assertTrue(jobs.gate(ROOT, outside, workflow, event="push", **follows)[0])
 
+    def test_sdks_and_windows_follow_the_graph_under_full_ci_only_when_the_variable_is_on(self):
+        """cmux-tui-sdks.yml and cmux-tui-windows-check.yml pass --full-ci-follows-graph only through FOLLOWS_GRAPH,
+        set from the CI_LAND_KEEPS_SELECTOR repository variable (default off: the call is today's, every job under
+        full-ci)."""
+        for name in ("cmux-tui-sdks.yml", "cmux-tui-windows-check.yml"):
+            with self.subTest(workflow=name):
+                text = (ROOT / ".github/workflows" / name).read_text()
+                call = re.search(rf"affected_jobs\.py route --workflow \.github/workflows/{re.escape(name)} "
+                                 r"\\\n([^\n]*)", text)
+                self.assertIsNotNone(call)
+                self.assertTrue(call.group(1).rstrip().endswith('--labels "${LABELS:-[]}" $FOLLOWS_GRAPH'),
+                                call.group(1))
+                self.assertNotIn("--full-ci-follows-graph", call.group(1))
+                self.assertIn("FOLLOWS_GRAPH: ${{ vars.CI_LAND_KEEPS_SELECTOR == '1' && '--full-ci-follows-graph' "
+                              "|| '' }}", text)
+        # Off, the label still routes every job of the workflow; on, an untouched job skips.
+        for workflow in (".github/workflows/cmux-tui-sdks.yml", ".github/workflows/cmux-tui-windows-check.yml"):
+            with self.subTest(route=workflow):
+                off = jobs.route(None, ["webviews/src/app.tsx"], labels=[jobs.FULL_LABEL], workflow=workflow)
+                self.assertTrue(off.everything)
+                self.assertTrue(all(off.run.values()))
+
     def test_cmux_tui_spec_lets_full_ci_follow_the_graph_and_unreadable_labels_run_everything(self):
         """cmux-tui-spec.yml's gate and route pass --full-ci-follows-graph (a full-ci head that touches no input of a
         heavy job skips it: about 33,000 runner-minutes a day, 2026-11-26); labels that do not parse still run every

@@ -38,9 +38,11 @@
 //!   [`MIN_CHARS`](crate::hub::surgery::MIN_CHARS) characters or more since the boundary before; a
 //!   surgery's, those of turns older than its `keepTurns` of at least its `minChars`.
 //!
-//! The CI job: `cmux_next_scorecard_replay_fixtures_hold_every_invariant` replays the recorded
-//! logs under `tests/fixtures/scorecard-replay` (scrubbed by `scripts/scorecard-replay-fixture.py`)
-//! through the store the CLI's `--home` opens, in the `cmux_next_ daemon tests` step.
+//! The CI job: `cmux_next_scorecard_replay_fixtures_break_only_what_they_recorded` replays the
+//! recorded logs under `tests/fixtures/scorecard-replay` (scrubbed by
+//! `scripts/scorecard-replay-fixture.py`) through the store the CLI's `--home` opens, in the
+//! `cmux_next_ daemon tests` step. They break only invariant 2, where one recording's user
+//! switched the model twice and an MCP server's tools went away; any other violation fails it.
 //!
 //! Off switch, as the RFD says: `agents.harnessMagic.scorecard.enabled: false` or
 //! `ACPMUX_HM_SCORECARD=0` (`hub/harness_magic.rs`). Its counters,
@@ -196,6 +198,11 @@ struct ToolCall {
     turn: u64,
     /// [`Fold::generation`] when it was first seen.
     generation: u64,
+    /// Its tool name (`_meta.claude.tool`), from whichever record named it: the completed
+    /// update usually does not repeat it.
+    tool: Option<String>,
+    /// A shell call (`kind: execute` or Bash), from whichever record said so.
+    shell: bool,
 }
 
 /// The removed results a compaction or surgery left, and the fetches of them since.
@@ -385,17 +392,19 @@ impl Fold {
                 fetched = Some(key);
             }
         }
+        if let Some(tool) = u.pointer("/_meta/claude/tool").and_then(Value::as_str) {
+            call.shell |= tool == "Bash";
+            call.tool = Some(tool.to_owned());
+        }
+        call.shell |= u.get("kind").and_then(Value::as_str) == Some("execute");
         let done = matches!(u.get("status").and_then(Value::as_str), Some("completed" | "failed"));
         let mut over = None;
         if done && call.chars.is_none() {
             let chars = result_chars(u);
             call.chars = Some(chars);
-            let shell = u.get("kind").and_then(Value::as_str) == Some("execute")
-                || u.pointer("/_meta/claude/tool").and_then(Value::as_str) == Some("Bash");
-            let cap = if shell { SHELL_CAP_CHARS } else { TOKEN_CAP * CHARS_PER_TOKEN };
+            let cap = if call.shell { SHELL_CAP_CHARS } else { TOKEN_CAP * CHARS_PER_TOKEN };
             if chars > cap {
-                let tool =
-                    u.pointer("/_meta/claude/tool").and_then(Value::as_str).unwrap_or("tool");
+                let tool = call.tool.as_deref().unwrap_or("tool");
                 over = Some(format!(
                     "a {tool} result of {chars} characters entered context, over the {cap} cap (RFD 0147)"
                 ));

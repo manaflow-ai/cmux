@@ -106,6 +106,8 @@ final class ScreenContentView: NSView {
     var userMotionActive = false
     /// What the screen shows once per display frame: a strip pan's events, a presentation the frame's input held.
     var frameInput = ScreenFrameInput()
+    /// The snapshot-first right split's picture while it shows (`ScreenContentView+SnapshotOpen`).
+    var snapshotOpen: SplitSnapshotOpen?
     /// Pane strip clips computed and presentation passes run, cumulative (PaneMotionWorkTests: per frame the clips
     /// are the panes that moved or whose covers changed; `LayoutWorkProbe`), and a structural change's next pass re-places all.
     var stripClipsComputed = 0, presentationPasses = 0, forcesPresentation = false
@@ -231,7 +233,23 @@ final class ScreenContentView: NSView {
         let zooming = !self.zoomed && zoomed
         // A newer change, or a second zoom key, ends a dim that still shows; a zoom whose pane moves gets one with the move.
         // The dim hears the tiled layout's change only: a floating pane that comes or goes brings no dim and ends none.
-        zoomDim.layoutWillChange(on: self, to: layout, zoomed: zoomed, structural: tiledChange, onCanvas: canvasState.canvas != nil || canvas != nil, waitsForFrame: snapWaitsForFrame)
+        // A newer structural change takes the screen from a snapshot-first split's picture.
+        if structural || zooming || unzooming { dropSnapshotOpen() }
+        // Snapshot-first right split (`DesignSettings.splitSnapshotOpen`, off by default): its first frame is a picture
+        // that slides in on the compositor, handed over here before any host of the change is made.
+        // A plain right split is timed (`right_split_open`) from the key press or click in this turn to the commit that
+        // shows it begin: the picture's, or the held snap's that shows the live panes.
+        let split = tiledChange ? rightSplit(to: layout, zoomed: zoomed, canvas: canvas) : nil
+        if split != nil, let timing = context.frameTiming {
+            timing.arm(.rightSplitOpen)
+            timing.input()
+        }
+        if tiledChange { frameInput.showsSplit = split != nil }
+        let snapshot = DesignSettings.shared.splitSnapshotOpen && !context.reduceMotion ? split : nil
+        // The picture is the split's motion: the panes' own commit motion does not run under it.
+        zoomDim.layoutWillChange(on: self, to: layout, zoomed: zoomed, structural: tiledChange, onCanvas: canvasState.canvas != nil || canvas != nil,
+                                 waitsForFrame: snapWaitsForFrame && snapshot == nil)
+        if let snapshot { openSplitFromSnapshot(giver: snapshot.giver, end: snapshot.end) }
         // Into or out of a canvas, frames change coordinate space (the camera is the bounds): they snap.
         let animated = updateCanvas(canvas, animated: animated) && animated
         #if DEBUG

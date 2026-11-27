@@ -361,9 +361,15 @@ struct TerminalComposer: View {
                                              string: board.hasStrings ? board.string : nil)
         switch route {
         case .image:
-            guard let image = board.image, let data = image.pngData() else { return }
-            model.addAttachment(ComposerAttachment(kind: .image, name: "Pasted image \(Self.stamp()).png",
-                                                   thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
+            let stamp = Self.stamp()
+            for (index, item) in board.composerImages().enumerated() {
+                let ext = UTType(mimeType: item.mimeType)?.preferredFilenameExtension ?? "png"
+                let suffix = index == 0 ? "" : " \(index + 1)"
+                let thumbnail = UIImage(data: item.data)?.preparingThumbnail(of: CGSize(width: 168, height: 168))
+                model.addAttachment(ComposerAttachment(
+                    kind: .image, name: "Pasted image \(stamp)\(suffix).\(ext)",
+                    thumbnail: thumbnail, data: item.data))
+            }
         case .file(let url):
             Task { await loadFiles([url]) }
         case .text(let text):

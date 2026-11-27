@@ -394,6 +394,10 @@ impl Message {
 }
 
 /// ACP method names used by acpmux. Kept as constants so the wire is explicit.
+/// `_acpmux/status` with this `true` answers only the listing's counts and peers
+/// (`Hub::list_counts`); a daemon before it ignores it and sends the full status.
+pub const LIST_COUNTS: &str = "listCounts";
+
 pub mod method {
     pub const INITIALIZE: &str = "initialize";
     pub const AUTHENTICATE: &str = "authenticate";

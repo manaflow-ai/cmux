@@ -30,6 +30,7 @@ import Testing
         #expect(record.firstWindowFrameMs == 512)
         #expect(record.mainMs == 470.8, "main to the first frame")
         #expect(record.homeFirstPageMs == 830.7)
+        #expect(record.homeRevealMs == 830.7)
         #expect(record.homeRevealedBy == "mark")
         #expect(record.prewarmed)
         #expect(record.version == "1.0.0" && record.build == "200" && record.commit == "31583607")
@@ -40,6 +41,7 @@ import Testing
         let byDeadline = Self.record(marks: deadline)
         #expect(byDeadline.homeRevealedBy == "deadline")
         #expect(byDeadline.homeFirstPageMs == nil)
+        #expect(byDeadline.homeRevealMs == 1700)
         #expect(record.windowUsableMs == nil && record.firstShellLiveMs == nil && record.noSnapshot == false)
     }
 
@@ -91,7 +93,7 @@ import Testing
         #expect(text == line + "\n", "one line per launch")
         let json = try #require(try JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
         #expect(Set(json.keys) == ["started_at", "version", "build", "commit", "pre_main_ms", "main_ms", "first_window_frame_ms",
-                                   "home_first_page_ms", "home_revealed_by", "no_snapshot", "prewarmed", "prewarm_reason", "first_launch_of_build", "phases", "stages", "launch_kind"])
+                                   "home_first_page_ms", "reveal_home_ms", "home_revealed_by", "no_snapshot", "prewarmed", "prewarm_reason", "first_launch_of_build", "phases", "stages", "launch_kind"])
         #expect(json["prewarm_reason"] as? String == "main")
         var expected = Self.record(prewarmed: true, prewarmReason: "main")
         expected.firstLaunchOfBuild = true
@@ -256,7 +258,7 @@ import Testing
             "terminal_input_accepted": 640, "terminal_echo": 645,
             "window.make_start": 341, "window.sidebar_made": 341.25, "window.root_made": 341.5, "window.shell_made": 341.75,
             "window.content_installed": 342, "window.backdrop_applied": 342.5, "window.init_done": 343, "window.configured": 344, "window.workspace_shown": 345, "window.ordered_front": 346, "window.restore_wait_start": 361,
-            "window.restore_wait_end": 362.25, "frame.commit_start": 363, "window.display_done": 400, "window.flush_done": 401, "frame.loop_1": 402, "frame.loop_2": 403, "frame.loop_3": 404, "frame.loop_4": 405, "first_key_down": 630,
+            "window.restore_wait_end": 362.25, "frame.commit_start": 363, "window.display_done": 400, "window.flush_done": 401, "frame.loop_1": 402, "frame.loop_2": 403, "frame.loop_3": 404, "frame.loop_4": 405, "after_open.menu_start": 406, "after_open.menu_done": 410.25, "first_key_down": 630,
             "premain.first_initializer": 31, "main.setup_done": 41.5, "daemon.spawned": 290, "daemon.reused": 299,
             "first_page.navigation_start": 905, "first_page.dom_content_loaded": 940, "first_page.first_contentful_paint": 962,
         ]
