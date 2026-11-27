@@ -128,6 +128,22 @@ export function missingCapability(results: Pick<MachineResult, "arm" | "name" | 
   });
 }
 
+/**
+ * A later turn's report that advertises the arm's capability replaces turn 1's read. Run 45898762249 attempt 2:
+ * turn 1's report came from a daemon that had just restarted (last daemon+change) and listed only
+ * fs-v1,...,activity; every later report of the same build (1.0.0+ee905dc44cc2) listed activity-turn-end, so the
+ * run failed an arm that was under its policy from turn 2 on. An old build never advertises it, so that still fails.
+ */
+export function laterCapabilities(
+  r: Pick<MachineResult, "arm" | "capabilities" | "daemon_version">,
+  rs: Pick<ReportState, "capabilities" | "version">,
+  turn: number,
+): Partial<Pick<MachineResult, "capabilities" | "turn_end_advertised" | "capabilities_turn" | "daemon_version">> {
+  const need = ARM_NEEDS[r.arm];
+  if (!need || r.capabilities?.includes(need) || !rs.capabilities?.includes(need)) return {};
+  return { capabilities: rs.capabilities, turn_end_advertised: rs.capabilities.includes(TURN_END_CAPABILITY), capabilities_turn: turn, daemon_version: rs.version ?? r.daemon_version };
+}
+
 /** mulberry32: a small seeded PRNG, so every run with the same seed draws the same gaps. */
 export function seededRandom(seed: number): () => number {
   let a = seed >>> 0;
@@ -192,6 +208,8 @@ export type MachineResult = {
   /** The row's daemon capabilities (cloud.machine.connect_info), kept apart from the report's. */
   bind_capabilities?: string[] | null;
   turn_end_advertised: boolean | null;
+  /** The turn (1-based) whose report first advertised the arm's capability, when not turn 1. */
+  capabilities_turn?: number;
   daemon_version: string | null;
   guest_update_start: GuestUpdate | null;
   guest_update_end: GuestUpdate | null;
@@ -716,7 +734,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         r.capabilities = rs.capabilities;
         r.turn_end_advertised = rs.capabilities ? rs.capabilities.includes(TURN_END_CAPABILITY) : null;
         r.daemon_version = rs.version ?? info?.daemon?.version ?? null;
-      }
+      } else Object.assign(r, laterCapabilities(r, rs, i + 1));
       // The stub's listener would hold the idle clock for the whole gap: stop it, restart it with the next message.
       const st = await exec(stubStop(), 30_000).catch((e: Error) => ({ stdout: `stop failed: ${e.message.slice(0, 120)}` }));
       stubPort = Number(/@@stopped (\d+)/.exec(st.stdout)?.[1] ?? 0);
