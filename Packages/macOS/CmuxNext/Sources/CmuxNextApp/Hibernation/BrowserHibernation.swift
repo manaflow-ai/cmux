@@ -530,7 +530,11 @@ final class BrowserHibernation {
     /// Chromium's loading state settled after a hidden page was skipped by the last plan.
     /// The event-driven replan avoids a timer while a page is loading and makes it eligible immediately.
     func browserLoadingStopped(_ key: String) {
-        guard cache?.browsers[key] != nil else { return }
+        // Loading completion only affects hidden-tab freezing; visible loads and disabled freezing
+        // must not replan the full hibernation set.
+        guard let cache, cache.browsers[key] != nil,
+              setting.freezeSeconds != nil,
+              cache.lifecycle.phase(key) == .mountedHidden else { return }
         replan()
     }
 
