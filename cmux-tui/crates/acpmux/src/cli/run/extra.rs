@@ -694,10 +694,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 .await?;
             if json_out {
                 print_json(&v);
-            } else if v["asked"] == true {
-                println!("frame asked for turn {}", v["turnId"].as_str().unwrap_or_default());
+            } else if v.get("asked").and_then(Value::as_bool) == Some(true) {
+                let turn = v.get("turnId").and_then(Value::as_str).unwrap_or_default();
+                println!("frame asked for turn {turn}");
             } else {
-                println!("no frame: {}", v["reason"].as_str().unwrap_or("the daemon took none"));
+                let why = v.get("reason").and_then(Value::as_str);
+                println!("no frame: {}", why.unwrap_or("the daemon took none"));
             }
             Ok(())
         }
