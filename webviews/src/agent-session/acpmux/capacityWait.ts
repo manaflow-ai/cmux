@@ -63,11 +63,6 @@ export function aboutTime(seconds: number): string {
   return `${Math.round(seconds / 3600)}h`;
 }
 
-/// When it resumes, in the person's clock: "22:41".
-export function resumesClock(at: number): string {
-  return intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(at));
-}
-
 /// The wait's line: "Waiting for capacity, about 40s", or "…, any moment now" once its time passed
 /// or while none is known yet.
 export function capacityEta(t: Translate, wait: CapacityWaitState, now: number): string {

@@ -555,5 +555,3 @@ export class PlacedHeightIndex {
     return values;
   }
 }
-
-export const PLACED_HEIGHT_BLOCK_SIZE = BLOCK_SIZE;

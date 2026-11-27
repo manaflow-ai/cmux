@@ -82,11 +82,6 @@ export function writeBrowse(state: BrowseState, params = new URLSearchParams()):
   return params;
 }
 
-/** Whether an entry has a recorded play sequence in any of its variants. */
-export function browseHasMotion(entry: GalleryEntry): boolean {
-  return Object.values(entry.variants).some((variant) => Boolean(variant.play));
-}
-
 /** Whether the concrete card variant has a recorded play sequence. */
 export function browseItemHasMotion(item: BrowseItem): boolean {
   return Boolean(item.entry.variants[item.variant]?.play);

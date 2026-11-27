@@ -12,8 +12,6 @@ import {
   type UsagePrivacy,
 } from "./usageExport";
 
-export const TEAM_AUDIT_METHOD = "_acpmux/team_audit";
-
 /// Whole UTC days ending today: the platform sums by day.
 export const TEAM_AUDIT_RANGES = ["7d", "30d", "90d"] as const;
 export type TeamAuditRange = (typeof TEAM_AUDIT_RANGES)[number];

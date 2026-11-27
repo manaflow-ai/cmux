@@ -58,7 +58,3 @@ export class ProtocolError extends Error {
     return new ProtocolError(code, `${what}: ${summary}`, { details: { issues: issues.slice(0, 20) } });
   }
 }
-
-export function isAbortError(error: unknown): boolean {
-  return error instanceof ProtocolError && error.code === ProtocolErrorCode.cancelled;
-}

@@ -44,11 +44,6 @@ type Caller = { call(op: string, params: unknown): Promise<unknown> };
 
 let caller: Caller | null = null;
 
-/** Gives the layer the page client, for the title bar double-click (pages without one skip it). */
-export function setDesktopCaller(client: Caller | null): void {
-  caller = client;
-}
-
 /** True when `target` is inside a region a page marked as its title bar (`data-titlebar`). */
 export function isTitleBar(target: EventTarget | null): boolean {
   if (!(target instanceof Element)) return false;

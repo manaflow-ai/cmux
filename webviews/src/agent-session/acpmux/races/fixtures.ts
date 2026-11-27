@@ -1,5 +1,5 @@
 // l10n-allow-file: synthetic model-race gallery and test fixtures.
-import type { RaceClient, RaceRecord } from "./model";
+import type { RaceRecord } from "./model";
 
 export const raceFixture: RaceRecord = {
   id: "race-demo",
@@ -28,13 +28,3 @@ export const raceFixture: RaceRecord = {
     },
   ],
 };
-export function fixtureRaceClient(race: RaceRecord): RaceClient {
-  return {
-    startRace: async () => race,
-    getRace: async () => race,
-    getRaceStats: async () => ({}),
-    listRaces: async () => [race],
-    cancelRace: async () => ({ ...race, state: "cancelled" }),
-    watchRaces: () => () => undefined,
-  };
-}

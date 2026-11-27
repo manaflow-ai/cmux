@@ -20,12 +20,6 @@ export function hasTimestamp(at: number | undefined): at is number {
   return typeof at === "number" && at !== 0 && Number.isFinite(new Date(at).getTime());
 }
 
-/// For each turn, whether a line shows above it. `loadedFromStart` is false when the first
-/// turn here is not the thread's first (rows before it, or older history not paged in).
-export function timestampTurns(turns: readonly TurnTimes[], now: number, loadedFromStart: boolean): boolean[] {
-  return turns.map((turn, index) => showsTimestamp(turn, turns[index - 1], now, loadedFromStart));
-}
-
 /// Whether a line shows above `turn`, which follows `previous` (undefined for the first turn).
 export function showsTimestamp(
   turn: TurnTimes,

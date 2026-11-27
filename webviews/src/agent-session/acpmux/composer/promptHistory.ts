@@ -78,14 +78,3 @@ export function usePromptHistory(rows: readonly AcpmuxRow[], shownAs?: (sent: st
   const recalledRaw = () => anchorGroup()?.text;
   return { showing, step, recalledRaw };
 }
-
-/// Whether the prompt still shows what the arrows brought back, as the field would send it. A hook of
-/// its own: the field's handle is read during render here, and a component that reads a ref during
-/// render stays out of the React Compiler (the composer, Composer.tsx).
-export function usePromptRecalled(
-  history: { showing(current: () => string): boolean },
-  field: { readonly current: { agentText(markdown: string): string } | null },
-  text: string,
-): boolean {
-  return history.showing(() => field.current?.agentText(text) ?? text);
-}

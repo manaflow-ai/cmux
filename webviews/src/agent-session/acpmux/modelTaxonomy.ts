@@ -2,7 +2,6 @@
 // belongs to, which model a provider or family lands on, and the order a level lists them in.
 // Pure functions over the current harness's catalog and the viewer's recents; no React.
 import type { Combo } from "./composerPickerModel";
-import { isDefaultChoice } from "./defaultChoice";
 
 export type CatalogModel = { id: string; name?: string };
 
@@ -76,43 +75,6 @@ export function newestFirst(a: TaxModel, b: TaxModel): number {
   return a.order - b.order;
 }
 
-/// The current harness's catalog as providers of families of models, each in catalog order of first appearance.
-/// The agent's default ("default") is left out.
-export function buildTaxonomy(models: CatalogModel[], harnessName: string): Taxonomy {
-  const providers: TaxProvider[] = [];
-  const byId = new Map<string, TaxModel>();
-  const all: TaxModel[] = [];
-  models.forEach((model, order) => {
-    // The agent's own default is no provider's model; the picker offers it as its own row.
-    if (byId.has(model.id) || isDefaultChoice(model)) return;
-    const { provider, family } = classify(model, harnessName);
-    const entry: TaxModel = {
-      id: model.id,
-      name: model.name || model.id,
-      provider,
-      family,
-      version: versionOf(model),
-      order,
-    };
-    byId.set(model.id, entry);
-    all.push(entry);
-    let group = providers.find((candidate) => candidate.name === provider);
-    if (!group) {
-      group = { name: provider, families: [], models: [] };
-      providers.push(group);
-    }
-    group.models.push(entry);
-    let line = group.families.find((candidate) => candidate.name === family);
-    if (!line) {
-      line = { key: `${provider}\u0000${family}`, name: family, provider, models: [] };
-      group.families.push(line);
-    }
-    line.models.push(entry);
-  });
-  for (const provider of providers) for (const family of provider.families) family.models.sort(newestFirst);
-  return { providers, models: all, byId };
-}
-
 /// The one model of `models` a pick lands on: the current model, else the last used, else the newest.
 export function defaultModel(models: TaxModel[], recents: Combo[], current: Current = {}): TaxModel | undefined {
   const within = (id?: string) => models.find((model) => model.id === id);
@@ -149,83 +111,8 @@ export function landOnModel(model: TaxModel, recents: Combo[], current: Current 
   return { model: model.id, effort: effortFor(model.id, recents, current) };
 }
 
-/// Where picking a family lands: its default model, with that model's recent effort.
-export function landOnFamily(family: TaxFamily, recents: Combo[], current: Current = {}): Landing | undefined {
-  const model = familyDefault(family, recents, current);
-  return model && landOnModel(model, recents, current);
-}
-
-/// Where picking a provider lands: its default model, with that model's recent effort.
-export function landOnProvider(provider: TaxProvider, recents: Combo[], current: Current = {}): Landing | undefined {
-  const model = providerDefault(provider, recents, current);
-  return model && landOnModel(model, recents, current);
-}
-
-/// A level's models best first: the default, then other recently used ones, then the rest newest first.
-export function rankModels(models: TaxModel[], recents: Combo[], current: Current = {}): TaxModel[] {
-  const first = defaultModel(models, recents, current);
-  const used: TaxModel[] = [];
-  for (const combo of recents) {
-    const model = models.find((candidate) => candidate.id === combo.model);
-    if (model && model !== first && !used.includes(model)) used.push(model);
-  }
-  const rest = [...models].filter((model) => model !== first && !used.includes(model)).sort(newestFirst);
-  return [...(first ? [first] : []), ...used, ...rest];
-}
-
-/// Families best first: the current one, then those with a recent model, then catalog order.
-export function rankFamilies(families: TaxFamily[], recents: Combo[], current: Current = {}): TaxFamily[] {
-  return rankByUse(families, (family) => family.models, recents, current);
-}
-
-/// Providers best first: the current one, then those with a recent model, then catalog order.
-export function rankProviders(providers: TaxProvider[], recents: Combo[], current: Current = {}): TaxProvider[] {
-  return rankByUse(providers, (provider) => provider.models, recents, current);
-}
-
-function rankByUse<T>(items: T[], models: (item: T) => TaxModel[], recents: Combo[], current: Current): T[] {
-  const ids = [current.model, ...recents.map((combo) => combo.model)];
-  const rank = (item: T) => {
-    const at = ids.findIndex((id) => id && models(item).some((model) => model.id === id));
-    return at < 0 ? ids.length : at;
-  };
-  return items
-    .map((item, index) => ({ item, index, rank: rank(item) }))
-    .sort((a, b) => a.rank - b.rank || a.index - b.index)
-    .map((entry) => entry.item);
-}
-
 /// The rows a level shows before "More…": the first `shown`, unless only one would be left folded.
 export function fold<T>(ranked: T[], shown: number, expanded: boolean): { visible: T[]; hidden: number } {
   if (expanded || ranked.length <= shown + 1) return { visible: ranked, hidden: 0 };
   return { visible: ranked.slice(0, shown), hidden: ranked.length - shown };
-}
-
-/// Models matching every word of `query` in their name, id, family or provider, best match first.
-export function filterModels(taxonomy: Taxonomy, query: string): TaxModel[] {
-  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return taxonomy.models;
-  const scored: { model: TaxModel; score: number }[] = [];
-  for (const model of taxonomy.models) {
-    const name = model.name.toLowerCase();
-    const haystack = `${name} ${model.id.toLowerCase()} ${model.family.toLowerCase()} ${model.provider.toLowerCase()}`;
-    if (!words.every((word) => haystack.includes(word))) continue;
-    const score = name.startsWith(words[0]!) ? 0 : name.includes(words[0]!) ? 1 : 2;
-    scored.push({ model, score });
-  }
-  return scored.sort((a, b) => a.score - b.score || newestFirst(a.model, b.model)).map((entry) => entry.model);
-}
-
-/// The viewer's recents that this harness's catalog can run, newest first, at most `limit`.
-/// `defaultId` is the catalog's default model, which the taxonomy leaves out but a recent may name.
-export function runnableRecents(
-  recents: Combo[],
-  taxonomy: Taxonomy,
-  harness: string | undefined,
-  limit: number,
-  defaultId?: string,
-): Combo[] {
-  return recents
-    .filter((combo) => combo.harness === harness && (taxonomy.byId.has(combo.model) || combo.model === defaultId))
-    .slice(0, limit);
 }

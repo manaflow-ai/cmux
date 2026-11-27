@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef } from "react";
+import { createContext } from "react";
 
 /// Codex's speed toggle (Leo 2026-10-21: "REMOVE it for Claude, where Fast mode lives inside the
 /// menu. KEEP it for Codex"): a lightning bolt in the box's trailing cluster, just left of the mic,
@@ -18,33 +18,3 @@ export type SpeedTiers = {
   /// Sends the pick as the menu's rows do (chat.effort, configId=value).
   onPick(value: string): void;
 };
-
-/// Hands `speed` to the composer that draws the bolt (SpeedToggleHost), again only when what it
-/// shows changes; the latest pick handler is always the one a click runs. Returns whether a
-/// composer draws the bolt here: without one, the speed stays a row of the model button's menu.
-export function useSpeedToggle(speed: SpeedTiers | undefined): boolean {
-  const publish = useContext(SpeedToggleHost);
-  const pick = useRef(speed?.onPick);
-  pick.current = speed?.onPick;
-  const offered = speed !== undefined;
-  const current = speed?.current;
-  const off = speed?.off ?? "";
-  const tiers = speed?.tiers.join("\u0000") ?? "";
-  const names = JSON.stringify(speed?.names);
-  useEffect(() => {
-    if (!publish) return;
-    publish(
-      offered
-        ? {
-            current,
-            off,
-            tiers: tiers.split("\u0000"),
-            names: names ? JSON.parse(names) : undefined,
-            onPick: (value) => pick.current?.(value),
-          }
-        : undefined,
-    );
-  }, [publish, offered, current, off, tiers, names]);
-  useEffect(() => (publish ? () => publish(undefined) : undefined), [publish]);
-  return publish !== null;
-}

@@ -17,12 +17,6 @@ const BARE_DATA_URI = /data:([a-z]+\/[a-z0-9.+-]+)(?:;[a-z0-9-]+=[^;,\s)"'>]+)*;
 /// Code in markdown: a fenced block (to its closing fence or the end) or an inline span.
 const CODE = /(^|\n)(`{3,}(?!`)|~{3,}(?!~))[^\n]*\n[\s\S]*?(?:\n\2[^\n]*(?=\n|$)|$)|`[^`\n]+`/g;
 
-/// Whether `text` holds a base64 `data:` URI.
-export function hasDataUri(text: string): boolean {
-  BARE_DATA_URI.lastIndex = 0;
-  return BARE_DATA_URI.test(text);
-}
-
 /// Applies `edit` to the parts of `text` outside code.
 function outsideCode(text: string, edit: (prose: string) => string): string {
   let out = "";

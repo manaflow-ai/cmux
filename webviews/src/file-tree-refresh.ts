@@ -103,24 +103,6 @@ export function planPierreFileTreeRefresh(
   };
 }
 
-export function applyPierreFileTreeGitStatus(
-  model: PierreFileTreeGitStatusModel,
-  source: FileTreeGitStatusSource,
-  resetTree: boolean,
-): void {
-  if (resetTree) {
-    model.setGitStatus(source.gitStatus);
-    return;
-  }
-  if (source.gitStatusPatch && typeof model.applyGitStatusPatch === "function") {
-    model.applyGitStatusPatch(source.gitStatusPatch);
-    return;
-  }
-  if (source.statsChanged === true || source.gitStatusPatch) {
-    model.setGitStatus(source.gitStatus);
-  }
-}
-
 export function selectPierreFileTreePath(model: PierreFileTreeSelectionModel, selectedPath: string): void {
   if (!selectedPath) {
     return;

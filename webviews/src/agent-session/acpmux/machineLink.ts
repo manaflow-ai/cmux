@@ -1,5 +1,3 @@
-import { useSyncExternalStore } from "react";
-
 export type MachineLink = { machine: string; link: string; words: string };
 
 let current: MachineLink | null = null;
@@ -21,13 +19,4 @@ export function readMachineLink(value: unknown): MachineLink | null {
 
 export function machineLink(): MachineLink | null {
   return current;
-}
-
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => void listeners.delete(listener);
-}
-
-export function useMachineLink(): MachineLink | null {
-  return useSyncExternalStore(subscribe, machineLink, machineLink);
 }

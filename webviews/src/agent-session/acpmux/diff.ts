@@ -314,32 +314,3 @@ export function hunkPatch(file: TurnFile, edit: DiffEdit, hunk: DiffHunk): strin
   const body = hunk.lines.map((line) => `${line.type === "add" ? "+" : line.type === "del" ? "-" : " "}${line.text}`);
   return [`--- ${file.path}`, `+++ ${file.path}`, header, ...body].join("\n");
 }
-
-/// The prompt that asks the agent to undo the hunks the reader rejected and keep the rest.
-export function rejectionPrompt(patches: string[], note?: string): string {
-  const intro =
-    patches.length === 1
-      ? "I reviewed your changes and rejected this one. Please revert it and keep your other changes:"
-      : `I reviewed your changes and rejected these ${patches.length}. Please revert them and keep your other changes:`;
-  return [intro, "", ...fencedPatches(patches), ...(note?.trim() ? ["", note.trim()] : [])].join("\n");
-}
-
-/// The prompt behind a turn's Undo: revert everything the turn changed.
-export function undoPrompt(patches: string[]): string {
-  return [
-    "Please undo the changes you made in that turn, so these files read as they did before it:",
-    "",
-    ...fencedPatches(patches),
-  ].join("\n");
-}
-
-/// The patches in one diff fence, longer than any backtick run in them so code containing one
-/// cannot close it.
-function fencedPatches(patches: string[]): string[] {
-  const longest = Math.max(
-    0,
-    ...patches.map((patch) => Math.max(0, ...(patch.match(/`+/g) ?? []).map((run) => run.length))),
-  );
-  const fence = "`".repeat(Math.max(3, longest + 1));
-  return [`${fence}diff`, patches.join("\n"), fence];
-}

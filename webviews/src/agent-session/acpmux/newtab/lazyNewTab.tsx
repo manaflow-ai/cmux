@@ -70,9 +70,3 @@ export function LazyNewTabPage(props: PageProps) {
   const modules = useNewTabModules();
   return modules ? <modules.page.NewTabPage {...props} /> : null;
 }
-
-/// For tests: forget the loaded chunk.
-export function resetNewTabForTests(): void {
-  loaded = undefined;
-  pending = undefined;
-}

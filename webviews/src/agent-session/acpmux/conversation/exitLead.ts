@@ -24,7 +24,6 @@ export const EXIT_EASING = MOTION_EASE_OUT;
 /// shipped, the 40 ms lead; `none`, before, the text fading on the move's own clock; `quick`, a whole
 /// quick step (80 ms) of lead.
 export type ExitLeadLook = "lead" | "none" | "quick";
-export const EXIT_LEAD_LOOKS: readonly ExitLeadLook[] = ["lead", "none", "quick"];
 export const EXIT_LEAD_ATTR = "data-exit-lead";
 
 /// The lead the look over `node` asks for (ms), before the fold's own bounds.

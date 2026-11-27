@@ -24,7 +24,6 @@ export const FISHEYE_STRENGTHS = {
   strong: 0.6,
 } as const;
 export type FisheyeStrength = keyof typeof FISHEYE_STRENGTHS;
-export const FISHEYE_DEFAULT: FisheyeStrength = "medium";
 
 /** The filter id glass.css names for `strength` (`--glass-fisheye`). */
 export function fisheyeFilterId(strength: FisheyeStrength): string {
