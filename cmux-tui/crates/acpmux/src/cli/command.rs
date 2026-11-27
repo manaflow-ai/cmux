@@ -227,6 +227,7 @@ pub(super) mod aliases {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)] // parsed once per process and matched at once; boxing buys nothing
 pub enum Command {
     /// Run a task on several models in separate worktrees and compare the reviewer's winner.
     #[command(subcommand)]
@@ -427,6 +428,14 @@ pub enum Command {
     #[command(name = "run-vm", hide = true)]
     RunVm {
         /// The shell command, after `--`.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
+        command: Vec<String>,
+    },
+    /// A `gh run view` log, served from or kept in this machine's shared cache of finished CI
+    /// logs (harness magic `sharedCache`, `ci_log_cache.rs`); the Bash hook puts it before `gh`.
+    #[command(name = "ci-log-cache", hide = true)]
+    CiLogCache {
+        /// The `gh` command, after `--`.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true, required = true)]
         command: Vec<String>,
     },
@@ -969,12 +978,21 @@ pub enum Command {
         session: String,
         #[arg(long)]
         purge: bool,
+        /// With `--purge`: delete now, with no grace to restore it.
+        #[arg(long, requires = "purge")]
+        now: bool,
         /// Set from `session stop --if-idle`; the hidden spelling takes no condition.
         #[arg(skip)]
         condition: StopIf,
         #[command(flatten)]
         close: CloseArgs,
     },
+    /// `session undelete`.
+    #[command(hide = true)]
+    Undelete { session: String },
+    /// `session deleted`.
+    #[command(hide = true)]
+    Deleted,
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
@@ -1629,9 +1647,11 @@ pub fn flatten(c: Command) -> Command {
         Command::Session(sc) => match sc {
             SessionCmd::Info { session, fields } => Command::Info { session, fields },
             SessionCmd::Cancel { session } => Command::Cancel { session },
-            SessionCmd::Stop { session, purge, mesh, condition, close } if !mesh.mesh => {
-                Command::Kill { session, purge, condition, close }
+            SessionCmd::Stop { session, purge, now, mesh, condition, close } if !mesh.mesh => {
+                Command::Kill { session, purge, now, condition, close }
             }
+            SessionCmd::Undelete { session } => Command::Undelete { session },
+            SessionCmd::Deleted => Command::Deleted,
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Route { session, facts, show_facts } => {
                 Command::RouteDeath { session, facts, show_facts }
