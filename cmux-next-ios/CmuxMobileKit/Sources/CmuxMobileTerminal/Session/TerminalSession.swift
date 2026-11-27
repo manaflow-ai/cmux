@@ -29,6 +29,10 @@ public enum TerminalSessionEvent: Sendable, Equatable {
     /// The device that sets the Mac's grid changed (its name, or nil when it
     /// is this phone or unknown), for the letterbox note.
     case hostGridOwner(String?)
+    /// A program in the terminal asked a browser for this public page while this phone drove
+    /// the terminal (`gh auth login`, `open URL`): the Mac's daemon sent it here instead of
+    /// opening it on the Mac (`phone-open-link`), so it opens on this phone.
+    case openLink(URL)
     /// The Mac stamped the redraw whose bytes the session just gave (`pseq`), and its line
     /// arrived at `receivedMs` (epoch ms): the screen reports when it painted it
     /// (``TerminalPaintTally``, `phone-frames` `paint`).
