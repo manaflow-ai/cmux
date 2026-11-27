@@ -1554,6 +1554,38 @@ async fn inbox_reply_with_no_session_in_its_thread_sends_to_the_thread_sender_by
     assert_eq!(r["isError"], true, "{r}");
 }
 
+/// 2026-11-27: lanes woken with Leo's asks called inbox_read with the thread id's shape and every
+/// letter changed, read an empty thread with no error, and ended their turns. An id this inbox
+/// does not hold is read as its one thread of that shape, else refused naming the threads.
+#[test]
+fn an_unknown_thread_id_is_read_as_its_one_listed_thread_of_that_shape() {
+    let ids =
+        ["from:cosmic-gray/claude-sr2-coord", "from:gcp-agent-lane-2/asks-reconciler", "pr:12"];
+    let like = |t: &str| thread_like(t, &ids);
+    assert_eq!(
+        like("uegh:pewclu-yfka/jcoyso-uf6-xrjkw"),
+        Some("from:cosmic-gray/claude-sr2-coord")
+    );
+    assert_eq!(
+        like("from:cosmic-gray/claude-sr2-coord"),
+        Some("from:cosmic-gray/claude-sr2-coord")
+    );
+    assert_eq!(like("uegh:pewclu-yfka/jcoyso-uf-xrjkw"), None, "a different shape is no match");
+    assert_eq!(like("pr:34"), None, "short ids share shapes too often to guess");
+    let twins = ["from:lane-aa/x-yy", "from:lane-bb/z-ww"];
+    assert_eq!(thread_like("qwer:asdf-gh/j-kl", &twins), None, "two of the shape: no guess");
+}
+
+#[tokio::test]
+async fn an_unknown_thread_read_is_an_error_not_an_empty_thread() {
+    let (_hub, client, _dir) = daemon().await;
+    let me = session(&client, "read-me").await;
+    let r =
+        inbox_tool(&client, &me, "inbox_read", &json!({"thread": "uegh:pewclu-yfka/jcoyso"})).await;
+    assert_eq!(r["isError"], true, "{r}");
+    assert!(text(&r).contains("no thread uegh:pewclu-yfka/jcoyso here"), "{r}");
+}
+
 #[test]
 fn a_threads_sender_names_come_from_its_relay_its_name_then_its_key() {
     let thread = json!({"messages": [

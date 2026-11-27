@@ -736,10 +736,7 @@ async fn inbox_tool(daemon: &Arc<Client>, session: &str, name: &str, args: &Valu
             return said(result, "inbox_reply named no thread; sent with send to `to`");
         }
         ("inbox_reply", None) => return error_result("thread and text are required".to_owned()),
-        (_, Some(thread)) => {
-            let params = json!({"sessionId": session, "threadId": thread, "markRead": true});
-            daemon.request(method::MUX_INBOX_THREAD, params).await
-        }
+        (_, Some(thread)) => return read_thread(daemon, session, thread, args).await,
         (_, None) => daemon.request(method::MUX_INBOX_THREADS, json!({"sessionId": session})).await,
     };
     match reply {
@@ -754,6 +751,86 @@ async fn inbox_tool(daemon: &Arc<Client>, session: &str, name: &str, args: &Valu
             ok(text, v)
         }
         Err(e) => refusal(e),
+    }
+}
+
+/// `inbox_read` of one thread. The daemon answers a thread id it does not hold with no messages
+/// and no error, so a mistyped id read as an empty thread: on 2026-11-27 seven lanes woken with
+/// Leo's asks called it with ids of the right shape and every letter changed
+/// (`uegh:pewclu-yfka/jcoyso-uf6-xrjkw` for `from:cosmic-gray/claude-sr2-coord`), read nothing,
+/// and ended their turns. An id this inbox does not list is read as its one listed thread of the
+/// same shape (`thread_like`), and said; with none, the answer is an error naming the threads.
+async fn read_thread(daemon: &Arc<Client>, session: &str, thread: &str, args: &Value) -> Value {
+    let read = |t: &str| {
+        let params = json!({"sessionId": session, "threadId": t, "markRead": true});
+        daemon.request(method::MUX_INBOX_THREAD, params)
+    };
+    let answer = |reply: anyhow::Result<Value>| match reply {
+        Ok(mut v) => {
+            filter_threads(&mut v, args);
+            let text = crate::cli::session_inbox::describe(&v);
+            trim_threads(&mut v);
+            ok(text, v)
+        }
+        Err(e) => refusal(e),
+    };
+    let first = read(thread).await;
+    let empty = matches!(&first, Ok(v) if v["messages"].as_array().is_none_or(Vec::is_empty));
+    if !empty {
+        return answer(first);
+    }
+    let listing = daemon.request(method::MUX_INBOX_THREADS, json!({"sessionId": session})).await;
+    let Ok(listing) = listing else { return answer(first) };
+    let ids: Vec<&str> = listing["threads"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|t| t["threadId"].as_str())
+        .collect();
+    if ids.contains(&thread) {
+        return answer(first);
+    }
+    if let Some(real) = thread_like(thread, &ids) {
+        let why = format!(
+            "no thread {thread} here; read as {real}, this inbox's one thread of its shape"
+        );
+        return said(answer(read(real).await), &why);
+    }
+    let shown: Vec<&str> = ids.iter().take(20).copied().collect();
+    let more = match ids.len() - shown.len() {
+        0 => String::new(),
+        n => format!(" (and {n} more)"),
+    };
+    error_result(match shown.is_empty() {
+        true => format!("no thread {thread} here: this inbox has no threads"),
+        false => format!(
+            "no thread {thread} here; copy a threadId exactly from: {}{more}",
+            shown.join(", ")
+        ),
+    })
+}
+
+/// The one id of `ids` with `thread`'s shape (letters, digits, everything else kept, each in its
+/// place), or None when none or several have it. Short ids (`pr:12` and `pr:34` share a shape)
+/// never match: under 12 characters an unknown id is an error, not a guess.
+fn thread_like<'a>(thread: &str, ids: &[&'a str]) -> Option<&'a str> {
+    let shape = |s: &str| -> String {
+        s.chars()
+            .map(|c| match c {
+                c if c.is_ascii_alphabetic() => 'a',
+                c if c.is_ascii_digit() => '0',
+                c => c,
+            })
+            .collect()
+    };
+    if thread.chars().count() < 12 {
+        return None;
+    }
+    let want = shape(thread);
+    let mut same = ids.iter().copied().filter(|id| shape(id) == want);
+    match (same.next(), same.next()) {
+        (Some(one), None) => Some(one),
+        _ => None,
     }
 }
 
