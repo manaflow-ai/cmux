@@ -872,6 +872,12 @@ impl Peer {
         // Each chat's last row this link heard, which the peer's patches apply to
         // (`peer_row_patch.rs`): the peer forgets what it sent at each `initialize`, so this does too.
         let mut held_rows = crate::peer_row_patch::HeldRows::default();
+        // Attach baselines and live presence are ordered on this reader, not on the tasks
+        // awaiting replies. A late attach cannot replace a live snapshot already read.
+        let _ = self
+            .notices
+            .send((self.name.clone(), self.generation, PeerNotice::PresenceReset { link }))
+            .await;
         // A reply to this daemon's request: a watch list's (`watch_key`) is published here, before
         // the next frame is read.
         macro_rules! watch_reply {
@@ -1290,6 +1296,20 @@ impl Peer {
                                 continue;
                             };
                             let reply = match error { Some(e) => Err(e), None => Ok(result.unwrap_or(Value::Null)) };
+                            if let Ok(page) = &reply
+                                && let Some(params) = attach_presence_baseline(page)
+                            {
+                                let mut params = params;
+                                params.as_object_mut().map(|object| object.insert(
+                                    crate::hub::presence::BASELINE_MARKER.into(), Value::Bool(true),
+                                ));
+                                let notice = PeerNotice::Notification {
+                                    method: method::MUX_PRESENCE.to_owned(), params, link,
+                                };
+                                if self.notices.send((self.name.clone(), self.generation, notice)).await.is_err() {
+                                    break Ok(LinkEnd::Stopped);
+                                }
+                            }
                             // A watch sent with `initialize` waits for the handshake to read that
                             // reply, and the changes after it wait with it (`paged`).
                             if self.pipelined_key.lock_or_recover().as_deref() == Some(key.as_str()) {
@@ -1648,4 +1668,13 @@ async fn pending_or<F: std::future::Future + Unpin>(fut: &mut Option<F>) -> F::O
         Some(fut) => fut.await,
         None => std::future::pending().await,
     }
+}
+
+/// Only the first snapshot on a link supplies an attach baseline. Later live frames win,
+/// including a withdrawal read before an older attach reply reaches its waiting task.
+fn attach_presence_baseline(page: &Value) -> Option<Value> {
+    let note = page.get("presence")?;
+    note.get("sessionId")?.as_str()?;
+    note.get("participants")?.as_array()?;
+    Some(note.clone())
 }
