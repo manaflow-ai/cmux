@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.imessage.enabled.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lets cmux read Messages conversations on this Mac. Sending needs your click."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lässt cmux Nachrichtenkonversationen auf diesem Mac lesen. Zum Senden ist dein Klick nötig."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Permet à cmux de lire les conversations Messages sur ce Mac. L’envoi nécessite votre clic."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يتيح لـ cmux قراءة محادثات الرسائل على جهاز Mac هذا. يحتاج الإرسال إلى نقرتك."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Permite que cmux lea conversaciones de Mensajes en este Mac. Para enviar hace falta tu clic."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "讓 cmux 讀取這部 Mac 上的「訊息」對話。傳送需由你點按。"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "允许 cmux 读取这台 Mac 上的“信息”对话。发送需由你点击。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux가 이 Mac의 메시지 대화를 읽을 수 있습니다. 전송하려면 직접 클릭해야 합니다."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このMacのメッセージの会話を cmux が読み取れるようにします。送信にはあなたのクリックが必要です。"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Omogućava cmuxu da čita razgovore iz aplikacije Poruke na ovom Macu. Slanje zahtijeva tvoj klik."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lader cmux læse samtaler i Beskeder på denne Mac. Afsendelse kræver dit klik."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Consente a cmux di leggere le conversazioni di Messaggi su questo Mac. Per inviare serve un tuo clic."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "អនុញ្ញាតឱ្យ cmux អានការសន្ទនាក្នុងកម្មវិធីសារនៅលើ Mac នេះ។ ការផ្ញើត្រូវការការចុចរបស់អ្នក។"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Lar cmux lese samtaler i Meldinger på denne Macen. Sending krever at du klikker."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pozwala cmux odczytywać rozmowy z Wiadomości na tym Macu. Wysyłanie wymaga Twojego kliknięcia."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Permite que o cmux leia conversas do Mensagens neste Mac. O envio exige seu clique."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Позволяет cmux читать разговоры в «Сообщениях» на этом Mac. Для отправки нужен ваш щелчок."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ให้ cmux อ่านการสนทนาในแอปข้อความบน Mac เครื่องนี้ การส่งต้องให้คุณคลิกเอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "cmux'un bu Mac’teki Mesajlar konuşmalarını okumasına izin verir. Göndermek için tıklamanız gerekir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Дозволяє cmux читати розмови в програмі «Повідомлення» на цьому Mac. Для надсилання потрібне ваше натискання."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cho phép cmux đọc các cuộc trò chuyện trong Tin nhắn trên máy Mac này. Việc gửi cần bạn bấm."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

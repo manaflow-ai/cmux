@@ -41,6 +41,8 @@ The gates, each the same invocation as its push-time job:
                   that would stop a chat from opening (cmux#46563) and on a new decoder that refuses unknown fields
   entry logs      scripts/ci/entry_logs.py check --base BASE --head MERGE: a frozen append-only log
                   (ENTRY_LOGS) grows only as one new file per entry in its directory, so two PRs never conflict on it
+  settings catalog keys  scripts/ci/settings_catalog_keys.py --root MERGE --base-rev BASE: a settings schema text key
+                  missing from the catalog fails only when BASE does not already miss it (a base red is a note)
 
 The panic ratchet is the workflow's own job (panic-ratchet: it needs Rust and a cmux-tui build, so it is
 not a gate here). cmux-tui-spec.yml's clippy job judges a pull request's Rust against the
@@ -227,13 +229,13 @@ def deep_enough(repo: Path, head: str, base: str) -> bool:
 
 def deepen_fetch(repo: Path, remote: str, how: str, wants: list[str]) -> None:
     """One deepen fetch, commits only; when the server's pack-objects aborts on it, the same fetch with blob:none."""
-    result = git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, how, remote, *wants, check=False)
+    result = git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FILTER, "--refmap=", how, remote, *wants, check=False)
     if result.returncode == 0:
         return
     if "pack-objects" not in result.stderr:
         raise SystemExit(f"fast-gates: git fetch {DEEPEN_FILTER} {how} failed: {result.stderr.strip()}")
     log(f"fast-gates: {DEEPEN_FILTER} {how} aborted in the server's pack-objects; again with {DEEPEN_FALLBACK_FILTER}")
-    git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FALLBACK_FILTER, how, remote, *wants)
+    git(repo, "fetch", "--no-tags", "--quiet", DEEPEN_FALLBACK_FILTER, "--refmap=", how, remote, *wants)
 
 
 def unshallow_from_alternates(repo: Path, head: str, base: str) -> bool:
@@ -366,20 +368,48 @@ def export_tree(repo: Path, ref: str, into: Path) -> None:
 RATCHET_INPUTS = (*RATCHET_PATHS, "scripts/ci/crash_ratchet_compare.py")
 
 
+def inputs_changed(repo: Path, base: str, merge: str, roots: tuple[str, ...]) -> bool:
+    """Whether BASE..MERGE changes a file under (or at) one of ROOTS. A diff that cannot be read counts as a change,
+    so the gate runs."""
+    done = git(repo, "diff", "--name-only", base, merge, check=False)
+    if done.returncode != 0:
+        return True
+    return any(path == root or path.startswith(root + "/") for path in done.stdout.split() for root in roots)
+
+
 def ratchet_inputs_changed(repo: Path, base: str, merge: str) -> bool:
     """Whether BASE..MERGE changes a file the crash ratchet reads (RATCHET_INPUTS)."""
-    changed = git(repo, "diff", "--name-only", base, merge).stdout.split()
-    return any(path == root or path.startswith(root + "/") for path in changed for root in RATCHET_INPUTS)
+    return inputs_changed(repo, base, merge, RATCHET_INPUTS)
+
+
+# What the crash-class rules read (crash_class_fast_gate.py): the concurrency rules scan Packages/macOS/CmuxNext with
+# scripts/cmux-next's checkers and scripts/ci's finding filter; the selector and CEF contract checks scan its Sources
+# against tables in scripts/cmux-next. cmux-next-crash-class.yml is one of the concurrency rules' --rules files (a change
+# to it makes every finding the change's own). A change outside all of them leaves the merge's findings the base's, so the gate
+# is green (the concurrency rules fail only for files the change touches, and the whole-tree checks only for what the
+# merge adds): skipping it takes its ~55 s off the critical path of a change with no web path (2026-11-24 job
+# 138554394707: crash-class rules 52 s, prepush gate 26 s, crash ratchet 18 s). Packages/ whole, not only CmuxNext,
+# so a package the checks come to read is covered without an edit here.
+CRASH_CLASS_INPUTS = ("Packages", "scripts/cmux-next", "scripts/ci/crash_class_fast_gate.py",
+                      "scripts/ci/crash-class-gate.sh", "scripts/ci/pr_owned_findings.py",
+                      ".github/workflows/cmux-next-crash-class.yml")
+
+
+def crash_class_inputs_changed(repo: Path, base: str, merge: str) -> bool:
+    """Whether BASE..MERGE changes a file the crash-class rules read (CRASH_CLASS_INPUTS)."""
+    return inputs_changed(repo, base, merge, CRASH_CLASS_INPUTS)
 
 
 SKIPPED = {"web lint": "no web path changed",
            "crash ratchet": "no change under Packages, cmux-tui/crates, scripts/cmux-next or its compare script",
+           "crash-class rules": "no change under Packages, scripts/cmux-next, its own scripts or its workflow",
            "webviews checks": "a pull_request event with no catalog or protocol spec change: ci-web runs them "
                               "for a webviews/ change on this merge"}
 
 
 def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
-          checks: bool = False, ratchet: bool = True) -> list[tuple[str, list[str] | None]]:
+          checks: bool = False, ratchet: bool = True,
+          crash_class: bool = True) -> list[tuple[str, list[str] | None]]:
     """(name, argv) in order; argv None is a skipped gate (SKIPPED says why)."""
     py = sys.executable
     return [
@@ -389,12 +419,23 @@ def gates(repo: Path, base: str, merge: str, base_tree: Path, web: bool,
                            "--head", str(repo), "--base", str(base_tree)] if ratchet else None),
         # --advisory: the hook-only layers as ::warning annotations, never this gate's result (prepush-gate.py).
         ("prepush gate", [py, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", merge, "--advisory"]),
-        ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree), "--base-rev", base]),
+        ("crash-class rules", [py, "scripts/ci/crash_class_fast_gate.py", "--base", str(base_tree), "--base-rev", base]
+         if crash_class else None),
         ("webviews checks", [py, "scripts/ci/fast_gate_webviews_checks.py", "--base", base] if checks else None),
         # Every pull request: a page-only change can refuse an older relay as surely as a relay change (cmux#46563).
         ("protocol skew", [py, "scripts/ci/protocol_skew_check.py", "--base", base, "--head", merge]),
         # Every pull request, git objects only: a frozen append-only log grows only as files in its entry directory.
         ("entry logs", [py, "-I", "scripts/ci/entry_logs.py", "check", "--base", base, "--head", merge]),
+        # Every pull request, git objects only: a change adds no outbound site outside the egress gate, compared
+        # with its own base, so a red base cannot excuse it (the guard group's egress step is skipped on most pull
+        # requests and excuses a step the base fails too; ten sites reached feat-cmux-next that way, 11-24..26).
+        ("egress gate", [py, "-I", "scripts/ci/egress_new_sites.py", "--base", base, "--head", merge,
+                         "--repo", str(repo)]),
+        # Every pull request, JSON only: the Mac export test checks the same, but feat-cmux-next PRs defer Mac jobs,
+        # and a schema row without its catalog keys stops the settings exports for every row after it. Compared
+        # with BASE from git objects: a key the base already misses is a note, not this PR's failure.
+        ("settings catalog keys", [py, "-I", "scripts/ci/settings_catalog_keys.py", "--root", str(repo),
+                                   "--base-rev", base]),
     ]
 
 
@@ -517,11 +558,9 @@ def run(args: argparse.Namespace) -> int:
     try:
         export_tree(repo, args.base, holder)
         ratchet = ratchet_inputs_changed(repo, args.base, merge)
-        active = [
-            (name, argv)
-            for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true", ratchet)
-            if argv is not None
-        ]
+        crash_class = crash_class_inputs_changed(repo, args.base, merge)
+        planned = gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true", ratchet, crash_class)
+        active = [(name, argv) for name, argv in planned if argv is not None]
         # Web lint and webviews checks can both run bun install in webviews/, so webviews checks waits for web lint
         # when both run. Every other gate reads the merge and its exported base tree and starts at once: on
         # 2026-11-22 webviews checks (93 s) waited out crash-class rules (61 s) in a second batch, a 157 s step whose
@@ -530,7 +569,7 @@ def run(args: argparse.Namespace) -> int:
         max_parallel = len(lanes)
         active_results = run_gate_batch(lanes, repo, deadline, holder / "gate-logs")
 
-        for name, argv in gates(repo, args.base, merge, holder, args.web == "true", args.checks == "true", ratchet):
+        for name, argv in planned:
             if argv is None:
                 print(f"{name}: skipped ({SKIPPED[name]})", flush=True)
                 rows.append((name, "skipped", 0.0))

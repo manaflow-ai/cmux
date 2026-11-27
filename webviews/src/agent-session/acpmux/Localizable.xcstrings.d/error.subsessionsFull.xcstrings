@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "error.subsessionsFull" : {
+      "comment" : "Agent pane: why a plan build or sub-session start was refused (after 'The plan was not built:'): the chat already runs its limit of sub-sessions",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "وصلت هذه المحادثة إلى حدّ الجلسات الفرعية. انتظر حتى تنتهي إحداها، أو ارفع الحد في الإعدادات."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ovaj chat je na ograničenju podsesija. Sačekajte da jedna završi ili povećajte ograničenje u Postavkama."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne chat er ved sin grænse for undersessioner. Vent på, at én bliver færdig, eller hæv grænsen i Indstillinger."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Chat hat sein Limit an Unter-Sitzungen erreicht. Warte, bis eine fertig ist, oder erhöhe das Limit in den Einstellungen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This chat is at its sub-session limit. Wait for one to finish, or raise the limit in Settings."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este chat está en su límite de subsesiones. Espera a que termine una o sube el límite en Ajustes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette discussion a atteint sa limite de sous-sessions. Attendez qu'une se termine ou augmentez la limite dans Réglages."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa chat ha raggiunto il limite di sotto-sessioni. Attendi che una finisca o alza il limite in Impostazioni."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このチャットはサブセッションの上限に達しています。1 つ終わるのを待つか、設定で上限を上げてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការជជែកនេះដល់កម្រិតវគ្គរងហើយ។ រង់ចាំវគ្គមួយបញ្ចប់ ឬបង្កើនកម្រិតក្នុងការកំណត់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 채팅은 하위 세션 한도에 도달했습니다. 하나가 끝날 때까지 기다리거나 설정에서 한도를 높이세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Denne chatten er ved grensen for undersesjoner. Vent til én er ferdig, eller øk grensen i Innstillinger."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ten czat osiągnął limit podsesji. Poczekaj, aż któraś się skończy, albo podnieś limit w Ustawieniach."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este chat está no limite de subsessões. Espere uma terminar ou aumente o limite em Ajustes."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Этот чат достиг лимита подсессий. Дождитесь завершения одной или увеличьте лимит в настройках."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "แชทนี้ถึงขีดจำกัดเซสชันย่อยแล้ว รอให้เซสชันหนึ่งเสร็จ หรือเพิ่มขีดจำกัดในการตั้งค่า"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu sohbet alt oturum sınırında. Birinin bitmesini bekleyin ya da Ayarlar'da sınırı yükseltin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Цей чат досяг ліміту підсесій. Дочекайтеся завершення однієї або збільште ліміт у налаштуваннях."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cuộc trò chuyện này đã đạt giới hạn phiên con. Hãy chờ một phiên xong, hoặc tăng giới hạn trong Cài đặt."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此聊天已达到子会话上限。请等待一个结束，或在设置中提高上限。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此聊天已達到子工作階段上限。請等待一個結束，或在設定中提高上限。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

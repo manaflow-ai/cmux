@@ -1158,9 +1158,50 @@
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
 }
+/* The setups shelf (experiments.setupShelf): one row per setup, its name and line, then Try, or
+   Revert and Keep while it is on trial. The action slot keeps its width so a row never reflows. */
+.onb-setups-detail {
+  margin: 0 0 var(--ds-space-2);
+}
+.onb-setups-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.onb-setups-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ds-space-3);
+  min-width: 0;
+}
+.onb-setups-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--ds-space-2);
+  min-width: 9.5rem;
+}
 /* The chosen run location's one sentence, under its two segments; it wraps rather than truncates. */
 .onb-make-run-in-detail {
+  display: grid;
   margin: var(--ds-space-1) 0 0;
+}
+/* The unchosen sentences size the cell (the tallest wins) and stay out of textContent and the name. */
+.onb-make-run-in-detail > span {
+  grid-area: 1 / 1;
+}
+.onb-make-run-in-detail__size {
+  visibility: hidden;
+  user-select: none;
+  pointer-events: none;
+}
+.onb-make-run-in-detail__size::after {
+  content: attr(data-label);
 }
 /* A quiet tag, not a second button: the accent's ink on a faint wash of it. */
 .onb-make-badge {
@@ -1610,7 +1651,7 @@ img.onb-make-tile-image {
     var(--ds-color-surface, Canvas) 62%,
     transparent
   );
-  /* glass-raw-blur-allow: a soft 4 px frost on a Make cmux Yours preview card over the painting, not a floating glass surface */
+  /* one-material-allow: a pane of the Make cmux Yours step's drawn miniature window (a picture of NEXT's panes), not a floating surface */
   backdrop-filter: blur(4px);
 }
 /* The sidebar sits on the window's glass, as NEXT's does: the painting shows through it. */
@@ -1663,7 +1704,7 @@ img.onb-make-tile-image {
   align-self: flex-end;
   width: 55%;
   height: calc(4 * var(--w-u));
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: color-mix(in srgb, var(--ds-color-fg) 14%, transparent);
 }
 .onb-make-composer {
@@ -1671,7 +1712,7 @@ img.onb-make-tile-image {
   height: calc(5 * var(--w-u));
   margin-top: auto;
   border: 1px solid color-mix(in srgb, var(--ds-color-fg) 18%, transparent);
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
 }
 .onb-make-block {
   flex: none;

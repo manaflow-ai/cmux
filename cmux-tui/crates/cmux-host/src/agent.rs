@@ -488,10 +488,8 @@ impl<P: Platform> Agent<P> {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let first_start = crate::status::MachineFacts::mark(
-            std::path::Path::new(crate::config::MACHINE_MARKER),
-            now,
-        );
+        let first_start =
+            crate::status::MachineFacts::mark(Path::new(crate::config::MACHINE_MARKER), now);
         Self {
             platform,
             machine: Machine::new(),

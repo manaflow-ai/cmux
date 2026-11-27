@@ -1,7 +1,8 @@
 //! Where the settings file lives (Swift `CmuxConfigFile.defaultURL` and
 //! `prepareDefaultURL`): `~/.config/cmux/cmux-next.json` (on macOS
-//! `~/.config/cmux-next/cmux-next.json`, beside no file of cmux Classic's),
-//! seeded once from classic cmux's `cmux.json`.
+//! `~/.config/cmux-next/cmux-next.json`, beside no file of cmux Classic's).
+//! Classic cmux's settings are imported by the app only after the person
+//! consents.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -165,22 +166,14 @@ pub fn migrate_legacy_state(state: &Path, next_dir: &str) -> std::io::Result<Vec
     Ok(moved)
 }
 
-const CLASSIC_FILE: &str = ".config/cmux/cmux.json";
-
-/// The file a missing settings file starts from: classic cmux's
-/// `cmux.json`, like the app's first launch copies it. `None` when
-/// `CMUX_NEXT_CONFIG_FILE` names the file (an override is never seeded from
-/// the user's files).
+/// Classic cmux is never a Rust settings fallback. The app copies it after consent.
 pub fn seed_path() -> Option<PathBuf> {
-    seed_path_from(|name| std::env::var_os(name).filter(|value| !value.is_empty()))
+    None
 }
 
-/// `seed_path` with an injected environment.
-pub fn seed_path_from(env: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
-    if env(CONFIG_OVERRIDE).is_some_and(|value| !value.is_empty()) {
-        return None;
-    }
-    env("HOME").map(|home| PathBuf::from(home).join(CLASSIC_FILE))
+/// Retained for callers while Classic import moves behind the app's consent boundary.
+pub fn seed_path_from(_env: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    None
 }
 
 /// keybindings.json: beside the settings file, so `CMUX_NEXT_CONFIG_FILE`
@@ -192,6 +185,23 @@ pub fn keybindings_path(config_path: &Path) -> PathBuf {
 }
 
 const KEYBINDINGS_FILE: &str = "keybindings.json";
+
+/// cmux NEXT's own cache folder: `~/Library/Caches/cmux-next` on macOS (where `~/.cache/cmux`
+/// and `Caches/cmux` are cmux Classic's), else `${XDG_CACHE_HOME:-~/.cache}/cmux`. None without
+/// an absolute `HOME`.
+pub fn cache_dir() -> Option<PathBuf> {
+    cache_dir_from(cfg!(target_os = "macos"), |name| std::env::var_os(name))
+}
+
+/// [`cache_dir`] for `macos` and the environment `env` (tests).
+pub fn cache_dir_from(macos: bool, env: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    let absolute = |name: &str| env(name).map(PathBuf::from).filter(|path| path.is_absolute());
+    let home = absolute("HOME")?;
+    if macos {
+        return Some(home.join("Library").join("Caches").join("cmux-next"));
+    }
+    Some(absolute("XDG_CACHE_HOME").unwrap_or_else(|| home.join(".cache")).join(LEGACY_DIR))
+}
 
 /// The cold-start cache file under the daemon's state directory.
 pub fn cache_path(state_dir: &Path) -> PathBuf {

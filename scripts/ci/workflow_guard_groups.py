@@ -126,6 +126,7 @@ PATH_OWNERS = {
     # resolver also backs the project-file merge driver below.
     "scripts/ci/merge_main_resolver.py": frozenset(("preflight", "ci")),
     "scripts/merge-xcstrings.py": frozenset(("ci",)),
+    "scripts/merge-cargo-lock.py": frozenset(("ci",)),  # test_merge_cargo_lock.py
     "scripts/normalize-pbxproj.py": frozenset(("ci",)),
     # test_merge_pbxproj.py runs the merge driver, which runs the normalizer
     # above and borrows union_pbxproj from the local resolver.
@@ -176,7 +177,8 @@ PATH_OWNERS = {
     "scripts/swift_source_mask.py": frozenset(("preflight",)),
     # test_ci_reusable_workflow_permissions.py loads it; cmux.ci.guard runs that.
     "scripts/ci/check_reusable_workflow_permissions.py": frozenset(("ci",)),
-    "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution",)),
+    "scripts/ci/require_swift_test_execution.py": frozenset(("app-host-execution", "ci")),
+    "scripts/ci/package-test-lane/swift_suite_outcomes.py": frozenset(("ci",)),
     "scripts/ci/run-swift-testing-suites.sh": frozenset(("app-host-execution",)),
     # run-swift-testing-suites.sh runs it.
     "scripts/ci/swift_package_submodules.py": frozenset(("app-host-execution",)),

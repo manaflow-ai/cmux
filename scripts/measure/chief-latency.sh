@@ -111,7 +111,11 @@ build_side() {
     echo "CHIEF-LAT-BUILD after $sha (same as before: A/A)"
     return
   fi
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet --depth 1 origin "$sha"
+  depth=()
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth 1)
+  # A fleet step's source is a bundle with no origin remote: fetch the public repo by URL then.
+  local remote; remote="$(git remote get-url origin 2>/dev/null || echo https://github.com/manaflow-ai/cmux.git)"
+  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch --quiet ${depth[@]+"${depth[@]}"} "$remote" "$sha"
   git worktree add --quiet --detach "$src" "$sha"
   mkdir -p "$bin"
   "$src/scripts/cmux-next/build-acpmux.sh" --output "$bin/acpmux"

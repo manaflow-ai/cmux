@@ -57,6 +57,8 @@ CHECK=0 TUI_SOURCE=pin TREES="" WRITE_TREES=0
 # remote_refs and net_retry: a remote that does not answer is never read as a missing ref.
 # shellcheck source=scripts/cmux-next/lib/origin-net.sh
 source "$ROOT/scripts/cmux-next/lib/origin-net.sh"
+# shellcheck source=scripts/cmux-next/lib/rbh-source.sh
+source "$ROOT/scripts/cmux-next/lib/rbh-source.sh"
 usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -141,10 +143,8 @@ if ! grep -q "^$rbh_rev" <<<"$rbh_tag_lines"; then
 fi
 rbh_src="$CACHE/cmux-rbh-src-$rbh_rev"
 if [[ ! -d "$rbh_src" ]]; then
-  # Its own shallow fetch, not this checkout's history.
-  rm -rf "$rbh_src.git" "$rbh_src.partial" && mkdir -p "$rbh_src.partial"
-  git init --quiet "$rbh_src.git"
-  net_retry "fetch the remote browser host source $rbh_rev" git -C "$rbh_src.git" fetch --quiet --depth 1 https://github.com/manaflow-ai/cmux.git "$rbh_rev"
+  rm -rf "$rbh_src.partial" && mkdir -p "$rbh_src.partial"
+  rbh_fetch_source "$ROOT" "$rbh_src.git" "$rbh_rev" "${CMUX_NOTICES_RBH_REMOTE:-https://github.com/manaflow-ai/cmux.git}"
   [[ "$(git -C "$rbh_src.git" rev-parse FETCH_HEAD)" == "$rbh_rev" ]] || { echo "error: fetched commit is not $rbh_rev" >&2; exit 1; }
   [[ "$(git -C "$rbh_src.git" rev-parse "FETCH_HEAD:$rbh_crate")" == "$rbh_tree" ]] ||
     { echo "error: $rbh_crate at $rbh_rev is not the pin's crate_tree $rbh_tree" >&2; exit 1; }

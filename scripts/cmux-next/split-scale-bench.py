@@ -90,6 +90,7 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import bench_memory as bm  # noqa: E402
+import frame_timing  # noqa: E402
 import idle_cost_load as icl  # noqa: E402
 import split_move_metrics as smm  # noqa: E402
 import split_scale_metrics as ssm  # noqa: E402
@@ -499,8 +500,39 @@ def background(run, count, measured):
 # One transition: a frame strip of the gesture with the motion trace around it.
 
 def record(run, gesture, label, content="focused", static=True):
+    tracker0 = cef_tracker(run)
     strip, trace = record_raw(run, gesture, label, content)
-    return ssm.transition(strip, trace, opts.strip_tolerance, static=static)
+    row = ssm.transition(strip, trace, opts.strip_tolerance, static=static)
+    cef = cef_delta(tracker0, cef_tracker(run))
+    if cef and isinstance(row, dict):
+        row["cef"] = cef
+    return row
+
+
+CEF_FIELDS = ("fence", "commit", "detaches", "attaches", "geometry_posts", "hosted_pages")
+
+
+def cef_tracker(run):
+    """The CEF tracker's counters (`debug.cef` tracker), {} with no engine: read around each round, untimed, so a row
+    says where a browser cell's frames went (fence joins, presented, missed, expired, join seconds, commit waits,
+    detaches) without an A/B run per guess."""
+    reply = run.rpc("debug.cef") or {}
+    tracker = reply.get("tracker") if isinstance(reply, dict) else None
+    return tracker if isinstance(tracker, dict) else {}
+
+
+def cef_delta(before, after):
+    """The round's change in each counter `CEF_FIELDS` names; nothing that did not move. A counter either read lacks
+    (a failed `debug.cef`) is left out, so a lost read never shows the running total as one round's change."""
+    delta = {}
+    for name, value in after.items():
+        start = before.get(name)
+        if (isinstance(value, (int, float)) and isinstance(start, (int, float))
+                and any(name.startswith(f) for f in CEF_FIELDS)):
+            moved = round(value - start, 4)
+            if moved:
+                delta[name] = moved
+    return delta
 
 
 def record_raw(run, gesture, label, content="focused", at=None):
@@ -927,6 +959,7 @@ def finish(results):
                        and all(f["pass"] for f in results["flatness"].values()))
     text = ssm.table(results)
     print("SPLIT-SCALE-TABLE-BEGIN\n" + text + "\nSPLIT-SCALE-TABLE-END", flush=True)
+    timeline = frame_timeline(results)
     if opts.json:
         with open(opts.json + ".tmp", "w") as handle:
             json.dump(results, handle, indent=1)
@@ -934,7 +967,32 @@ def finish(results):
     if opts.md:
         with open(opts.md, "w") as handle:
             handle.write("```\n" + text + "\n```\n")
+            if timeline:
+                handle.write("\nThe app's own frame timeline (frame_timing.py --table):\n\n```\n" + timeline + "\n```\n")
     pack_frames()
+
+
+def frame_timeline(results):
+    """The app's own frame-timing log over this run (TransitionFrameLog: every split, close, zoom, sidebar toggle and
+    divider drag the cells made), as `frame_timing.py --table`: one row per surface x transition, worst first. Into
+    `results["frame_timing_table"]` and the log between FRAME-TIMING-TABLE markers; "" when the app logged none."""
+    started = results.get("started_ms", 0)
+    lines = []
+    for paths in frame_timing.default_files().values():
+        for path in paths:
+            try:
+                with open(path, encoding="utf-8", errors="replace") as handle:
+                    lines.extend(handle)
+            except OSError as error:  # a half the ring rotated away mid-read: the other still counts
+                say(f"split-scale: frame timing log {path}: {error}")
+    rows, _ = frame_timing.read_lines(lines)
+    table = frame_timing.table([r for r in rows if isinstance(r.get("at_ms"), (int, float)) and r["at_ms"] >= started])
+    results["frame_timing_table"] = table
+    if not table:
+        return ""
+    text = frame_timing.format_table(table)
+    print("FRAME-TIMING-TABLE-BEGIN\n" + text + "\nFRAME-TIMING-TABLE-END", flush=True)
+    return text
 
 
 def main():
@@ -943,7 +1001,7 @@ def main():
                "model": subprocess.run(["sysctl", "-n", "hw.model"], capture_output=True, text=True).stdout.strip(),
                "matrix": {"splits": SPLITS, "contents": WANTED_CONTENTS, "workspaces": WORKSPACES, "transitions": WANTED,
                           "rounds": opts.rounds, "scrollback": opts.scrollback, "chat_turns": opts.chat_turns},
-               "raw": {}, "errors": {}}
+               "raw": {}, "errors": {}, "started_ms": int(time.time() * 1000)}
     signal.signal(signal.SIGTERM, bm.interrupted)
     run, display = None, None
     try:

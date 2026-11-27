@@ -6,8 +6,7 @@ import { WrittenArtifactButtons } from "./writtenArtifacts";
 // its disclosure right after its words, hairlines between them. Edits keep their diffs on a tree
 // guide.
 import { FindReveal, foldFind, useFindReveal } from "./chatFind";
-import { memo, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { foldMs, markHeightFold } from "./fold";
+import { memo, useContext, useId, useMemo, useRef, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import type { AcpmuxActivity } from "../model";
 import { CommandRow } from "./CommandRow";
@@ -31,14 +30,16 @@ import {
   useTranscriptViewContext,
 } from "./transcriptDisclosureModel";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
+import { scrollListTo } from "./motionOwner";
 import { WriteLabel } from "./WriteLabel";
 import { writeCall } from "./writeLabelModel";
-import { Tick } from "../subagents/trayMotion";
+import { ToolLabel } from "./ToolVerb";
 import { toolFailure } from "./toolFailure";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 import { failureWord, InStep } from "./toolFailureCauseModel";
-import { firstStepCount, stepProbe } from "./toolGroupRowModel";
+import { sameList, stepProbe } from "./toolGroupRowModel";
 import { DisclosureChevron } from "./DisclosureChevron";
+import { useRevealPins, useStepWindow, windowedSteps } from "./stepWindow";
 
 function groupIcon(kind: ToolGroupKind): ReactNode {
   switch (kind) {
@@ -154,6 +155,7 @@ const Step = memo(
     return (
       <div
         className={item.tool ? "cv-step" : lead ? "cv-step is-thought is-lead" : "cv-step is-thought"}
+        data-step={probeKey}
         data-step-call={item.tool?.id}
       >
         {item.tool ? (
@@ -176,82 +178,14 @@ const Step = memo(
     (a.item === b.item || (!a.item.tool && !b.item.tool && sameThought(a.item, b.item))),
 );
 
-/// The height a step not drawn yet is given: the median distance between the drawn steps' tops, so
-/// the lead thought drawn in full, or a failure's or image's taller row, does not set it. Rows that
-/// differ from it are corrected as they draw (StepList).
-function stepSlot(steps: NodeListOf<HTMLElement>): number {
-  const tops = [...steps].map((step) => step.getBoundingClientRect().top);
-  const slots = tops.slice(1).map((top, index) => top - tops[index]!);
-  if (!slots.length) return steps[0]!.getBoundingClientRect().height;
-  slots.sort((a, b) => a - b);
-  return slots[Math.floor(slots.length / 2)]!;
-}
-
-/// How long after an opened run's last deferred rows drew it still keeps what the reader sees (a
-/// thumbnail decoding late).
-const KEEP_MS = 1000; // motion-allow: a watch window after the last draw, not an animation
-
-/// What the reader sees first inside a run scrolled into: a drawn step (its top) or, past the drawn
-/// steps, the run's foot, each as its distance from the run's row's top. Measured from the row, a
-/// move of the whole row (rows above it) is the transcript's to keep (scrollAnchor.ts), not this.
-type ViewAnchor = { node: HTMLElement; foot: boolean; at: number };
-
-/// Puts back what the reader saw first (`before`) if a change above it in the run moved it, by
-/// moving the offset the same distance, then returns what is first in view now. Nothing while the
-/// run's top is in view: then every change in it is under what the reader sees first.
-function keepView(list: HTMLElement, before: ViewAnchor | undefined): ViewAnchor | undefined {
-  const scroller = list.closest<HTMLElement>(".acpmux-scroll");
-  const row = list.closest<HTMLElement>(".acpmux-row");
-  if (!scroller || !row) return undefined;
-  const edge = (anchor: ViewAnchor) => {
-    const box = anchor.node.getBoundingClientRect();
-    return (anchor.foot ? box.bottom : box.top) - row.getBoundingClientRect().top;
-  };
-  if (before?.node.isConnected) {
-    const moved = edge(before) - before.at;
-    if (Math.abs(moved) >= 0.5) {
-      const want = scroller.scrollTop + moved;
-      scroller.scrollTop = want;
-      // Cut short by the transcript's height (not yet as tall as the run): once more on the next
-      // frame, after it has grown. One try only.
-      if (Math.abs(scroller.scrollTop - want) >= 0.5)
-        list.ownerDocument.defaultView?.requestAnimationFrame(() => {
-          if (Math.abs(scroller.scrollTop - want) >= 0.5) scroller.scrollTop = want;
-        });
-    }
-  }
-  const view = scroller.getBoundingClientRect().top;
-  if (list.getBoundingClientRect().top >= view) return undefined;
-  // The first drawn step whose foot is under the view's top: they are in order, so a binary search.
-  const steps = list.querySelectorAll<HTMLElement>(":scope > .cv-step");
-  let low = 0;
-  let high = steps.length;
-  while (low < high) {
-    const mid = (low + high) >> 1;
-    if (steps[mid]!.getBoundingClientRect().bottom > view) high = mid;
-    else low = mid + 1;
-  }
-  const first = steps[low];
-  const anchor: ViewAnchor | undefined = first
-    ? { node: first, foot: false, at: 0 }
-    : row.getBoundingClientRect().bottom > view
-      ? { node: row, foot: true, at: 0 }
-      : undefined;
-  if (anchor) anchor.at = edge(anchor);
-  return anchor;
-}
-
-/// An opened run's step rows. Opened by the reader's click, it draws only the rows the window can
-/// show (`firstStepCount`) in the click's frame, and a box under them for the rest (`stepSlot`
-/// each), set before the fold reads its height (a child's layout effect runs before its parent's),
-/// so the fold opens in one motion. The rest draw once the fold is over, a window's worth per task,
-/// into that box, off screen while the fold plays. A row taller or shorter than its room moves
-/// only what is under it; when the reader has scrolled into the run, what they see first stays
-/// where it is (`keepView`), so nothing in view moves. The draws stop when every row is drawn or
-/// the list unmounts (the run closed). Opened any other way (Find, a view switch, a run that opens
-/// itself), every row draws at once, and Find into a run still drawing draws the rest at once (Leo,
-/// 2026-11-06: "The tool call expansion, when it has several tool calls, I think sometimes it lags
-/// a bit").
+/// An opened run's step rows, windowed (stepWindow.ts): the steps in the run's view and a view's worth
+/// over and under it draw, and a box as tall as the steps it stands for takes each stretch not drawn,
+/// so the run is as tall as with every step drawn and a scroll lands where it would. A click that
+/// opens a long run draws a window's worth in its frame at any length (Leo, 2026-11-06: "The tool
+/// call expansion, when it has several tool calls, I think sometimes it lags a bit"), and a scroll
+/// draws only the steps it brings in. A step taller or shorter than its box moves only what is under
+/// it, or, above the view, the view's offset with it, so nothing in view moves. Find's match, the
+/// focused step and a selection's ends stay drawn wherever the view is.
 function StepList({
   id,
   disclosureKey,
@@ -259,7 +193,6 @@ function StepList({
   items,
   kind,
   thoughtId,
-  defer,
 }: {
   id: string;
   disclosureKey: string;
@@ -267,70 +200,21 @@ function StepList({
   items: readonly AcpmuxActivity[];
   kind: ToolGroupKind;
   thoughtId: (n: number) => string;
-  defer: boolean;
 }) {
-  // The rows per task; 0 draws every row at once.
-  const [chunk] = useState(() => (defer && typeof window !== "undefined" ? firstStepCount(window.innerHeight) : 0));
-  const [shown, setShown] = useState(() => chunk || Infinity);
-  // An open that is not the reader's click (Find) takes over: every row draws now, so its match is there.
-  if (!defer && shown !== Infinity) setShown(Infinity);
-  const count = Math.min(shown, entries.length);
-  const rest = entries.length - count;
   const list = useRef<HTMLDivElement>(null);
-  const spacer = useRef<HTMLDivElement>(null);
-  /// The height each row not drawn yet is given, set once from the first rows drawn.
-  const slot = useRef<number | undefined>(undefined);
-  /// What the reader sees first, once scrolled into the run, kept where it is (`keepView`).
-  const anchor = useRef<ViewAnchor | undefined>(undefined);
-  // Late sizes (an image that decodes after its row drew) are kept too, until KEEP_MS after the
-  // last rows drew: then the run is the reader's again.
-  const [keeping, setKeeping] = useState(chunk > 0);
-  // Before paint: the box for the rows not drawn yet, and what the reader sees kept still as rows
-  // replace it.
-  useLayoutEffect(() => {
-    const node = list.current;
-    if (!node || !keeping) return;
-    if (rest > 0) {
-      slot.current ??= stepSlot(node.querySelectorAll<HTMLElement>(":scope > .cv-step"));
-      if (spacer.current) spacer.current.style.height = `${rest * slot.current}px`;
-    }
-    // The rows under the run are placed before each frame paints while its rows draw (VirtualTranscript),
-    // so the transcript is as tall as the run when `keepView` (its size observer, below) moves the offset.
-    markHeightFold(node, KEEP_MS);
-  }, [rest, keeping]);
-  // While rows draw and a little after: a size change inside the run (rows drawn, a late thumbnail)
-  // keeps what is first in view, and the reader's scroll picks it again. The size observer runs after
-  // the transcript's own (made first), which has made the transcript as tall as the run by then, so
-  // the offset it moves is not cut short. Stops KEEP_MS after the last rows drew, or on unmount.
-  useEffect(() => {
-    const node = list.current;
-    const scroller = node?.closest<HTMLElement>(".acpmux-scroll");
-    if (!keeping || !node || !scroller || typeof ResizeObserver !== "function") return;
-    const sizes = new ResizeObserver(() => (anchor.current = keepView(node, anchor.current)));
-    sizes.observe(node);
-    const scrolled = () => (anchor.current = keepView(node, undefined));
-    scroller.addEventListener("scroll", scrolled, { passive: true });
-    return () => {
-      sizes.disconnect();
-      scroller.removeEventListener("scroll", scrolled);
-    };
-  }, [keeping]);
-  useEffect(() => {
-    if (!keeping || rest > 0) return;
-    const timer = window.setTimeout(() => setKeeping(false), KEEP_MS);
-    return () => window.clearTimeout(timer);
-  }, [keeping, rest]);
-  // The rest, a window's worth per task, from the fold's end: one timer at a time, none once all show.
-  useEffect(() => {
-    if (rest <= 0 || !chunk) return;
-    const wait = shown === chunk ? foldMs(list.current?.closest<HTMLElement>(".cv-fold") ?? null) : 0;
-    const timer = window.setTimeout(() => {
-      const draw = () => setShown((now) => (now + chunk >= entries.length ? Infinity : now + chunk));
-      if (stepProbe.hold) stepProbe.hold(draw);
-      else draw();
-    }, wait);
-    return () => window.clearTimeout(timer);
-  }, [rest, shown, chunk, entries.length]);
+  // A new array only when the entries are (a step joins or takes another's place), never per chunk.
+  const keys = useMemo(() => entries.map((entry) => entry.key), [entries]);
+  const latest = useRef(items);
+  latest.current = items;
+  const pieces = useStepWindow({
+    list,
+    keys,
+    quiet: (at) => {
+      const item = latest.current[at];
+      return Boolean(item && !item.tool && isQuietThought(item));
+    },
+    pinned: useRevealPins(items),
+  });
   return (
     <div
       ref={list}
@@ -344,18 +228,21 @@ function StepList({
           no line under the steps counts them (Leo, 2026-11-06: "why doesn't it just show it
           normally like the other ones?"). */}
       <InStep.Provider value>
-        {entries.slice(0, count).map(({ at, key, thought }) => (
-          <Step
-            key={thought < 0 ? key : thoughtId(thought)}
-            probeKey={key}
-            item={items[at]!}
-            commands={kind === "commands"}
-            thoughtId={thought < 0 ? "" : thoughtId(thought)}
-            lead={at === 0 && thought === 0}
-          />
-        ))}
+        {windowedSteps(pieces, (from, to) =>
+          entries
+            .slice(from, to)
+            .map(({ at, key, thought }) => (
+              <Step
+                key={thought < 0 ? key : thoughtId(thought)}
+                probeKey={key}
+                item={items[at]!}
+                commands={kind === "commands"}
+                thoughtId={thought < 0 ? "" : thoughtId(thought)}
+                lead={at === 0 && thought === 0}
+              />
+            )),
+        )}
       </InStep.Provider>
-      {rest > 0 && <div ref={spacer} className="cv-steps__rest" data-steps-rest={rest} aria-hidden />}
     </div>
   );
 }
@@ -364,19 +251,7 @@ function StepList({
 /// desktop apps list them; edits stay closed, since each opens to its whole diff. A finished run
 /// that is this one group (`folded`: text followed it) stays closed too, one summary line between
 /// the paragraphs ("Ran 3 commands"), as the Codex app folds finished work. The glyph turns while
-/// any call runs.
-export function ToolGroupRow({
-  kind,
-  items,
-  disclosureKey,
-  folded = false,
-  findTitle,
-  inherits,
-  closedBy,
-  foldId,
-  onLoadFold,
-  thoughtId = (n) => `${disclosureKey}:thought:${n}`,
-}: {
+type GroupProps = {
   kind: ToolGroupKind;
   items: readonly AcpmuxActivity[];
   disclosureKey: string;
@@ -392,7 +267,42 @@ export function ToolGroupRow({
   /// The id of the group's n-th thought (TurnRows.tsx `thoughtIds`): the same one the thought had
   /// drawn on its own before a call joined it to this group.
   thoughtId?: (n: number) => string;
-}) {
+};
+
+/// A group's line shows the same: its items the same objects (the transcript replaces only the call a
+/// chunk changed, direct.ts), the same links, and thought ids that name the same thoughts (TurnRows.tsx
+/// makes a new `thoughtId` each draw over one row id and count, so the first id says which).
+const sameGroup = (a: GroupProps, b: GroupProps): boolean =>
+  a.kind === b.kind &&
+  a.disclosureKey === b.disclosureKey &&
+  a.folded === b.folded &&
+  a.findTitle === b.findTitle &&
+  a.foldId === b.foldId &&
+  a.onLoadFold === b.onLoadFold &&
+  sameList(a.items, b.items) &&
+  sameList(a.inherits, b.inherits) &&
+  sameList(a.closedBy, b.closedBy) &&
+  (a.thoughtId === b.thoughtId ||
+    (a.thoughtId !== undefined && b.thoughtId !== undefined && a.thoughtId(0) === b.thoughtId(0)));
+
+/// Commands, reads and searches open by default, one row per call, as the Codex and Claude Code
+/// desktop apps list them; edits stay closed, since each opens to its whole diff. A finished run
+/// that is this one group (`folded`: text followed it) stays closed too, one summary line between
+/// the paragraphs ("Ran 3 commands"), as the Codex app folds finished work. The glyph turns while
+/// any call runs. Memoized on what it shows (`sameGroup`), so a chunk streamed to another group in
+/// the row draws this one again never.
+export const ToolGroupRow = memo(function ToolGroupRow({
+  kind,
+  items,
+  disclosureKey,
+  folded = false,
+  findTitle,
+  inherits,
+  closedBy,
+  foldId,
+  onLoadFold,
+  thoughtId = (n) => `${disclosureKey}:thought:${n}`,
+}: GroupProps) {
   const t = useT();
   const reveal = useContext(FindReveal);
   const showFindTitle = Boolean(findTitle && reveal?.needle && foldFind(findTitle).includes(reveal.needle));
@@ -413,15 +323,8 @@ export function ToolGroupRow({
   });
   const pin = useFoldPin(disclosureKey);
   const fold = useAnchoredCollapse({ open, onOpenChange: setOpen });
-  // Whether the reader's click opened the run: only then do its rows past the window draw after the
-  // fold (StepList). Find opens it with every row drawn, so its match is there to show.
-  const [byClick, setByClick] = useState(false);
-  // Closed and gone, the next open is no click until the reader clicks it (a view switch, Find).
-  if (byClick && !fold.present) setByClick(false);
-  useFindReveal(items, () => {
-    setByClick(false);
-    setOpen(true);
-  });
+  // Find opens the run; its window keeps the steps that hold the match drawn (StepList).
+  useFindReveal(items, () => setOpen(true));
   // Every step shows, as Claude Code desktop lists a run's: no "+K more" behind the latest few.
   const entries = useStepEntries(kind === "edits" ? [] : items);
   const detailsId = useId();
@@ -433,7 +336,9 @@ export function ToolGroupRow({
   const running = tools.some(isRunning);
   const failures = tools.filter(countsFailed).length;
   // A lone Write reads as what it wrote, "Wrote notes.md +18", not as an edit (WriteLabel.tsx).
-  const write = kind === "edits" && tools.length === 1 ? writeCall(tools[0]!) : undefined;
+  const single = tools.length === 1 ? tools[0] : undefined;
+  const description = single?.description?.trim() || undefined;
+  const write = kind === "edits" && single && !description ? writeCall(single) : undefined;
   // A group of one call says why it failed as a lone call does (toolFailure.ts); several say how many.
   const failure = useMemo(() => (tools.length === 1 ? toolFailure(tools[0]!) : undefined), [tools]);
   return (
@@ -448,10 +353,7 @@ export function ToolGroupRow({
         onClick={(event) => {
           // The click itself, so a drag across the line opens nothing (useAnchoredCollapse `deliberateClick`).
           const opening = !open;
-          if (fold.toggle(event) && opening) {
-            setByClick(true);
-            if (foldId !== undefined) void onLoadFold?.(foldId);
-          }
+          if (fold.toggle(event) && opening && foldId !== undefined) void onLoadFold?.(foldId);
         }}
       >
         <span className="cv-tool__icon">{groupIcon(kind)}</span>
@@ -473,16 +375,17 @@ export function ToolGroupRow({
               {/* The group's line reads as words, "Ran 2 commands", its count never pushed out to the
                   verb column its calls' rows share (Leo, 2026-10-29: "Why is there space between ran
                   and two?"). */}
-              {/* A count that grows rolls on its own and new words roll in, on the one text roll
-                  every live label shares (ui/motion/TextRoll.tsx). */}
-              <Tick
-                steadyCounts
-                text={toolGroupLabel(
-                  t,
-                  kind,
-                  items,
-                  files.map((file) => file.path),
-                )}
+              <ToolLabel
+                whole
+                text={
+                  description ??
+                  toolGroupLabel(
+                    t,
+                    kind,
+                    items,
+                    files.map((file) => file.path),
+                  )
+                }
               />
             </span>
             {totals && <EditCounts totals={totals} zero={kind === "edits"} />}
@@ -524,7 +427,6 @@ export function ToolGroupRow({
                     items={items}
                     kind={kind}
                     thoughtId={thoughtId}
-                    defer={byClick}
                   />
                 </RunScroll>
               )}
@@ -534,4 +436,4 @@ export function ToolGroupRow({
       )}
     </>
   );
-}
+}, sameGroup);

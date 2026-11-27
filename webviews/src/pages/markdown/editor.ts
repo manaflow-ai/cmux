@@ -13,7 +13,7 @@ import {
 } from "@milkdown/kit/core";
 import { clipboard } from "@milkdown/kit/plugin/clipboard";
 import { history } from "@milkdown/kit/plugin/history";
-import { commonmark, imageSchema, linkSchema } from "@milkdown/kit/preset/commonmark";
+import { imageSchema, linkSchema } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import type { Mark, Node as ProseNode, Schema } from "@milkdown/kit/prose/model";
 import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@milkdown/kit/prose/state";
@@ -66,6 +66,7 @@ import {
 import { NearCodeBlocks } from "./nearCode";
 import { NearRunBlocks, runControls, type RunButtonHost } from "./runButtons";
 import { isRunnableLanguage, runbookSteps, runnableCommand, type RunbookBlock, type RunbookStep } from "./runbook";
+import { boundedCommonmark } from "./commonmarkSync";
 import { imageSize, obsidianSyntaxPlugin } from "./obsidian";
 import { paddingSelectPlugin } from "./paddingSelect";
 import { isPointerSelecting, pointerChanged, pointerSelectPlugin } from "./pointerSelect";
@@ -382,7 +383,7 @@ export class MarkdownEditor {
       })
       // Before gfm's table editing: its Shift-click handler would end the event first.
       .use(tableTextSelectPlugin)
-      .use(commonmark)
+      .use(boundedCommonmark)
       .use(gfm)
       .use(referenceLinkSchema)
       .use(referenceImageSchema)

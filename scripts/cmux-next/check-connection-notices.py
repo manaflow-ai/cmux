@@ -28,12 +28,15 @@ when it
           NoticeTiming.connectionQuiet on the Mac, QuietStatusGate on iOS; schemas/notice-timing/notice-timing.json,
           each copy checked against it) or an existing hold built on one (TIME_GATES). A gate helper given a literal
           grace under the bound (`useLasting(down, 500)`) does not count: name the shared bound instead;
-  action  carries a person action: a button, a click or tap handler, an action closure (PERSON_ACTIONS);
+  action  carries a person action: a button, a click or tap handler, an action closure (PERSON_ACTIONS), or
+          draws a component named for its action that carries one (a web `<RetryButton>`, a Swift
+          `RetryButton(action: retry)`; drawn_actions, swift_drawn_actions);
   listed  is in the allowlist (scripts/cmux-next/connection-notices-allowlist.tsv: unit, surface, owner, reason).
 The allowlist only shrinks: with --base REV a row the list at REV lacks fails (a unit that moved to another file
 under the same name keeps its row), and a row whose unit no longer shows an unbounded connection state (fixed,
 renamed or deleted, by any file) fails as stale until a change removes it. Every unlisted offender is judged on
-every run, with or without --base. The unit is the granularity: a component with
+every run, with or without --base. Passive inline JSX words move to each component mounting them, including
+named imports and aliases; unsupported uses retain a finding in the presenter. The unit is the granularity: a component with
 any button passes, so the check catches a new state drawn with nothing to do, not a button that does the wrong thing.
 
     python3 scripts/cmux-next/check-connection-notices.py                     # the working tree
@@ -101,14 +104,18 @@ KEY_SHAPE = re.compile(r"^[A-Za-z0-9_]+(?:[.\-][A-Za-z0-9_]+)+$")
 
 # An error or failure type's text is the outcome of something the person did (raw-error-text-in-the-ui.md owns it).
 ERROR_TYPE = re.compile(r"(Error|Failure|Errors|Failures)$")
+# The same outcome as a function: the words for a send or a start the person just asked for that did not go
+# through (failedSendText, startFailureNotice). Their copy names the cause and its one way out.
+OUTCOME_UNIT = re.compile(r"^failed[A-Z]\w*(Text|Line|Notice)$|Failure(Text|Line|Notice)$")
 
 # A time gate: the shared bound, and helpers that hold a state before it shows. Each one names, in its own file, a
 # hold of at least the policy bound or the shared constant itself.
 TIME_GATES = re.compile(
     r"\b("
     r"CONNECTION_QUIET_MS|useConnectionQuiet|connectionQuiet|NoticeTiming|QuietStatusGate"  # the shared bound
-    r"|useLasting|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS|HOST_ERROR_DEADLINE_MS|hostErrorShows"  # web holds
-    r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold|connectionChip|connectionLasting"  # native holds
+    r"|useLasting|useLastingKeys|useConnectionQuietKeys|LASTING_MS|useAfterDelay|RESUME_NOTE_DELAY_MS"  # web holds
+    r"|HOST_ERROR_DEADLINE_MS|hostErrorShows|hostRecoveryLine|useAutoRetry|stillTrying|useLinkDownSaid|LINK_DOWN_SAID_MS"
+    r"|revealDelay|NoticePolicy|noticePolicy|RemoteLatencyHold|QuietHold|AutoRetry|connectionChip|connectionLasting"  # native holds
     r")\b"
 )
 # A gate helper called with a literal grace: `useLasting(x, 500)`, `useAfterDelay(x, 1_000)`.
@@ -130,6 +137,10 @@ BOUND_COPIES: tuple[tuple[str, str, int], ...] = (
 # A person action on the same unit.
 PERSON_ACTIONS = re.compile(
     r"(\bonClick\s*=|\bonPress\s*=|<Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
+    # A web component the unit draws whose name says it is a button and that it hands a handler
+    # (`<ConnectButton onConnect={...} />`). A bare `<MarkButton />` is no action by its name alone: one declared
+    # or imported here counts only when it acts itself (drawn_actions).
+    r"|<[A-Z]\w*Button\b[^>]*?\bon[A-Z]\w*\s*="
     r"|\bButton\s*[({]|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
     r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\."
     # A Swift model that names the person's action for its state (`var action: Action?`), drawn by a view.
@@ -372,6 +383,9 @@ def scan(tree: Tree) -> list[Unit]:
     bound = policy_bound_ms(tree)
     units: dict[str, Unit] = {}
     imports: dict[str, list[tuple[str, str]]] = {}  # file -> (local name, resolved module path without suffix)
+    presenter_imports: dict[str, list[tuple[str, str, str]]] = {}
+    opaque_modules: set[str] = set()
+    unresolved_exports: set[str] = set()
     for path in files:
         surface = surface_of(path)
         if surface is None or not path.endswith(SOURCE_SUFFIXES) or SKIP.search(path):
@@ -379,11 +393,30 @@ def scan(tree: Tree) -> list[Unit]:
         source = strip_comments(tree.read(path))
         lines = source.split("\n")
         if path.endswith((".ts", ".tsx")):
-            imports[path] = [
-                (binding.strip().split(" as ")[-1].strip(), resolve_spec(path, m.group(2)))
-                for m in TS_IMPORT.finditer(source) if m.group(2).startswith(".")
-                for binding in m.group(1).split(",") if binding.strip() and binding.strip() != "type"
-            ]
+            imports[path] = []
+            for match in TS_IMPORT.finditer(source):
+                target = resolve_spec(path, match[2]) if match[2].startswith(".") else None
+                for binding in match[1].split(","):
+                    binding = binding.strip()
+                    if binding and binding != "type":
+                        exported, _, local = binding.partition(" as ")
+                        local = local.strip() or exported
+                        if target is None:
+                            # Bundler aliases or bare specifiers are not relative module paths. An
+                            # unresolved import of this export can hide another JSX consumer.
+                            unresolved_exports.add(exported.strip())
+                        else:
+                            imports[path].append((local, target))
+                            if not exported.startswith("type "):
+                                presenter_imports.setdefault(target, []).append((path, exported.strip(), local))
+            # A default, namespace, re-export or dynamic module edge cannot identify every drawing.
+            other_imports = TS_IMPORT.sub("", source)
+            for match in re.finditer(r"""(?:\bfrom\s*|\b(?:import|require)\s*\(\s*)["']([^"']+)["']""", other_imports):
+                if match[1].startswith("."):
+                    opaque_modules.add(resolve_spec(path, match[1]))
+                else:
+                    # Only the filename survives an unknown namespace/default/dynamic alias.
+                    opaque_modules.add(re.sub(r"\.(tsx?|js)$", "", match[1]).rsplit("/", 1)[-1])
         for name, first, last in units_of(path, source):
             uid = f"{path}::{name}"
             unit = units.setdefault(uid, Unit(path, name, surface))
@@ -410,17 +443,99 @@ def scan(tree: Tree) -> list[Unit]:
                               if int(m.group(2).replace("_", "")) < bound]
         unit.literal_grace += [m.group(0) + ")" for m in SWIFT_LITERAL_GRACE.finditer(text)
                                if int(m.group(2).replace("_", "")) * (1000 if m.group(1) == "seconds" else 1) < bound]
+    drawn_actions(units, imports)
+    swift_drawn_actions(units)
     propagate(units, imports)
+    attribute_presenters(units, presenter_imports, opaque_modules, unresolved_exports)
     tree.unit_ids = set(units)  # every declaration read, connection words or not
     for unit in units.values():
         unit.lines = []
         unit.numbers = []
-    return [u for u in units.values() if u.hits and not ERROR_TYPE.search(u.name)]
+    return [u for u in units.values() if u.hits and not ERROR_TYPE.search(u.name) and not OUTCOME_UNIT.search(u.name)]
+
+
+# A component named for the action it draws (`ConnectButton`, `RetryAction`, `CardActions`); a component that only
+# holds some other click (a disclosure, a row) does not lend it to the words beside it.
+DRAWN_ACTION = re.compile(r"[A-Z]\w*(?:Button|Action|Actions)$")
+
+
+def drawn_actions(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
+    """A web view that draws a button component (`<ConnectButton onConnect={...} />`, its `<button onClick>` inside)
+    carries that action too: the button sits on the same card as the words. The component is named for its action
+    (DRAWN_ACTION) and declared in the same file or imported into it; a few hops, so a button wrapping a button counts."""
+    acted_by_file: dict[str, set[str]] = {}
+    path_of: dict[str, str] = {}  # module path without suffix (and without a trailing /index) -> file
+    for unit in units.values():
+        if unit.path.endswith(".tsx"):
+            stem = unit.path[:-len(".tsx")]
+            path_of[stem] = unit.path
+            path_of.setdefault(stem.rsplit("/index", 1)[0], unit.path)
+    for _round in range(3):
+        acted_by_file = {}
+        for unit in units.values():
+            if unit.acted and unit.path.endswith(".tsx") and DRAWN_ACTION.match(unit.name):
+                acted_by_file.setdefault(unit.path, set()).add(unit.name)
+        moved = False
+        for unit in units.values():
+            if unit.acted or not unit.path.endswith(".tsx"):
+                continue
+            names = set(acted_by_file.get(unit.path, set())) - {unit.name}
+            for local, target in imports.get(unit.path, []):
+                if local in acted_by_file.get(path_of.get(target, ""), set()):
+                    names.add(local)
+            if names and re.search(r"<(?:%s)\b" % "|".join(sorted(map(re.escape, names))), "\n".join(unit.lines)):
+                unit.acted = True
+                moved = True
+        if not moved:
+            break
+
+
+# A Swift view composed into the unit (`RetryButton(action: retry)`, `ConnectButton { … }`): a component named for its
+# action, called as a value (an initializer or a trailing closure). Not its declaration (`struct RetryButton: View {`,
+# `extension RetryButton {`), a return type (`-> RetryButton {`) or a static member (`RetryButton.defaultTitle`).
+SWIFT_DRAWN = re.compile(r"(?<![\w.])([A-Z]\w*(?:Button|Action|Actions))\s*(?:\(|\{)")
+SWIFT_DECLARES = re.compile(r"(?:\b(?:struct|class|enum|actor|extension|protocol|typealias|func|case)\s+|->\s*)$")
+
+
+def swift_drawn_actions(units: dict[str, Unit]) -> None:
+    """A Swift view that composes an action view (`RetryButton(action: retry)` beside its failure copy) carries that
+    action, as drawn_actions does for a web `<RetryButton>`. The component is named for its action (DRAWN_ACTION) and
+    declared in the tree on the same surface with an action of its own (its `Button {`): the same module's
+    declaration if it has one, else every declaration of that name on the surface. One declared out of sight (a
+    system or kit view) or one that draws no action lends nothing; a few hops, so a button wrapping a button counts."""
+    declared: dict[tuple[str, str], dict[str, list[Unit]]] = {}  # (surface, name) -> module -> its units
+    swift = [u for u in units.values() if u.path.endswith(".swift") and u.name != "<file>"]
+    for unit in swift:
+        declared.setdefault((unit.surface, unit.name), {}).setdefault(module_of(unit.path), []).append(unit)
+
+    def lends(surface: str, name: str, module: str) -> bool:
+        modules = declared.get((surface, name))
+        if not modules:
+            return False
+        scope = [modules[module]] if module in modules else list(modules.values())
+        return all(any(u.acted for u in group) for group in scope)
+
+    for _round in range(3):
+        moved = False
+        for unit in swift:
+            if unit.acted:
+                continue
+            module = module_of(unit.path)
+            for line in unit.lines:
+                drawn = [m[1] for m in SWIFT_DRAWN.finditer(line)
+                         if m[1] != unit.name and not SWIFT_DECLARES.search(line[:m.start()])]
+                if any(DRAWN_ACTION.match(name) and lends(unit.surface, name, module) for name in drawn):
+                    unit.acted = True
+                    moved = True
+                    break
+        if not moved:
+            break
 
 
 def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
     """Move a provider's unbounded hits to the units that draw them, up to a few hops. A provider with a bound or an
-    action keeps its hits (it passes). A map or strings member no unit draws shows nothing and is dropped; a helper
+    action keeps its hits (it passes). A map or strings member no unit draws, or a word set read only to drop what it
+    names, shows nothing and is dropped; a helper
     function no unit is seen to call keeps its hits (a call the scan cannot follow must not hide it)."""
     by_file: dict[str, list[Unit]] = {}
     for unit in units.values():
@@ -460,20 +575,27 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                     if path != unit.path and any(local == unit.name and target in (stem, stem.rsplit("/index", 1)[0])
                                                  for local, target in bindings):
                         pool.extend(by_file.get(path, []))
+            # A word set read only to drop what it names (`if (SELF_HEALING.has(raw.words)) return undefined;`,
+            # composerStatusModel.ts since cmux#55968) draws none of its words: that use is no drawing.
+            drop = re.compile(rf"\b{name}\.has\([^()]*(?:\([^()]*\)[^()]*)*\)\s*\)\s*(?:\{{\s*)?(?:return|continue)\b")
             consumers = []
+            dropped = False
             for other in pool:
                 if other.name == "<file>":
                     continue  # its imports, not a drawing
                 by_value = instance is not None and bool(named.search("\n".join(other.lines)))
                 for i, line in enumerate(other.lines):
                     m = use.search(line) or (instance.search(line) if by_value else None)
+                    if m and drop.search(line) and not use.search(drop.sub("", line)):
+                        dropped = True
+                        continue
                     if m:
                         member = m.groupdict().get("m")
                         said = next((h for h in unit.hits if member_at(unit, h.index) == member), unit.hits[0])
                         consumers.append((other, i, said))
                         break
             if not consumers:
-                if None not in members and not unit.path.endswith(".swift"):
+                if dropped or (None not in members and not unit.path.endswith(".swift")):
                     # A strings map's member that no unit draws (`L.x`, `L[...]`) shows nothing. A Swift strings
                     # member can reach its drawing through a value the scan cannot follow, so it keeps its hits.
                     unit.hits = []
@@ -484,6 +606,79 @@ def propagate(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]])
                 other.hits.append(Hit(other.numbers[i], f"{unit.name}: {said.text}", i, hops, said.origin))
             unit.hits = []
             moved = True
+        if not moved:
+            break
+
+
+# Inline text can share its containing row's action. A notice, alert, live region or stateful view
+# owns its own connection state even when a larger page also contains a button.
+INLINE_TAGS = {"span", "small", "strong", "em", "b", "i"}
+OPEN_TAG = re.compile(r"<([A-Za-z][\w.:-]*)(?=[\s/>])")
+RETURN_TAG = re.compile(r"(?:\breturn|=>)\s*\(?\s*<([A-Za-z]\w*)(?=[\s/>])")
+
+
+def inline_presenter(unit: Unit) -> bool:
+    if not unit.path.endswith(".tsx") or not unit.name[:1].isupper() or unit.literal_grace:
+        return False
+    body = "\n".join(unit.lines)
+    if not RETURN_TAG.search(body) or re.search(r"""\baria-live\s*=|\brole\s*=|\buse(?!\w*Strings\b|T\b)\w+\(""", body):
+        return False
+    tags = set(OPEN_TAG.findall(body))
+    # A pure forwarding wrapper may render the very child from which it just received the hit.
+    children = {hit.text.split(": ", 1)[0] for hit in unit.hits if hit.hops}
+    return tags <= INLINE_TAGS | children
+
+
+def attribute_presenters(units: dict[str, Unit], imports: dict[str, list[tuple[str, str, str]]],
+                         opaque_modules: set[str], unresolved_exports: set[str]) -> None:
+    """Follow known JSX mounts of passive inline copy to each drawing. A value use, orphan,
+    recursive mount or unresolved import keeps the leaf finding. A slot such as pill={<Pill />}
+    belongs to the caller composing that card and its controls."""
+    by_file: dict[str, list[Unit]] = {}
+    for unit in units.values():
+        by_file.setdefault(unit.path, []).append(unit)
+    for _ in range(4):  # same bounded depth as copy propagation; longer chains retain a finding
+        moved = False
+        for unit in units.values():
+            if unit.ok or not inline_presenter(unit) or max(h.hops for h in unit.hits) >= 4:
+                continue
+            stem = unit.path[:-len(".tsx")]
+            targets = {stem, stem.removesuffix("/index")}
+            if unit.name in unresolved_exports or any(
+                target in opaque_modules or target.rsplit("/", 1)[-1] in opaque_modules for target in targets
+            ):
+                continue
+            bindings = {(unit.path, unit.name)}
+            bindings.update((path, local) for target in targets for path, exported, local in imports.get(target, ())
+                            if exported == unit.name)
+            consumers: dict[tuple[str, str], tuple[Unit, int, str]] = {}
+            unresolved = False
+            for path, local in sorted(bindings):
+                name = re.escape(local)
+                reference = re.compile(rf"(?P<tag></?)?\b{name}\b")
+                for other in by_file.get(path, []):
+                    lines = other.lines
+                    if other.name == "<file>":
+                        lines = TS_IMPORT.sub(lambda m: "\n" * m[0].count("\n"), "\n".join(lines)).split("\n")
+                    for index, line in enumerate(lines):
+                        if other is unit and index == 0:
+                            # The declaration introduces this name; retain recursive uses on the very same line.
+                            line = re.sub(rf"\b(function|const|let)\s+{name}\b", "", line, count=1)
+                        for ref in reference.finditer(line):
+                            quoted = any(s.start() <= ref.start() < s.end() for s in STRING_LITERAL.finditer(line))
+                            mounted = (not quoted and ref["tag"] == "<"
+                                       and re.match(r"(?:\s|/?>|$)", line[ref.end():]))
+                            if mounted and other is not unit and other.name != "<file>":
+                                consumers.setdefault((other.id, local), (other, index, local))
+                            elif ref["tag"] != "</":
+                                unresolved = True
+            if consumers and not unresolved:
+                for other, index, local in consumers.values():
+                    for hit in unit.hits:
+                        other.hits.append(Hit(other.numbers[index], f"{local}: {hit.text}", index,
+                                              hit.hops + 1, hit.origin))
+                unit.hits = []
+                moved = True
         if not moved:
             break
 

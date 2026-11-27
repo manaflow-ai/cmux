@@ -85,7 +85,7 @@ pub struct Facts {
 }
 
 /// The toast's second line, and what it is made of.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Line {
     pub text: String,
@@ -96,6 +96,11 @@ pub struct Line {
     /// the text counts up instead); none once a step runs past what it usually takes and no copy
     /// progress says how far it is.
     pub eta_ms: Option<u64>,
+    /// How far the whole move is, 0 to 1: the sidebar's moving chat row fills its bar with it. Each
+    /// step weighs what it usually takes (a measured copy, what it measured); a step that runs past
+    /// its estimate stops just short of the next step's end share. A step that overran can make the
+    /// next start a little lower; the app keeps the highest it showed, so the bar never runs back.
+    pub fraction: f64,
     /// How long from now until this text changes on its own: its clock's next whole second. The
     /// app asks again once at that time, and never after the move ended.
     pub next_ms: Option<u64>,
@@ -178,6 +183,7 @@ pub fn line(facts: &Facts) -> Line {
         None => (facts.stage_ms <= typical).then(|| typical.saturating_sub(facts.stage_ms)),
     };
     let eta_ms = current.map(|current| current.saturating_add(later));
+    let fraction = fraction(facts, stages, step, later, current);
     let steps = stages.len();
     let step = step.saturating_add(1);
     Line {
@@ -185,8 +191,34 @@ pub fn line(facts: &Facts) -> Line {
         step,
         steps,
         eta_ms,
+        fraction,
         next_ms: Some(1_000_u64.saturating_sub(facts.stage_ms % 1_000)),
     }
+}
+
+/// [`Line::fraction`]: the steps before `step` at what they usually take, this one at how long it
+/// has run of what it takes (`left`: what is left of it; none once it overran), then `later`.
+fn fraction(facts: &Facts, stages: &[Stage], step: usize, later: u64, left: Option<u64>) -> f64 {
+    let earlier: u64 = stages
+        .iter()
+        .take(step)
+        .map(|stage| typical_ms(facts, *stage))
+        .fold(0, u64::saturating_add);
+    let (done, whole) = match left {
+        Some(left) => (facts.stage_ms, facts.stage_ms.saturating_add(left)),
+        // Past its estimate: the step reads all but done until the next one starts.
+        None => (facts.stage_ms, facts.stage_ms),
+    };
+    let total = earlier.saturating_add(whole).saturating_add(later);
+    if total == 0 {
+        return 0.0;
+    }
+    #[allow(clippy::cast_precision_loss)] // milliseconds of a move: far below 2^52
+    let (reached, end, total) =
+        (earlier.saturating_add(done) as f64, earlier.saturating_add(whole) as f64, total as f64);
+    // Never the next step's start before it starts: at most 99 % of the way to this step's end.
+    let ceiling = (end / total) * 0.99;
+    (reached / total).min(ceiling).clamp(0.0, 1.0)
 }
 
 /// How long a step has run: whole seconds under a minute ("42s"), then minutes and seconds
@@ -268,7 +300,8 @@ mod tests {
 
     #[test]
     fn every_step_names_itself_and_counts_its_seconds() {
-        let texts: Vec<String> = STAGES.iter().map(|stage| line(&facts(*stage, 12_400)).text).collect();
+        let texts: Vec<String> =
+            STAGES.iter().map(|stage| line(&facts(*stage, 12_400)).text).collect();
         assert_eq!(
             texts,
             [
@@ -302,7 +335,10 @@ mod tests {
             [0, 999, 1_000, 59_999, 60_000, 65_000, 609_000, 3_599_999, 3_723_000].map(clock),
             ["0s", "0s", "1s", "59s", "1:00", "1:05", "10:09", "59:59", "1:02:03"]
         );
-        assert_eq!(line(&facts(Stage::Agent, 185_000)).text, "4 of 5 · Handing the agent to dev · 3:05");
+        assert_eq!(
+            line(&facts(Stage::Agent, 185_000)).text,
+            "4 of 5 · Handing the agent to dev · 3:05"
+        );
     }
 
     #[test]
@@ -355,6 +391,25 @@ mod tests {
         let mut paused = facts(Stage::Machine, 10_000);
         paused.machine = Machine::Paused;
         assert_eq!(line(&paused).text, "2 of 5 · Resuming dev · 10s");
+    }
+
+    #[test]
+    fn the_fraction_fills_step_by_step() {
+        let start = line(&facts(Stage::Folder, 0)).fraction;
+        let copying = line(&facts(Stage::Copy, 0)).fraction;
+        let half_agent = line(&facts(Stage::Agent, 5_000)).fraction;
+        let tab = line(&facts(Stage::Tab, 0)).fraction;
+        assert!(start.abs() < f64::EPSILON, "{start}");
+        assert!(
+            start < copying && copying < half_agent && half_agent < tab && tab < 1.0,
+            "{copying} {half_agent} {tab}"
+        );
+        // Folder 3 s, live machine 5 s, copy 15 s, agent 10 s, tab 3 s: the copy starts 8 of 36 s in.
+        assert!((copying - 8.0 / 36.0).abs() < 1e-9, "{copying}");
+        // A step past its estimate holds just under its end, never past it.
+        let overrun = line(&facts(Stage::Agent, 60_000)).fraction;
+        let end = line(&facts(Stage::Tab, 0)).fraction;
+        assert!(overrun < 1.0 && overrun > half_agent, "{overrun} {end}");
     }
 
     #[test]

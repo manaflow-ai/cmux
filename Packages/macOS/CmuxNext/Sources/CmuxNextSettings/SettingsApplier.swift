@@ -86,6 +86,7 @@ public final class SettingsApplier {
         if design.liveWallpaperFrameRate != snapshot.liveWallpaperFrameRate {
             design.liveWallpaperFrameRate = snapshot.liveWallpaperFrameRate
         }
+        if design.agentSignature != snapshot.agentSignature { design.agentSignature = snapshot.agentSignature }
         if design.backgroundPlacements != snapshot.backgroundPlacements { design.backgroundPlacements = snapshot.backgroundPlacements }
         if design.agentGlowEnabled != snapshot.agentGlow { design.agentGlowEnabled = snapshot.agentGlow }
         if design.previousGlass != snapshot.previousGlass { design.previousGlass = snapshot.previousGlass }
@@ -102,6 +103,7 @@ public final class SettingsApplier {
         if design.frameOrientation != snapshot.frameOrientation { design.frameOrientation = snapshot.frameOrientation }
         if design.layoutRows != snapshot.layoutRows { design.layoutRows = snapshot.layoutRows }
         if design.focusFollowsMouse != snapshot.focusFollowsMouse { design.focusFollowsMouse = snapshot.focusFollowsMouse }
+        if design.fadeInactivePanes != snapshot.fadeInactivePanes { design.fadeInactivePanes = snapshot.fadeInactivePanes }
         if design.layoutScrollAreas != snapshot.layoutScrollAreas { design.layoutScrollAreas = snapshot.layoutScrollAreas }
         if design.layoutScrollModifier != snapshot.layoutScrollModifier { design.layoutScrollModifier = snapshot.layoutScrollModifier }
         if design.pagesHandleCommandScroll != snapshot.pagesHandleCommandScroll {
@@ -111,6 +113,7 @@ public final class SettingsApplier {
         if design.closeFocus != snapshot.closeFocus { design.closeFocus = snapshot.closeFocus }
         if design.defaultColumnWidth != snapshot.defaultColumnWidth { design.defaultColumnWidth = snapshot.defaultColumnWidth }
         if design.focusRing != snapshot.focusRing { design.focusRing = snapshot.focusRing }
+        if design.flourishes != snapshot.flourishes { design.flourishes = snapshot.flourishes }
         if design.sidebarBorder != snapshot.sidebarBorder { design.sidebarBorder = snapshot.sidebarBorder }
         if design.attention != snapshot.attention { design.attention = snapshot.attention }
         if design.statusIndicator != snapshot.statusIndicator {

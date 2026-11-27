@@ -151,7 +151,7 @@ public final class TerminalSession {
 
     let io: any TerminalIO
     private let ioMode: ghostty_surface_io_mode_e
-    private let input: TerminalInputSink
+    let input: TerminalInputSink
     private var eventsTask: Task<Void, Never>?
     private var writerTask: Task<Void, Never>?
     /// Tasks an owner ties to this session's lifetime: ``close()`` cancels them.
@@ -198,7 +198,7 @@ public final class TerminalSession {
                 blankClock: any Clock<Duration> = ContinuousClock(), historyFind: (any TerminalFindHistory)? = nil) {
         self.io = io
         predictsLocalEcho = localEcho?.predicts ?? true
-        // Settings > Experiments > Terminal History Find, off by default (Leo's UI hold, 2026-11-24): off keeps Ghostty's screen search.
+        // Settings > Experiments > Terminal History Find, on by default (Leo's ask, cmux#53180): turned off keeps Ghostty's screen search.
         self.historyFind = DesignSettings.shared.experiment("terminalHistoryFind") ? historyFind : nil
         blankWatch = TerminalBlankWatch(clock: blankClock)
         self.ownsGeometry = ownsGeometry

@@ -146,25 +146,17 @@ pub const DEFAULT_HARNESS: &str = "claude";
 /// finds on the login shell's PATH, run with the user's own
 /// `~/.claude/settings.json` and login; Lawrence 2026-10-19: "make sure
 /// Chief, by default, will talk to the correct Claude, using the user's
-/// Claude CLI"). The subrouter2 route (`claude-sr2`) is an explicit choice
-/// (`chief engine set --harness claude-sr2`), and the default only when
-/// acpmux has no usable `claude` but can run sr2.
+/// Claude CLI"). The subrouter2 route (`claude-sr2`) is only an explicit
+/// choice (`chief engine set --harness claude-sr2`): a missing `claude` is
+/// refused with its reason, never moved to another route (Leo 2026-11-26:
+/// "identify all the weird opinoinated fleet things we shipped into the app
+/// and remove them").
 pub fn default_harness(answer: &serde_json::Value) -> &'static str {
     let harnesses = answer.get("harnesses");
     if harnesses.and_then(|h| h.get(CODEROUTER_HARNESS)).is_some() {
         return CODEROUTER_HARNESS;
     }
-    let runnable_stdio = |name: &str| {
-        harnesses.and_then(|h| h.get(name)).is_some_and(|p| {
-            p.get("kind").and_then(serde_json::Value::as_str) == Some("claude-stdio")
-                && p.get("unavailable").is_none()
-        })
-    };
-    if !runnable_stdio(DEFAULT_HARNESS) && runnable_stdio(SR2_HARNESS) {
-        SR2_HARNESS
-    } else {
-        DEFAULT_HARNESS
-    }
+    DEFAULT_HARNESS
 }
 
 /// Records which executable (and its `--version`) the turns, compactor and
@@ -976,13 +968,14 @@ fn start(
             "chief": chief.unwrap_or_else(|| crate::paths::home_id(home)),
         }),
     );
-    // Spec 4 (gist 3c190e0): a compaction sends the turns' own system
-    // prompt, so it reads it from the turns' cache entry.
+    // Turns read the full system prompt; compactions have their own small
+    // prompt with the view and compaction contract, without the Chief's turn
+    // and cmux instructions.
     let claude_text =
         crate::prompt::system_text(instructions.as_deref(), &crate::prompt::Tools::Mcp);
     let mut config = Config {
         agent: crate::prompt::AGENT.to_owned(),
-        prompt: optchat_host::CompactPrompt::Custom(claude_text.clone()),
+        prompt: optchat_host::CompactPrompt::Custom(crate::prompt::compactor_system_text()),
         reporter: Arc::new(|r: &Report| log(format!("memory: {r}"))),
         db: Some(paths.memory_db.clone()),
         ..Config::default()
@@ -1864,6 +1857,7 @@ fn start(
         .with_pinned_harness(sub_set.is_some())
         // goal.rs: Claude subagents work under /goal on Opus 5.5 until done.
         .with_goal(true)
+        .with_background_start(std::env::var("OPTCHAT_SPAWN_BACKGROUND").as_deref() == Ok("1"))
         .with_engine_file(Some(crate::engine::path(home)))
         .with_families(families.clone())
         .with_gateway(gateway.clone())
