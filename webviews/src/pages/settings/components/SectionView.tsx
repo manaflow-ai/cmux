@@ -12,15 +12,15 @@ import {
   CHIEF_PET_ROWS,
   CHIEFS_ROWS,
   COMPUTER_USE_ROWS,
-  DOCTOR_NOTICE_KEY,
   FAVORITE_THEMES_KEY,
   HIGHLIGHT_COLOR_KEY,
   MACHINE_COLORS_KEY,
   ROTATE_FAVORITES_KEY,
-  SELECTION_KEY,
   SPACE_ROWS,
   THEME_EDITS_KEY,
   THEME_FILE_KEY,
+  SELECTION_KEY,
+  DOCTOR_NOTICE_KEY,
   THEME_KEY,
   useBackdropsShown,
   useSeveralSpaces,
@@ -55,18 +55,24 @@ export function SectionView({
   const unmatched = missing ?? (absent && target ? linkName(target) : null);
   const category = categoryById(section);
   // The theme studio draws appearance.theme, appearance.appTheme, appearance.accent,
-  // appearance.selection, appearance.highlightColor, appearance.rotateFavoriteThemes and
-  // appearance.themeFile itself; the schema's group for them would draw each a second time (a second
-  // "App Theme" card). The Customization Library's slot draws customize.doctorNotice, the group's
-  // last key.
+  // appearance.selection, appearance.highlightColor, appearance.rotateFavoriteThemes,
+  // appearance.themeFile and customize.doctorNotice itself; the schema's group for them would draw each a second time (a second
+  // "App Theme" card).
   const studio = category.lead.includes("themeStudio");
-  const library = [...category.lead, ...category.trail].includes("customizeLibrary");
-  const drawn = new Set([
-    ...(studio
-      ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY, SELECTION_KEY, HIGHLIGHT_COLOR_KEY, ROTATE_FAVORITES_KEY, THEME_FILE_KEY]
-      : []),
-    ...(library ? [DOCTOR_NOTICE_KEY] : []),
-  ]);
+  const drawn = new Set(
+    studio
+      ? [
+          THEME_KEY,
+          APP_THEME_KEY,
+          ACCENT_KEY,
+          SELECTION_KEY,
+          HIGHLIGHT_COLOR_KEY,
+          ROTATE_FAVORITES_KEY,
+          THEME_FILE_KEY,
+          DOCTOR_NOTICE_KEY,
+        ]
+      : [],
+  );
   // The background picker draws appearance.background and its Opacity while it shows.
   const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");
   // The Chief Pet card draws home.chiefPetEnabled and home.chiefPetMascot.

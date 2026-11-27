@@ -99,11 +99,10 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
   // Customization Problems draws above the library in its slot; `focus=card.customizeDoctor` opens on it.
   customizeLibrary: () =>
     Promise.all([import("./CustomizeLibraryCard"), import("./CustomizeDoctorCard")]).then(
-      ([{ CustomizeLibraryCard }, { CustomizeDoctorCard, DoctorNoticeSwitch }]) =>
+      ([{ CustomizeLibraryCard }, { CustomizeDoctorCard }]) =>
         (focus, _workspace, reveal) => (
           <>
             <CustomizeDoctorCard focus={focus} />
-            <DoctorNoticeSwitch focus={focus} />
             <CustomizeLibraryCard reveal={reveal} />
           </>
         ),
@@ -122,6 +121,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./McpServersCard").then(({ McpServersCard }) => () => <McpServersCard />),
   integrationsHub: () =>
     import("./IntegrationsHubCard").then(({ IntegrationsHubCard }) => () => <IntegrationsHubCard />),
+  developerTokens: () =>
+    import("./DeveloperTokensCard").then(({ DeveloperTokensCard }) => () => <DeveloperTokensCard />),
   automationsCloud: () =>
     import("./AutomationsCard").then(({ AutomationsCard }) => () => <AutomationsCard />),
   tailnet: () =>

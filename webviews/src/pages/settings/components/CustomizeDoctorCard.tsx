@@ -14,10 +14,7 @@ import { Button } from "../../../ui/Button";
 import { DismissButton } from "../../../ui/DismissButton";
 import { Notice, type NoticeAction } from "../../../ui/Notice";
 import { focusRoute } from "../../../ui/focusRoute";
-import { DOCTOR_NOTICE_KEY } from "../cardRows";
 import { useSettingsRouter, useStore } from "../context";
-import { rowsByKey } from "../schema";
-import { SettingRow } from "./SettingRow";
 import {
   DOCTOR_FOCUS,
   DOCTOR_RECOVER_FOCUS,
@@ -49,22 +46,6 @@ export type DoctorActions = {
   onConfirm: () => void;
   onCancel: () => void;
 };
-
-/** `customize.doctorNotice`: the switch for the toast that names a file or layer changing the setup,
- * drawn with the doctor card. The schema keeps it in the App Theme group, which the theme studio
- * draws, so SectionView leaves it out there (one App Theme card, not two). It shows
- * with no findings too: the person can turn the notices off before any arrive. */
-export function DoctorNoticeSwitch({ focus = null }: { focus?: string | null }) {
-  const row = rowsByKey.get(DOCTOR_NOTICE_KEY);
-  if (!row) return null;
-  return (
-    <section className="group" data-card="customizeDoctorNotice">
-      <div className="rows">
-        <SettingRow row={row} focused={focus === DOCTOR_NOTICE_KEY} />
-      </div>
-    </section>
-  );
-}
 
 export function CustomizeDoctorCard({ focus = null }: { focus?: string | null }) {
   const store = useStore();

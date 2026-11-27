@@ -1189,7 +1189,7 @@ fn page_keys_follow_the_persons_bindings_in_storage() {
 fn the_shipped_first_party_directory_is_the_default_set() {
     let root = temp_dir();
     let first_party = root.0.join("first-party");
-    write_app(&first_party, "coderouter", "cmux/coderouter", json!({ "workspace:read": "r" }));
+    write_app(&first_party, "notes", "cmux/notes", json!({ "workspace:read": "r" }));
     write_app(&first_party, "impostor", "octo/impostor", json!({}));
     let catalog = super::catalog::load(&Sources {
         first_party: Some(first_party),
@@ -1201,8 +1201,8 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         saved_prompts: None,
         defaults: None,
     });
-    assert_eq!(catalog.defaults, vec!["cmux/coderouter".to_string()]);
-    assert_eq!(catalog.packages["cmux/coderouter"].source, super::mirror::Source::Default);
+    assert_eq!(catalog.defaults, vec!["cmux/notes".to_string()]);
+    assert_eq!(catalog.packages["cmux/notes"].source, super::mirror::Source::Default);
     assert!(
         !catalog.packages.contains_key("octo/impostor"),
         "only first-party apps load from there"
@@ -1219,7 +1219,7 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         defaults: Some(vec![]),
     });
     assert!(overridden.defaults.is_empty());
-    assert_eq!(overridden.packages["cmux/coderouter"].source, super::mirror::Source::Bundled);
+    assert_eq!(overridden.packages["cmux/notes"].source, super::mirror::Source::Bundled);
 }
 
 /// Gate for the switch to the daemon supervisor: every bundled first-party
@@ -1429,6 +1429,9 @@ mod activation;
 
 #[path = "supervisor_load_tests.rs"]
 mod under_load;
+
+#[path = "supervisor_synced_tests.rs"]
+mod synced;
 
 #[path = "supervisor_git_tests.rs"]
 mod git_installs;

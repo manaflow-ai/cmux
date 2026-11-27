@@ -29,4 +29,14 @@ struct RemoteDesktopDefaultsSettingsTests {
         #expect(wild.remoteDesktop.maxFps == 240 && wild.remoteDesktop.maxKbps == 500)
         #expect(!wild.diagnostics.isEmpty, "a clamped number says nothing")
     }
+
+    /// Settings > Customize "Sharper Text from Linux Machines": off unless the person turns it on, a
+    /// toggle row in Settings (CloudDesktopLinkTests: the Open Desktop hello offers `video.sharp_text` only then).
+    @Test func sharpLinuxTextIsOffUntilTurnedOnAndOffersTheCap() throws {
+        #expect(!Self.parse(nil).remoteDesktop.sharpLinuxText)
+        let row = try #require(SettingsSchema.descriptor(for: RemoteDesktopDefaults.sharpLinuxTextPath), "Settings has no Sharper Text from Linux Machines row")
+        #expect(row.defaultValue == .bool(false))
+        let on = Self.parse(["sharpLinuxText": .bool(true)])
+        #expect(on.remoteDesktop.sharpLinuxText && on.diagnostics.isEmpty)
+    }
 }

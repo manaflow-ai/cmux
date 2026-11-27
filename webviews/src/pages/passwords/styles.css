@@ -171,7 +171,7 @@
   gap: 10px;
   min-width: 0;
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
 }
 
 /* A login keeps a readable username: in a narrow pane its badges, last-used and actions wrap under
@@ -245,7 +245,7 @@
 .pw-badge {
   font-size: 11px;
   padding: 0 6px;
-  border-radius: 4px;
+  border-radius: var(--ds-radius-sm);
   background: var(--page-selection);
   color: var(--page-text-2);
 }
