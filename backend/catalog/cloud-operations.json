@@ -1305,6 +1305,13 @@
             }
           }
         },
+        "person_hold_seconds": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
         "changed_at": {
           "required": true,
           "type": {
@@ -27841,6 +27848,11 @@
                   }
                 ]
               },
+              "person_hold_seconds": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
               "changed_at": {
                 "type": "integer",
                 "minimum": -9007199254740991,
@@ -28348,6 +28360,256 @@
               "hard_cap_micros",
               "as_of",
               "names"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "cloud.allotment.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "action": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "down",
+                "hold",
+                "up"
+              ]
+            }
+          },
+          "auto": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "auto_max_micros": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "int64"
+              }
+            }
+          },
+          "person_hold_seconds": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "enum",
+                "values": [
+                  300,
+                  900,
+                  1800
+                ]
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "allotment": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "CloudAllotmentSetting"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.sso_required",
+        "auth.unauthenticated",
+        "client.too_old",
+        "cloud.allotment.off",
+        "idempotency.conflict",
+        "owner.unreachable",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:CloudDO",
+      "risk": "money",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "cloud allotment set",
+        "visible": false
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "cloud"
+      },
+      "docs": "Answer this team's Cloud allotment proposal (a team admin): down or up moves the pooled monthly commit (to the proposal's figure when it is the proposal, one step otherwise), hold keeps it and snoozes proposals. Without action only auto and auto_max_micros change (the commit and any snooze stay). auto: true applies later proposals without asking, up to auto_max_micros of commit (null: up to the spending cap). person_hold_seconds (300, 900 or 1800; null clears it) keeps a person's machine running that long after their chat, so their next message does not wait on a resume; the held time is metered as running time, and an agent's machine pauses as before. Agent principals are refused; the client asks a person first.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "down",
+              "hold",
+              "up"
+            ]
+          },
+          "auto": {
+            "type": "boolean"
+          },
+          "auto_max_micros": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "person_hold_seconds": {
+            "anyOf": [
+              {
+                "type": "number",
+                "enum": [
+                  300,
+                  900,
+                  1800
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "allotment": {
+            "$ref": "#/$defs/CloudAllotmentSetting"
+          }
+        },
+        "required": [
+          "allotment"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "CloudAllotmentSetting": {
+            "type": "object",
+            "properties": {
+              "commit_micros": {
+                "type": "number",
+                "minimum": 0
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "ask",
+                  "auto"
+                ]
+              },
+              "auto_max_micros": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "tiers": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "enum": [
+                    "standard",
+                    "plus",
+                    "max"
+                  ]
+                }
+              },
+              "snoozed_until": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "person_hold_seconds": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "changed_at": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "changed_by": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "commit_micros",
+              "mode",
+              "auto_max_micros",
+              "tiers",
+              "snoozed_until",
+              "changed_at",
+              "changed_by"
             ],
             "additionalProperties": true
           }

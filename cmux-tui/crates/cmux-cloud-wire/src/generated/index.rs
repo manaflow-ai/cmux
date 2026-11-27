@@ -39,6 +39,7 @@ pub mod op_names {
     pub const CHIEF_LIST: &str = "chief.list";
     pub const CHIEF_UPDATE: &str = "chief.update";
     pub const CLOUD_ALLOTMENT_GET: &str = "cloud.allotment.get";
+    pub const CLOUD_ALLOTMENT_SET: &str = "cloud.allotment.set";
     pub const CLOUD_BILLING_CHECKOUT: &str = "cloud.billing.checkout";
     pub const CLOUD_ENVIRONMENT_BOOT: &str = "cloud.environment.boot";
     pub const CLOUD_ENVIRONMENT_BUILD: &str = "cloud.environment.build";
@@ -296,6 +297,7 @@ pub mod op_names {
         CHIEF_LIST,
         CHIEF_UPDATE,
         CLOUD_ALLOTMENT_GET,
+        CLOUD_ALLOTMENT_SET,
         CLOUD_BILLING_CHECKOUT,
         CLOUD_ENVIRONMENT_BOOT,
         CLOUD_ENVIRONMENT_BUILD,
@@ -556,6 +558,7 @@ pub fn visit_op<V: crate::OpVisitor>(name: &str, visitor: V) -> Option<V::Output
         "chief.list" => visitor.visit::<ChiefListOp>(),
         "chief.update" => visitor.visit::<ChiefUpdateOp>(),
         "cloud.allotment.get" => visitor.visit::<CloudAllotmentGetOp>(),
+        "cloud.allotment.set" => visitor.visit::<CloudAllotmentSetOp>(),
         "cloud.billing.checkout" => visitor.visit::<CloudBillingCheckoutOp>(),
         "cloud.environment.boot" => visitor.visit::<CloudEnvironmentBootOp>(),
         "cloud.environment.build" => visitor.visit::<CloudEnvironmentBuildOp>(),

@@ -6,7 +6,14 @@
       "owner": "cloud:CloudDO",
       "class": "read",
       "risk": "read",
-      "digest": "a24f88a2f0799132"
+      "digest": "fd6ef0a7e2628c8e"
+    },
+    "cloud.allotment.set": {
+      "source": "cloud",
+      "owner": "cloud:CloudDO",
+      "class": "mutation",
+      "risk": "money",
+      "digest": "4f036d40b60b6a45"
     },
     "cloud.auth.status": {
       "source": "app",

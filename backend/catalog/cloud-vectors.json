@@ -2558,6 +2558,94 @@
       ]
     },
     {
+      "name": "allotment.set.person_hold",
+      "op": "cloud.allotment.set",
+      "class": "mutation",
+      "principal": {
+        "kind": "session"
+      },
+      "params": {
+        "person_hold_seconds": 900
+      },
+      "idempotency_key": "key-allot-hold-1",
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": true,
+            "op": "cloud.allotment.set",
+            "value": {
+              "allotment": {
+                "commit_micros": 300000000,
+                "mode": "ask",
+                "auto_max_micros": null,
+                "tiers": {
+                  "user_vec_1": "plus"
+                },
+                "snoozed_until": null,
+                "changed_at": 1791600000000,
+                "changed_by": "user_vec_1",
+                "person_hold_seconds": 900
+              }
+            },
+            "transaction": "tx_0021",
+            "idempotency_key": "key-allot-hold-1",
+            "revision": "15",
+            "replayed": false,
+            "stream": "cloud:team_t0000000000000000001",
+            "sequence": 114
+          }
+        }
+      ]
+    },
+    {
+      "name": "allotment.set.person_hold_clear",
+      "op": "cloud.allotment.set",
+      "class": "mutation",
+      "principal": {
+        "kind": "session"
+      },
+      "params": {
+        "person_hold_seconds": null
+      },
+      "idempotency_key": "key-allot-hold-clear",
+      "responses": [
+        {
+          "http": {
+            "path": "/v1/ops",
+            "status": 200
+          },
+          "body": {
+            "ok": true,
+            "op": "cloud.allotment.set",
+            "value": {
+              "allotment": {
+                "commit_micros": 300000000,
+                "mode": "ask",
+                "auto_max_micros": null,
+                "tiers": {
+                  "user_vec_1": "plus"
+                },
+                "snoozed_until": null,
+                "changed_at": 1791600000000,
+                "changed_by": "user_vec_1"
+              }
+            },
+            "transaction": "tx_0022",
+            "idempotency_key": "key-allot-hold-clear",
+            "revision": "16",
+            "replayed": false,
+            "stream": "cloud:team_t0000000000000000001",
+            "sequence": 115
+          }
+        }
+      ],
+      "note": "null clears the hold: the stored setting has no person_hold_seconds."
+    },
+    {
       "name": "usage.current",
       "op": "cloud.usage.current",
       "class": "read",
@@ -2623,12 +2711,12 @@
             "value": {
               "url": "https://checkout.example.com/session/cs_vector_0001"
             },
-            "transaction": "tx_0021",
+            "transaction": "tx_0023",
             "idempotency_key": "key-checkout-1",
             "revision": "13",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 114
+            "sequence": 116
           }
         }
       ]
@@ -2718,12 +2806,12 @@
             "value": {
               "state": "moving"
             },
-            "transaction": "tx_0022",
+            "transaction": "tx_0024",
             "idempotency_key": "key-migrate-1",
             "revision": "4",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 115
+            "sequence": 117
           }
         }
       ]
@@ -2842,12 +2930,12 @@
                 "revision": "54"
               }
             },
-            "transaction": "tx_0023",
+            "transaction": "tx_0025",
             "idempotency_key": "key-upgrade-1",
             "revision": "54",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 116
+            "sequence": 118
           }
         }
       ]
@@ -2945,12 +3033,12 @@
             "value": {
               "stream": "wst_w0000000000000000001"
             },
-            "transaction": "tx_0024",
+            "transaction": "tx_0026",
             "idempotency_key": "key-shell-1",
             "revision": "7",
             "replayed": false,
             "stream": "cloud:team_t0000000000000000001",
-            "sequence": 117
+            "sequence": 119
           }
         }
       ]
@@ -3123,7 +3211,7 @@
             "value": {
               "applied": true
             },
-            "transaction": "tx_0025",
+            "transaction": "tx_0027",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -3141,7 +3229,7 @@
             "value": {
               "applied": false
             },
-            "transaction": "tx_0026",
+            "transaction": "tx_0028",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -3184,7 +3272,7 @@
             "value": {
               "delivered": true
             },
-            "transaction": "tx_0027",
+            "transaction": "tx_0029",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -3232,7 +3320,7 @@
                 "retry_after_ms": 100
               }
             },
-            "transaction": "tx_0028",
+            "transaction": "tx_0030",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -3277,7 +3365,7 @@
               "message": "invalid data for notification",
               "retryable": false
             },
-            "transaction": "tx_0029",
+            "transaction": "tx_0031",
             "idempotency_key": "",
             "replayed": false,
             "stream": "",
@@ -3293,7 +3381,7 @@
       "name": "machine.upsert.newer",
       "event": "cloud.machine.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 118,
+      "seq": 120,
       "data": {
         "machine": {
           "id": "vm_m0000000000000000001",
@@ -3328,7 +3416,7 @@
       "name": "machine.upsert.stale",
       "event": "cloud.machine.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 119,
+      "seq": 121,
       "data": {
         "machine": {
           "id": "vm_m0000000000000000001",
@@ -3364,7 +3452,7 @@
       "name": "machine.upsert.bound",
       "event": "cloud.machine.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 120,
+      "seq": 122,
       "data": {
         "machine": {
           "id": "vm_m0000000000000000004",
@@ -3400,7 +3488,7 @@
       "name": "machine.upsert.new",
       "event": "cloud.machine.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 121,
+      "seq": 123,
       "data": {
         "machine": {
           "id": "vm_m0000000000000000008",
@@ -3435,7 +3523,7 @@
       "name": "machine.removed",
       "event": "cloud.machine.removed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 122,
+      "seq": 124,
       "data": {
         "machine": "vm_m0000000000000000003",
         "revision": "56"
@@ -3445,7 +3533,7 @@
       "name": "machine.removed.stale",
       "event": "cloud.machine.removed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 123,
+      "seq": 125,
       "data": {
         "machine": "vm_m0000000000000000001",
         "revision": "3"
@@ -3456,7 +3544,7 @@
       "name": "snapshot.upsert",
       "event": "cloud.snapshot.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 124,
+      "seq": 126,
       "data": {
         "snapshot": {
           "id": "snap_s0000000000000000003",
@@ -3473,7 +3561,7 @@
       "name": "snapshot.removed",
       "event": "cloud.snapshot.removed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 125,
+      "seq": 127,
       "data": {
         "snapshot": "snap_s0000000000000000001",
         "revision": "4"
@@ -3483,7 +3571,7 @@
       "name": "plan.changed",
       "event": "cloud.plan.changed",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 126,
+      "seq": 128,
       "data": {
         "plan": {
           "plan_id": "pro",
@@ -3516,7 +3604,7 @@
       "name": "machine.upsert.no_report",
       "event": "cloud.machine.upsert",
       "stream": "cloud:team_t0000000000000000001",
-      "seq": 127,
+      "seq": 129,
       "data": {
         "machine": {
           "id": "vm_m0000000000000000001",

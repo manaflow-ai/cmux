@@ -380,6 +380,8 @@ pub struct CloudAllotmentSetting {
     pub auto_max_micros: Option<f64>,
     pub tiers: BTreeMap<String, CloudAllotmentSettingTiersValue>,
     pub snoozed_until: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub person_hold_seconds: Option<i64>,
     pub changed_at: i64,
     pub changed_by: String,
 }

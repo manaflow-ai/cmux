@@ -4,6 +4,101 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamCloudSessionListParams {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<CloudSessionScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<UserId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamCloudSessionListResult {
+    pub team: TeamId,
+    pub sessions: Vec<CloudSessionView>,
+    pub next_cursor: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes team.cloud.session.list declares.
+    TeamCloudSessionListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Publish one of your Cloud workspaces or chats to your team (title, machine state, activity). The first publish makes you its owner and assignee; later ones by its owner or assignee update it. A publish never changes the assignee, followers or archived.
+    TeamCloudSessionPublishOp {
+        name: "team.cloud.session.publish",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-own",
+        principals: [Session, Install],
+        params: TeamCloudSessionPublishParams,
+        result: CloudSessionView,
+        error: TeamCloudSessionPublishError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamCloudSessionPublishParams {
+    pub vm: CloudSessionVm,
+    pub session: CloudSessionId,
+    pub kind: CloudSessionKind,
+    pub title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<CloudSessionId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
+    pub machine_state: CloudSessionMachineState,
+    pub activity: CloudSessionActivity,
+    pub last_activity_at: i64,
+}
+
+wire_errors! {
+    /// The error codes team.cloud.session.publish declares.
+    TeamCloudSessionPublishError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        CloudSessionNotFound = "cloud_session.not_found",
+        CloudSessionNotYours = "cloud_session.not_yours",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Reassign a Cloud workspace or chat to another member of the team (its assignee, its owner, or a team owner or admin). Followers keep following; the previous assignee follows it; turns still spend the owner's plan.
+    TeamCloudSessionReassignOp {
+        name: "team.cloud.session.reassign",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session, Install],
+        params: TeamCloudSessionReassignParams,
+        result: CloudSessionView,
+        error: TeamCloudSessionReassignError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamCloudSessionReassignParams {
+    pub vm: CloudSessionVm,
+    pub session: CloudSessionId,
+    pub to: UserId,
+}
+
 wire_errors! {
     /// The error codes team.cloud.session.reassign declares.
     TeamCloudSessionReassignError {
@@ -803,98 +898,4 @@ pub struct TeamPolicyUpdateParams {
     pub expected_version: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes team.policy.update declares.
-    TeamPolicyUpdateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The Linux users of the team's members and the certificate principals each accepts, for the team VM's account reconciler (the team VM itself, owners and admins). A team VM install answers only while it is the install bound for the VM's current epoch (`team_vm.stale_epoch` otherwise).
-    TeamVmAccountsOp {
-        name: "team_vm.accounts",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: TeamVmAccountsParams,
-        result: TeamVmAccountsResult,
-        error: TeamVmAccountsError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmAccountsParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmAccountsResult {
-    pub team: TeamId,
-    pub users: Vec<TeamVmAccountUser>,
-}
-
-wire_errors! {
-    /// The error codes team_vm.accounts declares.
-    TeamVmAccountsError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        OwnerUnreachable = "owner.unreachable",
-        TeamVmStaleEpoch = "team_vm.stale_epoch",
-    }
-}
-
-wire_op! {
-    /// Create the team VM if it does not exist, resume it if it is paused, and hold it awake with a lease. The same holder and reason renew one lease. When the provider call fails for good, the op answers with that error (the lease stays until it expires).
-    TeamVmEnsureAwakeOp {
-        name: "team_vm.ensure_awake",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamVmDO",
-        risk: "mutate-shared",
-        principals: [Session, Install],
-        params: TeamVmEnsureAwakeParams,
-        result: TeamVmEnsureAwakeResult,
-        error: TeamVmEnsureAwakeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmEnsureAwakeParams {
-    pub reason: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lease_seconds: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmEnsureAwakeResult {
-    pub lease: TeamVmLeaseId,
-    pub expires_at: i64,
-    pub status: TeamVmStatus,
-    pub vm: Option<String>,
-    pub epoch: i64,
-}
-
-wire_errors! {
-    /// The error codes team_vm.ensure_awake declares.
-    TeamVmEnsureAwakeError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        TeamVmNotConfigured = "team_vm.not_configured",
-        TeamVmPlanGateMissing = "team_vm.plan_gate_missing",
-        TeamVmProviderFailed = "team_vm.provider_failed",
-        TeamVmProviderRefused = "team_vm.provider_refused",
-        TeamVmSlugConflict = "team_vm.slug_conflict",
-        ValidationInvalid = "validation.invalid",
-    }
 }

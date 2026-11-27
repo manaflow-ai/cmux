@@ -219,6 +219,7 @@ export type CloudAllotmentSetting = {
   readonly auto_max_micros: number | null
   readonly tiers: Readonly<Record<string, "standard" | "plus" | "max">>
   readonly snoozed_until: number | null
+  readonly person_hold_seconds?: number
   readonly changed_at: number
   readonly changed_by: string
 }
@@ -2219,6 +2220,18 @@ export interface CloudOps {
   readonly "cloud.allotment.get": {
     readonly params: Readonly<Record<string, never>>
     readonly result: CloudAllotmentView
+  }
+  /** Answer this team's Cloud allotment proposal (a team admin): down or up moves the pooled monthly commit (to the proposal's figure when it is the proposal, one step otherwise), hold keeps it and snoozes proposals. Without action only auto and auto_max_micros change (the commit and any snooze stay). auto: true applies later proposals without asking, up to auto_max_micros of commit (null: up to the spending cap). person_hold_seconds (300, 900 or 1800; null clears it) keeps a person's machine running that long after their chat, so their next message does not wait on a resume; the held time is metered as running time, and an agent's machine pauses as before. Agent principals are refused; the client asks a person first. */
+  readonly "cloud.allotment.set": {
+    readonly params: {
+      readonly action?: "down" | "hold" | "up"
+      readonly auto?: boolean
+      readonly auto_max_micros?: number | null
+      readonly person_hold_seconds?: 300 | 900 | 1800 | null
+    }
+    readonly result: {
+      readonly allotment: CloudAllotmentSetting
+    }
   }
   /** Start a checkout: an https URL the client opens in the browser. With a plan it changes the plan; without one it attaches a payment method. No card data enters cmux. cloud.billing.off: payments are not open for this deployment. Agent principals are refused; the client asks a person first. */
   readonly "cloud.billing.checkout": {
@@ -4785,6 +4798,7 @@ export const cloudOpMeta = {
   "chief.list": { class: "read", idempotency: "forbidden", owner: "cloud:UserDO", risk: "read" },
   "chief.update": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
   "cloud.allotment.get": { class: "read", idempotency: "forbidden", owner: "cloud:CloudDO", risk: "read" },
+  "cloud.allotment.set": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
   "cloud.billing.checkout": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
   "cloud.environment.boot": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },
   "cloud.environment.build": { class: "mutation", idempotency: "required", owner: "cloud:CloudDO", risk: "money" },

@@ -4,6 +4,107 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Send a plain-text email from the connected Gmail account.
+    MailSendOp {
+        name: "mail.send",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "send-external",
+        principals: [Session, Install],
+        params: MailSendParams,
+        result: Value,
+        error: MailSendError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MailSendParams {
+    pub connection: ConnectionId,
+    pub to: Vec<EmailAddress>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cc: Option<Vec<EmailAddress>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bcc: Option<Vec<EmailAddress>>,
+    pub subject: String,
+    pub body: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_reply_to: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes mail.send declares.
+    MailSendError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        IntegrationUnavailable = "integration.unavailable",
+        MutationIndeterminate = "mutation.indeterminate",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Read one Gmail thread (every message, as mail.get) at call time; nothing is stored.
+    MailThreadGetOp {
+        name: "mail.thread.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: MailThreadGetParams,
+        result: Value,
+        error: MailThreadGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MailThreadGetParams {
+    pub connection: ConnectionId,
+    pub thread_id: String,
+}
+
+wire_errors! {
+    /// The error codes mail.thread.get declares.
+    MailThreadGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IntegrationUnavailable = "integration.unavailable",
+        PolicyDenied = "policy.denied",
+        ProviderError = "provider.error",
+        SelectorNotFound = "selector.not_found",
+    }
+}
+
+wire_op! {
+    /// Row data for Gmail threads (subject, sender, date, snippet, unread) by id, for feed rows; held in client memory only.
+    MailThreadsPeekOp {
+        name: "mail.threads.peek",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConnectionDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: MailThreadsPeekParams,
+        result: Value,
+        error: MailThreadsPeekError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MailThreadsPeekParams {
+    pub connection: ConnectionId,
+    pub thread_ids: Vec<String>,
+}
+
 wire_errors! {
     /// The error codes mail.threads.peek declares.
     MailThreadsPeekError {
@@ -798,106 +899,5 @@ wire_op! {
         params: RequestDismissParams,
         result: RequestDismissResult,
         error: RequestDismissError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RequestDismissParams {
-    pub conversation: ConversationId,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub block: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RequestDismissResult {
-    pub dismissed: bool,
-    pub blocked: bool,
-}
-
-wire_errors! {
-    /// The error codes request.dismiss declares.
-    RequestDismissError {
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        UnknownInvite = "unknown_invite",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Read one kept run with the body of the automation version that fired it.
-    RunGetOp {
-        name: "run.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:SchedulerDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: RunGetParams,
-        result: RunWithBody,
-        error: RunGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunGetParams {
-    pub run: RunId,
-}
-
-wire_errors! {
-    /// The error codes run.get declares.
-    RunGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        SelectorNotFound = "selector.not_found",
-    }
-}
-
-wire_op! {
-    /// Page the kept runs newest first (every active run and the last 200 finished ones), optionally of one automation and one state (keyset: pass next_cursor as cursor; new runs never shift later pages).
-    RunListOp {
-        name: "run.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:SchedulerDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: RunListParams,
-        result: RunListResult,
-        error: RunListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunListParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub automation: Option<AutomationId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub state: Option<RunState>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub limit: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct RunListResult {
-    pub runs: Vec<Run>,
-    pub next_cursor: Option<String>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes run.list declares.
-    RunListError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
     }
 }
