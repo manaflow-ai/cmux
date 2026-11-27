@@ -113,12 +113,19 @@ jobs:
           SCANNED: ${{ needs.check.outputs.scanned }}
         run: |
           set -euo pipefail
-          # Trees only; the scanner reads the blobs of changed files on demand.
-          refspecs=(+refs/heads/pr-media:refs/remotes/origin/pr-media)
+          # Trees only; the scanner reads the blobs of changed files on demand. With a
+          # marker, the commits since it too (a few MB), so a backlog is read in batches
+          # of whole commits (pr_media_privacy.py --max-files).
           if [ -n "$SCANNED" ]; then
-            refspecs+=(+refs/pr-media-privacy/scanned:refs/pr-media-privacy/scanned)
+            git fetch --no-tags --filter=blob:none --depth=1 origin \
+              +refs/pr-media-privacy/scanned:refs/pr-media-privacy/scanned
+            # Depth 1 when that fails: the scan then reads the whole diff, as before batching.
+            git fetch --no-tags --filter=blob:none --shallow-exclude=refs/pr-media-privacy/scanned origin \
+              +refs/heads/pr-media:refs/remotes/origin/pr-media ||
+              git fetch --no-tags --filter=blob:none --depth=1 origin +refs/heads/pr-media:refs/remotes/origin/pr-media
+          else
+            git fetch --no-tags --filter=blob:none --depth=1 origin +refs/heads/pr-media:refs/remotes/origin/pr-media
           fi
-          git fetch --no-tags --filter=blob:none --depth=1 origin "${refspecs[@]}"
           from=""
           if [ -n "$SCANNED" ]; then from="$(git rev-parse refs/pr-media-privacy/scanned)"; fi
           {

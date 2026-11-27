@@ -82,6 +82,11 @@ TEXT_SUFFIXES = frozenset({".html", ".json", ".md", ".txt"})
 FRAME_SEPARATOR = re.compile(r"@@frame (\d+)\s*$")
 PUSH_ATTEMPTS = 3
 AUTHOR_BATCH = 50
+# Files one run reads at most. A backlog larger than the scan job's timeout is read
+# in batches of whole commits, each run advancing the marker to the last commit it
+# read: from 2026-11-18 a 6,700-file backlog (2,402 commits) hit the 30 min timeout
+# on every run, so the marker never moved and nothing new was scanned for a week.
+MAX_FILES = 150
 
 # Cyrillic and Greek letters Vision reads in place of Latin ones. Digits are
 # never folded: `cmux7` and `cmux1` must stay different machines.
@@ -330,6 +335,30 @@ def changed_files(repo: Path, start: str, end: str) -> list[str]:
         if status in {"A", "M"} and Path(path).suffix.lower() in MEDIA_SUFFIXES | TEXT_SUFFIXES:
             paths.append(path)
     return paths
+
+
+def batch_end(repo: Path, start: str, end: str, max_files: int = MAX_FILES) -> str:
+    """The furthest commit between start and end whose changes since start hold at most
+    max_files media or text files, taken whole commit by whole commit; end when they all
+    fit. Always at least one commit past start, so every run makes progress."""
+    if max_files <= 0 or len(changed_files(repo, start, end)) <= max_files:
+        return end
+    # After prune_pr_media.py squashes the branch the marker is no longer an ancestor:
+    # there are no commits to walk, only the tree-to-tree diff, read whole.
+    try:
+        git("merge-base", "--is-ancestor", start, end, cwd=repo)
+    except subprocess.CalledProcessError:
+        return end
+    # The scan fetch is shallow at start, so walk the fetched range in order.
+    commits = git("rev-list", "--first-parent", "--reverse", f"{start}..{end}", cwd=repo).split()
+    seen: set[str] = set()
+    previous, chosen = start, None
+    for commit in commits:
+        seen.update(changed_files(repo, previous, commit))
+        if len(seen) > max_files and chosen is not None:
+            break
+        previous = chosen = commit
+    return chosen or end
 
 
 def ocr_lines(ocr: str, repo: Path, commit: str, path: str) -> list[str]:
@@ -722,6 +751,8 @@ def main(argv: list[str] | None = None, lookup=github_authors) -> int:
     parser.add_argument("--apply", action="store_true", help="push one commit removing agent-owned hits")
     parser.add_argument("--remote", default="origin")
     parser.add_argument("--report", type=Path, help="write a JSON report here")
+    parser.add_argument("--max-files", type=int, default=MAX_FILES,
+                        help="read at most this many files, in whole commits; the marker stops there (0: no limit)")
     args = parser.parse_args(argv)
     try:
         patterns = [*GENERIC_PATTERNS, *private_patterns(os.environ.get("PR_MEDIA_PRIVATE_TERMS"))]
@@ -731,7 +762,11 @@ def main(argv: list[str] | None = None, lookup=github_authors) -> int:
                 git("rev-parse", "--verify", "--quiet", f"{value}^{{commit}}", cwd=args.repo)
             except subprocess.CalledProcessError as error:
                 raise BadInput(f"{value} is not a commit in {args.repo}") from error
-        report = scan(args.repo, start or None, args.end, args.ocr, patterns, args.apply,
+        end = batch_end(args.repo, start, args.end, args.max_files) if start else args.end
+        if end != args.end:
+            print(f"Backlog over {args.max_files} files: scanning up to {end[:12]}; the next run continues.",
+                  flush=True)
+        report = scan(args.repo, start or None, end, args.ocr, patterns, args.apply,
                       agent_authors(os.environ.get("PR_MEDIA_AGENT_AUTHORS")), lookup, args.remote)
     except BadInput as error:
         print(f"::error title=pr-media privacy::{annotation(str(error))}", flush=True)
