@@ -1184,6 +1184,49 @@ def judge_confirm(probe: Probe, conclusion: str, run_id: int, runs: list[dict], 
     return "culprit", f"{len(seen)} confirm runs agree"
 
 
+CONFIRM_REUSE_ENV = "POST_MERGE_CONFIRM_REUSE"
+
+
+def confirm_reuse_on() -> bool:
+    """POST_MERGE_CONFIRM_REUSE=0 (vars.POST_MERGE_CONFIRM_REUSE) turns earlier_confirm_round off: every culprit's
+    confirm round renders again, as before."""
+    return (os.environ.get(CONFIRM_REUSE_ENV) or "1").strip() != "0"
+
+
+def runs_for_confirm(args: argparse.Namespace) -> list[dict]:
+    if not confirm_reuse_on():
+        return []
+    try:
+        return list_runs(args.repo, args.branch)
+    except RuntimeError:
+        return []
+
+
+def earlier_confirm_round(round_: list[Probe], runs: list[dict], jobs_of, steps_of=None) -> tuple[str, str] | None:
+    """The verdict of an earlier confirm round with the same titles (suite, job, culprit, parent, side-N) when every
+    one of its runs finished with a verdict: ('culprit'|'flake'|'unsure', why), read as judge_confirm reads a round.
+    None (dispatch the round) when any run of it is missing, unfinished or gave no verdict, or reuse is off. A stuck
+    red's re-bisect lands on the same culprit and re-rendered the same four runs: web agent-pane-real-acpmux's round
+    at 4dbaa78f/e8f78400 ran three times on 11-27 (15:23Z, 16:21Z, 19:21Z), 80 of 466 probe runs that day were
+    repeats of a finished confirm title."""
+    if not round_ or not runs or not confirm_reuse_on():
+        return None
+    first, found = round_[0], None
+    for p in round_:
+        title = probe_title(p)
+        run = next((r for r in runs if (r.get("display_title") or "") == title), None)  # newest per title
+        if run is None or run.get("status") != "completed":
+            return None
+        verdict = probe_conclusion(jobs_of(run["id"])[0], p, steps_of(run["id"]) if steps_of else None)
+        if verdict not in ("success", "failure", "skipped"):
+            return None
+        if p is first:
+            found = (verdict, int(run["id"]))
+    assert found is not None
+    step, why = judge_confirm(first, found[0], found[1], runs, jobs_of, steps_of)
+    return (step, why) if step in ("culprit", "flake", "unsure") else None
+
+
 def judge_pieces(args: argparse.Namespace, probe: Probe, state, conclusion: str) -> dict[str, str]:
     """After a piece probe: the next piece state for the revert job to build and dispatch, the one piece
     named, or piece "-" (no piece: the whole revert pull request, as before)."""
@@ -1403,10 +1446,22 @@ def cmd_judge(args: argparse.Namespace) -> int:
         assert isinstance(value, str)
         parent = probe.good if conclusion == "failure" else probe.sha
         if CONFIRM_RUNS:
+            round_ = confirm_probes(probe, value, parent)
+            earlier = earlier_confirm_round(round_, runs_for_confirm(args), jobs_of, steps_of)
+            if earlier is not None:
+                # Every run of this same confirm round (culprit, parent, job) already finished with a verdict on an
+                # earlier bisect: its judge reads them instead of rendering the culprit and its parent again.
+                step, why = earlier
+                summary(args.summary, f"`{probe.job}` first went red at `{value}` (last green `{parent[:11]}`); an earlier "
+                                      f"confirm round of it already finished: {why}.")
+                if step == "culprit":
+                    out.update(culprit=value, job=probe.job, good=parent, origin=probe.origin)
+                write_outputs(args.github_output, out)
+                return 0
             summary(args.summary, f"`{probe.job}` first went red at `{value}` (last green `{parent[:11]}`); confirming with "
                                   f"{CONFIRM_RUNS} more runs of each before any revert.")
             if not args.dry_run:
-                for again in confirm_probes(probe, value, parent):
+                for again in round_:
                     dispatch_probe(args.repo, args.branch, again)
         else:
             summary(args.summary, f"`{probe.job}` first went red at `{value}` (last green `{parent[:11]}`).")
