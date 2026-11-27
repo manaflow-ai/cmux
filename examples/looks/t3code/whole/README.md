@@ -12,6 +12,6 @@ cmux setup install github.com/manaflow-ai/cmux/examples/looks/t3code/whole
 
 From this folder run `cmux customize use preview.json`. Choose `cmux customize apply` to keep the preview or `cmux customize discard` to restore the previous generation.
 
-The package combines the feature views in one manifest. Its composer requires the `cmux.composer.toolbar/1` and `cmux.composer.model.picker/1` interfaces. Session Info opens the active local directory in an installed editor. Finished-chat settlement uses the host's lifecycle rule. The source also supports PR-triggered settlement and seven-day inactivity, a snoozed shelf, and per-thread overrides.
+The package combines the feature views in one manifest. Its composer requires the `cmux.composer.model.picker/1` interface. Session Info opens the active local directory in an installed editor. Finished-chat settlement uses the host's lifecycle rule. The source also supports PR-triggered settlement and seven-day inactivity, a snoozed shelf, and per-thread overrides.
 
 [Reference captures and interaction map](https://github.com/manaflow-ai/cmuxterm-hq/blob/main/docs/research/competitor-maps/t3code.md)
