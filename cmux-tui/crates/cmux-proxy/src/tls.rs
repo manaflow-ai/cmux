@@ -80,7 +80,9 @@ fn webpki_verifier(roots: RootCertStore) -> Result<Arc<dyn ServerCertVerifier>, 
 /// The OS verifier, with `extra` roots beside the store's own. A platform with
 /// no usable store (no certificate bundle) gets the bundled web PKI plus
 /// `extra` instead, so the link never ends up trusting nothing.
-fn system_verifier(extra: &[CertificateDer<'static>]) -> Result<Arc<dyn ServerCertVerifier>, String> {
+fn system_verifier(
+    extra: &[CertificateDer<'static>],
+) -> Result<Arc<dyn ServerCertVerifier>, String> {
     let built = if extra.is_empty() {
         rustls_platform_verifier::Verifier::new(provider())
     } else {
@@ -148,10 +150,20 @@ impl ServerCertVerifier for Inspecting {
         ocsp_response: &[u8],
         now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
-        let verified =
-            self.system.verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)?;
-        let public =
-            self.public.verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now);
+        let verified = self.system.verify_server_cert(
+            end_entity,
+            intermediates,
+            server_name,
+            ocsp_response,
+            now,
+        )?;
+        let public = self.public.verify_server_cert(
+            end_entity,
+            intermediates,
+            server_name,
+            ocsp_response,
+            now,
+        );
         mark(&server_name.to_str(), public.is_err());
         Ok(verified)
     }
@@ -214,4 +226,45 @@ pub fn client_config(trust: &TlsTrust) -> Result<Arc<ClientConfig>, String> {
         return SYSTEM.get_or_init(|| build(trust).map(Arc::new)).clone();
     }
     build(trust).map(Arc::new)
+}
+
+/// Whether a server's chain, which the connection's own trust accepted (a
+/// trust other than [`client_config`]'s, whose handshakes [`inspected`] already
+/// remembers), is not one the public web PKI vouches for: the mark of a proxy that inspects
+/// TLS and re-signs with a company root (or a self-hosted server on a private
+/// CA). For telemetry only ("inspected" on the path): it changes nothing about
+/// the connection, whose inner session is end to end either way.
+///
+/// `chain` is the server's certificates, leaf first, as
+/// `rustls::CommonState::peer_certificates` gives them. An empty chain, or a
+/// name that is not a valid server name, is not called inspected.
+pub fn chain_inspected(server_name: &str, chain: &[CertificateDer<'_>]) -> bool {
+    let Some((leaf, intermediates)) = chain.split_first() else { return false };
+    let bare = server_name.trim_start_matches('[').trim_end_matches(']');
+    let Ok(name) = ServerName::try_from(bare.to_owned()) else { return false };
+    static WEB_PKI: OnceLock<Option<Arc<dyn ServerCertVerifier>>> = OnceLock::new();
+    let Some(verifier) = WEB_PKI.get_or_init(|| webpki_verifier(bundled_roots()).ok()) else {
+        return false;
+    };
+    verifier.verify_server_cert(leaf, intermediates, &name, &[], UnixTime::now()).is_err()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn self_signed(name: &str) -> CertificateDer<'static> {
+        let key = rcgen::KeyPair::generate().unwrap();
+        let params = rcgen::CertificateParams::new(vec![name.to_owned()]).unwrap();
+        params.self_signed(&key).unwrap().der().clone()
+    }
+
+    /// A chain no web PKI root signed (a company root's re-signed
+    /// certificate) is inspected; nothing to judge is not.
+    #[test]
+    fn a_chain_outside_the_web_pki_is_inspected() {
+        assert!(chain_inspected("relay.cmux.dev", &[self_signed("relay.cmux.dev")]));
+        assert!(!chain_inspected("relay.cmux.dev", &[]));
+        assert!(!chain_inspected("not a name", &[self_signed("x")]));
+    }
 }

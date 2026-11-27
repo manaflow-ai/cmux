@@ -49,8 +49,13 @@ class SelectTests(unittest.TestCase):
         self.assertTrue(r["build_for_testing"])
 
     def test_ios_file_matching_no_flow_runs_smoke_and_compile_only(self):
-        r = self.sel("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice/Recorder.swift")
+        r = self.sel("cmux-next-ios/UITests/Support/Launch.swift")
         self.assertEqual(r["flows"], ["smoke-launch-sign-in", "compile-app-and-tests"])
+
+    def test_any_kit_source_also_builds_the_macos_half(self):
+        # Row 17: a macOS-only compile break in the kit hid its chat and model tests for days.
+        r = self.sel("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileVoice/Recorder.swift")
+        self.assertEqual(r["flows"], ["smoke-launch-sign-in", "compile-app-and-tests", "kit-macos-swift-test"])
 
     def test_shared_rust_crate_the_app_links_is_ios_affecting(self):
         r = self.sel("cmux-tui/crates/cmux-tailnet/src/lib.rs")
