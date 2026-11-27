@@ -198,7 +198,8 @@
         "clippy": "19 runs on 52 merged pull requests, 3 with a red, 3 of them the pull request's own (#45801, #46459, #46676): Tier B, fixed forward on the push; 414 job-minutes",
         "inventory": "18 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 62 job-minutes",
         "api-compat": "16 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 28 job-minutes",
-        "rustfmt": "18 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 24 job-minutes"
+        "rustfmt": "18 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 24 job-minutes",
+        "remote-web-wasm": "105 runs on 52 merged pull requests (their check runs, last 52 merges before 2026-11-27 06:10Z), 1 with a red, 0 of them the pull request's own (the same head passed it too); the timing feed for 04:00-06:00Z on 2026-11-27 has 703 runs (about 350 an hour, 48 s median, 586 job-minutes), 12 red, every one a runner fault: 9 `cc` SIGABRT linking a build script, 2 a broken checkout, 1 a build script that failed to run"
       },
       ".github/workflows/cmux-tui-sdks.yml": {
         "contract": "15 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 42 job-minutes",

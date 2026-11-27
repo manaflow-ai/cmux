@@ -1433,7 +1433,12 @@ jobs:
     needs: changes
     # Routed by the crate graph (scripts/ci/affected-jobs.json): it builds cmux-remote-web and what that reaches, so a
     # change none of those inputs sees skips it; a failed router, a push and full-ci on a reaching change run it.
-    if: ${{ (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true' && needs.changes.outputs.remote_web_wasm != 'false')) }}
+    # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
+    # into feat-cmux-next skips it unless labeled full-ci; the post-merge batch runs it. 2026-11-27 04:00-06:00Z:
+    # 703 runs (about 350 an hour, 48 s median, 586 runner-min, about 7,000 a day), 12 reds, 0 of them the pull
+    # request's own: 9 were `cc` SIGABRT linking a build script, 2 a broken checkout, 1 a build script that failed
+    # to run (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period.").
+    if: ${{ (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.run == 'true' && needs.changes.outputs.remote_web_wasm != 'false')) && (github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
