@@ -212,7 +212,7 @@ export class ArtifactsStore {
       this.set({ historyFailure: read.failure });
       return;
     }
-    this.set({ history: read.history.commits, historyFailure: undefined });
+    this.set({ history: keepUnchanged(this.snapshot.history, read.history.commits), historyFailure: undefined });
     const newest = read.history.commits[0];
     // Read at this head only once its newest change shows too; otherwise a refresh tries again.
     if (!newest || (await this.showCommit(newest, request, file))) this.fileHead = head;
@@ -250,9 +250,15 @@ export class ArtifactsStore {
       const before = beforeFile ? textOf(beforeFile) : undefined;
       // A binary or too-large side has no text: say so rather than diff it as empty.
       const unavailable = after === undefined || (beforeFile !== undefined && before === undefined);
-      this.set({
-        diff: unavailable ? { sha: commit.sha, after: "", unavailable } : { sha: commit.sha, before, after },
-      });
+      const diff = unavailable ? { sha: commit.sha, after: "", unavailable } : { sha: commit.sha, before, after };
+      // A refresh that reads the same change keeps its object, so its row does not draw again.
+      const old = this.snapshot.diff;
+      const unchanged =
+        old?.sha === diff.sha &&
+        old.before === diff.before &&
+        old.after === diff.after &&
+        old.unavailable === diff.unavailable;
+      if (!unchanged) this.set({ diff });
       return true;
     } catch (error) {
       if (request === this.fileRequest) this.set({ fileFailure: failureOf(error) });
@@ -292,6 +298,17 @@ export class ArtifactsStore {
     this.snapshot = { ...this.snapshot, ...patch };
     for (const listener of this.listeners) listener();
   }
+}
+
+/** `next`, with each revision that reads the same as one in `previous` kept as that object, so a
+ *  refresh draws only the history rows that changed. */
+function keepUnchanged(previous: readonly ArtifactCommit[], next: ArtifactCommit[]): ArtifactCommit[] {
+  if (!previous.length) return next;
+  const held = new Map(previous.map((commit) => [commit.sha, commit]));
+  return next.map((commit) => {
+    const old = held.get(commit.sha);
+    return old && JSON.stringify(old) === JSON.stringify(commit) ? old : commit;
+  });
 }
 
 /** The file's text, or undefined when it has none to show (too large, or not text). */

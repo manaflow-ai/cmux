@@ -51,7 +51,7 @@ jobs:
       run:
         shell: bash -eo pipefail {0}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: backend/scripts
@@ -70,8 +70,8 @@ jobs:
         run: PHASE=a bun backend/scripts/stripe-usage-e2e.ts | tee -a "$RUNNER_TEMP/e2e.log"
       - name: Use past the included amount (PHASE=more until both levels pass it)
         run: |
-          for round in 1 2 3 4 5 6; do
-            PHASE=more bun backend/scripts/stripe-usage-e2e.ts | tee -a "$RUNNER_TEMP/e2e.log"
+          for _ in 1 2 3 4 5 6; do
+            PHASE='more' bun backend/scripts/stripe-usage-e2e.ts | tee -a "$RUNNER_TEMP/e2e.log"
             # The e2e set includes 1 USD per team and 2 x 0.5 per seat: both levels must pass 1 USD.
             if bun -e 'const s = JSON.parse(require("fs").readFileSync(process.env.E2E_STATE, "utf8")); process.exit(s.team.level.micros > 1e6 && s.seat.level.micros > 1e6 ? 0 : 1)'; then exit 0; fi
           done

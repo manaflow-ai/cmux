@@ -55,10 +55,6 @@ struct CFDictionaryKeyCallBacks {
 struct CFDictionaryValueCallBacks {
     _p: [u8; 0],
 }
-#[repr(C)]
-struct CFArrayCallBacks {
-    _p: [u8; 0],
-}
 
 type OutputCallback = extern "C" fn(*mut c_void, *mut c_void, OSStatus, u32, CMSampleBufferRef);
 
@@ -68,12 +64,14 @@ crate::framework! {
         static kCFBooleanFalse: CFBooleanRef;
         ref kCFTypeDictionaryKeyCallBacks: CFDictionaryKeyCallBacks;
         ref kCFTypeDictionaryValueCallBacks: CFDictionaryValueCallBacks;
-        ref kCFTypeArrayCallBacks: CFArrayCallBacks;
-        fn CFArrayCreate(a: CFAllocatorRef, values: *const CFTypeRef, n: c_long, cb: *const CFArrayCallBacks) -> CFArrayRef;
+        ref kCFTypeArrayCallBacks: c_void;
         fn CFDictionaryCreate(a: CFAllocatorRef, keys: *const CFTypeRef, values: *const CFTypeRef, n: c_long, kcb: *const CFDictionaryKeyCallBacks, vcb: *const CFDictionaryValueCallBacks) -> CFDictionaryRef;
         fn CFNumberCreate(a: CFAllocatorRef, t: c_long, v: *const c_void) -> CFNumberRef;
         fn CFArrayGetCount(a: CFArrayRef) -> c_long;
         fn CFArrayGetValueAtIndex(a: CFArrayRef, i: c_long) -> CFTypeRef;
+        fn CFArrayCreate(a: CFAllocatorRef, values: *const CFTypeRef, n: c_long, callbacks: *const c_void) -> CFArrayRef;
+        fn CFDictionaryGetValue(d: CFDictionaryRef, k: CFTypeRef) -> CFTypeRef;
+        fn CFNumberGetValue(n: CFNumberRef, t: c_long, out: *mut c_void) -> u8;
         fn CFDictionaryContainsKey(d: CFDictionaryRef, k: CFTypeRef) -> u8;
         fn CFRelease(v: CFTypeRef);
     }
@@ -142,6 +140,15 @@ crate::framework! {
         fn VTCompressionSessionCompleteFrames(s: VTCompressionSessionRef, until: CMTime) -> OSStatus;
         fn VTCompressionSessionPrepareToEncodeFrames(s: VTCompressionSessionRef) -> OSStatus;
         fn VTCompressionSessionInvalidate(s: VTCompressionSessionRef);
+    }
+}
+
+crate::framework! {
+    mod vt_ltr_sys = "/System/Library/Frameworks/VideoToolbox.framework/VideoToolbox" {
+        static kVTCompressionPropertyKey_EnableLTR: CFStringRef;
+        static kVTEncodeFrameOptionKey_AcknowledgedLTRTokens: CFStringRef;
+        static kVTEncodeFrameOptionKey_ForceLTRRefresh: CFStringRef;
+        static kVTSampleAttachmentKey_RequireLTRAcknowledgementToken: CFStringRef;
     }
 }
 use vt_sys::*;
@@ -274,6 +281,7 @@ struct Output {
     status: OSStatus,
     /// The callback ran for the current frame.
     produced: bool,
+    ltr_token: Option<u64>,
 }
 
 pub struct VideoToolbox {
@@ -287,6 +295,9 @@ pub struct VideoToolbox {
     height: usize,
     fps: u32,
     baseline: bool,
+    /// Long-term references on (`with_ltr`): the session enables LTR and each frame carries the
+    /// viewer's acknowledged tokens. Off, the session is a plain IDR-recovery encoder.
+    ltr: bool,
     kbps: u32,
     /// The color tag the session carries (surface path); `None` until set.
     color: Option<ColorTag>,
@@ -301,6 +312,9 @@ pub struct VideoToolbox {
     /// The encoder refused the QP ceiling once: not asked again.
     max_qp_refused: bool,
     name: String,
+    acknowledged_ltr_tokens: Vec<u64>,
+    ltr_token: Option<u64>,
+    force_ltr_refresh: bool,
     /// The ultra profile: frame rate first ([`VideoToolbox::set_ultra`]).
     ultra: bool,
     /// Ultra's QP floor ([`ULTRA_MIN_QP`] or its override).
@@ -390,6 +404,10 @@ fn bitrate_change_applies(current: u32, next: u32) -> bool {
     next < current || u64::from(next - current) * 20 >= u64::from(current)
 }
 
+fn number_i64(v: i64) -> CFNumberRef {
+    unsafe { CFNumberCreate(null(), 4, (&v as *const i64).cast()) }
+}
+
 fn dict(pairs: &[(CFStringRef, CFTypeRef)]) -> CFDictionaryRef {
     let keys: Vec<CFTypeRef> = pairs.iter().map(|p| p.0).collect();
     let values: Vec<CFTypeRef> = pairs.iter().map(|p| p.1).collect();
@@ -432,6 +450,22 @@ extern "C" fn on_output(
                 kCMSampleAttachmentKey_NotSync(),
             ) != 0;
         out.keyframe = !not_sync;
+        if vt_ltr_sys::available().is_ok()
+            && !attachments.is_null()
+            && CFArrayGetCount(attachments) > 0
+        {
+            let attachment = CFArrayGetValueAtIndex(attachments, 0);
+            let value = CFDictionaryGetValue(
+                attachment,
+                vt_ltr_sys::kVTSampleAttachmentKey_RequireLTRAcknowledgementToken(),
+            );
+            if !value.is_null() {
+                let mut token = 0i64;
+                if CFNumberGetValue(value as CFNumberRef, 4, (&mut token as *mut i64).cast()) != 0 {
+                    out.ltr_token = Some(token as u64);
+                }
+            }
+        }
         if out.keyframe {
             let desc = CMSampleBufferGetFormatDescription(sb);
             let mut count = 0usize;
@@ -490,6 +524,7 @@ fn create_session(
     height: usize,
     fps: u32,
     baseline: bool,
+    ltr: bool,
     low_latency: bool,
     out: &Mutex<Output>,
 ) -> Res<VTCompressionSessionRef> {
@@ -525,6 +560,9 @@ fn create_session(
     // SAFETY: setting properties on our live session with CF values we release.
     unsafe {
         let set = |k: CFStringRef, v: CFTypeRef| VTSessionSetProperty(session, k, v);
+        if ltr && vt_ltr_sys::available().is_ok() {
+            set(vt_ltr_sys::kVTCompressionPropertyKey_EnableLTR(), kCFBooleanTrue());
+        }
         set(kVTCompressionPropertyKey_RealTime(), kCFBooleanTrue());
         set(kVTCompressionPropertyKey_AllowFrameReordering(), kCFBooleanFalse());
         let profile = if baseline {
@@ -557,10 +595,25 @@ fn create_session(
 
 impl VideoToolbox {
     /// `baseline`: constrained baseline (for openh264-decoded checks); otherwise High.
+    /// Long-term references stay off; see [`VideoToolbox::with_ltr`].
     pub fn new(width: u32, height: u32, fps: u32, kbps: u32, baseline: bool) -> Res<Self> {
+        Self::with_ltr(width, height, fps, kbps, baseline, false)
+    }
+
+    /// [`VideoToolbox::new`] with long-term references on when `ltr` is true and this macOS has
+    /// them: only for a session whose viewer negotiated the `video.ltr` cap.
+    pub fn with_ltr(
+        width: u32,
+        height: u32,
+        fps: u32,
+        kbps: u32,
+        baseline: bool,
+        ltr: bool,
+    ) -> Res<Self> {
         frameworks()?;
         let out: Box<Mutex<Output>> = Box::default();
-        let session = create_session(width as usize, height as usize, fps, baseline, true, &out)?;
+        let session =
+            create_session(width as usize, height as usize, fps, baseline, ltr, true, &out)?;
         let mut pixel_buffer: CVPixelBufferRef = null_mut();
         // SAFETY: creating an IOSurface-backed 420v buffer; attrs released after use.
         let pb_status = unsafe {
@@ -595,6 +648,7 @@ impl VideoToolbox {
             height: height as usize,
             fps,
             baseline,
+            ltr,
             kbps: kbps.max(100),
             color: None,
             picture: None,
@@ -614,6 +668,9 @@ impl VideoToolbox {
             standard_guard_on: guard_enabled(
                 std::env::var("CMUX_RD_VT_STANDARD_GUARD").ok().as_deref(),
             ),
+            acknowledged_ltr_tokens: Vec::new(),
+            ltr_token: None,
+            force_ltr_refresh: false,
             applied_min_qp: NO_MIN_QP,
             last_guarded_pts: None,
             session_low_latency: true,
@@ -629,8 +686,15 @@ impl VideoToolbox {
         if self.session_size == (width, height) && self.session_low_latency == low_latency {
             return Ok(false);
         }
-        let session =
-            create_session(width, height, self.fps, self.baseline, low_latency, &self.out)?;
+        let session = create_session(
+            width,
+            height,
+            self.fps,
+            self.baseline,
+            self.ltr,
+            low_latency,
+            &self.out,
+        )?;
         // SAFETY: invalidating and releasing our previous session once.
         unsafe {
             VTCompressionSessionInvalidate(self.session);
@@ -958,6 +1022,19 @@ impl H264Encoder for VideoToolbox {
         self.name.clone()
     }
 
+    fn set_acknowledged_ltr_tokens(&mut self, tokens: &[u64]) {
+        self.acknowledged_ltr_tokens.clear();
+        self.acknowledged_ltr_tokens.extend_from_slice(tokens);
+    }
+
+    fn set_force_ltr_refresh(&mut self, refresh: bool) {
+        self.force_ltr_refresh = refresh;
+    }
+
+    fn ltr_token(&self) -> Option<u64> {
+        self.ltr_token
+    }
+
     fn idr_cause(&self) -> Option<&'static str> {
         self.idr_cause
     }
@@ -973,6 +1050,7 @@ impl VideoToolbox {
         pts: i64,
         out: &mut Vec<u8>,
     ) -> Res<bool> {
+        self.ltr_token = None;
         if let Ok(mut o) = self.out.lock() {
             *o = Output::default();
         }
@@ -1053,11 +1131,37 @@ impl VideoToolbox {
         // SAFETY: encoding our pixel buffer on our session; CompleteFrames runs the output
         // callback before it returns, so the result is ready afterwards.
         let status = unsafe {
-            let props = if force_idr {
-                dict(&[(kVTEncodeFrameOptionKey_ForceKeyFrame(), kCFBooleanTrue())])
-            } else {
-                null()
-            };
+            let mut owned_arrays = Vec::new();
+            let mut pairs = Vec::new();
+            if force_idr {
+                pairs.push((kVTEncodeFrameOptionKey_ForceKeyFrame(), kCFBooleanTrue()));
+            }
+            if self.ltr && vt_ltr_sys::available().is_ok() {
+                if !self.acknowledged_ltr_tokens.is_empty() {
+                    let values: Vec<CFTypeRef> = self
+                        .acknowledged_ltr_tokens
+                        .iter()
+                        .map(|token| number_i64(*token as i64) as CFTypeRef)
+                        .collect();
+                    let array = CFArrayCreate(
+                        null(),
+                        values.as_ptr(),
+                        values.len() as c_long,
+                        kCFTypeArrayCallBacks(),
+                    );
+                    owned_arrays.push((array, values));
+                    pairs
+                        .push((vt_ltr_sys::kVTEncodeFrameOptionKey_AcknowledgedLTRTokens(), array));
+                }
+                if self.force_ltr_refresh && !force_idr && !self.acknowledged_ltr_tokens.is_empty()
+                {
+                    pairs.push((
+                        vt_ltr_sys::kVTEncodeFrameOptionKey_ForceLTRRefresh(),
+                        kCFBooleanTrue(),
+                    ));
+                }
+            }
+            let props = if pairs.is_empty() { null() } else { dict(&pairs) };
             let mut info = 0u32;
             let s = VTCompressionSessionEncodeFrame(
                 self.session,
@@ -1070,6 +1174,12 @@ impl VideoToolbox {
             );
             if !props.is_null() {
                 CFRelease(props);
+            }
+            for (array, values) in owned_arrays {
+                CFRelease(array as CFTypeRef);
+                for value in values {
+                    CFRelease(value);
+                }
             }
             if s == 0 { VTCompressionSessionCompleteFrames(self.session, INVALID_TIME) } else { s }
         };
@@ -1087,6 +1197,7 @@ impl VideoToolbox {
         }
         out.clear();
         out.extend_from_slice(&result.annexb);
+        self.ltr_token = result.ltr_token;
         Ok(result.keyframe && !out.is_empty())
     }
 }

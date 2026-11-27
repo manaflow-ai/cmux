@@ -12,6 +12,7 @@ import {
   followWorktreeSetup,
   forgetWorktreeSetup,
   rememberWorktreeSetup,
+  setupDuration,
   type SetupView,
 } from "./worktreeSetup";
 
@@ -279,4 +280,11 @@ test("a succeeded or running setup offers neither Run Setup nor Retry", async ()
     expect(names).not.toContain("Run Setup");
     expect(names).not.toContain("Retry");
   }
+});
+
+test("a setup step under a second reads 0s, never <1s", () => {
+  expect(setupDuration(1_000, 1_300, 9_000)).toBe("0s");
+  expect(setupDuration(1_000, undefined, 1_999)).toBe("0s");
+  expect(setupDuration(1_000, 2_000, 9_000)).toBe("1s");
+  expect(setupDuration(1_000, 5_200, 9_000)).toBe("4.2s");
 });
