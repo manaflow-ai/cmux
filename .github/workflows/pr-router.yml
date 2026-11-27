@@ -33,8 +33,15 @@ concurrency:
   # which skips pr pipeline), cancelled the full run, so the iOS matrix never ran and the land stopped matrix_missing
   # (#54957 run 45875774607, cancelled by 45876000317). A push still starts the new head's run; the old head's full
   # run finishes or is cancelled by its callees' own per-ref groups.
-  group: pr-router-${{ github.event.pull_request.number }}${{ github.event.action == 'labeled' && github.event.label.name == 'full-ci' && format('-full-{0}', github.event.pull_request.head.sha) || '' }}${{ github.event.action == 'edited' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
-  cancel-in-progress: true
+  # An added ready-to-land gets a group per head too, and both handoff groups queue instead of cancelling: a bot
+  # takes ready-to-land off and puts it back on the same head every few minutes, and each re-add cancelled the
+  # in-flight run with its 20-55 min nightly pr build compile (#47278 head 9b27d460: added 10:59:48, removed 11:12,
+  # re-added 11:30:15; runs 45986744639 -> 45991007377). Same-head cancels were 15.6 runner-h/day on the 24 h to
+  # 2026-11-27T10Z. The re-add now waits for the in-flight run, and the callees' input-keyed caches skip what passed.
+  # A newer push still cancels the old head's run (ci-pr-superseded-cancel.yml). CI_PR_ROUTER_HANDOFF_QUEUE=0 restores
+  # the shared group and cancel-in-progress for ready-to-land.
+  group: pr-router-${{ github.event.pull_request.number }}${{ github.event.action == 'labeled' && github.event.label.name == 'full-ci' && format('-full-{0}', github.event.pull_request.head.sha) || '' }}${{ github.event.action == 'labeled' && github.event.label.name == 'ready-to-land' && format('{0}', vars.CI_PR_ROUTER_HANDOFF_QUEUE) != '0' && format('-land-{0}', github.event.pull_request.head.sha) || '' }}${{ github.event.action == 'edited' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ !(github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('{0}', vars.CI_PR_ROUTER_HANDOFF_QUEUE) != '0') }}
 
 env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
@@ -73,6 +80,9 @@ jobs:
       # The `cmux/ui-proof` commit status the route posted (pr_router.py ui_status); `pending` hands it to
       # ui-proof-status below, which reads the proof record at the head.
       ui_status: ${{ steps.route.outputs.ui_status }}
+      # `false` when every changed path is one no web bundle reads (pr_router.py preflight_web, pr_router.json's
+      # compile preflight `paths-ignore`); the compile preflight's job then skips with no runner.
+      preflight_web: ${{ steps.route.outputs.preflight_web }}
       # The machine channel's plan for this head (scripts/ci/cmux-machine-channel-pr-plan.sh), when the route
       # starts it; empty when it does not or the step failed, and cmux-machine-channel.yml's plan job answers then.
       machine_channel_build: ${{ steps.machine-channel.outputs.build }}
@@ -269,6 +279,14 @@ jobs:
                 exit 0
               fi
               cat "$err" >&2
+              # A token GitHub refuses for its permissions ("Resource not accessible by integration": a pool
+              # installation without statuses: write on this repo) never posts here; it does not count as tried, so
+              # it cannot keep the others' spent budgets from the wait below (job 140277453358, 2026-11-27 02:34Z:
+              # both pool tokens answered that while cmux-bot and the job token were rate limited).
+              if grep -qi "not accessible by integration" "$err" && ! grep -qi "rate limit" "$err"; then
+                tried=$((tried - 1))
+                continue
+              fi
               if grep -qi "rate limit" "$err"; then
                 limited=$((limited + 1))
                 r="$(GH_TOKEN="$token" gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || true)"
@@ -298,7 +316,12 @@ jobs:
           done
           last="$(tail -n 1 "$err" | cut -c1-200)"
           echo "unposted=true" >> "${GITHUB_OUTPUT:-/dev/null}"
-          echo "::error::cmux/land-tier ($STATE) was not posted at $SHA (last: $last): its land waits on the last state posted there until a post gets through (rerun: gh run rerun $GITHUB_RUN_ID --failed)"
+          # A spent budget names when a rerun can get through: rerun after the first reset, not sooner.
+          after=""
+          if [ "$tried" -gt 0 ] && [ "$limited" = "$tried" ] && [ -n "$reset" ]; then
+            after=" after $(date -u -d "@$reset" +%H:%M:%SZ)"
+          fi
+          echo "::error::cmux/land-tier ($STATE) was not posted at $SHA (last: $last): its land waits on the last state posted there until a post gets through (rerun${after}: gh run rerun $GITHUB_RUN_ID --failed)"
           exit 1
       # `cmux/ios-fast` (pr_router.py ios_status): success at once on a head that touches nothing iOS builds, so a
       # ruleset can require it; pending on an iOS-affecting head until ios-fast-status posts its verdict. Leo,
@@ -477,12 +500,17 @@ jobs:
   compile-preflight:
     # The build a change can break, on every tier (Leo, 2026-11-27: "surely we can just have legit build fail
     # preflight checks"). No tier rule and no `start` gate: the land tier's cheap and none tiers skip every other
-    # build, and cmux#57269 landed a web bundle build break through them. The callee's first step skips the build
-    # for a change that reaches no web bundle, so its check always reports a verdict, never "skipped".
+    # build, and cmux#57269 landed a web bundle build break through them. A change whose every path no web bundle
+    # reads (the route's preflight_web: Rust, Swift, Python, prose, other workflows) passes web: false and the
+    # callee's job skips before taking a runner (Leo, 2026-11-21: "whatever we need to cut, we cut. whatever we can
+    # reuse, we reuse."); any other change starts it, and its first step decides from the exact web bundle inputs,
+    # so a change that reaches a web bundle always gets a verdict, never "skipped".
     name: compile preflight
     needs: route
     if: ${{ !cancelled() && needs.route.result == 'success' }}
     uses: ./.github/workflows/cmux-next-compile-preflight.yml
+    with:
+      web: ${{ needs.route.outputs.preflight_web || 'true' }}
     permissions:
       contents: read
 

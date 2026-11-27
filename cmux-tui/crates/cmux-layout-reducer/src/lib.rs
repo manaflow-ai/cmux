@@ -966,7 +966,6 @@ mod sidebar_face_tests;
 pub mod auto_archive;
 pub mod auto_archive_ledger;
 pub mod chief_panel;
-pub mod closing_panes;
 pub mod divider_insert;
 pub mod dock_model;
 pub mod drop_rules;
