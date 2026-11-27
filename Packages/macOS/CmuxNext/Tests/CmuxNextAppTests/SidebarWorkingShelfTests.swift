@@ -126,8 +126,9 @@ import Testing
     }
 
     @Test func theLaneReadsBackgroundWaitsFromTheSummary() {
-        let lane = AgentActivityLane.of(summary: ["sessionId": "s1", "lane": ["state": "idle"], "backgroundWaits": 2])
+        let lane = AgentActivityLane.of(summary: ["sessionId": "s1", "lane": ["state": "idle"], "backgroundWaits": 2, "gitBranch": "lane/working-shelf-r1"])
         #expect(lane?.backgroundWaits == 2)
+        #expect(lane?.branch == "lane/working-shelf-r1")
         #expect(AgentActivityLane.of(summary: ["sessionId": "s1", "lane": ["state": "idle"]])?.backgroundWaits == 0)
     }
 
