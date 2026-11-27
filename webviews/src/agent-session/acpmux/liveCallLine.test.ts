@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow, AcpmuxSnapshot } from "./model";
 import { LIVE_THINKING, WORKED, turnView } from "./conversation/turns";
-import { callOnly, drewLiveLine, lineCalledNow, liveCallLine, setLiveLine } from "./liveCallLine";
+import { callOnly, drewLiveLine, lineCalledNow, liveCallLine, liveCallLineHeard, setLiveLine } from "./liveCallLine";
 import { drewThoughts } from "./liveThought";
 import { markOneRowChange } from "./rowChanges";
 
@@ -178,4 +178,28 @@ test("the activity row's own running flag and call count move with its calls, as
   setLiveLine(start!.line);
   const ended = after(started, [prompt, reply, counted(3, [read("r1", "completed"), read("r2", "completed")])], 2);
   expect(callOnly(started, ended)).toBeDefined();
+});
+
+test("a hidden call that leaves the line's look as it is tells the line nothing new", () => {
+  const first = snapshot([prompt, reply, work(1, [read("r1", "completed")])]);
+  const drawnLine = line(paneDraws(first))!;
+  const started = after(first, [prompt, reply, work(2, [read("r1", "completed"), read("r2", "in_progress")])], 2);
+  const start = callOnly(first, started)!;
+  let heard = 0;
+  const stop = liveCallLineHeard.subscribe(() => (heard += 1));
+  try {
+    setLiveLine(start.line);
+    expect(heard).toBe(1);
+    // The same line at a later version (a call's status only, under one that runs on): no render.
+    const same = { ...start.line, version: start.line.version + 1 } as AcpmuxRow;
+    setLiveLine(same);
+    expect(heard).toBe(1);
+    // The line still reads the newest one at its next render.
+    expect(lineCalledNow(drawnLine)).toBe(same);
+    // A line that draws differently is heard.
+    setLiveLine({ ...same, doing: "Reading src/r9.ts" } as AcpmuxRow);
+    expect(heard).toBe(2);
+  } finally {
+    stop();
+  }
 });
