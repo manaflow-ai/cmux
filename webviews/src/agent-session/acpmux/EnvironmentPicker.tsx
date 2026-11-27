@@ -43,6 +43,8 @@ import {
   useMachineRefresh,
   autoCloudCapLabels,
 } from "./environmentPickerModel";
+import { Button } from "../../ui/Button";
+import { Tooltip } from "../../ui/Tooltip";
 import { WithFacts } from "./chips/FactsHoverCard";
 import { AutoIcon } from "./AutoWhere";
 import { autoPlaceForDigit } from "./autoCloud";
@@ -1301,9 +1303,11 @@ export function EnvironmentPicker({
               </span>
             )}
             {ready && environment.loadWarning && (
-              <span className="acpmux-env-state" data-warning="true" title={environment.loadWarning}>
-                {environment.loadWarning}
-              </span>
+              <Tooltip label={environment.loadWarning}>
+                <span className="acpmux-env-state" data-warning="true">
+                  {environment.loadWarning}
+                </span>
+              </Tooltip>
             )}
             {/* Other devices marks every machine a chat can start on with the online dot. */}
             {ready &&
@@ -1334,22 +1338,23 @@ export function EnvironmentPicker({
   };
 
   const button = (
-    <button
-      ref={trigger}
-      type="button"
-      className="acpmux-location-button ui-ghost ui-ghost-sm"
-      aria-label={label + ": " + value}
-      {...press}
-      onPointerDown={(event) => {
-        altAtPress.current = event.altKey;
-        press.onPointerDown(event);
-      }}
-    >
-      {face}
-    </button>
+    <Tooltip label={label + ": " + value} shortcut={shortcut}>
+      <Button
+        bare
+        ref={trigger}
+        className="acpmux-location-button ui-ghost ui-ghost-sm"
+        aria-label={label + ": " + value}
+        {...press}
+        onPointerDown={(event) => {
+          altAtPress.current = event.altKey;
+          press.onPointerDown(event);
+        }}
+      >
+        {face}
+      </Button>
+    </Tooltip>
   );
   return (
-    // tooltip-allow: at or under a 460 px pane the environment shows only its icon; the tooltip names it
     <span
       ref={control}
       className="acpmux-location-picker"
@@ -1358,8 +1363,6 @@ export function EnvironmentPicker({
       data-face={faceStyle}
       data-rows={listRows}
       data-machine-card={card ? "" : undefined}
-      title={label + ": " + value}
-      data-tooltip-shortcut={shortcut}
     >
       {moreActions.length > 0 ? (
         <ContextMenu items={moreActions} className="acpmux-env-more" targets="own">
@@ -1403,8 +1406,8 @@ export function EnvironmentPicker({
         {card?.header}
         {listRows === "run" && <div className="acpmux-env-heading">{t("composer.whereRun")}</div>}
         {list !== "main" && (
-          <button
-            type="button"
+          <Button
+            bare
             className="acpmux-env-heading acpmux-env-back"
             data-action="back"
             aria-label={t("composer.listBack")}
@@ -1424,15 +1427,15 @@ export function EnvironmentPicker({
                     ? "composer.machinesList"
                     : "composer.auto",
             )}
-          </button>
+          </Button>
         )}
         {lastSeenStyle === "banner" && firstKeptRow !== undefined && lastSeenWhen !== undefined && (
           <output className="acpmux-env-heading acpmux-env-last-seen-banner">
             <span className="acpmux-env-last-seen-text">
               {retrying ? t("composer.envCloudChecking") : t("composer.envCloudUnreachable", { when: lastSeenWhen })}
             </span>
-            <button
-              type="button"
+            <Button
+              bare
               className="acpmux-env-last-seen-retry ui-ghost ui-ghost-sm"
               disabled={retrying}
               aria-busy={retrying || undefined}
@@ -1444,7 +1447,7 @@ export function EnvironmentPicker({
               }}
             >
               {t("composer.envCloudRetry")}
-            </button>
+            </Button>
           </output>
         )}
         <Combobox

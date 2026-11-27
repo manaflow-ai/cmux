@@ -5,7 +5,7 @@
 // whose High load warning is a status on its own row. Leo, 2026-11-27: "just bring it back to this mac
 // / autocloud / cloud / remote or whatever it was before". The board opens the shipped picker itself on
 // mount (the capture takes no clicks).
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { componentEntry } from "../../gallery/format";
 import { AutoIcon } from "./AutoWhere";
 import { EnvironmentPicker } from "./EnvironmentPicker";
@@ -47,7 +47,11 @@ function Board({ open, busy = false }: Props) {
   }, [open]);
   const name = auto ? "AutoCloud" : "This Mac";
   return (
-    <div ref={root} className="nt-composer where-menu-board" style={{ paddingTop: 360 }}>
+    <div
+      ref={root}
+      className="nt-composer where-menu-board"
+      style={{ "--board-top": "360px", paddingTop: "var(--board-top)" } as CSSProperties}
+    >
       <EnvironmentPicker
         label="Environment"
         menu={`WhereMenu-${open}-${String(busy)}`}

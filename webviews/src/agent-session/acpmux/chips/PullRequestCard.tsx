@@ -10,6 +10,7 @@
 // Nothing here calls GitHub. The host answers from its own cache and reads gh in the background
 // (pullRequestStore.ts, AgentReplyPullRequests); when its answer is not fresh the card prints how
 // old it is instead of an error.
+import { Button } from "../../../ui/Button";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { FILE_KINDS, kindTotals, type FileKind } from "../../../fileKinds";
 import { usePaneLanguage, useT, type PaneLanguage, type StringKey, type Translate } from "../i18n";
@@ -408,8 +409,8 @@ function Checks({ read, t, conflicts }: { read: LinkedPullRequest | undefined; t
         </span>
         {failing > 0 ? (
           hasDrawer ? (
-            <button
-              type="button"
+            <Button
+              bare
               className="acpmux-pr-card__checksToggle"
               data-kind={allOnBase ? "base" : "fail"}
               aria-expanded={expanded}
@@ -426,7 +427,7 @@ function Checks({ read, t, conflicts }: { read: LinkedPullRequest | undefined; t
               <span className="acpmux-pr-card__checksChev" aria-hidden="true">
                 <Icon name="disclosure.expanded" size={12} />
               </span>
-            </button>
+            </Button>
           ) : (
             <span className="acpmux-pr-card__checksBadge" data-kind={allOnBase ? "base" : "fail"}>
               <span className="acpmux-pr-card__failed" aria-hidden="true">
@@ -441,8 +442,8 @@ function Checks({ read, t, conflicts }: { read: LinkedPullRequest | undefined; t
           )
         ) : pending > 0 ? (
           hasDrawer ? (
-            <button
-              type="button"
+            <Button
+              bare
               className="acpmux-pr-card__checksToggle"
               data-kind="pending"
               aria-expanded={expanded}
@@ -454,7 +455,7 @@ function Checks({ read, t, conflicts }: { read: LinkedPullRequest | undefined; t
               <span className="acpmux-pr-card__checksChev" aria-hidden="true">
                 <Icon name="disclosure.expanded" size={12} />
               </span>
-            </button>
+            </Button>
           ) : (
             <span className="acpmux-pr-card__pending" aria-hidden="true">
               <span className="acpmux-pr-card__count">{pending}</span> {t("prCard.checksRunning")}

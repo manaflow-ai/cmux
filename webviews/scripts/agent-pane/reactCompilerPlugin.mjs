@@ -124,11 +124,7 @@ function cachedCompile(compile, mode, srcRoot, cacheDir) {
   } catch {}
   const salt = JSON.stringify(["bundle-v1", mode, REACT_COMPILER_TARGET, lock]);
   return async (file, relative, source, onCompiled, onDiagnostic) => {
-    const key = crypto
-      .createHash("sha256")
-      .update(`${salt}\0${relative}\0`)
-      .update(source)
-      .digest("hex");
+    const key = crypto.createHash("sha256").update(`${salt}\0${relative}\0`).update(source).digest("hex");
     const entry = path.join(cacheDir, "bundle", key.slice(0, 2), `${key}.json`);
     try {
       const hit = JSON.parse(fs.readFileSync(entry, "utf8"));

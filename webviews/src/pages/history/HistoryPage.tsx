@@ -20,6 +20,7 @@ import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/rea
 import { useStableHandlers } from "../../agent-session/acpmux/stableHandlers";
 import { PageMenu, type PageMenuItem } from "../shared/PageMenu";
 import type { Strings } from "../shared/i18n";
+import { Button } from "../../ui/Button";
 import { ConnectionChip } from "../../ui/ConnectionChip";
 import { useConnectionQuiet } from "../../ui/lasting";
 import { isEditableTarget, type KeyStyle, type ShortcutLayout } from "../../ui/keyStyle";
@@ -289,40 +290,44 @@ export function HistoryPage({
           <h1 className="history-title">{t("page.title")}</h1>
           <div className="history-title-actions">
             {/* How far back the list reaches; the search's `since:` and `before:` narrow it further. */}
-            <button
+            <Button
+              bare
               type="button"
               className={`history-menu-button history-range${snap.range === "all" ? "" : " selected"}`}
               // A range or a search typed while the link is down is kept; the reconnect's read uses it.
               onClick={(event) => headerMenu(event, rangeItems())}
             >
               {t(RangeLabel[snap.range])}
-            </button>
+            </Button>
             {/* Whose page visits show (RFD 0125 D5): the person's by default, agents' one choice away. */}
-            <button
+            <Button
+              bare
               type="button"
               className={`history-menu-button history-actor${snap.actor === "mine" ? "" : " selected"}`}
               onClick={(event) => headerMenu(event, actorItems())}
             >
               {t(ActorLabel[snap.actor])}
-            </button>
-            <button
+            </Button>
+            <Button
+              bare
               type="button"
               className="history-menu-button"
               onClick={(event) => headerMenu(event, groupingItems())}
             >
               {t("page.groupBy")}
-            </button>
-            <button type="button" className="history-menu-button" onClick={() => void store.showCookieBackups()}>
+            </Button>
+            <Button bare className="history-menu-button" onClick={() => void store.showCookieBackups()}>
               {t("page.cookieBackups")}
-            </button>
-            <button
+            </Button>
+            <Button
+              bare
               type="button"
               className="history-menu-button"
               disabled={snap.connection === "disconnected"}
               onClick={(event) => headerMenu(event, clearItems())}
             >
               {t("page.clear")}
-            </button>
+            </Button>
           </div>
         </div>
         <input

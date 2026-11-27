@@ -60,7 +60,7 @@
 {"file":"agent-session/acpmux/ComposerPickers.tsx","kind":"raw-button","count":3}
 {"file":"agent-session/acpmux/ComposerPickers.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/ComposerQueue.tsx","kind":"raw-button","count":6}
-{"file":"agent-session/acpmux/ComposerQueue.tsx","kind":"title-attribute","count":4}
+{"file":"agent-session/acpmux/ComposerQueue.tsx","kind":"title-attribute","count":3}
 {"file":"agent-session/acpmux/composerStates.css","kind":"own-shell","count":3}
 {"file":"agent-session/acpmux/ComposerStatusDot.tsx","kind":"raw-button","count":4}
 {"file":"agent-session/acpmux/ComposerStatusDot.tsx","kind":"title-attribute","count":3}
@@ -135,7 +135,7 @@
 {"file":"agent-session/acpmux/conversation/PresetApprovalCard.tsx","kind":"title-attribute","count":2}
 {"file":"agent-session/acpmux/conversation/PromptCoachCard.tsx","kind":"raw-button","count":2}
 {"file":"agent-session/acpmux/conversation/PromptCoachCard.tsx","kind":"title-attribute","count":2}
-{"file":"agent-session/acpmux/conversation/PromptDelivery.tsx","kind":"raw-button","count":6}
+{"file":"agent-session/acpmux/conversation/PromptDelivery.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/conversation/QueuedMessageCard.tsx","kind":"raw-button","count":2}
 {"file":"agent-session/acpmux/conversation/QueuedMessageCard.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/conversation/ReactionMark.tsx","kind":"title-attribute","count":1}
@@ -186,8 +186,7 @@
 {"file":"agent-session/acpmux/conversation/WebSources.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/conversation/WhoElseCard.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/conversation/WorkingFor.tsx","kind":"raw-button","count":2}
-{"file":"agent-session/acpmux/customizeBar/CustomizeBar.tsx","kind":"raw-button","count":6}
-{"file":"agent-session/acpmux/customizeBar/CustomizeBar.tsx","kind":"title-attribute","count":1}
+{"file":"agent-session/acpmux/customizeBar/CustomizeBar.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/DictationButton.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/DictationListening.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/DictationNotice.tsx","kind":"raw-button","count":2}
@@ -197,8 +196,6 @@
 {"file":"agent-session/acpmux/dotGrid/AgentDotGrid.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/EffortPicker.tsx","kind":"title-attribute","count":2}
 {"file":"agent-session/acpmux/ElevationCard.tsx","kind":"raw-button","count":2}
-{"file":"agent-session/acpmux/EnvironmentPicker.tsx","kind":"raw-button","count":2}
-{"file":"agent-session/acpmux/EnvironmentPicker.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/ExtraFolderList.tsx","kind":"raw-button","count":1}
 {"file":"agent-session/acpmux/ExtraFolderList.tsx","kind":"title-attribute","count":1}
 {"file":"agent-session/acpmux/FastToggle.tsx","kind":"raw-button","count":2}
@@ -528,8 +525,6 @@
 {"file":"pages/apps/AppsPage.tsx","kind":"raw-button","count":1}
 {"file":"pages/apps/CloudFeature.tsx","kind":"raw-button","count":1}
 {"file":"pages/apps/CommunityView.tsx","kind":"raw-button","count":5}
-{"file":"pages/apps/CustomizeFeature.tsx","kind":"raw-button","count":3}
-{"file":"pages/apps/CustomizeFeature.tsx","kind":"title-attribute","count":1}
 {"file":"pages/apps/FeaturesView.tsx","kind":"raw-button","count":1}
 {"file":"pages/apps/InstalledView.tsx","kind":"raw-button","count":5}
 {"file":"pages/apps/items.tsx","kind":"raw-button","count":10}
@@ -604,7 +599,7 @@
 {"file":"pages/group-editor/GroupEditor.tsx","kind":"raw-button","count":2}
 {"file":"pages/group-editor/GroupEditor.tsx","kind":"title-attribute","count":3}
 {"file":"pages/history/CookieBackups.tsx","kind":"raw-button","count":2}
-{"file":"pages/history/HistoryPage.tsx","kind":"raw-button","count":5}
+{"file":"pages/history/HistoryPage.tsx","kind":"raw-button","count":1}
 {"file":"pages/history/styles.css","kind":"own-shell","count":1}
 {"file":"pages/home-channels/AttachmentViews.tsx","kind":"raw-button","count":7}
 {"file":"pages/home-channels/AttachmentViews.tsx","kind":"title-attribute","count":2}
@@ -671,7 +666,7 @@
 {"file":"pages/settings/components/ChiefsCard.tsx","kind":"raw-button","count":2}
 {"file":"pages/settings/components/ContextMenusCard.tsx","kind":"raw-button","count":3}
 {"file":"pages/settings/components/ContextMenusCard.tsx","kind":"title-attribute","count":1}
-{"file":"pages/settings/components/CustomizeChecklist.tsx","kind":"raw-button","count":3}
+{"file":"pages/settings/components/CustomizeChecklist.tsx","kind":"raw-button","count":1}
 {"file":"pages/settings/components/CustomizeChecklist.tsx","kind":"title-attribute","count":2}
 {"file":"pages/settings/components/DensityCard.tsx","kind":"raw-button","count":1}
 {"file":"pages/settings/components/FontPreview.tsx","kind":"raw-button","count":1}

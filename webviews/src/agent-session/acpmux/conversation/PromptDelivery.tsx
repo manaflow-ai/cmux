@@ -8,6 +8,8 @@
 // Remove or Details (Leo, 2026-11-24: "these 4 buttons are really bad tho. i dont ever want to see
 // these, it should just fix itself automtically"). Only a refusal that would come back the same
 // says why, in one short line under its prompts.
+import { Button } from "../../../ui/Button";
+import { Tooltip } from "../../../ui/Tooltip";
 import { useContext, useEffect, useState } from "react";
 import { PROMPT_PENDING_AFTER_MS, type AcpmuxRow, type PromptDelivery } from "../model";
 import { useT, type StringKey } from "../i18n";
@@ -96,15 +98,16 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
             {t("trust.trustFolder")}
           </button>
         )}
-        <button
-          type="button"
-          className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
-          aria-label={t("composer.queueEditMessage")}
-          title={t("composer.queueEditMessage")}
-          onClick={takeBack}
-        >
-          <Close size={ROW_ICON} />
-        </button>
+        <Tooltip label={t("composer.queueEditMessage")}>
+          <Button
+            bare
+            className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
+            aria-label={t("composer.queueEditMessage")}
+            onClick={takeBack}
+          >
+            <Close size={ROW_ICON} />
+          </Button>
+        </Tooltip>
       </div>
     </div>
   );
