@@ -137,5 +137,54 @@ class PoolCheckoutReuse(unittest.TestCase):
             self.assertEqual(fx.files(), {"a/x", "c/z"})
 
 
+UNSET = "git config --unset-all extensions.worktreeConfig || true"
+
+
+def reusing_steps() -> list[tuple[str, str, dict]]:
+    """(label, run, env) for every pool checkout step that reuses the last job's .git and turns sparse mode on."""
+    found = []
+    for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+        text = path.read_text(encoding="utf-8")
+        if "reuse=reused" not in text:
+            continue
+        for job_name, job in (yaml.load(text, Loader=yaml.BaseLoader).get("jobs") or {}).items():
+            for step in job.get("steps") or []:
+                run = step.get("run") or ""
+                if "reuse=reused" in run and "git config core.sparseCheckout true" in run:
+                    found.append((f"{path.name}:{job_name}:{step.get('name')}", run, step.get("env") or {}))
+    return found
+
+
+class WorktreeConfigLeftBehind(unittest.TestCase):
+    """`git sparse-checkout disable` (another job on the VM) writes core.sparseCheckout=false to config.worktree, which
+    overrides the core.sparseCheckout=true a reusing step writes to .git/config, so its reapply is fatal ("must be in a
+    sparse-checkout"). cmux-next path routing had no unset: 25 of its 577 runs on 2026-11-27 19:15-21:15Z failed so
+    (job 140737599081), each a false red that set off a rerun."""
+
+    def test_every_reusing_pool_checkout_drops_worktree_config(self) -> None:
+        cases = reusing_steps()
+        self.assertTrue(any(label.startswith("cmux-next.yml:path_route:") for label, _, _ in cases), cases)
+        missing = [label for label, run, _ in cases
+                   if UNSET not in run[run.index("reuse=reused"):run.index("if [[ $reuse == fresh ]]")]]
+        self.assertEqual(missing, [])
+
+    def test_path_route_reapplies_on_a_git_another_job_left_with_worktree_config(self) -> None:
+        label, run, env = next(c for c in reusing_steps() if c[0].startswith("cmux-next.yml:path_route:"))
+        fx = Reused()
+        self.addCleanup(fx.close)
+        git(fx.ws, "sparse-checkout", "set", "--no-cone", "/a/")
+        git(fx.ws, "sparse-checkout", "disable")
+        self.assertEqual(git(fx.ws, "config", "--get", "extensions.worktreeConfig").strip(), "true")
+        lines = run.splitlines()
+        unset = next(l.strip() for l in lines if l.strip() == UNSET)
+        start = next(i for i, l in enumerate(lines) if l.strip() == "git config core.sparseCheckout true")
+        end = next(i for i, l in enumerate(lines) if TAIL_END in l)
+        # The step's tail, with its sparse list (the step's SPARSE plus the SHA's pattern file, absent here) as /b/ and /c/.
+        tail = "\n".join([unset] + [l.strip() for l in lines[start:end + 1]])
+        result = fx.run(tail, "/b/\n/c/")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(fx.files(), {"b/y", "c/z"})
+
+
 if __name__ == "__main__":
     unittest.main()
