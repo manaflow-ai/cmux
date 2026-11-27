@@ -62,6 +62,9 @@
     // The empty box keeps "Type / for commands", the app's own text (and cmux's).
     "agentPane.composerPlaceholder": "",
     "sidebar.showNewWorkspaceChooser": true,
+    // The profile button opens the account menu, as the Claude Code app's: who is signed in, the teams to switch
+    // between, then Settings, Usage, Help and Sign Out.
+    "sidebar.profileMenu.style": "account",
     "tabs.newTabApp": "local/customize",
 
     // Feature sets (one line per feature look).
