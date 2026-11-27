@@ -166,7 +166,8 @@ fn gathering_a_long_turn_stays_cheap() {
         "artifactCard: {} records, {per_record:?} a record, card {bytes} bytes",
         records.len()
     );
-    assert_eq!(msg["artifacts"]["diff"]["files"], 40);
+    // Every fourth record is an edit, of `f{i % 40}`: ten distinct files.
+    assert_eq!(msg["artifacts"]["diff"]["files"], 10);
     assert_eq!(msg["artifacts"]["testRuns"], 500);
     assert_eq!(msg["artifacts"]["tests"].as_array().map(Vec::len), Some(MAX_ITEMS));
     assert!(per_record < std::time::Duration::from_millis(5), "{per_record:?} a record");
