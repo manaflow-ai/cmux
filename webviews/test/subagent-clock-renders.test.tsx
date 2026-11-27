@@ -42,6 +42,8 @@ const { SubagentsSection } = await import("../src/agent-session/acpmux/session-i
 const { BackgroundTasksPanel } = await import("../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel");
 const { SubagentClockContext } = await import("../src/agent-session/acpmux/subagents/subagentGroupModel");
 const { IDLE_AFTER_MS } = await import("../src/agent-session/acpmux/subagents/idle");
+const { WorkingFor } = await import("../src/agent-session/acpmux/conversation/WorkingFor");
+const { WorkingCountsContext } = await import("../src/agent-session/acpmux/conversation/workingForModel");
 const host = window.document.getElementById("root")!;
 let root: Root;
 const waiting = new Set<string>();
@@ -176,6 +178,48 @@ test("Session Info changes state at the idle deadline and an unknown ended run h
       jest.advanceTimersByTime(2_010);
     });
     expect(host.querySelector(".acpmux-agent-line")?.getAttribute("data-status")).toBe("idle");
+  } finally {
+    act(() => root.render(null));
+    jest.useRealTimers();
+  }
+});
+
+test("working clocks leave named commands, disclosures and preview reads unchanged", () => {
+  jest.useFakeTimers();
+  try {
+    const at = Date.now() - 5_000;
+    let previewReads = 0;
+    const preview = { url: "http://localhost:5173", open: noop };
+    const counts = {
+      get preview() {
+        previewReads++;
+        return preview;
+      },
+    };
+    const row: AcpmuxRow = { id: "working", version: 1, kind: "working", at, doing: "bun test", doingCommand: true };
+    act(() =>
+      root.render(
+        <WorkingCountsContext value={counts}>
+          <div data-named>
+            <WorkingFor row={row} onToggle={noop} />
+          </div>
+          <div data-generic>
+            <WorkingFor row={{ ...row, doing: undefined, doingCommand: false }} onToggle={noop} />
+          </div>
+        </WorkingCountsContext>,
+      ),
+    );
+    expect(host.querySelector("[data-named] .cv-worked__time")?.textContent).toBe("5s");
+    const initialReads = previewReads;
+    const counter = rowRenders();
+    counter.begin(host, ".cv-worked__doing, .cv-worked__open, .cv-worked__glyph");
+    act(() => {
+      jest.advanceTimersByTime(1_000);
+    });
+    expect(counter.end()).toEqual({ rerendered: 0, wasted: 0, added: 0, maxRenders: 0 });
+    expect(previewReads).toBe(initialReads);
+    expect(host.querySelector("[data-named] .cv-worked__time")?.textContent).toBe("6s");
+    expect(host.querySelector("[data-generic] .cv-worked__hug")?.textContent).toContain("Working for 6s");
   } finally {
     act(() => root.render(null));
     jest.useRealTimers();
