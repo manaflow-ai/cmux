@@ -70,7 +70,7 @@ concurrency:
 
 jobs:
   changes:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
@@ -182,7 +182,7 @@ jobs:
         run: echo "repos=$CI_OWNED_HEAD_REPOS" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 2
 
@@ -1145,7 +1145,6 @@ jobs:
           route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
           bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
-          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           permission-actions: read
           permission-pull-requests: read
           skip-token-revoke: true
@@ -1219,7 +1218,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 2
           persist-credentials: false
@@ -1271,7 +1270,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # The merge commit and its first parent, the trusted base.
           fetch-depth: 2
@@ -1341,7 +1340,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           # HEAD^1 is the diff base lint-feature-flags uses to fail an expired
@@ -1385,7 +1384,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout repository
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
@@ -1448,7 +1447,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout wrapper and test inputs
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           # The lane reads only these: about 750 files instead of the whole
@@ -1792,7 +1791,7 @@ jobs:
           exit 1
 
       - name: Checkout the request script
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci/ui_tests_dispatch.py
@@ -1849,7 +1848,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout the exact pull-request head
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 1
@@ -1928,7 +1927,7 @@ jobs:
       # it, and fails when a selected job never ran (scripts/ci/gate_verdict.py;
       # tests/test_ci_gate_absent_signal.py walks the needs graph).
       - name: Check out the gate verdict
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -2098,7 +2097,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout the readout script
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci/ci_timing_readout.py
