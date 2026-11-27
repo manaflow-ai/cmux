@@ -14,6 +14,10 @@ workspace = true
 # In-place hot-patching under `dx serve --hot-patch` (src/hotpatch.rs). Debug
 # builds only; no shipped build enables it.
 hotpatch = ["dep:subsecond"]
+# Compile the `identify` reply (cmux-tui's src/bin/cmux-tui/identify.rs) into this crate,
+# for processes whose entry point is not the cmux-tui binary, which installs it:
+# tests, the Windows cmux_tui.dll, the hot-patch binary (server/identify_reply.rs).
+bundled-identify = []
 
 [dependencies]
 cmux-transport-rewrite.workspace = true
@@ -123,6 +127,8 @@ cmux-app-manifest.workspace = true
 cmux-app-host.workspace = true
 
 [dev-dependencies]
+# The integration tests serve `identify` with no cmux-tui binary (server/identify_reply.rs).
+cmux-tui-core = { path = ".", features = ["bundled-identify"] }
 # Seeded-secret tests: gated clients send to a local capture server (server/forum_routed.rs).
 cmux-egress = { workspace = true, features = ["capture"] }
 # The headless Mac output to iPhone paint row (server/output_to_paint_tests.rs).
