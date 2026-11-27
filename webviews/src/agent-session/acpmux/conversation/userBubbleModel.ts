@@ -23,6 +23,7 @@ export function recordedFiles(
 /// "WHAT THE FUCK IS THIS SITUATION MAN WITH THESE ATTACHMENTS!?"). Its path, or undefined.
 export function linkedImagePath(file: {
   kind?: string;
+  name?: string;
   mimeType?: string;
   companionOf?: number;
   text?: string;
@@ -31,7 +32,8 @@ export function linkedImagePath(file: {
 }): string | undefined {
   // `link`: the pane's own row before acpmux's echo keeps the composer's link chip as it was sent.
   if (file.kind !== undefined && file.kind !== "file" && file.kind !== "link") return undefined;
-  if (file.companionOf !== undefined || file.text) return undefined;
+  // A folder's link chip names it with a trailing `/` (attachments.ts `linkAttachment`): `cache.png/`.
+  if (file.companionOf !== undefined || file.text || file.name?.endsWith("/")) return undefined;
   if (file.mimeType && file.mimeType !== "application/octet-stream" && !file.mimeType.startsWith("image/"))
     return undefined;
   const path = file.path ?? attachmentPath(file.uri);
