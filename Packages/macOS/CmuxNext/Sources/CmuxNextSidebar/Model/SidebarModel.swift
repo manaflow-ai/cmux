@@ -332,6 +332,9 @@ public final class SidebarModel {
 
     /// Receives every intent. When nil, `send` applies intents locally.
     @ObservationIgnored public var onIntent: ((SidebarIntent) -> Void)?
+    /// The machines a workspace row's chat can move to (its Move to… targets; none for a row that is no lone chat),
+    /// from the App: a drag of that one row may drop on them, which moves the chat (`SidebarChatMove`).
+    @ObservationIgnored public var chatMoveTargets: ((WorkspaceID) -> [MachineID])?
     /// A workspace's pin state and the Pin/Unpin Workspace action, from the
     /// App (layout tiles or the daemon flag): an expanded row's hover pin.
     @ObservationIgnored public var workspacePin: (isPinned: (WorkspaceID) -> Bool, toggle: (WorkspaceID) -> Void)?

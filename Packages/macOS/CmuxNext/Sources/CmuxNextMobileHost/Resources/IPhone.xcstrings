@@ -400,127 +400,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces. No cmux on your iPhone yet? It’s in beta: get it through TestFlight."
+            "value": "Install cmux on your iPhone and sign in with this Mac's account; this Mac appears under Workspaces. It's in beta on TestFlight."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ثبّت cmux على جهاز iPhone وسجّل الدخول بالحساب نفسه المستخدم على هذا الـ Mac. سيظهر هذا الـ Mac بعدها ضمن مساحات العمل. ليس لديك cmux على iPhone بعد؟ إنه في مرحلة تجريبية: احصل عليه عبر TestFlight."
+            "state": "translated",
+            "value": "ثبّت cmux على iPhone وسجّل الدخول بحساب جهاز Mac هذا؛ يظهر جهاز Mac هذا ضمن مساحات العمل. إنه تجريبي على TestFlight."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Instalirajte cmux na iPhone i prijavite se istim računom kao na ovom Macu. Ovaj Mac će se zatim pojaviti pod Radnim prostorima. Još nemate cmux na iPhoneu? U beta je fazi: preuzmite ga putem TestFlighta."
+            "state": "translated",
+            "value": "Instaliraj cmux na iPhone i prijavi se računom ovog Maca; ovaj Mac se pojavljuje pod Radnim prostorima. U beta je fazi na TestFlightu."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Installer cmux på din iPhone, og log ind med samme konto som på denne Mac. Denne Mac vises derefter under Arbejdsområder. Har du ikke cmux på din iPhone endnu? Den er i beta: hent den via TestFlight."
+            "state": "translated",
+            "value": "Installer cmux på din iPhone, og log ind med denne Macs konto; denne Mac vises under Arbejdsområder. Den er i beta på TestFlight."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Installiere cmux auf deinem iPhone und melde dich mit demselben Konto wie auf diesem Mac an. Dieser Mac erscheint dann unter „Arbeitsbereiche“. Noch kein cmux auf deinem iPhone? Es ist in der Beta: Hol es dir über TestFlight."
+            "state": "translated",
+            "value": "Installiere cmux auf deinem iPhone und melde dich mit dem Konto dieses Macs an; dieser Mac erscheint unter Workspaces. Es ist als Beta auf TestFlight."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Instala cmux en tu iPhone e inicia sesión con la misma cuenta que en este Mac. Este Mac aparecerá en Espacios de trabajo. ¿Aún no tienes cmux en tu iPhone? Está en beta: consíguelo con TestFlight."
+            "state": "translated",
+            "value": "Instala cmux en tu iPhone e inicia sesión con la cuenta de este Mac; este Mac aparece en Espacios de trabajo. Está en beta en TestFlight."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Installez cmux sur votre iPhone et connectez-vous avec le même compte que sur ce Mac. Ce Mac apparaît alors dans Espaces de travail. Pas encore cmux sur votre iPhone ? Il est en bêta : obtenez-le via TestFlight."
+            "state": "translated",
+            "value": "Installez cmux sur votre iPhone et connectez-vous avec le compte de ce Mac ; ce Mac apparaît sous Espaces de travail. C’est en bêta sur TestFlight."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Installa cmux sul tuo iPhone e accedi con lo stesso account di questo Mac. Questo Mac comparirà quindi in Spazi di lavoro. Non hai ancora cmux sul tuo iPhone? È in beta: scaricalo con TestFlight."
+            "state": "translated",
+            "value": "Installa cmux sull’iPhone e accedi con l’account di questo Mac; questo Mac compare in Spazi di lavoro. È in beta su TestFlight."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "iPhone に cmux をインストールし、この Mac と同じアカウントでサインインしてください。すると、この Mac がワークスペースに表示されます。iPhoneにまだcmuxがない場合は、ベータ版をTestFlightで入手できます。"
+            "state": "translated",
+            "value": "iPhone に cmux をインストールし、この Mac と同じアカウントでサインインしてください。この Mac がワークスペースに表示されます。TestFlight でベータ版を配布中です。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ដំឡើង cmux នៅលើ iPhone របស់អ្នក ហើយចូលដោយប្រើគណនីដូចគ្នានឹង Mac នេះ។ បន្ទាប់មក Mac នេះនឹងបង្ហាញនៅក្រោមកន្លែងធ្វើការ។ មិនទាន់មាន cmux នៅលើ iPhone របស់អ្នកទេ? វាស្ថិតក្នុងកំណែ beta៖ ទាញយកវាតាម TestFlight។"
+            "state": "translated",
+            "value": "ដំឡើង cmux នៅលើ iPhone ហើយចូលដោយគណនីរបស់ Mac នេះ; Mac នេះបង្ហាញនៅក្រោម កន្លែងធ្វើការ។ វាជាបែតានៅលើ TestFlight។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "iPhone에 cmux를 설치하고 이 Mac과 같은 계정으로 로그인하세요. 그러면 이 Mac이 작업 공간에 표시됩니다. iPhone에 아직 cmux가 없나요? 베타 버전을 TestFlight로 받으세요."
+            "state": "translated",
+            "value": "iPhone에 cmux를 설치하고 이 Mac의 계정으로 로그인하세요. 이 Mac이 워크스페이스에 나타납니다. TestFlight에서 베타로 제공됩니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Installer cmux på iPhonen og logg på med samme konto som på denne Macen. Denne Macen vises da under Arbeidsområder. Har du ikke cmux på iPhonen ennå? Den er i beta: hent den via TestFlight."
+            "state": "translated",
+            "value": "Installer cmux på iPhonen og logg på med denne Macens konto; denne Macen vises under Arbeidsområder. Den er i beta på TestFlight."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zainstaluj cmux na iPhonie i zaloguj się tym samym kontem co na tym Macu. Ten Mac pojawi się wtedy w obszarach roboczych. Nie masz jeszcze cmux na iPhonie? Jest w wersji beta: pobierz go przez TestFlight."
+            "state": "translated",
+            "value": "Zainstaluj cmux na iPhonie i zaloguj się kontem tego Maca; ten Mac pojawi się w Przestrzeniach roboczych. Jest w becie w TestFlight."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Instale o cmux no seu iPhone e entre com a mesma conta deste Mac. Este Mac aparecerá em Espaços de trabalho. Ainda não tem o cmux no iPhone? Ele está em beta: baixe pelo TestFlight."
+            "state": "translated",
+            "value": "Instale o cmux no iPhone e entre com a conta deste Mac; este Mac aparece em Espaços de trabalho. Está em beta no TestFlight."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Установите cmux на iPhone и войдите в ту же учётную запись, что и на этом Mac. После этого Mac появится в разделе «Рабочие пространства». Ещё нет cmux на iPhone? Он в бета-версии: установите его через TestFlight."
+            "state": "translated",
+            "value": "Установите cmux на iPhone и войдите с учётной записью этого Mac; этот Mac появится в разделе «Рабочие пространства». Бета-версия доступна в TestFlight."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ติดตั้ง cmux บน iPhone แล้วลงชื่อเข้าใช้ด้วยบัญชีเดียวกับ Mac เครื่องนี้ จากนั้น Mac เครื่องนี้จะแสดงในพื้นที่ทำงาน ยังไม่มี cmux บน iPhone ใช่ไหม แอปอยู่ในช่วงเบต้า: ดาวน์โหลดผ่าน TestFlight"
+            "state": "translated",
+            "value": "ติดตั้ง cmux บน iPhone แล้วลงชื่อเข้าด้วยบัญชีของ Mac เครื่องนี้ Mac เครื่องนี้จะแสดงใต้ เวิร์กสเปซ อยู่ในช่วงเบต้าบน TestFlight"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "iPhone’unuza cmux’i yükleyin ve bu Mac’teki hesapla giriş yapın. Bu Mac daha sonra Çalışma Alanları altında görünür. iPhone’unda henüz cmux yok mu? Beta aşamasında: TestFlight üzerinden edin."
+            "state": "translated",
+            "value": "iPhone'unuza cmux yükleyin ve bu Mac'in hesabıyla oturum açın; bu Mac Çalışma Alanları altında görünür. TestFlight'ta beta sürümündedir."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Установіть cmux на iPhone і увійдіть у той самий обліковий запис, що й на цьому Mac. Після цього Mac з’явиться в розділі «Робочі простори». Ще немає cmux на iPhone? Він у бета-версії: установіть його через TestFlight."
+            "state": "translated",
+            "value": "Установіть cmux на iPhone і ввійдіть з обліковим записом цього Mac; цей Mac з’явиться в розділі «Робочі простори». Бета-версія доступна в TestFlight."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cài cmux trên iPhone và đăng nhập bằng cùng tài khoản với máy Mac này. Sau đó máy Mac này sẽ xuất hiện trong mục Không gian làm việc. Chưa có cmux trên iPhone? Ứng dụng đang ở bản beta: tải qua TestFlight."
+            "state": "translated",
+            "value": "Cài cmux trên iPhone và đăng nhập bằng tài khoản của máy Mac này; máy Mac này sẽ hiện trong Không gian làm việc. Ứng dụng đang beta trên TestFlight."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "在 iPhone 上安装 cmux，并使用与这台 Mac 相同的账户登录。之后这台 Mac 会显示在“工作区”中。iPhone 上还没有 cmux？它正在测试中：可通过 TestFlight 获取。"
+            "state": "translated",
+            "value": "在 iPhone 上安装 cmux，并用这台 Mac 的账户登录；这台 Mac 会出现在“工作区”下。它在 TestFlight 上提供测试版。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "在 iPhone 上安裝 cmux，並使用與這台 Mac 相同的帳號登入。之後這台 Mac 會顯示在「工作區」中。iPhone 上還沒有 cmux？它正在測試中：可透過 TestFlight 取得。"
+            "state": "translated",
+            "value": "在 iPhone 上安裝 cmux，並用這台 Mac 的帳號登入；這台 Mac 會出現在「工作區」下。它在 TestFlight 上提供測試版。"
           }
         }
       }
@@ -4854,127 +4854,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Another account already registered this Mac's iPhone connection, and a new one could not be set up. Turn iPhone connections off and on to try again."
+            "value": "Another account claimed this Mac's iPhone link. Toggle iPhone connections to retry."
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "سجّل حساب آخر اتصال iPhone لهذا الـ Mac بالفعل، وتعذّر إعداد اتصال جديد. أوقف اتصالات iPhone ثم شغّلها للمحاولة مرة أخرى."
+            "state": "translated",
+            "value": "حجز حساب آخر رابط iPhone لجهاز Mac هذا. بدّل اتصالات iPhone لإعادة المحاولة."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Drugi račun je već registrovao iPhone vezu ovog Maca, a nova se nije mogla postaviti. Isključite i uključite iPhone veze da pokušate ponovo."
+            "state": "translated",
+            "value": "Drugi račun je preuzeo iPhone vezu ovog Maca. Isključi i uključi iPhone veze za ponovni pokušaj."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "En anden konto har allerede registreret denne Macs iPhone-forbindelse, og en ny kunne ikke oprettes. Slå iPhone-forbindelser fra og til for at prøve igen."
+            "state": "translated",
+            "value": "En anden konto har taget denne Macs iPhone-forbindelse. Slå iPhone-forbindelser fra og til for at prøve igen."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ein anderes Konto hat die iPhone-Verbindung dieses Macs bereits registriert, und eine neue konnte nicht eingerichtet werden. Schalte iPhone-Verbindungen aus und wieder ein, um es erneut zu versuchen."
+            "state": "translated",
+            "value": "Ein anderes Konto belegt die iPhone-Verbindung dieses Macs. Schalte iPhone-Verbindungen aus und ein, um es erneut zu versuchen."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Otra cuenta ya registró la conexión con iPhone de este Mac y no se pudo configurar una nueva. Desactiva y activa las conexiones con iPhone para volver a intentarlo."
+            "state": "translated",
+            "value": "Otra cuenta tomó la conexión de iPhone de este Mac. Desactiva y activa las conexiones de iPhone para reintentar."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Un autre compte a déjà enregistré la connexion iPhone de ce Mac, et une nouvelle n’a pas pu être configurée. Désactivez puis réactivez les connexions iPhone pour réessayer."
+            "state": "translated",
+            "value": "Un autre compte a pris la connexion iPhone de ce Mac. Désactivez puis réactivez les connexions iPhone pour réessayer."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Un altro account ha già registrato la connessione iPhone di questo Mac e non è stato possibile configurarne una nuova. Disattiva e riattiva le connessioni iPhone per riprovare."
+            "state": "translated",
+            "value": "Un altro account ha preso il collegamento iPhone di questo Mac. Disattiva e riattiva le connessioni iPhone per riprovare."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "この Mac の iPhone 接続はすでに別のアカウントで登録されており、新しい接続を設定できませんでした。iPhone 接続をオフにしてからオンにして、もう一度お試しください。"
+            "state": "translated",
+            "value": "別のアカウントがこの Mac の iPhone 接続を使用しています。iPhone 接続をオフにしてからオンにして再試行してください。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "គណនីផ្សេងបានចុះឈ្មោះការភ្ជាប់ iPhone របស់ Mac នេះរួចហើយ ហើយមិនអាចរៀបចំការភ្ជាប់ថ្មីបានទេ។ បិទ ហើយបើកការភ្ជាប់ iPhone ឡើងវិញ ដើម្បីសាកល្បងម្តងទៀត។"
+            "state": "translated",
+            "value": "គណនីផ្សេងបានយកតំណ iPhone របស់ Mac នេះ។ បិទហើយបើកការតភ្ជាប់ iPhone ដើម្បីព្យាយាមម្ដងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "다른 계정이 이미 이 Mac의 iPhone 연결을 등록했으며 새 연결을 설정할 수 없었습니다. iPhone 연결을 껐다가 다시 켜서 다시 시도하세요."
+            "state": "translated",
+            "value": "다른 계정이 이 Mac의 iPhone 연결을 차지했습니다. iPhone 연결을 껐다 켜서 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "En annen konto har allerede registrert iPhone-tilkoblingen til denne Macen, og en ny kunne ikke settes opp. Slå iPhone-tilkoblinger av og på for å prøve igjen."
+            "state": "translated",
+            "value": "En annen konto har tatt denne Macens iPhone-kobling. Slå iPhone-tilkoblinger av og på for å prøve igjen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Inne konto już zarejestrowało połączenie iPhone’a z tym Makiem, a nowego nie udało się skonfigurować. Wyłącz i włącz połączenia z iPhone’em, aby spróbować ponownie."
+            "state": "translated",
+            "value": "Inne konto zajęło połączenie iPhone’a tego Maca. Wyłącz i włącz połączenia z iPhone’em, aby spróbować ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Outra conta já registrou a conexão com iPhone deste Mac, e não foi possível configurar uma nova. Desative e ative as conexões com iPhone para tentar de novo."
+            "state": "translated",
+            "value": "Outra conta assumiu a conexão de iPhone deste Mac. Desative e ative as conexões de iPhone para tentar de novo."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Другая учётная запись уже зарегистрировала подключение iPhone к этому Mac, а новое настроить не удалось. Выключите и снова включите подключения iPhone, чтобы повторить попытку."
+            "state": "translated",
+            "value": "Другая учётная запись заняла подключение iPhone этого Mac. Выключите и включите подключения iPhone, чтобы повторить."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "บัญชีอื่นได้ลงทะเบียนการเชื่อมต่อ iPhone ของ Mac เครื่องนี้ไว้แล้ว และไม่สามารถตั้งค่าการเชื่อมต่อใหม่ได้ ปิดแล้วเปิดการเชื่อมต่อ iPhone เพื่อลองอีกครั้ง"
+            "state": "translated",
+            "value": "บัญชีอื่นใช้ลิงก์ iPhone ของ Mac เครื่องนี้แล้ว ปิดแล้วเปิดการเชื่อมต่อ iPhone เพื่อลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Başka bir hesap bu Mac’in iPhone bağlantısını zaten kaydetti ve yenisi kurulamadı. Yeniden denemek için iPhone bağlantılarını kapatıp açın."
+            "state": "translated",
+            "value": "Başka bir hesap bu Mac'in iPhone bağlantısını aldı. Yeniden denemek için iPhone bağlantılarını kapatıp açın."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Інший обліковий запис уже зареєстрував підключення iPhone до цього Mac, а нове налаштувати не вдалося. Вимкніть і знову ввімкніть підключення iPhone, щоб спробувати ще раз."
+            "state": "translated",
+            "value": "Інший обліковий запис зайняв підключення iPhone цього Mac. Вимкніть і ввімкніть підключення iPhone, щоб повторити."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Một tài khoản khác đã đăng ký kết nối iPhone của máy Mac này và không thể thiết lập kết nối mới. Tắt rồi bật lại kết nối iPhone để thử lại."
+            "state": "translated",
+            "value": "Một tài khoản khác đã chiếm liên kết iPhone của máy Mac này. Hãy tắt rồi bật kết nối iPhone để thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "另一个账户已注册此 Mac 的 iPhone 连接，且无法设置新的连接。请关闭再打开 iPhone 连接以重试。"
+            "state": "translated",
+            "value": "另一个账户占用了这台 Mac 的 iPhone 连接。关闭再打开 iPhone 连接以重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "另一個帳號已註冊這台 Mac 的 iPhone 連線，且無法設定新的連線。請關閉再開啟 iPhone 連線以重試。"
+            "state": "translated",
+            "value": "另一個帳號佔用了這台 Mac 的 iPhone 連線。關閉再開啟 iPhone 連線以重試。"
           }
         }
       }
