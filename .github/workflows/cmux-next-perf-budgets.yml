@@ -45,8 +45,8 @@ name: cmux-next perf cron
 # Artifact names carry the run id (and a Linux part's name), not the attempt (overwrite on upload), so "Re-run
 # failed jobs" works: a re-run report job reads the plan's and the parts' artifacts from the first attempt.
 #
-# The measure job runs only on its own gateway label, vars.CI_PERF_CRON_GATEWAY, never the required
-# compile's CI_COMPILE_CHECK_GATEWAY: a gateway job holds its runner for the whole part (up to 53
+# The Linux measure client remains enabled by vars.CI_PERF_CRON_GATEWAY, independently of the required
+# compile's CI_COMPILE_CHECK_GATEWAY. Previously a gateway job held a Mac runner for the whole part (up to 53
 # minutes for STRESS), and on 2026-10-22 an advisory gateway job held 13 of the 19 runners serving that pool
 # while 71 required app compiles queued (fleet-test-compile.yml). Unset (it is unset on 2026-10-23), the
 # plan records every Mac part as not run (the measurement is incomplete: it is neither the last good run nor
@@ -413,7 +413,8 @@ jobs:
     needs: plan
     # Its own gateway label only (see the top of this file); unset, this job is skipped.
     if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_PERF_CRON_GATEWAY (cmux#54437)
+    # The client waits on Linux; native work stays on the fleet worker.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     permissions:
       contents: read
     # The plan sizes both timeouts from the part's run_seconds (perf-cron.py part_minutes: fleet-check, the
@@ -427,9 +428,15 @@ jobs:
           submodules: false
           fetch-depth: 1
           sparse-checkout: |
+            .github/actions/fleet-client
             scripts/cmux-next/perf-cron.py
             .gitmodules
           sparse-checkout-cone-mode: false
+
+      - uses: ./.github/actions/fleet-client
+        with:
+          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
+
 
       - name: Run one part on its host when the fleet is idle
         id: part
