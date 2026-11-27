@@ -56,6 +56,16 @@ pub fn enabled_from(value: Option<&str>) -> bool {
     matches!(value.map(str::trim), Some("1" | "true"))
 }
 
+/// Off by default: on a switch to the datagram path, the stream batches still queued for the
+/// reliable stream are dropped (their scrolled-off rows go on as `viewport-history`), so the
+/// `viewport-path` line no longer waits behind stale repaints on a slow or shared link.
+pub const SKIP_SUPERSEDED_ENV: &str = "CMUX_MOBILE_VIEWPORT_SKIP_SUPERSEDED";
+
+/// Whether [`SKIP_SUPERSEDED_ENV`] is on in this process.
+pub fn skip_superseded() -> bool {
+    enabled_from(std::env::var(SKIP_SUPERSEDED_ENV).ok().as_deref())
+}
+
 /// Binds [`PORT`] on a WireGuard session when the gate is on; `None` when it is off.
 pub async fn bind_wg(net: &WgNet) -> io::Result<Option<WgDatagramSocket>> {
     if !enabled() {
@@ -1015,7 +1025,9 @@ impl DatagramIo for WgDatagramSocket {
 #[derive(Debug, PartialEq, Eq)]
 pub enum StreamOut {
     /// A PTY batch for the stream, as it came (the stream path is on); `batch` counts from 1.
-    Output { batch: u64, bytes: Vec<u8> },
+    /// `rows`: the rows it pushed out of the viewport, when [`skip_superseded`] is on (the
+    /// stream may then drop the batch for them once a switch to the datagrams follows it).
+    Output { batch: u64, bytes: Vec<u8>, rows: Option<Vec<u8>> },
     /// Rows that left the viewport while the datagrams carry the screen.
     History(Vec<u8>),
     /// The path changed; the batches after this go the new way.
@@ -1072,6 +1084,7 @@ async fn drive<I: DatagramIo>(
     drain: Duration,
 ) -> io::Result<ViewportSync> {
     let mut closed_at: Option<Instant> = None;
+    let skip = skip_superseded();
     loop {
         let now = Instant::now();
         if let Some(peer) = peer {
@@ -1113,14 +1126,24 @@ async fn drive<I: DatagramIo>(
             batch = output.recv(), if closed_at.is_none() => match batch {
                 Some(bytes) => {
                     let path = sync.path();
-                    if let Sink::Selected(stream) = &sink
+                    let rows = if let Sink::Selected(stream) = &sink
                         && path == Path::Stream
                     {
-                        // Out before the model takes it: the stream path waits on nothing.
                         let batch = sync.batches() + 1;
-                        let _ = stream.send(StreamOut::Output { batch, bytes: bytes.clone() }).await;
-                    }
-                    let rows = sync.feed(&bytes);
+                        if skip {
+                            // The model first: the batch carries its scrolled-off rows.
+                            let rows = sync.feed(&bytes);
+                            let out = StreamOut::Output { batch, bytes, rows: Some(rows.clone()) };
+                            let _ = stream.send(out).await;
+                            rows
+                        } else {
+                            // Out before the model takes it: the stream path waits on nothing.
+                            let _ = stream.send(StreamOut::Output { batch, bytes: bytes.clone(), rows: None }).await;
+                            sync.feed(&bytes)
+                        }
+                    } else {
+                        sync.feed(&bytes)
+                    };
                     match &sink {
                         Sink::History(Some(history)) if !rows.is_empty() => {
                             let _ = history.send(rows).await;
