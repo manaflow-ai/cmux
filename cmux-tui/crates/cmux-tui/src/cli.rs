@@ -29,6 +29,8 @@ mod agents;
 #[cfg(unix)]
 mod agents_doctor;
 #[cfg(unix)]
+mod api_tokens;
+#[cfg(unix)]
 mod app;
 pub(crate) mod app_action_help;
 #[cfg(unix)]
@@ -183,6 +185,8 @@ mod mcp_servers;
 #[cfg(unix)]
 mod ps_gc;
 #[cfg(unix)]
+mod repo_archive;
+#[cfg(unix)]
 mod repo_hold;
 #[cfg(unix)]
 mod repo_mcp_lazy;
@@ -208,6 +212,8 @@ mod vm;
 mod vm_bootstrap;
 #[cfg(unix)]
 mod vm_cleanup;
+#[cfg(unix)]
+mod vm_exec_input;
 #[cfg(unix)]
 mod vm_gcp;
 #[cfg(unix)]
@@ -330,6 +336,8 @@ mod setup;
 mod share_cli;
 mod shorthand;
 #[cfg(unix)]
+mod sign_clones;
+#[cfg(unix)]
 mod skew;
 #[cfg(unix)]
 mod stale_app;
@@ -355,6 +363,8 @@ mod theme_scheme;
 mod tmux_attach;
 // `cmux wallpaper`: the window picture and how it switches by itself.
 mod topology_help;
+#[cfg(unix)]
+mod usage_insights;
 #[cfg(unix)]
 mod video;
 #[cfg(unix)]
@@ -671,6 +681,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "teleport",
     "evacuate",
     "video",
+    "usage",
 ];
 
 /// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
@@ -1112,6 +1123,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| mcp_servers::run_if_requested(args))
         .or_else(|| automation::run_if_requested(args))
         .or_else(|| billing::run_if_requested(args))
+        .or_else(|| api_tokens::run_if_requested(args))
         .or_else(|| auth_token::run_if_requested(args))
         .or_else(|| auth_token::whoami_if_requested(args))
         .or_else(|| live_code::run_if_requested(args))
@@ -1148,6 +1160,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| machine_join::run_if_requested(args))
         .or_else(|| machine_doctor::run_if_requested(args))
         .or_else(|| safe_mode::run_if_requested(args))
+        .or_else(|| sign_clones::run_if_requested(args))
         .or_else(|| ps_gc::run_if_requested(args))
         .or_else(|| apps_list::run_if_requested(args))
         .or_else(|| apps_place::run_if_requested(args))
@@ -1158,6 +1171,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| pack::run_if_requested(args))
         .or_else(|| video::run_if_requested(args))
+        .or_else(|| usage_insights::run_if_requested(args))
         .or_else(|| wallpaper::run_if_requested(args))
         .or_else(|| change_background::run_if_requested(args))
         .or_else(|| customize::run_if_requested(args))

@@ -315,7 +315,7 @@ struct TerminalComposer: View {
                 } else {
                     Image(systemName: failed ? "exclamationmark" : "arrow.up")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(failed ? AnyShapeStyle(Color.white) : canSend ? AnyShapeStyle(Color.cmuxMobileOnSend) : AnyShapeStyle(Color(uiColor: .tertiaryLabel)))
+                        .foregroundStyle(failed ? AnyShapeStyle(CmuxMobileTheme.standard.colors.onAccent.color) : canSend ? AnyShapeStyle(Color.cmuxMobileOnSend) : AnyShapeStyle(Color(uiColor: .tertiaryLabel)))
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
@@ -323,7 +323,7 @@ struct TerminalComposer: View {
             // (`Color.cmuxMobileSend`, never a white disk). Tinted glass washed
             // it out to a pale disc (Leo, 2026-11-22: "the send button is
             // themed/coloured slightly oddly"). Empty (disabled): the faint fill.
-            .composerControlCircle(failed ? AnyShapeStyle(Color.red)
+            .composerControlCircle(failed ? AnyShapeStyle(CmuxMobileTheme.standard.colors.danger.color)
                                    : canSend || model.isUploading ? AnyShapeStyle(Color.cmuxMobileSend)
                                    : AnyShapeStyle(Color.cmuxMobileFill))
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
@@ -361,9 +361,15 @@ struct TerminalComposer: View {
                                              string: board.hasStrings ? board.string : nil)
         switch route {
         case .image:
-            guard let image = board.image, let data = image.pngData() else { return }
-            model.addAttachment(ComposerAttachment(kind: .image, name: "Pasted image \(Self.stamp()).png",
-                                                   thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
+            let stamp = Self.stamp()
+            for (index, item) in board.composerImages().enumerated() {
+                let ext = UTType(mimeType: item.mimeType)?.preferredFilenameExtension ?? "png"
+                let suffix = index == 0 ? "" : " \(index + 1)"
+                let thumbnail = UIImage(data: item.data)?.preparingThumbnail(of: CGSize(width: 168, height: 168))
+                model.addAttachment(ComposerAttachment(
+                    kind: .image, name: "Pasted image \(stamp)\(suffix).\(ext)",
+                    thumbnail: thumbnail, data: item.data))
+            }
         case .file(let url):
             Task { await loadFiles([url]) }
         case .text(let text):
@@ -529,10 +535,11 @@ struct AttachmentStrip: View {
                                 // Opaque, ringed badge (as in Messages): readable over any thumbnail.
                                 Image(systemName: "xmark")
                                     .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(CmuxMobileTheme.standard.colors.label.color)
                                     .frame(width: 22, height: 22)
-                                    // Glass, darkened so it reads over any thumbnail (as in Messages).
-                                    .glassEffect(.regular.tint(.black.opacity(0.5)).interactive(), in: .circle)
+                                    // The theme's floating glass (its surface at the transient veil),
+                                    // so it reads over any thumbnail and follows the Mac's theme.
+                                    .cmuxMobileFloatingGlass(in: .circle, interactive: true)
                                     .frame(width: 44, height: 44)
                                     .contentShape(.rect)
                             }
