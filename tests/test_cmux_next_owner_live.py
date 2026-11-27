@@ -301,6 +301,55 @@ class Route(unittest.TestCase):
         self.assertEqual([(to, area) for to, area, *_ in sent], [("host-a/ios-terminal-first-composer", "iOS tabs")])
 
 
+    def test_a_branch_cut_before_an_owners_change_routes_by_the_merged_row(self):
+        """2026-11-27: cmux#60006 dropped `design-*motion*` from Layout motion upstream, yet lane/mobile-bandwidth-steps
+        (cut before it) still sent its push to the transcript-motion lane: the hook read the row from the lane's own
+        copy. The merged table answers who holds an area now."""
+        guardrails = _load("cmux_next_guardrails_owner_upstream_test", "scripts/cmux-next/guardrails.py")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        repo = Path(tmp.name)
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def git(*args):
+            return subprocess.run(["git", *args], cwd=repo, env=env, check=True, capture_output=True,
+                                  text=True).stdout.strip()
+
+        def commit(path, text, message):
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (repo / path).write_text(text)
+            git("add", "-A")
+            git("commit", "-qm", message)
+
+        table = "| Area | Paths | Owner | Read first |\n|---|---|---|---|\n| Layout motion | `Layout/` | lanes {} | x |\n"
+        git("init", "-q", "-b", "main")
+        commit("plans/cmux-next/OWNERS.md", table.format("motion-*,design-*motion*"), "base")
+        base = git("rev-parse", "HEAD")
+        git("checkout", "-qb", "lane/mobile")
+        commit("Layout/Pane.swift", "pane\n", "own change")
+        head = git("rev-parse", "HEAD")
+        git("checkout", "-q", "main")
+        commit("plans/cmux-next/OWNERS.md", table.format("motion-*"), "owners fix (#60006)")
+        git("update-ref", guardrails.UPSTREAM, "HEAD")
+        git("checkout", "-q", "lane/mobile")
+        own = types.SimpleNamespace(base=base, head=head, before=())
+        rows = [row("host-a/design-transcript-motion", "running"), row("host-b/motion-springs", "running")]
+        sent = []
+        with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
+            guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+        self.assertEqual([(to, area) for to, area, *_ in sent], [("host-b/motion-springs", "Layout motion")])
+        # A push that itself rewrites the row means its own table.
+        prev = git("rev-parse", "HEAD")
+        commit("plans/cmux-next/OWNERS.md", table.format("mobile-*"), "claim the row")
+        commit("Layout/Pane.swift", "pane 2\n", "own change 2")
+        own = types.SimpleNamespace(base=prev, head=git("rev-parse", "HEAD"), before=())
+        rows.append(row("host-c/mobile-bandwidth-steps", "running"))
+        sent.clear()
+        with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
+            guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+        self.assertEqual([to for to, *_ in sent], ["host-c/mobile-bandwidth-steps"])
+
     def test_a_github_update_branch_merge_carries_no_owned_files(self):
         """2026-11-26: lane/updater-restore-adopt at a2b890f491d4 told the sidebar lane it changed
         CmuxNextSidebar/Views/WorkspaceRowView+TrailingCloud.swift. Its head's parent c60664bd4f1f was GitHub's
