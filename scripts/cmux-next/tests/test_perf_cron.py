@@ -3,7 +3,7 @@
 what counts as a regression, and when the one issue opens, comments and closes. Pure functions only (no
 network, no git). Run: python3 -I scripts/cmux-next/tests/test_perf_cron.py (not a CI job, Lawrence 2026-10-23,
 since lifted)."""
-import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, subprocess, tempfile, time, unittest, urllib.error, urllib.request
+import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, subprocess, tempfile, threading, time, unittest, urllib.error, urllib.request
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -4065,21 +4065,24 @@ class NoHostTipTests(OneRunRule):
     def test_the_walk_reaches_a_tree_68_commits_back_inside_its_budget(self):
         """Run 45986071929 (2026-11-27 10:56Z): one lookup at a time, about 15 s each on the plan's runner, the 300 s
         budget covered 7 commits while 59f9c21ea35e, 68 commits back, had a tree; the tip fell back to the tree-less
-        870585ff2904 and its Mac parts (tabs among them) waited again. Here a lookup takes 0.2 s and the budget 4 s:
-        one at a time the walk reaches 20 commits, TREE_LOOKUP_PARALLEL at a time it reaches 68."""
+        870585ff2904 and its Mac parts (tabs among them) waited again. Here each wave of lookups takes 15 s of the
+        plan's clock, and the barrier holds every lookup until TREE_LOOKUP_PARALLEL are in flight (one at a time,
+        it breaks)."""
         commits = [f"{i:040x}" for i in range(1, 301)]
         published = commits[67]
+        clock = [1000.0]
+        wave = threading.Barrier(cron.TREE_LOOKUP_PARALLEL, action=lambda: clock.__setitem__(0, clock[0] + 15),
+                                 timeout=60)
 
         def git(*args, check=True):
             return "\n".join(commits) if args[0] == "rev-list" else commits[0]
 
         def tree_published(sha, deadline=None):
-            time.sleep(0.2)
+            wave.wait()
             return sha == published
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "plan.out")
             with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.object(cron, "git", git), \
-                    mock.patch.object(cron, "TREE_LOOKUP_SECONDS", 4), \
                     mock.patch.object(cron, "measure_version", lambda sha: 3), \
                     mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
                     mock.patch.object(cron, "tree_published", tree_published), \
@@ -4088,13 +4091,14 @@ class NoHostTipTests(OneRunRule):
                     mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
                     mock.patch.object(cron, "supported_parts_at", lambda sha: ["motion", "web-ui"]), \
                     mock.patch.object(cron, "gh_request", lambda *a, **k: {}), \
+                    mock.patch.object(cron.time, "monotonic", lambda: clock[0]), \
                     contextlib.redirect_stdout(io.StringIO()) as said:
                 cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False,
                                                  output=out))
-            plan = dict(line.split("=", 1) for line in open(out).read().splitlines())
             state = json.load(open(os.path.join(d, "state.json")))
-        self.assertEqual(state["current"]["sha"], published, said.getvalue()[-3000:])
+        self.assertEqual(state["current"]["sha"], published, said.getvalue()[-2000:])
         self.assertNotIn("tree_wait_since", state["current"])
+        self.assertLess(clock[0] - 1000, cron.TREE_LOOKUP_SECONDS)
 
     def test_first_parent_since_stays_in_the_checkout(self):
         """The plan's 300-commit partial clone: the last tip, older than the checkout, is never fetched (one fetch per
