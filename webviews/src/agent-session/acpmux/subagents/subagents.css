@@ -916,7 +916,9 @@ button.cv-subagent > :last-child {
   margin: 0;
   pointer-events: auto;
   width: var(--acpmux-tray-stop-width);
-  height: var(--ui-row-height, 28px);
+  /* The panel button's box (--acpmux-tray-control), so Stop's own highlight matches it; never
+     taller than its row, so a short row's Stop never reaches into the next line. */
+  height: min(var(--acpmux-tray-control), var(--ui-row-height, 28px));
 }
 /* Under the header's divider the first line keeps the tray's 2px gap, as the last keeps its rim's. */
 .acpmux-running-tray__head + .acpmux-running-tray__fold > .acpmux-running-tray__list {
@@ -1115,13 +1117,22 @@ button.cv-subagent > :last-child {
   }
 }
 /* Quiet at rest. The line is the tray's main control, so its wash covers the whole line
-   while that control is hovered; Stop has no box of its own. A disabled main button has
-   no line hover. */
+   while that control is hovered. A disabled main button has no line hover. */
 .acpmux-running-tray .acpmux-summary-row,
-.acpmux-running-tray .acpmux-summary-link:is(:hover, :active),
-.acpmux-running-tray :is(.acpmux-session-info-stop, .cv-subagent__stop):is(:hover, :active) {
+.acpmux-running-tray .acpmux-summary-link:is(:hover, :active) {
   border-radius: 0;
   background: none;
+}
+/* Stop lights its own box, as the header's panel button does, never the line around it (Leo,
+   2026-10-27: a highlight covers only its control). */
+.acpmux-running-tray :is(.acpmux-session-info-stop, .cv-subagent__stop) {
+  border-radius: var(--ds-radius-control, 6px);
+}
+.acpmux-running-tray :is(.acpmux-session-info-stop, .cv-subagent__stop):hover:not(:disabled) {
+  background: var(--ds-surface-hover);
+}
+.acpmux-running-tray :is(.acpmux-session-info-stop, .cv-subagent__stop):active:not(:disabled) {
+  background: var(--ds-color-pressed);
 }
 /* A running line's Stop is the filled rounded square of Claude Desktop's running rows, now that the
    line draws no spinner and no "Running" word (Leo, 2026-11-03: "do we really need a running symbol
@@ -1144,8 +1155,11 @@ button.cv-subagent > :last-child {
   background: var(--ds-surface-inset);
 }
 /* A line whose context menu is open (its Stop) stays lit while the pointer is in the menu. */
-/* Resume (its own control in Stop's column) lights itself, not the line around it. */
-.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):not(:has(.cv-subagent-resume-control:hover)):hover,
+/* Resume and Stop (their own controls in Stop's column) light themselves, not the line around them. */
+.acpmux-running-tray
+  .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):not(
+    :has(:is(.cv-subagent-resume-control, .cv-subagent__stop, .acpmux-session-info-stop):hover)
+  ):hover,
 .acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button[data-popup-open]),
 .acpmux-running-tray .acpmux-running-tray__head:hover {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
