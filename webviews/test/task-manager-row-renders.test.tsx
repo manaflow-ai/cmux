@@ -9,14 +9,31 @@ import { act, createElement } from "react";
 import type { Root } from "react-dom/client";
 import { teardownDom } from "./support/domTeardown";
 import type { TaskManagerRow, TaskManagerSnapshot } from "../src/pages/task-manager/types";
+import { WINDOW_FROM } from "../src/pages/task-manager/TaskManagerPage";
 
 const scope = globalThis as Record<string, unknown>;
 let saved: Array<readonly [string, boolean, unknown]> = [];
 let root: Root | undefined;
 let host: HTMLElement;
+const VIEWPORT = 768;
 
 beforeAll(() => {
   const { window } = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
+  // No layout in jsdom: the table's scroll box is VIEWPORT tall, the size the virtualizer reads.
+  for (const side of ["offsetHeight", "clientHeight"] as const) {
+    Object.defineProperty(window.HTMLElement.prototype, side, {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.classList.contains("tm-table-scroll") ? VIEWPORT : 0;
+      },
+    });
+  }
+  Object.defineProperty(window.HTMLElement.prototype, "offsetWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains("tm-table-scroll") ? 900 : 0;
+    },
+  });
   const replacements: Record<string, unknown> = {
     window,
     document: window.document,
@@ -83,7 +100,11 @@ const mouseDown = (element: Element) =>
 for (const n of [100, 1_000]) {
   test(`a sample that changes one of ${n} processes renders one row`, async () => {
     const store = await mount(n);
-    expect(rowRenders.count("Row")).toBe(n);
+    // From WINDOW_FROM processes the table draws only the rows near the viewport (the rest wait
+    // in a spacer), so the first render draws those rows, not all n.
+    expect(rowRenders.count("Row")).toBe(host.querySelectorAll(".tm-row").length);
+    if (n < WINDOW_FROM) expect(host.querySelectorAll(".tm-row").length).toBe(n);
+    else expect(host.querySelectorAll(".tm-row").length).toBeLessThan(100);
     rowRenders.reset();
     act(() => store.replace(sample(2, n, 7)));
     expect(rowRenders.count("Row")).toBe(1);
