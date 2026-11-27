@@ -370,15 +370,18 @@ nonisolated enum AgentPaneVideoInfo {
         return CGImageDestinationFinalize(destination) ? output as Data : nil
     }
 
-    /// `image` drawn at most `side` on its longest side; the image itself when it is already that small.
+    /// `image` drawn at most `side` on its longest side; the image itself when it is already that small. A picture
+    /// with clear pixels keeps them (a page over a glass or picture ground): drawn without alpha they came out black
+    /// on a hover card, where the card's own fill should show.
     static func scaled(_ image: CGImage, toFit side: Int) -> CGImage? {
         let longest = max(image.width, image.height)
         guard longest > side else { return image }
         let scale = Double(side) / Double(longest)
         let width = max(1, Int((Double(image.width) * scale).rounded())), height = max(1, Int((Double(image.height) * scale).rounded()))
+        let opaque = [CGImageAlphaInfo.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo)
         guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                       space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+                                      bitmapInfo: (opaque ? CGImageAlphaInfo.noneSkipLast : .premultipliedLast).rawValue) else { return nil }
         context.interpolationQuality = .high
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         return context.makeImage()
