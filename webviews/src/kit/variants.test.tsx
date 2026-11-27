@@ -73,7 +73,7 @@ test("a Row passes its ref and other props to the row element, and marks a detai
 
 test("an xs Pill is a size like the others", () => {
   expect(html(<Pill size="xs">3</Pill>)).toBe('<span class="kit-pill" data-tone="neutral" data-size="xs">3</span>');
-  const css = readFileSync(join(import.meta.dir, "kit.css"), "utf8");
+  const css = readFileSync(join(import.meta.dir, "pill.css"), "utf8");
   const xs = css.slice(css.indexOf('.kit-pill[data-size="xs"] {'));
   for (const value of ["var(--grid-icon-box)", "var(--grid-base)", "var(--text-detail)", "currentColor 14%"])
     expect(xs.slice(0, 600)).toContain(value);

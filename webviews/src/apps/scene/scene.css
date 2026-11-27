@@ -1,3 +1,5 @@
+@import "../../kit/pill.css";
+
 /* App scenes use the same inks, rows and icon column as the Session Info section around them. */
 .cmux-app-scene-root {
   min-width: 0;

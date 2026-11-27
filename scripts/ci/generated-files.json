@@ -53,7 +53,7 @@
       "id": "extension-sdk-instrument-sheet",
       "generator": "cmux-tui/crates/cmux-extension-sdk/typescript/tools/gen-instrument.ts",
       "outputs": ["cmux-tui/crates/cmux-extension-sdk/typescript/src/generated/instrument.ts"],
-      "inputs": ["webviews/src/kit/version.ts", "webviews/src/kit/kit.css", "webviews/src/pages/shared/desktop.css"],
+      "inputs": ["webviews/src/kit/version.ts", "webviews/src/kit/kit.css", "webviews/src/kit/pill.css", "webviews/src/pages/shared/desktop.css"],
       "status": "build"
     },
     {
