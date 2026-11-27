@@ -6,7 +6,7 @@ import table from "./generated/strings.json";
 import { ChiefWorkPanel, type ChiefWorkPanelProps } from "./ChiefWorkPanel";
 import type { HomeChiefWork } from "./chiefWorkTypes";
 
-type Props = Pick<ChiefWorkPanelProps, "snapshot" | "loading" | "stillTrying">;
+type Props = Pick<ChiefWorkPanelProps, "snapshot" | "loading" | "stillTrying" | "plans">;
 function WorkGallery(props: Props) {
   const [strings] = useState(() => createStrings(table));
   return (
@@ -109,23 +109,20 @@ export default componentEntry<Props>({
     },
     "plans-inline": {
       note: "Plans, inline arm: count and the step in progress under each subagent.",
-      props: { snapshot: planned, loading: false },
-      experiments: { "chief-plans": "inline" },
+      // The component host pins no experiments: the arm goes in as the panel's own `plans` prop.
+      props: { snapshot: planned, loading: false, plans: "inline" },
     },
     "plans-steps": {
       note: "Plans, steps arm: a progress bar, the step in progress and the next one.",
-      props: { snapshot: planned, loading: false },
-      experiments: { "chief-plans": "steps" },
+      props: { snapshot: planned, loading: false, plans: "steps" },
     },
     "plans-section": {
       note: "Plans, plans-first arm: the Chief's plan and each subagent's in one section on top.",
-      props: { snapshot: planned, loading: false },
-      experiments: { "chief-plans": "section" },
+      props: { snapshot: planned, loading: false, plans: "section" },
     },
     "plans-off": {
       note: "Plans off (the default): the same snapshot as before plans.",
-      props: { snapshot: planned, loading: false },
-      experiments: { "chief-plans": "off" },
+      props: { snapshot: planned, loading: false, plans: "off" },
     },
     empty: { props: { snapshot: { agents: [], tasks: [], truncated: false }, loading: false } },
     loading: { props: { loading: true } },
