@@ -1418,7 +1418,12 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(cron.part_for_row("webui.infinite_items.n1000.memory_vs_empty@linux"), "infinite-items")
         self.assertEqual(cron.part_for_row("webui.infinite_items.n10.mb_per_day@linux"), "infinite-items")
         runs = cron.linux_bench_runs("/r", "infinite-items")
-        self.assertEqual(list(runs), ["build", "suite"])  # the build runs first, under its own cap
+        self.assertEqual(list(runs), ["build", "suite", "all-live"])  # the build runs first, under its own cap
+        live, _, _ = runs["all-live"]
+        self.assertIn("--lazy-start=off", live)  # the all-live arm, beside the product (lazy start on) suite
+        self.assertIn("--row-arm=all_live", live)
+        self.assertIn("counts=1000", live)
+        self.assertEqual(cron.part_for_row("webui.infinite_items.all_live.n1000.memory_vs_empty@linux"), "infinite-items")
         self.assertEqual(runs["build"][0], ["bash", "/r/scripts/measure/infinite-items-linux.sh", "build-only"])
         argv, cwd, _ = runs["suite"]
         self.assertEqual(argv[:2], ["bash", "/r/scripts/measure/infinite-items-linux.sh"])
@@ -1432,7 +1437,7 @@ class WebUiTests(unittest.TestCase):
     def test_the_linux_job_cap_covers_every_run_of_the_part(self):
         # 2026-11-17: the fixed 40-minute job cap cancelled infinite-items' build-only run three ticks running, so its
         # job left no result and the part ended yielded_out.
-        self.assertEqual(cron.linux_job_minutes("infinite-items"), 70)
+        self.assertEqual(cron.linux_job_minutes("infinite-items"), 100)  # build, suite, all-live
         self.assertEqual(cron.linux_job_minutes("chat-disk"), 70)
         self.assertEqual(cron.linux_job_minutes("web-ui"), 60)  # the suite\'s shared builds, then its benches
         # web-ui-god's paired rounds build the pane once, stop starting at GOD_PAIRED_DEADLINE_S, the last may run one
@@ -2014,6 +2019,32 @@ class WebUiTests(unittest.TestCase):
             report = json.load(open(os.path.join(out, "report.json")))
         self.assertEqual(report["paired"], rounds)
         self.assertEqual(report["rows"], self.REPORT["rows"])
+
+    def run_two_arms(self, second):
+        first = {"rows": [{"name": "infinite_items.n1000.memory_vs_empty", "p95": 4.31, "unit": "x"}]}
+        runs = {"build": (["true"], "/", {}),
+                "suite": (["python3", "-c", f"import json; print(json.dumps({first!r}))"], "/", {}),
+                "all-live": (["python3", "-c", second], "/", {})}
+        with tempfile.TemporaryDirectory() as out, \
+                mock.patch.object(cron, "linux_bench_runs", lambda root, part: runs), \
+                contextlib.redirect_stdout(io.StringIO()):
+            cron.cmd_run_linux_part(argparse.Namespace(part="infinite-items", out=out, runner_class="ubuntu-24.04"))
+            return [json.load(open(os.path.join(out, n))) for n in ("result.json", "report.json")]
+
+    def test_run_linux_part_keeps_each_arms_rows(self):
+        # infinite-items runs the product arm, then the all-live arm (lazy start off): the second's rows sit beside
+        # the first's (practices gap c155dd8eab85), not in their place.
+        second = {"rows": [{"name": "infinite_items.all_live.n1000.memory_vs_empty", "p95": 12.82, "unit": "x"}]}
+        result, report = self.run_two_arms(f"import json; print(json.dumps({second!r}))")
+        self.assertEqual(result["state"], "done")
+        self.assertEqual([r["name"] for r in report["rows"]],
+                         ["infinite_items.n1000.memory_vs_empty", "infinite_items.all_live.n1000.memory_vs_empty"])
+        self.assertNotIn("incomplete", report)
+        # A failed all-live arm leaves the product arm's rows and a done part, and says so.
+        result, report = self.run_two_arms("import sys; sys.exit(1)")
+        self.assertEqual(result["state"], "done")
+        self.assertEqual([r["name"] for r in report["rows"]], ["infinite_items.n1000.memory_vs_empty"])
+        self.assertEqual(report["incomplete"], ["all-live: no rows (exit 1)"])
 
     def test_terminal_scroll_prepares_ghostty_and_zig_from_the_tip(self):
         """A measured commit whose script predates #50961 has an empty ghostty-next and no Zig: the tip prepares both."""
