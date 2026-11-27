@@ -100,6 +100,9 @@ pub enum Exemption {
     Unanswered,
     Downloading,
     AgentLease,
+    /// The setting only freezes hidden pages: they keep their state and are never discarded on
+    /// their own ([`Setting::discards_automatically`]).
+    KeepsState,
 }
 
 /// How many pages one pass discards and how soon the next pass runs while more are due, so pages
@@ -240,8 +243,18 @@ struct Ranked<'a> {
 /// Under memory pressure, when no page is due, the least valuable page hidden at least
 /// [`Pace::minimum_hidden`] goes anyway, to relieve it. Each pass takes at most
 /// [`Pace::per_pass`] pages and looks again after [`Pace::interval`] while more are waiting.
+///
+/// Without [`Setting::discards_automatically`] no page is due, at any memory pressure: a
+/// discarded page reloads when it wakes, which the person did not ask for.
 pub fn plan(setting: &Setting, pressure: Pressure, candidates: &[Candidate]) -> Plan {
     let mut plan = Plan::default();
+    if setting.is_enabled() && !setting.discards_automatically {
+        for candidate in candidates {
+            let reason = exemption(candidate, setting).unwrap_or(Exemption::KeepsState);
+            plan.exemptions.insert(candidate.key.clone(), reason);
+        }
+        return plan;
+    }
     let base = if pressure == Pressure::Critical { Pressure::Warning } else { pressure };
     let Some(threshold) = threshold(setting, base) else {
         for candidate in candidates {

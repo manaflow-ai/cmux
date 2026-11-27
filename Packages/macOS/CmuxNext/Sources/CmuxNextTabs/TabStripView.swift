@@ -65,7 +65,7 @@ public final class TabStripView: NSView {
         }
     }
     /// The trailing controls' look (`TabTunables.trailingButtons`), applied with the design tokens.
-    public internal(set) var trailingButtons = TabTunables.trailingButtons.value
+    public internal(set) var trailingButtons = TabTunables.effectiveTrailingButtons
     /// The Debug looks the cells last drew (`CellLooks`), for change detection.
     var cellLooks = CellLooks()
     /// The pane-type ⌄ shows: the pane asks for it and the trailing look keeps it.
@@ -564,7 +564,7 @@ public final class TabStripView: NSView {
     func applyTokens(animated: Bool) {
         metrics = customMetrics ?? TabStripMetrics()
         if opensNewTabMenuOnPress { metrics.newTabButtonWidth += Metrics.space4 }
-        trailingButtons = TabTunables.trailingButtons.value
+        trailingButtons = TabTunables.effectiveTrailingButtons
         newTabButton.hoverStyle = trailingButtons.hoverStyle
         newTabButton.splitSegment = showsTypeChooser && trailingButtons == .split
         newTabMenuButton.style = trailingButtons
