@@ -33,3 +33,21 @@ button.acpmux-managed-name:hover{text-decoration:underline}
 .acpmux-managed-pill-hide{display:inline-grid;place-items:center;min-width:22px;height:22px;margin-right:var(--ds-space-1);padding:0 var(--ds-space-1);border:0;border-radius:var(--ds-radius-control);background:none;color:var(--agent-muted);font:inherit;cursor:pointer}
 .acpmux-managed-pill-hide:hover{background:var(--acpmux-pill-hover,color-mix(in srgb,var(--agent-text) 11%,transparent));color:var(--agent-text)}
 .acpmux-managed-pill:has(.acpmux-managed-pill-hide:hover){background-image:none}
+/* One roundness for the pill and the composer under it (ManagedBannerDesigns.tsx RoundPair, gallery only;
+   Lawrence 2026-11-26). The card copies New Tab's one card (newtab/screen.css, Lucas #57406): field row, then
+   one bar of +, permissions, model, mic, Send. --inner is the bar's chip corner; the card is concentric with
+   it (inner + the card's 12 px padding); --pill is the pill's corner, from the same rule. */
+.acpmux-managed-round-stage{--inner:var(--ds-radius-control,7px);--pill:var(--inner);--pill-h:32px;display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 18px 18px}
+.acpmux-managed-round-stage[data-round="round-pill"]{--inner:13px;--pill:999px}
+.acpmux-managed-round-stage[data-round="round-soft"]{--inner:10px;--pill:calc(10px + 12px);--pill-h:48px}
+.acpmux-managed-round-stage[data-round="round-tab"]{--pill:calc(var(--ds-radius-control,7px) + 6px);gap:0}
+.acpmux-managed-round-pill{display:inline-flex;align-items:center;max-width:100%;height:var(--pill-h);box-sizing:border-box;border:1px solid var(--agent-border);border-radius:var(--pill);background:var(--agent-input-bg);color:var(--agent-muted);font-size:var(--text-detail)}
+.acpmux-managed-round-stage[data-round="round-tab"] .acpmux-managed-round-pill{align-self:flex-start;margin-inline-start:12px;border-bottom:0;border-end-start-radius:0;border-end-end-radius:0;position:relative;top:1px;z-index:1}
+.acpmux-managed-round-pill .acpmux-managed-pill-hide{border-radius:var(--inner)}
+.acpmux-managed-card{align-self:stretch;box-sizing:border-box;border:1px solid var(--agent-border);border-radius:calc(var(--inner) + 12px);background:var(--agent-input-bg);padding:12px} /* concentric-allow: --inner is the bar chips' corner per variant, so this is chip corner + the 12 px padding */
+.acpmux-managed-card-field{padding:0 2px 12px;color:var(--agent-muted);font-size:var(--text-body)}
+.acpmux-managed-card-bar{display:flex;align-items:center;gap:4px}
+.acpmux-managed-card-spacer{flex:1}
+.acpmux-managed-card-chip{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 7px;border-radius:var(--inner);background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text);font-size:12.5px}
+.acpmux-managed-card-round{display:inline-grid;place-items:center;width:26px;height:26px;border-radius:50%;color:var(--agent-muted)} /* radius-allow: round, as the one card's +, mic and Send are */
+.acpmux-managed-card-send{background:var(--agent-text);color:var(--agent-page-bg)}

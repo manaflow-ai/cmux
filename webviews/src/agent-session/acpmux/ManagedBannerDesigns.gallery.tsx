@@ -25,7 +25,7 @@ export default componentEntry<ManagedBannerDesignsProps>({
   area: "Agent pane",
   experimental: true,
   pane: true,
-  height: 150,
+  height: 200,
   covers: ["agent-session/acpmux/ManagedBannerDesigns.tsx#ManagedBannerDesigns"],
   styles: () => import("./styles.css"),
   load: () => import("./ManagedBannerDesigns").then((module) => module.ManagedBannerDesigns),
@@ -61,6 +61,22 @@ export default componentEntry<ManagedBannerDesignsProps>({
     "pill-mini": {
       note: "Shortest: 'Chief is sending', x.",
       props: { design: "pill-mini", manager: chief },
+    },
+    "round-pill": {
+      note: "1. Round: the pill is a capsule and the bar's chips are capsules (13 px on 26), the card concentric with them (25). On Lucas's one card (+, permissions, model, mic, Send in the input).",
+      props: { design: "round-pill", manager: chief },
+    },
+    "round-soft": {
+      note: "2. Soft: the card's 22 px corner (New Tab's --nt-box-radius, 10 px chips + 12 px padding) on the pill too, 48 px tall so 22 reads as a corner.",
+      props: { design: "round-soft", manager: chief },
+    },
+    "round-chip": {
+      note: "3. Chip: the pill takes the chips' 7 px corner (--ds-radius-control) and reads as one more chip; the card is 19, concentric.",
+      props: { design: "round-chip", manager: chief },
+    },
+    "round-tab": {
+      note: "4. Tab: the pill sits on the card's top edge as a tab (13 px top corners, square foot), one outline with the card.",
+      props: { design: "round-tab", manager: chief },
     },
     sending: {
       note: "Picked, and the one that ships: who is sending messages here, that your typing still sends as you, and Hide.",
