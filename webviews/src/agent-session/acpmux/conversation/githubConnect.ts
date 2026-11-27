@@ -27,7 +27,9 @@ export const GITHUB_CONNECT_CLI = "cmux accounts github-connect";
 /// Why the chat needs a connect: none for this team, one that needs linking again, or one that
 /// does not cover the repository (GitHub's page picks it).
 /// `asked`: the agent asked for the connection itself (acpmux `settings_ask`, settingsAsk below).
-export type GitHubConnectReason = "not-connected" | "needs-reauth" | "not-covered" | "asked";
+/// `permissions-pending`: the cmux GitHub App asked for more (contents: read & write) and this installation has not
+/// accepted yet (the API's `github.permissions_pending`): Sign in with GitHub opens the installation's page to accept.
+export type GitHubConnectReason = "not-connected" | "needs-reauth" | "not-covered" | "permissions-pending" | "asked";
 
 export type GitHubConnectNeed = {
   reason: GitHubConnectReason;
@@ -99,7 +101,8 @@ export function isGitHubRepo(value: unknown): value is string {
   return Boolean(match && match[2] !== "." && match[2] !== "..");
 }
 
-const CODE = /\b(integration\.not_found|github\.not_connected|needs_reauth|policy\.denied)\b/;
+const CODE =
+  /\b(integration\.not_found|github\.not_connected|needs_reauth|policy\.denied|github\.permissions_pending)\b/;
 
 function reasonOf(code: string | undefined): GitHubConnectReason | undefined {
   switch (code) {
@@ -110,6 +113,9 @@ function reasonOf(code: string | undefined): GitHubConnectReason | undefined {
       return "needs-reauth";
     case "policy.denied":
       return "not-covered";
+    case "github.permissions_pending":
+    case "permissions_pending":
+      return "permissions-pending";
     default:
       return undefined;
   }

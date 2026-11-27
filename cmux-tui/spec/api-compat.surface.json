@@ -284,6 +284,31 @@
         "required": true
       }
     },
+    "event:apps-cloud-machine": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"apps-cloud-machine\""
+        ]
+      },
+      "/kind": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "live",
+          "lost",
+          "record"
+        ]
+      },
+      "/machine": {
+        "ty": "string",
+        "required": true
+      },
+      "/record": {
+        "ty": "json"
+      }
+    },
     "event:bell": {
       "/event": {
         "ty": "literal",
@@ -2059,6 +2084,23 @@
       },
       "/personal_revision": {
         "ty": "uint64",
+        "required": true
+      }
+    },
+    "event:phone-open-link": {
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"phone-open-link\""
+        ]
+      },
+      "/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/url": {
+        "ty": "string",
         "required": true
       }
     },
@@ -9633,6 +9675,14 @@
         "ty": "string",
         "nullable": true
       },
+      "/name_source": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "auto",
+          "user"
+        ]
+      },
       "/origin": {
         "ty": "string",
         "nullable": true
@@ -9987,6 +10037,9 @@
     },
     "request:identify": {
       "/machine_metadata": {
+        "ty": "boolean"
+      },
+      "/restore_progress": {
         "ty": "boolean"
       },
       "/revisions": {
@@ -11406,6 +11459,16 @@
         "required": true
       }
     },
+    "request:offer-link-to-phone": {
+      "/terminal_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/url": {
+        "ty": "string",
+        "required": true
+      }
+    },
     "request:page-credential": {
       "/page": {
         "ty": "string",
@@ -12172,6 +12235,9 @@
       },
       "/include/*": {
         "ty": "string"
+      },
+      "/restore_progress": {
+        "ty": "boolean"
       }
     },
     "request:set-attach-visibility": {
@@ -12741,6 +12807,10 @@
       },
       "/icon": {
         "ty": "string",
+        "nullable": true
+      },
+      "/keep_awake": {
+        "ty": "boolean",
         "nullable": true
       },
       "/key": {
@@ -18187,6 +18257,31 @@
         "ty": "string",
         "required": true
       },
+      "/data/restore": {
+        "ty": "object"
+      },
+      "/data/restore/done": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
+      "/data/restore/elapsed_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/restore/last_advance_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/restore/phase": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/restore/total": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
       "/data/screen_device_id": {
         "ty": "string",
         "nullable": true
@@ -20278,6 +20373,12 @@
         "required": true
       }
     },
+    "response:offer-link-to-phone": {
+      "/data/offered": {
+        "ty": "boolean",
+        "required": true
+      }
+    },
     "response:page-credential": {
       "/data": {
         "ty": "json",
@@ -21293,6 +21394,30 @@
       },
       "/data/disk": {
         "ty": "object"
+      },
+      "/data/disk/checkpoints": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/data/disk/checkpoints/budget_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/checkpoints/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/checkpoints/checkpoints": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/checkpoints/largest_bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/disk/checkpoints/over_budget": {
+        "ty": "boolean",
+        "required": true
       },
       "/data/disk/error": {
         "ty": "string",

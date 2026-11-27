@@ -51,7 +51,7 @@ class Workflow(unittest.TestCase):
     def test_the_fleet_job_runs_where_the_mac_compile_does_minus_forks_and_dev_daily(self):
         mac_if = self.mac["if"][len("${{ "):-len(" }}")]
         self.assertTrue(self.fleet["if"].endswith(mac_if + " }}"))
-        for part in ("inputs.dev_daily != true", "vars.CI_SCHEME_COMPILE_FLEET != '0'",
+        for part in ("inputs.dev_daily != true", "(vars.CI_SCHEME_COMPILE_FLEET || '1') != '0'",
                      "github.repository_owner == 'manaflow-ai'",
                      "github.event.pull_request.head.repo.full_name == github.repository"):
             self.assertIn(part, self.fleet["if"])

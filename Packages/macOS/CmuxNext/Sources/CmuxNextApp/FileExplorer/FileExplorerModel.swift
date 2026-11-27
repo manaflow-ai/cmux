@@ -149,7 +149,7 @@ final class FileExplorerModel {
         let resolved = root.resolvingSymlinksInPath().path
         guard let top = await git.run(["rev-parse", "--show-toplevel"], in: root.path), top.status == 0 else { return (resolved, [:], [], nil) }
         let topPath = URL(fileURLWithPath: top.output.trimmingCharacters(in: .whitespacesAndNewlines)).resolvingSymlinksInPath().path
-        guard !topPath.isEmpty, let output = await git.run(["status", "--porcelain=v1", "-z", "--untracked-files=all"], in: topPath),
+        guard !topPath.isEmpty, let output = await git.run(FileGitState.statusArguments(top: topPath), in: topPath),
               output.status == 0 else { return (resolved, [:], [], nil) }
         var states: [String: FileGitState] = [:]
         var folders: Set<String> = []

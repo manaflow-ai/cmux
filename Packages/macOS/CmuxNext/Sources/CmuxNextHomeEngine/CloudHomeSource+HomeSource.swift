@@ -104,7 +104,7 @@ nonisolated extension CloudHomeSource {
             }
             return ConversationPage(conversation: state.joined(conversation) ?? summary,
                                     messages: page.messages.map { CloudHomeMapping.message($0, identity: identity) },
-                                    threads: page.threads.map { HomeCoreMapping.thread($0, author: identity.toHome) })
+                                    threads: page.threads.map { HomeCoreMapping.thread($0, identity: identity) })
         }
     }
 

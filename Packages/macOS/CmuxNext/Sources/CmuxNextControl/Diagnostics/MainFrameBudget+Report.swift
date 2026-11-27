@@ -27,6 +27,7 @@ extension MainFrameBudget {
         return ["frames": JSONValue(stats.frames), "classes": .object(classes), "pending_input": JSONValue(board.pendingInputCount),
                 "input_checks": JSONValue(stats.inputChecks), "max_input_check_ms": .number(Double(stats.maxInputCheckNanos) / 1_000_000),
                 "render_passes": JSONValue(stats.renderPasses), "waited_for_idle_frame": JSONValue(stats.waitedForIdleFrame),
+                "held_for_launch": JSONValue(stats.heldForLaunch), "holds_background_for_launch": .bool(holdsBackgroundForLaunch),
                 "max_render_pass_ms": .number(Double(stats.maxRenderPassNanos) / 1_000_000),
                 "owners": .array(ownerTimes.map(\.report))]
     }

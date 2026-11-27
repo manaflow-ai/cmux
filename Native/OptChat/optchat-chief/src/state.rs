@@ -905,7 +905,7 @@ impl HostState {
                     sub.report = None;
                     sub.report_run = None;
                     sub.stopped = false;
-                    sub.floor = *floor;
+                    sub.floor = sub.floor.max(*floor);
                 }
             }
         }
