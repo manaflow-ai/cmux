@@ -537,6 +537,36 @@ fn daemon_pid(daemon: &Daemon) -> libc::pid_t {
     }
 }
 
+/// Every tab of the daemon, from its workspace tree.
+fn tabs(daemon: &Daemon) -> Vec<Value> {
+    let listed = daemon.rpc(json!({"id": 8, "cmd": "list-workspaces"}));
+    let mut tabs = Vec::new();
+    for workspace in listed["data"]["workspaces"].as_array().into_iter().flatten() {
+        for screen in workspace["screens"].as_array().into_iter().flatten() {
+            for pane in screen["panes"].as_array().into_iter().flatten() {
+                tabs.extend(pane["tabs"].as_array().into_iter().flatten().cloned());
+            }
+        }
+    }
+    tabs
+}
+
+/// The stable id of the tab `surface` names now; a cold start numbers surfaces anew.
+fn tab_resource(daemon: &Daemon, surface: u64) -> String {
+    let tabs = tabs(daemon);
+    let tab = tabs.iter().find(|tab| tab["surface"] == surface);
+    let tab = tab.unwrap_or_else(|| panic!("no tab {surface}: {tabs:?}"));
+    tab["tab_resource_id"].as_str().unwrap().to_owned()
+}
+
+/// The surface the tab `resource` has now.
+fn surface_of(daemon: &Daemon, resource: &str) -> u64 {
+    let tabs = tabs(daemon);
+    let tab = tabs.iter().find(|tab| tab["tab_resource_id"] == resource);
+    let tab = tab.unwrap_or_else(|| panic!("no tab {resource}: {tabs:?}"));
+    tab["surface"].as_u64().unwrap()
+}
+
 /// Kills the daemon with SIGKILL (no shutdown path runs, nothing is flushed) and starts a new
 /// one on the same state; acpmux and its chats keep running.
 fn kill_and_restart(daemon: &Daemon) {
@@ -562,10 +592,12 @@ fn kill_and_restart(daemon: &Daemon) {
 fn a_daemon_killed_mid_turn_posts_the_turns_finish_once() {
     let daemon = machine("notice-kill9");
     let (surface, session) = chat(&daemon);
-    let (marker_surface, marker_session) = chat(&daemon);
+    let tab = tab_resource(&daemon, surface);
+    let (_, marker_session) = chat(&daemon);
     let mut marker = Acpmux::connect(&daemon, &marker_session);
+    // The chat's tab, by its stable id: each restart below numbers surfaces anew.
     let finished = |daemon: &Daemon| -> Vec<Value> {
-        notices(daemon, surface)
+        notices(daemon, surface_of(daemon, &tab))
             .into_iter()
             .filter(|row| row["title"].as_str().is_some_and(|t| t.ends_with("finished")))
             .collect()
@@ -594,7 +626,16 @@ fn a_daemon_killed_mid_turn_posts_the_turns_finish_once() {
     kill_and_restart(&daemon);
     let ended = turn.join().unwrap();
     assert!(ended.get("error").is_none(), "{ended}");
-    notice(&daemon, surface, |row| row["title"].as_str().is_some_and(|t| t.ends_with("finished")));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while finished(&daemon).is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "no finish on tab {tab} after the restart: notices {:?}, tabs {:?}",
+            all_notices(&daemon),
+            tabs(&daemon),
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
     fence(&mut marker, &daemon, "marker one");
     assert_eq!(finished(&daemon).len(), 1, "one turn, one finish: {:?}", finished(&daemon));
 
@@ -625,7 +666,7 @@ fn a_daemon_killed_mid_turn_posts_the_turns_finish_once() {
 
     // A finish posted just before the kill is not posted again.
     Acpmux::connect(&daemon, &session).prompt(&session, "hello before the kill");
-    notice(&daemon, surface, |row| {
+    notice(&daemon, surface_of(&daemon, &tab), |row| {
         row["body"].as_str().is_some_and(|b| b.contains("hello before the kill"))
     });
     kill_and_restart(&daemon);
