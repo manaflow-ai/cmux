@@ -141,8 +141,8 @@ public struct AgentSessionShareKickRequest: DaemonRequest {
 
 /// `agent-session-share-invite`: the cmux account `account` (an email or `@handle`) may join the share
 /// after signing in, as `role` (`view` watches, `talk` sends held messages, `drive` sends and cancels
-/// without owner approval; the daemon's default is `talk`). The same role again changes nothing;
-/// another role is refused (`share.invited`).
+/// without owner approval; the daemon's default is `talk`). Drive is for this named account only.
+/// The same role again changes nothing; another role changes the invite's role in place.
 public struct AgentSessionShareInviteRequest: DaemonRequest {
     public typealias Response = JSONValue
     public static let command = "agent-session-share-invite"
