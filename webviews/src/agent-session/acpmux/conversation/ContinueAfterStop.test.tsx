@@ -132,10 +132,14 @@ test("a stopped footer has no Continue even when resume is available", () => {
   // In whatever language the table is in (another test file may have switched it).
   expect(withResume).not.toContain("cv-turn-continue");
   expect(withResume).not.toContain("cv-turn-actions--resumable");
-  // By default the footer says nothing of the stop: no muted Stopped and no time with its tooltip
-  // (Lawrence and Lucas, 2026-11-11 standup: Codex shows no "Stopped" and no time on hover).
+  // By default the row says nothing of the stop: no muted Stopped (Lawrence and Lucas, 2026-11-11
+  // standup: Codex shows no "Stopped"). How long it ran is only in the reply's hover time's tooltip
+  // (Leo, 2026-11-24: "the timestamps on the agent messages idk why those were removed? from hover").
   expect(withResume).not.toContain("cv-turn-stopped");
-  expect(withResume).not.toContain(translate("turn.stopped", { time: "40s" }));
+  expect(withResume.replace(/title="[^"]*"/g, "")).not.toContain(translate("turn.stopped", { time: "40s" }));
+  expect(withResume.match(/<time class="cv-turn-time"[^>]*title="([^"]*)"/)?.[1]).toContain(
+    translate("turn.stopped", { time: "40s" }),
+  );
   // The "word" arm still draws Stopped, with how long it ran in its tooltip.
   const originalExperiments = Object.getOwnPropertyDescriptor(globalThis, "cmuxExperiments");
   globalThis.cmuxExperiments = { "stopped-turn-look": "word" };
