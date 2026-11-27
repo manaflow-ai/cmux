@@ -47,14 +47,17 @@ fn check(bytes: &[u8], starts: &[u64], before: u64) -> usize {
 
 #[test]
 fn offset_of_seq_is_exact_with_short_long_and_mixed_lines() {
-    for (name, pad) in [
-        ("short", Box::new(|_| 300) as Box<dyn Fn(u64) -> usize>),
-        ("over the head", Box::new(|_| 12 * 1024)),
+    let pads: [(&str, Box<dyn Fn(u64) -> usize>); 3] = [
+        ("short", Box::new(|_| 300_usize)),
+        ("over the head", Box::new(|_| 12_usize * 1024)),
         (
             "mixed",
-            Box::new(|seq| if seq % 7 == 0 { 20 * 1024 } else { 1500 + (seq as usize % 900) }),
+            Box::new(
+                |seq| if seq % 7 == 0 { 20_usize * 1024 } else { 1500 + (seq as usize % 900) },
+            ),
         ),
-    ] {
+    ];
+    for (name, pad) in pads {
         let (bytes, starts) = segment(4000, pad);
         let n = starts.len() as u64;
         for before in [1, 2, 3, n / 20, n / 2, n * 9 / 10, n - 1, n, n + 1, u64::MAX] {
