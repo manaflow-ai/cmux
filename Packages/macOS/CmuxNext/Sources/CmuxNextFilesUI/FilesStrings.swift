@@ -38,7 +38,6 @@ nonisolated enum FilesStrings {
     static var go: String { t("files.goTo.go", "Go") }
     static var cancel: String { t("files.goTo.cancel", "Cancel") }
     static var goToTitle: String { t("files.goTo.title", "Go to Folder") }
-    static var noSuchFolder: String { t("files.goTo.missing", "There is no folder or file at this path.") }
     static var keepBoth: String { t("files.conflict.keepBoth", "Keep Both") }
     static var stop: String { t("files.conflict.stop", "Stop") }
     static var replace: String { t("files.conflict.replace", "Replace") }

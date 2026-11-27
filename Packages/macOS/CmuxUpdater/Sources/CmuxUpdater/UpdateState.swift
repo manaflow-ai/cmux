@@ -56,23 +56,6 @@ public enum UpdateState: Equatable {
         return false
     }
 
-    /// Whether the flow is in a phase that the "force install" path can drive to completion
-    /// by repeatedly confirming (checking through installing).
-    public var isInstallable: Bool {
-        switch self {
-        case .preparingCheck,
-                .checking,
-                .updateAvailable,
-                .startingDownload,
-                .downloading,
-                .extracting,
-                .installing:
-            return true
-        default:
-            return false
-        }
-    }
-
     /// Invokes the phase-appropriate cancellation/acknowledgement callback.
     @MainActor public func cancel() {
         switch self {

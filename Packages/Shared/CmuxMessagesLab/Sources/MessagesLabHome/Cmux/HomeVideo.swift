@@ -68,11 +68,6 @@ final class HomeVideo {
         }
     }
 
-    func badgeVisible(_ ref: PartRef) -> Bool {
-        guard let badge = badges[Self.key(ref)] else { return false }
-        return badge.superlayer != nil && !badge.isHidden
-    }
-
     /// Puts every player in its visible bubble; a row off screen releases it.
     func place() {
         guard let demo = controller?.demo else { return }

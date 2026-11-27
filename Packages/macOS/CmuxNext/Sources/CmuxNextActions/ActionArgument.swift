@@ -84,34 +84,6 @@ public nonisolated struct ActionArgument: Sendable, Hashable {
         return copy
     }
 
-    /// A copy the palette asks for although it may be omitted (`isAskedInPalette`).
-    public var askedInPalette: ActionArgument {
-        var copy = optional
-        copy.isAskedInPalette = true
-        return copy
-    }
-
-    /// A copy that names the action's target (`isTargetName`).
-    public var renamingTarget: ActionArgument {
-        var copy = self
-        copy.isTargetName = true
-        return copy
-    }
-
-    /// A copy whose value a target of its kind supplies (`isSuppliedByTarget`).
-    public var suppliedByTarget: ActionArgument {
-        var copy = self
-        copy.isSuppliedByTarget = true
-        return copy
-    }
-
-    /// A copy that describes the action's target (`isTargetDescription`).
-    public var describingTarget: ActionArgument {
-        var copy = self
-        copy.isTargetDescription = true
-        return copy
-    }
-
     /// Parses a CLI or palette string into a value of this argument's kind.
     /// Nil when the text does not fit the kind.
     public func parse(_ text: String) -> ActionValue? {

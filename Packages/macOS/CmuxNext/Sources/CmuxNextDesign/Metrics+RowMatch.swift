@@ -20,15 +20,4 @@ public extension Metrics {
         let row = MetricTunables.sidebarRowHeight, cozy = DensityPreset.cozy.tokens
         return cozy.resolve(compact: row.compact, comfortable: row.comfortable, token: row.name) + cozy.space(ChromeTunables.space1.value)
     }
-
-    /// Whether the tab pill takes ``densityRowHeight``: no explicit tab or tab strip height (a Debug tunable,
-    /// `appearance.metrics.*` or a density's own token) and no tight tab strip. A set strip keeps the tab's own size
-    /// in it, as before.
-    static var tabsFollowRows: Bool {
-        MetricTunables.tabHeight.explicitValue == nil && MetricTunables.tabStripHeight.explicitValue == nil && !compactTabs
-    }
-
-    /// How much taller the row-sized tab is than the density's own tab token: the strip grows by it, so the room
-    /// around the pill stays the density's.
-    static var tabRowGrowth: CGFloat { tabsFollowRows ? densityRowHeight - MetricTunables.tabHeight.value : 0 }
 }

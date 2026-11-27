@@ -141,16 +141,6 @@ public final class ControlRouter: Sendable {
         }
     }
 
-    /// Installs the v1 plain-text handler; it returns nil for lines it does not know.
-    public func registerV1(_ handler: @escaping @Sendable (String) async -> String?) {
-        state.withLock { $0.v1Handler = handler }
-    }
-
-    /// Installs the error for unregistered methods; nil keeps `method_not_found`.
-    public func registerUnknownMethod(_ handler: @escaping @Sendable (String) -> ControlError?) {
-        state.withLock { $0.unknownMethod = handler }
-    }
-
     var targetResolver: TargetResolver? { state.withLock { $0.targetResolver } }
 
     /// Installs the `after: "sync"` barrier: a round trip to the local

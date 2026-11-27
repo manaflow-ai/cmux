@@ -117,7 +117,6 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         static let show: Int32 = 1
         static let console: Int32 = 2
         static let inspect: Int32 = 3
-        static let inspectAt: Int32 = 4
         static let close: Int32 = 5
     }
 

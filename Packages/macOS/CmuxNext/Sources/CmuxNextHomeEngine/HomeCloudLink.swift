@@ -340,9 +340,5 @@ public final class HomeCloudLink {
         await probe.wait { $0.isIdle }
     }
 
-    /// Waits until the link handled `count` timer deadlines in all (tests).
-    func timersFired(atLeast count: Int) async {
-        await probe.wait { $0.fires >= count }
-    }
     #endif
 }
