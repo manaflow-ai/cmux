@@ -406,6 +406,20 @@ class ProjectionTests(unittest.TestCase):
         for leak in (TEAM, VM, "hunter2", "token=abc", "free text"):
             self.assertNotIn(leak, text)
 
+    def test_a_failed_spare_promotion_keeps_its_step_image_revision_and_recycled(self):
+        # cmux-platform#2318: a spare whose bind's edge name check stayed unresolved leaves the pool; the cold-start
+        # tables count these per image, so the image's build revision is kept and the rest of its name dropped.
+        row = logs.line(event({"msg": "cloud.spare.promotion_failed", "team": TEAM, "step": "edge_dns",
+                               "image": "cmuxnp-prod-vmimg-2d3eba54c1-2-1", "recycled": True, "error": "x y"}))
+        self.assertEqual(row["log"], {"msg": "cloud.spare.promotion_failed", "team": logs.base.tag(TEAM),
+                                      "step": "edge_dns", "recycled": True, "image_rev": "2d3eba54",
+                                      "error": True})
+        self.assertNotIn("cmuxnp-prod", json.dumps(row))
+        for image in ("no-revision-here", 7, "x" * 97):
+            with self.subTest(image=image):
+                row = logs.line(event({"msg": "cloud.spare.promotion_failed", "step": "edge_dns", "image": image}))
+                self.assertNotIn("image_rev", row["log"])
+
     def test_the_spare_gateway_read_keeps_its_booleans_and_mode(self):
         # cmux-platform#1629: the 2026-11-22 09:13Z gateway claim's line was dropped unlisted (hq#18324).
         for mode, kept in (("gateway", "gateway"), (None, "null"), ("unread", "unread")):
@@ -591,6 +605,20 @@ class NeverBoundTests(unittest.TestCase):
         bare = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "attempt": 1, "outcome": "ok",
                                 "steps": {"power": 337}, "power": "fast", "total_ms": 337}))
         self.assertNotIn("power", bare["log"])
+
+    def test_a_start_trace_keeps_its_kind_and_before_as_fixed_words_only(self):
+        # hq#31259: the slow starts were spare wakes (window, refresh, warm) nobody waited on; the reader keeps which.
+        row = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "attempt": 1, "outcome": "ok",
+                               "kind": "window", "before": "paused", "steps": {"power": 103931},
+                               "power": {"call_ms": 103800, "provider_ms": 103500}, "total_ms": 103931}))
+        self.assertEqual(row["log"]["kind"], "window")
+        self.assertEqual(row["log"]["before"], "paused")
+        for kind in ("person", "refresh", "warm"):
+            kept = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "kind": kind, "before": "stopped"}))
+            self.assertEqual((kept["log"]["kind"], kept["log"]["before"]), (kind, "stopped"))
+        odd = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "kind": "spare_x", "before": "vm_secret"}))
+        self.assertNotIn("kind", odd["log"])
+        self.assertNotIn("before", odd["log"])
 
     def test_a_never_bound_line_keeps_the_probe_as_typed_facts_only(self):
         row = logs.line(event({"msg": "cloud.machine.start_overdue", "team": TEAM, "machine": VM,

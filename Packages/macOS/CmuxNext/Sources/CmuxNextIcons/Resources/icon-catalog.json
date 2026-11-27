@@ -1764,6 +1764,12 @@
    "family": "space"
   },
   {
+   "name": "sparkles",
+   "meaning": "Sparkles (Chief Activity and other AI actions).",
+   "sf": "sparkles",
+   "family": "sparkles"
+  },
+  {
    "name": "state.changed",
    "meaning": "Changed (debug)",
    "sf": "pencil.circle",
