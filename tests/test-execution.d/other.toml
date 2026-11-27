@@ -732,6 +732,10 @@ path = "tests/test_pairing_scheme_lint.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_pattern_download_layout_hint.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_payload_advisories.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_payload_advisories.py"

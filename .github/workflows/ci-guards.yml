@@ -974,6 +974,14 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_path_filter_parity.py
 
+      # A hint, never a gate: annotate pattern downloads a lone match flattens into path: itself
+      # (cmuxterm-hq docs/handbook/lone-artifact-flattens-its-download.md).
+      - name: Hint at pattern downloads a lone artifact flattens
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: |
+          python3 tests/test_pattern_download_layout_hint.py
+          python3 scripts/ci/pattern_download_layout_hint.py || true
+
       - name: Check that path-filtered workflows start for their tests' inputs
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_paths_cover_inputs.py
