@@ -40,7 +40,7 @@
 //! held.
 
 use std::collections::{HashMap, VecDeque};
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -625,6 +625,22 @@ impl Pacer {
 
     pub(crate) fn has_room(&self) -> bool {
         self.queued < MAX_QUEUED
+    }
+
+    /// Fresh bytes of the connection from `local` to `remote` that the stack
+    /// emitted and that still wait here, held by the pace or the delay
+    /// window. To smoltcp they are sent; to a frame written after them they
+    /// are a queue like its socket's unsent bytes ([`crate::send_gate`]).
+    pub(crate) fn held(&self, local: SocketAddr, remote: SocketAddr) -> usize {
+        let flow = (local.ip(), local.port(), remote.ip(), remote.port());
+        self.connections
+            .get(&flow)
+            .and_then(|connection| {
+                let emitted = connection.snd_emitted?;
+                let left = connection.snd_max?;
+                after(emitted, left).then(|| emitted.wrapping_sub(left) as usize)
+            })
+            .unwrap_or(0)
     }
 
     /// The peer was silent and is heard again (a parked phone woke, a

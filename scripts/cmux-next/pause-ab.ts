@@ -53,7 +53,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  Api, CHAT_START_SIZE, JOURNEY_STUB_SCRIPT, Journey, MODEL_STUB_PY, STACK, directExec, expiresAtMs, http,
+  Api, CHAT_START_SIZE, FAILED_JOURNEY_MS, JOURNEY_STUB_SCRIPT, Journey, MODEL_STUB_PY, STACK, directExec, expiresAtMs, http,
   idleHeldBy, launchCredentialStartProgram, listAllMachines, oidcSignIn, passwordSignIn, readEnvFile, resolveBackend, sharedCleanup,
   type Exec,
 } from "./cloud-journey.ts";
@@ -467,6 +467,9 @@ export function stalePauseAbMachines(rows: any[], nowMs: number, maxAgeMs = PAUS
     if (r.status === "deleted" || r.status === "deleting") { keep(`status=${r.status}`); continue; }
     const started = parseInt(m[1], 36);
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) { keep("tag is not a start time"); continue; }
+    // A failed machine is dead whatever its age (the platform never revives one); its own run is long past it by
+    // FAILED_JOURNEY_MS, so it is the sweep's then rather than at the full window.
+    if (r.status === "failed" && nowMs - started > FAILED_JOURNEY_MS) { if (id) out.push({ id, name: r.name, why: `failed, started ${Math.round((nowMs - started) / 60_000)} min ago` }); else keep("no id"); continue; }
     if (nowMs - started <= maxAgeMs) { keep(`started ${Math.round((nowMs - started) / 60_000)} min ago`); continue; }
     // No activity spare past the cutoff: a left-behind drill machine still runs the drill's own model stub, which
     // keeps it active for good (pause-ab-mwxbi2gl, 08:55Z, kept "active 0 min ago" by every sweep until 11:10Z).
