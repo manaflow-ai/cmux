@@ -6,6 +6,10 @@ name: risk tier tests
 # ran on those pull requests only, so it keeps a dispatch run.
 
 on:
+  # Register the dispatch entrypoint when this workflow lands off main.
+  push:
+    branches: [feat-cmux-next]
+    paths: [.github/workflows/risk-tier-tests.yml]
   workflow_dispatch:
 
 permissions:
@@ -25,7 +29,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }} # read-only unit tests
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |

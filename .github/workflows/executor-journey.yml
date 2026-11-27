@@ -44,15 +44,26 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # A workflow sweep that reaches this only through workflow files skips its heavy jobs (self-edit-sweep.yml,
+  # scripts/ci/self_edit_sweep.py); a pull request under 10 changed files or with full-ci never starts the gate.
+  self-edit:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.changed_files >= 10 && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+    uses: ./.github/workflows/self-edit-sweep.yml
+    with:
+      workflow: .github/workflows/executor-journey.yml
+    permissions:
+      contents: read
+
   journey:
-    if: github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)
+    needs: self-edit
+    if: ${{ !cancelled() && needs.self-edit.outputs.run != 'false' && (github.repository == 'manaflow-ai/cmux' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository)) }}
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout-cone-mode: false

@@ -178,7 +178,9 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-cookie-sync/",
     "cmux-tui/crates/cmux-daemon-conn-core/",
     "cmux-tui/crates/cmux-daemon-launch-core/",
+    "cmux-tui/crates/cmux-update-prewarm-core/",
     "cmux-tui/crates/cmux-health-core/",
+    "cmux-tui/crates/cmux-sign-clone-sweep/",
     "cmux-tui/crates/cmux-launch-image/",
     "cmux-tui/crates/cmux-pane-pictures/",
     "cmux-tui/crates/cmux-chat-markdown/",
@@ -235,6 +237,7 @@ GENERATED_INPUTS = (
 ACTION_EXPORT_INPUTS = "scripts/cmux-next/action_export_inputs.py"
 SETTINGS_EXPORT_INPUTS = (
     PACKAGE + "Sources/CmuxNextSettings/",
+    PACKAGE + "Sources/CmuxNextSettingsExport/",
     PACKAGE + "Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
     PACKAGE + "Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
 )
@@ -320,8 +323,12 @@ BUNDLE_INPUTS = (
     "schemas/layout-motion/contract.json",
     # The transcript look the transcript imports (src/agent-session/acpmux/conversation/transcriptLook.ts).
     "schemas/transcript-look/transcript-look.json",
+    # The composer status peek pin the agent pane imports (src/agent-session/acpmux/peekPin.ts).
+    "schemas/composer-status/peek-pin.json",
     # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
     "examples/gallery/gallery.json", "examples/looks/*",
+    # The setups the Make cmux Yours setups shelf imports (src/pages/onboarding/setupShelf.ts).
+    "examples/setups/*/cmux-setup.json",
     # The key styles the key presentation imports (src/ui/keyStyle.ts).
     "schemas/keymap/key-styles.json",
     # The overlay surface roles the shared surface imports (src/ui/surface/Surface.tsx).
@@ -330,6 +337,8 @@ BUNDLE_INPUTS = (
     "schemas/type-scale/scene-type.json",
     # The Cloud page's declaration the confirm count reads (src/agent-session/acpmux/cloudErgonomics/confirms.ts).
     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift",
+    # The peek pin the composer status imports (src/agent-session/acpmux/peekPin.ts).
+    "schemas/composer-status/peek-pin.json",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity")
 BUNDLE_SWIFT_TEST_REASON = "(no swift test suite reads a built bundle; only the tests that read this file run)"
@@ -410,6 +419,14 @@ NATIVE_SCRIPT_INPUTS = (
     # The Screen Sharing helper identity check sign-cmux-bundle.sh runs, and the stall bound
     # ensure-cef.sh wraps its CEF download in.
     "scripts/ci/check-screen-share-identity.sh", "scripts/ci/timeout.sh",
+    # The LAN cache fetch download-prebuilt-ghosttykit.sh tries before GitHub (#57515).
+    "scripts/ci/lan_cache_fetch.py",
+    # zig-fetch-all.sh seeds the Ghostty build from these locked archives and download helpers.
+    "scripts/ci/seed-zig-package-archives.sh", "scripts/ci/zig-packages.lock",
+    "scripts/ci/zig-packages-r2.sh", "scripts/ci/github-release-download.sh",
+    "scripts/ci/github_release_asset.py",
+    # swiftpm-seed.sh runs this before resolving the app's binary artifacts.
+    "scripts/ci/swiftpm_prefetch_binary_artifacts.py",
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
@@ -1070,7 +1087,7 @@ WORKFLOW_JOB_TIERS: dict[str, tuple[str, ...]] = {
     "daemon-test": ("daemon", "generated"),
     "generated-files": ("generated",),
     "release-compile": ("native", "mac_release"),
-    "app-compile-fleet": ("native",),
+    "app-compile-fleet": ("native", "mac_release"),
     "cmux-scheme-compile": ("native", "scheme"),
     "cmux-scheme-compile-fleet": ("native", "scheme"),
 }

@@ -129,6 +129,45 @@ impl HttpHub {
         self.call(reqwest::Method::GET, "/v1/machines/credentials/self", None, CALL_WAIT).await
     }
 
+    /// A bound web device's challenge (RFD 0083, "Known gap: the device credential is a bearer";
+    /// cmux-platform `POST /v1/machines/credentials/self/challenge`): a single-use nonce for the
+    /// browser's key to sign, asked with the device's own credential. That credential reads
+    /// nothing else on a hub that bound it.
+    pub(crate) async fn device_challenge(&self) -> Result<Value, HubError> {
+        if !self.device {
+            return Err(HubError::refused("only a web device proves a key"));
+        }
+        self.call(
+            reqwest::Method::POST,
+            "/v1/machines/credentials/self/challenge",
+            Some(&json!({})),
+            CALL_WAIT,
+        )
+        .await
+    }
+
+    /// Trades the browser's signature of the challenge for a session credential
+    /// (`POST /v1/machines/credentials/self/session`): `{credential, machineId, binding,
+    /// expiresAt}`. The nonce is spent whatever the hub answers.
+    pub(crate) async fn device_session(
+        &self,
+        nonce: &str,
+        binding: &str,
+        signature: &str,
+    ) -> Result<Value, HubError> {
+        if !self.device {
+            return Err(HubError::refused("only a web device proves a key"));
+        }
+        let body = json!({"nonce": nonce, "binding": binding, "signature": signature});
+        self.call(
+            reqwest::Method::POST,
+            "/v1/machines/credentials/self/session",
+            Some(&body),
+            CALL_WAIT,
+        )
+        .await
+    }
+
     /// Why the hub refused this client's device credential, as the browser is told:
     /// `device.revoked` (`machine.revoked`) or `device.unauthorized` (`mesh.unauthorized`). None
     /// while the hub takes it.
@@ -390,16 +429,41 @@ fn rotated_since(sent: &str, now: Option<&str>) -> bool {
 }
 
 /// Whether `code` is a hub error code this client may keep and name in a log (the contract leaves
-/// `code` a free string): a known family (`mesh.`, `machine.`, `team.`, `carrier.`) and one short
+/// `code` a free string): a known family (`mesh.`, `machine.`, `team.`, `carrier.`, `device.`: a web device's refused
+/// proof, `server/web_device.rs`) and one short
 /// snake_case word. That shape cannot carry a token or reflected request text, yet a code the hub
 /// adds later (`mesh.queue_full`, a schema refusal) still reaches the person instead of a bare
 /// status: a list of known codes hid both the 400 that refused every relay send with no session
 /// (2026-11-24 04:58Z) and the `mesh.queue_full` 429 that made a busy host unreadable.
 fn hub_code(code: &str) -> bool {
     let Some((family, word)) = code.split_once('.') else { return false };
-    matches!(family, "mesh" | "machine" | "team" | "carrier")
+    matches!(family, "mesh" | "machine" | "team" | "carrier" | "device")
         && (1..=48).contains(&word.len())
         && word.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+}
+
+/// Only this part of a ticket callback's error may reach the journal. Other ticket sources
+/// can return arbitrary strings, including credentials. Keep HTTP status and a code of the hub's shape (`hub_code`).
+#[cfg(feature = "hub-carrier")]
+pub(crate) fn ticket_failure_reason(reason: &str) -> &str {
+    match reason {
+        "the hub: error sending request"
+        | "the hub: operation timed out"
+        | "the hub: error decoding response body"
+        | "machine credential is unavailable"
+        | "revoked: run machine add again"
+        | "the hub's answer is too large"
+        | "the hub's answer is not the shape its contract gives" => return reason,
+        _ => {}
+    }
+    const PREFIX: &str = "the hub answered ";
+    if let Some(rest) = reason.strip_prefix(PREFIX) {
+        let (status, code) = rest.split_once(' ').unwrap_or((rest, ""));
+        if matches!(status.as_bytes(), [b'1'..=b'5', b'0'..=b'9', b'0'..=b'9']) {
+            return if hub_code(code) { reason } else { &reason[..PREFIX.len() + status.len()] };
+        }
+    }
+    "ticket source failed"
 }
 
 /// The hub's answer as a value, or the error it names.

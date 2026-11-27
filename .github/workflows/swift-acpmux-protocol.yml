@@ -1,4 +1,4 @@
-name: Swift acpmux calls are in the protocol
+name: Swift protocol and logic checks
 
 # acpmux's wire contract is cmux-tui/crates/acpmux/spec/acpmux-protocol.json, emitted from its
 # Rust method registry (cmux-tui-spec.yml acpmux-protocol-ir keeps it current, and the webviews
@@ -8,11 +8,12 @@ name: Swift acpmux calls are in the protocol
 # that changes either side runs it as the swift-acpmux-protocol step of ci/steps.toml
 # (pr-pipeline.yml): seconds, no build.
 on:
-  # feat-cmux-next runs this in the post-merge batch (cmux-next-post-merge.yml, suite
-  # swift-acpmux-protocol in .github/post-merge-batch.json), not once per merge: sha is the commit to
-  # test, only one job id a bisect probe runs alone.
   workflow_call:
     inputs:
+      check:
+        description: Which Swift check to run (acpmux or ratchet).
+        type: string
+        default: acpmux
       sha:
         description: Commit to test (empty is the caller's commit).
         type: string
@@ -22,10 +23,9 @@ on:
         type: string
         default: ""
   workflow_dispatch:
-
 concurrency:
-  # A batch run and its bisect probes (one commit, one job each) never cancel one another.
-  group: swift-acpmux-protocol-${{ github.ref }}${{ inputs.sha && format('-{0}-{1}', inputs.sha, inputs.only) || '' }}
+  # Keep protocol batches, ratchet runs and bisect probes isolated while cancelling superseded work.
+  group: swift-acpmux-protocol-${{ inputs.check || 'acpmux' }}-${{ github.event.pull_request.number || github.ref }}${{ inputs.sha && format('-{0}-{1}-call-{2}', inputs.sha, inputs.only, github.run_id) || github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Swift-growth:') || contains(github.event.changes.body.from, 'Swift-growth:'))) && format('-edit-{0}', github.run_id) || '' }}
   cancel-in-progress: true
 
 permissions:
@@ -38,11 +38,11 @@ env:
 jobs:
   check:
     name: Swift acpmux calls are in the protocol
-    if: ${{ inputs.only == '' || inputs.only == 'check' }}
+    if: ${{ (inputs.check == '' || inputs.check == 'acpmux') && (inputs.only == '' || inputs.only == 'check') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -63,3 +63,51 @@ jobs:
       - name: Every Swift acpmux method and param is in the protocol
         if: ${{ !cancelled() }}
         run: python3 -I scripts/ci/check-swift-acpmux-protocol.py
+  ratchet:
+    name: Swift logic + mirror does not grow
+    if: ${{ inputs.check == 'ratchet' && !(github.event.action == 'edited' && !(github.event.changes.body && (contains(github.event.pull_request.body, 'Swift-growth:') || contains(github.event.changes.body.from, 'Swift-growth:')))) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      # The merge commit and its first parent, whole blobs (the count reads every Swift file of both trees);
+      # a same-repo runner reads the git mirror, as pr-router.yml's checkout does. Only the checker is checked out.
+      - name: Checkout the merge commit and the base tip
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+          sparse-checkout: |
+            scripts/cmux-next
+            .gitmodules
+          sparse-checkout-cone-mode: false
+
+      - name: Judge the growth with the base's checker
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          set -uo pipefail
+          if ! git rev-parse -q --verify 'HEAD^2' >/dev/null; then
+            echo "::notice title=Swift logic ratchet::no merge commit to compare; nothing judged"
+            exit 0
+          fi
+          checker="$RUNNER_TEMP/base-checker"
+          mkdir -p "$checker"
+          if ! git archive HEAD^1 scripts/cmux-next | tar -x -C "$checker" \
+              || ! grep -q -- '--gate' "$checker/scripts/cmux-next/swift-logic-delta.py"; then
+            # The pull request that adds the ratchet: its base has no checker with --gate yet.
+            echo "::notice title=Swift logic ratchet::the base's swift-logic-delta.py has no --gate yet; nothing judged"
+            exit 0
+          fi
+          printf '%s' "$BODY" > "$RUNNER_TEMP/body.md"
+          status=0
+          timeout 600 python3 -I "$checker/scripts/cmux-next/swift-logic-delta.py" --repo "$GITHUB_WORKSPACE" \
+            --base HEAD^1 --head HEAD --gate --body-file "$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/ratchet.md" || status=$?
+          cat "$RUNNER_TEMP/ratchet.md"
+          grep -v '^::' "$RUNNER_TEMP/ratchet.md" >> "$GITHUB_STEP_SUMMARY" || true
+          if [ "$status" -ne 0 ] && [ "$status" -ne 1 ]; then
+            echo "::notice title=Swift logic ratchet::the checker exited $status (timeout or crash); not judged"
+            exit 0
+          fi
+          exit "$status"

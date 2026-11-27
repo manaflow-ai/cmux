@@ -184,6 +184,43 @@ pub(crate) fn is_sha(text: &str) -> bool {
         && text.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
+/// Whether every one of `shas` names a commit in `folder`'s repository, read
+/// with one `git cat-file --batch-check` (a Bring Back pulls twice, before
+/// and after the freeze, and three `cat-file -e` runs were each pull's base
+/// check).
+fn commits_present(folder: &Path, shas: &[&String]) -> anyhow::Result<bool> {
+    let mut asked: Vec<&str> = shas.iter().map(|sha| sha.as_str()).collect();
+    asked.dedup();
+    if asked.iter().any(|sha| !is_sha(sha)) {
+        return Ok(false);
+    }
+    let mut command = local(folder);
+    command
+        .args(["cat-file", "--batch-check=%(objecttype)"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let name = crate::link::spans::git_name(command.get_args());
+    let output = crate::link::spans::time(&name, || -> std::io::Result<_> {
+        let mut child = command.spawn()?;
+        let mut stdin =
+            child.stdin.take().ok_or_else(|| std::io::Error::other("git cat-file has no stdin"))?;
+        let lines: String = asked.iter().map(|sha| format!("{sha}^{{commit}}\n")).collect();
+        let wrote = stdin.write_all(lines.as_bytes());
+        drop(stdin);
+        let output = child.wait_with_output()?;
+        wrote?;
+        Ok(output)
+    })
+    .context("cannot run git")?;
+    if !output.status.success() {
+        bail!("git: {}", String::from_utf8_lossy(&output.stderr).trim());
+    }
+    let answers = String::from_utf8_lossy(&output.stdout);
+    let types: Vec<&str> = answers.lines().collect();
+    Ok(types.len() == asked.len() && types.iter().all(|kind| *kind == "commit"))
+}
+
 /// Pulls the machine's changes to the seeded folder `remote_root` since
 /// `base` into the working copy at `local`.
 pub(crate) fn seed_pull(
@@ -196,12 +233,8 @@ pub(crate) fn seed_pull(
     let folder = std::fs::canonicalize(local_folder)
         .with_context(|| format!("cannot open {}", local_folder.display()))?;
     let dirs = GitDirs::of(&folder)?.context("the folder is not a git working copy")?;
-    for sha in [&base.head, &base.index, &base.work] {
-        let present =
-            checked(local(&folder).args(["cat-file", "-e"]).arg(format!("{sha}^{{commit}}")));
-        if present.is_err() {
-            return Err(NoSeedBase.into());
-        }
+    if !commits_present(&folder, &[&base.head, &base.index, &base.work])? {
+        return Err(NoSeedBase.into());
     }
     laps.mark("verify_base");
     let mut remote = Remote::connect(socket)?;
@@ -1238,5 +1271,37 @@ impl Drop for Staging {
             return;
         }
         let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+#[cfg(test)]
+mod commits_present_tests {
+    use super::*;
+
+    fn git(dir: &Path, args: &[&str]) -> String {
+        let out = local(dir)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8(out.stdout).unwrap().trim().to_string()
+    }
+
+    #[test]
+    fn one_batch_answers_the_base_check() {
+        let dir = tempfile::tempdir().unwrap();
+        git(dir.path(), &["init", "-q"]);
+        std::fs::write(dir.path().join("a"), "a\n").unwrap();
+        git(dir.path(), &["add", "a"]);
+        git(dir.path(), &["commit", "-qm", "one"]);
+        let head = git(dir.path(), &["rev-parse", "HEAD"]);
+        let tree = git(dir.path(), &["rev-parse", "HEAD^{tree}"]);
+        let gone = "0".repeat(head.len());
+        assert!(commits_present(dir.path(), &[&head, &head, &head]).unwrap());
+        assert!(!commits_present(dir.path(), &[&head, &gone, &head]).unwrap());
+        assert!(!commits_present(dir.path(), &[&head, &tree]).unwrap());
+        assert!(!commits_present(dir.path(), &[&"HEAD\nHEAD".to_string()]).unwrap());
     }
 }

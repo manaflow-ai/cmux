@@ -17,7 +17,9 @@ GitHub-hosted Ubuntu, a literal (no repository variable picks it). Nightly and r
 caller's `inputs.*` override) keep their branch, after the fork branch; only the size fallback goes.
 
 Left unchanged, and printed as exceptions: a line whose comment marks it `ephemeral-required`,
-`github-hosted-required` or `owned-pool-unfit` (a job that failed on the owned pool), and a provenance or npm publish job. macOS, Windows and arm64 pickers are not
+`github-hosted-required`, `owned-pool-unfit` (a job that failed on the owned pool) or `frozen-label` (an exception this
+script froze), and a provenance or npm publish job. A job that leads with a GCP JIT label behind its `*_SKIP_FLEET`
+switch keeps that switch. macOS, Windows and arm64 pickers are not
 Linux x64; inside a mixed expression (a macOS job that takes Linux on one branch) only the Linux
 `(fork && '<size>' || pool)` group is rewritten. `${{ matrix.* }}` runs-on lines are not touched; the
 matrix values that feed them are rewritten like any other value line.
@@ -31,6 +33,7 @@ Usage: one_linux_label.py [--check] [WORKFLOW_DIR_OR_FILE ...]   (default: .gith
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from dataclasses import dataclass, field
@@ -45,6 +48,14 @@ FORK_PR = ("github.event_name == 'pull_request' && github.event.pull_request.hea
 # The cloud overflow switch: when the owned pool is saturated, this variable names a vendor label to spill onto.
 OVERFLOW = "vars.CI_OVERFLOW_LINUX"
 CANONICAL = f"${{{{ {OWNER_GUARD} || {FORK_PR} || {OVERFLOW} || '{LABEL}' }}}}"
+# The canonical route as it read before the overflow switch. A workflow added on the base in this form names no size,
+# so no picker triggers on it; it is upgraded by exact match. nightly.yml keeps its own route (it never spills).
+PRE_OVERFLOW = f"${{{{ {OWNER_GUARD} || {FORK_PR} || '{LABEL}' }}}}"
+# The base writes the same route with the fork branch first too (rfd0135-gates.yml, pr-router.yml at fa7ee53a): both
+# orders are upgraded, each keeping its own order.
+PRE_OVERFLOW_FORK_FIRST = f"${{{{ {FORK_PR} || {OWNER_GUARD} || '{LABEL}' }}}}"
+CANONICAL_FORK_FIRST = f"${{{{ {FORK_PR} || {OWNER_GUARD} || {OVERFLOW} || '{LABEL}' }}}}"
+NO_OVERFLOW = frozenset({"nightly.yml"})
 
 # A term naming or choosing a Linux x64 size.
 PICKER = re.compile(
@@ -73,6 +84,8 @@ PIN = re.compile(
 # A conditioned arm that already names the label (`<condition> && 'cmux-linux'`): a placement, not a size.
 LABEL_ARM = re.compile(rf"^.+ && '{LABEL}'$")
 FORK_TEST = "head.repo.full_name != github.repository"
+# The fork branch as written, with a literal label: a rerun keeps the label it names instead of resetting it.
+FORK_LITERAL = re.compile(r"^" + re.escape(FORK_PR.removesuffix(" && 'ubuntu-24.04'")) + r" && '[\w.-]+'$")
 # One Linux arm of a mixed (macOS first) expression's top-level chain: `<condition> && <Linux size picker>`.
 MIXED_TERM = re.compile(
     r"^(?P<cond>.+?) && (?:!startsWith\(vars\.LINUX_RUNNER, 'blacksmith-'\) && vars\.LINUX_RUNNER"
@@ -97,14 +110,18 @@ FRESH_VM_JOBS = {
         "app-compile-placement", "dev-daily-place", "dev-daily-tree-wait", "dev-landing-place", "fast-tier-handback-placement",
         "fast-tier-rerun-placement", "macos-placement", "release-compile-fast-admission", "same-tree-cmux-tui",
         "same-tree-status-daemon", "same-tree-status-scheme", "swift-exports-cache")},
-    ("machine-join-e2e.yml", "e2e"): "account secrets; tests/test_machine_join_e2e_workflow.py keeps it on an ephemeral VM",
+    ("machine-join-e2e.yml", "e2e"): "holds account secrets; frozen to the linux_8 label it read (tests/test_machine_join_e2e_workflow.py)",
     ("cmux-next-web-perf.yml", "validate"): "validates head output with base code; tests/test_web_perf_validation_boundary.py "
                                             "keeps it off any runner the measuring job may have touched",
 }
 # A runner whose label is what it measures: it probes the vendor runner pool, so it keeps its picker.
 PROBE_JOBS = {("ci-cloud-overflow-probe.yml", "probe")}
 NOT_LINUX_X64 = re.compile(r"'(?:macos|windows)[\w.-]*'|-arm'|ubuntu-latest|RUNNER_POOLS\)\.provenance")
-EXCEPTION_COMMENT = re.compile(r"ephemeral-required|github-hosted-required|owned-pool-unfit")
+EXCEPTION_COMMENT = re.compile(r"ephemeral-required|github-hosted-required|owned-pool-unfit|frozen-label")
+# A credentialed job that leads with its one-job GCP JIT label behind that label's switch
+# (tests/test_ci_write_token_jit_label.py: Blacksmith is the overflow behind `=1`). Freezing it to today's switch value
+# would drop the JIT label and pin the overflow, so it keeps its switch.
+JIT_LEAD = re.compile(r"vars\.CI_[A-Z_]+_SKIP_FLEET != '1' && 'cmux-gcp-[a-z-]+-jit-x64'")
 # A route that admits only an ephemeral vendor runner (`contains(fromJSON('["<vendor sizes>"]'), vars.X) && vars.X`):
 # a credentialed job the guard tests keep off persistent hosts. cmux-linux is a persistent pool, so it stays.
 EPHEMERAL_ONLY = re.compile(r"contains\(fromJSON\('\[[^\]]*\"blacksmith-")
@@ -211,15 +228,21 @@ def rewrite_expr(expr: str) -> str | None:
         return "${{ " + f"{OWNER_GUARD} || format('{fm['lead']}{{0}}', {inner})" + " }}"
     # Kept terms stay in their order; the fork branch takes the place of the first fork or size term, so a pin
     # that came before it (a push-only nightly arm) still comes first and one after it still comes after.
-    kept, picked, fork_at = [], False, None
+    kept, picked, fork_at, fork, fork_literal = [], False, None, FORK_PR, False
     for term in terms:
         if term == OVERFLOW:
             continue  # the overflow switch: re-added before the label, so a rerun does not move or double it
-        if LABEL_ARM.match(term) and not TRIGGER.search(term) and FORK_TEST not in term:
+        if FORK_TEST in term and "vars." not in term and "fromJSON" not in term and fork_at is None:
+            # A fork arm that is already a literal (a Blacksmith size the fork keeps) is not a picker: it stays.
+            fork_at, fork_literal = len(kept), True
+            kept.append(term)
+        elif LABEL_ARM.match(term) and not TRIGGER.search(term) and FORK_TEST not in term:
             kept.append(term)  # a conditioned arm already on the label (PR control, push roots): keeps its place
         elif PICKER.search(term):
             picked = True
             fork_at = len(kept) if fork_at is None else fork_at
+            if FORK_LITERAL.match(term):
+                fork = term  # a fork branch already naming a literal label (a pinned Blacksmith size) keeps it
         elif PIN.search(term):
             kept.append(term)
         elif NOT_LINUX_X64.search(term):
@@ -228,7 +251,8 @@ def rewrite_expr(expr: str) -> str | None:
             return None
     if not picked:
         return None
-    kept.insert(fork_at, FORK_PR)
+    if not fork_literal:
+        kept.insert(fork_at, fork)
     return "${{ " + " || ".join([OWNER_GUARD, *kept, OVERFLOW, f"'{LABEL}'"]) + " }}"
 
 
@@ -246,6 +270,139 @@ def rewrite_mixed(expr: str) -> str:
     return "${{ " + " || ".join(out) + " }}"
 
 
+# What each repository variable a picker reads resolves to today on an own-branch run, read from the labels real
+# jobs ran on (2026-11-24: ci-health-report's runner variable report, and cmux-tui-artifacts, cmux-next,
+# cmux-next-base-autofix, cloud-vm-image-roll, cloud-chief-machine and machine-join-e2e runs). A line this script
+# keeps (an exception) or cannot convert is frozen to that answer: a literal with the same owner guard, fork and
+# event arms, and no variable (cmuxterm-hq goals/linux-pickers-gone.md: no runs-on reads a variable). A variable
+# missing here stays, and the line is reported, so a picker is never guessed away.
+TODAY_VARS = {
+    "LINUX_RUNNER": "cmux-fleet-linux-x64",
+    "CI_TRUSTED_RUNNER": "blacksmith-4vcpu-ubuntu-2404",
+    "CI_CLOUD_OVERFLOW_SAVED": "",
+    "CI_REPAIR_SKIP_FLEET": "1",
+    "CI_DEPLOY_SKIP_FLEET": "",
+    "CI_PR_CONTROL_SKIP_FLEET": "1",
+}
+TODAY_POOLS = {
+    "linux_2": "cmux-fleet-linux-x64",
+    "linux_4": "blacksmith-4vcpu-ubuntu-2404",
+    "linux_8": "cmux-fleet-linux-x64",
+    "provenance": "ubuntu-latest",
+}
+# Lines this pass freezes: the ones reading a size pool, the fleet variable or the overflow switch's saved state.
+FREEZE_SCOPE = re.compile(
+    r"RUNNER_POOLS|vars\.LINUX_RUNNER(?![A-Z_])|CI_CLOUD_OVERFLOW_SAVED|CI_TRUSTED_RUNNER|CI_(?:PR_CONTROL|REPAIR)_SKIP_FLEET")
+_UNKNOWN = object()
+
+
+def _lit(value) -> str:
+    return ("true" if value else "false") if isinstance(value, bool) else "'" + str(value).replace("'", "''") + "'"
+
+
+def _top_find(expr: str, needle: str) -> int:
+    depth, quoted, i = 0, False, 0
+    while i < len(expr):
+        c = expr[i]
+        if quoted:
+            quoted = c != "'"
+        elif c == "'":
+            quoted = True
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+        elif depth == 0 and expr.startswith(needle, i):
+            return i
+        i += 1
+    return -1
+
+
+def _factor(f: str):
+    """A value (str or bool) when F is known today, else F's simplified text in a list."""
+    f = f.strip()
+    if wrapped(f):
+        inner = _or(f[1:-1])
+        return inner if not isinstance(inner, list) else ["(" + inner[0] + ")"]
+    for op in (" != ", " == "):
+        at = _top_find(f, op)
+        if at >= 0:
+            a, b = _factor(f[:at]), _factor(f[at + len(op):])
+            if isinstance(a, list) or isinstance(b, list):
+                return [f"{a[0] if isinstance(a, list) else _lit(a)}{op}{b[0] if isinstance(b, list) else _lit(b)}"]
+            same = str(a).lower() == str(b).lower()
+            return same if op == " == " else not same
+    if f.startswith("!"):
+        v = _factor(f[1:])
+        return not v if not isinstance(v, list) else ["!" + v[0]]
+    if m := re.fullmatch(r"'((?:[^']|'')*)'", f):
+        return m[1].replace("''", "'")
+    if m := re.fullmatch(r"vars\.(\w+)", f):
+        return TODAY_VARS[m[1]] if m[1] in TODAY_VARS else [f]
+    if m := re.fullmatch(r"fromJSON\(vars\.RUNNER_POOLS\)\.(\w+)", f):
+        return TODAY_POOLS[m[1]] if m[1] in TODAY_POOLS else [f]
+    if m := re.fullmatch(r"(contains|startsWith)\((.*)\)", f):
+        at = _top_find(m[2], ", ")
+        if at >= 0:
+            a_text, b_text = m[2][:at].strip(), m[2][at + 2:]
+            listed = re.fullmatch(r"fromJSON\('(\[.*\])'\)", a_text)
+            a = json.loads(listed[1]) if listed else _factor(a_text)
+            b = _factor(b_text)
+            if not isinstance(b, list) and (listed or not isinstance(a, list)):
+                if m[1] == "contains" and listed:
+                    return b in a
+                if m[1] == "startsWith" and not listed:
+                    return str(a).lower().startswith(str(b).lower())
+            a_out = a_text if listed else (a[0] if isinstance(a, list) else _lit(a))
+            b_out = b[0] if isinstance(b, list) else _lit(b)
+            return [f"{m[1]}({a_out}, {b_out})"]
+    return [f]
+
+
+def _and(expr: str):
+    texts, value = [], True
+    factors = split_top(expr, "&&")
+    for k, f in enumerate(factors):
+        v = _factor(f)
+        if isinstance(v, list):
+            texts.append(v[0])
+            value = _UNKNOWN
+            continue
+        if not v:
+            return ""  # this term is false whatever came before it
+        if k == len(factors) - 1:
+            if not texts:
+                return v
+            texts.append(_lit(v))
+    if value is True and not texts:
+        return value
+    return [" && ".join(texts)]
+
+
+def _or(expr: str):
+    out = []
+    for term in split_top(expr):
+        v = _and(term)
+        if isinstance(v, list):
+            out.append(v[0])
+            continue
+        if not v:
+            continue
+        if not out:
+            return v
+        out.append(_lit(v))
+        break
+    if not out:
+        return ""
+    return [" || ".join(out)]
+
+
+def freeze_expr(expr: str) -> str:
+    """EXPR (`${{ ... }}`) with every variable it reads replaced by today's answer and the dead arms dropped."""
+    v = _or(expr[3:-2].strip())
+    return "${{ " + (v[0] if isinstance(v, list) else _lit(v)) + " }}"
+
+
 SIZE_LEFT = re.compile(r"blacksmith-\d+vcpu-ubuntu-2404(?!-)|RUNNER_POOLS\)\.linux(?!_arm)|vars\.LINUX_RUNNER(?![A-Z_])")
 
 
@@ -259,6 +416,46 @@ def signing_jobs(text: str) -> set[str]:
     return {name for name, job in jobs.items() if isinstance(job, dict) and holds_signing_material(job)}
 
 
+def freeze_line(expr: str) -> str | None:
+    """EXPR frozen to today's answer when it is a Linux line in FREEZE_SCOPE and no variable is left after; else None."""
+    if not FREEZE_SCOPE.search(expr) or re.search(r"github\.repository_owner != 'manaflow-ai' && '(?:macos|windows)", expr):
+        return None
+    frozen = freeze_expr(expr)
+    # `owner guard && 'ubuntu-latest' || 'ubuntu-latest'` (a provenance job) is the plain label.
+    frozen = re.sub(r"^\$\{\{ github\.repository_owner != 'manaflow-ai' && '([^']*)' \|\| '\1' \}\}$", r"\1", frozen)
+    # A fork pull request arm that now names the same label as the route after it says it once.
+    fork = re.escape(FORK_PR.removesuffix(" && 'ubuntu-24.04'"))
+    frozen = re.sub(rf"\({fork} && ('[^']*') \|\| \1\)", r"\1", frozen)
+    frozen = re.sub(rf"{fork} && ('[^']*') \|\| \1 \}}\}}$", r"\1 }}", frozen)
+    # A route with no owner guard failed in a fork while its variable was unset there; frozen to an owned or
+    # vendor label it would queue forever instead, so it takes the guard every other Linux route leads with.
+    if not frozen.startswith("${{ github.repository_owner") and re.search(r"'(?!ubuntu-)[^']+' \}\}$", frozen):
+        frozen = frozen.replace("${{ ", f"${{{{ {OWNER_GUARD} || ", 1)
+    # An expression left with one quoted label and nothing else is that label.
+    frozen = re.sub(r"^\$\{\{ '([^']*)' \}\}$", r"\1", frozen)
+    return frozen if frozen != expr and not re.search(r"vars\.|fromjson\(vars", frozen, re.I) else None
+
+
+STALE_PICKER_NOTE = re.compile(r";? ?CI_TRUSTED_RUNNER picks the Blacksmith size")
+
+
+def freeze_into(lines: list[str], n: int, m: re.Match, frozen: str | None, report: Report, where: str,
+                reason: str = "") -> bool:
+    """Write FROZEN over line N (keeping its key, anchor and comment) and report it; False when there is none.
+
+    An exception frozen for REASON says so in a `# frozen-label:` comment, so a later run keeps it (EXCEPTION_COMMENT):
+    with its variable gone, nothing else in the line marks it, and the next run would move it to the one label."""
+    if frozen is None:
+        return False
+    # A comment that names the variable it no longer reads ("CI_TRUSTED_RUNNER picks the Blacksmith size") says so.
+    tail = STALE_PICKER_NOTE.sub("", m["tail"])
+    if reason and not EXCEPTION_COMMENT.search(tail):
+        tail = f"{tail.rstrip()}; frozen-label: {reason}" if tail.strip() else f" # frozen-label: {reason}"
+    lines[n - 1] = f"{m['lead']}{m['key']}:{m['sp']}{m['anchor'] or ''}{frozen}{tail}"
+    report.changed.append((where.split(":")[0], n, f"{where} (frozen to today's label)"))
+    return True
+
+
 def rewrite_text(name: str, text: str, report: Report, signing: set[str] | None = None) -> str:
     lines = text.split("\n")
     signing = signing_jobs(text) if signing is None else signing
@@ -267,23 +464,36 @@ def rewrite_text(name: str, text: str, report: Report, signing: set[str] | None 
         if m := JOB.match(line):
             job = m["id"]
         m = LINE.match(line)
-        if not m or not TRIGGER.search(m["expr"]) or m["key"] not in VALUE_KEYS:
+        if not m or m["key"] not in VALUE_KEYS:
             continue
         where = f"{name}:{n} ({job}.{m['key']})"
+        if JIT_LEAD.search(m["expr"]):
+            report.exceptions.append((name, n, f"{job}: leads with a JIT label behind its switch; keeps the switch"))
+            continue
+        frozen = freeze_line(m["expr"]) if (name, job) not in PROBE_JOBS else None
+        if not TRIGGER.search(m["expr"]):
+            # Not a Linux x64 size (a provenance publish job's GitHub-hosted runner): only its variable goes.
+            freeze_into(lines, n, m, frozen, report, where)
+            continue
         if EXCEPTION_COMMENT.search(m["tail"]):
             report.exceptions.append((name, n, f"{job}: {m['tail'].strip()}"))
+            freeze_into(lines, n, m, frozen, report, where)
             continue
         if "provenance" in job or ("npm" in name and "publish" in job and "npm" in job):
             report.exceptions.append((name, n, f"{job}: provenance/npm publish job"))
+            freeze_into(lines, n, m, frozen, report, where, "provenance or npm publish job")
             continue
         if EPHEMERAL_ONLY.search(m["expr"]):
             report.exceptions.append((name, n, f"{job}: admits only an ephemeral vendor runner (credentialed job)"))
+            freeze_into(lines, n, m, frozen, report, where, "credentialed job, frozen to today's label")
             continue
         if job in signing:
             report.exceptions.append((name, n, f"{job}: holds signing material; keeps its ephemeral runner"))
+            freeze_into(lines, n, m, frozen, report, where, "holds signing material")
             continue
         if (name, job) in FRESH_VM_JOBS:
             report.exceptions.append((name, n, f"{job}: {FRESH_VM_JOBS[(name, job)]}"))
+            freeze_into(lines, n, m, frozen, report, where, FRESH_VM_JOBS[(name, job)])
             continue
         if (name, job) in PROBE_JOBS:
             report.exceptions.append((name, n, f"{job}: probes the vendor runner pool; its label is what it measures"))
@@ -294,7 +504,8 @@ def rewrite_text(name: str, text: str, report: Report, signing: set[str] | None 
             if mixed != m["expr"] and not SIZE_LEFT.search(mixed):
                 new = mixed
         if new is None:
-            report.unconverted.append((name, n, where))
+            if not freeze_into(lines, n, m, frozen, report, where):
+                report.unconverted.append((name, n, where))
             continue
         if new == m["expr"]:
             continue
@@ -315,6 +526,12 @@ FOLLOW_ON = (
 
 
 def follow_on(name: str, text: str, report: Report) -> str:
+    for before, after in ((PRE_OVERFLOW, CANONICAL), (PRE_OVERFLOW_FORK_FIRST, CANONICAL_FORK_FIRST)):
+        if name not in NO_OVERFLOW and before in text:
+            for n, line in enumerate(text.split("\n"), 1):
+                if before in line:
+                    report.changed.append((name, n, f"{name}:{n} (overflow switch)"))
+            text = text.replace(before, after)
     for workflow, old, new in FOLLOW_ON:
         if workflow == name and old in text:
             text = text.replace(old, new)
@@ -322,11 +539,20 @@ def follow_on(name: str, text: str, report: Report) -> str:
     return text
 
 
+# Workflows a run leaves alone -> why. .github/language-boundaries.toml: a pull request that changes
+# language-boundaries.yml fails its check unless Leo approves it (leo-approved-port), so its runs-on moves only in a PR
+# he approves.
+LEO_GATED = {"language-boundaries.yml": "a change to it needs Leo's leo-approved-port (.github/language-boundaries.toml)"}
+
+
 def workflow_files(args: list[str]) -> list[Path]:
     paths = [Path(a) for a in args] or [ROOT / ".github/workflows"]
     files: list[Path] = []
     for p in paths:
-        files.extend(sorted([*p.glob("*.yml"), *p.glob("*.yaml")]) if p.is_dir() else [p])
+        if p.is_dir():
+            files.extend(f for f in sorted([*p.glob("*.yml"), *p.glob("*.yaml")]) if f.name not in LEO_GATED)
+        else:
+            files.append(p)
     return files
 
 

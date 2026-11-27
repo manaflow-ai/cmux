@@ -1,0 +1,93 @@
+name: session move tests
+
+# The session move matrix (acpmux tests/transfer_cli.rs, chiefly transfer_cli/move_matrix.rs): moving a chat
+# back and forth between hosts with its history, its paused state and its images. Before this workflow it ran
+# only on a 3-hour cron against the branch tip, so a red named a window of commits, not one. Now every push to
+# feat-cmux-next and every pull request that touches the move code runs it once, on its own commit.
+# Leo: "5. moving sessions back and forth, the histories the pausing the images etc. we need to push harder on those"
+on:
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - "cmux-tui/crates/acpmux/src/**/*transfer*"
+      - "cmux-tui/crates/acpmux/src/**/*move*"
+      - "cmux-tui/crates/acpmux/src/**/*native*"
+      - "cmux-tui/crates/acpmux/src/**/*pause*"
+      - "cmux-tui/crates/acpmux/src/**/*attachment*"
+      - "cmux-tui/crates/acpmux/src/**/session_store*"
+      - "cmux-tui/crates/acpmux/src/store.rs"
+      - "cmux-tui/crates/acpmux/src/store/**"
+      - "cmux-tui/crates/acpmux/tests/transfer_cli.rs"
+      - "cmux-tui/crates/acpmux/tests/transfer_cli/**"
+      - "cmux-tui/crates/acpmux/tests/support/daemon_env.rs"
+      - "cmux-tui/crates/acpmux/tests/fake_agent.py"
+      - "cmux-tui/Cargo.lock"
+      - "cmux-tui/rust-toolchain.toml"
+      - ".github/workflows/session-move-tests.yml"
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    paths:
+      - "cmux-tui/crates/acpmux/src/**/*transfer*"
+      - "cmux-tui/crates/acpmux/src/**/*move*"
+      - "cmux-tui/crates/acpmux/src/**/*native*"
+      - "cmux-tui/crates/acpmux/src/**/*pause*"
+      - "cmux-tui/crates/acpmux/src/**/*attachment*"
+      - "cmux-tui/crates/acpmux/src/**/session_store*"
+      - "cmux-tui/crates/acpmux/src/store.rs"
+      - "cmux-tui/crates/acpmux/src/store/**"
+      - "cmux-tui/crates/acpmux/tests/transfer_cli.rs"
+      - "cmux-tui/crates/acpmux/tests/transfer_cli/**"
+      - "cmux-tui/crates/acpmux/tests/support/daemon_env.rs"
+      - "cmux-tui/crates/acpmux/tests/fake_agent.py"
+      - "cmux-tui/Cargo.lock"
+      - "cmux-tui/rust-toolchain.toml"
+      - ".github/workflows/session-move-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A pull request's newer push supersedes its run; each feat-cmux-next push is judged on its own commit.
+concurrency:
+  group: session-move-tests-${{ github.event_name == 'push' && github.sha || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && format('-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  transfer-cli:
+    name: session move tests (transfer_cli)
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 30
+    steps:
+      # github.sha: the push's commit, or the pull request's merge commit; the summary names it.
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-session-move-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          cache-on-failure: true
+          add-rust-environment-hash-key: false
+
+      # One build, every transfer_cli test (the move matrix, history, pause, attachments, live moves).
+      - name: cargo test -p acpmux --test transfer_cli
+        working-directory: cmux-tui
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          set -o pipefail
+          echo "Commit: $SHA" >> "$GITHUB_STEP_SUMMARY"
+          cargo test --locked -p acpmux --test transfer_cli --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/transfer_cli.log"
+          grep -E '^test result:' "$RUNNER_TEMP/transfer_cli.log" >> "$GITHUB_STEP_SUMMARY" || true

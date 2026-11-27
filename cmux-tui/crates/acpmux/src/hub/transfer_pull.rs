@@ -242,12 +242,16 @@ fn named_folder(
     let text = |k: &str| folder.get(k).and_then(Value::as_str).unwrap_or("");
     let bad = |m: &str| RpcError::invalid_params(format!("move: folder {m}"));
     if folder.contains_key("home") {
+        // Empty names the home folder itself (a chat started in `~` on the source): it maps to
+        // this machine's home, never outside it. Whether the chat may work there is the guard's
+        // call (`Guard::hub_move`: only a machine that is its own VM boundary takes home).
         let rel = text("home");
-        if !plain_relative(rel) {
+        if !rel.is_empty() && !plain_relative(rel) {
             return Err(bad("`home` must be a plain path under the home folder"));
         }
         let home = dirs::home_dir().ok_or_else(|| bad("needs a home folder here"))?;
-        return Ok(Folder::Plain { cwd: home.join(rel).to_string_lossy().into_owned() });
+        let cwd = if rel.is_empty() { home } else { home.join(rel) };
+        return Ok(Folder::Plain { cwd: cwd.to_string_lossy().into_owned() });
     }
     let (repo, url, branch, subdir) = (text("repo"), text("url"), text("branch"), text("subdir"));
     let mut parts = repo.split('/');
@@ -306,6 +310,24 @@ impl Hub {
             !landed
         });
         landed.then(|| json!({"sessionId": session.id, "cwd": session.meta().cwd}))
+    }
+
+    /// The guard of a hub move landing here: this daemon's `webRoots`, and the home folder too
+    /// when this machine takes a caller's VM boundary (`vm_boundary.rs`: Linux, `vmHost` not
+    /// turned off; never a Mac). Op `move` comes only from the person's own daemons and only
+    /// where `meshRelay.controlFrom` lists it, so on a dedicated agent VM the person's own chat
+    /// may land in that VM's home, as a fleet placer moving idle chats off a full host needs:
+    /// a chat that ran in `~` or under `~/.local/state` there. Refused when it names neither.
+    pub(super) async fn hub_move_guard(&self) -> Result<Guard, RpcError> {
+        let roots = self.config.read().await.web_roots.clone();
+        let home = self.takes_vm_boundary().await;
+        if roots.is_empty() && !home {
+            return Err(pull_error(
+                "no_roots",
+                "this machine names no webRoots and is not a VM host, so no moved chat may work here",
+            ));
+        }
+        Guard::hub_move(&roots, home).await
     }
 
     /// The folder the moved chat runs in here: named outright, or made as `session move` makes
@@ -393,16 +415,8 @@ impl Hub {
         if let Some(moved) = self.pulled(session_id, transfer_id) {
             return Ok(answer(moved));
         }
-        let roots = self.config.read().await.web_roots.clone();
-        if roots.is_empty() {
-            return Err(pull_error(
-                "no_roots",
-                "this machine names no webRoots, so no moved chat may work here",
-            ));
-        }
         // Built here, from this daemon's own config: the message names no rule.
-        let guard_value = json!({"control": "peer", "roots": roots});
-        let guard = Guard::parse(&guard_value).await?;
+        let guard = self.hub_move_guard().await?;
         let cwd = self.pull_folder(&guard, body.get("folder")).await?;
         // The freeze's split, in the answer: the circuit's open (relay and handshake; none for
         // a parked one), the pages (one round trip each) and the import.
@@ -434,9 +448,8 @@ impl Hub {
         // stays theirs, and its local prompts here are owner prompts.
         let received = self
             .receive_guarded(
-                &json!({"manifest": manifest, "guard": guard_value,
-                        "stageId": body.get("stageId")}),
-                true,
+                &json!({"manifest": manifest, "stageId": body.get("stageId")}),
+                Some(guard),
             )
             .await?;
         let receive_id = received.get("receiveId").cloned().unwrap_or(Value::Null);
@@ -644,7 +657,7 @@ impl Hub {
     pub(super) async fn transfer_hub(self: &Arc<Self>, params: &Value) -> Result<Value, RpcError> {
         let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or("");
         if params.get("resolve").is_some() {
-            return self.resolve_hub_machine(text("resolve"));
+            return self.resolve_hub_machine(text("resolve")).await;
         }
         if params.get("stage").is_some() || params.get("prepare").is_some() {
             return self.transfer_hub_stage(params).await;
@@ -754,11 +767,20 @@ impl Hub {
     }
 
     #[cfg(feature = "hub-carrier")]
-    fn resolve_hub_machine(&self, name: &str) -> Result<Value, RpcError> {
-        let found = self
-            .mesh_book_machines()
-            .into_iter()
-            .find(|(key, host)| key == name || host.eq_ignore_ascii_case(name));
+    async fn resolve_hub_machine(&self, name: &str) -> Result<Value, RpcError> {
+        // Only a just-started daemon waits: later, an unread list is a relay that is off, and a
+        // local PARENT/CHILD key (`session_move_hub::holder`) must not wait on it.
+        let age = std::time::Duration::from_millis(now_ms().saturating_sub(self.started_at));
+        let wait = FIRST_BOOK_READ_WAIT.saturating_sub(age);
+        let Some(machines) = self.mesh_book_machines_once_read(wait).await else {
+            return Err(RpcError::not_found(format!(
+                "{name}: this daemon has not read the team hub's machine list since it started \
+                 (is the mesh relay on? a just-started daemon waits up to {} s for its first read)",
+                FIRST_BOOK_READ_WAIT.as_secs()
+            )));
+        };
+        let found =
+            machines.into_iter().find(|(key, host)| key == name || host.eq_ignore_ascii_case(name));
         match found {
             Some((key, host)) => Ok(json!({"daemonId": key, "host": host})),
             None => Err(RpcError::not_found(format!(
@@ -768,10 +790,15 @@ impl Hub {
     }
 
     #[cfg(not(feature = "hub-carrier"))]
-    fn resolve_hub_machine(&self, name: &str) -> Result<Value, RpcError> {
+    async fn resolve_hub_machine(&self, name: &str) -> Result<Value, RpcError> {
         Err(RpcError::not_found(format!("{name}: this build has no hub carrier")))
     }
 }
+
+/// How long `resolve` waits for a just-started daemon's first read of the hub book: its first
+/// heartbeat, then a read of at most 5 s (`server/mesh_relay.rs`).
+#[cfg(feature = "hub-carrier")]
+const FIRST_BOOK_READ_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// `v[k]` without the indexing lint: Null when absent.
 fn field<'a>(v: &'a Value, k: &str) -> &'a Value {
@@ -779,87 +806,5 @@ fn field<'a>(v: &'a Value, k: &str) -> &'a Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_move_folder_is_checked_before_anything_is_made() {
-        let folder = |v: Value| named_folder(v.as_object().unwrap());
-        assert!(folder(json!({"home": "Projects/x"})).is_ok());
-        for home in ["", "/abs", "../up", "a/../b", "a b", "x\ny"] {
-            assert!(folder(json!({"home": home})).is_err(), "{home:?}");
-        }
-        let ok = json!({"repo": "o/n", "url": "https://github.com/o/n.git", "branch": "lane/x", "subdir": ""});
-        assert!(folder(ok.clone()).is_ok());
-        for (key, bad) in [
-            ("repo", "o/n/x"),
-            ("repo", "../n"),
-            ("url", "file:///etc"),
-            ("url", "https://x y"),
-            ("branch", "-x"),
-            ("branch", "a b"),
-            ("subdir", "../x"),
-        ] {
-            let mut v = ok.clone();
-            v[key] = json!(bad);
-            assert!(folder(v).is_err(), "{key} {bad:?}");
-        }
-    }
-
-    #[test]
-    fn only_a_plain_daemon_id_is_dialed() {
-        assert!(plain_daemon("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="));
-        assert!(plain_daemon("inst_0123abcd"));
-        for bad in ["", "short", "a b c d e f", "x\ny0000000", &"a".repeat(129)] {
-            assert!(!plain_daemon(bad), "{bad:?}");
-        }
-    }
-
-    /// A folder's manifest served page by page as `manifest_page` serves it.
-    struct Folder(std::path::PathBuf, u64);
-
-    impl PageSource for Folder {
-        fn call<'a>(
-            &'a mut self,
-            method: &'a str,
-            mut params: Value,
-        ) -> BoxFuture<'a, Result<Value, RpcError>> {
-            assert_eq!(method, "manifest");
-            params["limit"] = json!(self.1);
-            Box::pin(async move { manifest_page(&self.0, &params) })
-        }
-    }
-
-    #[tokio::test]
-    async fn a_pulled_manifest_is_read_in_pages_and_checked_against_its_size_and_hash() {
-        let dir = tempfile::tempdir().unwrap();
-        let manifest = json!({"transferId": "t-1", "files": vec!["x".repeat(100); 50]});
-        let reference = write_pulled_manifest(dir.path(), "t-1", &manifest).unwrap();
-        assert_eq!(reference["bytes"], manifest.to_string().len());
-        // Pages smaller than the whole: read across many.
-        let mut pages = Folder(dir.path().to_owned(), 999);
-        assert_eq!(pull_manifest(&mut pages, &reference).await.unwrap(), manifest);
-        let mut wrong = reference.clone();
-        wrong["sha256"] = json!("0".repeat(64));
-        assert!(pull_manifest(&mut pages, &wrong).await.unwrap_err().message.contains("sha256"));
-        let mut short = reference.clone();
-        short["bytes"] = json!(manifest.to_string().len() - 1);
-        assert!(pull_manifest(&mut pages, &short).await.is_err(), "a size that does not match");
-        let mut long = reference;
-        long["bytes"] = json!(MAX_PULLED_MANIFEST + 1);
-        assert!(pull_manifest(&mut pages, &long).await.is_err(), "past the bound");
-    }
-
-    #[test]
-    fn only_the_old_version_refusal_reads_as_a_target_too_old() {
-        let e = too_old(OLD_VERSION_REFUSAL, "machine-b", 200 * 1024 + 1).unwrap();
-        assert!(e.message.contains("over 64 KiB (201 KiB)"), "{}", e.message);
-        assert!(e.message.contains("`acpmux machine update machine-b`"), "{}", e.message);
-        let data = e.data.unwrap();
-        assert_eq!(
-            (data["refused"].clone(), data["reason"].clone()),
-            (json!(true), json!("transfer.target_too_old"))
-        );
-        assert!(too_old("transfer.cwd: outside the roots", "h", 1).is_none());
-    }
-}
+#[path = "transfer_pull_tests.rs"]
+mod tests;

@@ -24,6 +24,15 @@ The renderer accepts the existing [scene ABI](../../../../cmux-tui/crates/cmux-a
 
 - VStack, HStack, ZStack and LazyVStack render child layout with `spacing`;
   vertical stacks support `alignment`. Group and ForEach place children inline.
+  LazyVStack mounts only the children near what is in sight: inside a scroller the
+  page owns (New Tab) one viewport each side of it; in an app panel, which the host
+  scrolls outside the page, it draws whole up to `LAZY_STACK_WHOLE_CAP` (100) children,
+  and past it windows against the host's visible slice (`cmux.page.visibleSlice` with
+  the mount id as its surface, `ui/visibleSlice.ts`) once one arrives for the scene
+  revision drawn: each scene batch carries the mount's `revision` (1 for the first, one
+  more per batch, kept across a re-subscribe), and the slice echoes the revision it was
+  measured against. A batch without one takes no slice. Spacers keep the scene's height, so `layout`
+  reports the same height either way. Plain Groups and ForEaches in it window with it.
   Reorderable with an `onMove` handler lets a person drag a row within the list.
   A drop sends the row key and its final zero-based index to the app, which owns the order.
 - Text supports `text`, named or numeric `font`, `weight`, `italic`, `monospaced`, `fontDesign`

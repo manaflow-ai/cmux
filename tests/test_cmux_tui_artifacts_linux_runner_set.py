@@ -47,7 +47,7 @@ def resolved(runs_on: str, owner: str, linux_runner: str, overflow: str, trusted
             "CI_CLOUD_OVERFLOW_SAVED": [overflow],
             "CI_TRUSTED_RUNNER": [trusted],
             "LINUX_RUNNER_DARWIN_CROSS": [darwin_cross],
-            # Unset: every own-branch run keeps cmux-linux; the overflow switch sets it (test_ci_cloud_overflow_switch.py).
+            # The overflow switch (scripts/ci/one_linux_label.py OVERFLOW): unset until a failover writes it.
             "CI_OVERFLOW_LINUX": [""],
         },
         silent=("needs",),
@@ -70,7 +70,7 @@ FLEET = "cmux-fleet-linux-x64"
 LINUX_LABEL_JOBS = {"tree-preflight", "tree-owner-wait", "darwin-fallback-plan", "cmux-next-daemon-tests"}
 # The one-label tail scripts/ci/one_linux_label.py writes (Leo, 2026-11-20: "Just send it somewhere"): after its fork
 # branch, every own-branch run takes cmux-linux.
-ONE_LABEL_TAIL = "|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}"
+ONE_LABEL_TAIL = "|| 'cmux-linux' }}"
 
 
 def one_label(name: str, runs_on: str) -> bool:
@@ -149,7 +149,7 @@ class CmuxTuiArtifactsLinuxRunnerSetTest(unittest.TestCase):
             with self.subTest(job=job):
                 arm = NIGHTLY_ARM if job in NIGHTLY_CONTROL_JOBS else ""
                 self.assertEqual(jobs[job]["runs-on"],
-                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + arm + "vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}")
+                                 "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || " + arm + "'cmux-linux' }}")
         for job in ("build", "build-linux"):
             with self.subTest(job=job):
                 self.assertEqual(jobs[job]["with"]["linux_runner"], "cmux-linux")
