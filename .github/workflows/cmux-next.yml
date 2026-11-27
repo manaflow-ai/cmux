@@ -2175,7 +2175,7 @@ jobs:
             ${{ steps.reduce-motion.outcome }}|Reduce Motion audit
             ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid
             ${{ steps.conn-notices.outcome }}|Connection notices
-            ${{ steps.retry-prompts.outcome }}|Retry prompts (the app retries by itself)
+            ${{ steps.retry-prompts.outcome }}|Retry prompts
             ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.layout-grid.outcome }}|Layout grid
             ${{ steps.instrument-tokens.outcome }}|Instrument tokens

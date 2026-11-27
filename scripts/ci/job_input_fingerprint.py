@@ -86,6 +86,8 @@ MAC_COMMON = (
     "scripts/ci/swiftpm_build_metrics.py", "scripts/ci/build_metrics.py",
     "scripts/ci/run-xcodebuild-with-diagnostics.sh", "scripts/ci/github-egress-direct.sh",
     "scripts/ci/github-egress-run.sh",
+    # The owned-Mac SwiftPM and release fetches' job token (#58082).
+    "scripts/ci/github_fetch_auth.py",
     "scripts/ci/job_input_fingerprint.py",
     "scripts/ci/job_reuse.py", "schemas", "plans/cmux-next",
 ) + route.FULL_INPUTS + route.VENDORED_PINS + route.GENERATED_INPUTS
@@ -192,6 +194,8 @@ JOBS = {
     "release-compile": Job(MAC_TOOLCHAIN, ("mini", "xcode_app"), (
         "LICENSE", "cmux-tui/build-support/notices", "cmux-tui/crates/ghostty-vt-sys/build.rs",
         "cmux-tui/rust-toolchain.toml", "scripts/verify-app-bundle-licenses.sh",
+        # Says why the compile runs on a Mac (the build fleet gave no verdict).
+        "scripts/ci/fleet_fallback.py",
     ), whole_tree=True),
     "cmux-tui-artifacts": Job(
         required=(),
