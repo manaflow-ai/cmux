@@ -185,6 +185,22 @@ extension SettingsController {
         await reloadAfterWrite()
     }
 
+    /// Settings' Reset <card> for a card that is no one schema group: `descriptors` back to their
+    /// defaults in one publish, so the settings history records one change and one undo brings the
+    /// card back. Managed keys stay (as in Reset All); a renamed row's old key goes too.
+    public func resetSettings(_ descriptors: [SettingDescriptor], by writer: SettingWriter) async throws {
+        let managed = file.managedGuard.managedKeys
+        var edits: [SettingsFileEdit] = []
+        for descriptor in descriptors where managed[descriptor.id] == nil {
+            guard writer.mayWrite(descriptor) else { throw SettingUserOnly(key: descriptor.id, writer: writer) }
+            edits.append(.reset(descriptor.path))
+            for legacy in RenamedSettingKeys.legacyPaths(for: descriptor.path) { edits.append(.reset(legacy)) }
+        }
+        guard !edits.isEmpty else { return }
+        try await file.edit(Array(edits.prefix(Self.editsPerWrite)))
+        await reloadAfterWrite()
+    }
+
     /// The most edits one write sends (`settings.edit` takes at most 1000).
     nonisolated static let editsPerWrite = 1000
 

@@ -540,7 +540,13 @@ impl Hub {
                             // have gone into that turn. FYIs alone are not: they would have
                             // waited there too, so the hold lets go of them and they wait for the
                             // flush or the next notice.
-                            let waking = new.iter().filter(|i| wakes(&meta, i)).map(|i| i.at).min();
+                            let lapsed = super::super::cold_wake::coldness(&meta, now).is_some();
+                            let quiet = |i: &Item| quiet(&session.id, &meta, lapsed, i);
+                            let mut waking_items =
+                                new.iter().copied().filter(|i| wakes(&meta, i) && !quiet(i));
+                            let waking = waking_items.clone().map(|i| i.at).min();
+                            // Every waking message may wait for company (`WARM_HOLD_MS`).
+                            let holds = waking_items.all(|i| holds_wake(&meta, i));
                             // No flush sooner than a message's deadline (module docs, "Deadlines")
                             // in an idle chat off the coordinator list. Each flush was a
                             // turn of its own [`FLUSH_MS`] on, past a 5-minute prompt cache, so a
@@ -563,7 +569,15 @@ impl Hub {
                             // Every held message's deadline (module docs, "Deadlines"): the
                             // oldest due one wakes the chat, and its notice carries every new
                             // message, so a quiet chat takes one turn per deadline at most.
-                            let flush = judged.min(earliest_due(&new));
+                            let flush = judged.min(if lapsed {
+                                new.iter()
+                                    .filter(|i| !folded(i))
+                                    .map(|i| due_for(i, quiet(i)))
+                                    .min()
+                                    .unwrap_or(u64::MAX)
+                            } else {
+                                due
+                            });
                             // A blocker or a fire notice wakes after the burst window; anything
                             // else that wakes a chat whose prompt cache lapsed waits for its cold
                             // batch (`cold_wake.rs`), and goes in with what else came meanwhile.
@@ -574,6 +588,17 @@ impl Hub {
                             if fyi_only {
                                 inbox.held_by_person = false;
                             }
+                            // Every waking message may wait for company (`WARM_HOLD_MS`): the
+                            // burst window grows from 2 s to 5 minutes, ending no later than the
+                            // prompt cache does (a hold never turns a warm wake into a cold one).
+                            let hold_end = |at: u64| {
+                                let end = at.saturating_add(WARM_HOLD_MS);
+                                let burst = at.saturating_add(WAKE_DEBOUNCE_MS);
+                                match super::super::cold_wake::cache_expires_at(&meta) {
+                                    Some(expires) => end.min(expires.max(burst)),
+                                    None => end,
+                                }
+                            };
                             let cold = if blocker || waking.is_none() {
                                 None
                             } else {
@@ -583,7 +608,12 @@ impl Hub {
                                 now
                             } else {
                                 waking.map_or(flush, |at| {
-                                    cold.unwrap_or(at.saturating_add(WAKE_DEBOUNCE_MS)).min(flush)
+                                    let burst = if holds {
+                                        hold_end(at)
+                                    } else {
+                                        at.saturating_add(WAKE_DEBOUNCE_MS)
+                                    };
+                                    cold.unwrap_or(burst).min(flush)
                                 })
                             };
                             let retry = match inbox.refused_at {

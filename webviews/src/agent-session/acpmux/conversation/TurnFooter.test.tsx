@@ -20,6 +20,7 @@ import {
   transcriptGap,
 } from "../transcriptGrid";
 import { TurnFooter } from "./TurnRows";
+import { CapacityWaitContext } from "../capacityWait";
 
 const t: Translate = (key, values) => translate(key, values, "en");
 
@@ -73,7 +74,7 @@ test("the buttons lead the footer row, then its age, with no Worked for", () => 
 });
 
 test("a turn stopped within a second still says it stopped", () => {
-  expect(footerLabel(t, footer({ durationMs: 400, status: "cancelled" }))).toBe("You stopped after <1s");
+  expect(footerLabel(t, footer({ durationMs: 400, status: "cancelled" }))).toBe("You stopped after 0s");
 });
 
 test("a turn whose work folds under Worked for says nothing in its footer", () => {
@@ -288,4 +289,25 @@ test("a work-only turn that said nothing has nothing to copy and stays empty; on
   // Not the chat's last turn any more: the row stays, so nothing above it moves.
   expect(isEmptyFooter(footer({ turnCopy: [{ text: "I'll check." }] }))).toBe(false);
   expect(rowMark(footer({ turnCopy: [{ text: "I'll check." }] }))).toBe(MARK_FOOTER_ROW);
+});
+
+test("a turn held for capacity marks its footer waiting, so the last reply's rest rule skips it", () => {
+  // conversation.css shows the chat's last footer at rest (`acpmux-row--final-footer`) except
+  // `cv-turn-actions--waiting`: the calm wait card stays alone (Lucas, 2026-11-26).
+  const row = footer({ status: "failed", turnId: "turn-1", error: "overloaded" });
+  const markup = renderToStaticMarkup(
+    <CapacityWaitContext.Provider value={{ reason: "capacity", turnId: "turn-1" }}>
+      <TurnFooter row={row} />
+    </CapacityWaitContext.Provider>,
+  );
+  expect(markup).toContain("cv-turn-actions cv-turn-actions--waiting");
+  expect(markup).not.toContain("cv-turn-actions--failed");
+  // Another turn's wait leaves this failed footer as it was.
+  const other = renderToStaticMarkup(
+    <CapacityWaitContext.Provider value={{ reason: "capacity", turnId: "turn-2" }}>
+      <TurnFooter row={row} />
+    </CapacityWaitContext.Provider>,
+  );
+  expect(other).toContain("cv-turn-actions--failed");
+  expect(other).not.toContain("cv-turn-actions--waiting");
 });
