@@ -24,6 +24,16 @@ async fn machine_with(
     configured: &BTreeMap<String, crate::config::PeerConfig>,
 ) -> Arc<Transport> {
     let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+    machine_on(home, n, target, configured, socket).await
+}
+
+async fn machine_on(
+    home: &Path,
+    n: u8,
+    target: SocketAddr,
+    configured: &BTreeMap<String, crate::config::PeerConfig>,
+    socket: UdpSocket,
+) -> Arc<Transport> {
     let settings = StaticConfig {
         listen: socket.local_addr().unwrap(),
         address: format!("10.78.0.{n}:4100").parse().unwrap(),
@@ -82,11 +92,18 @@ fn a_learned_route_carries_with_no_configured_peer_and_survives_a_restart() {
 
         // Both restart: the kept lists come back, and the cold dial goes over WireGuard with
         // no admit and no learn (no ssh, no host_health).
+        let ports = [a.local_addr(), b.local_addr()];
         a.shutdown(tokio::time::Instant::now()).await;
         b.shutdown(tokio::time::Instant::now()).await;
         drop((a, b));
-        let a = machine(homes[0].path(), 1, to).await;
-        let b = machine(homes[1].path(), 2, to).await;
+        // A cold dial reuses the configured listen ports; a changed endpoint requires
+        // another health reply, covered separately below.
+        let a =
+            machine_on(homes[0].path(), 1, to, &BTreeMap::new(), rebind(ports[0]).await.unwrap())
+                .await;
+        let b =
+            machine_on(homes[1].path(), 2, to, &BTreeMap::new(), rebind(ports[1]).await.unwrap())
+                .await;
         let kept = a.learned_route("b").expect("the route is kept across a restart");
         assert_eq!(kept.address, address);
         carries(&a, address, &target).await;
@@ -155,4 +172,30 @@ fn an_unreadable_learned_file_is_ignored() {
     assert_eq!(load(home.path()), Saved::default());
     std::fs::write(home.path().join(FILE), vec![b' '; (MAX_FILE_BYTES + 1) as usize]).unwrap();
     assert_eq!(load(home.path()), Saved::default());
+}
+
+#[test]
+fn a_learned_route_refreshes_after_the_remote_endpoint_and_address_change() {
+    runtime().block_on(async {
+        let target = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let to = target.local_addr().unwrap();
+        let homes = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+        let a = machine(homes[0].path(), 1, to).await;
+        let b = machine(homes[1].path(), 2, to).await;
+        let address = learn(&a, &b).await;
+        carries(&a, address, &target).await;
+        let old_port = b.local_addr();
+        b.shutdown(tokio::time::Instant::now()).await;
+        drop(b);
+        // Reserve the old endpoint so the OS cannot accidentally give it to the new daemon.
+        let _old_endpoint = rebind(old_port).await.unwrap();
+        let b = machine(homes[1].path(), 3, to).await;
+        assert_ne!(b.local_addr(), old_port);
+        let refreshed = learn(&a, &b).await;
+        assert_ne!(refreshed, address);
+        assert_eq!(load(homes[0].path()).routes["b"].address, refreshed);
+        carries(&a, refreshed, &target).await;
+        a.shutdown(tokio::time::Instant::now()).await;
+        b.shutdown(tokio::time::Instant::now()).await;
+    });
 }

@@ -97,6 +97,8 @@ pub struct Transport {
     /// Routes found at runtime and keys admitted by peers, beside the configured ones
     /// (`wireguard_learned.rs`), kept in `<state dir>/wireguard-learned.json`.
     learned: Mutex<learned::Learned>,
+    /// Serialize learned mesh mutations, persistence, and mesh replacement on rekey.
+    learned_update: tokio::sync::Mutex<()>,
     state_dir: PathBuf,
 }
 
@@ -256,6 +258,7 @@ impl Transport {
             key_users: Mutex::new(Vec::new()),
             public_key: Mutex::new(keypair.public_key_b64()),
             learned: Mutex::new(learned),
+            learned_update: tokio::sync::Mutex::new(()),
             state_dir: state_dir.to_path_buf(),
         }))
     }
@@ -298,6 +301,7 @@ impl Transport {
     /// address: what a rekey (`machine_tunnel.rs`) does once the new key is on disk. Open
     /// tunnel streams and bridges end; peers handshake again with the new key.
     pub(crate) async fn restart(&self, private_key: Zeroizing<[u8; 32]>) -> Result<()> {
+        let _update = self.learned_update.lock().await;
         let mut mesh = self.mesh.write().await;
         ensure!(!*self.stop.borrow() && mesh.is_some(), "WireGuard transport stopped");
         let old_bridge =

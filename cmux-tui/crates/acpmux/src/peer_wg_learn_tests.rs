@@ -36,3 +36,39 @@ fn the_ssh_hostname_is_read_from_ssh_g() {
     assert_eq!(crate::cli::ssh_join::hostname_of(config).as_deref(), Some("100.64.0.7"));
     assert_eq!(crate::cli::ssh_join::hostname_of("user cmux\n"), None);
 }
+
+#[tokio::test]
+async fn a_learned_peer_keeps_learning_and_adopts_a_changed_service_address() {
+    use crate::config::{Config, TransportConfig};
+    use crate::wireguard::StaticConfig;
+    let home = tempfile::tempdir().unwrap();
+    let config = Config {
+        transport: TransportConfig {
+            wireguard: true,
+            wireguard_static: Some(StaticConfig {
+                listen: "127.0.0.1:0".parse().unwrap(),
+                address: "10.78.0.1:4100".parse().unwrap(),
+            }),
+        },
+        ..Default::default()
+    };
+    let transport =
+        Transport::start_with_link(&config, home.path(), None, "127.0.0.1:1".parse().unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+    let (tx, _rx) = tokio::sync::mpsc::channel(8);
+    let peer = Peer::new("b", "ssh://localhost", None, None, tx);
+    peer.set_wireguard_learner(transport.clone());
+    assert!(peer.wg_learn_wanted());
+    let first = "10.78.0.2:4100".parse().unwrap();
+    assert!(peer.adopt_wireguard(transport.clone(), first));
+    assert!(peer.wg_learn_wanted(), "a remembered route must not disable later health updates");
+    let next = "10.78.0.3:4200".parse().unwrap();
+    assert!(peer.adopt_wireguard(transport.clone(), next));
+    assert_eq!(peer.wireguard_route().unwrap().1, next);
+    peer.set_explicit_route(true);
+    assert!(!peer.wg_learn_wanted(), "configured routes still take precedence");
+    peer.stop();
+    transport.shutdown(tokio::time::Instant::now()).await;
+}

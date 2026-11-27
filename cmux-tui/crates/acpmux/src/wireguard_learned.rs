@@ -192,6 +192,7 @@ impl Transport {
     /// peer at service address `address`, and keep it. False when nothing changed: the key is
     /// configured, already has a route here, or is admitted at that address.
     pub(crate) async fn admit(&self, public_key: &str, address: SocketAddr) -> Result<bool> {
+        let _update = self.learned_update.lock().await;
         let key = check_admit(&self.settings(), public_key, address)?;
         if self.peers.iter().any(|peer| peer.public_key == key) {
             return Ok(false);
@@ -231,6 +232,7 @@ impl Transport {
     /// Add `route` to the mesh as peer `name`'s and keep it: its service address, which the
     /// peer's `Via::Wireguard` dials. Refused for a name or key the config names.
     pub(crate) async fn learn(&self, name: &str, route: StaticPeer) -> Result<SocketAddr> {
+        let _update = self.learned_update.lock().await;
         let key = check_peer(&self.settings(), &route)?;
         ensure!(!self.routes.contains_key(name), "peer {name} has a configured WireGuard route");
         ensure!(

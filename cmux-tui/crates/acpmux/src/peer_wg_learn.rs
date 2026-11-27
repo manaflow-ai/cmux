@@ -53,17 +53,16 @@ impl Peer {
     }
 
     /// Whether a route may be found for this peer: a plain `ssh://` peer whose config names
-    /// none, with no WireGuard route yet, where this machine's transport runs.
+    /// none, where this machine's transport runs. Later health replies refresh stale routes.
     fn wg_learn_wanted(&self) -> bool {
         !self.explicit_route.load(Ordering::SeqCst)
-            && self.wireguard.get().is_none()
             && self.ssh_parts().is_some()
             && self.wg_learner.get().is_some()
     }
 
     /// The route kept for this peer on an earlier run, before the first dial.
     pub(crate) fn recall_wireguard(&self) {
-        if !self.wg_learn_wanted() {
+        if !self.wg_learn_wanted() || self.wireguard_route().is_some() {
             return;
         }
         let Some(transport) = self.wg_learner.get() else { return };
@@ -121,9 +120,12 @@ impl Peer {
         transport: Arc<Transport>,
         address: SocketAddr,
     ) -> bool {
+        let unchanged = self.wireguard_route().is_some_and(|(current, current_address)| {
+            Arc::ptr_eq(&current, &transport) && current_address == address
+        });
         self.set_wireguard(transport, address);
-        if self.wireguard.get().map(|(_, a)| *a) != Some(address) {
-            return false;
+        if unchanged {
+            return true;
         }
         self.with_paths(|paths| paths.add(Via::Wireguard));
         tracing::info!(peer = %self.name, "WireGuard reaches this machine too: a path beside ssh");

@@ -332,7 +332,7 @@ pub struct Peer {
     peer_token: Option<String>,
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
-    wireguard: std::sync::OnceLock<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>,
+    wireguard: StdMutex<Option<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>>,
     /// The daemon's hub carrier and the hub `daemonId` this peer's config names (its WireGuard
     /// key), if any (`peer_hub.rs`).
     #[cfg(feature = "hub-carrier")]

@@ -44,7 +44,7 @@ impl Peer {
             token,
             peer_token,
             tunnel: Mutex::new(None),
-            wireguard: std::sync::OnceLock::new(),
+            wireguard: StdMutex::new(None),
             #[cfg(feature = "hub-carrier")]
             hub_carrier: std::sync::OnceLock::new(),
             link_host: std::sync::OnceLock::new(),
@@ -168,7 +168,14 @@ impl Peer {
         transport: Arc<crate::wireguard::Transport>,
         address: std::net::SocketAddr,
     ) {
-        let _ = self.wireguard.set((transport, address));
+        *self.wireguard.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((transport, address));
+    }
+
+    pub(crate) fn wireguard_route(
+        &self,
+    ) -> Option<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)> {
+        self.wireguard.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
     }
 
     /// What the current (or last) link received (`ReceivedBytes`).
