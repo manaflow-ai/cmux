@@ -132,21 +132,21 @@ fn a_tier_bounds_what_a_lease_allows() {
 #[test]
 fn a_commit_lease_is_spent_by_one_action() {
     let mut leases = Leases(vec![Lease {
-        site: "shop.example".into(),
+        site: "shop.example.com".into(),
         tier: Tier::Commit,
         expires_at_ms: NOW + 10,
     }]);
     // Reading does not spend it.
-    assert_eq!(leases.authorize("shop.example", Tier::Read, NOW), Ok(None));
-    let spent = leases.authorize("www.shop.example", Tier::Act, NOW).unwrap();
+    assert_eq!(leases.authorize("shop.example.com", Tier::Read, NOW), Ok(None));
+    let spent = leases.authorize("www.shop.example.com", Tier::Act, NOW).unwrap();
     assert_eq!(spent.map(|lease| lease.tier), Some(Tier::Commit));
-    assert!(leases.authorize("shop.example", Tier::Act, NOW).is_err(), "never a second action");
-    assert!(leases.refusal("shop.example", NOW).is_some());
+    assert!(leases.authorize("shop.example.com", Tier::Act, NOW).is_err(), "never a second action");
+    assert!(leases.refusal("shop.example.com", NOW).is_some());
     // An act lease beside it covers acts without spending the commit.
     let mut leases = Leases(vec![
-        Lease { site: "shop.example".into(), tier: Tier::Commit, expires_at_ms: NOW + 10 },
-        Lease { site: "shop.example".into(), tier: Tier::Act, expires_at_ms: NOW + 10 },
+        Lease { site: "shop.example.com".into(), tier: Tier::Commit, expires_at_ms: NOW + 10 },
+        Lease { site: "shop.example.com".into(), tier: Tier::Act, expires_at_ms: NOW + 10 },
     ]);
-    assert_eq!(leases.authorize("shop.example", Tier::Act, NOW), Ok(None));
+    assert_eq!(leases.authorize("shop.example.com", Tier::Act, NOW), Ok(None));
     assert_eq!(leases.0.len(), 2);
 }
