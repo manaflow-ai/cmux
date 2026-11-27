@@ -2923,7 +2923,7 @@ Commits logged without a trailer (the card above):
 
 ## The footer Search button is back, and opens the Command Palette (2026-11-23, #53441)
 
-- `116d5b23325` turns `sidebar.showSearchButton` on by default again and makes the footer's magnifying glass run
+- `116d5b23325` (squash-merged as `8e50faa7248`) turns `sidebar.showSearchButton` on by default again and makes the footer's magnifying glass run
   `commandPalette`. Its tooltip reads "Search" with the palette's live key (⇧⌘P; it follows a rebind). Lawrence,
   2026-11-23: "bring it back"; "we need some mechanism to educate user about cmd shift p". The commit reached the
   bot's branch without a trailer, so it is logged here. Look checked on a fleet capture mini
