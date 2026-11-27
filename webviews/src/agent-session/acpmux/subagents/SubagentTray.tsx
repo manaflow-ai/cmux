@@ -96,7 +96,8 @@ import {
   subagentStateText,
   subagentStatus,
 } from "../summary/subagentStatusListModel";
-import { retrying, retryLabel, sessionRetry } from "./retryState";
+import { retrying, retryWords, sessionRetry, sessionRetryKey, type RetryQuiet } from "./retryState";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { AgentMark } from "../../shared/AgentMark";
 import { AgentLine } from "./AgentLine";
 import { AgentIdentity } from "./AgentIdentity";
@@ -112,7 +113,7 @@ import { StopButton } from "./SubagentGroup";
 import { ResumeControl, type ResumeActions } from "./ResumeControl";
 import { SubagentHarnessContext, ticking } from "./subagentGroupModel";
 import { Elapsed } from "./Elapsed";
-import { commandStatus, itemStart, trayItemKey, type TrayItem, SILENT_TURN_ICON } from "./runningTray";
+import { commandStatus, trayItemKey, type TrayItem, itemStart, SILENT_TURN_ICON } from "./runningTray";
 import type { SilentTurn } from "../conversation/silentTurns";
 import { backgroundTurnLabel } from "../conversation/backgroundTurns";
 import { longestRunningFirst, runSince } from "./trayHeadOrder";
@@ -129,7 +130,7 @@ import { HatFaces, hatFaces, type HatFace } from "./HatFaces";
 import { trayFoldHeadLook } from "./trayFoldHead.experiment";
 import { trayOpenLook } from "./trayOpen.experiment";
 import { trayHeadKindsLook } from "./trayHeadKinds.experiment";
-import { trayHead, trayHeadGroups, trayHeadParts, type TrayHeadPart } from "./trayHeadKinds";
+import { trayHead, trayHeadParts, type TrayHeadPart, trayHeadGroups } from "./trayHeadKinds";
 import { HeadSummary } from "./HeadSummary";
 import { trayHeadHeightLook } from "./trayHeadHeight.experiment";
 import { COMMAND_KIND_ICON, commandKind } from "./trayCommandKinds";
@@ -153,7 +154,7 @@ import type { StartedSession } from "../started/startedSessions";
 import { awaitsOwnWork, type Subagent } from "./subagentFold";
 import type { SubagentTrayPlacement } from "./subagentTrayPlacement";
 import { rememberTrayOpen, trayOpenFor } from "./trayFoldMemory";
-import { HAT_OPEN_SLOP, hatDragEnd, hatDragHeight, setHatHeight, useHatHeight } from "./trayResize";
+import { setHatHeight, useHatHeight, HAT_OPEN_SLOP, hatDragEnd, hatDragHeight } from "./trayResize";
 import type { TrayHandleSide } from "../chatDisplay";
 import { focusRingShown } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
@@ -265,6 +266,8 @@ export const SubagentTray = memo(function SubagentTray({
   // draws again on an event, never on the clock's tick.
   useCountedRender("tray");
   const t = useT();
+  // A retry waits out the shared bound before its line says so (retryState.ts ``retryWords``).
+  const connectionQuiet = useConnectionQuietKeys();
   const language = usePaneLanguage();
   // The chat's harness, for a subagent that names none (SubagentGroup.tsx `Avatar`).
   const chatHarness = useContext(SubagentHarnessContext);
@@ -623,7 +626,7 @@ export const SubagentTray = memo(function SubagentTray({
   // The `summary` arm (the default) counts as the tally does, in words while they fit (HeadSummary.tsx).
   const summaryHead = (foldHead === "summary" || groupsHead) && headParts.length > 0;
   const tallyHead = (foldHead === "tally" || summaryHead) && headParts.length > 0;
-  const loneEnd = lone && !tallyHead ? loneHeadOf(t, language, lone, waiting, showLatest) : undefined;
+  const loneEnd = lone && !tallyHead ? loneHeadOf(t, language, lone, waiting, showLatest, connectionQuiet) : undefined;
   const loneHead = loneEnd && !open ? loneEnd : undefined;
   // The `kinds` arm draws each kind's mark and count, folded and open; a lone item keeps its own head.
   const kindsHead = tallyHead || (foldHead === "kinds" && !loneEnd && headParts.length > 0);
@@ -637,7 +640,7 @@ export const SubagentTray = memo(function SubagentTray({
   const peekItem = deck && !lone && peeked !== undefined ? leading.find((item) => itemKey(item) === peeked) : undefined;
   // What the header says while a mark is pointed at: that line's name and latest step, as a lone
   // item's header says them. The bar keeps its height and its trailing columns; the words truncate.
-  const peekHead = peekItem ? loneHeadOf(t, language, peekItem, waiting, true) : undefined;
+  const peekHead = peekItem ? loneHeadOf(t, language, peekItem, waiting, true, connectionQuiet) : undefined;
   const headText = peekHead ? peekHead.title : workText;
   const headSince = itemsSince;
   const moreCount = items.length - shownNames.length;
@@ -1193,7 +1196,7 @@ export const SubagentTray = memo(function SubagentTray({
               doneLook={doneLook}
               status={subagentStatus(item.agent, waiting)}
               working={subagentStatus(item.agent, waiting) === "running"}
-              state={subagentStateText(t, item.agent, waiting)}
+              state={subagentStateText(t, item.agent, waiting, connectionQuiet)}
               quiet={quietAgent(item.agent, waiting)}
               time={agentTime(item.agent)}
               depth={item.depth}
@@ -1379,6 +1382,9 @@ export const SubagentTray = memo(function SubagentTray({
     // The chat's retry, as every surface reads it (retryState.ts ``sessionRetry``).
     const sessionPhase = sessionRetry(item.session);
     const sessionRetrying = sessionPhase.kind === "retrying" ? sessionPhase.retry : undefined;
+    const sessionState =
+      retryWords(t, sessionRetrying, sessionRetryKey(item.session.sessionId), connectionQuiet) ??
+      t(STATUS_LABEL[SESSION_STATUS[item.session.state]]);
     return (
       <>
         <AgentLine
@@ -1391,7 +1397,7 @@ export const SubagentTray = memo(function SubagentTray({
           icon="agent.chat"
           status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
           working={sessionRetrying !== undefined || item.session.state === "running"}
-          state={sessionRetrying ? retryLabel(t, sessionRetrying) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])}
+          state={sessionState}
           quiet={!sessionRetrying && (item.session.state === "running" || item.session.state === "idle")}
           trayColumns
           expanded={opensRow && onOpenSession ? undefined : isOpen}
@@ -1408,9 +1414,7 @@ export const SubagentTray = memo(function SubagentTray({
               <SubagentCardBody
                 name={item.session.title}
                 status={sessionRetrying ? "running" : SESSION_STATUS[item.session.state]}
-                state={
-                  sessionRetrying ? retryLabel(t, sessionRetrying) : t(STATUS_LABEL[SESSION_STATUS[item.session.state]])
-                }
+                state={sessionState}
                 latest={item.session.doing}
               />
             )
@@ -1503,6 +1507,7 @@ function loneHeadOf(
   item: TrayItem,
   waiting: ReadonlySet<string>,
   showLatest: boolean,
+  connectionQuiet: RetryQuiet,
 ): LoneHead {
   if (item.kind === "agent") {
     const status = subagentStatus(item.agent, waiting);
@@ -1512,7 +1517,7 @@ function loneHeadOf(
       latest:
         showLatest && status === "running" && !retry ? latestLine(t, item.agent, awaitsOwnWork(item.agent)) : undefined,
       status,
-      state: subagentStateText(t, item.agent, waiting),
+      state: subagentStateText(t, item.agent, waiting, connectionQuiet),
       time: agentTime(item.agent),
       retry,
       agent: item.agent,
@@ -1546,7 +1551,7 @@ function loneHeadOf(
     title: item.session.title,
     latest: showLatest && status === "running" && !retry ? item.session.doing : undefined,
     status,
-    state: retry ? retryLabel(t, retry) : t(STATUS_LABEL[status]),
+    state: retryWords(t, retry, sessionRetryKey(item.session.sessionId), connectionQuiet) ?? t(STATUS_LABEL[status]),
     retry: retry !== undefined,
   };
 }

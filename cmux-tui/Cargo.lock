@@ -1580,6 +1580,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-browser-sync"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "getrandom 0.3.4",
+ "reqwest",
+ "ring",
+ "serde",
+ "serde_json",
+ "tokio",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-build-identity"
 version = "0.1.0"
 dependencies = [
@@ -1614,6 +1630,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "blake3",
+ "cmux-process",
  "cmux-signed-envelope",
  "flate2",
  "ring",
@@ -2250,6 +2267,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-hop-relay"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "cmux-scope",
+ "cmux-transport",
+ "getrandom 0.3.4",
+ "hmac",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+]
+
+[[package]]
 name = "cmux-host"
 version = "0.1.0"
 dependencies = [
@@ -2388,6 +2420,13 @@ dependencies = [
 [[package]]
 name = "cmux-launch-image"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-launch-preread"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "cmux-layout-reducer"
@@ -2808,6 +2847,7 @@ dependencies = [
  "axum",
  "base64",
  "bytes",
+ "cmux-braid-carrier",
  "cmux-braid-path",
  "cmux-braid-session",
  "cmux-build-identity",
@@ -2816,6 +2856,7 @@ dependencies = [
  "cmux-json",
  "cmux-link",
  "cmux-netwatch",
+ "cmux-process",
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
@@ -2876,6 +2917,19 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+]
+
+[[package]]
+name = "cmux-remote-web"
+version = "0.1.0"
+dependencies = [
+ "cmux-remote-protocol",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "serde",
+ "serde_json",
+ "snow",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -3004,6 +3058,16 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "cmux-shotdiff"
+version = "1.0.0"
+dependencies = [
+ "png",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -3816,9 +3880,12 @@ name = "cmux-vnc"
 version = "0.1.0"
 dependencies = [
  "aes",
+ "base64",
  "flate2",
  "getrandom 0.3.4",
  "num-bigint",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

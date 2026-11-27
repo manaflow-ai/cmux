@@ -135,6 +135,128 @@ class NfpmConfig(Base):
         self.assertIn("not a verified Linux release file", result.stderr)
 
 
+@unittest.skipUnless(have("openssl"), "needs openssl 3")
+class Packages(NfpmConfig):
+    """`packages` builds the .deb and .rpm of the unsigned payload before it is signed and names them per
+    target; the signed file verifies with them, and same-build ignores them (they carry the signing run's
+    version). nfpm is a stub here unless $NFPM names the real one."""
+    test_config_installs_each_named_binary_and_a_disabled_unit = None
+    test_changed_binary_is_refused = None
+    test_missing_binary_is_refused = None
+    test_glibc_target_is_refused = None
+    test_unsigned_release_is_refused = None
+
+    def setUp(self):
+        super().setUp()
+        self.nfpm = os.environ.get("NFPM") or self.path("nfpm")
+        if not os.environ.get("NFPM"):
+            # nfpm package --config C --packager P --target DIR/: one file named as nfpm would.
+            with open(self.nfpm, "w") as f:
+                f.write("#!/bin/sh\nset -e\nwhile [ $# -gt 0 ]; do case $1 in --config) c=$2;; --packager) p=$2;; "
+                        "--target) t=$2;; esac; shift; done\ncat \"$c\" >\"${t}cmux_built.$p\"\n")
+            os.chmod(self.nfpm, 0o755)
+        self.payload = self.path("payload.json")
+
+    def packages(self):
+        out = self.path("payload-packages.json")
+        result = run([sys.executable, ARCHIVE, "packages", "--payload", self.payload, "--binaries-dir", self.bin,
+                      "--nfpm", self.nfpm, "--work", self.path("work"), "--out", out])
+        return result, out
+
+    def sign(self, payload, out):
+        result = run([sys.executable, POINTER, "sign", "--payload", payload, "--key", self.path("ota.pem"),
+                      "--keys", self.keys, "--out", out])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return out
+
+    def test_each_target_names_its_packages_under_the_commit(self):
+        result, out = self.packages()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.load(open(out))
+        uploads = dict(line.split("\t")[::-1] for line in result.stdout.splitlines())
+        prefix = f"https://files.cmux.com/cmux-tui/{COMMIT}/"
+        for target, (deb, rpm) in {"x86_64-unknown-linux-gnu": ("amd64", "x86_64"), TARGET: ("amd64", "x86_64"),
+                                   "aarch64-unknown-linux-gnu": ("arm64", "aarch64"),
+                                   "aarch64-unknown-linux-musl": ("arm64", "aarch64")}.items():
+            files = payload["targets"][target]
+            self.assertEqual(files["deb"]["url"], f"{prefix}cmux-20261122120000-{deb}.deb")
+            self.assertEqual(files["rpm"]["url"], f"{prefix}cmux-20261122120000-{rpm}.rpm")
+            for packager in ("deb", "rpm"):
+                local = uploads[files[packager]["url"][len("https://files.cmux.com/"):]]
+                self.assertEqual(files[packager]["size"], os.path.getsize(local))
+                self.assertEqual(files[packager]["sha256"], hashlib.sha256(open(local, "rb").read()).hexdigest())
+        # The binaries are untouched, and the signed file verifies with its packages.
+        before = json.load(open(self.payload))
+        for target in before["targets"]:
+            for name, entry in before["targets"][target].items():
+                self.assertEqual(payload["targets"][target][name], entry)
+        signed = self.sign(out, self.path("release-packages.json"))
+        verified = run([sys.executable, POINTER, "verify", "--pointer", signed, "--keys", self.keys,
+                        "--purpose", "cmux-linux-release", "--allow-expired"])
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+        # A signed file that names packages builds the same nfpm config (packages are skipped).
+        config = run([sys.executable, ARCHIVE, "nfpm-config", "--release", signed, "--keys", self.keys,
+                      "--target", TARGET, "--binaries-dir", self.bin, "--out", self.path("again.json")])
+        self.assertEqual(config.returncode, 0, config.stderr)
+
+    def test_tree_payload_names_packages_under_the_tree(self):
+        payload = json.load(open(self.payload))
+        tree = "2" * 40
+        payload["tree_key"] = tree
+        for files in payload["targets"].values():
+            for entry in files.values():
+                entry["url"] = entry["url"].replace(f"/{COMMIT}/", f"/tree/{tree}/")
+        with open(self.payload, "w") as f:
+            json.dump(payload, f)
+        result, out = self.packages()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"\tcmux-tui/tree/{tree}/cmux-20261122120000-amd64.deb", result.stdout)
+        verified = run([sys.executable, POINTER, "verify", "--pointer", self.sign(out, self.path("t.json")),
+                        "--keys", self.keys, "--purpose", "cmux-linux-release", "--allow-expired"])
+        self.assertEqual(verified.returncode, 0, verified.stderr)
+
+    def test_changed_binary_builds_nothing(self):
+        with open(os.path.join(self.bin, f"cmux-tui-{TARGET}"), "ab") as f:
+            f.write(b"x")
+        result, out = self.packages()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(os.path.exists(out))
+
+    def test_a_deb_url_that_is_not_a_deb_is_refused(self):
+        result, out = self.packages()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.load(open(out))
+        payload["targets"][TARGET]["deb"]["url"] = f"https://files.cmux.com/cmux-tui/{COMMIT}/cmux-tui-{TARGET}"
+        with open(out, "w") as f:
+            json.dump(payload, f)
+        verified = run([sys.executable, POINTER, "verify", "--pointer", self.sign(out, self.path("bad.json")),
+                        "--keys", self.keys, "--purpose", "cmux-linux-release", "--allow-expired"])
+        self.assertNotEqual(verified.returncode, 0)
+        self.assertIn("is not a .deb", verified.stderr)
+
+    def test_same_build_ignores_packages(self):
+        # The file already written (with or without packages) is kept by a re-sign that built others.
+        result, out = self.packages()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with_packages = self.sign(out, self.path("with.json"))
+        payload = json.load(open(out))
+        payload["targets"][TARGET]["deb"]["sha256"] = "f" * 64
+        with open(self.path("other.json"), "w") as f:
+            json.dump(payload, f)
+        other = self.sign(self.path("other.json"), self.path("other-signed.json"))
+        for new, current in ((with_packages, self.release), (self.release, with_packages), (other, with_packages)):
+            same = run([sys.executable, POINTER, "same-build", "--pointer", new, "--current", current,
+                        "--keys", self.keys])
+            self.assertEqual(same.returncode, 0, same.stderr)
+        # A changed binary is still another build.
+        payload["targets"][TARGET]["cmux-tui"]["sha256"] = "e" * 64
+        with open(self.path("bin.json"), "w") as f:
+            json.dump(payload, f)
+        changed = run([sys.executable, POINTER, "same-build", "--pointer", self.sign(self.path("bin.json"),
+                       self.path("bin-signed.json")), "--current", with_packages, "--keys", self.keys])
+        self.assertNotEqual(changed.returncode, 0)
+
+
 @unittest.skipUnless(have("gpg", "gpgv", "dpkg-deb", "bash"), "needs gpg, gpgv and dpkg-deb")
 class AptRepo(Base):
     @classmethod

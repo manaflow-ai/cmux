@@ -11,6 +11,14 @@ repository indexes cannot disagree with it.
       check every binary of target T in D against R's sha256 and size, then write the nfpm config of the
       `cmux` package: /usr/bin/cmux, /usr/bin/cmux-tui-hook, /usr/bin/acpmux, /usr/bin/cmux-app-host and
       /usr/bin/cmux-agent-screen-detection (each one R names) and a cmux-host systemd unit, disabled.
+  packages --payload P --binaries-dir D --nfpm NFPM --work W --out P2
+      before signing: build the .deb and .rpm of each musl target of this run's unsigned release payload P
+      (the same config as nfpm-config, from P), name them in P2 per target as `deb` and `rpm` {url, sha256,
+      size} (the musl target and its glibc-named twin), and print `<file>\t<object key>` per package to
+      upload under the target's prefix (cmux-tui/<commit>/ or tree/<key>/) before P2 is signed. Packages
+      exist with or without the archive key: an installer takes them from the signed release file.
+  fetch-packages --release R --keys K --deb-dir D --rpm-dir D2
+      download the packages the verified release file R names on its musl targets, each at its sha256 and size.
   apt-repo --debs DIR --channel C --out ROOT --key-id FPR [--valid-days 7] [--now T]
       pool/<file>.deb plus dists/C/{Release,InRelease,Release.gpg} and main/binary-<arch>/Packages(.gz).
       Release carries Valid-Until (publish time plus --valid-days) inside the signed part: apt refuses an
@@ -60,6 +68,9 @@ RestartSec=2
 WantedBy=multi-user.target
 """
 UNIT_PATH = "/usr/lib/systemd/system/cmux-host.service"
+# The package entries a release file names per target, beside the binaries (design section 2).
+PACKAGES = ("deb", "rpm")
+FILES = "https://files.cmux.com/cmux-tui/"
 VALID_DAYS = 7
 
 
@@ -91,27 +102,30 @@ def package_version(version):
     return version
 
 
-def nfpm_config(args):
-    release = verified_release(args.release, args.keys)
-    if args.target not in TARGETS:
-        fail(f"no package for {args.target}; packages are built for {', '.join(TARGETS)}")
-    binaries = release["targets"].get(args.target)
+def write_nfpm_config(release, target, binaries_dir, out):
+    """The nfpm config of the `cmux` package of `target`: every binary `release` (a Linux release payload)
+    names for it, each checked against its copy in `binaries_dir`, plus the disabled cmux-host unit."""
+    if target not in TARGETS:
+        fail(f"no package for {target}; packages are built for {', '.join(TARGETS)}")
+    binaries = release["targets"].get(target)
     if not binaries:
-        fail(f"{args.release} names no binaries for {args.target}")
-    deb_arch, _ = TARGETS[args.target]
+        fail(f"the release names no binaries for {target}")
+    deb_arch, _ = TARGETS[target]
     contents = []
     for name, entry in sorted(binaries.items()):
+        if name in PACKAGES:
+            continue
         if name not in INSTALLED:
-            fail(f"{args.release} names {name}, which the package does not know where to install")
-        local = os.path.join(args.binaries_dir, os.path.basename(entry["url"]))
+            fail(f"the release names {name}, which the package does not know where to install")
+        local = os.path.join(binaries_dir, os.path.basename(entry["url"]))
         if not os.path.isfile(local):
             fail(f"{local} is missing: the package holds every binary the release file names")
         if os.path.getsize(local) != entry["size"] or sha256(local) != entry["sha256"]:
             fail(f"{local} is not the {name} the release file names (size or sha256 differ)")
         contents.append({"src": os.path.abspath(local), "dst": INSTALLED[name], "file_info": {"mode": 0o755}})
     if "cmux-tui" not in binaries:
-        fail(f"{args.release} names no cmux-tui for {args.target}")
-    unit = os.path.join(os.path.dirname(os.path.abspath(args.out)), "cmux-host.service")
+        fail(f"the release names no cmux-tui for {target}")
+    unit = os.path.join(os.path.dirname(os.path.abspath(out)), "cmux-host.service")
     with open(unit, "w") as f:
         f.write(UNIT)
     contents.append({"src": unit, "dst": UNIT_PATH, "type": "config", "file_info": {"mode": 0o644}})
@@ -119,18 +133,99 @@ def nfpm_config(args):
         "name": "cmux", "arch": deb_arch, "platform": "linux", "version": package_version(release["version"]),
         "version_schema": "none", "maintainer": "Manaflow <support@cmux.com>", "homepage": "https://cmux.com",
         "description": "cmux: the terminal daemon and agent host (cmux host run, disabled until enabled)",
-        "license": "Proprietary", "contents": contents,
-        # The commit time as every file's mtime: a rerun builds the same bytes, so the write-once upload
-        # of cmux-tui/<commit>/<package> accepts it.
+        "license": "Proprietary", "section": "utils", "contents": contents,
+        # The commit time as every file's mtime: a rerun of one signing builds the same bytes, so the
+        # write-once upload of the package accepts it.
         "mtime": datetime.datetime.fromtimestamp(release["committed_at"], datetime.timezone.utc)
                  .strftime("%Y-%m-%dT%H:%M:%SZ"),
         # nfpm maps arch to each format (amd64 -> x86_64 for rpm). No scripts: installing the package
         # starts nothing; `systemctl enable --now cmux-host` (or the Cloud bake) turns the daemon on.
     }
     # JSON is YAML, so nfpm reads this file as is.
-    with open(args.out, "w") as f:
+    with open(out, "w") as f:
         json.dump(config, f, indent=1, sort_keys=True)
         f.write("\n")
+
+
+def nfpm_config(args):
+    write_nfpm_config(verified_release(args.release, args.keys), args.target, args.binaries_dir, args.out)
+
+
+def package_name(release, target, packager):
+    """The file name of a package under the release's prefix: the sequence (or, for a phase-1 file, the
+    stamp in the version) and the architecture, no `+` (an object key with one is read back as a space by
+    some S3 clients)."""
+    deb_arch, rpm_arch = TARGETS[target]
+    stamp = str(release.get("sequence") or release["version"].split("+", 1)[1].split(".", 1)[0])
+    if not re.fullmatch(r"[0-9]{14}", stamp):
+        fail(f"bad sequence {stamp!r}")
+    return f"cmux-{stamp}-{deb_arch}.deb" if packager == "deb" else f"cmux-{stamp}-{rpm_arch}.rpm"
+
+
+def packages(args):
+    """Build the .deb and .rpm of every musl target of an unsigned Linux release payload (this run's own,
+    from cmux-machine-channel.py payload --purpose linux-release, before it is signed), and write
+    the payload naming them: per target `deb` and `rpm` {url, sha256, size}, on the musl target and on its
+    glibc-named twin (the same static binaries), under the prefix the target's cmux-tui sits in. Prints one
+    `<local path>\t<object key>` line per package for the caller to upload before signing."""
+    with open(args.payload, "rb") as f:
+        release = json.loads(f.read())
+    if release.get("purpose") != LINUX_RELEASE:
+        fail(f"{args.payload} is not a Linux release payload")
+    package_version(release.get("version"))
+    os.makedirs(args.work, exist_ok=True)
+    out = json.loads(json.dumps(release))
+    uploads = []
+    for target, (deb_arch, _) in TARGETS.items():
+        files = release["targets"].get(target)
+        if not files:
+            fail(f"{args.payload} names no binaries for {target}")
+        prefix = files["cmux-tui"]["url"].rsplit("/", 1)[0] + "/"
+        if not prefix.startswith(FILES):
+            fail(f"{args.payload}: {target} cmux-tui is not under {FILES}")
+        work = os.path.join(args.work, target)
+        os.makedirs(work, exist_ok=True)
+        config = os.path.join(work, "nfpm.json")
+        write_nfpm_config(release, target, args.binaries_dir, config)
+        for packager in PACKAGES:
+            built = os.path.join(work, packager)
+            shutil.rmtree(built, ignore_errors=True)
+            os.makedirs(built)
+            result = subprocess.run([args.nfpm, "package", "--config", config, "--packager", packager,
+                                     "--target", built + "/"], capture_output=True, text=True)
+            made = [n for n in os.listdir(built) if n.endswith("." + packager)] if result.returncode == 0 else []
+            if len(made) != 1:
+                fail(f"nfpm made no {packager} of {target}: {result.stderr.strip() or made}")
+            name = package_name(release, target, packager)
+            local = os.path.join(args.work, name)
+            os.replace(os.path.join(built, made[0]), local)
+            entry = {"url": prefix + name, "sha256": sha256(local), "size": os.path.getsize(local)}
+            for twin in (target, target.replace("-musl", "-gnu")):
+                if twin in out["targets"]:
+                    out["targets"][twin][packager] = entry
+            uploads.append(f"{local}\t{prefix[len('https://files.cmux.com/'):]}{name}")
+    with open(args.out, "wb") as f:
+        f.write(json.dumps(out, sort_keys=True, separators=(",", ":")).encode())
+    print("\n".join(uploads))
+
+
+def fetch_packages(args):
+    """Download every package the verified release file names on its musl targets into --deb-dir and
+    --rpm-dir, each checked against the signed sha256 and size."""
+    release = verified_release(args.release, args.keys)
+    dirs = {"deb": args.deb_dir, "rpm": args.rpm_dir}
+    for target in TARGETS:
+        files = release["targets"].get(target) or {}
+        for packager in PACKAGES:
+            entry = files.get(packager)
+            if not entry:
+                fail(f"{args.release} names no {packager} for {target} (linux-packages.sh did not run for it)")
+            os.makedirs(dirs[packager], exist_ok=True)
+            local = os.path.join(dirs[packager], os.path.basename(entry["url"]))
+            subprocess.run(["curl", "-fsS", "--retry", "3", "--max-time", "600", "-o", local,
+                            f"{entry['url']}?archive=1"], check=True)
+            if os.path.getsize(local) != entry["size"] or sha256(local) != entry["sha256"]:
+                fail(f"{entry['url']} is not the {packager} the release file names (size or sha256 differ)")
 
 
 def gpg_sign(key_id, mode, src, dst):
@@ -223,13 +318,19 @@ def main(argv):
         a.add_argument(name, required=True)
     a.add_argument("--valid-days", type=int, default=VALID_DAYS)
     a.add_argument("--now", help="unix seconds (tests)")
+    k = sub.add_parser("packages")
+    for name in ("--payload", "--binaries-dir", "--nfpm", "--work", "--out"):
+        k.add_argument(name, required=True)
+    g = sub.add_parser("fetch-packages")
+    for name in ("--release", "--keys", "--deb-dir", "--rpm-dir"):
+        g.add_argument(name, required=True)
     r = sub.add_parser("rpm-repo")
     for name in ("--rpms", "--channel", "--out", "--key-id"):
         r.add_argument(name, required=True)
     args = parser.parse_args(argv[1:])
     if getattr(args, "channel", None) is not None and not re.fullmatch(r"[a-z0-9][a-z0-9-]*", args.channel):
         fail(f"bad channel {args.channel!r}")
-    {"nfpm-config": nfpm_config, "apt-repo": apt_repo, "rpm-repo": rpm_repo}[args.command](args)
+    {"nfpm-config": nfpm_config, "packages": packages, "fetch-packages": fetch_packages, "apt-repo": apt_repo, "rpm-repo": rpm_repo}[args.command](args)
     return 0
 
 

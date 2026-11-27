@@ -114,7 +114,7 @@ import {
   settledAttachFailed,
 } from "./attachParams";
 export { SETTLED_ATTACH_CAPABILITY, attachedDetail, settledAttachFailed } from "./attachParams";
-import { ChatSource } from "./rows/chatSource";
+import { ChatSource, HOLD_ATTACH_CAPABILITY } from "./rows/chatSource";
 import { holdAttach, holdReads } from "./rows/holdKinds";
 import {
   forgetTail,
@@ -765,7 +765,22 @@ type SentAttach = {
   hold?: boolean;
   dropped?: boolean;
   unsent?: boolean;
+  /// The switch answered (`sendAttachAfterSwitch`): `hold` says what went out.
+  switched?: boolean;
+  /// Asked with `initialize` on a guess the handshake missed (`guessHeld`): its attach, if the
+  /// switch is still out, is never sent.
+  missed?: boolean;
 };
+/// What an open sent with its `initialize`, before the handshake answered (`askEarly`'s guess): the
+/// capabilities a current acpmux names, and the origin this host's transport has. The open checks
+/// them against the handshake (`guessHeld`) and asks again when they differ.
+type HandshakeGuess = { capabilities: ReadonlySet<string>; local: boolean };
+/// The capabilities the attach asked with `initialize` assumes (acpmux capabilities.rs): the settled
+/// view, whose refusal the attach asks again without (`settledAttachFailed`), and the hold once a
+/// host on this page said the switch is on; before that the switch is not asked on a guess, so a
+/// daemon without the hold never has a chat opened on the store for it.
+const GUESSED_SETTLED: ReadonlySet<string> = new Set([SETTLED_ATTACH_CAPABILITY]);
+const GUESSED_HELD: ReadonlySet<string> = new Set([SETTLED_ATTACH_CAPABILITY, HOLD_ATTACH_CAPABILITY]);
 /// The attach of the chat a page opens, asked with the chat list instead of after it (`askEarly`),
 /// so the chat's first frame waits on one daemon reply after the handshake. `live` holds the chat's
 /// records that came before the open took the attach, applied in order once it does: as if the
@@ -924,6 +939,7 @@ const knownCommands = new Map<string, SlashCommand[]>();
 function rememberCommands(sessionId: string, commands: SlashCommand[]) {
   knownCommands.delete(sessionId);
   knownCommands.set(sessionId, commands);
+  // ends: each pass deletes the oldest key, so the map shrinks to 32
   while (knownCommands.size > 32) knownCommands.delete(knownCommands.keys().next().value!);
 }
 /// What a chat's last read left, so opening it again draws it on the frame the open lands instead
@@ -2786,11 +2802,22 @@ export class AcpmuxDirectClient {
       }
       // With a progress threshold, as the reads have: a socket that opened but whose daemon never
       // answers is checked for life (`armDaemonLiveness`) instead of holding the handshake for good.
-      const initialized = await this.request(
+      const initializing = this.request(
         "initialize",
         initializeParams({ compression: frameCompression(this.host) }),
         AcpmuxDirectClient.DAEMON_PROBE_AFTER_MS,
       );
+      // 0-RTT open, as TLS 1.3's early data: the chat's attach and draft read go out in the same
+      // flight as the handshake instead of a round trip after it. acpmux reads a connection's
+      // requests in order and binds its handshake before the next is spawned (server/mod.rs), so the
+      // attach runs as one asked after the answer would. What it was asked with is a guess
+      // (`HandshakeGuess`), checked once the handshake answers (`guessHeld`); the chat's other reads
+      // wait for that answer. A browser device proves itself first, so it asks after.
+      const guess: HandshakeGuess | undefined = this.browserIdentity
+        ? undefined
+        : { capabilities: this.chatRows.hostSaidOn() ? GUESSED_HELD : GUESSED_SETTLED, local: this.guessLocalOrigin() };
+      if (guess) early = this.askEarly(guess);
+      const initialized = await initializing;
       // The action trace's status question and spans go on this socket once it is initialized: a
       // connection's first frame is its initialize, which the relay carries the LocalApp token in
       // and refuses anything else as (actionTrace.ts, cmux-agent-pane-policy check.rs).
@@ -2836,6 +2863,17 @@ export class AcpmuxDirectClient {
       // acpmux answers a connection's requests side by side (server/mod.rs spawns each), so the
       // frame waits on one round trip rather than one per read (Leo, 2026-10-29: "as in i want
       // ours to load fast too :(").
+      if (early && guess) {
+        if (this.guessHeld(early, guess)) early.sent.reads ??= this.startAttachReads(early.sessionId);
+        else {
+          this.wire.lifecycle("attach asked with the handshake missed it, asked again", {
+            sessionId: early.sessionId,
+          });
+          early.sent.missed = true;
+          this.dropEarly(early, true);
+          early = undefined;
+        }
+      }
       const peersSince = this.peerEvents.statusStarted();
       const peersRead = this.request("_acpmux/status", {})
         .catch(() => undefined)
@@ -2849,7 +2887,7 @@ export class AcpmuxDirectClient {
       const listRead = this.sessionPages.first();
       // Awaited below: a list that fails meanwhile is not left unobserved.
       listRead.catch(() => undefined);
-      early = this.askEarly();
+      early ??= this.askEarly();
       // The chat's own row, when its attach answered before the list: the chat opens on it, and the
       // list settles behind the open (`attachedBeforeList`).
       const attachedRow = early && (await this.attachedBeforeList(early, listRead));
@@ -5556,6 +5594,7 @@ export class AcpmuxDirectClient {
   async listProcessCalls(sessionId: string, calls: readonly string[]): Promise<unknown[]> {
     const processes: unknown[] = [];
     let from = 0;
+    // ends: `from` moves up by at least 1 each pass (a reply answering none throws), to calls.length
     while (from < calls.length) {
       const asked = calls.slice(from, from + PROCESS_LIST_PAGE);
       const reply = (await this.request("_acpmux/process/list", { sessionId, calls: asked })) as
@@ -6532,7 +6571,14 @@ export class AcpmuxDirectClient {
   /// `reads`, the reads the chat draws with (`startAttachReads`) in the same round trip. A chat whose
   /// rows come from the store asks the hold, which reads no page (`hold` on what it returns).
   /// With `afterSeq` (a reconnect's `ForwardAttach`) the page is the records after it, not the newest.
-  private sendAttach(sessionId: string, generation: number, reads: boolean, afterSeq?: number): SentAttach {
+  private sendAttach(
+    sessionId: string,
+    generation: number,
+    reads: boolean,
+    afterSeq?: number,
+    guess?: HandshakeGuess,
+  ): SentAttach {
+    const capabilities = guess ? guess.capabilities : this.capabilities;
     const visible = pageShown();
     const attending = readerHere();
     const hold = this.chatRows.holds(sessionId) ? holdAttach(sessionId, visible, undefined, attending) : undefined;
@@ -6545,7 +6591,7 @@ export class AcpmuxDirectClient {
             settled,
             visible,
             attending,
-            local: this.localOrigin,
+            local: guess ? guess.local : this.localOrigin,
             maxBytes: OPEN_PAGE_BYTES,
             afterSeq: forward ? afterSeq : undefined,
           }),
@@ -6557,7 +6603,7 @@ export class AcpmuxDirectClient {
     // newest page, as every reconnect did before #47119, which `attachWatched` lays as that page. A
     // reconnect is recoverable, never "cmux blocked opening this chat" over the composer.
     const attaching =
-      this.capabilities?.has(SETTLED_ATTACH_CAPABILITY) && !hold && afterSeq === undefined
+      capabilities?.has(SETTLED_ATTACH_CAPABILITY) && !hold && afterSeq === undefined
         ? ask(true).catch((error: unknown) => {
             if (!settledAttachFailed(error)) throw error;
             return ask(false);
@@ -6590,19 +6636,24 @@ export class AcpmuxDirectClient {
   /// store. Its reads start at once, as a plain one's do. `hold` is set before `attaching` settles,
   /// so whoever reads it after awaiting the attach sees it. One the open dropped while the switch
   /// was out, for a chat no longer shown, sends no attach at all.
-  private sendAttachAfterSwitch(sessionId: string, generation: number): SentAttach {
-    const sent: SentAttach = { attaching: Promise.resolve(), reads: this.startAttachReads(sessionId) };
+  private sendAttachAfterSwitch(sessionId: string, generation: number, guess?: HandshakeGuess): SentAttach {
+    // Asked with `initialize`, the reads wait for its answer (they read what it says: `open`).
+    const sent: SentAttach = {
+      attaching: Promise.resolve(),
+      reads: guess ? undefined : this.startAttachReads(sessionId),
+    };
     sent.attaching = this.chatRows
-      .choose(sessionId, this.capabilities)
+      .choose(sessionId, guess ? guess.capabilities : this.capabilities)
       .catch(() => false)
       .then(() => {
         const shown = generation === this.selectionGeneration && this.selectedSessionId === sessionId;
-        if (sent.dropped && !shown) {
+        if ((sent.dropped && !shown) || sent.missed) {
           sent.unsent = true;
           return undefined;
         }
-        const out = this.sendAttach(sessionId, generation, false);
+        const out = this.sendAttach(sessionId, generation, false, undefined, guess);
         sent.hold = out.hold;
+        sent.switched = true;
         return out.attaching;
       });
     return sent;
@@ -6632,7 +6683,7 @@ export class AcpmuxDirectClient {
   /// chat opened (`takeEarly`) or drops it (`dropEarly`). It is asked as shown, as the open's own
   /// attach is: it names the chat id the page opens on, which the list only confirms. An id the
   /// daemon lacks fails there, waking and marking nothing.
-  private askEarly(): EarlyAttach | undefined {
+  private askEarly(guess?: HandshakeGuess): EarlyAttach | undefined {
     const sessionId = this.selectedSessionId;
     // A kept tail this open drew while it connected is no reason to wait for the list: its attach
     // lays the page over those rows as over any kept tail.
@@ -6657,9 +6708,9 @@ export class AcpmuxDirectClient {
       watch,
       // A chat that may draw from the store asks the switch here, with the list still out, and sends
       // its attach, plain or the hold, on the answer (decision 289): the open never waits on the list.
-      sent: this.chatRows.asks(this.capabilities)
-        ? this.sendAttachAfterSwitch(sessionId, generation)
-        : this.sendAttach(sessionId, generation, true),
+      sent: this.chatRows.asks(guess ? guess.capabilities : this.capabilities)
+        ? this.sendAttachAfterSwitch(sessionId, generation, guess)
+        : this.sendAttach(sessionId, generation, !guess, undefined, guess),
       live: [],
     };
     // A dropped one is never awaited: its refusal (a peer chat's machine down) is not unhandled.
@@ -6671,6 +6722,32 @@ export class AcpmuxDirectClient {
     read.catch(() => undefined);
     this.earlyDraft = { sessionId, socket: this.socket, read, at: Date.now() };
     return early;
+  }
+
+  /// The origin an attach asked with `initialize` assumes: the last handshake's on a reconnect, else
+  /// the transport's (the app's bridge and a loopback socket reach this Mac's acpmux).
+  private guessLocalOrigin(): boolean {
+    if (this.hasConnected) return this.localOrigin;
+    if (this.host.transport !== "acpmux-websocket") return true;
+    try {
+      const host = new URL(this.host.endpoint ?? "").hostname.replace(/^\[|\]$/g, "");
+      return host === "localhost" || host === "::1" || host.startsWith("127.");
+    } catch {
+      return false;
+    }
+  }
+
+  /// Whether the attach asked with `initialize` is the one the handshake's answer would have asked:
+  /// the same origin (its kinds), and no hold to a daemon without one. A settled view the daemon
+  /// lacks is answered as a plain page or asked again (`sendAttach`), so it is no miss. A hold
+  /// whose switch has not answered yet is a miss too: what goes out next is unknown.
+  private guessHeld(early: EarlyAttach, guess: HandshakeGuess): boolean {
+    if (this.localOrigin !== guess.local) return false;
+    if (this.chatRows.asks(guess.capabilities) === this.chatRows.asks(this.capabilities)) return true;
+    const held = early.sent.switched === true && !early.sent.hold;
+    // A hold sent to a daemon without one: the chat leaves the store, so the next attach is plain.
+    if (!held) this.chatRows.close();
+    return held;
   }
 
   /// The open's attach is the one asked with the list: the chat's records that came before are
@@ -8804,6 +8881,7 @@ export class AcpmuxDirectClient {
     if (cut > 0)
       for (const agent of this.subagents.all())
         if (agent.state === "running" || (agent.endedAt ?? -Infinity) >= this.events[cut]!.at) named.add(agent.id);
+    // ends: a pass whose `next` is not below `cut` breaks, so `cut` falls each pass, to 0 at most
     while (cut > 0) {
       const { seq } = this.events[cut]!;
       for (; read > cut; read -= 1) {
@@ -11290,6 +11368,7 @@ export class AcpmuxDirectClient {
     let at = rows.length;
     if (below !== undefined) {
       let low = 0;
+      // ends: binary search: each pass halves at - low
       while (low < at) {
         const middle = (low + at) >>> 1;
         if (this.rows.orderOf(rows[middle]!.id) < below) low = middle + 1;
@@ -11299,6 +11378,7 @@ export class AcpmuxDirectClient {
     // A steer goes on with its turn: the turn's time and calls run from the prompt that opened it.
     let user: AcpmuxRow | undefined;
     let toolCount = 0;
+    // ends: `at` falls by one each pass, to 0 at most
     while (at > 0) {
       const row = rows[(at -= 1)]!;
       if (row.pending || row.failed || (below !== undefined && this.rows.orderOf(row.id) >= below)) continue;
@@ -12549,6 +12629,7 @@ export class AcpmuxDirectClient {
     ({ text: input, attachments } = liftInlineImages(input, attachments));
     // A chat opening (a switch) is drawn first: the prompt goes to it once it shows, never while the
     // pane still draws the chat before.
+    // ends: each pass waits out a hold, and every hold ends by its limit (holdSnapshots' timer) or on close
     while (this.snapshotHold && this.shownSessionId !== this.selectedSessionId) await this.snapshotHold.released;
     // A handoff not read yet (the pane draws the composer meanwhile) is read now; one that cannot be
     // read is a connection problem, not a continuation to review.
@@ -15161,6 +15242,7 @@ export class AcpmuxDirectClient {
   /// Whether `sessionId` is the chat on screen and attached, once a switch's hold has let it draw:
   /// an action that reads the drawn chat (Stop, Fork) then reaches it and never the chat before.
   async shownAndAttached(sessionId: string): Promise<boolean> {
+    // ends: each pass waits out a hold, and every hold ends by its limit (holdSnapshots' timer) or on close
     while (this.snapshotHold && this.shownSessionId !== this.selectedSessionId) await this.snapshotHold.released;
     return (
       this.selectedSessionId === sessionId && this.actingSessionId === sessionId && this.attachedSession() === sessionId
@@ -15224,6 +15306,7 @@ export class AcpmuxDirectClient {
     if (this.closed || sessionId === this.selectedSessionId) return;
     this.shareOnRead.delete(sessionId);
     this.shareOnRead.add(sessionId);
+    // ends: each pass deletes the oldest key, so the map shrinks to HOVER_RECENT
     while (this.shareOnRead.size > HOVER_RECENT) this.shareOnRead.delete(this.shareOnRead.keys().next().value!);
     this.queueReadAhead([sessionId], true);
     // Nothing to read: this page holds a tail of the chat it counts as current, so that one goes,
@@ -15322,6 +15405,7 @@ export class AcpmuxDirectClient {
   }
 
   private pumpReadAhead(): void {
+    // ends: each pass shifts one chat off readAheadQueue
     while (!this.closed && this.readingAhead.size < READ_AHEAD_LANES && this.readAheadQueue.length > 0) {
       const sessionId = this.readAheadQueue.shift()!;
       if (sessionId === this.selectedSessionId || this.listedCold(sessionId)) continue;
@@ -16825,6 +16909,7 @@ export class AcpmuxDirectClient {
     this.indexedPages.set(key, read);
     // Keep only a small neighborhood. The target stays first in the map until the adjacent reads
     // settle, while old drag targets cannot grow this cache with a whole chat's pages.
+    // ends: each pass deletes the oldest key or breaks
     while (this.indexedPages.size > INDEXED_PAGE_CACHE_LIMIT) {
       const oldest = this.indexedPages.keys().next().value;
       if (oldest === undefined || oldest === key) break;
@@ -16983,6 +17068,8 @@ export class AcpmuxDirectClient {
       drawn += 1;
     };
     if (!sessionId) return "done";
+    // ends: each pass drops the gap in front or moves its `after` past every record it read (page holds only seqs above
+    // it); a read awaits between passes
     while (!stale()) {
       const gap = this.indexedGaps[0];
       if (!gap) {
@@ -17070,6 +17157,7 @@ export class AcpmuxDirectClient {
     // Each loadOlder call publishes one bounded page (or a rail jump's window), so keep walking
     // until the target is held. A fixed iteration cap here would make a far minimap jump fail once a
     // long chat spans more than that many pages.
+    // ends: a step that leaves `firstSeq` where it was returns; a read awaits between passes
     for (;;) {
       const from = this.firstSeq;
       if (held()) return true;
@@ -17237,6 +17325,7 @@ export class AcpmuxDirectClient {
     const takeSlot = (result: any) => {
       if (records(result?.events).some((event) => event.seq < before)) take(result);
     };
+    // ends: the round's first slot is `before` itself, whose take moves `before` below it or ends `more`
     while (more && before > through && before > 1) {
       const slots: number[] = [];
       // Down to the first slot that starts at or below `through`: its page holds the records just
@@ -17249,6 +17338,7 @@ export class AcpmuxDirectClient {
       if (stale()) return undefined;
       for (let slot = 0; slot < slots.length && more; slot++) {
         // The page above ended short of this slot (its byte cap): read the gap page by page.
+        // ends: `take` moves `before` below itself (it keeps only seqs under it) or ends `more`
         while (more && before > slots[slot]!) {
           const result = await this.olderPage(sessionId, before, pagingEpoch);
           if (stale()) return undefined;

@@ -952,11 +952,7 @@ jobs:
           PUBLISHED_SHA: ${{ steps.decide.outputs.published_sha }}
         run: bash scripts/ci/nightly-steps/decide-shadow-app-input-digest.sh || true
 
-  # Moves the protected branch `nightly-next` to a feat-cmux-next commit whose cmux-next.yml
-  # push run passed its Release compile. Runs only on main, in `release`, with the release App
-  # (the ruleset's only bypass actor). Guard: scripts/ci/promote-nightly-next.mjs, from this
-  # main checkout. One concurrency group keeps a single writer; decideNewest() also decides the
-  # newest request GitHub evicted (checks: read) whose commit contains this one's.
+  # Why: docs/ci/nightly-workflow-notes/2026-11-25-promote-nightly-next.md
   promote-nightly-next:
     if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
@@ -1251,12 +1247,7 @@ jobs:
       attestations: write
       id-token: write
     needs: decide
-    # The schedule skips this cloud warmer while owned pools serve pull
-    # requests (CI_PR_POOL_OWNED is 1). build-nightly-app saves the same key on
-    # every published main push, so the remaining cloud readers (main's
-    # full-suite dispatch, nightly's hosted fallback) restore at worst an
-    # older entry by prefix. It runs on Blacksmith macOS, never a hosted Mac
-    # (tests/test_ci_nightly_no_hosted_mac.py). A seed_only dispatch still warms it on demand.
+    # Why: docs/ci/nightly-workflow-notes/2026-11-25-cloud-cache-warmer.md
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the PR Release-build runner and Xcode so its compilation cache is reusable.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
@@ -2227,7 +2218,7 @@ jobs:
           ref: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           submodules: recursive
 
-      # Why: docs/ci/nightly-workflow-notes.md#note-20
+      # Why: docs/ci/nightly-workflow-notes.md#note-20, note-54
       - &x9
         name: Checkout build ref (warm nightly-next builder)
         if: inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
@@ -2235,19 +2226,10 @@ jobs:
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
           WORKFLOW_SHA: ${{ github.sha }}
-          # The release App's read-only token, minted for this checkout alone (nightly-next-one's "Mint the
-          # release App token for the warm checkout"): never the shared cmux-bot token, never the job's
-          # GITHUB_TOKEN, never anonymous. Run 45744507889 failed on GitHub's unauthenticated per-IP limit
-          # (raw.githubusercontent.com 429 four times, then git fetch 403). Where no step mints it
-          # (build-nightly-app, whose environment holds no release App key) the job's own token: never anonymous.
           FETCH_TOKEN: ${{ steps.warm-fetch-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "bad build sha: $BUILD_SHA" >&2; exit 1; }
-          # Every read here goes out with the job's token. Anonymous, nightlies 45744507889 and
-          # 45756842046..45763487534 (2026-11-26) got 429s for git_fetch_retry.py and a 403 for the
-          # fetch from the fleet's shared address. The header lives in this step's environment only,
-          # never in the kept slot's git config.
           fetch_auth=$(printf 'x-access-token:%s' "${FETCH_TOKEN:-}" | base64 | tr -d '\n')
           echo "::add-mask::$fetch_auth"
           export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.$GITHUB_SERVER_URL/.extraheader" \
@@ -2257,11 +2239,6 @@ jobs:
           git config gc.auto 0
           if git remote get-url origin >/dev/null 2>&1; then git remote set-url origin "$REPO_URL"; else git remote add origin "$REPO_URL"; fi
           mirror="${GLAEDA_GIT_MIRROR_DIR:-/Users/Shared/cmux-build-fleet/git}/cmux.git"
-          # Run 45744507889 (11-26) failed here on a cold slot that had borrowed the mirror: its curl and git
-          # fetch to github.com got 429 four times, then 403. The mirror (glaeda-git-mirror: main,
-          # feat-cmux-next and nightly-next every 60 s) is the one GitHub reader on this host; read it first.
-          # Every github.com git transfer this step makes is counted from git's own trace2 events (one file
-          # per git process): the goal is 0 per nightly, the commit read from this host's mirror.
           trace_dir="$RUNNER_TEMP/checkout-git-trace2"
           rm -rf "$trace_dir"
           mkdir -p "$trace_dir"
@@ -2300,9 +2277,6 @@ jobs:
             git -c protocol.version=2 -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 fetch -q --no-tags --no-recurse-submodules "$mirror" "$BUILD_SHA" \
               && git cat-file -e "$BUILD_SHA^{commit}" && source=mirror
           }
-          # The mirror is fetched from GitHub every minute by the host's one fetcher (glaeda-git-mirror's
-          # LaunchAgent, under a flock). A commit pushed seconds ago may not be in it yet: ask that fetcher for
-          # a pass now and wait for it, instead of fetching from GitHub here.
           mirror_tool="${GLAEDA_GIT_MIRROR_TOOL:-$HOME/.local/bin/glaeda-git-mirror}"
           wait_for_mirror() {
             local until=$((SECONDS + $1)) kick=""
@@ -2328,8 +2302,6 @@ jobs:
           fi
           fetch_retry="$RUNNER_TEMP/git_fetch_retry.py"
           rm -f "$fetch_retry"
-          # The helper comes from local objects (the slot's, the borrowed mirror's, the mirror itself), never from
-          # raw.githubusercontent.com: that anonymous read is what answered 429.
           git show "$WORKFLOW_SHA:scripts/ci/git_fetch_retry.py" > "$fetch_retry" 2>/dev/null \
             || { [ -n "$mirror_ok" ] && git --git-dir="$mirror" show "$WORKFLOW_SHA:scripts/ci/git_fetch_retry.py" > "$fetch_retry" 2>/dev/null; } \
             || git show "$BUILD_SHA:scripts/ci/git_fetch_retry.py" > "$fetch_retry" 2>/dev/null \
@@ -2351,9 +2323,6 @@ jobs:
             if [ -s "$fetch_retry" ]; then python3 "$fetch_retry" --tries 1 --timeout 600 --repo "$GITHUB_WORKSPACE" -- "$@"
             else "$1" -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 "${@:2}"; fi
           }
-          # The mirror never got the commit: fetch only that commit from GitHub, authenticated with the release App's
-          # token (the job's own where none is minted), with a bounded backoff on a 429 or 403. Before each try
-          # the mirror is read again, so a pass of the host's fetcher that lands meanwhile wins.
           if [ -z "$source" ] && [ -z "${FETCH_TOKEN:-}" ]; then
             echo "::error title=warm checkout::the mirror lacks $BUILD_SHA and this job has no token; refusing an anonymous fetch from GitHub"
             exit 1
@@ -2363,7 +2332,6 @@ jobs:
             for delay in ${CHECKOUT_FETCH_BACKOFF_SECONDS:-0 30 60 120 240}; do
               if [ "$delay" -gt 0 ]; then echo "backing off $delay s, then the mirror first"; sleep "$delay"; fi
               if in_mirror "$BUILD_SHA" && from_mirror; then break; fi
-              # The job's token header is in the step's environment (GIT_CONFIG_*, above).
               if once git -c protocol.version=2 fetch --no-tags --no-recurse-submodules origin "$BUILD_SHA"; then
                 source=github
                 break
@@ -2386,14 +2354,9 @@ jobs:
           git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
           git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
           chmod -R u+w .build/go-path 2>/dev/null || true
-          # nightly-next-one checks out .publish-tooling (the claim script) before this step; the clean keeps it.
           git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cmux-next-ios/rust/target/ -e /.publish-tooling/
           git reset -q --hard "$BUILD_SHA"
           git submodule sync -q --recursive
-          # Run 45782377330 timed out here (600 s, 3 tries) reading the submodules from github.com. A mini keeps
-          # one bare mirror per submodule at submodules/NAME.git beside cmux.git (glaeda-git-mirror: each pin as
-          # refs/pins/<sha>, depth 1, glaeda.url naming its GitHub URL). Each submodule (nested too) whose commit
-          # one holds is read from it, through this step's environment only; the rest from github.com.
           sm_root=${mirror%/*}/submodules
           normurl() { printf '%s' "$1" | sed -E 's#/+$##; s#\.git$##' | tr '[:upper:]' '[:lower:]'; }
           sm_for() {  # URL COMMIT: the kept submodule mirror for URL that holds COMMIT
@@ -2430,9 +2393,6 @@ jobs:
             export GIT_CONFIG_COUNT=$((n + 1))
           fi
           started=$SECONDS
-          # A warm slot holds the submodule commits already: check them out with no network (https refused, so
-          # a missing one fails here instead of cloning anonymously), then fetch only with the App's token.
-          # Without the mirror rewrite: a clone from a mirror here skips its refs/pins and leaves no HEAD.
           if GIT_CONFIG_COUNT=$sm_unmapped git -c protocol.https.allow=never -c core.hooksPath=/dev/null submodule update --init --force --no-fetch --recursive \
               > "$RUNNER_TEMP/submodule-local.log" 2>&1; then
             echo "updated submodules from local objects in $((SECONDS - started)) s"
@@ -4110,6 +4070,7 @@ jobs:
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       CHANNEL_FEED_BASE: ${{ needs.decide.outputs.feed_base }}
       CHANNEL_ENTITLEMENTS: ${{ needs.decide.outputs.entitlements }}
+      NIGHTLY_COMPONENT_GATES: ${{ vars.NIGHTLY_COMPONENT_GATES }}
       # Signed app path for every step after "Prepare channel identity".
       CHANNEL_APP_PATH: build-universal/Build/Products/Release/${{ needs.decide.outputs.app_name }}.app
     steps:
@@ -4803,6 +4764,7 @@ jobs:
       CHANNEL_RELEASE_TAG: ${{ needs.decide.outputs.release_tag }}
       CHANNEL_APP_PATH: signed/${{ needs.decide.outputs.app_name }}.app
       CHANNEL_ENTITLEMENTS: ${{ needs.decide.outputs.entitlements }}
+      NIGHTLY_COMPONENT_GATES: ${{ vars.NIGHTLY_COMPONENT_GATES }}
     steps:
       - *github-token-for-git
       - *checkout-build-ref
@@ -5974,12 +5936,7 @@ jobs:
           name: cmux-nightly-remote-daemon
           path: nightly-out
 
-      # One nightly-next feed writer at a time across runs (publish-lease.sh), from the first
-      # feed read to the read-back. TTL 15 minutes, renewed every minute by a heartbeat that
-      # dies with the job, so a dead holder blocks the feed one TTL, inside its 30-minute
-      # freshness bound; publish-release-notes passes the same TTL, since a waiter judges
-      # expiry by its own. Max hold: this job's 180-minute timeout. The wait (60 minutes) is
-      # added to the timeout.
+      # Why: docs/ci/nightly-workflow-notes/2026-11-25-nightly-next-feed-lease.md
       - &x81
         name: Take the nightly-next publish lease
         id: lease
@@ -7741,13 +7698,7 @@ jobs:
       - *x41
       - *x50
       - *x72
-      # The deltas follow the feed in this job, off the critical path to it (the item above was written full-only),
-      # and never fail the build: every step here continues on error, and each one's `if` names what it needs.
-      # The two that hold the signing key carry no `!cancelled()`, so a failed claim skips them
-      # (tests/test_ci_signing_owned_mac.py).
-      # The delta build signs what the keyless prebuild made when it finished beside the checks, else builds them.
-      # The signing key reaches only the delta build, after a third stray-process check; nothing from the bundle runs
-      # in these steps (test_nightly_next_one_job.py under tests). Why: docs/ci/nightly-workflow-notes.md#note-31
+      # Why: docs/ci/nightly-workflow-notes/2026-11-25-nightly-next-deltas.md
       - name: Refuse stray processes before secrets (deltas)
         id: deltas-stray
         if: "!cancelled() && needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && steps.upload_next_appcasts.outputs.feed_written == 'true' && !env.LEFT_SLOT && !env.NEWER_PUSH_WAITING"
@@ -8265,9 +8216,9 @@ jobs:
         # fetch shares the runner egress IP's anonymous limit and got 403s on 2026-11-26.
         env:
           SPAN_SINCE: ${{ steps.span.outputs.since }}
-          GH_TOKEN: ${{ github.token }}
+          FETCH_TOKEN: ${{ github.token }}
         run: |
-          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          auth="$(printf 'x-access-token:%s' "$FETCH_TOKEN" | base64 | tr -d '\n')"
           echo "::add-mask::$auth"
           GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
             ./scripts/cmux-next/fetch-release-notes-span.sh origin "$HEAD_SHA" nightly-next ${SPAN_SINCE:+"$SPAN_SINCE"}
@@ -8624,12 +8575,7 @@ jobs:
 
   close-nightly-failure-issue:
     needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, build-sign-notarize-nightly, publish-nightly, resolve-nightly-cmux-tui-client, published-build, generate-nightly-deltas, republish-nightly-deltas, sign-release-notes, publish-release-notes]
-    # always(): a skipped notes job must not skip this job silently; the
-    # conditions below decide. nightly-next closes only with its notes published,
-    # unless it published a recovered build, which has none (cx-urd.69). A
-    # recovered build can follow this run's own failed build, which reports.
-    # It closes in the run that ran the notes and deltas (run_tail): on nightly-next, the dispatched one. There
-    # it cannot see the run that published, so push_clean says none of that run's jobs failed.
+    # Why: docs/ci/nightly-workflow-notes/2026-11-25-close-nightly-failure-issue.md
     if: always() && needs.published-build.result == 'success' && needs.published-build.outputs.run_tail == 'true' && needs.published-build.outputs.should_publish == 'true' && needs.published-build.outputs.push_clean == 'true' && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && needs.published-build.outputs.publish_result == 'success' && needs.published-build.outputs.publish_refused != 'true' && needs.published-build.outputs.publish_tag_status == 'updated' && (needs.generate-nightly-deltas.result == 'success' || needs.generate-nightly-deltas.result == 'skipped') && (needs.republish-nightly-deltas.result == 'success' || needs.republish-nightly-deltas.result == 'skipped') && (needs.published-build.outputs.track != 'nightly-next' || needs.published-build.outputs.publish_source == 'recovered' || (needs.sign-release-notes.result == 'success' && needs.publish-release-notes.result == 'success'))
     # The declared nightly-only mini is enabled after live admission is verified.
     # Keep the existing fallback; never reuse the stale builder-only placement.

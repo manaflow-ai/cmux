@@ -38,6 +38,8 @@ WHOLE_RUN = (
     WORKFLOW,
     "scripts/ci/swift_linux_reach.py",
     "scripts/ci/package-test-lane.sh",
+    "scripts/ci/package-test-lane/swift_suite_outcomes.py",
+    "scripts/ci/require_swift_test_execution.py",
     "scripts/ci/swift-test-debug-info.sh",
     "scripts/ci/swiftpm-binary-module-guard.sh",
 )

@@ -85,8 +85,12 @@ pack() { tar -czf "$out/report.tgz" -C "$work" $(cd "$work" && ls run.jsonl run.
 } | tee "$work/probe.txt"
 vs=cmux-tui/crates/cmux-rd-host/scripts/screen-share-vs.py
 peer_port=4181
+rig_root=""
 if [[ -n "$peer_token" ]]; then
   printf '%s\n' "$peer_token" >"$work/peer-token"; chmod 600 "$work/peer-token"
+  # Each cmux-ci step has its own HOME, so the two halves share no home-relative --root: both use one
+  # absolute path, named from the token so both halves agree on it, and each removes it when done.
+  rig_root="/tmp/ssvp-rd-$(printf '%s' "$peer_token" | shasum -a 256 | cut -c1-12)"
 fi
 # The rig root screen-share-vs.py uses on both Macs. Over peer-serve the two steps run in different homes (a
 # worker's step home, the bench account's), so its home-relative default fails "different homes". Absolute, the
@@ -99,6 +103,7 @@ if [[ "$role" == viewer ]]; then
   python3 -I "$vs" peer-serve --bind "$self_ip" --port "$peer_port" --token-file "$work/peer-token" \
     --hold-s "$hold_s" 2>&1 | tee "$work/run.log"
   rc=${PIPESTATUS[0]}
+  [[ -n "$rig_root" ]] && rm -rf "$rig_root"
   pack; exit "$rc"
 fi
 target=""
@@ -121,7 +126,7 @@ PY
     sleep 5
   done
   echo "SSVP peer $url out=${got:0:160}" | tee -a "$work/probe.txt"
-  [[ "$got" == "$partner"* ]] && target="$partner" via_args=(--via peer --peer-url "$url" --peer-token-file "$work/peer-token")
+  [[ "$got" == "$partner"* ]] && target="$partner" via_args=(--via peer --peer-url "$url" --peer-token-file "$work/peer-token" --root "$rig_root")
 fi
 [[ -n "$peer_token" ]] || for t in "$partner" "$partner.local" ${partner_ip:+"$partner_ip"}; do
   got=$(ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new "$t" 'hostname -s' 2>&1 | tail -1)
@@ -188,6 +193,7 @@ for kind in ${inputs//,/ }; do
   cat "$work/run-$kind.jsonl" >>"$work/run.jsonl" 2>/dev/null
   [[ "$leg" == 0 ]] || rc=$leg
 done
+[[ -n "$rig_root" ]] && rm -rf "$rig_root"
 if [[ -n "$peer_token" ]]; then  # the viewer half ends now, not at its hold
   python3 -I -c 'import sys, urllib.request
 urllib.request.urlopen(urllib.request.Request(sys.argv[1] + "/done", data=b"{}", method="POST",

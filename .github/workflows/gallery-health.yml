@@ -116,6 +116,7 @@ jobs:
             /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
+            /Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift
             /web/data/model-catalog/
             /release-notes/next/highlights/
             /first-party-apps/*/preview/scenes.json
@@ -229,6 +230,7 @@ jobs:
             /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
+            /Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift
             /web/data/model-catalog/
             /release-notes/next/highlights/
             /first-party-apps/*/preview/scenes.json
@@ -443,6 +445,7 @@ jobs:
             /Packages/macOS/CmuxNext/Sources/**/*.xcstrings
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Windows/WebTheme.swift
             /Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Tunables/MetricTunables.swift
+            /Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift
             /web/data/model-catalog/
             /release-notes/next/highlights/
             /first-party-apps/*/preview/scenes.json

@@ -36,17 +36,39 @@ READS_FAILURE = re.compile(r"needs\.([\w-]+)\.result\s*==\s*'failure'")
 ANY_NEED_CANCELLED = re.compile(r"contains\(\s*needs\.\*\.result\s*,\s*'cancelled'\s*\)")
 
 # (workflow, job, needed job): why a timeout of the needed job is no reason to run the job.
+HEAD_FAIL_FAST = ("head fail-fast (#54837) cancels a head's other runs once a job judged it red; a timeout is a busy fleet and judged nothing")
 FAILURE_ONLY = {
     ("auto-resume-nightly-notarization.yml", "poll-outer", "wait-and-staple"):
         "wait-and-staple's one long step has its own timeout-minutes below the job's, so a slow wait ends failure",
     ("auto-resume-nightly-notarization.yml", "poll-stapled", "staple-outer"):
         "staple-outer's one long step has its own timeout-minutes below the job's, so a slow wait ends failure",
+    ("cmux-next-ios-kit.yml", "base-red-notice", "kit-tests"):
+        "the notice names the new red tests from a finished kit job's log (ios_kit_base_red.py reads only "
+        "success or failure); a stopped kit job named no test",
     ("cmux-next-web.yml", "web-bisect", "web"):
         "a bisect needs the red files a finished run names; a stopped run named none",
     ("cmux-next.yml", "release-compile-revert", "release-compile"):
         "a revert needs a compile that judged the merge; a stopped compile judged nothing",
     ("cmux-next.yml", "release-compile-revert", "release-compile-fast-admission"):
         "a revert needs a compile that judged the merge; a stopped admission judged nothing",
+    ("cmux-next-fast-gates.yml", "fast-gates-fail-fast", "fast-gates"):
+        HEAD_FAIL_FAST,
+    ("cmux-next-guards.yml", "tooling-tests-fail-fast", "tooling-tests"):
+        HEAD_FAIL_FAST,
+    ("cmux-next.yml", "app-compile-fleet-fail-fast", "app-compile-fleet"):
+        HEAD_FAIL_FAST,
+    ("cmux-next.yml", "fast-tier-fail-fast", "fast-tier"):
+        HEAD_FAIL_FAST,
+    ("cmux-next.yml", "fast-tier-cargo-fail-fast", "fast-tier-cargo"):
+        HEAD_FAIL_FAST,
+    ("cmux-next.yml", "web-bundles-fail-fast", "web-bundles"):
+        HEAD_FAIL_FAST,
+    ("cmux-next.yml", "generated-files-fail-fast", "generated-files"):
+        HEAD_FAIL_FAST,
+    ("pr-router.yml", "pipeline-fail-fast", "pipeline"):
+        HEAD_FAIL_FAST,
+    ("cmux-next-ios-kit.yml", "base-red-notice", "kit-tests"):
+        "the notice names the kit tests that failed (#55454); a stopped run named none",
 }
 
 # (workflow, job, needed job): the issue that tracks a condition that misses a timeout.

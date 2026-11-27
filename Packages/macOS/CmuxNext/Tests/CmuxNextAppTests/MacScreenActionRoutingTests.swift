@@ -165,6 +165,19 @@ struct MacScreenActionRoutingTests {
         #expect(pages.pendingScopes.isEmpty)
     }
 
+    /// A name the app's list lacks (a machine joined since the list was read, 2026-11-26 probe: "No device is named
+    /// probe-desktop-…-hub" for 180 s) reads the hub's list again; a listed name or an id does not.
+    @Test func aNameTheListLacksReadsTheHubListAgain() {
+        let devices = [HubDevice(id: device, name: "Mac Mini")]
+        let ask = { (text: String) in ActionInvocation(arguments: ["device": .string(text)], origin: .cli) }
+        #expect(MacScreenActions.missesList(ask("probe-desktop-1-hub"), among: devices))
+        #expect(MacScreenActions.missesList(ask("probe-desktop-1-hub"), among: []))
+        #expect(!MacScreenActions.missesList(ask("mac-mini"), among: devices))
+        #expect(!MacScreenActions.missesList(ask(other), among: devices))
+        #expect(!MacScreenActions.missesList(ask("  "), among: devices))
+        #expect(!MacScreenActions.missesList(ActionInvocation(arguments: [:], origin: .cli), among: devices))
+    }
+
     @Test func anAmbiguousNameFailsListingTheDevicesItCouldMean() {
         let devices = [HubDevice(id: device, name: "Studio"), HubDevice(id: other, name: "studio"), HubDevice(id: third, name: "Mac Mini")]
         let message = failure { _ = try MacScreenActions.deviceID(named: "STUDIO", among: devices) }

@@ -106,6 +106,15 @@ def is_setup(step: dict) -> bool:
             or "scripts/ci/run-checks-concurrently.sh --start" in run)
 
 
+def slow_check_lines(run: str) -> list[str]:
+    """The background start's check list: the file its `--start ... < FILE` reads (kept out of the
+    workflow for GitHub's 512,000-byte limit), or a heredoc in the step itself."""
+    match = re.search(r"run-checks-concurrently\.sh --start[^\n]*(?:\\\n[^\n]*)*?< (\S+)\s*$", run, re.M)
+    if match:
+        return (ROOT / match.group(1)).read_text(encoding="utf-8").splitlines()
+    return run.split("<<'CHECKS'", 1)[-1].splitlines()
+
+
 def check_commands(step: dict) -> str:
     """What a check step runs: its own script, or for a step that waits on the background
     start, the commands the start lists under the step's `[id]`."""
@@ -114,7 +123,7 @@ def check_commands(step: dict) -> str:
         return run
     start = next(s for s in steps() if "scripts/ci/run-checks-concurrently.sh --start" in str(s.get("run", "")))
     owned, current = [], None
-    for line in start["run"].splitlines():
+    for line in slow_check_lines(start["run"]):
         line = line.strip()
         match = re.fullmatch(r"\[([A-Za-z0-9_.-]+)\]", line)
         if match:
@@ -178,8 +187,11 @@ class ChecksJobStructure(unittest.TestCase):
         for step in checks:
             with self.subTest(step=step["name"]):
                 self.assertIn("${{ steps.%s.outcome }}|%s\n" % (step["id"], step["name"]), outcomes)
-        self.assertIn("GITHUB_STEP_SUMMARY", aggregate["run"])
-        self.assertIn("exit 1", aggregate["run"])
+        verdict_path = "scripts/ci/cmux_next_checks_verdict.sh"
+        self.assertEqual(aggregate["run"].strip(), f"bash {verdict_path}")
+        verdict = (ROOT / verdict_path).read_text(encoding="utf-8")
+        self.assertIn("GITHUB_STEP_SUMMARY", verdict)
+        self.assertIn("exit 1", verdict)
 
     def run_aggregate(self, outcomes: str) -> subprocess.CompletedProcess:
         _, _, aggregate = self.split()
@@ -593,7 +605,7 @@ def named_script_tests() -> set[str]:
     """The scripts/cmux-next test_*.py files a `python3` line of a workflow or a CI script names."""
     texts = [path.read_text(encoding="utf-8", errors="replace")
              for folder in (ROOT / ".github/workflows", ROOT / "scripts/ci") for path in sorted(folder.rglob("*"))
-             if path.is_file() and path.suffix in (".yml", ".yaml", ".sh", ".py")]
+             if path.is_file() and path.suffix in (".yml", ".yaml", ".sh", ".py", ".txt")]
     run = set()
     for text in texts:
         for line in text.splitlines():
@@ -1097,6 +1109,7 @@ class PathRoutingStructure(unittest.TestCase):
         runs = [step.get("run", "") for step in jobs["web-bundles"]["steps"]]
         self.assertFalse([run for run in runs if "tests/" in run], runs)
         check_runs = " ".join(step.get("run", "") for step in jobs["checks"]["steps"])
+        check_runs += "\n".join(slow_check_lines(check_runs))
         for script in ("tests/test_web_bundle_key_inputs.sh", "tests/test_build_web_bundles_from.sh"):
             with self.subTest(script=script):
                 self.assertIn(script, check_runs)
@@ -3155,6 +3168,8 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             "github.run_attempt": 1,
             "github.triggering_actor": "someone",
             "needs.push-head-preflight.outputs.current": "true",
+            # The cheap gate (note-cheap-gate): Linux cargo is not red.
+            "needs.fast-tier-cargo.result": "success",
             "needs.release-compile-fast.result": "skipped",
             "needs.release-compile-fast.outputs.verdict": "",
             # The build fleet compiled a same-repository PR's head (PullRequestCompileOnTheBuildFleet).
@@ -4850,6 +4865,30 @@ class FastTierCargoRoute(unittest.TestCase):
         self.assertTrue(self.reaches("docs/x.md", labels=("full-ci",)))
         with tempfile.TemporaryDirectory() as empty:
             self.assertTrue(self.route.reaches(["docs/x.md"], set(), Path(empty))[0])
+
+
+class SwiftPmFetchesStepAroundADeadProxy(unittest.TestCase):
+    """Every `swift build` or `swift test` a Mac step runs goes through scripts/ci/github-egress-run.sh, so a dead
+    github.com proxy tunnel on a mini goes direct instead of failing the package fetch (run 45866233902: daemon
+    tests, "Failed to connect to 127.0.0.1 port 18434" on every package; #58915 covered only xcodebuild)."""
+
+    def test_every_swiftpm_build_runs_through_the_egress_route(self):
+        jobs = load_yaml(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        direct = []
+        for job_id, job in jobs.items():
+            for step in job.get("steps") or []:
+                for line in step_run(step).splitlines():
+                    code = line.split("#", 1)[0]
+                    if re.search(r"(^|[\s;&|(])swift (build|test)\b", code) and "github-egress-run.sh" not in code:
+                        if "swiftpm_build_metrics.py" in code or re.match(r"\s*swift (build|test)\b", code):
+                            direct.append(f"{job_id}: {code.strip()[:120]}")
+        self.assertEqual([], direct)
+
+    def test_the_route_probes_and_retries_once_direct(self):
+        script = (ROOT / "scripts/ci/github-egress-run.sh").read_text()
+        self.assertIn("github-egress-direct.sh", script)
+        self.assertIn("github_egress_probe", script)
+        self.assertIn('github_egress_retry_direct "$log"', script)
 
 
 if __name__ == "__main__":
