@@ -1,0 +1,125 @@
+/* The Quillet proof sheet (QuilletProof.tsx): a column per face, a row per size, light and dark. */
+.quillet-proof {
+  --proof-bg: #ffffff;
+  --proof-fg: #1d1d1f;
+  --proof-muted: #6e6e73;
+  --proof-rule: rgb(0 0 0 / 10%);
+  --proof-selected: rgb(0 0 0 / 6%);
+  --proof-code-bg: #f5f5f7;
+  display: grid;
+  gap: 0 var(--ds-space-5);
+  padding: var(--ds-space-4) var(--ds-space-5) var(--ds-space-5);
+  min-height: 100%;
+  box-sizing: border-box;
+  background: var(--proof-bg);
+  color: var(--proof-fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  .quillet-proof {
+    --proof-bg: #1e1e1e;
+    --proof-fg: #e8e8ea;
+    --proof-muted: #98989d;
+    --proof-rule: rgb(255 255 255 / 12%);
+    --proof-selected: rgb(255 255 255 / 8%);
+    --proof-code-bg: #2a2a2c;
+  }
+}
+
+.quillet-proof-head,
+.quillet-proof-size,
+.quillet-proof-caption {
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  letter-spacing: 0.02em;
+  color: var(--proof-muted);
+}
+
+.quillet-proof-head {
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: var(--weight-emphasis);
+  color: var(--proof-fg);
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--proof-rule);
+}
+
+.quillet-proof-cell {
+  padding: 12px 0 16px;
+  border-bottom: 1px solid var(--proof-rule);
+  min-width: 0;
+}
+
+.quillet-proof-size {
+  margin-bottom: var(--ds-space-1);
+}
+
+.quillet-proof-body {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.quillet-proof-code {
+  margin: 0;
+  padding: var(--ds-space-2) var(--ds-space-3);
+  border-radius: 8px;
+  background: var(--proof-code-bg);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.quillet-proof-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.quillet-proof-group {
+  font-size: 0.85em;
+  font-weight: var(--weight-emphasis);
+  color: var(--proof-muted);
+  padding: var(--grid-half-step) var(--ds-space-2) var(--ds-space-1);
+}
+
+.quillet-proof-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: var(--ds-space-1) var(--ds-space-2);
+  border-radius: 6px;
+}
+
+.quillet-proof-row[data-selected] {
+  background: var(--proof-selected);
+}
+
+.quillet-proof-title {
+  font-weight: var(--weight-emphasis);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quillet-proof-meta {
+  font-size: 0.85em;
+  color: var(--proof-muted);
+  display: flex;
+  gap: var(--ds-space-1);
+  align-items: center;
+}
+
+.quillet-proof-badge {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 0 var(--ds-space-1);
+  border-radius: 999px;
+  background: var(--proof-selected);
+  color: var(--proof-fg);
+}
+
+.quillet-proof-caption {
+  padding: var(--ds-space-1) var(--ds-space-2) 0;
+}

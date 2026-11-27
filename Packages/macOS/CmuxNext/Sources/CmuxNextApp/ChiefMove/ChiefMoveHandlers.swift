@@ -74,7 +74,7 @@ enum ChiefMoveHandlers {
         let cloud = context.services.cloud
         let home = ChiefHome.resolve(tag: context.services.environment.tag).root.path
         return ChiefMoveTargets(localHome: home, hosts: hosts,
-                                cloud: cloud.isSignedIn ? .signedIn(staging: !cloud.configuration.isProductionAuth) : .signedOut).targets
+                                cloud: cloud.isSignedIn ? .signedIn(api: cloud.configuration.isProductionAuth ? nil : cloud.configuration.apiBaseURL) : .signedOut).targets
     }
 
     private static func matches(_ target: ChiefMoveTarget, _ wanted: String) -> Bool {

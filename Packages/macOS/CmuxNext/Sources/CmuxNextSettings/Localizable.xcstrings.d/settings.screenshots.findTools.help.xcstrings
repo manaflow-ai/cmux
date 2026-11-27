@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.screenshots.findTools.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Also shows the folders of apps like CleanShot X and Shottr."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يعرض أيضًا مجلدات تطبيقات مثل CleanShot X وShottr."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Prikazuje i mape aplikacija poput CleanShot X i Shottr."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser også mapperne fra apps som CleanShot X og Shottr."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Zeigt auch die Ordner von Apps wie CleanShot X und Shottr."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "También muestra las carpetas de apps como CleanShot X y Shottr."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Affiche aussi les dossiers d’apps comme CleanShot X et Shottr."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mostra anche le cartelle di app come CleanShot X e Shottr."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "CleanShot X や Shottr などのアプリのフォルダも表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ក៏បង្ហាញថតឯកសាររបស់កម្មវិធីដូចជា CleanShot X និង Shottr ផងដែរ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "CleanShot X, Shottr 같은 앱의 폴더도 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Viser også mappene til apper som CleanShot X og Shottr."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pokazuje też foldery aplikacji takich jak CleanShot X i Shottr."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Também mostra as pastas de apps como CleanShot X e Shottr."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Также показывает папки приложений вроде CleanShot X и Shottr."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แสดงโฟลเดอร์ของแอปอย่าง CleanShot X และ Shottr ด้วย"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "CleanShot X ve Shottr gibi uygulamaların klasörlerini de gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Також показує теки застосунків на кшталт CleanShot X і Shottr."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cũng hiển thị thư mục của các ứng dụng như CleanShot X và Shottr."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "也会显示 CleanShot X 和 Shottr 等应用的文件夹。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "也會顯示 CleanShot X 和 Shottr 等 App 的資料夾。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

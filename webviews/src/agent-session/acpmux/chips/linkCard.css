@@ -3,11 +3,12 @@
    the pane's page inlines it (build-agent-pane-web.sh). Colours are the pane's --agent-* tokens; a
    page outside the pane maps them to its own theme. */
 .cv-link-preview{min-width:260px;max-width:min(480px,calc(100vw - 24px));padding:0;overflow:hidden;border-radius:9px;color:var(--agent-text);pointer-events:auto}
-/* A tight inset, 6px between rows and no dividers. The head is one row: the icon inline with the
-   title (cut to two lines, a web link's address under it), then Open and Open in as quiet
-   borderless buttons, the first line centred on the 20px buttons (Leo 2026-10-21). */
+.cv-link-preview.acpmux-pr-card{width:min(424px,calc(100vw - 24px));border-radius:calc(var(--ds-radius-control) + var(--ds-space-1))}
+/* A tight inset for web links; pull request cards use pure typographic spacing with no dividers. */
 .cv-link-preview__content{display:grid;gap:6px;padding:8px 10px}
+.acpmux-pr-card .cv-link-preview__content{gap:calc(var(--ds-space-2) + var(--grid-half-step));padding:var(--ds-space-3) calc(var(--ds-space-3) + var(--grid-half-step))}
 .cv-link-preview__head{display:flex;align-items:flex-start;gap:6px;min-width:0}
+.acpmux-pr-card .cv-link-preview__head{gap:var(--ds-space-2)}
 .cv-link-preview__icon{display:flex;flex:none;align-items:center;justify-content:center;width:16px;height:20px;color:var(--agent-muted)}
 .cv-link-preview__icon .cv-chip__icon{width:14px;height:14px;margin:0}
 .cv-link-preview__titles{display:grid;min-width:0;flex:1;padding-block:max(0px,calc((20px - var(--text-control--line-height)) / 2))}
@@ -16,69 +17,95 @@
 .cv-link-preview__open:hover,.cv-link-preview .acpmux-open-in:hover{background:var(--ds-surface-hover);color:var(--agent-text)}
 .cv-link-preview .acpmux-open-in{height:20px;padding:0 6px;border-radius:5px;box-shadow:none;color:var(--agent-muted)}
 .cv-link-preview__open:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
-/* Open and its chevron are one split control (Leo 2026-11-07): one hairline frame, a hairline between the halves, each half hovering on its own. */
-.cv-link-preview__split{display:inline-flex;flex:none;align-items:stretch;height:20px;border:var(--cmux-hairline) solid var(--agent-border);border-radius:6px;overflow:hidden}
-.cv-link-preview__split .cv-link-preview__open{height:auto;border-radius:0;color:var(--agent-text)}
-.cv-link-preview__split .acpmux-open-in.is-chevron{height:auto;padding:0 4px;border-left:var(--cmux-hairline) solid var(--agent-border);border-radius:0}
+.cv-link-preview__review{margin-inline-end:var(--grid-half-step)}
+/* Open and its chevron are one split control, drawn as plain controls on the card's glass: no frame of their own. */
+.cv-link-preview__split{display:inline-flex;flex:none;align-items:stretch;height:20px}
+.cv-link-preview__split .cv-link-preview__open{height:auto;border-top-right-radius:0;border-bottom-right-radius:0;color:var(--agent-text)}
+.cv-link-preview__split .acpmux-open-in.is-chevron{height:auto;padding:0 4px;border-left:var(--cmux-hairline) solid var(--agent-border);border-top-left-radius:0;border-bottom-left-radius:0}
 .cv-link-preview__target{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
-/* Every link's hover card (chips/LinkHoverCard.tsx; Leo 2026-10-20) is the liquid glass (.ui-glass, ui/glass/glass.css) with the tooltip's shadow: its hairline border keeps its width, clear under the glass rim (desktop.css .ui-card.ui-glass). Its glass is the popover level, as every hover card's (glass.css GLASS LEVELS), which Reduce Transparency makes opaque. A pull request's (PullRequestCard.tsx) puts its glyph, in its state's colour, and its title in the head, then owner/repo#N and the author, then an open one's checks as ✓/✗ counts. */
+/* Every link's hover card is the shared liquid glass (.ui-glass) with the tooltip's shadow. */
 .cv-link-preview.ui-card{border:var(--cmux-hairline) solid transparent;--glass-elevation:var(--tooltip-shadow,var(--elevation-2))}
-.acpmux-pr-card__body{display:grid;gap:8px;font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
-.acpmux-pr-card__title{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;overflow-wrap:anywhere;letter-spacing:var(--text-control--letter-spacing)}
-.acpmux-pr-card__facts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;color:var(--agent-muted)}
-.acpmux-pr-card__status{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
-.acpmux-pr-card__state{font-weight:600}
-.acpmux-pr-card__state[data-state=open]{color:var(--agent-status-success)}
-.acpmux-pr-card__state[data-state=merged]{color:var(--agent-status-merged)}
-.acpmux-pr-card__state[data-state=closed]{color:var(--agent-status-failure)}
-.acpmux-pr-card__status .acpmux-pr-card__checks{display:inline-flex}
-/* The card's owner/repo#N is the pull request's link, drawn as every link in the pane (.cv-link): blue, faintly underlined, solidly on hover. */
-.acpmux-pr-card__ref{color:var(--agent-link);font-variant-numeric:tabular-nums;font-weight:500;text-decoration:underline;text-decoration-thickness:1px;text-decoration-color:color-mix(in srgb,currentColor 40%,transparent);text-underline-offset:3px;border-radius:3px}.acpmux-pr-card__ref:hover{text-decoration-color:currentColor}.acpmux-pr-card__ref:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
-/* The state is the pull request glyph's colour, as GitHub draws it: merged uses the theme purple. */
-/* A disc of its own colour behind the glyph (Leo 2026-11-07: "Why is it gray? What is the gray about?"): the thin outline alone read as grey. Draft stays grey, as on GitHub. */
-.acpmux-pr-card__glyph{display:inline-flex;flex:none;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:color-mix(in srgb,currentColor 18%,transparent);color:var(--agent-muted)}
-.acpmux-pr-card .cv-link-preview__icon{width:20px}
+.acpmux-pr-card__body{display:grid;gap:calc(var(--ds-space-2) + var(--grid-half-step));font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__titleRow{display:flex;align-items:flex-start;gap:var(--ds-space-2);min-width:0}
+.acpmux-pr-card__title{display:-webkit-box;flex:1;min-width:0;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;overflow-wrap:anywhere;letter-spacing:var(--text-control--letter-spacing)}
+/* Row 2: author left-aligned on the PR icon's rail, review & labels right. */
+.acpmux-pr-card__byline{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:var(--ds-space-1) var(--ds-space-2);margin-top:calc(var(--grid-half-step) * -1);min-width:0}
+/* Provenance: blue owner/repo#N paired directly above the branch line. */
+.acpmux-pr-card__provenance{display:grid;grid-template-columns:minmax(0,1fr);justify-items:start;gap:var(--ds-space-1);min-width:0}
+.acpmux-pr-card__provenance .acpmux-pr-card__slot{grid-template-columns:minmax(0,1fr);justify-items:start;width:fit-content;max-width:100%}
+.acpmux-pr-card__facts{display:inline-flex;align-items:center;gap:var(--ds-space-1);min-width:0;width:fit-content;max-width:100%;color:var(--agent-muted)}
+.acpmux-pr-card__ref{color:var(--agent-link);font-variant-numeric:tabular-nums;font-weight:500;text-decoration:underline;text-decoration-thickness:1px;text-decoration-color:color-mix(in srgb,currentColor 40%,transparent);text-underline-offset:3px;border-radius:var(--ds-radius-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-pr-card__facts:hover .acpmux-pr-card__ref{text-decoration-color:currentColor}
+.acpmux-pr-card__ref:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
+.acpmux-pr-card__copyBtn{display:inline-flex;flex:none;align-items:center;justify-content:center;width:var(--ds-control-icon);height:var(--ds-control-icon);padding:0;border:0;border-radius:var(--ds-radius-sm);background:transparent;color:var(--agent-muted);opacity:0;cursor:default}
+.acpmux-pr-card__facts:hover .acpmux-pr-card__copyBtn,.acpmux-pr-card__branches:hover .acpmux-pr-card__copyBtn,.acpmux-pr-card__copyBtn:focus-visible,.acpmux-pr-card__copyBtn[data-copied]{opacity:1}
+.acpmux-pr-card__copyBtn:hover,.acpmux-pr-card__copyBtn[data-copied]{color:var(--agent-text)}
+.acpmux-pr-card__copyBtn:hover{background:var(--ds-surface-hover)}
+.acpmux-pr-card__copyBtn:active{background:var(--ds-color-pressed)}
+/* State disc beside the title: open green, merged purple, closed red, draft grey. */
+.acpmux-pr-card__glyph{display:inline-flex;flex:none;align-items:center;justify-content:center;width:var(--ds-icon-20);height:var(--ds-icon-20);border-radius:50%;background:color-mix(in srgb,currentColor 16%,transparent);color:var(--agent-muted)}
+.acpmux-pr-card .cv-link-preview__icon{width:var(--ds-icon-20);align-self:center}
 .acpmux-pr-card__glyph[data-state=open]{color:var(--agent-status-success)}
 .acpmux-pr-card__glyph[data-state=merged]{color:var(--agent-status-merged)}
 .acpmux-pr-card__glyph[data-state=closed]{color:var(--agent-status-failure)}
 .acpmux-pr-card__glyph[data-state=draft]{color:var(--agent-muted)}
-.acpmux-pr-card__author{min-width:0;overflow-wrap:anywhere}
-.acpmux-pr-card__checks{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;color:var(--agent-muted);font-variant-numeric:tabular-nums;border-radius:4px}
-.acpmux-pr-card__checks:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
-.acpmux-pr-card__checksName{color:var(--agent-text);font-weight:600}
-.acpmux-pr-card__count{font-weight:600}
-.acpmux-pr-card__checks > * + :is(.acpmux-pr-card__failed,.acpmux-pr-card__pending,.acpmux-pr-card__onBase)::before{content:"·";margin-inline-end:8px;color:var(--agent-border)}
-.acpmux-pr-card__checkNames{display:grid;gap:8px;max-width:320px}
-.acpmux-pr-card__checkList{display:grid}
-.acpmux-pr-card__checkListTitle{font-weight:600}
-.acpmux-pr-card__checkList[data-state=failed] .acpmux-pr-card__checkListTitle{color:var(--agent-status-failure)}
-.acpmux-pr-card__checkName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted)}
-.acpmux-pr-card__sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-.acpmux-pr-card__passed{color:var(--agent-status-success)}
-.acpmux-pr-card__failed{color:var(--agent-status-failure)}
-.acpmux-pr-card__pending{color:var(--agent-muted)}
-/* Every red is the base's: the ✗ reads muted, not as this pull request's to fix. */
-.acpmux-pr-card__checks[data-state=failing][data-on-base=all] .acpmux-pr-card__failed{color:var(--agent-muted)}
-/* Secondary pull request context: author, branches, review decision, labels and freshness. */
-.acpmux-pr-card__conflicts{color:var(--agent-status-failure)}
-.acpmux-pr-card__who{display:inline-flex;align-items:center;gap:6px;min-width:0}
-.acpmux-pr-card__avatar{flex:none;width:20px;height:20px;border-radius:50%;object-fit:cover;background:color-mix(in srgb,var(--agent-muted) 22%,transparent)}
-.acpmux-pr-card__monogram{display:inline-flex;flex:none;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:color-mix(in srgb,var(--agent-muted) 22%,transparent);color:var(--agent-text);font-size:var(--text-caption);font-weight:600;line-height:1;letter-spacing:var(--text-caption--letter-spacing)}
+/* Author + updated time, centered optically on the 20px icon disc rail (2px + 16px + 6px + 4px gap = 28px). */
+.acpmux-pr-card__who{display:inline-flex;align-items:center;gap:var(--ds-space-1);min-width:0;color:var(--agent-muted)}
+.acpmux-pr-card__avatar{flex:none;width:var(--ds-icon-16);height:var(--ds-icon-16);margin-inline:var(--grid-half-step) calc(var(--ds-space-1) + var(--grid-half-step));border-radius:50%;object-fit:cover;background:var(--ds-surface-hover)}
+.acpmux-pr-card__monogram{display:inline-flex;flex:none;align-items:center;justify-content:center;width:var(--ds-icon-16);height:var(--ds-icon-16);margin-inline:var(--grid-half-step) calc(var(--ds-space-1) + var(--grid-half-step));border-radius:50%;background:var(--ds-surface-hover);color:var(--agent-text);font-size:var(--text-caption);font-weight:600;line-height:1}
 .acpmux-pr-card__monogram[data-tone="0"]{background:color-mix(in srgb,var(--agent-ansi-1,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__monogram[data-tone="1"]{background:color-mix(in srgb,var(--agent-ansi-2,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__monogram[data-tone="2"]{background:color-mix(in srgb,var(--agent-ansi-3,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__monogram[data-tone="3"]{background:color-mix(in srgb,var(--agent-ansi-4,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__monogram[data-tone="4"]{background:color-mix(in srgb,var(--agent-ansi-5,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__monogram[data-tone="5"]{background:color-mix(in srgb,var(--agent-ansi-6,var(--agent-muted)) 26%,transparent)}
-.acpmux-pr-card__when{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-pr-card__branches{display:flex;align-items:center;gap:4px;min-width:0;color:var(--agent-muted);font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace))}
+.acpmux-pr-card__author{min-width:0;color:var(--agent-text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-pr-card__when{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-caption)}
+.acpmux-pr-card__when::before{content:"·";margin-inline-end:var(--ds-space-1);color:var(--agent-border-strong)}
+/* Checks bar + inline collapsible drawer */
+.acpmux-pr-card__status{display:grid;min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__checksWrap{display:grid;min-width:0}
+.acpmux-pr-card__checks{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--ds-space-1) var(--ds-space-2);color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__checksLeft{display:inline-flex;flex-wrap:wrap;align-items:baseline;gap:var(--ds-space-1) calc(var(--ds-space-1) + var(--grid-half-step));min-width:0}
+.acpmux-pr-card__checksName{color:var(--agent-text);font-weight:500}
+.acpmux-pr-card__count{font-weight:600}
+/* Earned colour: passed stays calm muted when failures or pending checks exist, turning green only when all pass. */
+.acpmux-pr-card__passed{color:var(--agent-muted)}
+.acpmux-pr-card__checks[data-state=passing] .acpmux-pr-card__passed{color:var(--agent-status-success)}
+.acpmux-pr-card__failed{color:var(--agent-status-failure)}
+.acpmux-pr-card__pending{color:var(--agent-muted)}
+.acpmux-pr-card__onBase{color:var(--agent-muted)}
+.acpmux-pr-card__checks[data-state=failing][data-on-base=all] .acpmux-pr-card__failed{color:var(--agent-muted)}
+.acpmux-pr-card__conflicts{color:var(--agent-status-failure)}
+.acpmux-pr-card__checksToggle,.acpmux-pr-card__checksBadge{display:inline-flex;align-items:center;gap:var(--ds-space-1);padding:var(--cmux-hairline) var(--ds-space-2);border:0;border-radius:var(--ds-radius-sm);background:color-mix(in srgb,var(--agent-status-failure) 11%,transparent);font:inherit;font-size:var(--text-caption);font-weight:600;line-height:17px;cursor:default}
+.acpmux-pr-card__checksToggle:hover{background:color-mix(in srgb,var(--agent-status-failure) 18%,transparent)}
+.acpmux-pr-card__checksToggle[data-kind=base],.acpmux-pr-card__checksBadge[data-kind=base],.acpmux-pr-card__checksToggle[data-kind=pending]{background:var(--ds-surface-hover)}
+.acpmux-pr-card__checksChev{display:inline-flex;align-items:center;color:currentColor;opacity:0.8}
+.acpmux-pr-card__checksToggle[aria-expanded=true] .acpmux-pr-card__checksChev{transform:rotate(180deg)}
+.acpmux-pr-card__checksDrawer{display:grid;gap:var(--grid-half-step);margin-top:calc(var(--ds-space-1) + var(--grid-half-step));padding:var(--ds-space-1);border-radius:var(--ds-radius-lg);background:var(--ds-surface-inset,var(--ds-surface-hover))}
+.acpmux-pr-card__checkRow{display:flex;align-items:center;gap:var(--ds-space-2);min-height:var(--ds-control-compact);padding:0 calc(var(--ds-space-1) + var(--grid-half-step));border-radius:var(--ds-radius-sm);color:var(--agent-text);font-size:var(--text-caption);text-decoration:none;min-width:0;cursor:default}
+a.acpmux-pr-card__checkRow:hover{background:var(--ds-surface-hover)}
+.acpmux-pr-card__checkIcon{display:inline-flex;flex:none;align-items:center;justify-content:center;width:var(--ds-icon-12);height:var(--ds-icon-12);color:var(--agent-status-failure)}
+.acpmux-pr-card__checkRow[data-state=base] .acpmux-pr-card__checkIcon,.acpmux-pr-card__checkRow[data-state=base] .acpmux-pr-card__checkName{color:var(--agent-muted)}
+.acpmux-pr-card__checkSpin{width:var(--ds-space-2);height:var(--ds-space-2);border:1.5px solid var(--agent-status-warning);border-top-color:transparent;border-radius:50%}
+.acpmux-pr-card__checkName{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-pr-card__checkArrow{flex:none;color:var(--agent-muted);opacity:0}
+a.acpmux-pr-card__checkRow:is(:hover,:focus-visible) .acpmux-pr-card__checkArrow{opacity:1}
+.acpmux-pr-card__checkMore{padding:0 calc(var(--ds-space-1) + var(--grid-half-step));color:var(--agent-muted);font-size:var(--text-caption)}
+.acpmux-pr-card__sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+/* Branch line: content-fit hover pill with a standalone copy button sitting outside it. */
+.acpmux-pr-card__branches{display:inline-flex;align-items:center;gap:var(--ds-space-1);width:fit-content;max-width:100%;min-width:0;color:var(--agent-muted);font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace));font-size:var(--text-caption);line-height:16px}
+.acpmux-pr-card__branchChip{display:inline-flex;align-items:center;gap:var(--ds-space-1);min-width:0;padding:var(--cmux-hairline) var(--ds-space-1);margin:calc(var(--cmux-hairline) * -1) 0 calc(var(--cmux-hairline) * -1) calc(var(--ds-space-1) * -1);border-radius:var(--ds-radius-sm)}
+.acpmux-pr-card__branches:hover .acpmux-pr-card__branchChip,.acpmux-pr-card__branches:has(.acpmux-pr-card__copyBtn:focus-visible,.acpmux-pr-card__copyBtn[data-copied]) .acpmux-pr-card__branchChip{background:var(--ds-surface-hover);color:var(--agent-text)}
 .acpmux-pr-card__branch{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-pr-card__review{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;color:var(--agent-muted)}
-.acpmux-pr-card__decision{font-weight:500}
+.acpmux-pr-card__branchArrow{flex:none;opacity:0.6}
+.acpmux-pr-card__branchHead{color:var(--agent-soft,var(--agent-text))}
+/* Review decision & soft tinted labels */
+.acpmux-pr-card__review{display:inline-flex;flex-wrap:wrap;align-items:center;gap:var(--ds-space-1);min-width:0;max-width:100%;color:var(--agent-muted)}
+.acpmux-pr-card__decision{font-size:var(--text-caption);font-weight:600}
 .acpmux-pr-card__decision[data-review=approved]{color:var(--agent-status-success)}
 .acpmux-pr-card__decision[data-review=changes_requested]{color:var(--agent-status-failure)}
-/* A label in its colour (GitHub's, else a tone its name picks): a tint, a stronger edge, and the colour mixed into the text, so a pale or a dark label reads on either theme. risk:high without a colour takes the failure ink. */
-.acpmux-pr-card__label{--label:var(--agent-muted);padding:0 6px;border:var(--cmux-hairline) solid color-mix(in srgb,var(--label) 55%,transparent);border-radius:4px;background:color-mix(in srgb,var(--label) 18%,transparent);color:color-mix(in oklab,var(--label) 55%,var(--agent-text));font-size:var(--text-caption);font-weight:600;line-height:16px;letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-pr-card__label{--label:var(--agent-muted);max-width:100%;padding:0 calc(var(--ds-space-1) + var(--grid-half-step));border:var(--cmux-hairline) solid color-mix(in srgb,var(--label) 26%,transparent);border-radius:var(--ds-radius-sm);background:color-mix(in srgb,var(--label) 11%,transparent);color:color-mix(in oklab,var(--label) 60%,var(--agent-text));font-size:var(--text-caption);line-height:16px;letter-spacing:var(--text-caption--letter-spacing);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-card__label[data-tone="0"]{--label:var(--agent-ansi-1,var(--agent-muted))}
 .acpmux-pr-card__label[data-tone="1"]{--label:var(--agent-ansi-2,var(--agent-muted))}
 .acpmux-pr-card__label[data-tone="2"]{--label:var(--agent-ansi-3,var(--agent-muted))}
@@ -88,11 +115,11 @@
 .acpmux-pr-card__label[data-tone="6"]{--label:var(--agent-link)}
 .acpmux-pr-card__label[data-tone="7"]{--label:var(--agent-status-merged)}
 .acpmux-pr-card__label[data-tone=danger]{--label:var(--agent-status-failure)}
-.acpmux-pr-card__changes{min-width:0}
-.acpmux-pr-card__counts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
-.acpmux-pr-card__lines{display:inline-flex;align-items:center;gap:5px;color:inherit}
-/* One bar split by the lines each kind of file changed, then each kind's +/− after a dot of its colour (Leo 2026-11-07). The bar and the dots are marks, not controls, so they size by block-size. */
-.acpmux-pr-card__kindBar{display:flex;gap:4px;block-size:6px;margin-block:4px;overflow:hidden;border-radius:999px}
+/* Quiet diff breakdown (no hover effects, thin 3px bar, neutral per-kind counts) */
+.acpmux-pr-card__changes{display:grid;gap:var(--ds-space-1);min-width:0}
+.acpmux-pr-card__counts{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--ds-space-1) calc(var(--ds-space-1) + var(--grid-half-step));color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__lines{display:inline-flex;align-items:baseline;gap:var(--ds-space-1);color:inherit;font-weight:600}
+.acpmux-pr-card__kindBar{display:flex;gap:var(--grid-half-step);block-size:3px;overflow:hidden;border-radius:999px}
 .acpmux-pr-card__barPart{min-width:3px;border-radius:999px;background:var(--kind)}
 .acpmux-pr-card__bar,.acpmux-pr-card__breakdown{--kind:var(--agent-muted)}
 [data-kind=code]{--kind:var(--agent-link)}
@@ -100,38 +127,30 @@
 [data-kind=mocks]{--kind:var(--agent-ansi-3,var(--agent-status-warning))}
 [data-kind=docs]{--kind:var(--agent-ansi-5,var(--agent-status-merged))}
 [data-kind=evals]{--kind:var(--agent-status-merged)}
-[data-kind=generated]{--kind:color-mix(in srgb,var(--agent-muted) 60%,transparent)}
-.acpmux-pr-card__breakdown{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
-.acpmux-pr-card__kindDot{flex:none;inline-size:8px;block-size:8px;border-radius:50%;background:var(--kind);align-self:center}
-.acpmux-pr-card__kind{display:inline-flex;align-items:baseline;gap:4px;min-width:0}
-.acpmux-pr-card__kindName{color:var(--agent-muted);font-weight:500}
+[data-kind=generated]{--kind:var(--agent-border-strong)}
+.acpmux-pr-card__breakdown{display:flex;flex-wrap:wrap;align-items:center;gap:var(--ds-space-1) var(--ds-space-3);min-width:0;color:var(--agent-muted);font-size:var(--text-caption);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__kindDot{flex:none;inline-size:5.5px;block-size:5.5px;border-radius:50%;background:var(--kind);align-self:center}
+.acpmux-pr-card__kind{display:inline-flex;align-items:center;gap:var(--ds-space-1);min-width:0}
+.acpmux-pr-card__kindName{color:var(--agent-muted)}
+.acpmux-pr-card__kindCount{color:var(--agent-muted);opacity:0.7}
 .acpmux-pr-card__kindPartial{color:var(--agent-muted);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-pr-card__added{color:var(--agent-diff-add)}
 .acpmux-pr-card__removed{color:var(--agent-diff-del)}
-.acpmux-pr-card__warning{padding:0 6px;border-radius:4px;background:color-mix(in srgb,var(--agent-status-warning) 20%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:16px;letter-spacing:var(--text-caption--letter-spacing)}
-/* A row the host's answer fills, held at its line's height while the host reads
-   (PullRequestCard.tsx Placeholder): static muted bars, no shimmer. */
-.acpmux-pr-card__bar{display:inline-block;width:calc(var(--grid-base) * 16);max-width:100%;height:calc(var(--grid-base) * 2);border-radius:var(--grid-base);background:color-mix(in srgb,var(--agent-muted) 18%,transparent);vertical-align:middle}
+/* Placeholders held at their row's height while the host reads: static muted bars, no shimmer. */
+.acpmux-pr-card__bar{display:inline-block;width:calc(var(--grid-base) * 16);max-width:100%;height:calc(var(--grid-base) * 2);border-radius:var(--grid-base);background:var(--ds-surface-hover);vertical-align:middle}
 .acpmux-pr-card__bar[data-size=m]{width:calc(var(--grid-base) * 36)}
 .acpmux-pr-card__bar[data-size=l]{width:calc(var(--grid-base) * 56)}
-/* Each held row is one text line tall, as the row it stands for (most rows are flex boxes, where a
-   bar alone would set the height). */
 .acpmux-pr-card__body [data-placeholder]:not(.acpmux-pr-card__changes),.acpmux-pr-card__body [data-placeholder]>div{align-items:center;min-height:var(--text-detail--line-height)}
 .acpmux-pr-card__age{color:var(--agent-muted);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
-/* The rows the host's answer fills, after the card drew their placeholders, fade in once on the
-   shared load fade (pages/shared/desktop.css `cmux-load-fade`; shared/loadFade.ts): opacity only, so the
-   card keeps its size and its glass never redraws for a move. */
 @media (prefers-reduced-motion:no-preference){.acpmux-pr-card__body[data-load-fade] :is(.acpmux-pr-card__status,.acpmux-pr-card__who,.acpmux-pr-card__changes,.acpmux-pr-card__branches,.acpmux-pr-card__review):not([data-placeholder],[data-placeholder] *){animation:cmux-load-fade var(--cmux-load-fade-duration,var(--agent-motion-in,var(--cmux-motion-micro,120ms))) var(--cmux-load-fade-easing,var(--cmux-ease-out,ease-out)) both}
-/* …while the placeholder it replaces, in the same grid cell (PullRequestCard.tsx Slot), plays the same fade backwards: a crossfade in place, the cell already the row's size, so nothing moves while it plays or when the placeholder goes at its end (Leo 2026-11-08: "a bit too discontinuous and jumpy"). */
 .acpmux-pr-card__slot>[data-placeholder]{animation:cmux-load-fade var(--cmux-load-fade-duration,var(--agent-motion-in,var(--cmux-motion-micro,120ms))) var(--cmux-load-fade-easing,var(--cmux-ease-out,ease-out)) reverse both}}
 :root:is([data-agent-motion="off"],[data-agent-motion="reduced"],[data-cmux-motion="off"],[data-cmux-motion="reduced"]) .acpmux-pr-card__body[data-load-fade] *{animation:none}
 .acpmux-pr-card__slot{display:grid;min-width:0}
 .acpmux-pr-card__slot:empty{display:none}
-.acpmux-pr-card__face{flex:none;width:20px;height:20px;border-radius:50%;background:color-mix(in srgb,var(--agent-muted) 22%,transparent)}
+.acpmux-pr-card__face{flex:none;width:var(--ds-icon-16);height:var(--ds-icon-16);margin-inline:var(--grid-half-step) calc(var(--ds-space-1) + var(--grid-half-step));border-radius:50%;background:var(--ds-surface-hover)}
 .acpmux-pr-card__slot>*{grid-area:1/1}
-/* With no fade to play (motion off or reduced) a placeholder still in its slot draws nothing. */
 .acpmux-pr-card__slot>[data-placeholder]{opacity:0;pointer-events:none}
-.acpmux-pr-card__changes[data-placeholder] .acpmux-pr-card__kindBar{background:color-mix(in srgb,var(--agent-muted) 18%,transparent)}
+.acpmux-pr-card__changes[data-placeholder] .acpmux-pr-card__kindBar{background:var(--ds-surface-hover)}
 /* An issue as GitHub draws one: open green, closed (completed) purple, not planned grey. */
-.acpmux-pr-card__glyph[data-kind=issue][data-state=closed],.acpmux-pr-card__state[data-kind=issue][data-state=closed]{color:var(--agent-status-merged)}
-.acpmux-pr-card__glyph[data-kind=issue][data-state=not_planned],.acpmux-pr-card__state[data-kind=issue][data-state=not_planned]{color:var(--agent-muted)}
+.acpmux-pr-card__glyph[data-kind=issue][data-state=closed]{color:var(--agent-status-merged)}
+.acpmux-pr-card__glyph[data-kind=issue][data-state=not_planned]{color:var(--agent-muted)}

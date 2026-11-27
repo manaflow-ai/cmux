@@ -1,0 +1,21 @@
+{
+  "about": "The scene DSL's type: what a scene node's `font` names, drawn the same by every renderer (RFD 0009, goal 3). The web scene renderer (webviews/src/apps/scene/sceneStyle.ts) and the design check (cmux-tui/crates/cmux-tui/src/cli/ext/design_system.rs) read this file; scripts/cmux-next/gen-type-scale.py writes AppKit's copy (TypeScale.generated.swift, `SceneType`). Sizes are points (CSS px on the web) at the default text size; both renderers grow them with Interface Size as they do the chrome steps. `roles` are cmux's type roles, Apple's widget text styles, each drawn by an SDK helper (cmux-extension-sdk widget.ts; their sizes are tokens.ts `TYPE_ROLES`, which must match). `styles` are the Apple text style names a scene may still write, each at one size and weight, and the role at that size: one whose size and weight are a role's is that role by another name; the rest the design check names as a rename (`type-style`).",
+  "roles": [
+    { "name": "numeral", "helper": "BigNumber", "size": 34, "weight": "semibold" },
+    { "name": "heading", "helper": "Heading", "size": 20, "weight": "semibold" },
+    { "name": "title", "helper": "Headline", "size": 15, "weight": "semibold" },
+    { "name": "label", "helper": "Label", "size": 13, "weight": "semibold" },
+    { "name": "body", "helper": "Body", "size": 13, "weight": "regular" },
+    { "name": "caption", "helper": "Caption", "size": 12, "weight": "regular" },
+    { "name": "footnote", "helper": "Footnote", "size": 11, "weight": "regular" }
+  ],
+  "styles": [
+    { "name": "largeTitle", "size": 34, "weight": "regular", "role": "numeral" },
+    { "name": "title2", "size": 20, "weight": "regular", "role": "heading" },
+    { "name": "title3", "size": 15, "weight": "regular", "role": "title" },
+    { "name": "headline", "size": 13, "weight": "semibold", "role": "label" },
+    { "name": "callout", "size": 13, "weight": "regular", "role": "body" },
+    { "name": "subheadline", "size": 12, "weight": "regular", "role": "caption" },
+    { "name": "caption2", "size": 11, "weight": "regular", "role": "footnote" }
+  ]
+}

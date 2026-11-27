@@ -16,6 +16,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { TRANSCRIPT_ROW } from "../src/agent-session/acpmux/transcriptSelectors";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
@@ -150,6 +151,36 @@ await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
         observer.disconnect();
       };
     });
+  /// From now until `rowTops`, where the row at the view's top sits in the view on every painted frame:
+  /// the reader's place. Not the offset: rows above the view mounted after a jump are measured later,
+  /// and the anchor moves the offset by their estimate error in the frame that draws them, the row
+  /// staying where it was.
+  const watchRow = (page: Page) =>
+    page.evaluate((rowSelector) => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const view = scroller.getBoundingClientRect();
+      const id = [...scroller.querySelectorAll<HTMLElement>(rowSelector)].find(
+        (row) => row.getBoundingClientRect().bottom > view.top + 1,
+      )!.dataset.rowId!;
+      const at = () => {
+        const row = scroller.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${CSS.escape(id)}"]`);
+        return row ? row.getBoundingClientRect().top - view.top : null;
+      };
+      const tops: (number | null)[] = [at()];
+      const own = window as unknown as { __rowTops: typeof tops; __stopRowTops: () => void };
+      own.__rowTops = tops;
+      own.__stopRowTops = window.cmuxAfterPaint(() => {
+        tops.push(at());
+      });
+    }, TRANSCRIPT_ROW);
+  const rowTops = (page: Page) =>
+    page.evaluate(() => {
+      const own = window as unknown as { __rowTops: (number | null)[]; __stopRowTops: () => void };
+      own.__stopRowTops();
+      return own.__rowTops;
+    });
+  const scrollTop = (page: Page) =>
+    page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
   const resizes = (page: Page) =>
     page.evaluate(() => {
       const own = window as unknown as { __resizes: Map<number, number>; __stopResizes: () => void };
@@ -223,7 +254,7 @@ await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
         scroller.scrollTop -= 1_500;
       });
       await painted(page, 5);
-      const left = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
+      await watchRow(page);
       let text = "";
       for (let index = 0; index < 10; index += 1) {
         text += `${index ? "\n\n" : ""}${paragraph(index)}`;
@@ -231,10 +262,14 @@ await requireBrowserLane("transcript-pinned-bottom.test.ts", async () => {
         await painted(page);
       }
       await painted(page, 5);
-      expect(await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop)).toBeCloseTo(
-        left,
-        0,
-      );
+      // The row the reader was reading stays where it was on every frame the reply grew under it.
+      const tops = await rowTops(page);
+      expect(tops.length).toBeGreaterThan(10);
+      expect(tops.filter((top) => top === null || Math.abs(top - tops[0]!) > 0.5)).toEqual([]);
+      // And once its rows are drawn, the offset rests.
+      const settled = await scrollTop(page);
+      await painted(page, 5);
+      expect(await scrollTop(page)).toBeCloseTo(settled, 0);
 
       // A send while scrolled up cuts to the bottom at once (Leo, 2026-11-11: "that slow settle
       // animation is just so bad. Like, just do it."), and the prompt's row and its reply arrive there.

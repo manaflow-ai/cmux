@@ -32,7 +32,7 @@ const ALLOWED: &[(&str, &str, usize, &str)] = &[
         "`watch_pages`: the link's watch, its cursor followed page by page",
     ),
     (
-        "cmux-tui/crates/acpmux/src/tui/run.rs",
+        "cmux-tui/crates/acpmux-tui/src/run.rs",
         "method::MUX_WATCH",
         1,
         "turns watching on, `limit: 1`",
@@ -49,6 +49,37 @@ const ALLOWED: &[(&str, &str, usize, &str)] = &[
         "method::MUX_SESSIONS",
         1,
         "`acpmux ls`'s page fetcher: one `limit` page per call, its cursor followed",
+    ),
+    (
+        "cmux-tui/crates/acpmux/src/cli/run/board.rs",
+        "method::MUX_SESSIONS",
+        1,
+        "the board's v1 page fetcher for `ls_pages::read`: one `limit` page per call, its cursor \
+         followed",
+    ),
+    (
+        "cmux-tui/crates/coord-sim/src/drive/readers.rs",
+        "\"_acpmux/sessions\"",
+        1,
+        "the simulated pane's list: a `limit: 200` page per call, its `nextCursor` followed",
+    ),
+    (
+        "cmux-tui/crates/coord-sim/src/degen/cases.rs",
+        "\"_acpmux/sessions\"",
+        1,
+        "the degenerate-case reader's page loop: the daemon's own page size, its cursor followed",
+    ),
+    (
+        "cmux-tui/crates/coord-sim/src/degen/sidebar.rs",
+        "\"_acpmux/watch\"",
+        1,
+        "turns watching on for the rename timings; the sim reads the changes, not the list",
+    ),
+    (
+        "cmux-tui/crates/coord-sim/src/fanin/ramp.rs",
+        "\"_acpmux/sessions\"",
+        2,
+        "the sim times one whole read against the paged one (`limit` 100, its cursor followed)",
     ),
     (
         "cmux-tui/crates/cmux-tui-core/src/server/agent_session_link.rs",
@@ -127,8 +158,8 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     ("rpc.rs", "\"session/list\"", 1, "the method's name"),
     ("rpc.rs", "\"_acpmux/sessions\"", 1, "the method's name"),
     ("rpc.rs", "\"_acpmux/watch\"", 1, "the method's name"),
-    ("capabilities.rs", "method::MUX_SESSIONS", 3, "the capability ids, no read"),
-    ("capabilities.rs", "method::MUX_WATCH", 2, "the capability ids, no read"),
+    ("capabilities.rs", "method::MUX_SESSIONS", 5, "the capability ids, no read"),
+    ("capabilities.rs", "method::MUX_WATCH", 3, "the capability ids and the batch wire, no read"),
     ("pairing/read_only.rs", "method::SESSION_LIST", 1, "a paired device's read-only methods"),
     ("pairing/read_only.rs", "method::MUX_SESSIONS", 1, "a paired device's read-only methods"),
     ("pairing/read_only.rs", "method::MUX_WATCH", 1, "a paired device's read-only methods"),
@@ -149,6 +180,8 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     ("cli/run/ls.rs", "method::MUX_SESSIONS", 1, "`ls`'s fallback (`V1_PAGES`)"),
     ("cli/run/standard.rs", "method::MUX_SESSIONS", 1, "`pending`'s fallback"),
     ("cli/run/fanout.rs", "method::MUX_SESSIONS", 1, "`send --tag`'s fallback"),
+    ("cli/search_all.rs", "method::MUX_SESSIONS", 1, "search's fallback for the whole view"),
+    ("cli/run/board.rs", "method::MUX_SESSIONS", 1, "the board's fallback (`ls_pages::read`)"),
     ("acpmux_mcp.rs", "method::MUX_SESSIONS", 1, "MCP `ls`'s fallback"),
     // v1 read kept: `ls --cursor C` reads one v1 page.
     (
@@ -162,10 +195,7 @@ const V1_LIST_USES: &[(&str, &str, usize, &str)] = &[
     ("cli/orchestrate.rs", "method::MUX_SESSIONS", 1, "7b part two: ensure by name"),
     ("cli/place.rs", "method::MUX_SESSIONS", 1, "7b part two: placement"),
     ("cli/run/session_move.rs", "method::MUX_SESSIONS", 1, "7b part two: a session's move"),
-    // Part three of row 7b: the TUI, which follows a mirror once it gives v1 rows.
-    ("tui/mod.rs", "method::MUX_SESSIONS", 2, "7b part three: the TUI's list"),
-    ("tui/run.rs", "method::MUX_SESSIONS", 1, "7b part three: the TUI's list"),
-    ("tui/run.rs", "method::MUX_WATCH", 2, "7b part three: the TUI's watch"),
+    ("cli/run/rebalance.rs", "method::MUX_SESSIONS", 1, "7b part two: rebalance's local rows"),
 ];
 
 /// v1 while a hub machine is listed (decision 210): the one read that says whether the daemon

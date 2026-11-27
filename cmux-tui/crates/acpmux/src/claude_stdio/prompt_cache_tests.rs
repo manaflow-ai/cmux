@@ -110,3 +110,86 @@ async fn a_call_stopped_before_its_delta_still_moves_the_expiry() {
     let [Some(at)] = expiries(&t.inbound(&result).await)[..] else { panic!() };
     assert!(at > first, "{at} after {first}");
 }
+
+/// The `_meta.acpmux` of the `usage_update`s among `msgs`.
+fn cache_meta(msgs: &[Message]) -> Vec<Value> {
+    msgs.iter()
+        .filter_map(|m| match m {
+            Message::Notification { params, .. } => {
+                let update = params.as_ref()?.get("update")?;
+                (update.get("sessionUpdate")? == "usage_update")
+                    .then(|| update.pointer("/_meta/acpmux").cloned().unwrap_or(Value::Null))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_miss_is_named_by_its_likeliest_cause() {
+    assert_eq!(miss_cause(true, true, true, 1, 2), "compaction");
+    assert_eq!(miss_cause(false, true, true, 1, 2), "model");
+    assert_eq!(miss_cause(false, false, true, 1, 2), "effort");
+    assert_eq!(miss_cause(false, false, false, 1, 2), "expired");
+    assert_eq!(miss_cause(false, false, false, 1, 1), "expired", "at the expiry");
+    assert_eq!(miss_cause(false, false, false, 3, 2), "unknown", "still warm");
+    assert_eq!(miss_cause(false, false, false, 0, 2), "unknown", "no expiry known");
+}
+
+#[tokio::test]
+async fn the_updates_say_the_hit_ratio_and_the_last_miss() {
+    let t = Translator::new("acp-1".into(), "default", "opus", "default");
+    // The first call writes the cache: no miss (nothing was left before it), nothing read.
+    let (msgs, _) = call(&t, usage(0, 9_000, 0), usage(0, 9_000, 0)).await;
+    let [first] = &cache_meta(&msgs)[..] else { panic!("{msgs:?}") };
+    assert_eq!(first["cacheHit"], json!(0.0));
+    assert!(first.get("cacheMiss").is_none(), "{first}");
+    // The next reads it back.
+    let (msgs, _) = call(&t, usage(9_000, 100, 0), usage(9_000, 100, 0)).await;
+    let [warm] = &cache_meta(&msgs)[..] else { panic!("{msgs:?}") };
+    assert!(warm["cacheHit"].as_f64().unwrap() > 0.98, "{warm}");
+    assert!(warm.get("cacheMiss").is_none(), "{warm}");
+    // Another model reads none of it: a miss, the model's.
+    let start = json!({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "m3", "model": "claude-sonnet-5-5", "usage": usage(0, 9_200, 0)}}});
+    t.inbound(&start).await;
+    let delta = json!({"type": "stream_event", "event": {"type": "message_delta", "usage": usage(0, 9_200, 0)}});
+    let [missed] = &cache_meta(&t.inbound(&delta).await)[..] else { panic!() };
+    assert_eq!(missed["cacheMiss"]["cause"], json!("model"), "{missed}");
+    assert_eq!(missed["cacheHit"], json!(0.0));
+    // A compaction, then a call that writes the new context: the compaction's miss. The turn's
+    // resend carries the last miss too.
+    t.inbound(&json!({"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "manual", "pre_tokens": 9400, "post_tokens": 6000}})).await;
+    let start = json!({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "m4", "model": "claude-sonnet-5-5", "usage": usage(0, 6_000, 0)}}});
+    t.inbound(&start).await;
+    let delta = json!({"type": "stream_event", "event": {"type": "message_delta", "usage": usage(0, 6_000, 0)}});
+    let [compacted] = &cache_meta(&t.inbound(&delta).await)[..] else { panic!() };
+    assert_eq!(compacted["cacheMiss"]["cause"], json!("compaction"), "{compacted}");
+    let result = json!({"type": "result", "subtype": "success", "result": "ok", "num_turns": 1, "modelUsage": {"claude-sonnet-5-5": {"contextWindow": 400000}}});
+    let resent = cache_meta(&t.inbound(&result).await);
+    assert!(resent.iter().any(|m| m["cacheMiss"]["cause"] == "compaction"), "{resent:?}");
+}
+
+#[tokio::test]
+async fn a_turn_counts_its_misses_by_cause_for_the_alarm() {
+    let t = Translator::new("acp-1".into(), "default", "opus", "default");
+    call(&t, usage(0, 9_000, 0), usage(0, 9_000, 0)).await;
+    call(&t, usage(9_000, 100, 0), usage(9_000, 100, 0)).await;
+    assert_eq!(t.cache.take_turn_misses().to_json(), None, "a warm turn misses nothing");
+    // Same model, still warm, reads nothing: a churn. Then a call reads it back (the turn's
+    // share would hide this one).
+    call(&t, usage(0, 9_300, 0), usage(0, 9_300, 0)).await;
+    call(&t, usage(9_300, 100, 0), usage(9_300, 100, 0)).await;
+    let m = t.cache.take_turn_misses();
+    assert_eq!(m.churn(), 1);
+    let j = m.to_json().unwrap();
+    assert_eq!(j["callMisses"], 1);
+    assert_eq!(j["callChurn"], 1);
+    assert_eq!(j["callDeclared"], 0);
+    assert_eq!(j["cause"]["unknown"], 1);
+    assert!(j["callUnreadTokens"].as_u64().unwrap() > 9_000, "{j}");
+    // A compaction's miss is declared, and the count started over.
+    t.inbound(&json!({"type": "system", "subtype": "compact_boundary", "compact_metadata": {"trigger": "manual", "pre_tokens": 9400, "post_tokens": 6000}})).await;
+    call(&t, usage(0, 6_000, 0), usage(0, 6_000, 0)).await;
+    let j = t.cache.take_turn_misses().to_json().unwrap();
+    assert_eq!((j["callChurn"].clone(), j["callDeclared"].clone()), (json!(0), json!(1)));
+}

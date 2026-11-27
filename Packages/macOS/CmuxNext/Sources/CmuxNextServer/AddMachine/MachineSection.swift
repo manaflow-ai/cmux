@@ -29,6 +29,14 @@ public nonisolated enum MachineKind: String, Hashable, Sendable, CaseIterable {
     /// A machine that joined through the hub (a pair code or a one-line token) and that the app reaches
     /// through the mesh alone. A joined machine the app also connects to keeps that link's kind.
     case joined
+
+    /// Classifies an existing link; a signed-in joined identity is supplied by the catalog separately.
+    public static func linked(isLocal: Bool, hasCloud: Bool, hasSSH: Bool) -> Self {
+        if isLocal { return .local }
+        if hasCloud { return .cloud }
+        if hasSSH { return .ssh }
+        return .server
+    }
 }
 
 /// What the machine's server says about a Cloud machine that is not simply running: a settled state
@@ -58,6 +66,11 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
     /// The link is being made, or a resume is on its way (a spinner, not "Offline"). Never true for a
     /// machine whose server says it is paused, failed or deleted: nothing is connecting to it.
     public let isConnecting: Bool
+    /// The link or daemon failed after an attempted connection. A failed row is settled, so it
+    /// must not keep the connecting spinner alive.
+    public let failed: Bool
+    /// The raw SSH failure used by the sidebar row's tooltip, when one is available.
+    public let failure: String?
     /// What the machine's server says when it is not simply running (``MachineServerState``); nil
     /// for a running machine and every non-Cloud machine.
     public let serverState: MachineServerState?
@@ -78,6 +91,7 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
     /// - Parameter serverState: a settled state (paused, failed, deleted) turns the spinner off and
     ///   writes the state; `.resuming` keeps a spinner. A connected link wins over either.
     public init(id: String, name: String, isConnected: Bool, isLocal: Bool, kind: MachineKind? = nil, isConnecting: Bool = false,
+                failed: Bool = false, failure: String? = nil,
                 serverState: MachineServerState? = nil, health: HostHealth? = nil, healthStep: HostStep? = nil,
                 joined: JoinedMachine? = nil, symbol: String? = nil) {
         self.id = id
@@ -88,6 +102,8 @@ public nonisolated struct MachineSectionRow: Identifiable, Hashable, Sendable {
         let serverState = isConnected ? nil : serverState
         self.serverState = serverState
         self.isConnecting = !isConnected && (serverState.map { $0 == .resuming } ?? isConnecting)
+        self.failed = !isConnected && failed
+        self.failure = failure
         self.health = health
         self.healthStep = healthStep
         self.joined = joined
@@ -124,7 +140,7 @@ public nonisolated enum MachineSectionStyle: String, Sendable, CaseIterable, Has
     }
 }
 
-/// The Machines section's rows (the page webviews/src/pages/machines shows them): the App reads this
+/// The Machines section's rows (the hosts sidebar shows them): the App reads this
 /// Mac, every Cloud, SSH and server machine and the machines that joined through the hub from its
 /// registries (`MachineSectionRow.rows`, CmuxNextApp).
 extension MachineSectionRow {

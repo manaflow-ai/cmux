@@ -8,6 +8,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
 import type { AcpmuxRow } from "../model";
+import { PromptHeads } from "../promptHeads";
 
 /** A finished turn: a prompt, a run of commands, the reply and its footer. */
 function turn(index: number, minutes: number): AcpmuxRow[] {
@@ -89,8 +90,10 @@ export default agentPaneEntry({
       note: "The same chat once its prompt index answers: the same box and tick rows as mid-load, with every tick now naming its prompt.",
       snapshot: codexChat({
         canLoadOlder: true,
-        earlierPrompts: Array.from({ length: 96 }, (_, index) =>
-          user(`Earlier prompt ${index + 1}`, 900 - index * 6, { id: `user-${index + 1}` }),
+        earlierPrompts: PromptHeads.fromRows(
+          Array.from({ length: 96 }, (_, index) =>
+            user(`Earlier prompt ${index + 1}`, 900 - index * 6, { id: `user-${index + 1}` }),
+          ),
         ),
       }),
     },

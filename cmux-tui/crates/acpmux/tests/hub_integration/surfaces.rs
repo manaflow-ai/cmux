@@ -37,6 +37,8 @@ async fn prompts_from_three_surfaces_queue_in_order_and_every_client_sees_who_se
         )
         .await;
     mac.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-mac").await;
+    // Its agent runs it: a Stop before the prompt is written ends it as `stopped`, with no turn.
+    mac.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
     let from_phone = phone
         .send(
             method::SESSION_PROMPT,

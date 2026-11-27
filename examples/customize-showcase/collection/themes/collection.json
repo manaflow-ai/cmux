@@ -6,7 +6,7 @@
 
   // The terminal theme, and its own colors.
   "appearance.theme": "Builtin Dark",
-  "colors": { "background": "#1a1325", "foreground": "#f2e9ff", "selection": "#3d2a5c", "accent": "#ff5fd2" },
+  "colors": { "background": "#1a1325", "foreground": "#f2e9ff", "selection": "#d9c2ff", "accent": "#ff5fd2" },
   "appearance.accent": "magenta",
 
   "appearance.background": "none",

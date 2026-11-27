@@ -19,13 +19,23 @@ nonisolated final class AgeTextCache: Hashable, Sendable {
         /// Whole days, or minutes since 1970 for a time today.
         var value: Int
         var today: Bool
+        /// `value` is an age in minutes (`sidebar.relativeTimestamps`).
+        var elapsed = false
         var locale: String
         var timeZone: String
     }
 
+    /// The label for an age of `minutes` (`5m`, `2h`), made by `make` the first time.
+    func label(elapsedMinutes minutes: Int, locale: Locale, make: () -> String) -> String {
+        label(Key(value: minutes, today: true, elapsed: true, locale: locale.identifier, timeZone: ""), make: make)
+    }
+
     /// The label for `key`, made by `make` the first time.
     func label(days: Int?, minute: Int, locale: Locale, timeZone: TimeZone, make: () -> String) -> String {
-        let key = Key(value: days ?? minute, today: days == nil, locale: locale.identifier, timeZone: timeZone.identifier)
+        label(Key(value: days ?? minute, today: days == nil, locale: locale.identifier, timeZone: timeZone.identifier), make: make)
+    }
+
+    private func label(_ key: Key, make: () -> String) -> String {
         if let hit = labels.withLock({ $0[key] }) { return hit }
         let made = make()
         labels.withLock {

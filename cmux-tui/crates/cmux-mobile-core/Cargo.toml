@@ -13,6 +13,11 @@ workspace = true
 [dependencies]
 cmux-cloud-wire.workspace = true
 cmux-terminal-sizing.workspace = true
+# The `catch-up` service's request and reply (src/catch_up/service.rs).
+serde_json.workspace = true
+# Catch-up from the relay cache with the Mac asleep (src/catch_up/relay.rs).
+cmux-relay-snapshot.workspace = true
 
 [dev-dependencies]
-serde_json.workspace = true
+p256 = { version = "0.13", features = ["ecdh", "ecdsa"] }
+rand_core = { version = "0.6", features = ["getrandom"] }

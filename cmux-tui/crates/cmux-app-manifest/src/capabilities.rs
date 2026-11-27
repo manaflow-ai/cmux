@@ -186,12 +186,23 @@ pub const PERSON_MARK_OPS: &[&str] = &["chat.mark_read", "chat.pin"];
 /// an app shows or follows hints only in answer to a key or a tap.
 pub const PAGE_VIEW_OPS: &[&str] = &["page.hints", "page.follow"];
 
+/// Ops that start, stop or move what plays: an app plays, pauses or skips
+/// only in answer to a tap, so no extension starts sound on its own.
+pub const PLAYBACK_OPS: &[&str] = &["media.control"];
+
+/// Ops that show a system permission prompt (provider family `system_calendar`, the
+/// Mac app's CalendarAppOps): an app asks the person only in answer to a key
+/// or a tap, never on its own. `system_calendar.events` never prompts.
+pub const SYSTEM_PROMPT_OPS: &[&str] = &["system_calendar.request_access"];
+
 /// Whether an app call of `op` needs a live user gesture.
 pub fn needs_gesture(op: &str) -> bool {
     VIEW_STATE_OPS.contains(&op)
         || PANEL_OPS.contains(&op)
         || PERSON_MARK_OPS.contains(&op)
         || PAGE_VIEW_OPS.contains(&op)
+        || PLAYBACK_OPS.contains(&op)
+        || SYSTEM_PROMPT_OPS.contains(&op)
 }
 
 /// The escalation of `op`, if it has one.
@@ -211,6 +222,9 @@ pub fn scope_info(scope: &str) -> Option<ScopeInfo> {
 pub struct OpCapability {
     pub scope: OpScope,
     pub class: OpClass,
+    /// Other grants that allow the op too (`alsoScopes` in scopes.json):
+    /// `storage:synced` serves `app.storage.*` from the synced replica.
+    pub also: Vec<String>,
 }
 
 impl OpCapability {
@@ -258,7 +272,14 @@ impl Capabilities {
                     .and_then(Value::as_str)
                     .ok_or_else(|| format!("{name} has no scope"))?;
                 let class = OpClass::parse(entry.get("class").and_then(Value::as_str));
-                Ok((name.clone(), OpCapability { scope: OpScope::parse(scope), class }))
+                let also = entry
+                    .get("alsoScopes")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect();
+                Ok((name.clone(), OpCapability { scope: OpScope::parse(scope), class, also }))
             })
             .collect::<Result<_, String>>()?;
         let never = doc
@@ -310,7 +331,7 @@ impl Capabilities {
         };
         let escalation =
             escalation(name).map(|e| json!({ "scope": e.scope, "whenParams": e.when_params }));
-        Some(json!({
+        let mut row = json!({
             "op": name,
             "scope": op.scope.wire(),
             "class": op.class.as_str(),
@@ -321,7 +342,13 @@ impl Capabilities {
             "external": op.scope.external(),
             "escalation": escalation,
             "never": false,
-        }))
+        });
+        if !op.also.is_empty()
+            && let Some(fields) = row.as_object_mut()
+        {
+            fields.insert("alsoScopes".into(), json!(op.also));
+        }
+        Some(row)
     }
 
     /// The short answer (`apps-capabilities {brief: true}`): the API version
@@ -424,8 +451,10 @@ pub fn cross_check(capabilities: &Capabilities, classes_json: &str) -> Vec<Strin
         }
     }
     let mut used = vec![false; rules.len()];
-    let scopes: BTreeSet<String> =
-        capabilities.ops().flat_map(|(_, op)| op.scope.examples()).collect();
+    let scopes: BTreeSet<String> = capabilities
+        .ops()
+        .flat_map(|(_, op)| op.scope.examples().into_iter().chain(op.also.iter().cloned()))
+        .collect();
     for scope in &scopes {
         let matching: Vec<(usize, &str)> = rules
             .iter()
@@ -459,106 +488,5 @@ pub fn cross_check(capabilities: &Capabilities, classes_json: &str) -> Vec<Strin
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_embedded_table_loads() {
-        assert_eq!(Capabilities::load_error(), None);
-        let table = Capabilities::get();
-        assert!(!table.api_version.is_empty());
-        assert!(table.op("workspace.list").is_some());
-    }
-
-    /// The two tables agree: every scope an op needs is decided by one rule
-    /// of scope-classes.json (not by which of two generic rules comes first),
-    /// and every rule classifies an op scope or says what else it gates.
-    #[test]
-    fn every_op_scope_has_one_deciding_rule_and_every_rule_is_used() {
-        let problems = cross_check(Capabilities::get(), SCOPE_CLASSES);
-        assert!(
-            problems.is_empty(),
-            "scopes.json and scope-classes.json disagree:\n{}",
-            problems.join("\n")
-        );
-    }
-
-    #[test]
-    fn templates_and_ungated_scopes_are_typed() {
-        let table = Capabilities::get();
-        let fetch = table.op("net.fetch").expect("net.fetch");
-        assert_eq!(fetch.scope, OpScope::NetHost);
-        assert!(fetch.scope.external());
-        assert_eq!(fetch.risk().map(|i| i.class), Some(ScopeClass::Sensitive));
-        let toast = table.op("toast.show").expect("toast.show");
-        assert_eq!(toast.scope, OpScope::Ungated);
-        assert_eq!(toast.risk(), None);
-        assert_eq!(
-            table.op("integration.request").map(|op| op.scope.clone()),
-            Some(OpScope::IntegrationProvider)
-        );
-    }
-
-    #[test]
-    fn a_row_says_scope_class_risk_consent_gesture_and_escalation() {
-        let table = Capabilities::get();
-        let row = table.describe("workspace.create").expect("workspace.create");
-        assert_eq!(row["scope"], "workspace:write");
-        assert_eq!(row["class"], "mutation");
-        assert_eq!(row["risk"], "sensitive");
-        assert_eq!(row["escalation"]["scope"], "workspace:execute");
-        assert!(row["consent"].as_str().is_some_and(|t| !t.is_empty()));
-        assert_eq!(table.describe("tab.focus").expect("tab.focus")["gesture"], true);
-        let never = table.never().next().expect("a never op");
-        assert_eq!(table.describe(never).expect("never row")["never"], true);
-        assert_eq!(table.describe("made.up"), None);
-    }
-
-    #[test]
-    fn the_manifest_carries_the_types_and_version() {
-        let table = Capabilities::get();
-        let manifest = table.manifest_json(None).expect("manifest");
-        assert_eq!(manifest["apiVersion"], table.api_version.as_str());
-        assert_eq!(manifest["types"], APP_TYPES.get());
-        assert_eq!(manifest["ops"].as_array().map(Vec::len), Some(table.ops().count()),);
-        assert_eq!(manifest["typesDigest"], types_digest());
-        assert_eq!(types_digest().len(), 64);
-        assert_eq!(table.summary_json()["typesDigest"], types_digest());
-        let one = table.manifest_json(Some("workspace.list")).expect("one op");
-        assert_eq!(one["ops"][0]["op"], "workspace.list");
-        assert!(one.get("types").is_none());
-    }
-
-    #[test]
-    fn cross_check_flags_unclassified_scopes_order_decided_scopes_and_dead_rules() {
-        let ops = Capabilities::parse(
-            r#"{"apiVersion":"1","ops":{
-                "a.list":{"scope":"a:read","class":"read"},
-                "b.go":{"scope":"zz:fly","class":"mutation"},
-                "c.list":{"scope":"integration:read","class":"read"}}}"#,
-        )
-        .expect("ops");
-        let classes = r#"{"rules":[
-            {"pattern":"^[a-z]+:read$","class":"standard"},
-            {"pattern":"^integration:[a-z]+$","class":"sensitive"},
-            {"pattern":"^dead:thing$","class":"restricted"},
-            {"pattern":"^spawn:thing$","class":"restricted","gates":"a server's spawn"}]}"#;
-        let problems = cross_check(&ops, classes);
-        assert_eq!(problems.len(), 4, "{problems:#?}");
-        assert!(problems[0].contains("integration:read matches 2 rules"), "{problems:#?}");
-        assert!(problems[1].contains("zz:fly matches no rule"), "{problems:#?}");
-        // The provider rule only ever lost to the generic one: unused.
-        assert!(problems[2].contains("^integration:[a-z]+$"), "{problems:#?}");
-        assert!(problems[3].contains("^dead:thing$"), "{problems:#?}");
-        // A literal exception first is the fix: it decides, nothing is order-decided.
-        let fixed = classes.replace(
-            r#"[
-            {"pattern":"^[a-z]+:read$""#,
-            r#"[
-            {"pattern":"^integration:read$","class":"standard"},
-            {"pattern":"^[a-z]+:read$""#,
-        );
-        let problems = cross_check(&ops, &fixed);
-        assert!(problems.iter().all(|p| !p.contains("integration:read matches")), "{problems:#?}");
-    }
-}
+#[path = "capabilities_tests.rs"]
+mod tests;

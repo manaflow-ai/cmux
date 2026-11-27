@@ -8,7 +8,8 @@
 #  - a tip whose FFI sources moved past the release is left alone (newer), and
 #    the pin check still fails there: a stale pin is never accepted;
 #  - headers that drop or change a declaration, a declaration moved under a
-#    new `#if`, a new directive, and a packaging change (a module map edit in
+#    new `#if`, a new directive (also in an `#else` of the `__cplusplus`
+#    wrapper), and a packaging change (a module map edit in
 #    build-app-ffi.sh) go to the pull request (pr);
 #  - an already pinned tip, a dry run and a push the remote refuses once.
 set -euo pipefail
@@ -195,11 +196,13 @@ git -C "$work" checkout -q feat-cmux-next
 git -C "$work" pull -q --ff-only origin feat-cmux-next
 
 # A changed declaration (a field added to a struct, a parameter changed) goes to the pull request.
-# A moved declaration (wrapped in a new #if), a new #pragma before a struct, and a module map edit in the packaging
-# script keep every declaration's text, and still go to the pull request.
+# A moved declaration (wrapped in a new #if), a new #pragma before a struct, a `#else` branch C compiles added to the
+# `#ifdef __cplusplus` wrapper (a #pragma pack there changes every struct's layout), and a module map edit in the
+# packaging script keep every declaration's text, and still go to the pull request.
 for edit in 's/int x; int y;/int x; int y; int z;/:cmux_x.h' 's/int cmux_one(int a);/int cmux_one(long a);/:cmux_x.h' \
   's/^int cmux_one(int a);$/#if defined(CMUX_ONE)\nint cmux_one(int a);\n#endif/:cmux_x.h' \
   's/^typedef struct CmuxPoint/#pragma pack(1)\ntypedef struct CmuxPoint/:cmux_x.h' \
+  's/^extern "C" {$/extern "C" {\n#else\n#pragma pack(1)/:cmux_x.h' \
   's/module CCmuxX/module CCmuxRenamed/:build-app-ffi.sh'; do
   target="$header"
   [[ "${edit##*:}" == build-app-ffi.sh ]] && target=scripts/cmux-next/build-app-ffi.sh
@@ -217,6 +220,23 @@ for edit in 's/int x; int y;/int x; int y; int z;/:cmux_x.h' 's/int cmux_one(int
   git -C "$work" revert --no-edit HEAD >/dev/null
   git -C "$work" push -q origin HEAD:refs/heads/feat-cmux-next
 done
+
+# A changed declaration the re-pin PR's app compile already proved (PROVEN_PIN, from publish-app-ffi-repin.sh) is
+# pinned on the base: that PR's whole rollup never went green on infra reds, so the pin sat for hours behind
+# cmux#55633 (2026-11-25). A proof of another release proves nothing about this one.
+sed -i.bak 's/int cmux_one(int a);/int cmux_one(long a);/' "$work/$header" && rm -f "$work/$header.bak"
+proven="$(commit "ffi: a changed parameter the re-pin PR compiled")"
+before="$(remote_tip)"
+[[ "$(PROVEN_PIN="$newer" run_pin "$proven")" == pr ]] || fail "a proof of another release pinned $proven: $(cat "$tmp/log")"
+[[ "$(remote_tip)" == "$before" ]] || fail "a proof of another release pushed"
+[[ "$(PROVEN_PIN="$proven" run_pin "$proven")" == pinned ]] || fail "the proven release was not pinned: $(cat "$tmp/log")"
+[[ "$(pinned_at)" == "cmux-app-ffi-$proven" ]] || fail "the remote pins $(pinned_at), not $proven"
+git -C "$tmp/remote.git" log -1 --format=%b feat-cmux-next | grep -q "app compile of the re-pin pull request proved" \
+  || fail "the pin commit does not name its proof: $(git -C "$tmp/remote.git" log -1 --format=%b feat-cmux-next)"
+git -C "$work" checkout -q --force feat-cmux-next
+git -C "$work" pull -q --ff-only origin feat-cmux-next
+git -C "$work" revert --no-edit HEAD~1 >/dev/null
+git -C "$work" push -q origin HEAD:refs/heads/feat-cmux-next
 
 # A catalog-only addition keeps every C header and still needs runtime handler
 # coverage. Test both the current release and one behind the tip. Neither may
@@ -253,6 +273,15 @@ git reset -q --hard HEAD~1
 git commit -qam "ffi: comment only"
 python3 -I scripts/cmux-next/app_ffi_additive.py HEAD~1 HEAD -- cmux-tui/crates/cmux-app-ffi >/dev/null \
   || fail "a comment was read as a changed declaration"
+# A declaration moved below another in the same directive interval (a typedef under the prototype that uses it) is
+# not additive, though every declaration's text is unchanged.
+sed -e '/^typedef struct CmuxPoint/d' -e 's/^int cmux_one(int a);$/&\ntypedef struct CmuxPoint { int x; int y; } CmuxPoint;/' "$tmp/h" > "$header"
+git commit -qam "ffi: reorder"
+if python3 -I scripts/cmux-next/app_ffi_additive.py HEAD~1 HEAD -- cmux-tui/crates/cmux-app-ffi > "$tmp/additive"; then
+  fail "a reordered declaration read as additive"
+fi
+grep -q "declaration order changed" "$tmp/additive" || fail "no reorder line: $(cat "$tmp/additive")"
+git reset -q --hard HEAD~1
 git rm -q "$header"
 git commit -qm "ffi: drop the header"
 if python3 -I scripts/cmux-next/app_ffi_additive.py HEAD~1 HEAD -- cmux-tui/crates/cmux-app-ffi > "$tmp/additive"; then

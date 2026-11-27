@@ -58,7 +58,9 @@ stop_after() {
     # In a subshell that ignores SIGPIPE: an echo to a stdout nobody reads would otherwise end this script
     # before the kill (tests/test_guard_logs_survive_closed_pipe.py).
     ( trap '' PIPE; echo "selftest: still running after ${secs} s, stopping pid $pid" ) || true
-    kill -TERM "$pid" 2>/dev/null; sleep 2
+    kill -TERM "$pid" 2>/dev/null
+    # Up to 5 s for it to exit on SIGTERM (by its own path: a zombie child still answers kill -0), then SIGKILL.
+    for _ in $(seq 50); do pgrep -f "^$exe" | grep -qx "$pid" || break; sleep 0.1; done
     pgrep -f "^$exe" | grep -qx "$pid" && kill -KILL "$pid" 2>/dev/null
   fi
   return 0

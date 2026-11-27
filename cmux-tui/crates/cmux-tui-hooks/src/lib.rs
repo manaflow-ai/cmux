@@ -54,10 +54,10 @@ mod message_hooks;
 mod status_conflict;
 #[cfg(unix)]
 use codex_trust::{
-    CODEX_CONFIG_FILE, codex_event_state_label, codex_owned_entry_keys,
-    codex_present_expected_trust_entries, codex_state_key_hooks_path, codex_trust_hash,
+    CODEX_CONFIG_FILE, codex_owned_entry_keys, codex_present_expected_trust_entries,
     read_codex_config_text,
 };
+use codex_trust::{codex_event_state_label, codex_state_key_hooks_path, codex_trust_hash};
 use codex_trust::{
     codex_trust_state_verified, commit_codex_trust_state_or_rollback, prepare_codex_trust_state,
     snapshot_file,
@@ -66,6 +66,46 @@ use codex_trust::{
 use message_hooks::hook_command_with;
 use message_hooks::{delivers_messages, hook_command, journal_hook_command};
 use status_conflict::{conflict_row, ensure_replaceable_target};
+
+/// Codex's `hooks.state` event label for `event` (`PreToolUse` ->
+/// `pre_tool_use`), for tools that list and edit Codex hooks
+/// (cmux-agent-customize).
+pub fn codex_hook_state_label(event: &str) -> anyhow::Result<&'static str> {
+    codex_event_state_label(event)
+}
+
+/// Codex's trust hash for one command handler as written in hooks.json:
+/// Codex runs the handler only while its `trusted_hash` equals this.
+pub fn codex_hook_trust_hash(
+    state_label: &str,
+    matcher: Option<&str>,
+    command: &str,
+    timeout: Option<u64>,
+    asynchronous: bool,
+    status_message: Option<&str>,
+    additional_context_limit: Option<u64>,
+) -> String {
+    codex_trust::codex_identity_trust_hash(
+        state_label,
+        matcher,
+        command,
+        timeout,
+        asynchronous,
+        status_message,
+        additional_context_limit,
+    )
+}
+
+/// `hooks_path` as Codex writes it into `hooks.state` keys (canonicalized
+/// when `CODEX_HOME` came from the environment).
+pub fn codex_hook_state_key_path(hooks_path: &Path, from_env_override: bool) -> PathBuf {
+    codex_state_key_hooks_path(hooks_path, from_env_override)
+}
+
+/// Whether a hook command is one this installer wrote (a journal hook).
+pub fn is_owned_hook_command(command: &str) -> bool {
+    is_owned_command(command)
+}
 
 const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
 const PLUGIN_MARKER: &str = "cmux-tui-journal-plugin";
@@ -2000,6 +2040,28 @@ fn muse_hook_command(helper: &Path, event: &str) -> anyhow::Result<String> {
     Ok(format!("{program} muse {event} #{COMMAND_MARKER}"))
 }
 
+/// How long `provider` waits for the hook command this installer writes for
+/// `event` before it gives up on it (and Claude Code shows "A hook didn't
+/// answer in time"): the `timeout` written, in the provider's own unit, as a
+/// duration. 5 s for a provider or file shape that writes none, the shortest
+/// any of them is given. The helper answers inside it (cmux-tui-hook
+/// `answer_deadline`).
+pub fn installed_hook_wait(provider: &str, event: &str) -> Duration {
+    let Some(entry) = PROVIDERS.iter().find(|entry| entry.id == provider) else {
+        return Duration::from_secs(COMMAND_HOOK_TIMEOUT_SECONDS);
+    };
+    match entry.format {
+        Format::Nested { timeout, .. } if entry.id == "gemini" => {
+            Duration::from_millis(installed_hook_timeout(*entry, event, timeout))
+        }
+        Format::Nested { timeout, .. } | Format::Flat { timeout } => {
+            Duration::from_secs(installed_hook_timeout(*entry, event, timeout))
+        }
+        Format::AntigravityJson => Duration::from_secs(10),
+        _ => Duration::from_secs(COMMAND_HOOK_TIMEOUT_SECONDS),
+    }
+}
+
 /// Pre-tool gates allow time for repo sync. Codex SessionEnd stays below its 3s cap.
 fn installed_hook_timeout(provider: Provider, event: &str, timeout: u64) -> u64 {
     if provider.id == "codex" {
@@ -2046,12 +2108,13 @@ pub fn claude_session_hook_settings(
     let binary = shell_quote(binary.to_str().context("the cmux-tui path is not UTF-8")?);
     let hooks = root.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
     for (event, groups) in hooks.iter_mut() {
-        let command = emit_hook_command(&binary, provider.id, event);
         for group in groups.as_array_mut().into_iter().flatten() {
             let handlers = group.get_mut("hooks").and_then(Value::as_array_mut);
             for handler in handlers.into_iter().flatten() {
                 if let Some(handler) = handler.as_object_mut() {
-                    handler.insert("command".into(), Value::String(command.clone()));
+                    let timeout = handler.get("timeout").and_then(Value::as_u64).unwrap_or(timeout);
+                    let command = emit_hook_command(&binary, provider.id, event, timeout);
+                    handler.insert("command".into(), Value::String(command));
                     // The pre-tool helper is synchronous; journal-only events are asynchronous.
                     handler.insert("async".into(), Value::Bool(!sync_barrier_event(event)));
                 }
@@ -2117,18 +2180,30 @@ fn sync_barrier_event(event: &str) -> bool {
 
 #[cfg(unix)]
 /// The fallback for `claude_session_hook_settings`. Pre-tool decisions are
-/// preserved; journal receipts from other events are discarded.
-fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String {
+/// preserved; journal receipts from other events are discarded. The emit
+/// ends itself at [`emit_deadline_ms`] of the hook's installed `timeout`
+/// (seconds), so a stalled daemon never runs the hook past it.
+fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str, timeout: u64) -> String {
     if sync_barrier_event(event) {
         return format!(
             "{quoted_binary} {HOOK_MODE_ARG} {provider} {event}||exit 2;#{COMMAND_MARKER}"
         );
     }
     format!(
-        "{quoted_binary} agent hook emit --source {} --event {} >/dev/null 2>&1||:;echo {{}};#{COMMAND_MARKER}",
+        "{quoted_binary} agent hook emit --source {} --event {} --deadline-ms {} >/dev/null 2>&1||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
         shell_quote(event),
+        emit_deadline_ms(timeout),
     )
+}
+
+/// When a hook installed with `timeout_seconds` answers: the timeout minus a
+/// tenth, the margin held between 1.5 s and 5 s (5 s gives 3.5 s, 3 s gives
+/// 1.5 s, 90 s gives 85 s), the rule the hook helper and leo-workspace#10655 use.
+pub fn emit_deadline_ms(timeout_seconds: u64) -> u64 {
+    let timeout = timeout_seconds.saturating_mul(1000);
+    let margin = (timeout / 10).clamp(1500, 5000);
+    timeout.saturating_sub(margin).max(500)
 }
 
 /// Codex's shared app-server may run hooks without the launching terminal's
@@ -2224,19 +2299,59 @@ fn codex_session_hook_settings_with_context(
     }
     for event in CODEX_EVENTS {
         let command = codex_contextual_hook_command(event, socket, terminal, launcher);
-        let timeout = codex_hook_timeout(event);
-        let label = codex_event_state_label(event)?;
-        let hash = codex_trust_hash(label, &command, timeout);
-        settings.push(format!(
-            "hooks.{event}=[{{hooks=[{{type=\"command\",command={},timeout={timeout}}}]}}]",
-            toml_edit::Value::from(command),
-        ));
+        let flag = codex_session_flag_hook(event, &command, codex_hook_timeout(event))?;
+        settings.push(flag.setting);
         let mut entry = toml_edit::InlineTable::new();
-        entry.insert("trusted_hash", hash.into());
-        state.insert(format!("/<session-flags>/config.toml:{label}:0:0"), entry.into());
+        entry.insert("trusted_hash", flag.trusted_hash.into());
+        state.insert(flag.state_key, entry.into());
     }
     settings.push(format!("hooks.state={state}"));
     Ok(settings)
+}
+
+/// One command hook in a Codex launch's session-flag layer (`-c` values): the hook itself, and
+/// the trust-state key and hash Codex runs it under without a review prompt.
+pub struct CodexSessionFlagHook {
+    /// `hooks.<Event>=[{hooks=[{type="command",command=...,timeout=N}]}]`.
+    pub setting: String,
+    /// `/<session-flags>/config.toml:<event label>:0:0`.
+    pub state_key: String,
+    /// Codex's hash of the hook's normalized identity (`codex_trust.rs`).
+    pub trusted_hash: String,
+}
+
+/// [`CodexSessionFlagHook`] for `command` on `event`, the only hook of that event in the
+/// session-flag layer (group 0, handler 0).
+pub fn codex_session_flag_hook(
+    event: &str,
+    command: &str,
+    timeout: u64,
+) -> anyhow::Result<CodexSessionFlagHook> {
+    let label = codex_event_state_label(event)?;
+    Ok(CodexSessionFlagHook {
+        setting: format!(
+            "hooks.{event}=[{{hooks=[{{type=\"command\",command={},timeout={timeout}}}]}}]",
+            toml_edit::Value::from(command),
+        ),
+        state_key: format!("/<session-flags>/config.toml:{label}:0:0"),
+        trusted_hash: codex_trust_hash(label, command, timeout),
+    })
+}
+
+/// The `-c` values that run `command` as Codex's only session-flag hook for `event`, trusted:
+/// the hook and a `hooks.state` holding its trust entry alone, which Codex merges with the
+/// persisted state key by key (the user's own hooks keep their trust).
+pub fn codex_session_flag_hook_settings(
+    event: &str,
+    command: &str,
+    timeout: u64,
+) -> anyhow::Result<[String; 2]> {
+    let flag = codex_session_flag_hook(event, command, timeout)?;
+    let mut entry = toml_edit::InlineTable::new();
+    entry.insert("trusted_hash", flag.trusted_hash.into());
+    let mut state = toml_edit::InlineTable::new();
+    state.insert(&flag.state_key, entry.into());
+    Ok([flag.setting, format!("hooks.state={state}")])
 }
 
 /// Returns persisted trust hashes for the current cmux-owned hook identities.

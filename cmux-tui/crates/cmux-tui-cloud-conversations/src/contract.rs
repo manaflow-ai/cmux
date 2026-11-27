@@ -61,6 +61,10 @@ pub enum Target {
     /// from the lease's chief token (`CloudSession::agent`), never from a
     /// request.
     Mux(String),
+    /// The person's synced app storage (`appkv:<user>`, a UserDO stream): one
+    /// row per (app, key). The daemon itself is its only subscriber
+    /// (cmux-tui-core apps/synced.rs); its events never reach a client.
+    AppKv,
 }
 
 impl Target {
@@ -69,13 +73,14 @@ impl Target {
             Self::Inbox => "inbox",
             Self::Conversation(_) => "conversation",
             Self::Mux(_) => "mux",
+            Self::AppKv => "appkv",
         }
     }
 
     /// The upstream WebSocket path.
     pub(crate) fn wire_path(&self) -> String {
         match self {
-            Self::Inbox => "/v1/wire/user".to_string(),
+            Self::Inbox | Self::AppKv => "/v1/wire/user".to_string(),
             Self::Conversation(id) => format!("/v1/wire/conv/{id}"),
             Self::Mux(agent) => format!("/v1/wire/mux/{agent}"),
         }
@@ -535,23 +540,212 @@ pub(crate) fn inbox_entries(frame: &Value) -> Option<Vec<Value>> {
     Some(upserts(effects, TABLE_ENTRY).cloned().collect())
 }
 
+/// One row of the `appkv:<user>` stream, `{app, key, value, revision,
+/// updated_ms}`, under the owner's row key.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AppKvRow {
+    /// The owner's row key: a delete names only this.
+    pub row_key: String,
+    pub app: String,
+    pub key: String,
+    pub value: Value,
+    pub revision: u64,
+    pub updated_ms: u64,
+}
+
+/// One committed change of the `appkv:<user>` stream.
+#[derive(Debug, Clone, PartialEq)]
+pub enum AppKvWrite {
+    Upsert(AppKvRow),
+    /// The row is gone (a delete removes the row). `revision` is the head
+    /// revision the delete committed at (the event's `effects.state`), which
+    /// orders it against a local write still waiting for its answer.
+    Delete {
+        row_key: String,
+        revision: Option<u64>,
+    },
+}
+
+/// A stream row; `None` for a row of another shape (skipped, never fatal).
+fn appkv_row(row_key: &str, row: &Value) -> Option<AppKvRow> {
+    let text = |name: &str| row.get(name).and_then(Value::as_str).filter(|s| !s.is_empty());
+    Some(AppKvRow {
+        row_key: row_key.to_string(),
+        app: text("app")?.to_string(),
+        key: text("key")?.to_string(),
+        value: row.get("value").cloned().unwrap_or(Value::Null),
+        revision: row.get("revision").and_then(Value::as_u64).unwrap_or(0),
+        updated_ms: row.get("updated_ms").and_then(Value::as_u64).unwrap_or(0),
+    })
+}
+
+/// The rows of an `appkv` snapshot frame (`rows.rows[] = {key, row}`); `None`
+/// when the snapshot carries no rows: the replica then keeps what it has.
+pub(crate) fn appkv_snapshot_rows(frame: &Value) -> Option<Vec<AppKvRow>> {
+    let rows = frame.get("rows")?.get("rows")?.as_array()?;
+    Some(
+        rows.iter()
+            .filter_map(|stored| {
+                let key = stored.get("key").and_then(Value::as_str)?;
+                appkv_row(key, stored.get("row")?)
+            })
+            .collect(),
+    )
+}
+
+/// An `appkv` snapshot's head: `(revision, complete)`. The owner sends only
+/// its newest rows (by revision); the head's `apps[*].keys` count every row,
+/// so a snapshot with fewer rows than that is a part and `appkv.list` pages
+/// the rest. A head whose counts cannot be read (no `apps`, an app without a
+/// numeric `keys`) is a part too: a complete snapshot removes absent rows.
+pub(crate) fn appkv_snapshot_head(frame: &Value, rows: usize) -> (u64, bool) {
+    let state = frame.get("state");
+    let revision = state.and_then(|s| s.get("revision")).and_then(Value::as_u64).unwrap_or(0);
+    let apps: Option<Vec<&Value>> = match state.and_then(|s| s.get("apps")) {
+        Some(Value::Object(apps)) => Some(apps.values().collect()),
+        Some(Value::Array(apps)) => Some(apps.iter().collect()),
+        _ => None,
+    };
+    let keys: Option<u64> =
+        apps.and_then(|apps| apps.iter().map(|app| app.get("keys")?.as_u64()).sum());
+    (revision, keys.is_some_and(|keys| keys <= rows as u64))
+}
+
+/// One `appkv.list` page: its rows, the `after_revision` of the next page
+/// (`None` on the last) and the head revision the page was read at. A row
+/// without its row key has an empty one (the replica derives it).
+pub fn appkv_list_page(value: &Value) -> Result<(Vec<AppKvRow>, Option<u64>, u64), CloudError> {
+    let rows = value
+        .get("rows")
+        .and_then(Value::as_array)
+        .ok_or_else(|| CloudError::Unavailable("appkv.list without rows".into()))?;
+    let rows = rows
+        .iter()
+        .filter_map(|entry| {
+            // `{key, row}` like a snapshot's, or the row itself.
+            let row_key = entry.get("row").and(entry.get("key")).and_then(Value::as_str);
+            appkv_row(row_key.unwrap_or_default(), entry.get("row").unwrap_or(entry))
+        })
+        .collect();
+    // The last page says so with an explicit null: a page without the field
+    // (cut short, malformed) is never read as the last one.
+    let next = match value.get("next_after_revision") {
+        Some(Value::Null) => None,
+        Some(next) => Some(next.as_u64().ok_or_else(|| {
+            CloudError::Unavailable("appkv.list with a bad next_after_revision".into())
+        })?),
+        None => {
+            return Err(CloudError::Unavailable("appkv.list without next_after_revision".into()));
+        }
+    };
+    let revision = value.get("revision").and_then(Value::as_u64).unwrap_or(0);
+    Ok((rows, next, revision))
+}
+
+/// The row writes of an `appkv` event frame, in order; `None` without effects.
+pub(crate) fn appkv_writes(frame: &Value) -> Option<Vec<AppKvWrite>> {
+    let effects = frame.get("effects")?;
+    let writes = effects.get("writes")?.as_array()?;
+    let revision = effects.pointer("/state/revision").and_then(Value::as_u64);
+    Some(
+        writes
+            .iter()
+            .filter_map(|write| {
+                let row_key = write.get("key").and_then(Value::as_str)?;
+                match write.get("op").and_then(Value::as_str)? {
+                    "upsert" => appkv_row(row_key, write.get("row")?).map(AppKvWrite::Upsert),
+                    "delete" => Some(AppKvWrite::Delete { row_key: row_key.to_string(), revision }),
+                    _ => None,
+                }
+            })
+            .collect(),
+    )
+}
+
+/// The `POST /v1/ops` body of one synced storage write: `appkv.set {app, key,
+/// value}`, or `appkv.delete {app, key}` without a value.
+pub fn appkv_op_body(
+    app: &str,
+    key: &str,
+    value: Option<&Value>,
+    idempotency_key: &str,
+) -> Result<Value, CloudError> {
+    if idempotency_key.is_empty() || idempotency_key.chars().count() > MAX_KEY_CHARS {
+        return Err(CloudError::BadRequest(format!(
+            "idempotency_key must be 1-{MAX_KEY_CHARS} characters"
+        )));
+    }
+    if app.is_empty() || key.is_empty() {
+        return Err(CloudError::BadRequest("app and key must not be empty".into()));
+    }
+    Ok(match value {
+        Some(value) => json!({
+            "op": "appkv.set",
+            "params": {"app": app, "key": key, "value": value},
+            "idempotency_key": idempotency_key,
+        }),
+        None => json!({
+            "op": "appkv.delete",
+            "params": {"app": app, "key": key},
+            "idempotency_key": idempotency_key,
+        }),
+    })
+}
+
 #[cfg(test)]
-mod chief_replies_tests {
+mod appkv_tests {
     use super::*;
 
-    /// A group's "Chiefs Reply" setting (plans/cmux-next/chief-group-chats-DESIGN.md) goes to the
-    /// owner as `conversation.settings.set {wake_policy}`: the daemon forwards it unchanged.
     #[test]
-    fn conversation_settings_set_is_forwarded() {
-        let request = OpRequest {
-            conversation: Some("conv_0Y05MEWEFMQQB63VDHQB9MXAJT".into()),
-            idempotency_key: "k1".into(),
-            origin: Some("user".into()),
-            op: json!({"kind": "conversation.settings.set", "wake_policy": "all"}),
-        };
-        let body = op_body(&request).expect("forwarded");
-        assert_eq!(body["op"], "conversation.settings.set");
-        assert_eq!(body["params"]["wake_policy"], "all");
-        assert_eq!(body["params"]["conversation"], "conv_0Y05MEWEFMQQB63VDHQB9MXAJT");
+    fn appkv_frames_and_op_bodies() {
+        let snapshot = json!({"t":"snapshot","stream":"appkv:u","seq":3,"rows":{"table":"kv","rows":[
+            {"key":"r1","n":null,"row":{"app":"cmux/todo","key":"item:1","value":{"t":"a"},"revision":7,"updated_ms":5}},
+            {"key":"r2","n":null,"row":{"app":"","key":"x"}}]}});
+        let rows = appkv_snapshot_rows(&snapshot).expect("rows");
+        assert_eq!(rows.len(), 1, "a malformed row is skipped");
+        assert_eq!((rows[0].row_key.as_str(), rows[0].revision), ("r1", 7));
+        assert_eq!(appkv_snapshot_rows(&json!({"t":"snapshot","seq":1})), None);
+        let event = json!({"t":"event","effects":{"state":{"revision":4},"writes":[
+            {"op":"upsert","table":"kv","key":"r1","row":{"app":"a","key":"k","value":1,"revision":2}},
+            {"op":"delete","table":"kv","key":"r9"}]}});
+        let writes = appkv_writes(&event).expect("writes");
+        assert!(matches!(&writes[0], AppKvWrite::Upsert(row) if row.value == json!(1)));
+        assert_eq!(writes[1], AppKvWrite::Delete { row_key: "r9".into(), revision: Some(4) });
+        assert_eq!(appkv_writes(&json!({"t":"event"})), None);
+        let set = appkv_op_body("a", "k", Some(&json!([1])), "key1").unwrap();
+        assert_eq!(
+            set,
+            json!({"op":"appkv.set","params":{"app":"a","key":"k","value":[1]},"idempotency_key":"key1"})
+        );
+        let delete = appkv_op_body("a", "k", None, "key2").unwrap();
+        assert_eq!(delete["op"], "appkv.delete");
+        assert!(appkv_op_body("a", "k", None, "").is_err());
+        // The head counts every row: a snapshot with fewer is a part.
+        let head = json!({"state":{"revision":12,"apps":{"cmux/todo":{"bytes":9,"keys":2}}}});
+        assert_eq!(appkv_snapshot_head(&head, 1), (12, false));
+        assert_eq!(appkv_snapshot_head(&head, 2), (12, true));
+        // Counts it cannot read never make a part look whole.
+        let listed = json!({"state":{"revision":12,"apps":[{"app":"cmux/todo","keys":2}]}});
+        assert_eq!(appkv_snapshot_head(&listed, 1), (12, false));
+        assert_eq!(appkv_snapshot_head(&listed, 2), (12, true));
+        for state in [json!({"revision":12}), json!({"revision":12,"apps":{"a":{"bytes":1}}})] {
+            assert_eq!(appkv_snapshot_head(&json!({ "state": state }), 1), (12, false));
+        }
+        let empty = json!({"state":{"revision":0,"apps":{}}});
+        assert_eq!(appkv_snapshot_head(&empty, 0), (0, true));
+        let page = json!({"rows":[{"app":"a","key":"k","value":1,"revision":3}],
+                          "next_after_revision":3,"revision":12});
+        let (rows, next, revision) = appkv_list_page(&page).unwrap();
+        assert_eq!((rows[0].row_key.as_str(), next, revision), ("", Some(3), 12));
+        assert!(appkv_list_page(&json!({})).is_err());
+        let last = json!({"rows":[],"next_after_revision":null,"revision":12});
+        assert_eq!(appkv_list_page(&last).unwrap().1, None);
+        // A page that does not name its next cursor is not the last one.
+        assert!(appkv_list_page(&json!({"rows":[],"revision":12})).is_err());
+        assert!(appkv_list_page(&json!({"rows":[],"next_after_revision":"3"})).is_err());
     }
 }
+
+#[cfg(test)]
+#[path = "contract_chief_replies_tests.rs"]
+mod chief_replies_tests;

@@ -16,8 +16,12 @@ extension MessagesLabHomeView {
     /// A voice session runs in the box (Esc and Return go to it).
     public var isVoiceActive: Bool { controller.voice.isActive }
 
-    /// Whether Home activity loops (the waveform and typing dots) animate. cmux-next sets its motion gate
-    /// (`Motion.home`, which obeys Reduce Motion and the animation settings); the default stills
-    /// them under Reduce Motion. Still bars show the accent instead.
-    public static var voiceMotionGate: @MainActor () -> Bool = { !MessagesLabHomeView.reducesMotion }
+    /// The host's hooks (motion gate, tooltip); set once, before the transcript's first frame.
+    public static var host = MessagesLabHomeHost()
+
+    /// Whether Home activity loops animate: the host's ``MessagesLabHomeHost/voiceMotionGate``.
+    public static var voiceMotionGate: @MainActor () -> Bool {
+        get { host.voiceMotionGate }
+        set { host.voiceMotionGate = newValue }
+    }
 }

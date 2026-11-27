@@ -1,8 +1,12 @@
 import { DurableObject } from "cloudflare:workers"
 import { primaryProject, type Caller } from "./auth.ts"
+import type { CachedIce } from "./ice.ts"
 import type { Env } from "./env.ts"
-import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS } from "./push.ts"
+import { MAILBOX_HOLD_BYTES, MAILBOX_HOLD_LIMIT, MAILBOX_PAGE, MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS } from "./push.ts"
 import { userTeams } from "./stack.ts"
+import { locationHintOf, relayPlacement, relayRoomName } from "./placement.ts"
+import { RegionLearner } from "./region-pick.ts"
+import { FIRST_GRANT, MIB, MibBucket, newTicket, RELAY_CLOSE, ticketsMatch, userMibPerMinute, type BudgetAnswer, type MibBucketState } from "./relay-access.ts"
 
 /** Per-socket identity, set by the Worker after auth and device checks (never by the client). */
 export interface Attachment {
@@ -21,6 +25,138 @@ export interface Attachment {
   replaced?: boolean
   /** When the socket was accepted (ms): proof the device was awake then, before its first ping. */
   connectedAt?: number
+  /** Where the socket's upgrade entered Cloudflare (set by the Worker from `req.cf`; link_stat log lines). */
+  ingress?: Ingress
+}
+
+/** Cloudflare's codes for where a request entered: colo (`SJC`), country (`US`), continent (`NA`). */
+export interface Ingress {
+  colo: string | null
+  country: string | null
+  continent: string | null
+  /** Cloudflare's geolocation of the client, rounded to 0.1 degree (about 11 km); relay placement only. */
+  lat?: number | null
+  lon?: number | null
+  /** The client's network's AS number (`req.cf.asn`): with `colo`, the hub's central region pick keys on it (region-pick.ts). */
+  asn?: number | null
+  /** The client's own netcheck, round-trip ms per Durable Object region (`placement.ts` parseNetcheck). */
+  rtt?: Partial<Record<string, number>>
+}
+
+/** The most a `link_stat` frame may be (PROTOCOL.md "Link stats"; the phone's are under 768 bytes). */
+export const MAX_LINK_STAT_FRAME = 2048
+/** A socket's stats closer together than this are dropped silently (the phone sends one a minute). */
+export const LINK_STAT_MIN_GAP_MS = 5000
+const LINK_STAT_TRANSPORTS = new Set(["wireguard", "webrtc"])
+const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "https-relay", "none"])
+const LINK_STAT_REASONS = new Set(["first", "periodic", "path", "end"])
+const LINK_STAT_ENDS = new Set(["app", "keepalive", "transport", "other"])
+const LINK_STAT_NETS = new Set(["cellular", "other"])
+// How the link left the device: through a proxy, or one that inspects TLS (absent: direct).
+const LINK_STAT_EGRESS = new Set(["proxy", "inspected"])
+/** Which protocol mapped the Mac's endpoint (PROTOCOL.md "Mapped endpoints"). */
+const LINK_STAT_PORTMAP = new Set(["pcp", "nat-pmp", "upnp", "unknown"])
+const LINK_STAT_MARKS = new Set([
+  "signaling_open",
+  "signaling_reused",
+  "dial_start",
+  "offer_sent",
+  "answer_received",
+  "wg_init_sent",
+  "wg_resp_received",
+  "endpoints_gathered",
+  "ice_connected",
+  "dtls_connected",
+  "channel_open",
+  "alive",
+  "link_ready",
+  "first_pong"
+])
+const LINK_STAT_MAX_MS = 600_000
+/** The most slow keys a `link_stat` carries (`cmux-mobile-link` `key_echo::MAX_SPIKES`). */
+const LINK_STAT_MAX_SPIKES = 6
+const LIB_VERSION = /^[0-9A-Za-z.+-]{1,32}$/
+
+/**
+ * The one log line of a phone's `link_stat` frame (PROTOCOL.md "Link stats"), or null for a malformed frame.
+ * Every field is checked against a fixed set or clamped, so the line has a bounded size and only fixed words
+ * and numbers from the client; nothing names a user, device, session or address.
+ */
+export function linkStatLine(f: Record<string, unknown>, kind: Attachment["kind"], ingress: Ingress | undefined, hubColo: string | null): Record<string, unknown> | null {
+  const word = (v: unknown, allowed: Set<string>) => (typeof v === "string" && allowed.has(v) ? v : undefined)
+  const num = (v: unknown, max: number) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.min(Math.round(v), max) : undefined)
+  if (f.v !== 1) return null
+  const transport = word(f.transport, LINK_STAT_TRANSPORTS)
+  const path = word(f.path, LINK_STAT_PATHS)
+  const reason = word(f.reason, LINK_STAT_REASONS)
+  const pings = num(f.pings, 100_000)
+  const lost = num(f.lost, 100_000)
+  if (!transport || !path || !reason || pings === undefined || lost === undefined) return null
+  const line: Record<string, unknown> = { event: "link_stat", v: 1, kind, transport, path, reason, pings, lost }
+  const setupMs = num(f.setupMs, LINK_STAT_MAX_MS)
+  if (setupMs !== undefined) line.setupMs = setupMs
+  if (typeof f.marks === "object" && f.marks !== null && !Array.isArray(f.marks)) {
+    const marks: Record<string, number> = {}
+    for (const [name, at] of Object.entries(f.marks as Record<string, unknown>)) {
+      const ms = num(at, LINK_STAT_MAX_MS)
+      if (LINK_STAT_MARKS.has(name) && ms !== undefined) marks[name] = ms
+    }
+    if (Object.keys(marks).length) line.marks = marks
+  }
+  if (typeof f.rtt === "object" && f.rtt !== null) {
+    const r = f.rtt as Record<string, unknown>
+    const n = num(r.n, 100_000)
+    const p50 = num(r.p50, LINK_STAT_MAX_MS)
+    const p95 = num(r.p95, LINK_STAT_MAX_MS)
+    const max = num(r.max, LINK_STAT_MAX_MS)
+    if (n && p50 !== undefined && p95 !== undefined && max !== undefined) Object.assign(line, { rttN: n, rttP50: p50, rttP95: p95, rttMax: max })
+  }
+  const switches = num(f.switches, 10_000)
+  if (switches !== undefined) line.switches = switches
+  const net = word(f.net, LINK_STAT_NETS)
+  if (net) line.net = net
+  const egress = word(f.egress, LINK_STAT_EGRESS)
+  if (egress) line.egress = egress
+  const upS = num(f.upS, 30 * 86_400)
+  if (upS !== undefined) line.upS = upS
+  const end = reason === "end" ? word(f.end, LINK_STAT_ENDS) : undefined
+  if (end) line.end = end
+  if (typeof f.lib === "string" && LIB_VERSION.test(f.lib)) line.lib = f.lib
+  if (typeof f.portmap === "object" && f.portmap !== null) {
+    const p = f.portmap as Record<string, unknown>
+    const by = word(p.by, LINK_STAT_PORTMAP)
+    if (by && typeof p.used === "boolean") Object.assign(line, { portmapBy: by, portmapUsed: p.used })
+  }
+  // Keystroke round trips (PROTOCOL.md "Link stats", `echo`, `ack`, `spikes`): flattened as `rtt` is.
+  for (const [field, prefix] of [["echo", "echo"], ["ack", "ack"]] as const) {
+    const k = f[field]
+    if (typeof k !== "object" || k === null || Array.isArray(k)) continue
+    const r = k as Record<string, unknown>
+    const n = num(r.n, 100_000)
+    const p50 = num(r.p50, LINK_STAT_MAX_MS)
+    const p95 = num(r.p95, LINK_STAT_MAX_MS)
+    const p99 = num(r.p99, LINK_STAT_MAX_MS)
+    const max = num(r.max, LINK_STAT_MAX_MS)
+    if (n && p50 !== undefined && p95 !== undefined && p99 !== undefined && max !== undefined) {
+      Object.assign(line, { [`${prefix}N`]: n, [`${prefix}P50`]: p50, [`${prefix}P95`]: p95, [`${prefix}P99`]: p99, [`${prefix}Max`]: max })
+    }
+  }
+  const spikeCount = num(f.spikeCount, 100_000)
+  if (spikeCount) line.spikeCount = spikeCount
+  if (Array.isArray(f.spikes)) {
+    // [seconds since up, ack ms (-1: none yet), echo ms], at most LINK_STAT_MAX_SPIKES.
+    const spikes: number[][] = []
+    for (const s of f.spikes.slice(0, LINK_STAT_MAX_SPIKES)) {
+      if (!Array.isArray(s) || s.length !== 3) continue
+      const at = num(s[0], 30 * 86_400)
+      const ack = s[1] === -1 ? -1 : num(s[1], LINK_STAT_MAX_MS)
+      const echo = num(s[2], LINK_STAT_MAX_MS)
+      if (at !== undefined && ack !== undefined && echo !== undefined) spikes.push([at, ack, echo])
+    }
+    if (spikes.length) line.spikes = spikes
+  }
+  Object.assign(line, { ingressColo: ingress?.colo ?? null, country: ingress?.country ?? null, continent: ingress?.continent ?? null, hubColo })
+  return line
 }
 
 /**
@@ -57,9 +193,14 @@ export interface MailboxItem {
   sealed: string
 }
 
-export type MailboxPost = { queued: true; delivered: boolean } | { error: "conflict" | "full" }
+/** `seq` and `expiresAt` (ms) since API 0.18.0 ("Store and forward"): a phone that gets no `seq` talks to an older hub. */
+export type MailboxPost = { queued: true; delivered: boolean; seq: number; expiresAt: number } | { error: "conflict" | "full" }
+type MailboxWhen = { seq?: number; expiresAt?: number }
 /** `sig`: the Mac's identity signature over the outcome (PROTOCOL.md), which the phone checks; absent from an older Mac. */
-export type MailboxState = { state: "queued" | "expired" } | { state: "applied"; sig?: string } | { state: "rejected"; reason: string; sig?: string }
+export type MailboxState =
+  | ({ state: "queued" | "expired" } & MailboxWhen)
+  | ({ state: "applied"; sig?: string } & MailboxWhen)
+  | ({ state: "rejected"; reason: string; sig?: string } & MailboxWhen)
 
 const MAX_ACK_RESULTS = 64
 const ACK_REASON = /^[a-z_]{1,32}$/
@@ -74,7 +215,29 @@ export interface MacPresence {
   ownerUserId: string
   /** Which computer the Mac runs on (PROTOCOL.md "Devices"); null when it never said. */
   machineId: string | null
+  /**
+   * How long ago (ms) the hub last heard the Mac's open socket: its connect or its last application ping
+   * (PROTOCOL.md "Mac freshness"). Only while `online`. A Mac that pings every 15 s is under FRESH_MS; a
+   * Mac that slept keeps its socket half open, so it stays `online` while this grows.
+   */
+  quietMs?: number
 }
+
+/**
+ * A Mac heard within this is awake (PROTOCOL.md "Mac freshness"): one 15 s ping interval plus room for a slow
+ * round trip, as the link's own FRESH_WITHIN (cmux-mobile-link `signaling.rs`). The phone decides; the hub
+ * only reports `quietMs`.
+ */
+export const FRESH_MS = 18_000
+
+/**
+ * A Mac's socket the hub has not heard for this long is gone (cmux#52200): its network was cut or it slept, and
+ * no close reached the hub (a silent drop leaves the socket half open forever). Six missed 15 s pings, and past
+ * the Mac's own 40 s give-up (`KEEPALIVE_TIMEOUT` in cmux-mobile-link `signaling.rs`), so a Mac that is alive but
+ * overloaded still reads "not responding" (`quietMs`) first. The hub closes the socket and phones hear the Mac
+ * offline, last seen when it was last heard.
+ */
+export const GONE_MS = 90_000
 
 /** A device registration as the Worker hands it to the hub (POST /v1/devices). */
 export interface HubDevice {
@@ -103,7 +266,9 @@ export interface SeedMac {
   machineId?: string | null
 }
 
-const SIGNAL_KINDS = new Set(["webrtc-offer", "webrtc-answer", "webrtc-ice", "wg-init", "wg-resp", "wg-endpoints", "bye"])
+// `wg-relay` (0.17.0): a side joined the session's WebSocket relay and asks its peer to join too (PROTOCOL.md
+// "WebSocket relay"); forwarded like any signal of the session, and carrying nothing else.
+const SIGNAL_KINDS = new Set(["webrtc-offer", "webrtc-answer", "webrtc-ice", "wg-init", "wg-resp", "wg-endpoints", "wg-relay", "bye"])
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const MEMBER_TTL_MS = 60_000
 const NON_MEMBER_TTL_MS = 15_000
@@ -116,6 +281,9 @@ const MAX_TEXT_FRAME = 64 * 1024
  * names the frame's session: a sessionless error would fail every dial that client has in progress.
  */
 export const RELAY_ERROR_INTERVAL_MS = 5000
+
+/** At most this many prewarmed session ids are remembered per hub instance; past it the set starts over. */
+const PREWARMED_MAX = 1024
 
 /**
  * Token buckets per socket, in memory only: text (signaling), and binary (an older client's retired relay
@@ -138,6 +306,16 @@ export const userHubName = (ownerKey: string, space = "") => (space ? `${space}|
  */
 export type HubOwner = string | { readonly ownerKey: string; readonly space: string }
 const ownerOf = (o: HubOwner): { ownerKey: string; space: string } => (typeof o === "string" ? { ownerKey: o, space: "" } : o)
+
+/** A signaling session: its two devices, and each one's relay ticket (null for a session opened before tickets). */
+interface SessionRow {
+  initiator: string
+  responder: string
+  initiatorTicket: string | null
+  responderTicket: string | null
+  /** When the session's first signal was admitted (ms): a session lives `SESSION_TTL_MS`. */
+  createdAt: number
+}
 
 /** Thrown when a call names a device of another owner than the hub's: a Worker bug, never served. */
 export class WrongHubError extends Error {}
@@ -168,14 +346,24 @@ export class TeamHub extends DurableObject<Env> {
   private readonly sql: SqlStorage
   private readonly members = new Map<string, { ok: boolean; at: number }>()
   private readonly buckets = new WeakMap<WebSocket, { text: { t: number; at: number }; binary: { t: number; at: number } }>()
-  private readonly sessions = new Map<string, { initiator: string; responder: string }>()
+  private readonly sessions = new Map<string, SessionRow>()
+  /** The owner's relay budget (`relayBudget`), loaded from storage after a wake, so a wake grants no fresh minute. */
+  private relayBucket: MibBucket | undefined
+  /** Budget requests this instance answered (`relayBudgetCalls`: tests and diagnostics). */
+  private relayBudgetAsked = 0
   /** Deserialized attachments: read on every frame, and deserializing each time is the costly part. */
   private readonly attachments = new WeakMap<WebSocket, Attachment>()
   private colo: string | null | undefined
   private readonly relayErrors = new WeakMap<WebSocket, Map<string, number>>()
+  /** When each socket's last `link_stat` was logged (memory only; a wake forgets, which costs one extra line). */
+  private readonly linkStats = new WeakMap<WebSocket, number>()
   /** The open socket of each device, so a signal needs no socket scan (rebuilt lazily after hibernation). */
   private readonly live = new Map<string, WebSocket>()
+  /** Sessions whose relay this instance prewarmed (`prewarmRelay`), in memory only. */
+  private readonly prewarmed = new Set<string>()
   private ownerKey: string | null | undefined
+  /** The central relay region pick's learner (RFD 0142 O2); its tables are made on first use, only with `LINK_RELAY_CENTRAL_PICK=on`. */
+  private regionLearner: RegionLearner | undefined
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -192,8 +380,8 @@ export class TeamHub extends DurableObject<Env> {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS devices (device_id TEXT PRIMARY KEY, owner_key TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL)`)
     this.sql.exec(`CREATE TABLE IF NOT EXISTS sessions (session_id TEXT PRIMARY KEY, initiator TEXT NOT NULL, responder TEXT NOT NULL, created_at INTEGER NOT NULL)`)
     // Columns added after the tables first shipped (a hub created by older code has the tables without them).
-    const addColumn = (table: string, column: string) => {
-      if (!this.sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray().some((c) => c.name === column)) this.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`)
+    const addColumn = (table: string, column: string, type: "TEXT" | "INTEGER" = "TEXT") => {
+      if (!this.sql.exec<{ name: string }>(`PRAGMA table_info(${table})`).toArray().some((c) => c.name === column)) this.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`)
     }
     addColumn("macs", "owner_project_id")
     addColumn("macs", "team_id")
@@ -214,9 +402,94 @@ export class TeamHub extends DurableObject<Env> {
         at INTEGER NOT NULL, expires_at INTEGER NOT NULL, keep_until INTEGER NOT NULL, state TEXT NOT NULL, reason TEXT)`
     )
     addColumn("mailbox", "sig")
+    // Store and forward (PROTOCOL.md, API 0.18.0): the item's place in its (Mac, phone) order, and the Mac socket
+    // (its `connectedAt`) it was last sent on, so a page goes once per socket. `mailbox_seq` keeps the last seq of a
+    // pair after its items are gone, so a seq is never reused.
+    addColumn("mailbox", "seq", "INTEGER")
+    addColumn("mailbox", "sent_conn", "INTEGER")
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS mailbox_seq (mac TEXT NOT NULL, from_device TEXT NOT NULL, seq INTEGER NOT NULL, PRIMARY KEY (mac, from_device))`)
+    // Each party's relay ticket (PROTOCOL.md "WebSocket relay"), made when the session opens.
+    addColumn("sessions", "initiator_ticket")
+    addColumn("sessions", "responder_ticket")
+    // Sessions whose relay object has had a join: their live relay sockets close when the session ends.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS relay_sessions (session_id TEXT PRIMARY KEY)`)
   }
 
   // ---- RPC from the Worker -------------------------------------------------------------------
+
+  // Used only on the reserved TURN cache object. Out-of-order writes from
+  // different Worker isolates must keep the newer mint.
+  async readIce(): Promise<CachedIce | undefined> {
+    const entry = await this.ctx.storage.get<CachedIce>("turn-credentials")
+    return entry && Date.now() < entry.usableUntil ? entry : undefined
+  }
+
+  async writeIce(entry: CachedIce): Promise<void> {
+    await this.ctx.storage.transaction(async (tx) => {
+      const current = await tx.get<CachedIce>("turn-credentials")
+      if (entry.usableUntil <= Date.now() || (current && current.issuedAt > entry.issuedAt)) return
+      await tx.put("turn-credentials", entry)
+      await tx.setAlarm(entry.usableUntil)
+    })
+  }
+
+  async alarm(): Promise<void> {
+    let iceUntil: number | undefined
+    await this.ctx.storage.transaction(async (tx) => {
+      const entry = await tx.get<CachedIce>("turn-credentials")
+      if (!entry) return
+      if (Date.now() < entry.usableUntil) iceUntil = entry.usableUntil
+      else await tx.delete("turn-credentials")
+    })
+    const reapAt = this.reapSilentMacs(Date.now())
+    const next = Math.min(iceUntil ?? Infinity, reapAt ?? Infinity)
+    if (Number.isFinite(next)) await this.ctx.storage.setAlarm(next)
+  }
+
+  /**
+   * Closes every Mac socket not heard for ``GONE_MS`` as gone (cmux#52200), and returns when the next open Mac
+   * socket would be (undefined: none open). Only a socket of a host that pings: one that predates application
+   * pings is never heard after its connect, and stays as before.
+   */
+  private reapSilentMacs(now: number): number | undefined {
+    let next: number | undefined
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = this.attach(ws)
+      if (!att || att.kind !== "mac" || att.replaced || ws.readyState !== WebSocket.OPEN) continue
+      const pinged = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime()
+      const heard = Math.max(att.connectedAt ?? 0, pinged ?? 0)
+      if (!heard) continue
+      if (pinged === undefined && this.recordedPing(att.deviceId) === null) {
+        // No ping yet, none on record: a new host before its first ping (15 s), or one that predates them. Look again
+        // when it would be due, so an alarm that came first does not end the chain and leave it never reaped.
+        if (now - heard < GONE_MS) next = Math.min(next ?? Infinity, heard + GONE_MS)
+        continue
+      }
+      if (now - heard < GONE_MS) {
+        next = Math.min(next ?? Infinity, heard + GONE_MS)
+        continue
+      }
+      this.recordPing(ws, att.deviceId)
+      // Marked replaced first, so its close event (if one ever comes) does not announce it a second time.
+      this.setAttach(ws, { ...att, replaced: true })
+      try {
+        ws.close(4002, "silent")
+      } catch {}
+      if (this.live.get(att.deviceId) === ws) this.live.delete(att.deviceId)
+      if (this.open(att.deviceId)) continue
+      this.sql.exec(`UPDATE macs SET last_seen_at = ? WHERE device_id = ?`, heard, att.deviceId)
+      const mac = this.macRow(att.deviceId)
+      console.log(JSON.stringify({ event: "mac_silent_closed", deviceId: att.deviceId, quietMs: now - heard }))
+      if (mac) this.broadcast(mac.team_id, JSON.stringify({ type: "presence", mac: this.presenceOf(att.deviceId) }), ws)
+    }
+    return next
+  }
+
+  /** Makes sure an alarm comes by `at` (a Mac socket's reap deadline), keeping an earlier one. */
+  private async armReap(at: number) {
+    const current = await this.ctx.storage.getAlarm()
+    if (current === null || current > at) await this.ctx.storage.setAlarm(at)
+  }
 
   /** Team membership through Stack, cached 60 s (15 s for a refusal) per team. Throws when Stack fails. */
   async isMember(teamId: string, caller: Caller, owner: HubOwner): Promise<boolean> {
@@ -335,11 +608,14 @@ export class TeamHub extends DurableObject<Env> {
       } catch {}
     }
     this.live.delete(deviceId)
-    for (const r of this.sql.exec<{ session_id: string }>(`SELECT session_id FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId).toArray())
+    for (const r of this.sql.exec<{ session_id: string }>(`SELECT session_id FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId).toArray()) {
       this.sessions.delete(r.session_id)
+      this.closeRelay(r.session_id, RELAY_CLOSE.removed, "removed")
+    }
     this.sql.exec(`DELETE FROM sessions WHERE initiator = ? OR responder = ?`, deviceId, deviceId)
     // A removed phone's replies never reach a Mac, and a removed Mac's queue goes with it.
     this.sql.exec(`DELETE FROM mailbox WHERE mac = ? OR from_device = ?`, deviceId, deviceId)
+    this.sql.exec(`DELETE FROM mailbox_seq WHERE mac = ? OR from_device = ?`, deviceId, deviceId)
   }
 
   /**
@@ -368,7 +644,10 @@ export class TeamHub extends DurableObject<Env> {
     this.live.clear()
     this.sessions.clear()
     this.members.clear()
-    for (const t of ["macs", "devices", "sessions", "meta", "forgotten", "turn_pushes", "mailbox"]) this.sql.exec(`DELETE FROM ${t}`)
+    // Before `meta` (the owner key names the relay objects) goes.
+    for (const r of this.sql.exec<{ session_id: string }>(`SELECT session_id FROM relay_sessions`).toArray())
+      this.closeRelay(r.session_id, RELAY_CLOSE.removed, "removed")
+    for (const t of ["macs", "devices", "sessions", "meta", "forgotten", "turn_pushes", "mailbox", "mailbox_seq", "relay_sessions"]) this.sql.exec(`DELETE FROM ${t}`)
     this.ownerKey = null
   }
 
@@ -398,24 +677,117 @@ export class TeamHub extends DurableObject<Env> {
     this.sessions.clear()
     this.ownerKey = undefined
     await this.ctx.storage.deleteAll()
+    this.regionLearner?.reset()
     this.schema()
     this.sql.exec(`INSERT INTO meta (key, value) VALUES ('retired', '1')`)
     return { closed }
   }
 
+  /**
+   * The other party of link session `sessionId` when `deviceId` is one of its two (PROTOCOL.md "WebSocket relay"):
+   * the devices its first admitted signal bound, while the session lives (24 h, or until `bye` or the device's
+   * removal ends it). Null for anyone else, so only the phone and the Mac of one session can join its relay.
+   */
+  async relayPeer(owner: HubOwner, sessionId: string, deviceId: string, ticket?: string | null): Promise<{ peer: string; ingress: Ingress | null } | null> {
+    this.bind(owner)
+    const s = this.session(sessionId)
+    if (!s) return null
+    // The device must present its own ticket: the one stamped on the signals sent to its own socket.
+    const peer = s.initiator === deviceId ? s.responder : s.responder === deviceId ? s.initiator : null
+    if (!peer || !ticketsMatch(ticket, this.ticketOf(sessionId, s, deviceId))) return null
+    this.sql.exec(`INSERT INTO relay_sessions (session_id) VALUES (?) ON CONFLICT(session_id) DO NOTHING`, sessionId)
+    // Where the peer's signal socket entered Cloudflare (and its netcheck): the relay's other end, for placement.
+    const sock = this.ctx.getWebSockets(peer).find((ws) => !this.attach(ws)?.replaced)
+    return { peer, ingress: (sock && this.attach(sock)?.ingress) ?? null }
+  }
+
+  /**
+   * The relay's per-user budget (PROTOCOL.md "WebSocket relay"): whether the owner may relay `mib` more MiB now,
+   * across every session of this hub. LinkRelay asks for grants of 64 KiB doubling to a MiB, so this is a few
+   * calls a second at most per busy socket.
+   */
+  async relayBudget(owner: HubOwner, mib: number): Promise<BudgetAnswer> {
+    this.bind(owner)
+    this.relayBudgetAsked += 1
+    // Test only: a hub that sheds load (the relay must fail closed, test/link-relay.test.ts).
+    if (this.env.ENVIRONMENT === "test" && this.env.LINK_RELAY_TEST_BUDGET_ERROR === "1") throw new Error("test: the hub is overloaded")
+    if (!this.relayBucket) {
+      const row = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'relay_budget'`).toArray()[0]
+      const stored = row ? (JSON.parse(row.value) as MibBucketState) : undefined
+      this.relayBucket = new MibBucket(userMibPerMinute(this.env.LINK_RELAY_USER_MIB_PER_MIN), stored)
+    }
+    const granted = this.relayBucket.take(mib)
+    this.sql.exec(
+      `INSERT INTO meta (key, value) VALUES ('relay_budget', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+      JSON.stringify(this.relayBucket.state())
+    )
+    return { granted, retryAfterMs: granted ? 0 : this.relayBucket.msUntil(Math.min(mib, FIRST_GRANT / MIB)) }
+  }
+
+  /** How many budget requests this hub answered since it last woke (tests and diagnostics). */
+  async relayBudgetCalls(owner: HubOwner): Promise<number> {
+    this.bind(owner)
+    return this.relayBudgetAsked
+  }
+
+  /**
+   * The kind of `deviceId` when it is one of this owner's registered devices, as this hub knows it (null when the
+   * hub has not seen it, or it was removed): the three-way hub admits only the owner's own devices (PROTOCOL.md
+   * "Three-way hub"). The Worker falls back to the database on null.
+   */
+  async hubDevice(owner: HubOwner, deviceId: string): Promise<"mac" | "phone" | null> {
+    this.bind(owner)
+    if (this.sql.exec(`SELECT 1 FROM forgotten WHERE device_id = ?`, deviceId).toArray().length > 0) return null
+    const row = this.sql.exec<{ owner_key: string; kind: string }>(`SELECT owner_key, kind FROM devices WHERE device_id = ?`, deviceId).toArray()[0]
+    if (!row || row.owner_key !== ownerOf(owner).ownerKey) return null
+    return row.kind === "mac" ? "mac" : "phone"
+  }
+
   /** The colo this hub runs in (diagnostics: a hub stays where it was first created). */
   async placement(owner: HubOwner): Promise<{ colo: string | null }> {
     this.bind(owner)
-    if (this.env.ENVIRONMENT === "test") return { colo: null }
+    return { colo: await this.hubColo() }
+  }
+
+  /** This hub's colo, looked up once per instance (a failed lookup is retried next time). */
+  private async hubColo(): Promise<string | null> {
+    if (this.env.ENVIRONMENT === "test") return null
     if (this.colo === undefined) {
       try {
         const trace = await (await fetch("https://www.cloudflare.com/cdn-cgi/trace")).text()
         this.colo = /^colo=(\w+)$/m.exec(trace)?.[1] ?? null
       } catch {
-        return { colo: null }
+        return null
       }
     }
-    return { colo: this.colo }
+    return this.colo
+  }
+
+  /**
+   * A phone's `link_stat` (PROTOCOL.md "Link stats"): one structured log line, never an answer. A malformed or
+   * too frequent stat is dropped silently: an error frame without a session would fail the phone's dials.
+   */
+  private async linkStat(ws: WebSocket, att: Attachment, f: Record<string, unknown>) {
+    if (att.kind !== "phone") return
+    const now = Date.now()
+    const last = this.linkStats.get(ws)
+    if (last !== undefined && now - last < LINK_STAT_MIN_GAP_MS && f.reason !== "end") return
+    const line = linkStatLine(f, att.kind, att.ingress, await this.hubColo())
+    if (!line) return
+    this.linkStats.set(ws, now)
+    const learner = this.centralPick()
+    if (learner && line.path === "https-relay" && typeof line.rttN === "number" && typeof line.rttP50 === "number") {
+      const region = learner.credit(att.deviceId, line.rttP50, line.rttN, now)
+      if (region) line.relayRegion = region
+    }
+    console.log(JSON.stringify(line))
+  }
+
+  /** The central pick's learner when `LINK_RELAY_CENTRAL_PICK` is `on`, else undefined (off: nothing is stored). */
+  private centralPick(): RegionLearner | undefined {
+    if (this.env.LINK_RELAY_CENTRAL_PICK !== "on") return undefined
+    this.regionLearner ??= new RegionLearner(this.sql)
+    return this.regionLearner
   }
 
   /** The owner's Macs with presence; only one team's when `teamId` is given. */
@@ -478,23 +850,53 @@ export class TeamHub extends DurableObject<Env> {
   /**
    * Queues a sealed reply for `item.mac` (the Worker checked that the caller owns both devices): delivered at
    * once when the Mac's socket is open, else right after its next `hello`. The same id with the same blob is
-   * the same item (a retried request); with another blob it is a conflict. At most MAILBOX_PENDING_LIMIT wait
-   * per Mac. `ttlMs` is MAILBOX_TTL_MS outside tests.
+   * the same item (a retried request, answered its first `seq`); with another blob it is a conflict. An item held
+   * at most MAILBOX_TTL_MS counts against MAILBOX_PENDING_LIMIT per Mac; a longer hold ("Store and forward") counts
+   * per (Mac, phone) against MAILBOX_HOLD_LIMIT items and MAILBOX_HOLD_BYTES sealed characters. `ttlMs` is the
+   * phone's `hold` (MAILBOX_TTL_MS when it sent none).
    */
   async mailboxPost(owner: HubOwner, item: MailboxItem, ttlMs: number = MAILBOX_TTL_MS): Promise<MailboxPost> {
     this.bind(owner)
     const now = Date.now()
     this.mailboxSweep(now)
-    const existing = this.sql.exec<{ mac: string; from_device: string; sealed: string; state: string }>(`SELECT mac, from_device, sealed, state FROM mailbox WHERE id = ?`, item.id).toArray()[0]
+    const existing = this.sql
+      .exec<{ mac: string; from_device: string; sealed: string; state: string; seq: number | null; expires_at: number }>(
+        `SELECT mac, from_device, sealed, state, seq, expires_at FROM mailbox WHERE id = ?`,
+        item.id
+      )
+      .toArray()[0]
     if (existing) {
       if (existing.mac !== item.mac || existing.from_device !== item.from || (existing.state === "queued" && existing.sealed !== item.sealed)) return { error: "conflict" }
-      return { queued: true, delivered: false }
+      return { queued: true, delivered: false, seq: existing.seq ?? 0, expiresAt: existing.expires_at }
     }
-    const pending = this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ?`, item.mac, now).toArray()[0]?.n ?? 0
-    if (pending >= MAILBOX_PENDING_LIMIT) return { error: "full" }
+    if (ttlMs <= MAILBOX_TTL_MS) {
+      const pending = this.sql
+        .exec<{ n: number }>(`SELECT COUNT(*) AS n FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? AND expires_at - at <= ?`, item.mac, now, MAILBOX_TTL_MS)
+        .toArray()[0]?.n ?? 0
+      if (pending >= MAILBOX_PENDING_LIMIT) return { error: "full" }
+    } else {
+      const held = this.sql
+        .exec<{ n: number; bytes: number | null }>(
+          `SELECT COUNT(*) AS n, SUM(LENGTH(sealed)) AS bytes FROM mailbox WHERE mac = ? AND from_device = ? AND state = 'queued' AND expires_at > ? AND expires_at - at > ?`,
+          item.mac,
+          item.from,
+          now,
+          MAILBOX_TTL_MS
+        )
+        .toArray()[0]
+      if ((held?.n ?? 0) >= MAILBOX_HOLD_LIMIT || (held?.bytes ?? 0) + item.sealed.length > MAILBOX_HOLD_BYTES) return { error: "full" }
+    }
+    const last = this.sql.exec<{ seq: number }>(`SELECT seq FROM mailbox_seq WHERE mac = ? AND from_device = ?`, item.mac, item.from).toArray()[0]?.seq ?? 0
+    const seq = last + 1
+    this.sql.exec(
+      `INSERT INTO mailbox_seq (mac, from_device, seq) VALUES (?, ?, ?) ON CONFLICT(mac, from_device) DO UPDATE SET seq = excluded.seq`,
+      item.mac,
+      item.from,
+      seq
+    )
     const expiresAt = now + ttlMs
     this.sql.exec(
-      `INSERT INTO mailbox (id, mac, from_device, sealed, at, expires_at, keep_until, state) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued')`,
+      `INSERT INTO mailbox (id, mac, from_device, sealed, at, expires_at, keep_until, state, seq) VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?)`,
       item.id,
       item.mac,
       item.from,
@@ -502,16 +904,12 @@ export class TeamHub extends DurableObject<Env> {
       now,
       expiresAt,
       // The outcome stays readable for one more full window, whatever this item's own time to live.
-      expiresAt + MAILBOX_TTL_MS
+      expiresAt + MAILBOX_TTL_MS,
+      seq
     )
     const ws = this.open(item.mac)
-    if (!ws) return { queued: true, delivered: false }
-    try {
-      ws.send(JSON.stringify({ type: "mailbox", items: [{ id: item.id, from: item.from, sealed: item.sealed, at: now }] }))
-      return { queued: true, delivered: true }
-    } catch {
-      return { queued: true, delivered: false }
-    }
+    const delivered = ws ? this.deliverMailbox(ws, item.mac).includes(item.id) : false
+    return { queued: true, delivered, seq, expiresAt }
   }
 
   /** The outcome of one item of `mac`, or null when there is none (never posted, or long gone). */
@@ -519,31 +917,71 @@ export class TeamHub extends DurableObject<Env> {
     this.bind(owner)
     const now = Date.now()
     this.mailboxSweep(now)
-    const row = this.sql.exec<{ state: string; reason: string | null; expires_at: number; sig: string | null }>(
-      `SELECT state, reason, expires_at, sig FROM mailbox WHERE id = ? AND mac = ?`,
+    const row = this.sql.exec<{ state: string; reason: string | null; expires_at: number; sig: string | null; seq: number | null }>(
+      `SELECT state, reason, expires_at, sig, seq FROM mailbox WHERE id = ? AND mac = ?`,
       id,
       mac
     ).toArray()[0]
     if (!row) return null
     const sig = row.sig ? { sig: row.sig } : {}
-    if (row.state === "applied") return { state: "applied", ...sig }
-    if (row.state === "rejected") return { state: "rejected", reason: row.reason ?? "refused", ...sig }
-    return row.expires_at <= now ? { state: "expired" } : { state: "queued" }
+    const when = row.seq ? { seq: row.seq, expiresAt: row.expires_at } : {}
+    if (row.state === "applied") return { state: "applied", ...sig, ...when }
+    if (row.state === "rejected") return { state: "rejected", reason: row.reason ?? "refused", ...sig, ...when }
+    return row.expires_at <= now ? { state: "expired", ...when } : { state: "queued", ...when }
   }
 
-  /** The Mac's queued, unexpired items, oldest first, sent on its socket after `hello`. */
-  private deliverMailbox(ws: WebSocket, mac: string) {
+  /**
+   * Sends the Mac's next page of queued, unexpired items on `ws` (after `hello`, a post, and each `mailbox_ack`):
+   * ordered by phone, then `seq`, each once per socket, at most MAILBOX_PAGE per frame and MAILBOX_PAGE per phone
+   * waiting for their ack on it at a time.
+   * Answers the ids it sent.
+   */
+  private deliverMailbox(ws: WebSocket, mac: string): string[] {
+    // Frames of at most MAILBOX_PAGE (an older Mac's cap) until nothing more fits: a second phone's items go in
+    // the next frame instead of waiting for the next ack. Each pass sends at least one item or stops.
+    const sent: string[] = []
+    for (;;) {
+      const page = this.deliverMailboxPage(ws, mac)
+      if (!page.length) return sent
+      sent.push(...page)
+    }
+  }
+
+  private deliverMailboxPage(ws: WebSocket, mac: string): string[] {
     const now = Date.now()
     this.mailboxSweep(now)
-    const items = this.sql
-      .exec<{ id: string; from_device: string; sealed: string; at: number }>(
-        `SELECT id, from_device, sealed, at FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? ORDER BY at`,
-        mac,
-        now
-      )
-      .toArray()
-      .map((r) => ({ id: r.id, from: r.from_device, sealed: r.sealed, at: r.at }))
-    if (items.length) ws.send(JSON.stringify({ type: "mailbox", items }))
+    const conn = this.attach(ws).connectedAt ?? 0
+    // Counted per phone: one phone's items held on the Mac (unacked) never take another phone's room.
+    const outstanding = new Map<string, number>()
+    for (const r of this.sql.exec<{ from_device: string; n: number }>(
+      `SELECT from_device, COUNT(*) AS n FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? AND sent_conn = ? GROUP BY from_device`,
+      mac,
+      now,
+      conn
+    ))
+      outstanding.set(r.from_device, r.n)
+    const items: Array<{ id: string; from_device: string; sealed: string; at: number; seq: number | null }> = []
+    for (const r of this.sql.exec<{ id: string; from_device: string; sealed: string; at: number; seq: number | null }>(
+      `SELECT id, from_device, sealed, at, seq FROM mailbox WHERE mac = ? AND state = 'queued' AND expires_at > ? AND (sent_conn IS NULL OR sent_conn != ?)
+       ORDER BY from_device, COALESCE(seq, 0), at`,
+      mac,
+      now,
+      conn
+    )) {
+      const sent = outstanding.get(r.from_device) ?? 0
+      if (sent >= MAILBOX_PAGE) continue
+      outstanding.set(r.from_device, sent + 1)
+      items.push(r)
+      if (items.length >= MAILBOX_PAGE) break
+    }
+    if (!items.length) return []
+    try {
+      ws.send(JSON.stringify({ type: "mailbox", items: items.map((r) => ({ id: r.id, from: r.from_device, sealed: r.sealed, at: r.at, ...(r.seq ? { seq: r.seq } : {}) })) }))
+    } catch {
+      return []
+    }
+    for (const r of items) this.sql.exec(`UPDATE mailbox SET sent_conn = ? WHERE id = ?`, conn, r.id)
+    return items.map((r) => r.id)
   }
 
   /** `mailbox_ack` from a Mac socket: settles that Mac's own queued items; anything else is ignored or refused. */
@@ -566,6 +1004,8 @@ export class TeamHub extends DurableObject<Env> {
         att.deviceId
       )
     }
+    // The next page, if more wait (PROTOCOL.md "Store and forward").
+    this.deliverMailbox(ws, att.deviceId)
   }
 
   // ---- WebSocket -------------------------------------------------------------------------------
@@ -597,6 +1037,8 @@ export class TeamHub extends DurableObject<Env> {
       att = { userId: claim.userId, projectId: claim.projectId, deviceId: claim.deviceId, kind: row.kind === "mac" ? "mac" : "phone", name: row.name, teamId: claim.teamId }
     }
     if (!att) return new Response("missing identity", { status: 400 })
+    const ingress = JSON.parse(req.headers.get("x-cmux-mobile-ingress") ?? "null") as Ingress | null
+    if (ingress) att = { ...att, ingress }
     if (!claim) {
       // The slow path checked the database: remember the device for next time.
       this.sql.exec(
@@ -622,6 +1064,7 @@ export class TeamHub extends DurableObject<Env> {
     this.ctx.acceptWebSocket(server, [att.deviceId])
     this.setAttach(server, { ...att, connectedAt: Date.now() })
     this.live.set(att.deviceId, server)
+    if (att.kind === "mac") await this.armReap(Date.now() + GONE_MS)
     if (att.kind === "mac") {
       this.sql.exec(
         `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, team_id, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)
@@ -665,6 +1108,7 @@ export class TeamHub extends DurableObject<Env> {
         return this.error(ws, "bad_request", "invalid JSON")
       }
       if (f.type === "mailbox_ack") return this.mailboxAck(ws, att, f.results)
+      if (f.type === "link_stat") return message.length > MAX_LINK_STAT_FRAME ? undefined : this.linkStat(ws, att, f as Record<string, unknown>)
       if (f.type !== "signal") return this.error(ws, "bad_request", "unknown frame type")
       if (typeof f.to !== "string" || !UUID.test(f.to)) return this.error(ws, "bad_request", "to must be a deviceId")
       if (f.from !== undefined && f.from !== att.deviceId) return this.error(ws, "bad_request", "from must be your deviceId")
@@ -674,9 +1118,22 @@ export class TeamHub extends DurableObject<Env> {
         return this.error(ws, "bad_request", "unknown payload kind", f.sessionId)
       if (!this.admit(att, f.to, f.sessionId)) return this.error(ws, "not_owner", "not allowed to signal this device", f.sessionId)
       const target = this.open(f.to)
-      if (!target) return this.error(ws, "offline", "device is offline", f.sessionId)
-      // fromUserId is always the verified sender (PROTOCOL.md); any client value is dropped.
-      target.send(JSON.stringify({ type: "signal", to: f.to, from: att.deviceId, fromUserId: att.userId, sessionId: f.sessionId, payload: f.payload }))
+      if (!target) {
+        // A bye still ends the session (and its relay) when the peer cannot hear it.
+        if (f.payload.kind === "bye") this.endSession(f.sessionId)
+        return this.error(ws, "offline", "device is offline", f.sessionId)
+      }
+      // fromUserId is always the verified sender (PROTOCOL.md); any client value is dropped. A WireGuard signal
+      // also carries the recipient's own relay ticket (PROTOCOL.md "WebSocket relay"), never a client's.
+      const relayTicket = f.payload.kind.startsWith("wg-") ? this.ticketFor(f.sessionId, f.to) : undefined
+      target.send(JSON.stringify({ type: "signal", to: f.to, from: att.deviceId, fromUserId: att.userId, sessionId: f.sessionId, payload: f.payload, ...(relayTicket ? { relayTicket } : {}) }))
+      if (f.payload.kind === "wg-init") {
+        // PROTOCOL.md "Early relay ticket": a dialer with no path but the relay asks for its own ticket now, so its
+        // join runs while the Mac gathers and answers. Only the service sends `wg-ticket`; a client's is refused above.
+        const early = (f.payload as { ticketEarly?: unknown }).ticketEarly === true ? this.ticketFor(f.sessionId, att.deviceId) : null
+        if (early) ws.send(JSON.stringify({ type: "signal", to: att.deviceId, from: f.to, fromUserId: att.userId, sessionId: f.sessionId, payload: { kind: "wg-ticket" }, relayTicket: early }))
+        this.prewarmRelay(f.sessionId, att, target)
+      }
       if (f.payload.kind === "bye") this.endSession(f.sessionId)
       return
     }
@@ -727,9 +1184,7 @@ export class TeamHub extends DurableObject<Env> {
     if (!owner || typeof owner.ownerKey !== "string" || !owner.ownerKey || typeof owner.space !== "string" || !this.isUserHubOf(owner.ownerKey, owner.space))
       throw new WrongHubError("not this user's hub")
     const { ownerKey, space } = owner
-    if (this.ownerKey === undefined)
-      this.ownerKey = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value ?? null
-    if (this.ownerKey === null) {
+    if (this.boundOwner() === null) {
       this.sql.exec(`INSERT INTO meta (key, value) VALUES ('owner', ?)`, ownerKey)
       if (space) this.sql.exec(`INSERT INTO meta (key, value) VALUES ('space', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, space)
       this.ownerKey = ownerKey
@@ -794,25 +1249,141 @@ export class TeamHub extends DurableObject<Env> {
     const mac = this.macRow(to)
     if (!mac || mac.owner_user_id !== att.userId || (mac.owner_project_id ?? this.primary) !== (att.projectId ?? this.primary)) return false
     const now = Date.now()
-    this.sql.exec(`DELETE FROM sessions WHERE created_at < ?`, now - SESSION_TTL_MS)
-    this.sql.exec(`INSERT INTO sessions (session_id, initiator, responder, created_at) VALUES (?, ?, ?, ?)`, sessionId, att.deviceId, to, now)
-    this.sessions.set(sessionId, { initiator: att.deviceId, responder: to })
+    // Expired sessions go, and so do their relays (review of #53240: a pruned session's relay stayed open, and a
+    // later device delete no longer found it).
+    for (const r of this.sql.exec<{ session_id: string }>(`SELECT session_id FROM sessions WHERE created_at < ?`, now - SESSION_TTL_MS).toArray())
+      this.expireSession(r.session_id)
+    const row: SessionRow = { initiator: att.deviceId, responder: to, initiatorTicket: newTicket(), responderTicket: newTicket(), createdAt: now }
+    this.sql.exec(
+      `INSERT INTO sessions (session_id, initiator, responder, created_at, initiator_ticket, responder_ticket) VALUES (?, ?, ?, ?, ?, ?)`,
+      sessionId,
+      att.deviceId,
+      to,
+      now,
+      row.initiatorTicket,
+      row.responderTicket
+    )
+    this.sessions.set(sessionId, row)
     return true
   }
 
-  private session(id: string): { initiator: string; responder: string } | undefined {
+  /**
+   * Creates and places link session `sessionId`'s relay (RFD 0142 C4, PROTOCOL.md "Relay placement") while the
+   * session's `wg-init` is forwarded, so a fallback to the relay later finds the object made instead of paying
+   * for its creation, placement and cold start on the critical path. A Durable Object stays where it is first
+   * created, so this placement is the session's: from both ends' signal sockets (each one's ingress and
+   * netcheck), else the sender's own region. The same name as the Worker's relay route (`relayRoomName` of this
+   * hub's owner key, its build space and the lowercase session id). Once per session and instance (a retried
+   * `wg-init` does not fetch again; a wake forgets, and a second prewarm is harmless). Never awaited: the signal
+   * is already on its way, and a failed prewarm only leaves the first join to create the object, as before.
+   */
+  private prewarmRelay(sessionId: string, from: Attachment, target: WebSocket) {
+    if (this.env.LINK_RELAY_MODE === "off") return
+    const id = sessionId.toLowerCase()
+    if (this.prewarmed.has(id)) return
+    const owner = this.boundOwner()
+    if (!owner) return
+    if (this.prewarmed.size >= PREWARMED_MAX) this.prewarmed.clear()
+    this.prewarmed.add(id)
+    const to = this.attach(target)
+    const placed = relayPlacement(from.ingress, to?.ingress, locationHintOf(from.ingress))
+    let hint = placed.hint
+    // RFD 0142 O2: with the switch on, the user's own measured relay round trips for this network pair move the
+    // relay off the estimate when another region ran clearly faster (region-pick.ts; nothing learned: unchanged).
+    const learner = this.centralPick()
+    const phone = from.kind === "phone" ? from : to?.kind === "phone" ? to : undefined
+    const mac = from.kind === "mac" ? from : to?.kind === "mac" ? to : undefined
+    if (learner && phone && mac) {
+      const picked = learner.place(phone.deviceId, phone.ingress, mac.ingress, from.ingress, to?.ingress, placed.hint)
+      if (picked.region !== placed.hint)
+        console.log(JSON.stringify({ event: "relay_central_pick", by: picked.by, region: picked.region ?? null, estimate: placed.hint ?? null, ms: picked.ms ?? null }))
+      hint = picked.region
+    }
+    const room = this.env.LINK_RELAY.get(this.env.LINK_RELAY.idFromName(relayRoomName(owner, this.boundSpace(), id)), hint ? { locationHint: hint } : undefined)
+    this.ctx.waitUntil(
+      room.fetch("https://link-relay/prewarm", { method: "POST" }).then(
+        (r) => r.body?.cancel(),
+        () => {}
+      )
+    )
+  }
+
+  /** The owner key this hub was bound to (null before its first bind). */
+  private boundOwner(): string | null {
+    if (this.ownerKey === undefined)
+      this.ownerKey = this.sql.exec<{ value: string }>(`SELECT value FROM meta WHERE key = 'owner'`).toArray()[0]?.value ?? null
+    return this.ownerKey
+  }
+
+  private session(id: string): SessionRow | undefined {
     const hit = this.sessions.get(id)
-    if (hit) return hit
-    const r = this.sql.exec<{ initiator: string; responder: string; created_at: number }>(`SELECT initiator, responder, created_at FROM sessions WHERE session_id = ?`, id).toArray()[0]
-    if (!r || Date.now() - r.created_at > SESSION_TTL_MS) return undefined
-    const s = { initiator: r.initiator, responder: r.responder }
+    if (hit) {
+      if (Date.now() - hit.createdAt <= SESSION_TTL_MS) return hit
+      this.expireSession(id)
+      return undefined
+    }
+    const r = this.sql
+      .exec<{ initiator: string; responder: string; created_at: number; initiator_ticket: string | null; responder_ticket: string | null }>(
+        `SELECT initiator, responder, created_at, initiator_ticket, responder_ticket FROM sessions WHERE session_id = ?`,
+        id
+      )
+      .toArray()[0]
+    if (!r) return undefined
+    if (Date.now() - r.created_at > SESSION_TTL_MS) {
+      this.expireSession(id)
+      return undefined
+    }
+    const s: SessionRow = { initiator: r.initiator, responder: r.responder, initiatorTicket: r.initiator_ticket, responderTicket: r.responder_ticket, createdAt: r.created_at }
     this.sessions.set(id, s)
     return s
+  }
+
+  /** `deviceId`'s relay ticket of session `s`, made now for a session opened before tickets existed. */
+  private ticketOf(id: string, s: SessionRow, deviceId: string): string | null {
+    const initiator = s.initiator === deviceId
+    if (!initiator && s.responder !== deviceId) return null
+    const stored = initiator ? s.initiatorTicket : s.responderTicket
+    if (stored) return stored
+    const made = newTicket()
+    this.sql.exec(`UPDATE sessions SET ${initiator ? "initiator_ticket" : "responder_ticket"} = ? WHERE session_id = ?`, made, id)
+    if (initiator) s.initiatorTicket = made
+    else s.responderTicket = made
+    return made
+  }
+
+  /** The ticket to stamp on a signal of session `id` sent to `to` (synchronous, so signals keep their order). */
+  private ticketFor(id: string, to: string): string | null {
+    const s = this.session(id)
+    return s ? this.ticketOf(id, s, to) : null
   }
 
   private endSession(id: string) {
     this.sessions.delete(id)
     this.sql.exec(`DELETE FROM sessions WHERE session_id = ?`, id)
+    this.closeRelay(id, RELAY_CLOSE.ended, "ended")
+  }
+
+  /** A session past its 24 h: gone, like an ended one, its relay sockets closed. */
+  private expireSession(id: string) {
+    this.sessions.delete(id)
+    this.sql.exec(`DELETE FROM sessions WHERE session_id = ?`, id)
+    this.closeRelay(id, RELAY_CLOSE.ended, "expired")
+  }
+
+  /**
+   * Close the live relay sockets of session `id` (PROTOCOL.md "WebSocket relay"), when its relay object ever had
+   * a join: a session's end, a device's removal and an account's deletion stop what is already relaying, not only
+   * new joins. Never awaited by the caller: it must not hold up signaling.
+   */
+  private closeRelay(id: string, code: number, reason: string) {
+    if (this.sql.exec(`SELECT 1 FROM relay_sessions WHERE session_id = ?`, id).toArray().length === 0) return
+    this.sql.exec(`DELETE FROM relay_sessions WHERE session_id = ?`, id)
+    const owner = this.boundOwner()
+    if (!owner) return
+    const room = this.env.LINK_RELAY.get(this.env.LINK_RELAY.idFromName(relayRoomName(owner, this.boundSpace(), id)))
+    this.ctx.waitUntil(
+      room.closeAll(code, reason).catch((e: unknown) => console.log(JSON.stringify({ msg: "relay close failed", error: String(e) })))
+    )
   }
 
   private macRow(deviceId: string) {
@@ -834,21 +1405,41 @@ export class TeamHub extends DurableObject<Env> {
   private presence(deviceId: string): MacPresence | undefined {
     const r = this.macRow(deviceId)
     if (!r) return undefined
+    const ws = this.open(deviceId)
+    const quietMs = ws ? this.quietMs(ws, Date.now()) : undefined
     return {
       deviceId,
       name: r.name,
       teamId: r.team_id ?? "",
-      online: !!this.open(deviceId),
+      online: !!ws,
       lastSeenAt: r.last_seen_at ? new Date(r.last_seen_at).toISOString() : null,
       ownerUserId: r.owner_user_id,
-      machineId: r.machine_id ?? null
+      machineId: r.machine_id ?? null,
+      ...(quietMs !== undefined ? { quietMs } : {})
     }
   }
 
-  /** The presence frame body: PROTOCOL.md `{deviceId, name, online, lastSeenAt, machineId}`. */
+  /**
+   * Ms since the hub last heard this open socket: its connect or its last application ping (answered by the
+   * runtime without waking the hub, which keeps its time). Undefined when it knows neither (a socket accepted
+   * before `connectedAt` existed that never pinged).
+   */
+  private quietMs(ws: WebSocket, now: number): number | undefined {
+    const heard = Math.max(this.attach(ws).connectedAt ?? 0, this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0)
+    return heard > 0 ? Math.max(0, now - heard) : undefined
+  }
+
+  /** The presence frame body: PROTOCOL.md `{deviceId, name, online, lastSeenAt, machineId, quietMs}`. */
   private presenceOf(deviceId: string) {
     const p = this.presence(deviceId)!
-    return { deviceId: p.deviceId, name: p.name, online: p.online, lastSeenAt: p.lastSeenAt, ...(p.machineId ? { machineId: p.machineId } : {}) }
+    return {
+      deviceId: p.deviceId,
+      name: p.name,
+      online: p.online,
+      lastSeenAt: p.lastSeenAt,
+      ...(p.machineId ? { machineId: p.machineId } : {}),
+      ...(p.quietMs !== undefined ? { quietMs: p.quietMs } : {})
+    }
   }
 
   /** To the sockets opened for `teamId` (the only team whose Macs they list). */

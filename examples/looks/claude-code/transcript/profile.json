@@ -1,0 +1,15 @@
+{
+  "cmuxProfile": 1,
+  "name": "claude-code-transcript",
+  "description": "Read replies in an 800 pt column with collapsed tool activity and a compact harness label.",
+  "settings": {
+    "agentPane.display.presentation": "transcript",
+    "agentPane.display.transcriptView": "normal",
+    "agentPane.display.font.size": 14,
+    "agentPane.display.width": 800,
+    "agentPane.display.minimap": "off",
+    "agentPane.display.harnessPlacement": "compact",
+    "agentPane.display.font.preset": "system"
+  },
+  "files": {}
+}

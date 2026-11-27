@@ -25,10 +25,9 @@ import { rowsByKey } from "../schema";
 import { locale, t } from "../strings";
 import { CHIEF_PET_MASCOT, chiefPetMascot } from "./ChiefPetCard";
 import { SettingRow } from "./SettingRow";
+import { CHIEF_ENGINE, CHIEFS_ROWS } from "../cardRows";
 
-export const CHIEF_ENGINE = "home.chiefEngine";
-/** The rows this card draws in place of their group. */
-export const CHIEFS_ROWS: ReadonlySet<string> = new Set([CHIEF_ENGINE]);
+export { CHIEF_ENGINE, CHIEFS_ROWS };
 
 type Open = { kind: "new" } | { kind: "edit"; id: string } | null;
 
@@ -118,7 +117,7 @@ export function ChiefsCard({ focus = null }: { focus?: string | null }) {
   const editing = open?.kind === "edit" ? chiefs?.find((chief) => chief.id === open.id) : undefined;
   if (open && (open.kind === "new" || editing))
     return (
-      <section className="group chiefs-card editing ui-glass" data-card="chiefs">
+      <section className="group chiefs-card editing ui-glass ui-glass-content" data-card="chiefs">
         <ChiefPage
           key={editing?.id ?? "new"}
           service={editor}
@@ -135,7 +134,7 @@ export function ChiefsCard({ focus = null }: { focus?: string | null }) {
       </section>
     );
   return (
-    <section className="group chiefs-card ui-glass" data-card="chiefs">
+    <section className="group chiefs-card ui-glass ui-glass-content" data-card="chiefs">
       <div className="accounts-header">
         <h3 className="group-title m-0 flex-1">{t("chief.settings.title")}</h3>
         <button

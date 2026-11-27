@@ -30,7 +30,12 @@ final class ComposeInlineRemoveHover: NSObject {
 
     /// The field's attachments with their boxes in the field's coordinates, in text order.
     func attachmentRects() -> [(attachment: ComposeInlineAttachment, rect: CGRect)] {
-        guard let field, let storage = field.textStorage else { return [] }
+        field.map(Self.attachmentRects(in:)) ?? []
+    }
+
+    /// FIELD's inline attachments with their boxes in its coordinates, in text order.
+    static func attachmentRects(in field: NSTextView) -> [(attachment: ComposeInlineAttachment, rect: CGRect)] {
+        guard let storage = field.textStorage else { return [] }
         let origin = field.textContainerOrigin
         var out: [(ComposeInlineAttachment, CGRect)] = []
         // The composer field is TextKit 1 (ComposeTextView): the attachment glyph's box.
@@ -101,7 +106,7 @@ final class ComposeInlineRemoveButton: NSImageView {
         image = NSImage(systemSymbolName: "xmark.circle.fill", accessibilityDescription: CmuxStrings.removeAttachment)
         contentTintColor = NSColor(white: 1, alpha: 0.95)
         imageScaling = .scaleProportionallyUpOrDown
-        toolTip = CmuxStrings.removeAttachment
+        setHomeToolTip(CmuxStrings.removeAttachment)
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(CmuxStrings.removeAttachment)

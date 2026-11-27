@@ -63,6 +63,6 @@ public nonisolated struct AgentMemorySearchHandler: AppHostCapabilityHandler {
 
     private static func invalid() -> AppHostCapabilityError {
         AppHostCapabilityError(code: "validation.invalid",
-                               message: String(localized: "apps.memory.validation.invalid", defaultValue: "Expected roots, a query and an optional limit", bundle: .module))
+                               message: String(localized: "apps.memory.validation.invalid", defaultValue: "Expected roots, a query and an optional limit", bundle: .localizedModule))
     }
 }

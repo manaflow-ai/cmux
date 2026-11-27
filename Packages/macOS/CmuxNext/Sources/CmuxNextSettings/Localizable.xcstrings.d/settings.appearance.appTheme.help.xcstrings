@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.appTheme.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Colors for the window, sidebar, tabs and pages. Terminals use Terminal Theme."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ألوان النافذة والشريط الجانبي وعلامات التبويب والصفحات. تستخدم الطرفيات سمة الطرفية."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Boje prozora, bočne trake, kartica i stranica. Terminali koriste temu terminala."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Farver til vinduet, sidepanelet, fanerne og siderne. Terminaler bruger terminaltemaet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Farben für Fenster, Seitenleiste, Tabs und Seiten. Terminals nutzen das Terminal-Theme."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Colores de la ventana, la barra lateral, las pestañas y las páginas. Los terminales usan el tema del terminal."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Couleurs de la fenêtre, de la barre latérale, des onglets et des pages. Les terminaux utilisent le thème du terminal."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Colori di finestra, barra laterale, schede e pagine. I terminali usano il tema del terminale."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ウインドウ、サイドバー、タブ、ページの色です。ターミナルはターミナルテーマを使います。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ពណ៌សម្រាប់បង្អួច របារចំហៀង ផ្ទាំង និងទំព័រ។ ទែមីណាល់ប្រើស្បែកទែមីណាល់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "창, 사이드바, 탭, 페이지의 색상입니다. 터미널은 터미널 테마를 사용합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Farger for vinduet, sidefeltet, fanene og sidene. Terminaler bruker terminaltemaet."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kolory okna, paska bocznego, kart i stron. Terminale używają motywu terminala."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cores da janela, barra lateral, abas e páginas. Os terminais usam o tema do terminal."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Цвета окна, боковой панели, вкладок и страниц. Терминалы используют тему терминала."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "สีของหน้าต่าง แถบด้านข้าง แท็บ และหน้าต่าง ๆ เทอร์มินัลใช้ธีมเทอร์มินัล"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Pencere, kenar çubuğu, sekmeler ve sayfaların renkleri. Terminaller terminal temasını kullanır."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Кольори вікна, бічної панелі, вкладок і сторінок. Термінали використовують тему термінала."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Màu cho cửa sổ, thanh bên, các tab và trang. Terminal dùng chủ đề terminal."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "窗口、侧边栏、标签页和页面的颜色。终端使用终端主题。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "視窗、側邊欄、分頁和頁面的顏色。終端機使用終端機主題。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
