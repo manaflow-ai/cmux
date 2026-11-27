@@ -67,6 +67,8 @@ draw them yet; `--kind menu` is refused until `cmux.context_menu/1` lands.
   SDK's `workspaces()`, `agents()`, `chats()`, which cmux reads once, caches and pushes.
 - **No raw sizes or colors.** Use the kit (`Panel`, `Row`, `Button`, `EmptyState`, the widget
   helpers) and `cmux.theme` tones; follow the folder's `DESIGN.md`.
+  Use the SDK scene DSL in extensions. The `kit.primitives` gallery entry shows the
+  corresponding web components in both themes. [Instrument gallery guide](https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/webviews/src/kit/README.md#gallery)
 - **No focus, placement or navigation of your own.** A view cannot take focus or place itself;
   actions run from a click (`cmux.actions.run`, scope `actions:run`, which the person turns on).
 - **No network or file access you did not declare.** `cmux.net.fetch` needs `net:<host>` in

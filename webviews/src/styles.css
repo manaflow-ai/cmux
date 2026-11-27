@@ -617,7 +617,7 @@ body {
   color: var(--cmux-diff-deletion-fg);
 }
 .base-picker-group-header {
-  padding: 8px 8px 4px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-2) var(--ds-space-fixed-1);
   font-size: var(--text-caption);
   font-weight: 400;
   color: color-mix(in lab, var(--cmux-diff-fg) 52%, var(--cmux-diff-bg));
@@ -632,9 +632,9 @@ body {
 .base-picker-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-height: 28px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border-radius: 6px;
   cursor: default;
 }
@@ -1016,7 +1016,7 @@ body[data-status-only="true"] #files-motion-curtain {
   min-height: 0;
   overflow: hidden;
   background: transparent;
-  padding: 0 8px 4px;
+  padding: 0 var(--ds-space-fixed-2) var(--ds-space-fixed-1);
   /* Classic viewer rows (screenshot 5.20.26): 13 px regular text on 29 px
      rows, dim file names, bright folder names and selection, a 16 px icon
      lane and the library's guide line under the open folder. */
@@ -1074,7 +1074,7 @@ body[data-loading="false"]:not([data-status-only="true"]) #loading-layer {
   display: grid;
   grid-template-columns: 18px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -1255,7 +1255,7 @@ body[data-status-only="true"] #loading-layer {
   height: 100%;
   align-items: center;
   justify-content: center;
-  padding: 32px;
+  padding: var(--ds-space-fixed-6);
   pointer-events: auto;
 }
 #status {
@@ -1268,7 +1268,7 @@ body[data-status-only="true"] #loading-layer {
   align-items: center;
   gap: 10px;
   max-width: calc(100% - 24px);
-  padding: 8px 12px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-3);
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 10%, transparent);
   border-radius: var(--ui-popup-radius, var(--ds-radius-lg));
   background: var(--cmux-diff-bg);
@@ -1336,7 +1336,7 @@ body[data-status-only="true"] #status-text {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-height: 30px;
   padding: 0 var(--comments-inset);
   color: var(--cmux-diff-text-muted);
@@ -1349,7 +1349,7 @@ body[data-status-only="true"] #status-text {
   display: inline-grid;
   flex: 0 0 auto;
   height: 24px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   font-size: var(--cmux-diff-ui-font-size);
   white-space: nowrap;
 }
@@ -1363,7 +1363,7 @@ body[data-status-only="true"] #status-text {
 /* A review worktree's Send to agent: secondary to Post, so it is quiet until hovered. */
 .comments-action-quiet {
   height: 20px;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
 }
 /* The pull request under review (then the posted review) on one fixed-height line under the
    header, with Send to agent at its end: the same line in every post state, so nothing moves. */
@@ -1371,10 +1371,10 @@ body[data-status-only="true"] #status-text {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   height: 24px;
-  margin-top: -4px;
-  padding: 0 4px 0 var(--comments-inset);
+  margin-top: calc(-1 * var(--ds-space-fixed-1));
+  padding: 0 var(--ds-space-fixed-1) 0 var(--comments-inset);
   font-size: var(--cmux-diff-ui-font-size);
 }
 #comments-review-link {
@@ -1395,7 +1395,7 @@ body[data-status-only="true"] #status-text {
 #comments-send-error,
 #comments-post-error {
   display: block;
-  padding: 0 12px 8px;
+  padding: 0 var(--ds-space-fixed-3) var(--ds-space-fixed-2);
   color: var(--cmux-diff-deletion-fg);
   font-size: var(--cmux-diff-ui-font-size);
 }
@@ -1413,7 +1413,7 @@ body[data-status-only="true"] #status-text {
   padding: 0 6px 6px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 .comments-empty {
   padding: 2px 7px 6px;
@@ -1491,11 +1491,11 @@ body[data-status-only="true"] #status-text {
 }
 .comment-composer,
 .comment-card {
-  margin: 8px 12px;
+  margin: var(--ds-space-fixed-2) var(--ds-space-fixed-3);
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   max-width: 680px;
   border: 1px solid var(--cmux-diff-border);
   /* Concentric with its Cancel and Comment buttons, which end 10 px from the bottom edge. */
@@ -1537,14 +1537,14 @@ body[data-status-only="true"] #status-text {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 .comment-composer-buttons {
   display: inline-flex;
   gap: 6px;
 }
 .comment-button {
-  padding: 4px 12px;
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-3);
   border: 0;
   border-radius: var(--ds-radius-control);
   background: transparent;
@@ -1573,7 +1573,7 @@ body[data-status-only="true"] #status-text {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-height: 20px;
 }
 .comment-card-location {
@@ -1627,7 +1627,7 @@ body[data-status-only="true"] #status-text {
   display: flex;
   flex-direction: column;
   gap: var(--grid-gap);
-  margin-top: 4px;
+  margin-top: var(--ds-space-fixed-1);
   padding-left: var(--grid-gap);
   border-left: 2px solid var(--cmux-diff-border);
 }
@@ -1652,7 +1652,7 @@ body[data-status-only="true"] #status-text {
 }
 .comment-entry-thread .comment-composer {
   margin: var(--grid-half-step) 0 0;
-  padding: 8px;
+  padding: var(--ds-space-fixed-2);
   box-shadow: none;
 }
 
@@ -1708,8 +1708,8 @@ body[data-status-only="true"] #status-text {
 .file-review-controls {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  margin-left: 8px;
+  gap: var(--ds-space-fixed-2);
+  margin-left: var(--ds-space-fixed-2);
   font-family: var(--cmux-diff-ui-font-family);
   font-size: calc(var(--cmux-diff-ui-font-size) * 0.9);
   color: var(--cmux-diff-text-muted);
@@ -1802,7 +1802,7 @@ body[data-status-only="true"] #status-text {
   bottom: 14px;
   left: 50%;
   z-index: var(--layer-overlay);
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   /* Concentric with Stage all and Revert all, 4 px in. */
   --concentric-padding: 4px;
   padding: var(--concentric-padding);
@@ -1815,9 +1815,9 @@ body[data-status-only="true"] #status-text {
 .diff-bulk-action {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   height: 24px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border: 0;
   border-radius: var(--ds-radius-control);
   background: transparent;
@@ -1828,7 +1828,7 @@ body[data-status-only="true"] #status-text {
 }
 .diff-bulk-action {
   height: 28px;
-  padding: 0 12px;
+  padding: 0 var(--ds-space-fixed-3);
 }
 .diff-hunk-action {
   justify-content: center;
@@ -1862,7 +1862,7 @@ body[data-status-only="true"] #status-text {
 }
 .diff-bulk-note {
   min-width: 0;
-  padding: 0 4px 0 8px;
+  padding: 0 var(--ds-space-fixed-1) 0 var(--ds-space-fixed-2);
   overflow: hidden;
   color: var(--cmux-diff-text-muted);
   white-space: nowrap;
@@ -1942,8 +1942,8 @@ body[data-status-only="true"] #status-text {
 .diff-files-changed {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
+  gap: var(--ds-space-fixed-2);
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-3);
   border-bottom: 1px solid var(--cmux-diff-border);
   color: var(--cmux-diff-fg);
   font-size: var(--text-detail);
@@ -2349,7 +2349,7 @@ svg[data-icon-fill] {
 .diff-pill {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   /* A clear 1 px border keeps the 34 px height; the rim is drawn inside (box-shadow). Concentric with its
      buttons (user 2026-11-19, the "..." button's hover in the pill): their corner plus the 2 px padding and
      the 1 px border. */
@@ -2634,7 +2634,7 @@ button.file-header-open:focus-visible {
 /* The delineated diff's kind pill: which group this file is in, quiet enough to ignore. */
 .file-header-kind {
   flex: 0 0 auto;
-  margin-right: 8px;
+  margin-right: var(--ds-space-fixed-2);
   padding: 1px 6px;
   border: 1px solid var(--cmux-diff-border);
   border-radius: 4px;
@@ -2788,13 +2788,13 @@ button.file-header-open:focus-visible {
 /* Inline previews (InlinePreview.tsx): an image file's two sides, or Markdown rendered, in place of
    its diff (the line annotation of the file's one-line item). */
 .inline-preview {
-  padding: 16px 24px 24px;
+  padding: var(--ds-space-fixed-4) var(--ds-space-fixed-5) var(--ds-space-fixed-5);
   font-family: var(--cmux-diff-ui-font-family);
   color: var(--cmux-diff-fg);
   white-space: normal;
 }
 .rich-preview-status {
-  margin: 24px 0;
+  margin: var(--ds-space-fixed-5) 0;
   color: var(--cmux-diff-text-muted);
   text-align: center;
 }
@@ -2832,7 +2832,7 @@ button.file-header-open:focus-visible {
 }
 .rich-preview-markdown pre {
   overflow: auto;
-  padding: 12px 16px;
+  padding: var(--ds-space-fixed-3) var(--ds-space-fixed-4);
   border-radius: 8px;
   background: color-mix(in lab, var(--cmux-diff-fg) 6%, transparent);
 }
@@ -2841,7 +2841,7 @@ button.file-header-open:focus-visible {
   background: none;
 }
 .rich-preview-markdown blockquote {
-  padding-left: 12px;
+  padding-left: var(--ds-space-fixed-3);
   border-left: 3px solid var(--cmux-diff-border);
   color: var(--cmux-diff-text-muted);
 }
@@ -2849,7 +2849,7 @@ button.file-header-open:focus-visible {
   border-collapse: collapse;
 }
 .rich-preview-markdown :is(th, td) {
-  padding: 8px 12px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-3);
   border: 1px solid var(--cmux-diff-border);
 }
 .rich-preview-markdown .md-link {
@@ -2879,12 +2879,12 @@ button.file-header-open:focus-visible {
 .rich-preview-images {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: var(--ds-space-fixed-4);
 }
 .rich-preview-image {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   margin: 0;
 }
 .rich-preview-image img {
@@ -2910,10 +2910,10 @@ button.file-header-open:focus-visible {
 .review-brief-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   width: 100%;
   height: 32px;
-  padding: 0 12px;
+  padding: 0 var(--ds-space-fixed-3);
   border: 0;
   background: transparent;
   color: var(--cmux-diff-text-muted);
@@ -2944,9 +2944,9 @@ button.file-header-open:focus-visible {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   height: 20px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border-radius: 999px;
   background: var(--cmux-diff-accent-tint);
   color: var(--cmux-diff-fg);
@@ -2981,7 +2981,7 @@ button.file-header-open:focus-visible {
   left: 8px;
   max-height: min(60vh, 480px);
   overflow: auto;
-  padding: 12px;
+  padding: var(--ds-space-fixed-3);
   border-radius: 8px;
   background: var(--cmux-diff-solid-bg);
   box-shadow:
@@ -3016,11 +3016,11 @@ button.file-header-open:focus-visible {
 .review-brief-body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   font-size: var(--cmux-diff-ui-font-size);
 }
 .review-brief-section h3 {
-  margin: 0 0 4px;
+  margin: 0 0 var(--ds-space-fixed-1);
   color: var(--cmux-diff-text-muted);
   font-size: var(--cmux-diff-ui-font-size);
   font-weight: 600;
@@ -3037,19 +3037,19 @@ button.file-header-open:focus-visible {
   color: var(--cmux-diff-text-muted);
 }
 .review-brief-plan-text {
-  margin-top: 4px;
+  margin-top: var(--ds-space-fixed-1);
 }
 .review-brief-spots {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
 }
 .review-brief-spot {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   width: 100%;
-  padding: 8px;
+  padding: var(--ds-space-fixed-2);
   border: 0;
   border-radius: 6px;
   background: var(--cmux-diff-muted-bg);
@@ -3063,7 +3063,7 @@ button.review-brief-spot:hover {
 .review-brief-spot-head {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   min-width: 0;
 }
 .review-brief-spot-kind {
@@ -3100,9 +3100,9 @@ button.review-brief-spot:hover {
 .review-brief-plan {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   margin: 0;
-  padding-inline-start: 16px;
+  padding-inline-start: var(--ds-space-fixed-4);
 }
 .review-brief-plan li[data-status="completed"] {
   color: var(--cmux-diff-text-muted);
@@ -3122,7 +3122,7 @@ button.review-brief-spot:hover {
   overflow-y: auto;
   overscroll-behavior: contain;
   /* The top and bottom space is the virtualizer's (PlainEnglishView.tsx `PADDING_START`, `PADDING_END`). */
-  padding: 0 16px;
+  padding: 0 var(--ds-space-fixed-4);
   background: var(--cmux-diff-bg);
   color: var(--cmux-diff-fg);
   font-family: var(--cmux-diff-ui-font-family);
@@ -3144,8 +3144,8 @@ button.review-brief-spot:hover {
 }
 /* The space between files sits above each path but the first. */
 .plain-english-path {
-  margin: 0 4px;
-  padding: 16px 0 4px;
+  margin: 0 var(--ds-space-fixed-1);
+  padding: var(--ds-space-fixed-4) 0 var(--ds-space-fixed-1);
   line-height: round(up, 1.45em, 1px);
   overflow: hidden;
   color: var(--cmux-diff-text-muted);
@@ -3185,10 +3185,10 @@ button.review-brief-spot:hover {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   width: 100%;
   height: var(--plain-english-row);
-  padding: 8px 12px 8px 8px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-3) var(--ds-space-fixed-2) var(--ds-space-fixed-2);
   border: 0;
   background: transparent;
   color: inherit;
@@ -3249,7 +3249,7 @@ button.review-brief-spot:hover {
 }
 .plain-english-stats {
   display: flex;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   font-family: var(--cmux-diff-code-font-family);
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
@@ -3264,8 +3264,8 @@ button.review-brief-spot:hover {
   border-top: 1px solid var(--cmux-diff-border);
 }
 .plain-english-open {
-  margin: 4px 12px 8px;
-  padding: 4px 8px;
+  margin: var(--ds-space-fixed-1) var(--ds-space-fixed-3) var(--ds-space-fixed-2);
+  padding: var(--ds-space-fixed-1) var(--ds-space-fixed-2);
   border: 1px solid var(--cmux-diff-border);
   border-radius: 6px;
   background: transparent;

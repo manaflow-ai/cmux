@@ -3,7 +3,7 @@
    and every setup state draw in it, so a state change never swaps rows. The drawer under it opens
    from no height to its own (the Cloud start question row's motion) and moves the composer with it. */
 .acpmux-worktree-setup { display: flex; flex-direction: column; }
-.acpmux-worktree-setup__summary { display: flex; flex-wrap: wrap; align-items: center; column-gap: 8px; min-height: 20px; }
+.acpmux-worktree-setup__summary { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--ds-space-fixed-2); min-height: 20px; }
 .acpmux-worktree-setup__summary .acpmux-cloud-start__mark { height: 20px; }
 /* The state words sit in the mark, clipped to nothing (the pane loads no global .visually-hidden;
    the Cloud start's labels-over-names bug). */
@@ -17,7 +17,7 @@
 .acpmux-worktree-setup[data-state="interrupted"] .acpmux-cloud-start__mark { color: var(--agent-danger, #f87171); }
 .acpmux-worktree-setup[data-state="creating"] .acpmux-worktree-setup__label { color: inherit; }
 .acpmux-worktree-setup__fact { font-variant-numeric: tabular-nums; white-space: nowrap; }
-.acpmux-worktree-setup__toggle { display: inline-flex; align-items: center; gap: 4px; }
+.acpmux-worktree-setup__toggle { display: inline-flex; align-items: center; gap: var(--ds-space-fixed-1); }
 .acpmux-worktree-setup__drawer {
   display: grid;
   grid-template-rows: 0fr;
@@ -30,11 +30,11 @@
 .acpmux-worktree-setup__drawer[data-open="true"] { grid-template-rows: 1fr; opacity: 1; }
 .acpmux-worktree-setup__clip { display: block; min-height: 0; overflow: hidden; }
 /* The details reuse the Cloud start's checklist rows at the notice's size, not its column. */
-.acpmux-worktree-setup__details.acpmux-cloud-start { min-height: 0; max-width: none; margin: 4px 0 0; padding: 0; gap: 4px; }
+.acpmux-worktree-setup__details.acpmux-cloud-start { min-height: 0; max-width: none; margin: var(--ds-space-fixed-1) 0 0; padding: 0; gap: var(--ds-space-fixed-1); }
 .acpmux-worktree-setup__output {
   max-height: 160px;
   margin: 0;
-  padding: 8px 12px;
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-3);
   overflow: auto;
   border: 1px solid color-mix(in srgb, var(--agent-border) 72%, transparent);
   border-radius: 8px;
@@ -45,6 +45,6 @@
   overflow-wrap: anywhere;
 }
 /* A repository recipe read before it runs: each part's caption over its command or file list. */
-.acpmux-worktree-setup__review { display: flex; flex-direction: column; gap: 4px; margin: 4px 0 0; }
+.acpmux-worktree-setup__review { display: flex; flex-direction: column; gap: var(--ds-space-fixed-1); margin: var(--ds-space-fixed-1) 0 0; }
 .acpmux-worktree-setup__review-part { display: flex; flex-direction: column; gap: var(--grid-half-step); }
 .acpmux-worktree-setup__review-label { color: var(--agent-muted); }

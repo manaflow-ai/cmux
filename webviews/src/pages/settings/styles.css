@@ -3059,7 +3059,7 @@ button.menu-disclosure {
 .models {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--ds-space-fixed-4);
 }
 
 .models-lead {
@@ -3070,8 +3070,8 @@ button.menu-disclosure {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
+  gap: var(--ds-space-fixed-3);
+  margin-bottom: var(--ds-space-fixed-2);
 }
 
 .models-header .group-title,
@@ -3085,7 +3085,7 @@ button.menu-disclosure {
   align-items: center;
   justify-content: center;
   min-width: 26px;
-  padding-inline: 4px;
+  padding-inline: var(--ds-space-fixed-1);
 }
 
 .models-connection[data-dragging] {
@@ -3095,7 +3095,7 @@ button.menu-disclosure {
 .models-connection .row-control {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 
 .models-grip {
@@ -3113,29 +3113,29 @@ button.menu-disclosure {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
   flex-wrap: wrap;
-  margin-bottom: 8px;
+  margin-bottom: var(--ds-space-fixed-2);
 }
 
 .models-sheet {
   width: min(440px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow: auto;
-  padding: 16px;
+  padding: var(--ds-space-fixed-4);
   color: var(--text);
 }
 
 .models-sheet-body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
 }
 
 .models-sheet-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 
 .models-sheet-header h2 {
@@ -3145,13 +3145,13 @@ button.menu-disclosure {
 }
 
 .models-sheet-group .group-title {
-  margin: 0 0 4px;
+  margin: 0 0 var(--ds-space-fixed-1);
 }
 
 .models-sheet-choices {
   display: flex;
   flex-direction: column;
-  padding: 4px;
+  padding: var(--ds-space-fixed-1);
   border: 1px solid var(--border);
   border-radius: 8px;
 }
@@ -3159,8 +3159,8 @@ button.menu-disclosure {
 .models-sheet-choice {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: var(--ds-space-fixed-2);
+  padding: var(--ds-space-fixed-2) var(--ds-space-fixed-3);
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -4365,7 +4365,7 @@ button.menu-disclosure {
   width: fit-content;
 }
 .models-claude-paste[open] > summary {
-  margin-bottom: 8px;
+  margin-bottom: var(--ds-space-fixed-2);
 }
 
 /* Settings > General's Replay the Intro card (ReplayIntroCard), right under Text Size: a line and a button that
@@ -4415,7 +4415,7 @@ button.menu-disclosure {
 /* A link that named nothing on the page says what it asked for. */
 .link-missing {
   display: block;
-  margin: 0 0 12px;
+  margin: 0 0 var(--ds-space-fixed-3);
 }
 
 /* RFD 0123 Slack awake card (gallery-first): the right-hand spent / allowance value. */

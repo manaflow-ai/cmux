@@ -40,7 +40,7 @@
   --cmux-scroller-fade-out: var(--agent-motion-move);
   /* Its lane is always reserved (scrollers.ts), so it comes out of the right padding: the
      draft keeps the same width, and never rewraps, whether or not it overflows. */
-  padding-right: max(0px, calc(16px * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)));
+  padding-right: max(0px, calc(var(--ds-space-fixed-4) * var(--cmux-interface-scale, 1) - var(--cmux-scroller-size, 8px)));
 }
 .acpmux-md-field[data-fade-top] {
   --acpmux-md-fade-top: var(--acpmux-md-fade-band);
@@ -136,7 +136,7 @@
 }
 .acpmux-md-placeholder .ui-key-hint {
   flex: none;
-  margin-left: 8px;
+  margin-left: var(--ds-space-fixed-2);
 }
 .acpmux-md {
   min-height: var(--text-content--line-height);
@@ -478,10 +478,10 @@
 }
 /* A file placed in the text: its name on the chip, as the strip's link chip has it. */
 .acpmux-md-inline-chip[data-kind="file"] {
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   max-width: 180px;
   height: 28px;
-  padding: 0 24px 0 8px;
+  padding: 0 var(--ds-space-fixed-5) 0 var(--ds-space-fixed-2);
   color: var(--agent-text);
   font-size: inherit;
 }
@@ -509,7 +509,7 @@
   --acpmux-attach-height: calc(var(--cmux-control-height, 24px) * 2);
 }
 .acpmux-md-inline-chip[data-chip="strip"] .acpmux-text-card .acpmux-attachment-pasted-open {
-  padding-top: 4px;
+  padding-top: var(--ds-space-fixed-1);
 }
 .acpmux-md-inline-chip[data-chip="strip"] {
   min-width: 0;
@@ -521,7 +521,7 @@
 }
 /* A huge paste's name: a click puts its text back in the prompt. */
 .acpmux-md-inline-retry:not(.acpmux-attachment-retry) {
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border: 0;
   background: none;
   color: var(--agent-text);
@@ -572,8 +572,8 @@
 }
 /* A failed tile in the text: its kind's glyph and the strip's small retry button side by side. */
 .acpmux-md-inline-chip[data-state="failed"] {
-  gap: 4px;
-  padding-right: 16px;
+  gap: var(--ds-space-fixed-1);
+  padding-right: var(--ds-space-fixed-4);
 }
 .acpmux-md-inline-remove {
   position: absolute;

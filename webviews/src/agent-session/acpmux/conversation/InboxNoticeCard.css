@@ -79,7 +79,7 @@
   align-items: center;
   gap: var(--ds-space-1);
   min-height: 24px;
-  margin-top: 4px;
+  margin-top: var(--ds-space-fixed-1);
 }
 .cv-inbox__back {
   display: inline-flex;
@@ -88,7 +88,7 @@
   justify-content: center;
   width: 20px;
   height: 20px;
-  margin: 0 0 0 -4px;
+  margin: 0 0 0 calc(-1 * var(--ds-space-fixed-1));
   padding: 0;
   border: 0;
   border-radius: 4px;
@@ -120,7 +120,7 @@
   width: 100%;
   min-height: var(--cv-tool-row-height);
   margin: 0;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   border: 0;
   border-radius: 4px;
   background: none;
@@ -141,7 +141,7 @@
   white-space: nowrap;
 }
 .cv-inbox__drill > .cv-inbox__message {
-  margin-top: 4px;
+  margin-top: var(--ds-space-fixed-1);
 }
 
 /* A tool's notice on its inbox line (noticeRowLook.ts): the detector's name, plain, no chip to open

@@ -2,12 +2,12 @@
 .bg-command-inline {
   box-sizing: border-box;
   min-height: 100%;
-  padding: 24px;
+  padding: var(--ds-space-fixed-5);
   color: var(--cv-text);
   font-family: var(--cv-font, var(--font-ui));
 }
 .bg-command-inline__prose {
-  margin: 16px 0;
+  margin: var(--ds-space-fixed-4) 0;
   line-height: 22px;
 }
 /* The stage stacks its rows in flow; the transcript places each one itself. */

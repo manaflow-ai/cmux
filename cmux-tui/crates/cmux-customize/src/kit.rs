@@ -12,14 +12,16 @@
 //! **Components** come from the kit's manifest,
 //! `webviews/src/ui/components.generated.json`, a build output that
 //! `bun webviews/scripts/gen-component-manifest.ts` writes from the kit's
-//! sources. It is read where it lies (`CMUX_COMPONENT_MANIFEST`, or the
-//! nearest checkout above the working directory); with none, the answer says
-//! how to make one. `test` checks a props object against a component's
-//! declared props, so a prop that does not exist is named before it ships.
+//! sources. An explicit `CMUX_COMPONENT_MANIFEST` or a generated manifest in
+//! the nearest checkout wins. Shipped builds fall back to the embedded
+//! first-party manifest, so the kit is available outside a checkout. `test`
+//! checks a props object against a component's declared props, so a prop that
+//! does not exist is named before it ships.
 //!
 //! Nothing here writes a file or changes what the app draws.
 
 use serde_json::{Map, Value, json};
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
@@ -29,6 +31,7 @@ const TYPE_SCALE: &str = include_str!("../../../../schemas/type-scale/type-scale
 const SCENE_TYPE: &str = include_str!("../../../../schemas/type-scale/scene-type.json");
 const LAYOUT_GRID: &str = include_str!("../../../../schemas/layout-grid/layout-grid.json");
 const MOTION_SCALE: &str = include_str!("../../../../schemas/motion-scale/motion-scale.json");
+const BUILTIN_MANIFEST: &str = include_str!("component_manifest.json");
 
 /// Where the component manifest is, relative to a checkout's root.
 pub const MANIFEST_PATH: &str = "webviews/src/ui/components.generated.json";
@@ -36,6 +39,8 @@ pub const MANIFEST_PATH: &str = "webviews/src/ui/components.generated.json";
 pub const MANIFEST_OVERRIDE: &str = "CMUX_COMPONENT_MANIFEST";
 /// How to make the manifest when there is none.
 pub const MANIFEST_HOW: &str = "cd webviews && bun scripts/gen-component-manifest.ts (writes src/ui/components.generated.json)";
+/// The source label used when components come from the shipped registry.
+pub const BUILTIN_MANIFEST_PATH: &str = "<cmux-builtin-components>";
 
 /// The scale families `tokens test` checks a value against.
 pub const FAMILIES: &[&str] = &["spacing", "radius", "type", "control", "icon", "motion"];
@@ -413,24 +418,23 @@ pub fn manifest_path(start: &Path) -> Option<PathBuf> {
     start.ancestors().map(|dir| dir.join(MANIFEST_PATH)).find(|path| path.is_file())
 }
 
-/// `components list|show|test` against a manifest read from `path` (None:
-/// there is none here, and the answer says how to make one).
+/// `components list|show|test` against a manifest read from `path`.
+/// `None` selects the embedded first-party registry used by shipped builds.
 pub fn components(request: &Request, path: Option<&Path>) -> Result<Answer, String> {
-    let Some(path) = path else {
-        return Ok(Answer {
-            json: json!({ "available": false, "manifest": MANIFEST_PATH, "make": MANIFEST_HOW }),
-            human: format!(
-                "No component manifest here ({MANIFEST_PATH}). Make it: {MANIFEST_HOW}\n"
-            ),
-        });
+    let builtin_path = Path::new(BUILTIN_MANIFEST_PATH);
+    let (text, source): (Cow<'_, str>, &Path) = match path {
+        Some(path) => (
+            Cow::Owned(std::fs::read_to_string(path).map_err(|error| {
+                format!("cannot read the component manifest {}: {error}", path.display())
+            })?),
+            path,
+        ),
+        None => (Cow::Borrowed(BUILTIN_MANIFEST), builtin_path),
     };
-    let text = std::fs::read_to_string(path).map_err(|error| {
-        format!("cannot read the component manifest {}: {error}", path.display())
-    })?;
     let manifest: Value = serde_json::from_str(&text).map_err(|error| {
-        format!("the component manifest {} is not JSON: {error}", path.display())
+        format!("the component manifest {} is not JSON: {error}", source.display())
     })?;
-    components_in(request, &manifest, path)
+    components_in(request, &manifest, source)
 }
 
 fn component_list(manifest: &Value) -> Vec<&Value> {
@@ -443,7 +447,8 @@ pub fn components_in(request: &Request, manifest: &Value, path: &Path) -> Result
     let find = |name: &str| {
         all.iter()
             .copied()
-            .find(|c| c["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(name)))
+            .filter(|c| c["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(name)))
+            .min_by_key(|c| c["kitExport"] != true)
     };
     let missing = |name: &str| {
         let close: Vec<&str> = all

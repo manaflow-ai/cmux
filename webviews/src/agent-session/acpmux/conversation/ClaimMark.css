@@ -31,15 +31,15 @@ a.cv-claim:focus-visible {
   text-decoration-line: none;
 }
 .cv-claim__glyph {
-  margin-inline-start: 4px;
+  margin-inline-start: var(--ds-space-fixed-1);
   color: var(--cv-claim-color);
   font-size: 0.8em;
   font-weight: var(--weight-emphasis);
   vertical-align: 0.15em;
 }
 .cv-claim__chip {
-  margin-inline-start: 4px;
-  padding: 0 4px;
+  margin-inline-start: var(--ds-space-fixed-1);
+  padding: 0 var(--ds-space-fixed-1);
   border-radius: 4px;
   color: var(--cv-claim-color);
   background: color-mix(in srgb, var(--cv-claim-color) 12%, transparent);

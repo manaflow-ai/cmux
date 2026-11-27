@@ -21,7 +21,7 @@
 /* Open and its chevron are one split control, drawn as plain controls on the card's glass: no frame of their own. */
 .cv-link-preview__split{display:inline-flex;flex:none;align-items:stretch;height:20px}
 .cv-link-preview__split .cv-link-preview__open{height:auto;border-top-right-radius:0;border-bottom-right-radius:0;color:var(--agent-text)}
-.cv-link-preview__split .acpmux-open-in.is-chevron{height:auto;padding:0 4px;border-left:var(--cmux-hairline) solid var(--agent-border);border-top-left-radius:0;border-bottom-left-radius:0}
+.cv-link-preview__split .acpmux-open-in.is-chevron{height:auto;padding:0 var(--ds-space-fixed-1);border-left:var(--cmux-hairline) solid var(--agent-border);border-top-left-radius:0;border-bottom-left-radius:0}
 .cv-link-preview__target{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
 /* Every link's hover card is the shared liquid glass (.ui-glass) with the tooltip's shadow. */
 .cv-link-preview.ui-card{border:var(--cmux-hairline) solid transparent;--glass-elevation:var(--tooltip-shadow,var(--elevation-2))}

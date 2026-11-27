@@ -34,7 +34,7 @@
 .ui-ghost-sm {
   --ui-ghost-inset: 6px;
   --ui-ghost-bearing: 1.5px;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   height: 22px;
   border-radius: 6px;
 }

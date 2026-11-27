@@ -10,7 +10,7 @@
 .acpmux-checkpoint-review li {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
 }
 .acpmux-checkpoint-review > header { justify-content: space-between; }
 .acpmux-checkpoint-review button {
@@ -30,11 +30,11 @@
 .acpmux-checkpoint-hint,
 .acpmux-checkpoint-facts dt,
 .acpmux-checkpoint-review li > span { opacity: .65; }
-.acpmux-checkpoint-review ul { list-style: none; padding: 0; margin: 8px 0; max-height: 180px; overflow: auto; }
+.acpmux-checkpoint-review ul { list-style: none; padding: 0; margin: var(--ds-space-fixed-2) 0; max-height: 180px; overflow: auto; }
 .acpmux-checkpoint-review li { justify-content: space-between; min-height: 28px; }
-.acpmux-checkpoint-review li label { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.acpmux-checkpoint-review li label { display: flex; align-items: center; gap: var(--ds-space-fixed-2); min-width: 0; }
 .acpmux-checkpoint-review code { overflow-wrap: anywhere; font-size: 11px; }
-.acpmux-checkpoint-facts { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 8px 0 12px; }
+.acpmux-checkpoint-facts { display: flex; flex-wrap: wrap; gap: var(--ds-space-fixed-2) var(--ds-space-fixed-5); margin: var(--ds-space-fixed-2) 0 var(--ds-space-fixed-3); }
 .acpmux-checkpoint-facts > div:first-child { width: 100%; }
 .acpmux-checkpoint-facts dd { margin: 0; }
 .acpmux-checkpoint-fidelity { margin: 10px 0 0; }

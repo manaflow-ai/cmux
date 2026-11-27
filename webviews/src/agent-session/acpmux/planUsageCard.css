@@ -45,9 +45,9 @@
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   margin: 0;
-  padding: 0 4px;
+  padding: 0 var(--ds-space-fixed-1);
   border: 0;
   border-radius: 4px;
   background: none;

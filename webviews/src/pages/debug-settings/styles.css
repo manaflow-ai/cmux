@@ -32,12 +32,12 @@
   flex-direction: column;
   gap: 2px;
   overflow-y: auto;
-  padding: 12px 8px;
+  padding: var(--ds-space-fixed-3) var(--ds-space-fixed-2);
   border-inline-end: 1px solid var(--page-separator);
 }
 
 .ds-search-box {
-  padding-bottom: 8px;
+  padding-bottom: var(--ds-space-fixed-2);
 }
 
 .ds-search {
@@ -62,7 +62,7 @@
   align-items: center;
   gap: 6px;
   min-height: 26px;
-  padding: 0 8px;
+  padding: 0 var(--ds-space-fixed-2);
   border: 0;
   border-radius: var(--ds-radius-md);
   background: transparent;
@@ -115,7 +115,7 @@
 
 .ds-sidebar-separator {
   height: 1px;
-  margin: 4px 0;
+  margin: var(--ds-space-fixed-1) 0;
   border: 0;
   background: var(--page-separator);
 }
@@ -131,13 +131,13 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 16px 24px 12px;
+  padding: var(--ds-space-fixed-4) var(--ds-space-fixed-5) var(--ds-space-fixed-3);
 }
 
 .ds-title-row {
   display: flex;
   align-items: baseline;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   min-width: 0;
 }
 
@@ -190,7 +190,7 @@
 .ds-scroll {
   flex: 1 1 auto;
   overflow-y: auto;
-  padding: 0 24px 24px;
+  padding: 0 var(--ds-space-fixed-5) var(--ds-space-fixed-5);
 }
 
 .ds-none {
@@ -198,7 +198,7 @@
 }
 
 .ds-card {
-  margin-bottom: 16px;
+  margin-bottom: var(--ds-space-fixed-4);
 }
 
 .ds-card-title {
@@ -243,7 +243,7 @@
 
 .ds-row-key,
 .ds-row-help {
-  padding-inline-start: 12px;
+  padding-inline-start: var(--ds-space-fixed-3);
 }
 
 .ds-row-key {
@@ -283,7 +283,7 @@
 .ds-number {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 
 .ds-slider {
@@ -375,7 +375,7 @@
 .ds-spring-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--ds-space-fixed-2);
 }
 
 .ds-spring-label {
@@ -425,7 +425,7 @@
 }
 
 .ds-hang-frame {
-  padding-inline-start: 12px;
+  padding-inline-start: var(--ds-space-fixed-3);
   font-family: ui-monospace, monospace;
   font-size: var(--text-caption);
   color: var(--page-text-3);
@@ -455,7 +455,7 @@
     order: 3;
     flex: 1 1 100%;
     align-items: flex-start;
-    padding-inline-start: 12px;
+    padding-inline-start: var(--ds-space-fixed-3);
   }
 
   .ds-slider {
@@ -501,7 +501,7 @@
 
   .ds-toolbar,
   .ds-scroll {
-    padding-inline: 12px;
+    padding-inline: var(--ds-space-fixed-3);
   }
 
   .ds-main {

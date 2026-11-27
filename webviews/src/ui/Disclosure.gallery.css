@@ -10,7 +10,7 @@
 
 .disclosure-gallery-copy {
   display: grid;
-  gap: 4px;
+  gap: var(--ds-space-fixed-1);
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 68%, transparent));
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
@@ -39,7 +39,7 @@
   justify-content: space-between;
   width: 100%;
   min-height: 36px;
-  padding: 0 12px;
+  padding: 0 var(--ds-space-fixed-3);
   border-radius: 8px;
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
@@ -68,7 +68,7 @@
 
 .disclosure-gallery-panel {
   display: grid;
-  gap: 12px;
+  gap: var(--ds-space-fixed-3);
   padding: var(--grid-half-step) 12px 14px;
   color: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 72%, transparent));
   font-size: var(--text-body);

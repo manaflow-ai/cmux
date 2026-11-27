@@ -71,7 +71,7 @@
   flex-direction: column;
   gap: var(--ds-space-2);
   min-width: 0;
-  padding: 12px var(--ds-space-3);
+  padding: var(--ds-space-fixed-3) var(--ds-space-3);
   transition:
     opacity var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out),
     background-color var(--cmux-motion-quick, 80ms) var(--cmux-ease-out, ease-out);
