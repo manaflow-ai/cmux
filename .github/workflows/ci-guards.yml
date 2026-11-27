@@ -1179,6 +1179,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_nightly_next_train_drive_pin.py
 
+      - name: Validate the fast-checks warm checkout stays a repository
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_warm_checkout.py
+
       - name: Validate the signing keychain is deleted before bundle code runs
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py

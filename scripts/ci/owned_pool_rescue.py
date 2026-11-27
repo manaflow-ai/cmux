@@ -521,6 +521,7 @@ DEV_LABEL = re.compile(r"glaeda-(?:aws-)?dev-(?:xl|std|light)-xcode-[0-9]+(?:\.[
 # sweeper finds their failed runs by path (GitHub.failed_runs()); cmux-next.yml
 # is marked as well.
 SIDE_WORKFLOW_PATHS = frozenset({
+    ".github/workflows/accounts-nightly-probe.yml",  # feat-cmux-next only; probe reads vars.CI_SIDE_LANE_RUNNER
     ".github/workflows/agent-brands.yml",  # feat-cmux-next only
     ".github/workflows/app-host-test-rerun.yml",
     ".github/workflows/auth-refresh-tests.yml",
@@ -531,6 +532,10 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/app-platform.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-base-autofix.yml",  # feat-cmux-next only
     ".github/workflows/cmux-next-batch.yml",  # feat-cmux-next only
+    ".github/workflows/cmux-next-fast-tier-batch.yml",  # feat-cmux-next only; swift-fleet names a glaeda-* label
+    # feat-cmux-next only; their ios job takes the pool picker's output (the second calls pr-pipeline.yml).
+    ".github/workflows/cmux-next-pr-pipeline-ios-batch.yml",
+    ".github/workflows/ios-fast-verdict-dispatch.yml",
     # feat-cmux-next only; its Computer Use helper check takes the side label on attempt 1.
     ".github/workflows/cmux-next-cua-helper-identity.yml",
     ".github/workflows/cmux-next-frame-pacing.yml",  # feat-cmux-next only
