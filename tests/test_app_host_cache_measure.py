@@ -129,7 +129,8 @@ class CacheMeasureTests(unittest.TestCase):
         env = dict(self.env, GIT_ALLOW_PROTOCOL='file', GIT_CONFIG_NOSYSTEM='1',
                    GIT_CONFIG_GLOBAL=os.devnull, GIT_AUTHOR_NAME='test',
                    GIT_AUTHOR_EMAIL='test@example.invalid', GIT_COMMITTER_NAME='test',
-                   GIT_COMMITTER_EMAIL='test@example.invalid', GHOSTTY_SHA='wrong')
+                   GIT_COMMITTER_EMAIL='test@example.invalid', GHOSTTY_SHA='wrong',
+                   CMUX_CI_SKIP_XCODE_SELECT='0')
 
         def git(root, *args):
             return subprocess.check_output(['git', *args], cwd=root, env=env, text=True).strip()
@@ -145,7 +146,7 @@ class CacheMeasureTests(unittest.TestCase):
         git(self.root, 'submodule', 'add', '-q', str(module), 'ghostty')
         git(self.root, 'submodule', 'add', '-q', str(module), 'vendor/bonsplit')
         for name, body in {
-            'select-ci-xcode.sh': 'echo DEVELOPER_DIR=/fixture/Xcode >> "$GITHUB_ENV"',
+            'select-ci-xcode.sh': 'test "$CMUX_CI_SKIP_XCODE_SELECT" = 1\necho DEVELOPER_DIR=/fixture/Xcode >> "$GITHUB_ENV"',
             'install-rust-ci.sh': 'exit 0',
             'download-prebuilt-ghosttykit.sh': 'printf "%s" "$GHOSTTY_SHA" > observed-ghostty-pin',
         }.items():
