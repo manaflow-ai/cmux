@@ -483,7 +483,7 @@ fn turning_a_settings_file_into_inline_json_preserves_its_source() {
         assert!(last_settings(args).unwrap().unwrap().starts_with('{'));
         assert_eq!(claude_sandbox_on(args, &cwd, &env).ok(), trusted.then_some(true));
         assert_eq!(api_endpoint(args, &cwd, &env).is_some(), trusted);
-        assert!(policy_files(args, &cwd, &env).contains(&file));
+        assert!(policy_files(args, &cwd, &env).unwrap().contains(&file));
     }
 }
 
@@ -513,7 +513,7 @@ fn sandbox_decision_files_and_their_parents_are_protected() {
     let cwd = t.path().join("cwd");
     std::fs::create_dir_all(&cwd).unwrap();
     let env = BTreeMap::from([("CLAUDE_CONFIG_DIR".into(), "custom".into())]);
-    let files = policy_files(&s(&["--settings", "own.json"]), &cwd, &env);
+    let files = policy_files(&s(&["--settings", "own.json"]), &cwd, &env).unwrap();
     for file in [
         "custom/settings.json",
         "custom/remote-settings.json",
@@ -535,9 +535,9 @@ fn sandbox_decision_files_and_their_parents_are_protected() {
 fn future_managed_dropins_are_protected_before_they_exist() {
     let t = tempfile::tempdir().unwrap();
     let env = BTreeMap::new();
-    let claude = claude_files(t.path(), &env);
+    let claude = claude_files(t.path(), &env).unwrap();
     let dropins = claude.managed_mcp.parent().unwrap().join("managed-settings.d");
-    let files = policy_files(&[], t.path(), &env);
+    let files = policy_files(&[], t.path(), &env).unwrap();
     assert!(files.contains(&dropins));
     let args = Bound { policy_files: files.clone(), ..sample() }.sandbox_args();
     let index = files.iter().position(|path| path == &dropins).unwrap();

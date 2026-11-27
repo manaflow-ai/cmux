@@ -37,6 +37,28 @@ pub struct Claude {
 impl Claude {
     /// Claude Code's files for a start with env `env` in `cwd`.
     pub fn of(env: &BTreeMap<String, String>, cwd: &Path) -> Self {
+        Self::discover(env, cwd).0
+    }
+
+    /// Return even a partial list to MCP discovery. Sandbox decisions require a complete
+    /// listing and propagate the accompanying error before granting any exception.
+    pub(crate) fn discover(
+        env: &BTreeMap<String, String>,
+        cwd: &Path,
+    ) -> (Self, anyhow::Result<()>) {
+        let managed_dir = if cfg!(target_os = "macos") {
+            Path::new("/Library/Application Support/ClaudeCode")
+        } else {
+            Path::new("/etc/claude-code")
+        };
+        Self::discover_at(env, cwd, managed_dir)
+    }
+
+    fn discover_at(
+        env: &BTreeMap<String, String>,
+        cwd: &Path,
+        managed_dir: &Path,
+    ) -> (Self, anyhow::Result<()>) {
         // Claude's home: `CLAUDE_CONFIG_DIR`, else `.claude` under the launch's `HOME`. Both the
         // profile's `HOME` and acpmux's own count: a server either one disables is never wrapped.
         let mut homes: Vec<PathBuf> =
@@ -50,19 +72,28 @@ impl Claude {
                 homes.push(profile);
             }
         }
-        let managed_dir = if cfg!(target_os = "macos") {
-            Path::new("/Library/Application Support/ClaudeCode")
-        } else {
-            Path::new("/etc/claude-code")
-        };
         // Every place Claude reads policy from (as cmux-tui `claude_plugin::policy_files`):
         // managed settings and their drop-ins, macOS managed preferences, and each home's cached
         // remote settings.
         let mut managed = vec![managed_dir.join("managed-settings.json")];
-        if let Ok(entries) = std::fs::read_dir(managed_dir.join("managed-settings.d")) {
-            let mut dropins: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
-            dropins.sort();
-            managed.extend(dropins);
+        let directory = managed_dir.join("managed-settings.d");
+        let mut listing_error = None;
+        match std::fs::read_dir(&directory) {
+            Ok(entries) => {
+                let mut dropins = Vec::new();
+                for entry in entries {
+                    match entry {
+                        Ok(entry) => dropins.push(entry.path()),
+                        Err(error) => {
+                            listing_error.get_or_insert(error);
+                        }
+                    }
+                }
+                dropins.sort();
+                managed.extend(dropins);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => listing_error = Some(error),
         }
         if cfg!(target_os = "macos") {
             let preferences = Path::new("/Library/Managed Preferences");
@@ -87,7 +118,16 @@ impl Claude {
         }
         settings.push(cwd.join(".claude").join("settings.json"));
         settings.push(cwd.join(".claude").join("settings.local.json"));
-        Self { configs, settings, managed, managed_mcp: managed_dir.join("managed-mcp.json") }
+        let files =
+            Self { configs, settings, managed, managed_mcp: managed_dir.join("managed-mcp.json") };
+        let complete = match listing_error {
+            Some(error) => Err(anyhow::anyhow!(
+                "Cannot list Claude managed settings at {} ({error}). Restore access to the managed settings directory before starting this chat.",
+                directory.display()
+            )),
+            None => Ok(()),
+        };
+        (files, complete)
     }
 }
 

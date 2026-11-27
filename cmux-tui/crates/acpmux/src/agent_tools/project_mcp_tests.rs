@@ -141,6 +141,31 @@ fn a_local_server_of_the_same_name_is_left_alone() {
     assert_eq!(names(&world.wrapped(&world.repo)), ["kept"]);
 }
 
+#[test]
+fn managed_dropin_discovery_distinguishes_absence_from_an_unreadable_listing() {
+    let world = World::new();
+    let env = BTreeMap::new();
+    let directory = world.top.join("managed-settings.d");
+    let discover = || Claude::discover_at(&env, &world.repo, &world.top);
+    let (_, complete) = discover();
+    assert!(complete.is_ok(), "an absent drop-in directory is optional");
+
+    // This fails to list even for an administrator, unlike chmod-based fixtures.
+    std::fs::write(&directory, "not a directory").unwrap();
+    let (files, complete) = discover();
+    let error = complete.unwrap_err().to_string();
+    assert!(error.contains(directory.to_str().unwrap()) && error.contains("Restore"), "{error}");
+    assert!(files.managed.contains(&world.top.join("managed-settings.json")));
+
+    std::fs::remove_file(&directory).unwrap();
+    std::fs::create_dir(&directory).unwrap();
+    let dropin = directory.join("10-policy.json");
+    std::fs::write(&dropin, "{}").unwrap();
+    let (files, complete) = discover();
+    complete.unwrap();
+    assert!(files.managed.contains(&dropin));
+}
+
 /// Every managed policy source counts: a drop-in's deny by command keeps its server unwrapped,
 /// an allowance by command alone leaves the server to Claude (the wrapper's command would not
 /// match it), and a policy this cannot read as JSON that names MCP, or an MCP rule it does not

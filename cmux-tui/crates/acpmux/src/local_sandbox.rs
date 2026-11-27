@@ -256,7 +256,7 @@ pub(crate) fn git_dirs(folder: &Path) -> Vec<PathBuf> {
 fn claude_files(
     cwd: &Path,
     env: &BTreeMap<String, String>,
-) -> crate::agent_tools::project_mcp::Claude {
+) -> anyhow::Result<crate::agent_tools::project_mcp::Claude> {
     // Inspect the config home the child actually uses, not both the daemon's and child's homes.
     let mut config_env = env.clone();
     let config_home = env
@@ -273,7 +273,8 @@ fn claude_files(
         config_env
             .insert("CLAUDE_CONFIG_DIR".into(), absolute(cwd, home).to_string_lossy().into_owned());
     }
-    crate::agent_tools::project_mcp::Claude::of(&config_env, cwd)
+    let (files, complete) = crate::agent_tools::project_mcp::Claude::discover(&config_env, cwd);
+    complete.map(|()| files)
 }
 
 fn source_enabled(args: &[String], source: &str) -> bool {
@@ -380,7 +381,7 @@ fn api_endpoint(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> 
             .map_err(|_| ())?;
         endpoint(&value)
     };
-    let claude = claude_files(cwd, env);
+    let claude = claude_files(cwd, env).ok()?;
     let roots = project_roots(args, cwd);
     let mut managed = None;
     for path in &claude.managed {
@@ -425,8 +426,12 @@ fn api_endpoint(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> 
 
 /// All decision sources remain immutable, even sources excluded for this launch: a later
 /// launch may enable them. Include both the named path and its resolved target.
-fn policy_files(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> Vec<PathBuf> {
-    let claude = claude_files(cwd, env);
+fn policy_files(
+    args: &[String],
+    cwd: &Path,
+    env: &BTreeMap<String, String>,
+) -> anyhow::Result<Vec<PathBuf>> {
+    let claude = claude_files(cwd, env)?;
     let mut files = claude.settings;
     // Protect future drop-ins as well as the files discovered for this launch. The managed
     // root comes from the same resolver that discovers Claude's managed policy sources.
@@ -441,12 +446,12 @@ fn policy_files(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> 
     if let Some(original) = env.get(FLAG_ORIGIN).filter(|path| !path.is_empty()) {
         files.push(PathBuf::from(original));
     }
-    files
+    Ok(files
         .into_iter()
         .flat_map(|path| [path.clone(), canonical(&path)])
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
-        .collect()
+        .collect())
 }
 
 #[derive(Default)]
@@ -506,7 +511,7 @@ fn claude_sandbox_on(
     env: &BTreeMap<String, String>,
 ) -> anyhow::Result<bool> {
     let roots = project_roots(args, cwd);
-    let claude = claude_files(cwd, env);
+    let claude = claude_files(cwd, env)?;
     let mut effective = None;
     let mut project_source = None;
     let mut consider = |setting: ClaudeSandboxSetting,
@@ -697,7 +702,7 @@ pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>)
         .map(|p| canonical(&absolute(&cwd, PathBuf::from(p).join("gh"))))
         .unwrap_or_else(|| agent_home.join(".config/gh"));
     let acpmux_home = std::path::absolute(crate::config::home()).ok()?;
-    let mut policy_files = policy_files(args, &cwd, env);
+    let mut policy_files = policy_files(args, &cwd, env).ok()?;
     policy_files.extend([
         acpmux_home.clone(),
         cmux_config.clone(),
