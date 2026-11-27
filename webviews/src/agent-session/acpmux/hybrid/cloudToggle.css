@@ -142,18 +142,22 @@
   stroke: var(--agent-accent, var(--acpmux-hybrid-4));
 }
 
-/* The turn-on, once per click. `acpmux-hybrid-settle` is the one whose end disarms it. */
-.acpmux-hybrid-toggle[data-fresh][data-lit] .acpmux-hybrid-cloud__shape {
-  animation: acpmux-hybrid-settle var(--cmux-motion-large) var(--cmux-ease-out) both;
-}
-.acpmux-hybrid-toggle[data-fresh][data-lit]:not([data-look="aurora"]) .acpmux-hybrid-arc {
-  animation: acpmux-hybrid-arc-show var(--cmux-motion-large) var(--cmux-ease-out) both;
-}
-.acpmux-hybrid-toggle[data-fresh][data-lit]:not([data-look="aurora"]) .acpmux-hybrid-arc__band {
-  animation: acpmux-hybrid-arc-draw var(--cmux-motion-large) var(--cmux-ease-out) both;
-}
-.acpmux-hybrid-toggle[data-fresh][data-lit][data-look="aurora"] .acpmux-hybrid-glyph::before {
-  animation: acpmux-hybrid-bloom var(--cmux-motion-large) var(--cmux-ease-out) both;
+/* The turn-on, once per click. `acpmux-hybrid-settle` is the one whose end disarms it. Only where
+   motion is allowed (the app's setting on the root, and the system's): these selectors outrank any
+   "animation: none" a reduced-motion rule could set, so the guard is on them, not after them. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="reduced"], [data-agent-motion="off"]) .acpmux-hybrid-toggle[data-fresh][data-lit] .acpmux-hybrid-cloud__shape {
+    animation: acpmux-hybrid-settle var(--cmux-motion-large) var(--cmux-ease-out) both;
+  }
+  :root:not([data-cmux-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="reduced"], [data-agent-motion="off"]) .acpmux-hybrid-toggle[data-fresh][data-lit]:not([data-look="aurora"]) .acpmux-hybrid-arc {
+    animation: acpmux-hybrid-arc-show var(--cmux-motion-large) var(--cmux-ease-out) both;
+  }
+  :root:not([data-cmux-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="reduced"], [data-agent-motion="off"]) .acpmux-hybrid-toggle[data-fresh][data-lit]:not([data-look="aurora"]) .acpmux-hybrid-arc__band {
+    animation: acpmux-hybrid-arc-draw var(--cmux-motion-large) var(--cmux-ease-out) both;
+  }
+  :root:not([data-cmux-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="reduced"], [data-agent-motion="off"]) .acpmux-hybrid-toggle[data-fresh][data-lit][data-look="aurora"] .acpmux-hybrid-glyph::before {
+    animation: acpmux-hybrid-bloom var(--cmux-motion-large) var(--cmux-ease-out) both;
+  }
 }
 @keyframes acpmux-hybrid-settle {
   0% { transform: scale(0.8); }
@@ -174,13 +178,18 @@
   50% { opacity: 0.9; transform: scale(1.6) rotate(0deg); }
   100% { opacity: 0.55; transform: scale(1) rotate(40deg); }
 }
-:root[data-cmux-motion="reduced"] .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band, .acpmux-hybrid-glyph::before),
-:root[data-cmux-motion="off"] .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band, .acpmux-hybrid-glyph::before) {
+/* A pseudo-element is not valid inside :is(), and one there drops the whole rule (Chrome): the
+   glow's ::before gets its own selector. */
+:root[data-cmux-motion="reduced"] .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band),
+:root[data-cmux-motion="reduced"] .acpmux-hybrid-toggle .acpmux-hybrid-glyph::before,
+:root[data-cmux-motion="off"] .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band),
+:root[data-cmux-motion="off"] .acpmux-hybrid-toggle .acpmux-hybrid-glyph::before {
   animation: none;
   transition: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band, .acpmux-hybrid-glyph::before) {
+  .acpmux-hybrid-toggle :is(.acpmux-hybrid-cloud__shape, .acpmux-hybrid-arc, .acpmux-hybrid-arc__band),
+  .acpmux-hybrid-toggle .acpmux-hybrid-glyph::before {
     animation: none;
     transition: none;
   }
@@ -265,8 +274,11 @@
   fill: currentColor;
 }
 .acpmux-hybrid-tri__glyph { transform-origin: 50% 60%; }
-:is(.acpmux-hybrid-tri__segment, .acpmux-hybrid-tri[data-form="cycle"])[data-fresh] .acpmux-hybrid-tri__glyph {
-  animation: acpmux-hybrid-settle var(--cmux-motion-large) var(--cmux-ease-out) both;
+/* Guarded as the on/off cloud's turn-on is, for the same reason. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cmux-motion="reduced"], [data-cmux-motion="off"], [data-agent-motion="reduced"], [data-agent-motion="off"]) :is(.acpmux-hybrid-tri__segment, .acpmux-hybrid-tri[data-form="cycle"])[data-fresh] .acpmux-hybrid-tri__glyph {
+    animation: acpmux-hybrid-settle var(--cmux-motion-large) var(--cmux-ease-out) both;
+  }
 }
 .acpmux-hybrid-tri__name { margin-inline-start: 4px; color: var(--agent-text); }
 /* Where the chat runs now, after the name: quieter than the name, cut before the name is. */

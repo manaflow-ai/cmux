@@ -47,23 +47,47 @@
     },
     "app.storage.delete": {
       "scope": "storage:local",
-      "class": "mutation"
+      "class": "mutation",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.storage.get": {
       "scope": "storage:local",
-      "class": "read"
+      "class": "read",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.storage.keys": {
       "scope": "storage:local",
-      "class": "read"
+      "class": "read",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.storage.set": {
       "scope": "storage:local",
-      "class": "mutation"
+      "class": "mutation",
+      "alsoScopes": [
+        "storage:synced"
+      ]
     },
     "app.view.state": {
       "scope": "none",
       "class": "runtime"
+    },
+    "appkv.delete": {
+      "scope": "appkv:write",
+      "class": "mutation"
+    },
+    "appkv.list": {
+      "scope": "appkv:read",
+      "class": "read"
+    },
+    "appkv.set": {
+      "scope": "appkv:write",
+      "class": "mutation"
     },
     "automation.audit.list": {
       "scope": "automation:read",
@@ -2237,6 +2261,9 @@
     "cloud.owner.handoff_wait",
     "cloud.owner.handoffs",
     "cloud.owner.harness_login_copy",
+    "cloud.owner.slack",
+    "cloud.owner.slack_awake",
+    "cloud.owner.op",
     "cloud.owner.turn_checkpoint",
     "cloud.owner.turn_rewind",
     "cloud.owner.turns",

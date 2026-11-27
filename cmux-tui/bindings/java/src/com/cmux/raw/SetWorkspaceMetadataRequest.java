@@ -16,6 +16,7 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
     private final Field<String> expectedGeneration;
     private final Field<UInt64> expectedRevision;
     private final Field<String> icon;
+    private final Field<Boolean> keepAwake;
     private final Field<String> key;
     private final Field<Boolean> markedUnread;
     private final Field<String> mutationId;
@@ -29,6 +30,7 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
         this.expectedGeneration = builder.expectedGeneration;
         this.expectedRevision = builder.expectedRevision;
         this.icon = builder.icon;
+        this.keepAwake = builder.keepAwake;
         this.key = builder.key;
         this.markedUnread = builder.markedUnread;
         this.mutationId = builder.mutationId;
@@ -44,6 +46,7 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
     public Field<String> expectedGeneration() { return expectedGeneration; }
     public Field<UInt64> expectedRevision() { return expectedRevision; }
     public Field<String> icon() { return icon; }
+    public Field<Boolean> keepAwake() { return keepAwake; }
     public Field<String> key() { return key; }
     public Field<Boolean> markedUnread() { return markedUnread; }
     public Field<String> mutationId() { return mutationId; }
@@ -70,6 +73,10 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
         Object rawIcon = Wire.optional(object, "icon");
         if (!Wire.isMissing(rawIcon)) {
             builder.icon(rawIcon == null ? null : Wire.string(rawIcon, "SetWorkspaceMetadataRequest.icon"));
+        }
+        Object rawKeepAwake = Wire.optional(object, "keep_awake");
+        if (!Wire.isMissing(rawKeepAwake)) {
+            builder.keepAwake(rawKeepAwake == null ? null : Wire.bool(rawKeepAwake, "SetWorkspaceMetadataRequest.keep_awake"));
         }
         Object rawKey = Wire.optional(object, "key");
         if (!Wire.isMissing(rawKey)) {
@@ -109,6 +116,7 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
         Wire.put(object, "expected_generation", expectedGeneration);
         Wire.put(object, "expected_revision", expectedRevision);
         Wire.put(object, "icon", icon);
+        Wire.put(object, "keep_awake", keepAwake);
         Wire.put(object, "key", key);
         Wire.put(object, "marked_unread", markedUnread);
         Wire.put(object, "mutation_id", mutationId);
@@ -122,11 +130,11 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SetWorkspaceMetadataRequest that)) return false;
-        return Objects.equals(color, that.color) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(icon, that.icon) && Objects.equals(key, that.key) && Objects.equals(markedUnread, that.markedUnread) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(pinned, that.pinned) && Objects.equals(title, that.title) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(color, that.color) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(icon, that.icon) && Objects.equals(keepAwake, that.keepAwake) && Objects.equals(key, that.key) && Objects.equals(markedUnread, that.markedUnread) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(pinned, that.pinned) && Objects.equals(title, that.title) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(color, expectedGeneration, expectedRevision, icon, key, markedUnread, mutationId, origin, pinned, title, workspace); }
+    public int hashCode() { return Objects.hash(color, expectedGeneration, expectedRevision, icon, keepAwake, key, markedUnread, mutationId, origin, pinned, title, workspace); }
 
     @Override
     public String toString() { return "SetWorkspaceMetadataRequest" + toWire(); }
@@ -136,6 +144,7 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
         private Field<String> expectedGeneration = Field.omitted();
         private Field<UInt64> expectedRevision = Field.omitted();
         private Field<String> icon = Field.omitted();
+        private Field<Boolean> keepAwake = Field.omitted();
         private Field<String> key = Field.omitted();
         private Field<Boolean> markedUnread = Field.omitted();
         private Field<String> mutationId = Field.omitted();
@@ -158,6 +167,10 @@ public final class SetWorkspaceMetadataRequest implements WireValue {
         }
         public Builder icon(String value) {
             this.icon = Field.ofNullable(value);
+            return this;
+        }
+        public Builder keepAwake(Boolean value) {
+            this.keepAwake = Field.ofNullable(value);
             return this;
         }
         public Builder key(String value) {
