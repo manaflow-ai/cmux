@@ -90,6 +90,22 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
             vec!["notification", "create", "--title", "t", "--body", "", "--workspace", WORKSPACE],
             "notification.create",
         ),
+        // Review threads: a threaded send, then the agent closing one.
+        (
+            vec![
+                "git",
+                "comments",
+                "send",
+                "dc_1",
+                "--root",
+                "/repo",
+                "--threads",
+                "--acp-session",
+                "ses_1",
+            ],
+            "diff.comments.send",
+        ),
+        (vec!["git", "comments", "resolve", "dc_1", "--root", "/repo"], "diff.comments.thread"),
         // The guarded end `worktree close` sends (#39092).
         (vec!["terminal", TERMINAL, "close", "--if-unplaced"], "terminal.close"),
         (vec!["pane", "create", "--shell", "make watch"], "pane.create"),
