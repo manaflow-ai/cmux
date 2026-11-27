@@ -130,6 +130,8 @@ const BUDGET = {
   slope: 0.1,
   heapMb: 64,
   idleMsPerS: 1,
+  /// Pane redraws per record for a record whose one changed row the running turn's closed fold hides.
+  hiddenPaneRenders: 0.1,
 } as const;
 const webviews = path.resolve(import.meta.dir, "..");
 
@@ -592,9 +594,9 @@ type BurstResult = {
   };
 };
 /// Names of perf.ts `renders` that count something other than one more component commit: the transcript's anchor
-/// passes, scroll flushes and layout flags, a row's mount (`mount:`), and RowFrame's commit (`frame:`), which is the
-/// same render `row:` already counted. They print, but stay out of a record's render total.
-const RENDER_EVENTS = /^(transcript:|layout\.|frame:|mount:)/;
+/// passes, scroll flushes and layout flags, a row's mount (`mount:`), RowFrame's commit (`frame:`), which is the
+/// same render `row:` already counted, and the pane's notes on records whose row is hidden (`record:`, `pane:`). They print, but stay out of a record's render total.
+const RENDER_EVENTS = /^(transcript:|layout\.|frame:|mount:|pane:|record:)/;
 /// Names whose part after the first `:` is one row's id: each folds into its kind (`row:a`, `row:b` count as `row`).
 const PER_ROW = new Set(["row", "content", "notice", "frame", "mount"]);
 /// A burst's render counts (perf.ts `renders`) per record, by component (pure): `total` sums components' commits,
@@ -616,6 +618,25 @@ export function rendersPerRecord(
     [...groups.entries()].sort((a, b) => b[1] - a[1]).map(([name, count]) => [name, per(count)]),
   );
   return { total: per(total), byComponent };
+}
+/// One row per record kind of `bursts` (RENDERS=1), means over its bursts (pure): pane and transcript renders per
+/// record, the share of records whose one changed row the running turn's closed fold hides (`record:row-hidden`), and
+/// the pane renders per record those hidden ones still cost (`pane:row-hidden`), which should be 0.
+export function kindRenderTable(
+  bursts: readonly Pick<BurstResult, "kind" | "renders">[],
+): { kind: string; pane: number; transcript: number; hiddenShare: number; hiddenPane: number }[] {
+  const byKind = new Map<string, Record<string, number>[]>();
+  for (const burst of bursts)
+    if (burst.renders) byKind.set(burst.kind, [...(byKind.get(burst.kind) ?? []), burst.renders.byComponent]);
+  const mean = (all: Record<string, number>[], name: string) =>
+    Math.round((all.reduce((sum, each) => sum + (each[name] ?? 0), 0) / all.length) * 100) / 100;
+  return [...byKind.entries()].map(([kind, all]) => ({
+    kind,
+    pane: mean(all, "pane"),
+    transcript: mean(all, "transcript"),
+    hiddenShare: mean(all, "record:row-hidden"),
+    hiddenPane: mean(all, "pane:row-hidden"),
+  }));
 }
 /// The page's size as a burst leaves it: a per-update cost that grows with the transcript while these stay flat is
 /// script work over every row; one that grows with them is the page's own (style, layout).
@@ -1142,6 +1163,22 @@ export function judge(opens: Open[], lives: Live[], burstLog = "long"): { rows: 
           },
           `one ${BURST_NAMES[kind]} commits this many transcript rows again`,
         );
+        // A record whose one changed row the running turn's closed fold hides draws nothing anyone
+        // sees in its row: the pane must not redraw for it (drawnRows.ts, `pane:row-hidden`). A call's
+        // start or end still moves the live line (turns.ts `lineCall`), so tool_call misses this
+        // until the line hears calls without the pane.
+        const hiddenPane = counted.map((b) => b.renders!.byComponent["pane:row-hidden"] ?? 0);
+        row(
+          {
+            name: `transcript_replay.long.${kind}.hidden_pane_renders_per_record`,
+            p50: median(hiddenPane),
+            p95: worst(hiddenPane),
+            unit: "count",
+            target: BUDGET.hiddenPaneRenders,
+            floor: 0.05,
+          },
+          `one ${BURST_NAMES[kind]} whose row sits under the running turn's closed fold still redraws the pane`,
+        );
       }
       const growth = Math.round(slope(points) * 1000) / 1000;
       row(
@@ -1404,6 +1441,18 @@ if (import.meta.main) {
         console.log(`transcript-replay: ${log.name} FAILED: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
+    if (RENDERS)
+      for (const live of lives) {
+        const table = kindRenderTable(live.bursts);
+        if (!table.length) continue;
+        console.log(`transcript-replay: ${live.log} renders per record by kind`);
+        console.log("  kind         pane  transcript  hidden-row share  pane per hidden record");
+        for (const each of table)
+          console.log(
+            `  ${each.kind.padEnd(12)} ${String(each.pane).padStart(4)}  ${String(each.transcript).padStart(10)}  ` +
+              `${String(each.hiddenShare).padStart(16)}  ${String(each.hiddenPane).padStart(22)}`,
+          );
+      }
     const { rows, misses } = judge(opens, lives, BURST_LOG);
     for (const each of rows) perfRow(each);
     for (const miss of misses) console.log(`transcript-replay: ${miss}`);

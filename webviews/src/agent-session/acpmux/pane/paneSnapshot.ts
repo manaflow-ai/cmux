@@ -68,6 +68,7 @@ import { reconciledProject } from "../newtab/startHint";
 import { streamingRow, streamingRowBlocked } from "../streamingRow";
 import { liveToolOutput, toolOutputOnly } from "../liveToolOutput";
 import { liveThought, thoughtOnly } from "../liveThought";
+import { changeHidden } from "../drawnRows";
 import { liveSummary, usageOnly } from "../liveSummary";
 import { pageLanes } from "../schedule/lanes";
 import type { ComposerHandle, ComposerWake } from "../Composer";
@@ -1310,6 +1311,10 @@ export function paneSnapshotEffect({
           const drawn = drawnSnapshot.current;
           const received = receivedSnapshot.current;
           receivedSnapshot.current = next;
+          // The replay bench's per-kind table: records whose one changed row is hidden under the
+          // running turn's closed fold, and those that still redraw the pane (drawnRows.ts).
+          const hiddenChange = acpmuxPerf.enabled && received !== undefined && changeHidden(received, next);
+          if (hiddenChange) acpmuxPerf.render("record:row-hidden");
           const at = drawn ? streamedOnly(drawn, next) : -1;
           if (drawn && at >= 0) {
             streamingRow.set(next.rows[at]!, drawn.rows[at]!);
@@ -1341,6 +1346,7 @@ export function paneSnapshotEffect({
             liveSummary.set(drawn.summary!, next.summary!);
             return;
           }
+          if (hiddenChange) acpmuxPerf.render("pane:row-hidden");
           streamingRow.clear();
           liveSummary.clear();
           toolOutputEpoch.current = liveToolOutput.redraw();
