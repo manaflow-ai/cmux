@@ -392,7 +392,12 @@ fn session_snapshot(context: &LocalResourceContext) -> Value {
 /// already names its own cursor.
 fn session_list_row(context: &LocalResourceContext) -> Value {
     let mut row = session_snapshot(context);
-    row["extra"] = json!({"journal_head_sequence": context.journal_head.to_string()});
+    if let Some(fields) = row.as_object_mut() {
+        fields.insert(
+            "extra".to_owned(),
+            json!({"journal_head_sequence": context.journal_head.to_string()}),
+        );
+    }
     row
 }
 
