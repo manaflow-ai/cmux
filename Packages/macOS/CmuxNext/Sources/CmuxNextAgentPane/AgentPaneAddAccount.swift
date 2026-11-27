@@ -2,7 +2,13 @@ import Foundation
 
 /// A bounded Add account form, forwarded unchanged to the daemon's existing local route writer.
 /// Rust owns route kinds, credential-reference validation and defaults; replacement is never offered.
+/// A Claude setup token (`kind: claude-token`, cmux#59852) is the one exception: the page sends the
+/// token itself, which is checked here, put in the Keychain and handed to acpmux by reference only
+/// (`_acpmux/connections/claude_token.add`), as Settings > Models adds one.
 public nonisolated struct AgentPaneAddAccount: Equatable, Sendable {
+    /// The kind of a Claude setup token's account (acpmux `RouteKind::ClaudeToken`).
+    static let claudeTokenKind = "claude-token"
+
     public let id: String
     public let kind: String
     public let family: String
@@ -35,11 +41,12 @@ public nonisolated struct AgentPaneAddAccount: Equatable, Sendable {
     }
 
     @MainActor
-    func reply(in model: AgentPaneModel) async -> [String: Any] {
+    func reply(in model: AgentPaneModel, keys: any ModelKeyStoring = KeychainModelKeyStore()) async -> [String: Any] {
         guard !model.remoteChat else { return AgentPaneModel.unsupported("account.add") }
         // The App records native input; no parameter supplied by the page can grant this.
         guard model.transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
         guard let socket = model.transport.acpmuxSocket else { return AgentPaneModel.transportFailure(.noConnection) }
+        if kind == Self.claudeTokenKind { return await addClaudeToken(socket: socket, keys: keys) }
         do {
             var params: [String: any Sendable] = ["families": [family]]
             for (key, value) in fields where key != "family" { params[key] = value }
@@ -55,4 +62,43 @@ public nonisolated struct AgentPaneAddAccount: Equatable, Sendable {
             return AgentPaneModel.transportFailure(.noConnection)
         }
     }
+
+    /// The token with all whitespace out (a terminal's wrap, padding, a zero-width space a copy added),
+    /// refused with a sentence the dialog shows when it is not `claude setup-token`'s; then into the
+    /// Keychain, and acpmux gets the reference with the account's name as its label. A refused add
+    /// takes the Keychain item back out.
+    @MainActor
+    private func addClaudeToken(socket: String, keys: any ModelKeyStoring) async -> [String: Any] {
+        guard family == "claude" else {
+            return AgentPaneReply.failure(code: "account.failed", message: "A Claude setup token signs in Claude only.")
+        }
+        let token = ClaudeSetupToken.withoutWhitespace(fields["secret"] ?? "")
+        guard ClaudeSetupToken.isValid(token) else {
+            return AgentPaneReply.failure(code: "account.failed", message: Self.notAToken)
+        }
+        let reference: String
+        do { reference = try await keys.store(token, provider: Self.claudeTokenKind) } catch {
+            return AgentPaneReply.failure(code: "account.failed", message: "The token could not be stored in the Keychain.")
+        }
+        var params: [String: any Sendable] = ["secret": reference]
+        if let name = fields["name"]?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty {
+            params["label"] = String(name.prefix(128))
+        }
+        do {
+            let value = try await AcpmuxStatusClient.call(socketPath: socket, method: AcpmuxHarnessMethod.claudeTokenAdd.rawValue,
+                                                          params: params, deadline: .seconds(20), detailed: true)
+            return AgentPaneReply.success(value)
+        } catch let error as AcpmuxRPCError {
+            await keys.delete(reference)
+            return AgentPaneReply.failure(code: "account.failed", message: error.message)
+        } catch AcpmuxStatusClient.Failure.rpc(let message) {
+            await keys.delete(reference)
+            return AgentPaneReply.failure(code: "account.failed", message: message)
+        } catch {
+            await keys.delete(reference)
+            return AgentPaneModel.transportFailure(.noConnection)
+        }
+    }
+
+    static let notAToken = "That is not a Claude setup token. Run claude setup-token in a terminal and paste the sk-ant-oat token it prints."
 }

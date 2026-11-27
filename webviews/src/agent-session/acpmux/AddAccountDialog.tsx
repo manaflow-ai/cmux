@@ -2,14 +2,25 @@ import { useId, useRef, useState } from "react";
 import { ChoiceGroup } from "../../ui/ChoiceGroup";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton } from "../../ui/DialogButton";
+import { CLAUDE_SETUP_TOKEN_COMMAND, normalizeClaudeToken } from "../shared/claudeSetupToken";
 import type { NewChatAccount } from "./chatAccounts";
+import { checkToken } from "./claudeConnect";
+import { CopyButton } from "./conversation/CopyButton";
 import { useT, type StringKey } from "./i18n";
 import "./addAccount.css";
+import "./claudeConnect.css";
 import { accountIdFor } from "./addAccountDialogModel";
 
 type Kind = "direct-subscription" | "direct-api-key";
-/** new: a fresh login folder of its own; cli: the CLI's own login on this Mac; key: an API key. */
-type Way = "new" | "cli" | "key";
+/** new: a fresh login folder of its own; cli: the CLI's own login on this Mac; token: a Claude setup
+ * token (`claude setup-token`, Claude only); key: an API key. */
+type Way = "new" | "cli" | "token" | "key";
+
+/** The kind acpmux gives a Claude setup token's account (routes.rs `RouteKind::ClaudeToken`): the host
+ * checks the token, keeps it in the Keychain and hands acpmux only its reference (cmux#59852). */
+export const CLAUDE_TOKEN_KIND = "claude-token";
+
+const TOKEN_PLACEHOLDER = "sk-ant-oat01-…";
 
 /** The families whose CLI keeps its login in a folder a second account can have its own copy of. */
 const BRANDS: Record<string, { brand: StringKey; cli: StringKey; folder: string }> = {
@@ -41,11 +52,14 @@ export function AddAccountDialog({
   const known = BRANDS[family];
   const ways: Way[] = [
     ...(kinds.includes("direct-subscription") ? (known ? (["new", "cli"] as const) : (["cli"] as const)) : []),
+    // Claude's long-lived token from `claude setup-token`, the same one Settings > Cloud takes.
+    ...(kinds.includes("direct-subscription") && family === "claude" ? (["token"] as const) : []),
     ...(kinds.includes("direct-api-key") ? (["key"] as const) : []),
   ];
   const [way, setWay] = useState<Way>(ways[0] ?? "key");
   const [name, setName] = useState("");
   const [secret, setSecret] = useState("");
+  const [token, setToken] = useState("");
   const [pending, setPending] = useState(false);
   const sending = useRef(false);
   const [error, setError] = useState<string>();
@@ -61,7 +75,13 @@ export function AddAccountDialog({
     }
   };
   const defaultName =
-    way === "new" ? nextName() : way === "cli" ? t("picker.addName.cli", { cli }) : t("picker.addName.key", { brand });
+    way === "new"
+      ? nextName()
+      : way === "cli"
+        ? t("picker.addName.cli", { cli })
+        : way === "token"
+          ? t("picker.addName.token")
+          : t("picker.addName.key", { brand });
   const id = accountIdFor(name.trim(), defaultName, existing);
   const folder = `~/.cmux/accounts/${id}`;
   const choices: { way: Way; title: string; detail: string }[] = ways.map((value) =>
@@ -73,14 +93,17 @@ export function AddAccountDialog({
             title: t("picker.addWay.cli", { cli }),
             detail: known ? t("picker.addWay.cliDetail", { folder: known.folder }) : t("picker.addWay.cliDetailAny"),
           }
-        : { way: value, title: t("picker.addWay.key"), detail: t("picker.addWay.keyDetail") },
+        : value === "token"
+          ? { way: value, title: t("picker.addWay.token"), detail: t("picker.addWay.tokenDetail") }
+          : { way: value, title: t("picker.addWay.key"), detail: t("picker.addWay.keyDetail") },
   );
-  const ready = way !== "key" || !!secret.trim();
+  const tokenCheck = checkToken(token);
+  const ready = way === "key" ? !!secret.trim() : way === "token" ? tokenCheck === "valid" : true;
   const submit = () => {
     if (sending.current || !ready) return;
     const account: NewChatAccount = {
       id,
-      kind: way === "key" ? "direct-api-key" : "direct-subscription",
+      kind: way === "key" ? "direct-api-key" : way === "token" ? CLAUDE_TOKEN_KIND : "direct-subscription",
       family,
       name: name.trim() || defaultName,
     };
@@ -88,6 +111,8 @@ export function AddAccountDialog({
     // A second ChatGPT login shares the CLI's conversations, so routing can move a chat onto it.
     if (way === "new" && family === "codex") account.shadow = true;
     if (way === "key") account.secret = secret.trim();
+    // Every whitespace character out: a terminal that wrapped or padded the token gives back the one it printed.
+    if (way === "token") account.secret = normalizeClaudeToken(token);
     sending.current = true;
     setPending(true);
     setError(undefined);
@@ -195,6 +220,50 @@ export function AddAccountDialog({
             />
             <small>{t("picker.accountSecretHint")}</small>
           </label>
+        )}
+        {way === "token" && (
+          <>
+            <div className="acpmux-add-account-field">
+              <span>{t("picker.connectClaude.step1")}</span>
+              <span className="acpmux-connect-claude-command">
+                <code className="selectable">{CLAUDE_SETUP_TOKEN_COMMAND}</code>
+                <CopyButton
+                  text={CLAUDE_SETUP_TOKEN_COMMAND}
+                  label={t("picker.connectClaude.copy")}
+                  className="ui-button ui-btn acpmux-connect-claude-copy"
+                  size={14}
+                />
+              </span>
+            </div>
+            <label className="acpmux-add-account-field">
+              <span>{t("picker.connectClaude.step2")}</span>
+              <input
+                name="token"
+                type="password"
+                aria-label={t("picker.connectClaude.step2")}
+                aria-invalid={tokenCheck === "invalid" || undefined}
+                aria-describedby={`${group}-token-help`}
+                value={token}
+                placeholder={TOKEN_PLACEHOLDER}
+                required
+                maxLength={4096}
+                disabled={pending}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(event) => {
+                  setToken(normalizeClaudeToken(event.target.value));
+                  setError(undefined);
+                }}
+              />
+              {tokenCheck === "invalid" ? (
+                <small id={`${group}-token-help`} role="alert" className="acpmux-add-account-error">
+                  {t("picker.connectClaude.invalid")}
+                </small>
+              ) : (
+                <small id={`${group}-token-help`}>{t("picker.connectClaude.tokenHint")}</small>
+              )}
+            </label>
+          </>
         )}
         {way === "new" && <p className="acpmux-add-account-note">{t("picker.addNote.new", { brand })}</p>}
         {error && (

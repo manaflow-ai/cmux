@@ -6,6 +6,23 @@ private actor AccountNoHost: AgentPaneHostProviding {
     func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
 }
 
+/// The Keychain in memory: what was stored under which reference, and what was taken back out.
+private final class MemoryKeys: ModelKeyStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _stored: [String: String] = [:]
+    private var _deleted: [String] = []
+    var stored: [String: String] { lock.withLock { _stored } }
+    var deleted: [String] { lock.withLock { _deleted } }
+    func store(_ key: String, provider: String) async throws -> String {
+        lock.withLock {
+            let reference = "keychain:test/\(provider)-\(_stored.count + 1)"
+            _stored[reference] = key
+            return reference
+        }
+    }
+    func delete(_ reference: String) async { lock.withLock { _deleted.append(reference) } }
+}
+
 @Suite(.serialized)
 @MainActor
 struct AgentPaneAddAccountTests {
@@ -82,5 +99,82 @@ struct AgentPaneAddAccountTests {
         if case .send = AcpmuxPaneMethods.decide(frame, isFirst: false, localAppToken: nil) {
             Issue.record("route/add must remain off the page transport allowlist")
         }
+    }
+
+    // cmux#59852: Add account's Claude setup token goes to the Keychain, and acpmux gets only its reference.
+    private func tokenRequest(_ secret: String, family: String = "claude") -> AgentPaneAddAccount? {
+        AgentPaneAddAccount(params: ["id": "claude-setup-token", "kind": "claude-token", "family": family,
+                                     "name": " Personal ", "secret": secret])
+    }
+
+    @Test func aClaudeSetupTokenIsStoredWithoutWhitespaceAndAddedByReference() async throws {
+        let socket = FileManager.default.temporaryDirectory.appendingPathComponent("t-\(UUID().uuidString).sock").path
+        let relay = try OneShotRelay(path: socket, replies: [
+            #"{"jsonrpc":"2.0","id":1,"result":{"_meta":{"acpmux":{"origin":"local"}}}}"#,
+            #"{"jsonrpc":"2.0","id":2,"result":{"connections":[{"id":"claude-token","kind":"claude-token"}]}}"#,
+        ])
+        defer { relay.stop() }
+        let model = AgentPaneModel(host: AccountNoHost(), sessionId: "session-1")
+        model.transport.acpmuxSocket = socket
+        model.transport.gestures.record(click: true)
+        let keys = MemoryKeys()
+        let request = try #require(tokenRequest(" sk-ant-oat01-ab\n  cd\t\u{a0}ef\u{200B} \r\n"))
+        #expect(!String(reflecting: AgentPaneRequest.addAccount(request)).contains("sk-ant"))
+        let reply = await request.reply(in: model, keys: keys)
+        #expect(reply["error"] == nil)
+        #expect(keys.stored == ["keychain:test/claude-token-1": "sk-ant-oat01-abcdef"])
+        let calls = relay.requests.compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+        let add = try #require(calls.first { $0["method"] as? String == "_acpmux/connections/claude_token.add" })
+        let params = try #require(add["params"] as? [String: Any])
+        #expect(params["secret"] as? String == "keychain:test/claude-token-1")
+        #expect(params["label"] as? String == "Personal")
+        #expect(params.count == 2, "the token itself never reaches acpmux")
+        #expect(!relay.requests.joined().contains("sk-ant-oat"))
+        #expect(!calls.contains { $0["method"] as? String == "_acpmux/route/add" })
+        #expect(keys.deleted.isEmpty)
+    }
+
+    @Test(arguments: ["sk-ant-api03-abc", "", "sk-ant-oat01-a!b"])
+    func aValueThatIsNotASetupTokenIsRefusedBeforeTheKeychain(secret: String) async throws {
+        let model = AgentPaneModel(host: AccountNoHost(), sessionId: "session-1")
+        model.transport.acpmuxSocket = "/tmp/never-\(UUID().uuidString).sock"
+        model.transport.gestures.record(click: true)
+        let keys = MemoryKeys()
+        let request = try #require(tokenRequest(secret))
+        let reply = await request.reply(in: model, keys: keys)
+        let error = try #require(reply["error"] as? [String: Any])
+        #expect(error["code"] as? String == "account.failed")
+        #expect(error["message"] as? String == AgentPaneAddAccount.notAToken)
+        #expect(keys.stored.isEmpty)
+    }
+
+    @Test func aTokenAcpmuxRefusesIsTakenBackOutOfTheKeychainAndItsReasonShown() async throws {
+        let socket = FileManager.default.temporaryDirectory.appendingPathComponent("r-\(UUID().uuidString).sock").path
+        let relay = try OneShotRelay(path: socket, replies: [
+            #"{"jsonrpc":"2.0","id":1,"result":{"_meta":{"acpmux":{"origin":"local"}}}}"#,
+            #"{"jsonrpc":"2.0","id":2,"error":{"code":-32602,"message":"too many Claude tokens"}}"#,
+        ])
+        defer { relay.stop() }
+        let model = AgentPaneModel(host: AccountNoHost(), sessionId: "session-1")
+        model.transport.acpmuxSocket = socket
+        model.transport.gestures.record(click: true)
+        let keys = MemoryKeys()
+        let request = try #require(tokenRequest("sk-ant-oat01-abc"))
+        let reply = await request.reply(in: model, keys: keys)
+        let error = try #require(reply["error"] as? [String: Any])
+        #expect(error["code"] as? String == "account.failed")
+        #expect(error["message"] as? String == "too many Claude tokens")
+        #expect(keys.deleted == ["keychain:test/claude-token-1"])
+    }
+
+    @Test func aSetupTokenForAnotherFamilyIsRefused() async throws {
+        let model = AgentPaneModel(host: AccountNoHost(), sessionId: "session-1")
+        model.transport.acpmuxSocket = "/tmp/never-\(UUID().uuidString).sock"
+        model.transport.gestures.record(click: true)
+        let keys = MemoryKeys()
+        let request = try #require(tokenRequest("sk-ant-oat01-abc", family: "codex"))
+        let reply = await request.reply(in: model, keys: keys)
+        #expect((reply["error"] as? [String: Any])?["code"] as? String == "account.failed")
+        #expect(keys.stored.isEmpty)
     }
 }

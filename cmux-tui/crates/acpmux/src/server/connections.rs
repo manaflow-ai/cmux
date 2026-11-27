@@ -480,7 +480,10 @@ pub(super) fn add_claude_token(
         health_url: None,
         fallback: vec![],
         auto_fallback: false,
-        notes: Some("claude setup-token: served to Cloud machines' Claude agents".into()),
+        notes: Some(
+            "claude setup-token: serves Claude chats on this Mac and Cloud machines' Claude agents"
+                .into(),
+        ),
         account_home: None,
         shadow_of: None,
         disabled: false,
@@ -1132,10 +1135,19 @@ mod tests {
         assert_eq!(c["serves_cloud"], true);
         let route = routes::find(Some(&d.routes), "claude-token").unwrap();
         assert_eq!(route.file.secret.as_deref(), Some(reference.as_str()), "only the reference");
-        assert!(matches!(
-            routes::env_for(&route, "claude", &d.home),
-            Err(routes::RouteError::Unavailable(_))
-        ));
+        // cmux#59852: a chat on this Mac runs on it too, signed in by the token's reference alone.
+        let env = routes::env_for(&route, "claude", &d.home).unwrap();
+        assert_eq!(
+            env.set,
+            [("CLAUDE_CODE_OAUTH_TOKEN".to_owned(), format!("${{{reference}}}"))].into()
+        );
+        for scrubbed in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"] {
+            assert!(env.unset.iter().any(|k| k == scrubbed), "{scrubbed} would win over the token");
+        }
+        assert!(
+            routes::env_for(&route, "codex", &d.home).is_err(),
+            "a Claude token serves Claude only"
+        );
         let (family, kind, var, secret) =
             credential_plan(Some(&d.routes), &d.home, "claude-token").unwrap();
         assert_eq!(

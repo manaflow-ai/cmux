@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "picker.addWay.tokenDetail" : {
+      "comment" : "Model picker, Add account sheet.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تسجيل دخول طويل الأمد من claude setup-token، للمحادثات على هذا الـ Mac وفي Cloud"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dugotrajna prijava iz claude setup-token, za razgovore na ovom Macu i u Cloudu"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et langvarigt login fra claude setup-token til chats på denne Mac og i Cloud"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Eine langlebige Anmeldung aus claude setup-token, für Chats auf diesem Mac und in der Cloud"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A long-lived login from claude setup-token, for chats on this Mac and in Cloud"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un inicio de sesión duradero de claude setup-token, para chats en este Mac y en Cloud"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une connexion durable issue de claude setup-token, pour les chats sur ce Mac et dans Cloud"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un accesso di lunga durata da claude setup-token, per le chat su questo Mac e in Cloud"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude setup-token の長期ログイン。この Mac と Cloud のチャットで使えます"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការចូលរយៈពេលវែងពី claude setup-token សម្រាប់ការជជែកលើ Mac នេះ និងក្នុង Cloud"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude setup-token의 장기 로그인. 이 Mac과 Cloud의 채팅에 사용"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En langvarig innlogging fra claude setup-token, for chatter på denne Macen og i Cloud"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Długotrwałe logowanie z claude setup-token, do czatów na tym Macu i w Cloud"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Um login duradouro do claude setup-token, para chats neste Mac e no Cloud"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Долгосрочный вход из claude setup-token для чатов на этом Mac и в Cloud"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "การเข้าสู่ระบบระยะยาวจาก claude setup-token สำหรับแชทบน Mac เครื่องนี้และใน Cloud"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "claude setup-token ile uzun ömürlü bir oturum; bu Mac’teki ve Cloud’daki sohbetler için"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Довготривалий вхід із claude setup-token для чатів на цьому Mac і в Cloud"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đăng nhập dài hạn từ claude setup-token, cho các cuộc trò chuyện trên máy Mac này và trên Cloud"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "来自 claude setup-token 的长期登录，用于此 Mac 和 Cloud 中的聊天"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "來自 claude setup-token 的長期登入，用於此 Mac 與 Cloud 中的聊天"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

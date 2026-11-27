@@ -41,7 +41,7 @@ afterEach(async () => {
   saved.clear();
 });
 
-async function render(family: string, added: NewChatAccount[], existing: string[] = []) {
+async function render(family: string, added: NewChatAccount[], existing: string[] = [], refusal?: string) {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
     url: "http://localhost/",
     pretendToBeVisual: true,
@@ -70,6 +70,7 @@ async function render(family: string, added: NewChatAccount[], existing: string[
         existing={existing}
         add={async (account) => {
           added.push(account);
+          if (refusal) throw new Error(refusal);
         }}
         onClose={() => undefined}
         onAdded={() => undefined}
@@ -142,4 +143,82 @@ test("an unavailable submit looks unavailable", async () => {
   const submit = dialog.querySelector<HTMLButtonElement>('footer button[type="submit"]')!;
   expect(submit.disabled).toBe(true);
   expect(submit.hasAttribute("data-disabled")).toBe(true);
+});
+
+async function typeInto(input: HTMLInputElement, value: string) {
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom!.window.HTMLInputElement.prototype, "value")!.set!;
+    setter.call(input, value);
+    input.dispatchEvent(new dom!.window.Event("input", { bubbles: true }));
+  });
+}
+
+async function pickToken(dialog: HTMLElement) {
+  const ways = [...dialog.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+  const token = ways.find((input) => input.value === "token")!;
+  await act(async () => token.click());
+  return dialog.querySelector<HTMLInputElement>('input[name="token"]')!;
+}
+
+// cmux#59852: a Claude account can be a `claude setup-token` token, as Settings > Cloud takes one.
+test("a Claude account offers a setup token beside the logins and an API key; Codex does not", async () => {
+  const claude = await render("claude", []);
+  const ways = [...claude.querySelectorAll(".acpmux-add-account-way strong")].map((node) => node.textContent);
+  expect(ways).toEqual([
+    "Sign in with Claude",
+    "Use the Claude Code login on this Mac",
+    "Use a Claude setup token",
+    "Use an API key",
+  ]);
+  act(() => root?.unmount());
+  root = undefined;
+  const codex = await render("codex", []);
+  expect(codex.querySelector('input[value="token"]')).toBeNull();
+});
+
+test("the token way shows the command to run and keeps Add account off until a setup token is pasted", async () => {
+  const added: NewChatAccount[] = [];
+  const dialog = await render("claude", added);
+  const field = await pickToken(dialog);
+  expect(field.type).toBe("password");
+  expect(dialog.querySelector("code")?.textContent).toBe("claude setup-token");
+  const button = dialog.querySelector<HTMLButtonElement>('footer button[type="submit"]')!;
+  expect(button.disabled).toBe(true);
+  await typeInto(field, "sk-ant-api03-not-a-token");
+  expect(field.getAttribute("aria-invalid")).toBe("true");
+  expect(dialog.querySelector('[role="alert"]')?.textContent).toContain("isn’t a Claude setup token");
+  expect(button.disabled).toBe(true);
+  await submit(dialog);
+  expect(added).toEqual([]);
+});
+
+test("a pasted token loses every whitespace character and is added as a claude-token account", async () => {
+  const added: NewChatAccount[] = [];
+  const dialog = await render("claude", added);
+  const field = await pickToken(dialog);
+  await typeInto(field, " sk-ant-oat01-ab\n  cd\t\u00a0ef\u200b \r\n");
+  expect(field.value).toBe("sk-ant-oat01-abcdef");
+  expect(dialog.querySelector('[role="alert"]')).toBeNull();
+  await submit(dialog);
+  expect(added).toEqual([
+    {
+      id: "claude-setup-token",
+      kind: "claude-token",
+      family: "claude",
+      name: "Claude setup token",
+      secret: "sk-ant-oat01-abcdef",
+    },
+  ]);
+});
+
+test("a refused token shows the host's reason and leaves the dialog open", async () => {
+  const added: NewChatAccount[] = [];
+  const dialog = await render("claude", added, [], "The token could not be stored in the Keychain.");
+  await typeInto(await pickToken(dialog), "sk-ant-oat01-abc");
+  await submit(dialog);
+  expect(added).toHaveLength(1);
+  expect(dialog.querySelector('[role="alert"]')?.textContent).toContain(
+    "The token could not be stored in the Keychain.",
+  );
+  expect(dialog.querySelector<HTMLButtonElement>('footer button[type="submit"]')!.disabled).toBe(false);
 });

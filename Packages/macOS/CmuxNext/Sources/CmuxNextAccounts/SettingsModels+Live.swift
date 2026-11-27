@@ -4,51 +4,6 @@ public import CmuxNextSettings
 import CmuxNextWakeups
 public import Foundation
 
-/// Where a pasted model API key goes on this Mac: the Keychain, before acpmux hears of it. acpmux gets
-/// only the returned reference (`keychain:SERVICE/ACCOUNT`) and resolves it itself at each request.
-public protocol ModelKeyStoring: Sendable {
-    /// Stores KEY for PROVIDER; answers its `keychain:` reference.
-    func store(_ key: String, provider: String) async throws -> String
-    /// Removes a stored key by its reference (a connection that was never added).
-    func delete(_ reference: String) async
-}
-
-/// The login Keychain through `/usr/bin/security`, as acpmux's own `cmux harness secret set` stores
-/// one (cli/harness_secret.rs): the item's creator is `security`, so acpmux's
-/// `security find-generic-password` reads it without a prompt. The key goes only to the tool's
-/// standard input (`security -i`), never its arguments, and its output (which can echo the line) is
-/// dropped.
-public struct KeychainModelKeyStore: ModelKeyStoring {
-    public static let service = "cmux-model-key"
-
-    public init() {}
-
-    public func store(_ key: String, provider: String) async throws -> String {
-        let account = "\(provider)-\(UUID().uuidString.lowercased().prefix(8))"
-        let line = "add-generic-password -U -s \(Self.quoted(Self.service)) -a \(Self.quoted(account)) "
-            + "-l \(Self.quoted("cmux \(provider) API key")) -w \(Self.quoted(key))\n"
-        let ran = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/usr/bin/security"), ["-i"],
-                                                              input: Data(line.utf8), errorOutput: .discard, timeout: .seconds(30), onCancel: .finish))
-        guard ran.succeeded else { throw PageError(code: "cmux.models.keychain", message: "the key could not be stored in the Keychain") }
-        return "keychain:\(Self.service)/\(account)"
-    }
-
-    public func delete(_ reference: String) async {
-        let prefix = "keychain:\(Self.service)/"
-        guard reference.hasPrefix(prefix) else { return }
-        let account = String(reference.dropFirst(prefix.count))
-        guard !account.isEmpty, !account.contains("/") else { return }
-        _ = try? await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/usr/bin/security"),
-                                                         ["delete-generic-password", "-s", Self.service, "-a", account],
-                                                         errorOutput: .discard, timeout: .seconds(30)))
-    }
-
-    /// One `security -i` word: quoted, with `\` and `"` escaped.
-    nonisolated static func quoted(_ text: String) -> String {
-        "\"" + text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
-    }
-}
-
 extension SettingsModels {
     /// Continue with ChatGPT: acpmux starts the attempt and its callback listener, OpenAI's sign-in page
     /// opens in cmux's own browser (the person's when there is none), and acpmux's answer is awaited off the main thread
@@ -280,29 +235,14 @@ extension SettingsModels {
         try await addSecret(token, store: "claude-token", method: .claudeTokenAdd, params: [:], label: label)
     }
 
-    nonisolated static let claudeTokenPrefix = "sk-ant-oat"
+    nonisolated static let claudeTokenPrefix = ClaudeSetupToken.prefix
 
-    /// TOKEN with every space, tab, line break and invisible space (zero-width, BOM) taken out. A setup
-    /// token never holds whitespace, so a pasted one loses only what the copy added.
-    nonisolated static func withoutWhitespace(_ secret: String) -> String {
-        String(String.UnicodeScalarView(secret.unicodeScalars.filter { scalar in
-            !scalar.properties.isWhitespace && !invisibleSpaces.contains(scalar.value)
-        }))
-    }
+    /// TOKEN with every space, tab, line break and invisible space (zero-width, BOM) taken out
+    /// (``ClaudeSetupToken/withoutWhitespace(_:)``, which the chat's Add account checks with too).
+    nonisolated static func withoutWhitespace(_ secret: String) -> String { ClaudeSetupToken.withoutWhitespace(secret) }
 
-    /// Zero-width space, non-joiner, joiner, word joiner and BOM: not whitespace to Unicode, but a paste adds them.
-    nonisolated private static let invisibleSpaces: Set<UInt32> = [0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF]
-
-    /// Whether TOKEN reads as a Claude setup token: `sk-ant-oat`, two digits, a dash, then base64url
-    /// (letters, digits, `-`, `_`), as webviews' `claudeSetupToken.ts` checks it.
-    nonisolated static func isClaudeToken(_ token: String) -> Bool {
-        guard token.hasPrefix(claudeTokenPrefix), token.utf8.count <= keyLimit else { return false }
-        let rest = Array(token.utf8.dropFirst(claudeTokenPrefix.utf8.count))
-        guard rest.count > 3, rest[0] >= 0x30, rest[0] <= 0x39, rest[1] >= 0x30, rest[1] <= 0x39, rest[2] == 0x2D else { return false }
-        return rest.dropFirst(3).allSatisfy { byte in
-            (byte >= 0x30 && byte <= 0x39) || (byte >= 0x41 && byte <= 0x5A) || (byte >= 0x61 && byte <= 0x7A) || byte == 0x2D || byte == 0x5F
-        }
-    }
+    /// Whether TOKEN reads as a Claude setup token (``ClaudeSetupToken/isValid(_:)``).
+    nonisolated static func isClaudeToken(_ token: String) -> Bool { ClaudeSetupToken.isValid(token) }
 
     /// One line of printable characters with no spaces, as a key or token is; the Keychain line must not break.
     nonisolated static func isOneWord(_ secret: String) -> Bool {

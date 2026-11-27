@@ -178,11 +178,9 @@ pub(super) async fn handle(
             let route = text("routeId").map(str::to_owned);
             if let Some(id) = &route {
                 let found = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
-                // A ChatGPT plan serves Cloud threads through the gateway, never a chat here.
-                if matches!(
-                    found.file.kind,
-                    routes::RouteKind::ChatgptPlan | routes::RouteKind::ClaudeToken
-                ) {
+                // A ChatGPT plan serves Cloud threads through the gateway, never a chat here. A
+                // Claude setup token serves chats here too (cmux#59852).
+                if found.file.kind == routes::RouteKind::ChatgptPlan {
                     return Err(RpcError::invalid_params(format!(
                         "{id} is a Cloud connection: it serves Cloud chats, not new chats on this Mac"
                     )));

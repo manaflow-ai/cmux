@@ -157,7 +157,8 @@ pub enum RouteKind {
     ChatgptPlan,
     /// Claude Code's long-lived token from `claude setup-token`, as a secret reference
     /// (`_acpmux/connections/claude_token.add`). Delivered to a Cloud machine's agent as
-    /// `CLAUDE_CODE_OAUTH_TOKEN` (`_acpmux/connections/credential`); a local spawn never runs on it.
+    /// `CLAUDE_CODE_OAUTH_TOKEN` (`_acpmux/connections/credential`), and to a local Claude spawn
+    /// that runs on it the same way ([`env_for_on`], cmux#59852).
     ClaudeToken,
 }
 
@@ -1071,7 +1072,7 @@ pub fn env_for_on(
     home: &Path,
     gateway: Option<&str>,
 ) -> Result<RouteEnv, RouteError> {
-    if matches!(route.file.kind, RouteKind::ChatgptPlan | RouteKind::ClaudeToken) {
+    if route.file.kind == RouteKind::ChatgptPlan {
         return Err(RouteError::Unavailable(format!(
             "route {} is a Cloud connection: its credential goes to a Cloud machine's agent, not a chat on this Mac",
             route.id
@@ -1087,6 +1088,15 @@ pub fn env_for_on(
         set: BTreeMap::new(),
         unset: SCRUBBED.iter().map(|k| (*k).to_owned()).collect(),
     };
+    // A Claude setup token signs Claude Code in as the subscription it was made for: its reference
+    // goes in `CLAUDE_CODE_OAUTH_TOKEN`, resolved at the spawn like a key, with no endpoint and none
+    // of the scrubbed keys (an `ANTHROPIC_API_KEY` would win over it).
+    if route.file.kind == RouteKind::ClaudeToken {
+        if let Some(secret) = route.file.secret.as_deref() {
+            out.set.insert(crate::agent_credentials::CLAUDE_OAUTH.into(), reference_value(secret));
+        }
+        return Ok(out);
+    }
     let anthropic = is_anthropic_family(family);
     let (mut base, mut secret_value): (Option<String>, Option<String>) = (
         if anthropic {
