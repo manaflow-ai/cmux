@@ -17,7 +17,7 @@ import Testing
         ]),
     ])
 
-    static func reported(_ store: DaemonStore) -> (loaded: JSONValue?, state: JSONValue?) {
+    static func reported(_ store: DaemonStore) -> (loaded: CmuxNextSettings.JSONValue?, state: CmuxNextSettings.JSONValue?) {
         let json = ControlTopology(store: store, selectedTab: { $0.tabs.first?.id }).json
         return (json["loaded"], json["daemon_state"])
     }
@@ -26,15 +26,15 @@ import Testing
         let store = DaemonStore()
         // As `DaemonService.showLaunchSnapshot`: the saved tree first, then the socket connects.
         store.applyProvisional(snapshot: Self.tree)
-        #expect(Self.reported(store).loaded == .bool(false))
+        #expect(Self.reported(store).loaded == CmuxNextSettings.JSONValue.bool(false))
         _ = store.apply(.connected(DaemonIdentity(generation: "boot"), generationChanged: true))
         let early = Self.reported(store)
-        #expect(early.loaded == .bool(false), "snapshot.get said loaded on the launch snapshot")
-        #expect(early.state == .string("connecting"), "snapshot.get said \(String(describing: early.state)) on the launch snapshot")
+        #expect(early.loaded == CmuxNextSettings.JSONValue.bool(false), "snapshot.get said loaded on the launch snapshot")
+        #expect(early.state == CmuxNextSettings.JSONValue.string("connecting"), "snapshot.get said \(String(describing: early.state)) on the launch snapshot")
         // The first live snapshot: now the tree is the daemon's.
         store.apply(snapshot: Self.tree)
         let live = Self.reported(store)
-        #expect(live.loaded == .bool(true))
-        #expect(live.state == .string("connected"))
+        #expect(live.loaded == CmuxNextSettings.JSONValue.bool(true))
+        #expect(live.state == CmuxNextSettings.JSONValue.string("connected"))
     }
 }
