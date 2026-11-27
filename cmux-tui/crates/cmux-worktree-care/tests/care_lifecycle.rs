@@ -929,6 +929,7 @@ fn high_pressure(base: &Path, apply: bool) -> Options {
         apply,
         pressure: Some(Pressure::High),
         only: Vec::new(),
+        still: None,
         measure: false,
         guarded: unguarded(),
     }
