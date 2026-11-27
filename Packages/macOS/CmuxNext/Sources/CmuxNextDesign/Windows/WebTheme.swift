@@ -64,6 +64,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// The filled personality slots (``ThemeDecorations/payload``): `data-cmux-decoration-<slot>` on
     /// `<html>`, which the page draws. Empty sends no `decorations` key at all.
     public let decorations: [String: String]
+    /// The theme file's slot variants (``DesignSettings/themeSlots``, resolved by the daemon): the
+    /// page's `window.cmuxTheme.current.slots` (webviews/src/slots/registry.ts). Empty sends no `slots` key.
+    public let slots: [String: String]
     /// Wallpaper lighting is on and has a light (``WallpaperLight``): `data-wallpaper-light` on `<html>`, under which
     /// the glass reads the `--wl-*` variables this theme carries.
     public let wallpaperLight: Bool
@@ -249,6 +252,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         self.glass = DesignSettings.shared.liquidGlass ? (glass ?? .current).rawValue : Self.glassOff
         glassLevels = DesignSettings.shared.previousGlass ? Self.glassLevelsPrevious : "current"
         decorations = ThemeDecorations.current.payload
+        slots = DesignSettings.shared.themeSlots
         fontSmoothing = Self.pageSmoothing(DesignSettings.shared.fontSmoothing, native: .chrome)
         wallpaperLight = BackdropImageStore.shared.light.pageStyle != nil
         experiments = DesignSettings.shared.experiments
@@ -285,7 +289,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     }
 
     /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass, fontSmoothing}`,
-    /// and `decorations` while a personality slot is filled
+    /// `decorations` while a personality slot is filled, and `slots` while the theme file picks slot variants
     /// (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
     /// duration, curve and blend space as native): `{duration, easing, space}`.
@@ -297,6 +301,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
                                      "workingLook": workingLook, "motion": motion, "glass": glass, "glassLevels": glassLevels, "fontSmoothing": fontSmoothing,
                                      "appFont": appFont]
         if !decorations.isEmpty { object["decorations"] = decorations }
+        if !slots.isEmpty { object["slots"] = slots }
         if wallpaperLight { object["wallpaperLight"] = true }
         if !experiments.isEmpty { object["experiments"] = experiments }
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
@@ -554,14 +559,16 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// (`Palette.folderTabFill`'s test, in this scope's light or dark).
     @MainActor
     static func drawsFolderTabs(_ tokens: ThemeTokens) -> Bool {
-        CornerFlush.current.isOn && Metrics.mainPaneChromeShade(isDark: tokens.isDark) >= Metrics.folderTabMinimumShade
+        CornerFlush.current.isOn && Metrics.mainPaneChromeShade(isDark: tokens.isDark, tokens: tokens) >= Metrics.folderTabMinimumShade
     }
 
     @MainActor
     static func sidebarSurface(_ tokens: ThemeTokens, backgrounds: SurfaceBackgrounds, windowTint: Double) -> String {
         if let fill = backgrounds.fill(for: .sidebar, tokens: tokens, windowTint: windowTint) { return css(fill) }
-        let shade = Metrics.mainPaneChromeShade(isDark: tokens.isDark)
-        return shade > 0 ? css(ThemeRGB(red: 0, green: 0, blue: 0, alpha: Double(shade))) : "transparent"
+        let shade = Metrics.mainPaneChromeShade(isDark: tokens.isDark, tokens: tokens)
+        // Black, or Subtle Tone's ink (`Metrics.drawsInkFrame`), as the native shade draws it.
+        let ink = Metrics.drawsInkFrame ? tokens.textPrimary : ThemeRGB(red: 0, green: 0, blue: 0, alpha: 1)
+        return shade > 0 ? css(ink.withAlpha(Double(shade))) : "transparent"
     }
 
     /// `--cmux-chrome-divider`: `Palette.chromeDivider` for `tokens`, as CSS: the split divider's color
@@ -583,7 +590,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     @MainActor
     public static var pushInputs: [String] {
         let design = DesignSettings.shared
-        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, design.appFont ?? "", "\(design.liquidGlass)", "\(design.previousGlass)", "\(design.menuLook)", "\(ChromeTunables.dividerStrength.value)", design.titleAreaTone.rawValue,
+        return [Borders.current.mode.rawValue, design.fontSmoothing.rawValue, design.appFont ?? "", "\(design.liquidGlass)", "\(design.previousGlass)", "\(design.menuLook)", "\(ChromeTunables.dividerStrength.value)", design.effectiveTitleAreaTone.rawValue,
                 "\(design.titleAreaContrast)", "\(Metrics.mainPaneChromeShade(isDark: false))", "\(Metrics.mainPaneChromeShade(isDark: true))"]
     }
 

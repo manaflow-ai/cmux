@@ -55,7 +55,7 @@ pub struct ForkParams {
 /// session arrives as the peer daemon's own summary plus `peer`, with
 /// `status` `unreachable` while the peer is gone; a peer on an older
 /// acpmux may lack newer fields, so nullable ones are optional here.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
     pub session_id: String,
@@ -124,6 +124,10 @@ pub struct SessionSummary {
     #[serde(default)]
     #[schemars(default)]
     pub harness_sandbox_failing: bool,
+    /// The refused operation, redacted and bounded; cleared on recovery.
+    #[serde(default)]
+    #[schemars(default)]
+    pub harness_sandbox_error: Option<String>,
     pub agent_session_id: Option<String>,
     /// The chat's earlier native ids, oldest first (`SessionMeta::retired_agent_session_ids`):
     /// a Codex chat's earlier roots, which its older records still name, so a client folding
@@ -210,12 +214,6 @@ pub struct SessionSummary {
     pub preview: Option<String>,
     /// One sidebar line; null before the first prompt.
     pub last_message: Option<LastMessage>,
-    /// What is done and what is next across the chat's turns (`task_list.rs`): its harness's
-    /// latest plan (TodoWrite, update_plan) or the list its agent or Chief keeps
-    /// (`_acpmux/task_list/set`); null until one is written. Absent from a peer on an older acpmux.
-    #[serde(default)]
-    #[schemars(default)]
-    pub task_list: Option<crate::task_list::TaskListSummary>,
     /// The plan the person last approved in this chat (`hub/plan_build.rs`), which the pane keeps
     /// in sight while the agent builds it. Absent until one, and from a peer on an older acpmux.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -228,6 +226,11 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[schemars(default)]
     pub has_draft: bool,
+    /// A person pinned it (`_acpmux/pin`), on any of their replicas (`hub/synced.rs`). Absent
+    /// otherwise, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub pinned: bool,
     /// Work runs below it with no turn open: a background subagent, a harness background process,
     /// or a sub-session at work (what keeps the idle pass from ending it, `hub/idle.rs`). An app
     /// update that installs when idle waits for it. Absent otherwise, and from a peer on an older
@@ -386,12 +389,21 @@ pub struct SessionSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(default)]
     pub time_breakdown: Option<crate::time_breakdown::TimeBreakdown>,
+    /// The composer footer's status dot and quiet metadata, decided from this row's own fields
+    /// (`protocol/composer_status.rs`); set on the row after it is built, and again by this
+    /// daemon on a peer's row (with `peer`). Whole on a read with tools (attach, info, the
+    /// attached chat's `session_changed`); a census row carries it only with an item or a live
+    /// fact, and without the facts that repeat its own fields (`composer_status::census`).
+    /// Absent from an older acpmux.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(default)]
+    pub composer_status: Option<super::composer_status::ComposerStatus>,
 }
 
 /// The bounded diagnosis shown beside a looping chat. The daemon emits one event when this
 /// becomes active and another when progress clears it; the summary lets a newly attached client
 /// render the current state without replaying the transcript.
-#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LoopEpisodeSummary {
     pub episode_id: u64,
@@ -444,8 +456,14 @@ pub struct UsageStats {
     pub tokens24h: Option<u64>,
     #[serde(rename = "tokensByModel1h")]
     pub tokens_by_model1h: Option<BTreeMap<String, u64>>,
+    /// Cache-read prompt tokens by call model in the rolling last hour.
+    #[serde(rename = "cacheReadByModel1h")]
+    pub cache_read_by_model1h: Option<BTreeMap<String, u64>>,
     /// Tokens per call model in the completed UTC hour preceding the hour of updatedAt.
     pub tokens_by_model_previous_utc_hour: Option<BTreeMap<String, u64>>,
+    /// Cache-read prompt tokens by call model in the completed UTC hour preceding updatedAt.
+    #[serde(rename = "cacheReadByModelPreviousUtcHour")]
+    pub cache_read_by_model_previous_utc_hour: Option<BTreeMap<String, u64>>,
     /// Those tokens at the model catalog's list prices, USD; null when no model
     /// they ran on has a price, or when `tokens24h` is null.
     #[serde(rename = "costUsd24h")]
@@ -480,7 +498,7 @@ pub enum Autocompact {
 /// A durable lifecycle fact supplied by an explicit producer. This contract
 /// is intentionally optional and opaque to the session sidebar until a
 /// producer wires it to a real controller receipt.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct LifecycleReceipt {
@@ -502,7 +520,7 @@ pub enum Indicator {
 }
 
 /// One row of a chat's tool list (`store::ToolRow`).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct ToolSummary {
@@ -571,7 +589,7 @@ impl McpServerSummary {
 }
 
 /// The session's lane (cx-v9k2f), decided once by the daemon (`views::lane`).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[schemars(transform = require_all)]
 pub struct Lane {
     pub state: LaneState,
@@ -603,14 +621,14 @@ pub enum LaneState {
     Idle,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum MessageRole {
     Agent,
     User,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct LastMessage {
     pub role: MessageRole,
     pub text: String,
@@ -618,7 +636,7 @@ pub struct LastMessage {
 
 /// What a daemon start holds for a person (`SessionSummary::person_hold`): the chat's folder and
 /// why an agent does not start there unasked.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct PersonHold {
@@ -627,7 +645,7 @@ pub struct PersonHold {
 }
 
 /// The running turn.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct TurnSummary {
@@ -640,8 +658,6 @@ pub struct TurnSummary {
     /// What the turn does right now: its latest tool call's title, masked
     /// (`secret_scan`); null until it calls one (`hub/activity.rs`).
     pub activity: Option<String>,
-    /// Its plan's entry in progress, masked; null without one.
-    pub plan_step: Option<String>,
     /// Since when it has stalled: no tool call in flight and no sign of its
     /// model since then, for `stalledTurnMs` or more (`hub/activity.rs`);
     /// null while it has not.
@@ -649,7 +665,7 @@ pub struct TurnSummary {
 }
 
 /// A prompt waiting for the running turn to end.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all)]
 pub struct QueuedPromptSummary {
@@ -720,6 +736,14 @@ pub struct QueuedPromptSummary {
     #[serde(default)]
     #[schemars(default)]
     pub inbox_notice: Option<Value>,
+    /// Who put it in the queue, from its provenance alone (`hub/queue_origin.rs`): `person` (the
+    /// composer's steer rows), `agent` (another agent's message or acpmux's notice of such), or
+    /// `acpmux` (the daemon's own prompt: a surge digest, a subagent's resume, a cut turn's
+    /// continuation), which an app draws apart from the person's rows with none of their actions.
+    /// Absent from an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub origin: Option<crate::hub::queue_origin::QueueOrigin>,
 }
 
 /// The subagent a queued resume asks the agent to resume (`QueuedPromptSummary.subagentRetry`).
@@ -760,7 +784,7 @@ fn require_all_but_avatar(schema: &mut schemars::Schema) {
 }
 
 /// An image a queued prompt sends.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 #[schemars(transform = require_all_but_source)]
 pub struct QueuedImage {

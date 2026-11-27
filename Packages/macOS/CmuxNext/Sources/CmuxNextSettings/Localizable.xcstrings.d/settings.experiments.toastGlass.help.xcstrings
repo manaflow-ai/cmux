@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.experiments.toastGlass.help" : {
+      "comment" : "Settings > Experimental > Toast Glass help: toasts in chats use the same glass material as the app's native toasts.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تظهر الإشعارات المنبثقة في المحادثات على الزجاج نفسه الذي تستخدمه إشعارات التطبيق."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obavijesti u chatovima stoje na istom staklu kao i obavijesti same aplikacije."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Meddelelser i chats ligger på det samme glas som appens egne meddelelser."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hinweise in Chats liegen auf demselben Glas wie die eigenen Hinweise der App."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toasts in chats sit on the same glass as the app's own toasts."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los avisos de los chats usan el mismo cristal que los avisos propios de la app."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les notifications des discussions utilisent le même verre que les notifications de l’app."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gli avvisi nelle chat usano lo stesso vetro degli avvisi dell’app."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "チャット内のトーストが、アプリ自体のトーストと同じガラスに表示されます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ការជូនដំណឹងខ្លីក្នុងការជជែក ប្រើកញ្ចក់ដូចគ្នានឹងការជូនដំណឹងរបស់កម្មវិធីផ្ទាល់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "채팅의 토스트가 앱 자체 토스트와 같은 유리 위에 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Varsler i chatter ligger på det samme glasset som appens egne varsler."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Powiadomienia w czatach leżą na tym samym szkle co powiadomienia samej aplikacji."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Os avisos nos chats usam o mesmo vidro que os avisos do próprio app."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Всплывающие уведомления в чатах лежат на том же стекле, что и уведомления самого приложения."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "การแจ้งเตือนแบบป๊อปอัปในแชทจะอยู่บนกระจกเดียวกับการแจ้งเตือนของแอปเอง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sohbetlerdeki bildirimler, uygulamanın kendi bildirimleriyle aynı camın üzerinde durur."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Спливні сповіщення в чатах лежать на тому самому склі, що й сповіщення самого застосунку."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thông báo nhanh trong cuộc trò chuyện nằm trên cùng lớp kính với thông báo của chính ứng dụng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "聊天中的提示条使用与应用自身提示条相同的玻璃。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "聊天中的提示條使用與 App 本身提示條相同的玻璃。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

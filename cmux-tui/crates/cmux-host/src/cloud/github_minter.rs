@@ -60,6 +60,8 @@ pub enum Ask {
     AppsRun(Box<(Result<super::apps_spawn::AppsRun, String>, super::apps_spawn::RunPaths)>),
     /// One MCP message to the platform's hosted MCP server as this machine (`mcp_call.rs`).
     McpCall(Box<Result<super::mcp_call::McpCall, String>>),
+    /// `cmux machine request` as this machine (`machine_request.rs`).
+    MachineRequest(Box<Result<super::machine_request::MachineAsk, String>>),
     Handoff(Result<HandoffReport, String>),
 }
 
@@ -158,11 +160,14 @@ fn run<H: Http>(rx: &Receiver<Msg<H>>, stop: &Stop, now: fn() -> u64, log: fn(&s
             Msg::Bound(next) => client = Some(next),
             Msg::Ask(ask, mut stream, queued) => {
                 let stopping =
-                    || github::refusal("vm.agent_stopping", "the Cloud agent is stopping; retry");
+                    || github::refusal("vm.agent_stopping", "the Cloud agent is stopping");
                 let mut reply = if stop.is_set() {
                     stopping()
                 } else if queued.elapsed() > MAX_QUEUE_WAIT {
-                    github::refusal("busy", "the ask waited too long; retry")
+                    github::transient_refusal(
+                        "busy",
+                        "the ask waited over a minute behind other asks",
+                    )
                 } else if !connected(&stream) {
                     continue;
                 } else {
@@ -175,6 +180,9 @@ fn run<H: Http>(rx: &Receiver<Msg<H>>, stop: &Stop, now: fn() -> u64, log: fn(&s
                         }
                         Ask::AppsCall(ask) => answer_apps(client.as_deref_mut(), *ask, now()),
                         Ask::McpCall(ask) => answer_mcp(client.as_deref_mut(), *ask, now()),
+                        Ask::MachineRequest(ask) => {
+                            answer_machine_request(client.as_deref_mut(), *ask, now())
+                        }
                         Ask::AppsListener(port, proc_root) => {
                             let peer = super::apps_call::peer_uid(&stream);
                             super::apps_call::listener_reply(&proc_root, port, peer)
@@ -240,7 +248,10 @@ pub fn answer_repos<H: Http>(
         Err(why) => return github::refusal("request.invalid", &why),
     };
     let Some(client) = client else {
-        return github::refusal("vm.unbound", "Reconnect this machine to cmux Cloud, then retry.");
+        return github::transient_refusal(
+            "vm.unbound",
+            "This machine is not bound to cmux Cloud yet.",
+        );
     };
     client.github_repos(&ask, now_wall_ms)
 }
@@ -255,7 +266,10 @@ pub fn answer_status<H: Http>(
         return github::refusal("request.invalid", &why);
     }
     let Some(client) = client else {
-        return github::refusal("vm.unbound", "Reconnect this machine to cmux Cloud, then retry.");
+        return github::transient_refusal(
+            "vm.unbound",
+            "This machine is not bound to cmux Cloud yet.",
+        );
     };
     client.github_status(now_wall_ms)
 }
@@ -289,6 +303,22 @@ pub fn answer_apps<H: Http>(
         return github::refusal("vm.unbound", "this machine is not bound to cmux Cloud yet");
     };
     client.apps_call(&call, now_wall_ms)
+}
+
+/// One machine request, sent off the agent poll loop like the apps routes.
+pub fn answer_machine_request<H: Http>(
+    client: Option<&mut CloudClient<H>>,
+    ask: Result<super::machine_request::MachineAsk, String>,
+    now_wall_ms: u64,
+) -> Value {
+    let ask = match ask {
+        Ok(ask) => ask,
+        Err(why) => return github::refusal("request.invalid", &why),
+    };
+    let Some(client) = client else {
+        return github::refusal("vm.unbound", "this machine is not bound to cmux Cloud yet");
+    };
+    client.machine_request(&ask, now_wall_ms)
 }
 
 /// One hosted MCP message, sent off the agent poll loop like the apps routes.

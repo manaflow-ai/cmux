@@ -35,7 +35,7 @@ fn pending(shares: &LinkShares, dir: Option<&Path>) -> Value {
 fn redeem(share_id: &str, account: &str, attempt: &str) -> Redeem {
     Redeem {
         share_id: share_id.into(),
-        secret: String::new(),
+        secret: None,
         name: "Sam".into(),
         attempt_id: attempt.into(),
         account: Some(account.into()),
@@ -222,10 +222,7 @@ fn a_direct_invite_clears_the_accounts_request() {
     let id = made(&shares, dir);
     shares.request_access(dir, ask(&id, Some("sam@example.com"))).unwrap();
     shares
-        .invite(
-            dir,
-            &Invite { share_id: id.clone(), account: "sam@example.com".into(), role: None },
-        )
+        .invite(dir, &Invite { share_id: id, account: "sam@example.com".into(), role: None })
         .unwrap();
     assert_eq!(pending(&shares, dir), json!([]));
     let _ = std::fs::remove_dir_all(&directory);

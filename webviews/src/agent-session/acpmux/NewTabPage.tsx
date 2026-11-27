@@ -1,4 +1,4 @@
-import { keycapLegend } from "../../ui/keycapLegend";
+import { KeyHint } from "../../ui/KeyHint";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { runResumed } from "./composer/resumedSend";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
@@ -24,7 +24,7 @@ import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, mostRecentProject, projectLabel, isTemporaryFolder } from "./sessionList";
+import { firstProject, FolderRecency, homePath, projectLabel, isTemporaryFolder } from "./sessionList";
 import { useT } from "./i18n";
 import { ShortcutKeycaps } from "./ButtonKeycaps";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
@@ -34,7 +34,7 @@ import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
 import type { ComposerAttachment } from "./attachments";
 import { AttachmentStrip } from "./composer/attachmentIntake";
-import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "./composer/attachmentIntakeModel";
+import { useAttachmentIntake, useSendWhenAttached } from "./composer/attachmentIntakeModel";
 import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
@@ -49,7 +49,7 @@ import {
   NEW_TAB_LABELS,
   prefixedEdit,
   cycleKind,
-  recentSessions,
+  RecentChats,
 } from "./newTabModel";
 import { focusRoute } from "../../ui/focusRoute";
 
@@ -125,6 +125,10 @@ type Props = NewTabCommandActions & {
   startFailure?: { error: string };
   /// The field's text as typed, after each edit (for a draft it was handed: what a pick leaves again).
   onFieldEdit?(text: string): void;
+  /// What draws over the field: the clock (`tabs.newTabClock.*`) and an extension's slot
+  /// (`tabs.newTabApp`), in the same room the other New Tab looks give them (newtab/appSlot.css
+  /// `.nt-above-room`), never in the field's place.
+  above?: React.ReactNode;
   now?: number;
 };
 
@@ -162,6 +166,7 @@ export function NewTabPage({
   takeDraft,
   startFailure,
   onFieldEdit,
+  above,
 }: Props) {
   const t = useT();
   const allChatsKey = useShortcut(SHORTCUT_ACTIONS.searchChats);
@@ -215,14 +220,22 @@ export function NewTabPage({
       browsePending.current = false;
     }
   };
+  // The chats' folders newest first (sessionList.ts `FolderRecency`) and the recent rows
+  // (newTabModel.ts `RecentChats`), each kept at the cost of the chats that changed: a key typed, or a
+  // chat working elsewhere, costs this page no pass over every listed chat
+  // (test/new-tab-no-whole-list-passes.test.tsx).
+  const [lists] = useState(() => ({ folders: new FolderRecency(), recent: new RecentChats() }));
+  const localFolders = lists.folders.of(snapshot.sessions);
+  const newestProject = useMemo(
+    () => (home ? firstProject(localFolders, home, knownProjects) : undefined),
+    [localFolders, home, knownProjects],
+  );
   const [started] = useState(() => (home ? startedProjectChoices(startedProject) : []));
   const projectCwd =
     picked ??
     ((isStartableProject(cwd) && !isTemporaryFolder(cwd)) || !home
       ? cwd
-      : (firstProject(started, home, knownProjects) ??
-        mostRecentProject(snapshot.sessions, home, knownProjects) ??
-        cwd));
+      : (firstProject(started, home, knownProjects) ?? newestProject ?? cwd));
   // Where the chips' picks start the chat: the project, never the tab's inherited `~` or agent-home
   // folder by itself (cmux#40938: a Codex pick then started in the home folder, which the pane
   // refuses). None: the host starts the chat in its own start folder. A terminal still opens in
@@ -304,22 +317,12 @@ export function NewTabPage({
   );
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
-  const {
-    attachments,
-    setAttachments,
-    pending,
-    originalFailures,
-    unsettled,
-    cancel,
-    retry,
-    attachError,
-    drop,
-    dropLanded,
-  } = useAttachmentIntake({
-    allowImages: snapshot.summary?.promptCapabilities?.image !== false,
-    pasteTarget: (target) => (kind === "agent" && fieldElement()?.contains(target) ? { uploads: false } : undefined),
-    dropZone: () => fieldElement()?.closest(".acpmux-newtab") ?? null,
-  });
+  const { attachments, setAttachments, pending, originalFailures, unsettled, cancel, attachError, drop, dropLanded } =
+    useAttachmentIntake({
+      allowImages: snapshot.summary?.promptCapabilities?.image !== false,
+      pasteTarget: (target) => (kind === "agent" && fieldElement()?.contains(target) ? { uploads: false } : undefined),
+      dropZone: () => fieldElement()?.closest(".acpmux-newtab") ?? null,
+    });
   const holdForAttachments = useSendWhenAttached(unsettled);
   const command = useNewTabCommand(
     text,
@@ -389,7 +392,8 @@ export function NewTabPage({
   // The failure line sits where the rows float: they wait for the next edit, which clears the line.
   const open = focused && query.trim() !== "" && query !== dismissed && !openFailed;
   // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
-  const recent = useMemo(() => (open ? recentSessions(snapshot.sessions) : []), [open, snapshot.sessions]);
+  const recentChats = lists.recent;
+  const recent = useMemo(() => (open ? recentChats.of(snapshot.sessions) : []), [open, recentChats, snapshot.sessions]);
   const rows = useMemo(
     () =>
       open
@@ -598,13 +602,8 @@ export function NewTabPage({
       event.preventDefault();
       changeKind(beforePrefix);
       setBeforePrefix(undefined);
-    } else {
-      // Backspace at the field's start takes back the last chip (backspacedAttachment).
-      const backspaced = backspacedAttachment(event, field.current?.atStart() ?? false, attachments);
-      if (!backspaced) return;
-      event.preventDefault();
-      setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
     }
+    // Backspace takes no image: this page's attachments are a strip, and go only by their ×.
   };
   const prefixReset = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
@@ -643,29 +642,16 @@ export function NewTabPage({
 
   return (
     <div className="acpmux-newtab" data-kind={kind}>
+      {above !== undefined && <div className="nt-above-room">{above}</div>}
       {/* The suggestions float under the field (cx-6k6cg): opening them moves nothing below. */}
       <div className="acpmux-newtab-anchor">
-        <form className="acpmux-newtab-box" onSubmit={submit}>
-          {/* Attachments sit inside the top of the card (Leo 2026-11-23, ask-525a5e502a: within the top
-              part of the composer, no shift); the prompt gives up their band (composerAttachments.css),
-              so a capped card keeps its height when they land. */}
-          <AttachmentStrip
-            attachments={attachments}
-            pending={pending}
-            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
-            codex={false}
-            onRemove={(id) => {
-              setAttachments((current) => current.filter((item) => item.id !== id));
-              field.current?.focus();
-            }}
-            onCancel={(id) => {
-              cancel(id);
-              field.current?.focus();
-            }}
-            onRetry={retry}
-            originalFailures={originalFailures}
-            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
-          />
+        <form
+          className="ui-glass ui-glass-floats acpmux-newtab-box"
+          // The composer family's one material: the App's popover glass, as the suggestions under it. In
+          // the page's flow, so no cover: nothing scrolls under it.
+          data-host-glass="popover"
+          onSubmit={submit}
+        >
           <div
             className="acpmux-newtab-row"
             data-kind-switch={kindSwitch}
@@ -740,12 +726,31 @@ export function NewTabPage({
                 >
                   <KindIcon kind={option} />
                   <span>{t(NEW_TAB_LABELS.kinds[option])}</span>
-                  {hotkeys[option] && <kbd>{hotkeys[option]}</kbd>}
+                  {hotkeys[option] && <KeyHint keys={hotkeys[option]!} />}
                 </button>
               ))}
             </fieldset>
           </div>
           {command.input}
+          {/* Attachments sit inside the top of the card (Leo 2026-11-23, ask-525a5e502a: within the top
+              part of the composer, no shift); the prompt gives up their band (composerAttachments.css),
+              so a capped card keeps its height when they land. */}
+          <AttachmentStrip
+            attachments={attachments}
+            pending={pending}
+            {...(command.error || attachError ? { error: command.error ?? attachError } : {})}
+            codex={false}
+            onRemove={(id) => {
+              setAttachments((current) => current.filter((item) => item.id !== id));
+              field.current?.focus();
+            }}
+            onCancel={(id) => {
+              cancel(id);
+              field.current?.focus();
+            }}
+            originalFailures={originalFailures}
+            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
+          />
           {dropHost && (
             <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
           )}
@@ -795,6 +800,9 @@ export function NewTabPage({
           <div
             ref={attachList}
             className="acpmux-omni ui-popup ui-glass ui-popup-scroll-shell"
+            // The App's popover glass, as every Popover: the list floats over the page, which blurs in place under it.
+            data-host-glass="popover"
+            data-host-glass-cover=""
             // The omnibar's rows are the live answer to the field above (ui/popupSettle.ts).
             data-popup-settle="results"
             id="acpmux-omni"
@@ -841,7 +849,7 @@ export function NewTabPage({
                   </span>
                   <span className="acpmux-omni-action" data-popup-skip>
                     {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
-                    {index === selected && <kbd>{keycapLegend("↩")}</kbd>}
+                    {index === selected && <KeyHint keys="↩" />}
                   </span>
                 </div>
               ))}
@@ -860,6 +868,7 @@ export function NewTabPage({
         <div className="acpmux-newtab-failed" role="alert">
           <p className="acpmux-newtab-failed-message">{t(NEW_TAB_LABELS.openFailedKind[openFailed.kind])}</p>
           <button type="button" className="acpmux-newtab-failed-retry ui-ghost" onClick={openFailed.retry}>
+            {/* retry-prompt-ok: opens the tab again: a chat sends its prompt (a paid model request), a terminal runs its command. */}
             {t(NEW_TAB_LABELS.openRetry)}
           </button>
           {openFailed.detail && <ErrorDetails text={openFailed.detail} className="acpmux-newtab-failed-details" />}

@@ -10,6 +10,10 @@ name: screen stream eval
 # run and is named in the job's error and in gate.json. It also publishes probe.json
 # (schema cmux.screen-share-fast/1) for the screen-share-fast goal board. It goes through the build-fleet
 # gateway runner, which only hands the step to the controller with `cmux-ci run`.
+# The daily targets are rd, webrtc and iphone-sim (the iPhone app's own viewer in a simulator: its key
+# and click to presented frame). iphone-sim runs last and builds the app, so the step's timeout is
+# 7200 s; a target that fails or is cut short leaves the earlier targets' results in results.json.
+# The gate judges rd alone and probe.json reads rd and the Apple targets, so iphone-sim only reports.
 
 # Daily: main's screen-stream-eval-dispatch.yml starts it (a schedule here would never fire, since
 # scheduled workflows run only from the default branch): the default targets, and an iPhone viewer run
@@ -17,14 +21,16 @@ name: screen stream eval
 # Each run is named by its targets (the defaults keep the plain name), so a run's baseline is the last
 # daily run with the same targets, the dispatcher tells a pending run of each apart, and the two runs
 # wait for each other only on the fleet (each step is exclusive), never in a concurrency group whose
-# newer pending run would cancel the other.
+# newer pending run would cancel the other. The group also names the worker input, so a run pinned to
+# one Mac never waits behind a run of the same targets queued on another (a drained or locked Mac
+# would otherwise hold every later run of those targets, wherever it is pinned).
 run-name: ${{ (inputs.targets && inputs.targets != 'rd,webrtc') && format('screen stream eval ({0})', inputs.targets) || 'screen stream eval' }}
 on:
   workflow_dispatch:
     inputs:
       targets:
         description: "targets (scripts/measure/screen-stream-eval/targets/NAME.sh)"
-        default: "rd,webrtc"
+        default: "rd,webrtc,iphone-sim"
       samples:
         description: "inputs per latency row"
         default: "200"
@@ -43,7 +49,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: screen-stream-eval-${{ inputs.targets || 'rd,webrtc' }}
+  group: screen-stream-eval-${{ inputs.targets || 'rd,webrtc' }}-${{ inputs.worker || 'default' }}
   cancel-in-progress: false
 
 env:
@@ -53,10 +59,17 @@ env:
 jobs:
   eval:
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
-    runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY }}
-    timeout-minutes: 300
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'mac-gateway' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
+    # The job's clock is the fleet queue wait, then the step. The queue wait is bounded by the step's
+    # own --queue-timeout (QUEUE_TIMEOUT below): finished steps waited 23 to 144 min for their
+    # exclusive host, the pinned worker's lease ran 2.5 h on 2026-11-22 and past 300 min on 2026-11-23
+    # (run 45160093472), and on 2026-11-27 an iphone-sim step strictly pinned to a worker whose claims
+    # stayed paused waited 8 h with no bound, holding the gateway runner while later runs queued behind
+    # it. The step itself is bounded by --timeout 7200 (finished runs took 6 to 13 min). 580 min of
+    # queue + 120 + 20 min for checkout, the summary and the upload: 720.
+    timeout-minutes: 720
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/feat-cmux-next
           fetch-depth: 1
@@ -64,7 +77,9 @@ jobs:
           # A thin client on the gateway runner (glaeda GATEWAY_JOBS): only the summary script it runs
           # here, no other blob. The measure worker checks the tree out itself.
           filter: blob:none
-          sparse-checkout: /scripts/measure/screen-stream-eval/
+          sparse-checkout: |
+            /scripts/measure/screen-stream-eval/
+            /.gitmodules
           sparse-checkout-cone-mode: false
       - name: the last daily run with results
         id: previous
@@ -109,11 +124,13 @@ jobs:
           github-token: ${{ github.token }}
       - name: eval on a fleet Mac
         env:
-          TARGETS: ${{ inputs.targets || 'rd,webrtc' }}
+          TARGETS: ${{ inputs.targets || 'rd,webrtc,iphone-sim' }}
           SAMPLES: ${{ inputs.samples || '200' }}
           REPEATS: ${{ inputs.repeats || '3' }}
           WORKER: ${{ inputs.worker || vars.SCREEN_STREAM_EVAL_WORKER || '' }}
           BUDGET: ${{ inputs.budget || '' }}
+          # Seconds the step may wait in the fleet queue (see timeout-minutes above).
+          QUEUE_TIMEOUT: "34800"
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
@@ -129,13 +146,20 @@ jobs:
           # A strict pin never moves to another worker (that one would lack the console grants).
           [ -n "$WORKER" ] && target=(--target-worker "$WORKER")
           [ -n "$WORKER" ] && "$client" run --help 2>/dev/null | grep -q -- --pin-strict && target+=(--pin-strict)
+          # A queue wait past its bound ends the client with 75 and leaves the step queued; the step is
+          # then cancelled below, so a paused or drained worker never holds this runner without end.
+          "$client" run --help 2>/dev/null | grep -q -- --queue-timeout && target+=(--queue-timeout "$QUEUE_TIMEOUT")
           "$client" run --class exclusive --measurement --label measure --label gui-session-v1 ${target[@]+"${target[@]}"} \
-            --script scripts/measure/screen-stream-eval.sh --ref "$sha" --timeout 5400 \
+            --script scripts/measure/screen-stream-eval.sh --ref "$sha" --timeout 7200 \
             --artifact artifacts/screen-stream-eval/results.json \
             --arg="targets=$TARGETS" --arg="samples=$SAMPLES" --arg="repeats=$REPEATS" 2>&1 | tee "$log" || status=${PIPESTATUS[0]}
           out=artifacts/screen-stream-eval
           mkdir -p "$out"
           step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          if [[ "$status" -eq 75 && -n "$step" ]]; then
+            echo "::error title=screen stream eval::step $step waited past ${QUEUE_TIMEOUT} s in the fleet queue (worker ${WORKER:-any}); cancelled, nothing measured"
+            "$client" cancel "$step" --reason "screen-stream-eval: queue wait past ${QUEUE_TIMEOUT} s (run $GITHUB_RUN_ID)" >/dev/null || true
+          fi
           if [[ -n "$step" ]]; then
             "$client" artifact "$step" "$out/results.json" || "$client" artifact --failed "$step" "$out/results.json" || true
           fi

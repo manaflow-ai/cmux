@@ -66,6 +66,15 @@ rate_limit_wait() {
   [[ "$waited" =~ ^[0-9]+$ ]] || waited=0
   left=$((rate_limit_max - waited))
   retry="$(header "$1" retry-after)" remaining="$(header "$1" x-ratelimit-remaining)" reset="$(header "$1" x-ratelimit-reset)"
+  # A refusal with no headers (a call that is not `gh api --include`, such as scripts/ci/gh_pages.py) says nothing of
+  # the reset, and the backoff below then slept 60+120+240+180 s before failing (job 140440306992, 2026-11-27: 10 min
+  # spent on a limit that reset 30 min later). GET /rate_limit does not count against the limit: read the token's
+  # core budget there, so a reset past this run's bound fails now.
+  if [[ -z "$retry" && -z "$reset" ]] &&
+      read -r remaining reset < <(gh api rate_limit --jq '"\(.resources.core.remaining) \(.resources.core.reset)"' 2>/dev/null) &&
+      [[ "$remaining" =~ ^[0-9]+$ && "$reset" =~ ^[0-9]+$ ]]; then
+    ((remaining == 0)) || remaining="" reset=""
+  fi
   if [[ "$retry" =~ ^[0-9]+$ ]]; then
     wait_s=$((retry > 0 ? retry : 1)) wait_why="retry-after ${retry}s"
   elif [[ "$remaining" == 0 && "$reset" =~ ^[0-9]+$ ]]; then
@@ -231,6 +240,22 @@ fi
 # restarts the clock at the next FFI commit, which the newer run then covers.
 # A failed read re-pins as before. When the holding run's re-pin job fails, its failure step starts app-ffi-repin.yml.
 pending_max_min="${REPIN_PENDING_MAX_MIN:-60}"
+# oldest_unpinned PIN RELEASE: the commit time of the oldest commit in PIN..RELEASE that changes an FFI input. This
+# checkout is treeless (filter: tree:0), so that walk fetches the trees of every commit one at a time; with the pin
+# 501 min behind it ran from 13:19Z until the job's timeout cancelled it at 13:47Z, and nothing re-pinned (app FFI
+# release run 46002456039, 2026-11-27; GIT_HTTP_LOW_SPEED_TIME never fires, as bytes keep coming). Past
+# REPIN_INPUT_WALK_S it reads the oldest commit in the range instead, which needs no tree and is never younger, so the
+# bound below ends a hold no later than with the walk.
+oldest_unpinned() {
+  local walk_s="${REPIN_INPUT_WALK_S:-60}" oldest
+  if oldest="$(timeout -k 5 "$walk_s" git log --format=%ct "$1..$2" -- "${input_paths[@]}" 2>/dev/null | tail -n 1)" &&
+      [[ "$oldest" =~ ^[0-9]+$ ]]; then
+    echo "$oldest"
+    return 0
+  fi
+  echo "the walk of the FFI inputs in ${1:0:12}..${2:0:12} did not finish in $walk_s s: the clock reads the range's oldest commit" >&2
+  git log --format=%ct "$1..$2" 2>/dev/null | tail -n 1
+}
 read_runs() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the release runs}" gh_retry gh api "$@"; }
 pending_newer() {
   local runs id head age jobs pin_time pin_age oldest
@@ -239,8 +264,13 @@ pending_newer() {
   # the next and nothing pinned (2026-11-18: 44262749842, 44269219861 and 44272641346 each held, 07:56Z to 09:48Z,
   # and the pin trailed past the 120 min grace). A failed read keeps this release's commit time.
   if pin_time="$(git show -s --format=%ct "$pin_sha" 2>/dev/null)" && [[ "$pin_time" =~ ^[0-9]+$ ]]; then
-    if [[ "$current" =~ ^[0-9a-f]{40}$ && ${#input_paths[@]} -gt 0 ]] &&
-        oldest="$(git log --format=%ct "$current..$pin_sha" -- "${input_paths[@]}" 2>/dev/null | tail -n 1)" &&
+    # The oldest unpinned commit only makes the age larger, so a release whose own commit is already past the bound
+    # needs no walk. The walk is a path-limited `git log` in this treeless clone, which fetches each commit's trees
+    # one by one: 16 min in job 140515668328 and 5.7 min in 140468066668 (2026-11-27), each for a release 369 to
+    # 481 min old against the 60 min bound.
+    if (( ($(date +%s) - pin_time) / 60 <= pending_max_min )) &&
+        [[ "$current" =~ ^[0-9a-f]{40}$ && ${#input_paths[@]} -gt 0 ]] &&
+        oldest="$(oldest_unpinned "$current" "$pin_sha")" &&
         [[ "$oldest" =~ ^[0-9]+$ ]] && (( oldest < pin_time )); then
       pin_time="$oldest"
     fi
@@ -249,6 +279,13 @@ pending_newer() {
       echo "$TAG's commit is $pin_age min old (bound $pending_max_min min): no newer run holds its re-pin" >&2
       return 1
     fi
+  fi
+  # Both workflows check out the feat-cmux-next tip. When it has this release's FFI inputs, every release run still
+  # building is for a commit with those inputs or for a push after this checkout, which re-pins on its own: nothing to
+  # hold for, and no read of the runs list, which the installation rate limit refused on 2026-11-25 (HTTP 403).
+  if same_inputs "$(git rev-parse HEAD)" "$pin_sha"; then
+    echo "feat-cmux-next's tip has $TAG's FFI inputs: no newer release run holds its re-pin" >&2
+    return 1
   fi
   if ! runs="$(read_runs \
       "repos/$GITHUB_REPOSITORY/actions/workflows/app-ffi-release.yml/runs?branch=feat-cmux-next&per_page=100" \
@@ -302,14 +339,48 @@ fi
 # changed headers, no BASE_TOKEN, a dry run (BASE_PIN_ENABLED is not true) or
 # any failure there fall through to the pull request, as before.
 start="$(git rev-parse HEAD)"
-: > "$RUNNER_TEMP/pin-base.out"
-base_result=""
-if base_out="$(TOKEN="${BASE_TOKEN:-}" ENABLED="$([[ "${BASE_PIN_ENABLED:-}" == true && -n "${BASE_TOKEN:-}" ]] && echo true)" \
-    GITHUB_OUTPUT="$RUNNER_TEMP/pin-base.out" bash scripts/cmux-next/pin-app-ffi-on-base.sh "$pin_sha" "$CHECKSUM" 2>&1)"; then
-  base_result="$(sed -n 's/^result=//p' "$RUNNER_TEMP/pin-base.out" | tail -n 1)"
+pin_on_base() { # pin_on_base SHA CHECKSUM [PROVEN_PIN]: sets base_result
+  : > "$RUNNER_TEMP/pin-base.out"
+  base_result=""
+  if base_out="$(PROVEN_PIN="${3:-}" TOKEN="${BASE_TOKEN:-}" ENABLED="$([[ "${BASE_PIN_ENABLED:-}" == true && -n "${BASE_TOKEN:-}" ]] && echo true)" \
+      GITHUB_OUTPUT="$RUNNER_TEMP/pin-base.out" bash scripts/cmux-next/pin-app-ffi-on-base.sh "$1" "$2" 2>&1)"; then
+    base_result="$(sed -n 's/^result=//p' "$RUNNER_TEMP/pin-base.out" | tail -n 1)"
+  fi
+  echo "$base_out"
+  git checkout --quiet --force "$start"
+}
+# The re-pin PR's head proves its pin when the build fleet's compile of that head passed (the tip check's Release
+# compile, scripts/ci/fleet_compile_result.py: no GitHub quota, and no --pr, which would submit a compile) and its
+# cmux-next fast tier, which runs HandlerCoverageTests, succeeded with none of its jobs failed. The PR's whole rollup
+# is not the proof: on 2026-11-25 release b6be67e4 changed a declaration over the pin (run 45645816280), went to
+# #55633, whose rollup never went green on infra reds while base merges restarted its CI, and the pin sat about 11
+# hours behind. A head that pins the base's own pin proves nothing new.
+proven_pr_pin() {
+  local verdict runs
+  [[ -n "$pr_pin" && "$pr_pin" != "$current" && -n "$previous" ]] || return 1
+  verdict="$(python3 -I scripts/ci/fleet_compile_result.py --sha "$previous" --repo "$GITHUB_REPOSITORY" \
+    --wait 45 --no-record 0)" || verdict=none
+  if [[ "$verdict" != pass ]]; then
+    echo "the re-pin branch's head ${previous:0:12} has no passing app compile (${verdict:-none}); its pin stays on the pull request"
+    return 1
+  fi
+  runs="$(GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" \
+    gh_retry python3 scripts/ci/gh_pages.py "repos/$GITHUB_REPOSITORY/commits/$previous/check-runs")" || return 1
+  if ! jq -e '[.[] | select(.name | startswith("cmux-next fast tier"))]
+      | any(.conclusion == "success") and all(.conclusion == "success" or .conclusion == "skipped")' <<<"$runs" >/dev/null; then
+    echo "the re-pin branch's head ${previous:0:12} has no passing cmux-next fast tier yet; its pin stays on the pull request"
+    return 1
+  fi
+}
+pin_on_base "$pin_sha" "$CHECKSUM"
+if [[ "$base_result" == pr ]] && proven_pr_pin; then
+  # The head may pin an older release than the picked one: that one lands now, and the base's pin push starts
+  # app-ffi-repin.yml, which re-pins the newer release from there.
+  echo "the re-pin branch's head ${previous:0:12} passed its app compile and fast tier: pinning ${pr_pin:0:12} on feat-cmux-next"
+  pin_on_base "$pr_pin" "$pr_sum" "$pr_pin"
+  [[ "$base_result" == pinned || "$base_result" == already ]] && TAG="cmux-app-ffi-$pr_pin"
 fi
-echo "$base_out"
-git checkout --quiet --force "$start"
+rate_limit_gate
 case "$base_result" in
   pinned|already)
     echo "feat-cmux-next pins $TAG ($base_result); no re-pin pull request"
@@ -353,11 +424,18 @@ hold_min="${REPIN_HOLD_MIN:-90}"
 # has none of these, and a failed read would quietly turn the hold off.
 read_api() { GH_TOKEN="${READ_TOKEN:?READ_TOKEN reads the checks at the head}" gh_retry gh api "$@"; }
 held_pr() {
-  local number state head age failed status
+  local number state head mergeable age failed status
   number="$(gh_retry gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" --jq '.[0].number // empty')" || return 2
   [[ "$number" =~ ^[0-9]+$ ]] || return 1
-  read -r state head < <(gh_retry gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '"\(.state) \(.head.sha)"') || return 2
+  read -r state head mergeable < <(gh_retry gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '"\(.state) \(.head.sha) \(.mergeable)"') || return 2
   [[ "$state" == open && "$head" == "$previous" ]] || return 1
+  # A head that conflicts with feat-cmux-next never lands, so holding it only waits out the hold. 2026-11-27: #60275's
+  # head c175a22a conflicted (next-autoland: "GitHub says conflicting") with no failed check, so each re-pin kept it
+  # for its 90 min hold while the app FFI pin sat 182 min behind. GitHub answers null while it computes: that holds.
+  if [[ "$mergeable" == false ]]; then
+    echo "#$number's head ${previous:0:12} conflicts with feat-cmux-next: moving it" >&2
+    return 1
+  fi
   age="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous" --jq '(now - (.commit.committer.date | fromdateiso8601)) / 60 | floor')" || return 2
   [[ "$age" =~ ^[0-9]+$ ]] || return 2
   if (( age >= hold_min )); then
@@ -393,17 +471,42 @@ held_pr() {
   status="$(read_api "repos/$GITHUB_REPOSITORY/commits/$previous/status" --jq '.state')" || return 2
   [[ "$status" =~ ^(success|pending|failure|error)$ ]] || return 2
   [[ "$status" == failure || "$status" == error ]] && failed=$((failed + 1))
+  # A workflow run that never started at the head has no check run, so the count above misses it, and the check it
+  # owns stays pending for good. 2026-11-26: #58251's head a04b30c8 sat on a base whose cmux-next.yml was over GitHub's
+  # 512,000-byte limit (fixed on the base by #59284), so next-autoland's cmux-next.yml dispatch 45880000763 ended
+  # startup_failure, cmux-next/compile never left pending, and this hold kept the head while the pin fell 402 min
+  # behind. The head's own workflow file is what failed, so a move onto the newer base is the fix.
+  local unstarted
+  unstarted="$(read_api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$previous&per_page=100" \
+    --jq '[.workflow_runs[] | select(.conclusion == "startup_failure")] | length')" || return 2
+  [[ "$unstarted" =~ ^[0-9]+$ ]] || return 2
+  failed=$((failed + unstarted))
   if (( failed > 0 )); then
     echo "#$number's head ${previous:0:12} has $failed failed check(s) of its own: moving it" >&2
     return 1
   fi
   echo "kept #$number at ${previous:0:12}: pushed $age min ago (hold $hold_min min), no check failed; it lands first and its merge re-pins $TAG (app-ffi-repin.yml)"
 }
+# The labels (why: at label_open_repin's call before the pin push below) go on a kept PR too: the hold exits before
+# that push, and cmux#60965 was kept from 06:59Z with neither label, so its compile sat in the background tier.
+stack_blocker_label() {
+  gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$1/labels" -f 'labels[]=stack-blocker' -f 'labels[]=ready-to-land' \
+    >/dev/null 2>&1 && return 0
+  echo "::warning title=Re-pin label::could not add stack-blocker and ready-to-land to #$1; its compile waits as an ordinary PR's"
+}
+label_open_repin() {
+  local open_pr
+  open_pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" \
+    --jq '.[0] | select(. != null) | select([.labels[].name] | (index("stack-blocker") and index("ready-to-land")) | not) | .number' 2>/dev/null || true)"
+  [[ "$open_pr" =~ ^[0-9]+$ ]] && stack_blocker_label "$open_pr"
+  return 0
+}
 if [[ -n "$previous" && -n "${GH_TOKEN:-}" ]]; then
   held=0
   held_pr || held=$?
   rate_limit_gate
   if (( held == 0 )); then
+    label_open_repin
     exit 0
   elif (( held == 2 )); then
     echo "::warning title=Re-pin::could not read the re-pin pull request's state at ${previous:0:12}; left $branch alone, and the next re-pin run decides"
@@ -452,6 +555,15 @@ for file in "$pin_file" "$manifest"; do
 done
 [[ "$pin_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no signed pin commit" >&2; exit 1; }
 git fetch --no-tags origin "$pin_commit"
+# The re-pin PR is a stack blocker: every PR that needs the new FFI, and every app build, waits on it landing. The
+# `stack-blocker` label puts its Mac jobs on the nightly slot (scripts/ci/side_lane_placement.py STACK_SLOT) and ranks
+# them right after nightly in glaeda's runner hook, which reads labels from the event payload, so the label goes on an
+# open PR before the push that makes its next run. cmux#60275's compile waited 69 min for ~4 min of work (03:54Z push,
+# 05:03Z pass) behind ordinary PR CI. A label call is plain gh, never gh_retry: a rate-limited label must not set
+# rate_limit_failed and stop the pin itself. Its failure is a warning. `ready-to-land` goes on with it: the build
+# fleet's PR-head compile (cmux-next/compile, the last required check) does not start without it, and the cheap tier
+# skips it (land-judge on cmux#60965).
+[[ -n "${GH_TOKEN:-}" ]] && label_open_repin
 if ! git push --force-with-lease="refs/heads/$branch:$previous" origin "$pin_commit:refs/heads/$branch"; then
   # A lost push response is harmless only if the intended commit is published.
   [[ "$(remote_head "$branch")" == "$pin_commit" ]] || exit 1
@@ -481,10 +593,24 @@ if [[ -n "$pr_number" ]]; then
 else
   url="$(gh_retry gh pr create --base feat-cmux-next --head "$branch" --title "cmux-next: pin CCmuxAppFFI to $TAG" --body "$body")"
   pr_number="${url##*/}"
+  # A new PR is labelled right after create (the next push's run, and the lander's update-branch, carry it).
+  [[ "$pr_number" =~ ^[0-9]+$ ]] && stack_blocker_label "$pr_number"
 fi
 [[ "$pr_number" =~ ^[0-9]+$ ]] || { echo "::error::no re-pin PR number" >&2; exit 1; }
-gh_retry gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number" > "$RUNNER_TEMP/repin-pr.json"
-jq -e --arg sha "$pin_commit" --arg branch "$branch" \
-  '.state == "open" and .base.ref == "feat-cmux-next" and .head.ref == $branch and .head.sha == $sha' \
-  "$RUNNER_TEMP/repin-pr.json" >/dev/null || { echo "::error::re-pin PR is not open at the published head" >&2; exit 1; }
-echo "verified open re-pin pull request #$pr_number at $pin_commit"
+# GitHub syncs a pull request's head some time after a push: on 2026-11-25 the PR still read 4910b844 after the
+# force-push to 38e0d0d2, and the job failed here though the branch held the new pin (and its failure step spent the
+# rate-limited quota on a dispatch). The PR is re-read a few times; an open PR on this branch whose branch GitHub
+# serves at the published commit is published, and a head that still lags is a warning. A closed PR, another base or
+# another branch still fails.
+for attempt in 1 2 3 4; do
+  gh_retry gh api "repos/$GITHUB_REPOSITORY/pulls/$pr_number" > "$RUNNER_TEMP/repin-pr.json"
+  jq -e --arg branch "$branch" '.state == "open" and .base.ref == "feat-cmux-next" and .head.ref == $branch' \
+    "$RUNNER_TEMP/repin-pr.json" >/dev/null || { echo "::error::re-pin PR is not open at the published head" >&2; exit 1; }
+  if jq -e --arg sha "$pin_commit" '.head.sha == $sha' "$RUNNER_TEMP/repin-pr.json" >/dev/null; then
+    echo "verified open re-pin pull request #$pr_number at $pin_commit"
+    exit 0
+  fi
+  (( attempt < 4 )) && sleep $((attempt * 15))
+done
+[[ "$(remote_head "$branch")" == "$pin_commit" ]] || { echo "::error::re-pin PR is not open at the published head" >&2; exit 1; }
+echo "::warning title=Re-pin::#$pr_number is open, and $branch is at ${pin_commit:0:12}, but GitHub still reads the pull request's head as $(jq -r '.head.sha[:12]' "$RUNNER_TEMP/repin-pr.json"); its head sync lags the push"

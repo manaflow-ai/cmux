@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { agentStepPlan, attachedComputerUse, computerUseWorkerCommand, CU_SERVER, gatewayProblems, LEGACY_CU_SERVER, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, recorderScript, requiredTools, screenshotShowsDisplay, staticCheckCommand, toolListProblems, videoToolProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
+import { agentStepPlan, attachedComputerUse, computerUseWorkerCommand, CU_SERVER, gatewayProblems, LEGACY_CU_SERVER, parseRecordedLaunch, probeOptionsFromArgv, rdActivateCommand, rdConnectCommand, rdOtherUserCommand, rdReadCommand, rdStaticCheckCommand, RECORD_TRIES, recorderScript, recordSteps, requiredTools, screenshotShowsDisplay, staticCheckCommand, toolListProblems, videoToolProblems } from "../scripts/cmux-vm-image/agent-tools-probe";
 import { readFileSync as readSource } from "node:fs";
 import {
   A11Y_SCRIPT,
@@ -263,6 +263,72 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     }
   });
 
+  test("probe: launches acpmux makes at once (the session and live_models' -p model list) never interleave their records (roll 45906244147)", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-agent-tools-rec-"));
+    try {
+      const out = path.join(dir, "launches.txt");
+      writeFileSync(path.join(dir, "claude"), recorderScript(out));
+      chmodSync(path.join(dir, "claude"), 0o755);
+      const configFile = path.join(dir, "session.json");
+      writeFileSync(configFile, JSON.stringify({ mcpServers: { cmux: { type: "stdio", command: `${AGENT_TOOLS_BIN}/cmux`, args: ["mcp", "serve"], env: { PAD: "x".repeat(4000) } } } }), { mode: 0o600 });
+      // A session launch of ~50 arguments, like acpmux's, beside model-list launches, many times over.
+      const session = [...Array.from({ length: 24 }, (_, i) => [`--flag-${i}`, `value-${i}`]).flat(), "--mcp-config", configFile, "--plugin-dir", "/p/x", "--name", "recorder"];
+      const modelList = ["-p", "--input-format", "stream-json", "--no-session-persistence", "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}', "--settings", '{"disableAllHooks":true}'];
+      const rounds = 12;
+      for (let round = 0; round < rounds; round++) {
+        await Promise.all([runChild(path.join(dir, "claude"), session, { timeout: 20_000 }), ...Array.from({ length: 3 }, () => runChild(path.join(dir, "claude"), modelList, { timeout: 20_000 }))]);
+      }
+      const records = readFileSync(out, "utf8").split("\x1e\n").filter((r) => r.trim());
+      expect(records.length).toBe(rounds * 4);
+      const sessions = records.filter((r) => r.includes("\n--plugin-dir\n") || r.startsWith("--plugin-dir\n"));
+      expect(sessions.length).toBe(rounds);
+      for (const r of sessions) {
+        expect(r).toContain("MCP_CONFIG_FILE ");
+        expect(r).not.toContain("--strict-mcp-config");
+        expect(parseRecordedLaunch(`${r}\x1e\n`).servers.map((s) => s.name)).toEqual(["cmux"]);
+      }
+      // Whichever launch was recorded last, the probe reads the session's.
+      expect(parseRecordedLaunch(readFileSync(out, "utf8")).servers.map((s) => s.name)).toEqual(["cmux"]);
+      expect(parseRecordedLaunch(`${sessions[0]}\x1e\n${records.find((r) => r.includes("--strict-mcp-config"))}\x1e\n`).pluginDir).toBe("/p/x");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("probe: a record step whose session launch was not recorded starts it once more (roll 45914140136)", () => {
+    const script = recordSteps("gateway", "PATH=/x:$PATH", "/tmp/l.txt").join("\n");
+    expect(RECORD_TRIES).toBe(2);
+    expect(script).toContain(`for try in $(seq 1 ${RECORD_TRIES}); do`);
+    expect(script).toContain("grep -qx -- --plugin-dir /tmp/l.txt 2>/dev/null && break");
+    expect(script.match(/acp new -d -m claude -n gateway/g)?.length).toBe(1);
+  });
+
+  test("probe: a model listing that acpmux starts after the chat's launch is not read as the chat's (roll 45890407908)", () => {
+    const chat = `-p\n--session-id\ns-1\n--mcp-config\n${JSON.stringify({ mcpServers: { cmux: { type: "stdio", command: `${AGENT_TOOLS_BIN}/cmux`, args: ["mcp", "serve"] } } })}\n\x1e\n`;
+    const listing = `-p\n--no-session-persistence\n--strict-mcp-config\n--mcp-config\n{"mcpServers":{}}\n--settings\n{"disableAllHooks":true}\n\x1e\n`;
+    expect(parseRecordedLaunch(`--version\n\x1e\n${listing}${chat}${listing}`).servers.map((s) => s.name)).toEqual(["cmux"]);
+    expect(parseRecordedLaunch(listing).servers).toEqual([]);
+  });
+
+  test("probe: launches recorded at once never interleave their lines (roll 45906244147 attempt 2)", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-agent-tools-rec-"));
+    try {
+      const out = path.join(dir, "launches.txt");
+      writeFileSync(path.join(dir, "claude"), recorderScript(out));
+      chmodSync(path.join(dir, "claude"), 0o755);
+      const many = (tag: string) => Array.from({ length: 200 }, (_, i) => `${tag}-${i}`);
+      await Promise.all(Array.from({ length: 8 }, (_, n) => runChild(path.join(dir, "claude"), many(`launch${n}`), { timeout: 20_000 })));
+      const records = readFileSync(out, "utf8").split("\x1e\n").filter((b) => b.trim());
+      expect(records).toHaveLength(8);
+      for (const record of records) {
+        const tag = record.split("\n")[0].split("-")[0];
+        expect(record.trim().split("\n")).toEqual(many(tag));
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("probe: acpmux's gateway (#48374) attaches cmux as loopback HTTP with no command; the parser keeps its url", () => {
     // Bake run 44875111659: the launch's cmux entry was {type: http, url} and the probe threw on its missing command.
     const url = "http://127.0.0.1:41733/mcp/s-1f2e/tools";
@@ -449,17 +515,18 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     expect(cua).toContain("NoNewPrivileges=yes");
     expect(cua).toMatch(new RegExp(`Environment=PATH=${CUA_REFUSE_DIR}:`));
     const files = agentToolsFiles(rdLock).filter((f) => f.path.startsWith(`${CUA_REFUSE_DIR}/`));
-    expect(files.map((f) => path.basename(f.path)).sort()).toEqual(["apt", "apt-get", "sudo"]);
+    expect(files.map((f) => path.basename(f.path)).sort()).toEqual(["apt", "apt-get", "ffmpeg", "ffprobe", "sudo"]);
     const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-cua-refuse-"));
     try {
-      for (const name of ["sudo", "apt-get"]) {
+      for (const name of ["sudo", "apt-get", "ffmpeg", "ffprobe"]) {
         writeFileSync(path.join(dir, name), cuaRefuseScript(name));
         chmodSync(path.join(dir, name), 0o755);
       }
       const env = { ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}` };
       const found = await runChild("sh", ["-c", "command -v apt-get"], { env, timeout: 20_000 });
       expect(found.stdout.trim()).toBe(path.join(dir, "apt-get"));
-      for (const argv of [["sudo", "-n", "apt-get", "install", "-y", "ffmpeg"], ["apt-get", "install", "-y", "ffmpeg"]]) {
+      // The image carries ffmpeg for people (graduated.json); the driver finds the refusing one first.
+      for (const argv of [["sudo", "-n", "apt-get", "install", "-y", "ffmpeg"], ["apt-get", "install", "-y", "ffmpeg"], ["ffmpeg", "-f", "x11grab", "-i", ":99", "out.mp4"], ["ffprobe", "-version"]]) {
         const r = await runChild(argv[0], argv.slice(1), { env, timeout: 20_000 });
         expect(r.status).not.toBe(0);
         expect(r.stderr).toContain("cua-video");

@@ -124,16 +124,27 @@ button.cv-subagent > :last-child {
   flex: none;
   color: var(--cv-text-muted);
 }
-/* A running subagent's line with its stop button after the time. A line that opens keeps its chevron
-   last, at the line's end, so a running line's chevron sits on the same x as an ended line's; Stop
-   goes between the time and the chevron, as in the running tray (Leo, 2026-10-31: "and of course
-   align this right side's chevrons"). The time makes room for Stop (24px) and one gap. */
+/* A running subagent's line with its Stop. A line that opens keeps its chevron last, at the line's
+   end, so a running line's chevron sits on the same x as an ended line's (Leo, 2026-10-31: "and of
+   course align this right side's chevrons"). Stop shows only under the pointer or with focus, so it
+   keeps no room at rest: it takes the time's place, at the time's end, and the time steps aside while
+   it shows, as Session Info's task Stop does (Leo, 2026-11-24: "you're early ellipsis-ing because of a
+   button that doesnt even always show"). The time is at least Stop's width, so Stop never lies over
+   the words. A stopped line's Resume shows at rest, so in that state only the time makes room for it
+   (24px) and one gap. */
 .cv-subagent-stoppable {
   --cv-subagent-inset: var(--ds-space-3);
   --cv-subagent-gap: var(--ds-space-2);
   position: relative;
 }
-.cv-subagent-stoppable > .cv-subagent > .cv-subagent__time {
+.cv-subagent-stoppable:has(> .cv-subagent__stop) > .cv-subagent > .cv-subagent__time {
+  min-width: 24px;
+  text-align: end;
+}
+.cv-subagent-stoppable:is(:hover, :focus-within):has(> .cv-subagent__stop) > .cv-subagent > .cv-subagent__time {
+  visibility: hidden;
+}
+.cv-subagent-stoppable:has(> .cv-subagent-resume-control) > .cv-subagent > .cv-subagent__time {
   margin-right: calc(24px + var(--cv-subagent-gap));
 }
 .cv-subagent-stoppable > button.cv-subagent + .cv-subagent__stop {
@@ -421,11 +432,12 @@ button.cv-subagent > :last-child {
   --acpmux-tray-two-row-icon-top: 7px;
   --acpmux-tray-gap: var(--acpmux-composer-action-gap, 4px);
   --acpmux-tray-inset: var(--acpmux-composer-inset, calc(8px * var(--cmux-interface-scale, 1)));
-  /* Where the hat's leading column starts (trayColumn.experiment.ts; Lucas, and Leo 2026-11-24: "the
-     alignment becomes... maybe awkward? against the ... attachment + button"). `glyph` (the default)
-     starts its marks on the + glyph's ink, 6px in from the + chip's edge (a 16px glyph centred in the
-     28px chip), so the hat's marks, the + and the prompt share one column; `chip` keeps the composer's
-     inset. The trailing side keeps the inset, so the chevron stays over Send's column. */
+  /* Where the hat's leading column starts: the composer's own inset, so each row's lead box (below,
+     --acpmux-tray-lead-box, the composer's control) lies exactly over the + button and a mark centred
+     in it centres on +; the words after it start one lead gap on, where the prompt's do. Never add to
+     it: the marks centre themselves in the box, and a second offset moved them right of the + (6px at
+     Default, more at larger densities) and the words past the placeholder (cmux#56151).
+     test/hat-composer-icon-grid.test.ts and test/composer-stack-columns.test.ts measure both. */
   --acpmux-tray-inset-start: var(--acpmux-tray-inset);
   /* The one trailing column every chevron ends in: the header's and each line's. */
   --acpmux-tray-chevron-width: var(--acpmux-composer-control, 28px);
@@ -453,51 +465,6 @@ button.cv-subagent > :last-child {
 }
 .acpmux-running-tray__head {
   flex: none;
-}
-.acpmux-running-tray[data-column="glyph"] {
-  --acpmux-tray-inset-start: calc(
-    var(--acpmux-tray-inset) +
-      (var(--acpmux-composer-control, 28px) - var(--acpmux-composer-glyph, 16px)) / 2
-  );
-}
-/* The running turn's todo list, opened from the header (SubagentTray.tsx `plan`; Leo, 2026-11-03, on
-   the composer hat): the plan's own marks in the lines' icon column, one line per step, no card of its
-   own inside the tray's glass. Up to eight steps show whole (a sixth step hid under five rows with no
-   sign it was there, cmux#51039); past that it scrolls in place with the step at work kept in view
-   (SubagentTray.tsx `planBox`). In a short pane it gives up height alongside the lines, so neither
-   one is pushed out of the clipped tray. */
-.acpmux-running-tray__plan {
-  flex: 0 1 auto;
-  min-height: 0;
-  max-height: calc(8 * var(--ui-row-height, 28px));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-.acpmux-running-tray__plan .cv-plan {
-  margin: 0;
-  padding: 0 var(--acpmux-tray-inset) 0 var(--acpmux-tray-inset-start);
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-/* One line per step in the hat: the step's first line ends in an ellipsis (its tooltip holds the
-   rest), its detail shows under it muted on one line, and the mark sits on the first line's centre
-   whether a detail follows or not (Leo, 2026-11-22: ">1 line is ok IFF it's rendered and styled
-   properly"). */
-.acpmux-running-tray__plan .cv-plan__item {
-  align-items: flex-start;
-  min-height: var(--ui-row-height, 28px);
-  padding-block: calc((var(--ui-row-height, var(--grid-row)) - var(--grid-icon-box)) / 2);
-}
-.acpmux-running-tray__plan .cv-plan__mark {
-  margin-top: var(--grid-half-step);
-}
-.acpmux-running-tray__plan .cv-plan__title,
-.acpmux-running-tray__plan .cv-plan__detail {
-  display: block;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
 }
 
 /* Past five lines (eight in the `tall` look, trayPanel.experiment.ts) the list scrolls in place;
@@ -607,18 +574,6 @@ button.cv-subagent > :last-child {
   column-gap: var(--ds-space-3, 12px);
   row-gap: 0;
 }
-.acpmux-running-tray__kinds[data-tally] > .acpmux-running-tray__kind-unit:has(> [data-kind="plan"]) {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-.acpmux-running-tray__kinds[data-tally] [data-kind="plan"] {
-  min-width: 0;
-}
-.acpmux-running-tray__kinds[data-tally] [data-kind="plan"] > .acpmux-running-tray__kind-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 /* The `summary` arm (trayFoldHead.experiment.ts, HeadSummary.tsx; Leo, 2026-11-23: "x subagents running
    y commands running etc with full text when you have space and it gradually shrinks when there is
    none... and have it not shift too much"). The line takes the header's free room, so its width is the
@@ -633,16 +588,6 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__head > .acpmux-running-tray__summary ~ .acpmux-running-tray__time {
   flex: none;
   text-align: right;
-}
-.acpmux-running-tray__summary > [data-kind="plan"] {
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: 50%;
-}
-.acpmux-running-tray__summary > [data-kind="plan"] > .acpmux-running-tray__kind-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .acpmux-running-tray__summary-line {
   position: relative;
@@ -813,10 +758,12 @@ button.cv-subagent > :last-child {
 }
 /* Match the composer's fill and frost without a second tint over the shared material. */
 .acpmux-running-tray[data-card] {
+  /* The tray is .ui-glass (SubagentTray.tsx): the stack's tint and frost are its tokens, and
+     .ui-glass paints the blur. The fill stays named here so it outranks the inset fill above. */
   --acpmux-tray-frost: var(--acpmux-stack-backdrop);
+  --glass-tint: var(--acpmux-stack-tint);
+  --glass-backdrop: var(--acpmux-tray-frost);
   background: var(--acpmux-stack-tint);
-  -webkit-backdrop-filter: var(--acpmux-tray-frost);
-  backdrop-filter: var(--acpmux-tray-frost);
 }
 /* The header's mark is off by default (trayHead.experiment.ts `bare`, Leo, 2026-11-01: "why did you
    guys not remove the 3/4"): its slot stays, unseen, so the counts keep the text column. */
@@ -969,7 +916,9 @@ button.cv-subagent > :last-child {
   margin: 0;
   pointer-events: auto;
   width: var(--acpmux-tray-stop-width);
-  height: var(--ui-row-height, 28px);
+  /* The panel button's box (--acpmux-tray-control), so Stop's own highlight matches it; never
+     taller than its row, so a short row's Stop never reaches into the next line. */
+  height: min(var(--acpmux-tray-control), var(--ui-row-height, 28px));
 }
 /* Under the header's divider the first line keeps the tray's 2px gap, as the last keeps its rim's. */
 .acpmux-running-tray__head + .acpmux-running-tray__fold > .acpmux-running-tray__list {
@@ -1168,13 +1117,22 @@ button.cv-subagent > :last-child {
   }
 }
 /* Quiet at rest. The line is the tray's main control, so its wash covers the whole line
-   while that control is hovered; Stop has no box of its own. A disabled main button has
-   no line hover. */
+   while that control is hovered. A disabled main button has no line hover. */
 .acpmux-running-tray .acpmux-summary-row,
-.acpmux-running-tray .acpmux-summary-link:is(:hover, :active),
-.acpmux-running-tray :is(.acpmux-session-info-stop, .cv-subagent__stop):is(:hover, :active) {
+.acpmux-running-tray .acpmux-summary-link:is(:hover, :active) {
   border-radius: 0;
   background: none;
+}
+/* Stop lights its own box, as the header's panel button does, never the line around it (Leo,
+   2026-10-27: a highlight covers only its control). */
+.acpmux-running-tray :is(.acpmux-session-info-stop, .cv-subagent__stop) {
+  border-radius: var(--ds-radius-control, 6px);
+}
+.acpmux-running-tray :is(.acpmux-session-info-stop, .cv-subagent__stop):hover:not(:disabled) {
+  background: var(--ds-surface-hover);
+}
+.acpmux-running-tray :is(.acpmux-session-info-stop, .cv-subagent__stop):active:not(:disabled) {
+  background: var(--ds-color-pressed);
 }
 /* A running line's Stop is the filled rounded square of Claude Desktop's running rows, now that the
    line draws no spinner and no "Running" word (Leo, 2026-11-03: "do we really need a running symbol
@@ -1197,8 +1155,11 @@ button.cv-subagent > :last-child {
   background: var(--ds-surface-inset);
 }
 /* A line whose context menu is open (its Stop) stays lit while the pointer is in the menu. */
-/* Resume (its own control in Stop's column) lights itself, not the line around it. */
-.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):not(:has(.cv-subagent-resume-control:hover)):hover,
+/* Resume and Stop (their own controls in Stop's column) light themselves, not the line around them. */
+.acpmux-running-tray
+  .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):not(
+    :has(:is(.cv-subagent-resume-control, .cv-subagent__stop, .acpmux-session-info-stop):hover)
+  ):hover,
 .acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button[data-popup-open]),
 .acpmux-running-tray .acpmux-running-tray__head:hover {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
@@ -1415,9 +1376,6 @@ button.cv-subagent > :last-child {
 .acpmux-row .cv-subagent-done-row > .cv-subagent-done__chevron {
   order: 1;
 }
-.acpmux-row .cv-subagent-done-row > .cv-subagent-done__note {
-  order: 2;
-}
 .cv-subagent-done-row > .cv-tool__chevron.is-idle {
   visibility: hidden;
 }
@@ -1457,28 +1415,43 @@ button.cv-subagent > :last-child {
 .cv-subagent-done[data-state="retrying"] {
   color: var(--cv-text-dim);
 }
-/* A failed line's Retry (SubagentDoneLine.tsx): a small outlined button in the accent, or a link
-   after the line; a refusal's note after it, dim. It shows under the pointer or with keyboard focus,
-   as the line's other actions do, and keeps its room at rest so nothing moves (Leo, 2026-11-11, on a
-   failed row's always-on "Ask parent to retry": "why were all these added in the first place?"). */
-.cv-subagent-done-row > :is(.cv-subagent-retry, .cv-subagent-retry-link):not(:focus-visible) {
-  opacity: 0;
+/* A done line's hover-only controls (SubagentDoneLine.tsx: Retry, Resume or Restart, ⋯) sit just
+   before its time and lie over the end of its words when the words reach them, never in a column or
+   margin of their own (Leo, 2026-11-24, on a failed row cut at "API e..." to leave room for a hidden
+   Retry: "you're early ellipsis-ing because of a button that doesnt even always show"). At rest the
+   words run to the time; under the pointer or with keyboard focus the controls come in (.ui-reveal)
+   as the words fade out under them (.ui-reveal-text, its cover the part of the controls over the
+   words: ui/revealCover.ts `data-reveal-overlap`), one motion. A chevron that follows the words gives
+   way too when the controls lie over it (.ui-reveal-under, motion.css). They are out of the trail's
+   flow, so the trail is as wide as its time. */
+.cv-subagent-done-row > .cv-subagent-done__trail {
+  position: relative;
 }
-.cv-subagent-done-row:hover > :is(.cv-subagent-retry, .cv-subagent-retry-link),
-.cv-subagent-done-row:has([data-popup-open]) > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
+.cv-subagent-done__controls {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  inset-inline-end: calc(100% + var(--cv-tool-gap, 8px));
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+  white-space: nowrap;
+}
+.cv-subagent-done__controls > .cv-subagent-done__actions {
   opacity: 1;
+  transition: none;
 }
-.cv-subagent-done-row:hover > :is(.cv-subagent-retry, .cv-subagent-retry-link):disabled,
-.cv-subagent-done-row:has([data-popup-open]) > :is(.cv-subagent-retry, .cv-subagent-retry-link):disabled {
+.cv-subagent-done__controls > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
+  margin-inline-start: 0;
+}
+/* A disabled Retry stays dimmed while shown. */
+.cv-subagent-done__controls > :is(.cv-subagent-retry, .cv-subagent-retry-link):disabled {
   opacity: 0.55;
 }
-@media (prefers-reduced-motion: no-preference) {
-  .cv-subagent-done-row > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
-    transition: opacity var(--cv-actions-out) var(--cv-actions-out-ease);
-  }
-  .cv-subagent-done-row:hover > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
-    transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
-  }
+/* What the line cuts last fades out under the controls instead of ending in an ellipsis. */
+.cv-subagent-done-row > .cv-subagent-done > .ui-reveal-text > :last-child {
+  text-overflow: clip;
 }
 .cv-subagent-retry,
 .cv-subagent-retry-link {
@@ -1707,56 +1680,13 @@ button.cv-subagent > :last-child {
     opacity: 0;
   }
 }
-/* Words that tick (trayMotion.tsx `Tick`): the old and the new share one cell, and a change rolls
-   them, as Claude Code's status line does (Leo, 2026-11-07: the hat's line handing over from thinking
-   to a tool call to another, "That animation, I like that"): the old words go up and out of the cell
-   as the new come up into it from below, both opaque, on one clock. The cell clips them, so at every
-   frame the two tile the line's height exactly: half of each line at the middle, never a frame with
-   no words and never two texts over each other (Leo, 2026-11-11: "there's breif moments where it just
-   looks like a blank tear that then switches", the cross-fade's middle, both texts faded and
-   half-clipped). Transform only, so the compositor plays it on a busy main thread too. Reduce Motion
-   and motion off change the words at once (trayMotionModel.ts `motionAllowed`). */
+/* Words that tick (trayMotion.tsx `Tick`) are the shared text roll (ui/motion/TextRoll.tsx, motion.css
+   `.ui-text-roll`): the old words roll up and out of one cell as the new roll up into it, through the
+   cell's faded top and bottom edges (Leo, 2026-11-25, on a subagent activity row: "it doesn't fade at
+   the top/bottom when switching"), on the text roll's clock, while the cell's width eases between
+   them. The count's own roll below runs on that clock too. */
 .acpmux-tick {
-  display: inline-grid;
-  grid-template-columns: minmax(0, auto);
-  overflow: hidden;
-  /* The roll's clock: the micro step (Leo, 2026-11-11: "it's too slow on the transitions"). The width
-     ease of a sliding tick (trayMotion.tsx) reads it too. */
-  --acpmux-tick-roll: var(--agent-motion-in);
-}
-.acpmux-tick > span {
-  grid-area: 1 / 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.acpmux-tick__in {
-  animation: acpmux-tick-roll-in var(--acpmux-tick-roll) var(--agent-ease-out) both;
-}
-.acpmux-tick__out {
-  animation: acpmux-tick-roll-out var(--acpmux-tick-roll) var(--agent-ease-out) both;
-}
-@keyframes acpmux-tick-roll-in {
-  from {
-    translate: 0 100%;
-  }
-  to {
-    translate: 0 0;
-  }
-}
-@keyframes acpmux-tick-roll-out {
-  from {
-    translate: 0 0;
-  }
-  to {
-    translate: 0 -100%;
-  }
-}
-/* A sliding tick (trayMotion.tsx `Tick` slide): the same roll, while the cell's width eases from the
-   old words' to the new ones' on the roll's clock, so what follows them glides instead of jumping. */
-.acpmux-tick[data-slide] {
-  --acpmux-tick-slide: var(--acpmux-tick-roll);
+  --acpmux-tick-roll: var(--ui-text-roll-ms);
 }
 /* A count ticking over (trayMotion.tsx `Tick` steadyCounts): only the number that changed rolls, the
    old one up and out as the new one rises into its place; tabular figures keep its width. */
@@ -1769,10 +1699,10 @@ button.cv-subagent > :last-child {
   grid-area: 1 / 1;
 }
 .acpmux-tick__roll-in {
-  animation: acpmux-tick-roll-in var(--acpmux-tick-roll) var(--agent-ease-out) both;
+  animation: ui-text-roll-in var(--acpmux-tick-roll) var(--ui-text-roll-ease, var(--agent-ease-out)) both;
 }
 .acpmux-tick__roll-out {
-  animation: acpmux-tick-roll-out var(--acpmux-tick-roll) var(--agent-ease-out) both;
+  animation: ui-text-roll-out var(--acpmux-tick-roll) var(--ui-text-roll-ease, var(--agent-ease-out)) both;
 }
 
 /* What a running agent did last, on the title's row (trayLatest.experiment.ts `inline`, the
@@ -1899,24 +1829,29 @@ button.cv-subagent > :last-child {
   position: relative;
   color: var(--agent-status-failure);
 }
-/* The agent's mark is its harness's own glyph, which takes no text color: the failure is a red dot
-   on its corner, so the line reads failed at a glance (cmux#54927: "the failed subagent shown as a
-   clear failed state"). */
-.cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) > .cv-subagent-done[data-state="failed"] .cv-tool__icon::after {
-  content: "";
+/* The agent's mark is its harness's own glyph, which takes no text color: the failure is its own
+   glyph badged on the mark's corner, ringed in the page's color so it reads as a badge, not a stray
+   dot (Leo, 2026-11-25: "dot on left weird"; cmux#54927: "the failed subagent shown as a clear
+   failed state"). */
+.cv-subagent-done__failed-mark {
   position: absolute;
-  inset-inline-end: calc(-1 * var(--cmux-hairline));
-  inset-block-end: calc(-1 * var(--cmux-hairline));
-  width: calc(var(--ds-space-2) - var(--cmux-hairline));
-  height: calc(var(--ds-space-2) - var(--cmux-hairline));
+  inset-inline-end: calc(-1 * var(--ds-space-1));
+  inset-block-end: calc(-1 * var(--ds-space-1));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border-radius: 50%;
-  background: var(--agent-status-failure);
+  background: var(--agent-page-bg);
+  box-shadow: 0 0 0 var(--cmux-hairline) var(--agent-page-bg);
+  color: var(--agent-status-failure);
+  line-height: 0;
 }
 .cv-subagent-done-row:is([data-look="grid"], [data-look="quiet"]) .cv-subagent-done__time {
   color: var(--cv-text-dim);
 }
 .cv-subagent-failed__text {
   display: flex;
+  flex: 1 1 auto;
   min-width: 0;
   align-items: baseline;
   gap: var(--cv-tool-gap);
@@ -1949,49 +1884,39 @@ button.cv-subagent > :last-child {
   color: var(--cv-text);
 }
 
-/* The grid: every failed line has the same columns, so Retry and the time line up from row to row
-   whatever the title's or reason's length. The reason follows its title, as a tool row's words do:
-   split evenly, it started at the line's middle and floated alone there (cmux#54927). */
+/* The grid: every failed line has the same columns, so the time lines up from row to row whatever
+   the title's or reason's length. The reason follows its title, as a tool row's words do: split
+   evenly, it started at the line's middle and floated alone there (cmux#54927). Retry and ⋯ show only
+   under the pointer, so they have no column: they lie over the words' end (.cv-subagent-done__controls
+   above), and the words take the whole first column at rest. A refusal's note is the row's state: it
+   joins the time's column (the trail) only while it is shown. */
 .cv-tool.cv-subagent-done-row[data-look="grid"] {
   display: grid;
-  /* words | Retry | refusal note | ⋯ | time | chevron. Retry and the time have a floor that lines
-     them up from row to row and grow for a longer label (a translation) or a
-     duration past an hour, so neither spills into its neighbour. Every row has the same tracks, so
-     an empty note or ⋯ track moves every row alike. */
-  grid-template-columns:
-    minmax(0, 1fr) minmax(var(--cv-failed-retry-width, 64px), max-content) auto auto
-    minmax(var(--cv-failed-time-width, 7ch), max-content) var(--cv-glyph-slot, 16px);
+  /* words | time | chevron. The time has a floor that lines it up from row to row and grows for a
+     duration past an hour, or for a refusal's note before it while that shows. */
+  grid-template-columns: minmax(0, 1fr) minmax(var(--cv-failed-time-width, 7ch), max-content) var(--cv-glyph-slot, 16px);
   align-items: center;
   column-gap: var(--cv-tool-gap);
 }
 .cv-subagent-done-row[data-look="grid"] > .cv-subagent-done {
   grid-column: 1;
   grid-row: 1;
+  /* A button sizes to its words; the line fills its track, so the words take the whole first
+     column on every row (cmux#52916, cmux#54927). */
+  justify-self: stretch;
+  width: 100%;
+  min-width: 0;
 }
-.cv-subagent-done-row[data-look="grid"] > :is(.cv-subagent-retry, .cv-subagent-retry-link) {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: start;
-  margin-inline-start: 0;
-  white-space: nowrap;
-}
-.cv-subagent-done-row[data-look="grid"] > .cv-subagent-done__note {
-  grid-column: 3;
-  grid-row: 1;
-}
-.cv-subagent-done-row[data-look="grid"] > .cv-subagent-done__actions {
-  grid-column: 4;
-  grid-row: 1;
-}
+/* The trail fills its column, so the controls before it start at one x on every row. */
 .cv-subagent-done-row[data-look="grid"] > .cv-subagent-done__trail {
-  grid-column: 5;
+  grid-column: -3;
   grid-row: 1;
-  justify-self: end;
+  justify-self: stretch;
   margin-inline-start: 0;
   font-variant-numeric: tabular-nums;
 }
 .cv-subagent-done-row[data-look="grid"] > .cv-subagent-done__chevron {
-  grid-column: 6;
+  grid-column: -2;
   grid-row: 1;
 }
 
@@ -2770,6 +2695,7 @@ button.cv-subagent > :last-child {
     transition: none;
   }
 }
+/* one-material-allow: the hat fan's in-place backing blurs the header words under a spread icon; no surface of its own */
 .acpmux-hat-faces[data-hat-faces="fan"]:hover .acpmux-hat-faces__row::before {
   content: "";
   position: absolute;
@@ -2940,6 +2866,10 @@ button.cv-subagent > :last-child {
   --acpmux-tray-glyph: calc(var(--acpmux-composer-glyph, 16px) * 14 / 16);
   /* The lead box's room on each side of a glyph of the header's size. */
   --acpmux-tray-lead-room: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-glyph)) / 2);
+  /* The same room beside a harness mark (the stack's, a subagent kind's), which keeps its own size,
+     the faces' --acpmux-tray-face, at every density: centred by the glyph's room it sat off +'s centre
+     at every density but Default's (cmux#56151). */
+  --acpmux-tray-mark-room: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-face)) / 2);
 }
 /* The header's glyphs, at the composer's size. */
 /* A harness mark (the stack's, a kind's) keeps its own size: its badge and mask cut are drawn for it. */
@@ -2957,33 +2887,43 @@ button.cv-subagent > :last-child {
   margin-inline-end: calc(var(--acpmux-tray-lead-gap) - var(--ds-space-2, 8px));
 }
 .acpmux-running-tray__head > .acpmux-running-tray__stack {
-  padding-inline-start: var(--acpmux-tray-lead-room);
+  padding-inline-start: var(--acpmux-tray-mark-room);
 }
 .acpmux-running-tray__head > .acpmux-running-tray__stack > .acpmux-running-tray__stack-mark:first-child {
-  margin-inline-end: calc(var(--acpmux-tray-lead-room) + var(--acpmux-tray-lead-gap) - var(--ds-space-1, 4px));
+  margin-inline-end: calc(var(--acpmux-tray-mark-room) + var(--acpmux-tray-lead-gap) - var(--ds-space-1, 4px));
 }
 .acpmux-running-tray__head > .acpmux-running-tray__stack:has(> .acpmux-running-tray__stack-mark:only-child) {
   margin-inline-end: calc(var(--acpmux-tray-lead-gap) - var(--ds-space-2, 8px));
 }
 .acpmux-running-tray__head > .acpmux-running-tray__stack:has(> .acpmux-running-tray__stack-mark:only-child) > .acpmux-running-tray__stack-mark {
-  margin-inline-end: var(--acpmux-tray-lead-room);
+  margin-inline-end: var(--acpmux-tray-mark-room);
 }
 /* The kinds' header: its first kind's mark in +'s box, the count one lead gap after it. With the
    subagents' faces first (HatFaces.tsx), the first face centres in +'s box. */
-.acpmux-running-tray__kinds > :first-child:not(.acpmux-running-tray__kind, .acpmux-running-tray__kind-unit:has(> .acpmux-running-tray__kind:first-child)) {
+.acpmux-running-tray__kinds > :first-child:not(.acpmux-running-tray__kind, .acpmux-running-tray__kind-unit:has(> .acpmux-running-tray__kind:first-child), .acpmux-running-tray__summary-line:has(> .acpmux-running-tray__kind-unit:first-child > .acpmux-running-tray__kind:first-child)) {
   margin-inline-start: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-face)) / 2);
 }
-/* A kind stands alone or in its unit (with its separator, the `tally` arm's wrapping). */
+/* A kind stands alone or in its unit (with its separator, the `tally` arm's wrapping), or, in the
+   `summary` and `groups` headers (HeadSummary.tsx), first on the summary line when no plan leads it
+   (cmux#56151: its words started 7px short of the prompt's). */
 .acpmux-running-tray__kinds > .acpmux-running-tray__kind:first-child > :first-child,
-.acpmux-running-tray__kinds > .acpmux-running-tray__kind-unit:first-child > .acpmux-running-tray__kind:first-child > :first-child {
+.acpmux-running-tray__kinds > .acpmux-running-tray__kind-unit:first-child > .acpmux-running-tray__kind:first-child > :first-child,
+.acpmux-running-tray__kinds > .acpmux-running-tray__summary-line:first-child > .acpmux-running-tray__kind-unit:first-child > .acpmux-running-tray__kind:first-child > :first-child {
   margin-inline: var(--acpmux-tray-lead-room) calc(var(--acpmux-tray-lead-room) + var(--acpmux-tray-lead-gap) - var(--ds-space-1, 4px));
+}
+/* A harness mark centres in +'s box by its own room (--acpmux-tray-mark-room), not the scaled glyph's
+   (cmux#56151: at Spacious it sat 1.4px left of the + and its words 2.8px short of the prompt's). */
+.acpmux-running-tray__kinds > .acpmux-running-tray__kind:first-child > .acpmux-running-tray__stack-mark:first-child,
+.acpmux-running-tray__kinds > .acpmux-running-tray__kind-unit:first-child > .acpmux-running-tray__kind:first-child > .acpmux-running-tray__stack-mark:first-child,
+.acpmux-running-tray__kinds > .acpmux-running-tray__summary-line:first-child > .acpmux-running-tray__kind-unit:first-child > .acpmux-running-tray__kind:first-child > .acpmux-running-tray__stack-mark:first-child {
+  margin-inline: var(--acpmux-tray-mark-room) calc(var(--acpmux-tray-mark-room) + var(--acpmux-tray-lead-gap) - var(--ds-space-1, 4px));
 }
 /* The panel button is the composer's control box, centred on the header's row. */
 .acpmux-running-tray__open {
   top: calc((var(--acpmux-tray-head-height) - var(--acpmux-tray-control)) / 2);
   height: var(--acpmux-tray-control);
 }
-/* The lines and the plan's steps under the header keep its columns: each mark centred in +'s box, its
+/* The lines under the header keep its columns: each mark centred in +'s box, its
    words at the prompt's start. */
 .acpmux-running-tray .acpmux-agent-line__button > .acpmux-lineage__icon {
   box-sizing: border-box;
@@ -2993,33 +2933,72 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray .acpmux-agent-line__button > .acpmux-summary-text {
   margin-left: calc(var(--acpmux-tray-lead-box) + var(--acpmux-tray-lead-gap) + var(--acpmux-tray-indent, 0px));
 }
-/* The steps' marks (rings, the check, the spinner) are the header glyph's ink size at every density:
-   12 px at Default, as the cropped 14 px header glyph inks (the person, 2026-11-24: the card's and the
-   plan's icons on the + axis, the same size). */
-.acpmux-running-tray {
-  --acpmux-tray-mark: calc(var(--acpmux-tray-glyph) * 12 / 14);
-}
-.acpmux-running-tray__plan .cv-plan__item {
-  gap: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-mark)) / 2 + var(--acpmux-tray-lead-gap));
-}
-.acpmux-running-tray__plan .cv-plan__mark {
-  width: var(--acpmux-tray-mark);
-  height: var(--acpmux-tray-mark);
-  /* Centred on the step's first line, as the 12 px mark's half step centred it. */
-  margin-top: calc((var(--grid-icon-box) - var(--acpmux-tray-mark)) / 2);
-  margin-inline-start: calc((var(--acpmux-tray-lead-box) - var(--acpmux-tray-mark)) / 2);
-}
-.acpmux-running-tray__plan .cv-plan__mark > svg {
-  width: 100%;
-  height: 100%;
-}
-.acpmux-running-tray__plan .cv-plan__item[data-status="completed"] .cv-plan__mark > svg {
-  width: calc(100% * 10 / 12);
-  height: calc(100% * 10 / 12);
-}
 
 /* The hat's one caret (HatChevron.tsx): the Goal row's and the header's, one size at every density. */
 .acpmux-hat-chevron {
   width: calc(var(--acpmux-composer-glyph, 16px) * 14 / 16);
   height: calc(var(--acpmux-composer-glyph, 16px) * 14 / 16);
+}
+
+/* The `line` header (trayFoldHead.experiment.ts, the default): one plain sentence, "10 subagents
+   working, 2 background commands running" (Leo, 2026-11-25: "there's tons of unnecessary space to the
+   point where it's just... not great"), on the hat's own card, joined to the composer as the other
+   headers are (Leo, 2026-11-27: "add the opaque backing to it again with proper size"). The header is
+   the composer's row height, as every other hat header, and the words are the chat's text size, the
+   prompt's and the replies' (--text-content), never a smaller metadata step. No marks, time or chevron;
+   hovered or pressed, the words take the accent on a small rounded chip. A tray with no card (a
+   surface arm of `none`, settled) keeps the bare line. */
+.acpmux-dock > .acpmux-running-tray[data-line]:not([data-card]) {
+  min-height: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head {
+  justify-content: flex-start;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head:hover {
+  background: none;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-inline-start: calc(-1 * (var(--ds-space-1) + var(--grid-half-step)));
+  padding: calc(var(--grid-half-step) / 2) calc(var(--ds-space-1) + var(--grid-half-step));
+  border-radius: var(--ds-radius-control, 6px);
+  color: var(--agent-muted);
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
+  transition: color var(--cv-actions-out) var(--cv-actions-out-ease),
+    background-color var(--cv-actions-out) var(--cv-actions-out-ease);
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head:is(:hover, :focus-visible, [aria-expanded="true"])
+  > .acpmux-running-tray__title {
+  color: var(--agent-link, var(--agent-accent));
+  background: var(--agent-control-hover);
+}
+.acpmux-running-tray[data-line]:not([data-card]) > .acpmux-running-tray__rim {
+  display: none;
+}
+
+/* The one line's bar holds still (coordinator's design pass, 2026-11-27, after Leo asked whether it
+   should grow and shrink): the composer's full width and one row tall, whatever it says. Its width
+   never follows its words, its digits are tabular so "10 subagents working, 16 background commands
+   running" keeps its width as a count ticks, and its words never wrap (they truncate). The only size
+   change is coming and going: it slides in as the first subagent or background command starts and
+   out as the last one ends, in 150 ms (5/6 of the standard 180 ms). */
+.acpmux-running-tray[data-line] {
+  --acpmux-tray-enter: acpmux-tray-settle-in calc(var(--cmux-motion-standard) * 5 / 6) var(--cmux-ease-settle) both; /* motion-allow: the one-line bar's 150 ms slide, the design pass above */
+  --acpmux-tray-leave: acpmux-tray-leave calc(var(--cmux-motion-standard) * 5 / 6) var(--cmux-ease-settle) both; /* motion-allow: the one-line bar's 150 ms slide, the design pass above */
+  inline-size: auto;
+  align-self: stretch;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head {
+  inline-size: 100%;
+  overflow: hidden;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

@@ -3,7 +3,10 @@
 # Zig toolchains and warm caches. Runs as root; the work user's files are written as that user.
 # Nothing here writes a credential, a token or a git identity.
 #   dev-tree.sh clone REPO BRANCH REF DIR SUBMODULE...  blobless clone of BRANCH, checked out at REF
-#                                                        (empty: the branch head), then the submodules
+#                                                        (empty: the branch head), then the submodules.
+#                                                        DEV_TREE_BUNDLE_LISTS="URL...": objects from the
+#                                                        first edge bundle list that answers (RFD 0056
+#                                                        part 3), the rest from REPO; none: plain clone
 #   dev-tree.sh rust DIR URL SHA256 SIZE                 rustup-init (checked), the checkout's toolchain
 #   dev-tree.sh zig DIR                                  the checkout's Zig and ghostty-next's Zig packages
 #   dev-tree.sh build DIR COMMAND...                     the first build, in DIR/cmux-tui
@@ -28,8 +31,28 @@ cmd="$1"
 shift
 case "$cmd" in
   clone)
+    # The edge bundle lists (RFD 0056 part 3), in order: one GET each, bounded like leo-workspace's
+    # tools/edge_bundle.py (0.2 s connect, no proxy, the text must be a list). git's own http has no
+    # connect bound, so a list that does not answer here is not handed to git. None answering, or a
+    # bundle-URI clone that fails for any other reason: the plain clone. The bundles' tips land in
+    # refs/bundles/*; the branch still comes from REPO, so the edge adds objects and cannot move a branch.
+    bundle_uri=""
+    for list in ${DEV_TREE_BUNDLE_LISTS:-}; do
+      text="$(curl --noproxy '*' --fail --silent --location --connect-timeout 0.2 --max-time 2 "$list" 2>/dev/null || true)"
+      case "$text" in *"[bundle]"*) bundle_uri="$list"; break ;; esac
+      echo "dev-tree: edge bundle list $list did not answer" >&2
+    done
+    if [ -n "$bundle_uri" ]; then
+      if ! as_user 'git clone -q --bundle-uri="$5" --filter=blob:none --single-branch --branch "$2" --no-checkout "$1" "$4"' "$1" "$2" "$3" "$4" "$bundle_uri"; then
+        echo "dev-tree: bundle-uri clone from $bundle_uri failed; plain clone" >&2
+        rm -rf "$4"
+        bundle_uri=""
+      fi
+    else
+      echo "dev-tree: no edge bundle list answered; plain clone" >&2
+    fi
+    test -n "$bundle_uri" || as_user 'git clone -q --filter=blob:none --single-branch --branch "$2" --no-checkout "$1" "$4"' "$@"
     as_user '
-      git clone -q --filter=blob:none --single-branch --branch "$2" --no-checkout "$1" "$4"
       cd "$4"
       git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
       git checkout -q -B "$2" "${3:-origin/$2}"

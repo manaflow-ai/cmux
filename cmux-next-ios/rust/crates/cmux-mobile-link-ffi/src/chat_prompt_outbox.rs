@@ -16,8 +16,8 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
 use cmux_composer_send::chat::{
-    Attachment, CancelStep, DEFAULT_HOLD, EditStep, PromptDone, PromptLook, PromptOutbox, PromptOutcome,
-    Refusal, ResendState, UploadState, is_transient_refusal,
+    Attachment, CancelStep, DEFAULT_HOLD, EditStep, PendingSend, PromptDone, PromptLook, PromptOutbox,
+    PromptOutcome, Refusal, ResendState, UploadState, is_transient_refusal,
 };
 
 /// How a prompt ended.
@@ -108,6 +108,46 @@ pub enum ChatPromptLook {
     Retrying,
     /// Given up.
     Failed,
+}
+
+/// A prompt still on its way, as the chat draws its row, with the actions it has: Stop (its
+/// text back in the composer to edit and send again) and Delete always, Send now when offered.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct ChatPendingSend {
+    pub prompt_id: String,
+    pub text: String,
+    /// Its attachments' upload ids.
+    pub upload_ids: Vec<String>,
+    pub look: ChatPromptLook,
+    /// Until it goes again after a "not now", when it waits on one.
+    pub retry_in_ms: Option<u64>,
+    /// The chat shows its row (attachments, waiting, or being stopped).
+    pub shown: bool,
+    /// Send now is offered (link up, unwritten, waiting).
+    pub can_send_now: bool,
+    /// Stopped after it may have reached the Mac: the Mac's removal is awaited.
+    pub stopping: bool,
+}
+
+fn chat_look(look: PromptLook) -> ChatPromptLook {
+    match look {
+        PromptLook::Sent => ChatPromptLook::Sent,
+        PromptLook::Retrying => ChatPromptLook::Retrying,
+        PromptLook::Failed => ChatPromptLook::Failed,
+    }
+}
+
+fn pending_send(p: PendingSend) -> ChatPendingSend {
+    ChatPendingSend {
+        prompt_id: p.id,
+        text: p.text,
+        upload_ids: p.attachments,
+        look: chat_look(p.look),
+        retry_in_ms: p.retry_in.map(ms_duration),
+        shown: p.shown,
+        can_send_now: p.can_send_now,
+        stopping: p.stopping,
+    }
 }
 
 /// An unwritten prompt handed to the chat's next source, with its tap.
@@ -237,7 +277,13 @@ impl ChatPromptOutbox {
     ) -> bool {
         let mut inner = self.inner();
         let (tapped, now) = (inner.at(tapped_ms), inner.at(now_ms));
-        inner.outbox.push(prompt_id, text, upload_ids, resend, tapped, now)
+        if upload_ids.is_empty() {
+            // On the phone this is the prepared payload, handed off after all uploads or the
+            // preceding prompt completed. The tap still orders it among the other prompts.
+            inner.outbox.push_prepared(prompt_id, text, resend, tapped, now)
+        } else {
+            inner.outbox.push(prompt_id, text, upload_ids, resend, tapped, now)
+        }
     }
 
     /// The link made progress at `now_ms` (bytes heard from the Mac, a channel bound, a write
@@ -425,11 +471,14 @@ impl ChatPromptOutbox {
     /// How `prompt_id` looks at `now_ms`.
     pub fn look(&self, prompt_id: String, now_ms: u64) -> ChatPromptLook {
         let inner = self.inner();
-        match inner.outbox.look(&prompt_id, inner.at(now_ms)) {
-            PromptLook::Sent => ChatPromptLook::Sent,
-            PromptLook::Retrying => ChatPromptLook::Retrying,
-            PromptLook::Failed => ChatPromptLook::Failed,
-        }
+        chat_look(inner.outbox.look(&prompt_id, inner.at(now_ms)))
+    }
+
+    /// Every prompt still on its way at `now_ms`, in tap order, with the actions each has: the
+    /// chat's pending rows (no pending send is ever without an exit).
+    pub fn pending_sends(&self, now_ms: u64) -> Vec<ChatPendingSend> {
+        let inner = self.inner();
+        inner.outbox.pending(inner.at(now_ms)).into_iter().map(pending_send).collect()
     }
 
     /// Its attachments and their uploads' ends, or none.

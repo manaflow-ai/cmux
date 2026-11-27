@@ -56,6 +56,25 @@ pub fn enabled_from(value: Option<&str>) -> bool {
     matches!(value.map(str::trim), Some("1" | "true"))
 }
 
+/// Off by default: on a switch to the datagram path, the stream batches still queued for the
+/// reliable stream are dropped (their scrolled-off rows go on as `viewport-history`), so the
+/// `viewport-path` line no longer waits behind stale repaints on a slow or shared link.
+pub const SKIP_SUPERSEDED_ENV: &str = "CMUX_MOBILE_VIEWPORT_SKIP_SUPERSEDED";
+
+/// Whether [`SKIP_SUPERSEDED_ENV`] is on in this process.
+pub fn skip_superseded() -> bool {
+    enabled_from(std::env::var(SKIP_SUPERSEDED_ENV).ok().as_deref())
+}
+
+/// Off by default: a sync starts on the datagram path instead of waiting for the selector's
+/// evidence ([`SelectorConfig::start`]).
+pub const DATAGRAM_START_ENV: &str = "CMUX_MOBILE_VIEWPORT_DATAGRAM_START";
+
+/// Whether [`DATAGRAM_START_ENV`] is on in this process.
+pub fn datagram_start() -> bool {
+    enabled_from(std::env::var(DATAGRAM_START_ENV).ok().as_deref())
+}
+
 /// Binds [`PORT`] on a WireGuard session when the gate is on; `None` when it is off.
 pub async fn bind_wg(net: &WgNet) -> io::Result<Option<WgDatagramSocket>> {
     if !enabled() {
@@ -225,6 +244,12 @@ pub struct SelectorConfig {
     /// While nothing else goes, a small datagram every `probe` keeps the round trip and loss
     /// measured.
     pub probe: Duration,
+    /// The path a sync starts on. [`Path::Stream`] by default: the switch to the datagrams then
+    /// waits for `slow_samples` sends unacked past `srtt_above` (one launch, then a probe every
+    /// `probe`: about 220 ms), and the stream batches sent meanwhile queue ahead of the switch.
+    /// [`Path::Datagram`] ([`DATAGRAM_START_ENV`]) starts there, before the first batch, and
+    /// comes back to the stream after `hold` on a fast, clean link.
+    pub start: Path,
 }
 
 impl Default for SelectorConfig {
@@ -236,11 +261,18 @@ impl Default for SelectorConfig {
             srtt_below: Duration::from_millis(15),
             hold: Duration::from_secs(5),
             probe: Duration::from_millis(100),
+            start: Path::Stream,
         }
     }
 }
 
 impl SelectorConfig {
+    /// hostd's: the defaults, starting on the datagrams when [`DATAGRAM_START_ENV`] is on.
+    pub fn from_env() -> Self {
+        let start = if datagram_start() { Path::Datagram } else { Path::Stream };
+        Self { start, ..Self::default() }
+    }
+
     /// The datagram path from the first poll on, and never back (tests, and measuring the
     /// datagram path alone): a switch needs zero losses, the way back a hold that never ends.
     pub fn datagram_first() -> Self {
@@ -285,7 +317,7 @@ pub struct PathSelector {
 
 impl PathSelector {
     pub fn new(config: SelectorConfig) -> Self {
-        Self { config, path: Path::Stream, good_since: None, switches: Vec::new() }
+        Self { path: config.start, config, good_since: None, switches: Vec::new() }
     }
 
     pub fn path(&self) -> Path {
@@ -483,7 +515,13 @@ impl ViewportSync {
     /// Choose the path per link ([`PathSelector`]): the stream until the link's round trip or
     /// loss says the datagrams win. Without it the driver is always on the datagram path.
     pub fn select_path(&mut self, config: SelectorConfig) {
+        let start = config.start;
         self.selector = Some(PathSelector::new(config));
+        if start == Path::Datagram {
+            // Told to the phone before any batch; the phone's state is the prime's, not ours.
+            self.switched = Some(Path::Datagram);
+            self.dirty = true;
+        }
     }
 
     /// The path the screen goes by now.
@@ -1015,7 +1053,9 @@ impl DatagramIo for WgDatagramSocket {
 #[derive(Debug, PartialEq, Eq)]
 pub enum StreamOut {
     /// A PTY batch for the stream, as it came (the stream path is on); `batch` counts from 1.
-    Output { batch: u64, bytes: Vec<u8> },
+    /// `rows`: the rows it pushed out of the viewport, when [`skip_superseded`] is on (the
+    /// stream may then drop the batch for them once a switch to the datagrams follows it).
+    Output { batch: u64, bytes: Vec<u8>, rows: Option<Vec<u8>> },
     /// Rows that left the viewport while the datagrams carry the screen.
     History(Vec<u8>),
     /// The path changed; the batches after this go the new way.
@@ -1072,6 +1112,7 @@ async fn drive<I: DatagramIo>(
     drain: Duration,
 ) -> io::Result<ViewportSync> {
     let mut closed_at: Option<Instant> = None;
+    let skip = skip_superseded();
     loop {
         let now = Instant::now();
         if let Some(peer) = peer {
@@ -1113,14 +1154,24 @@ async fn drive<I: DatagramIo>(
             batch = output.recv(), if closed_at.is_none() => match batch {
                 Some(bytes) => {
                     let path = sync.path();
-                    if let Sink::Selected(stream) = &sink
+                    let rows = if let Sink::Selected(stream) = &sink
                         && path == Path::Stream
                     {
-                        // Out before the model takes it: the stream path waits on nothing.
                         let batch = sync.batches() + 1;
-                        let _ = stream.send(StreamOut::Output { batch, bytes: bytes.clone() }).await;
-                    }
-                    let rows = sync.feed(&bytes);
+                        if skip {
+                            // The model first: the batch carries its scrolled-off rows.
+                            let rows = sync.feed(&bytes);
+                            let out = StreamOut::Output { batch, bytes, rows: Some(rows.clone()) };
+                            let _ = stream.send(out).await;
+                            rows
+                        } else {
+                            // Out before the model takes it: the stream path waits on nothing.
+                            let _ = stream.send(StreamOut::Output { batch, bytes: bytes.clone(), rows: None }).await;
+                            sync.feed(&bytes)
+                        }
+                    } else {
+                        sync.feed(&bytes)
+                    };
                     match &sink {
                         Sink::History(Some(history)) if !rows.is_empty() => {
                             let _ = history.send(rows).await;
@@ -1449,6 +1500,26 @@ mod tests {
     }
 
     #[test]
+    fn viewport_sync_datagram_start_switches_before_anything_and_back_on_a_fast_link() {
+        let start = Instant::now();
+        let mut sync = driver(start);
+        sync.select_path(SelectorConfig { start: Path::Datagram, ..SelectorConfig::default() });
+        assert_eq!(sync.path(), Path::Datagram);
+        assert_eq!(sync.take_switch(), Some(Path::Datagram), "the phone hears it first");
+        assert!(!sync.poll(start).is_empty(), "the screen goes at once");
+        // A fast, clean link: back to the stream after the hold.
+        let mut link = FakeLink::new(Duration::from_millis(1), Duration::ZERO, 0.0);
+        drive_fake(&mut sync, &mut link, start, 20);
+        assert_eq!(sync.path(), Path::Stream);
+        assert_eq!(sync.take_switch(), Some(Path::Stream));
+        assert!(sync.switches()[0].at >= start + SelectorConfig::default().hold);
+        // The default still starts on the stream.
+        let mut sync = driver(start);
+        sync.select_path(SelectorConfig::default());
+        assert_eq!((sync.path(), sync.take_switch()), (Path::Stream, None));
+    }
+
+    #[test]
     fn viewport_sync_selector_switches_within_a_second_on_lossy_10() {
         let start = Instant::now();
         let mut sync = driver(start);
@@ -1488,7 +1559,7 @@ mod tests {
         let mut ms = 0_u64;
         let mut line = 0_u64;
         let mut took_ms = Vec::with_capacity(bursts);
-        let mut tick = |sync: &mut ViewportSync, phone: &mut SyncReceiver, link: &mut FakeLink, ms: u64| {
+        let tick = |sync: &mut ViewportSync, phone: &mut SyncReceiver, link: &mut FakeLink, ms: u64| {
             let now = start + Duration::from_millis(ms);
             let sent = sync.poll(now);
             link.step(sync, phone, sent, now);

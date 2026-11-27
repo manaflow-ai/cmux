@@ -64,6 +64,7 @@ extension SidebarListViewComponents {
         inlineRename.follow()
         groupEditor.follow(groups)
         if let shown = groupEditor.shownGroup { (rowViews[.group(shown)] as? GroupHeaderRowView)?.isEditing = true }
+        scheduleRelativeTimesTick()
     }
     /// The rows' caches (workspaces, groups and their subtrees, sections, listed items) from the sections the list draws.
     private func rebuildRowCaches() {
@@ -108,10 +109,10 @@ extension SidebarListViewComponents {
         var o = model.listOptions()
         o.showsSoleMachineHeader = true
         o.pullRequests = SidebarSessionTree.shared.pullRequests
-        if let tree = SidebarSessionTree.shared.drawn {
+        if let tree = SidebarSessionTree.shared.drawn(keeping: model.selection) {
             o.sessionTree = tree
             o.parentTitles = SidebarLayout.parentTitles(tree.parents, workspaces: model.allWorkspaces)
-            // Lineage nesting alone (`SidebarTunables.lineageNesting`) nests rows; the keycaps and the chat history
+            // Lineage alone (an agent started a session) nests or hides rows; the keycaps and the chat history
             // stay `sidebar.sessionTree`'s.
             if DesignSettings.shared.sidebarSections.sessionTree {
                 o.keycaps = model.workspaceKeycaps(DesignSettings.shared.sidebarSections.navigation)
@@ -413,7 +414,9 @@ extension SidebarListViewComponents {
             // Under a dropped card on its way to its slot, a leaving row goes at once (`isUnderCard`).
             let underCard = isUnderCard(view.frame, cards)
             if adopting, !suppressed.contains(key), !underCard {
-                // A row the drop or the model took away fades where it is (its slot closes on the rows' spring).
+                // A row the drop or the model took away fades where it is (its slot closes on the rows' spring),
+                // without the selection fill: that is on the new selected row already (no second one).
+                view.isSelected = false
                 leaving.append((view, view.frame))
             } else if suppressed.contains(key) || !animate || placeholder || replaced || underCard {
                 recycle(view)
@@ -567,7 +570,9 @@ extension SidebarListViewComponents {
             view.configure(section, row: row)
         case let (.emptyGroup(id), view as EmptyGroupRowView): view.configure(groupID: id, groupName: groups[id]?.name ?? model.group(id)?.name ?? "")
         case let (.folder(_, folder), view as FolderHeaderRowView): view.configure(folder: folder)
-        case let (.status, view as StatusHeaderRowView): view.configure(row)
+        case let (.status, view as StatusHeaderRowView):
+            view.isKeyboardFocused = showsFocusRing && focusedFold == row.key
+            view.configure(row)
         case let (.listHeader(header), view as ListHeaderRowView):
             view.configure(header, count: row.childCount, sharesLocalScreen: model.sections.contains { $0.machine?.kind == .local },
                            sharing: model.sections.contains { $0.machine?.screenShared == true })
@@ -654,6 +659,7 @@ extension SidebarListViewComponents {
         SidebarPerfCounters.add(.scrollRealizes)
         groupEditing.followScroll()
         defer { reportGooeySelection() } // a scroll moves the selected row under the window's shade
+        chatHistory.followScroll()
         let realize = realizationRect()
         for index in displayed.rowIndices(from: realize.minY, to: realize.maxY) {
             let row = displayed.rows[index]

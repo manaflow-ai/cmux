@@ -40,11 +40,12 @@ LIGHT_NIGHTLY_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostt
 # Of those, the ones on our persistent Linux pool. The other two read the routing App key, so they stay on the
 # nightly-only minis.
 CMUX_LINUX_JOBS = ("resolve-nightly-cmux-tui-client", "resolve-nightly-ghostty-cli-helper",
-                   "prepare-nightly-variant-primary", "prepare-nightly-variant")
+                   "prepare-nightly-variant-primary", "prepare-nightly-variant", "published-build")
 CMUX_LINUX_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
 # RFD 0021 route by need: the essential ones take the nightly's reserved label on attempt 1 (no PR job can ask
 # for it, tests/test_ci_nightly_labels_reserved.py) and cmux-linux on a rerun or loop retry.
-NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant")
+NIGHTLY_PINNED_JOBS = ("resolve-nightly-cmux-tui-client", "prepare-nightly-variant-primary", "prepare-nightly-variant",
+                       "published-build")
 NIGHTLY_PINNED_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}"
 
 # A runs-on term that can put a nightly job on our own fleet: the owned nightly slot or side lane, the cmux-linux
@@ -404,7 +405,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                         off = {label for label in resolve_labels(runs_on, variables=SWITCH_OFF) if isinstance(label, str)}
                         self.assertFalse({label for label in on - off if "macos" in label.lower()},
                                          f"{path.name}#{name}: the overflow switch adds a macOS label")
-        self.assertGreater(checked, 10)
+        # The pickers that read the switch are frozen to labels (one_linux_label.py); a few still read it.
+        self.assertGreater(checked, 1)
         self.assertEqual(unread, set(OVERFLOW_UNREAD), "an OVERFLOW_UNREAD entry no longer names a job")
 
     def test_the_overflow_rules_fail_on_a_mac_overflow(self) -> None:

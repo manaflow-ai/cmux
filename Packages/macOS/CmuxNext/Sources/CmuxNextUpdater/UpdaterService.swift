@@ -146,6 +146,15 @@ public final class UpdaterService {
     /// without a relaunch.
     @ObservationIgnored public var hidesForRelaunch: (() -> Void)?
     @ObservationIgnored public var installAbandoned: (() -> Void)?
+    /// Restart to Update was clicked (set by the App: ``UpdateWindowHandoff/clicked()``): the pages' pictures
+    /// are saved now, while the windows are on screen and the click's feed read and pre-warm wait run, so
+    /// the windows leave at once when Sparkle commits to the relaunch (ask-ad4a68e740).
+    @ObservationIgnored public var picturesAtClick: (() -> Void)?
+    /// When Restart to Update was last clicked: the pre-warm wait is bounded from it (``installAfterPrewarm(_:)``).
+    @ObservationIgnored var installClickedAt: ContinuousClock.Instant?
+    /// Sparkle committed to an update's relaunch (``updaterWillRelaunchApplication()``); an abandoned install clears it.
+    /// The quit then skips Chromium's own shutdown: the relaunched app opens the same pages (ask-ad4a68e740).
+    @ObservationIgnored public internal(set) var relaunchingForUpdate = false
     /// The save of the pages' pictures a relaunch ran while its windows were still on screen
     /// (``UpdateWindowHandoff/savesBeforeLeaving``); the quit awaits it instead of saving from windows already gone.
     /// nil: no relaunch took the windows off screen, the quit saves for itself.
@@ -157,6 +166,11 @@ public final class UpdaterService {
     public internal(set) var stagedVersion: String?
     public internal(set) var stagedNotes: ReleaseNotes?
     @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
+    /// Reads the feed's notes index (``releaseNotes`` in the app; replaced by tests).
+    @ObservationIgnored var indexLoader: (@Sendable () async -> [ReleaseNotesIndexEntry])?
+    /// "What's in this build": the PRs after this build through the staged one (``loadStagedPullRequests()``).
+    public internal(set) var stagedPullRequests: BuildPullRequests?
+    @ObservationIgnored var stagedPullRequestsTask: (build: String, task: Task<Void, Never>)?
     /// The staged build's pre-warm, running or ended (``prewarmStagedUpdate(trigger:)``, once per build).
     @ObservationIgnored var prewarmRun: StagedPrewarmRun?
     /// The install click waiting for that pre-warm (``installAfterPrewarm(_:)``), and the bound of its wait.
@@ -172,6 +186,9 @@ public final class UpdaterService {
     /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
     public internal(set) var currentBuildNotes: ReleaseNotes?
     @ObservationIgnored var currentBuildNotesTask: Task<Void, Never>?
+    /// This build's PRs for About cmux's credits, read once per launch (``showAboutPanel()``).
+    @ObservationIgnored var aboutPullRequests: BuildPullRequests?
+    @ObservationIgnored var aboutPullRequestsTask: Task<Void, Never>?
     /// The staged appcast item's build (replaced by tests).
     @ObservationIgnored var stagedBuild: () -> String? = { nil }
     /// `updates.downloadAutomatically` (the card's Automatic Updates box).
@@ -227,6 +244,10 @@ public final class UpdaterService {
     /// The install click replaced a stale staged build (``StagedUpdateRefresh/beforeInstall(updater:install:)``):
     /// the click carries over to the newer build's check and download (``carryInstallClick(_:)``).
     @ObservationIgnored var installAfterSwap = false
+    /// The person's update clicks (Update on the found step, Restart to Update) since the flow was
+    /// last idle; the relaunch records them (``UpdateInstallCheck/clicks``) and the next launch
+    /// flags more than one (``UpdateInstallCheck/extraClicksLine(_:)``).
+    @ObservationIgnored var updateClicks = 0
     /// Why the newest build downloads in place of a stale or pulled one, or nil (``followNewestFetch(_:previous:)``).
     var newestFetch: NewestFetch?
     /// Pulled staged builds already dropped once (``followPulled()``).
@@ -292,6 +313,14 @@ public final class UpdaterService {
     /// Sparkle relaunch.
     @ObservationIgnored public var relaunchBehind: ((_ willQuit: @escaping @MainActor () async -> Bool, _ declined: @escaping @MainActor () -> Void,
                                                      _ inFront: @escaping @MainActor () -> Void) -> Void)?
+    /// Quits and reopens the app in front once it exits, with its launch home (``UpdateRelaunchBehind``
+    /// with `inBackground` false): the first closure runs just before the quit (false: the install
+    /// was taken over, so no quit), the second when the app did not quit. Nil lets Sparkle relaunch.
+    @ObservationIgnored public var reopenInFront: ((_ willQuit: @escaping @MainActor () async -> Bool,
+                                                    _ declined: @escaping @MainActor () -> Void) -> Void)?
+    /// The `open` options that bring the app back in its launch home (``RelaunchHome``); empty for
+    /// a launch in the account's own home.
+    @ObservationIgnored public var launchHomeOptions: () -> [String] = { RelaunchHome.openArguments() }
     /// Reads the executable's live session and input state before Sparkle relaunches.
     @ObservationIgnored public var relaunchBlockers: () -> UpdateRelaunchBlockers = { .daemonUnavailable }
     /// Holds an automatic install while a modal, sheet, menu or composition is up (``UpdateRelaunchMoment``).
@@ -394,6 +423,8 @@ public final class UpdaterService {
             + (CommandLine.arguments.contains(UpdateRelaunchFocus.reopenArgument) ? ", reopened behind by an automatic install" : ""))
         relaunchMomentHold = UpdateRelaunchMomentHold(clock: clock, now: now, log: { [log] in log.append($0) })
         releasePush = ReleasePushListener(runningBuild: identity.build, clock: clock, log: { [log] in log.append($0) })
+        // Unpaused: the pause's `SUEnableAutomaticChecks = false` comes off once, before Sparkle reads it.
+        if !pausesAutomaticUpdates, identity.track != .development { AutomaticUpdatePause.resumeAutomaticChecks(in: defaults) }
         // The managed policy is re-read by the driver on every start and check,
         // so it is not a reason to skip building it.
         if enableSparkle, identity.sparkleDisabledReason(managedPolicyDisablesUpdates: false) == nil {

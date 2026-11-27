@@ -53,9 +53,26 @@ import UIKit
         #expect(view.fittingSize(proposedWidth: 280).height == Self.field(1).bounds.height)
     }
 
+    /// The other side of the cap shortcut: one long line past the cap at the field's width may
+    /// fit a wider width, so that question is still measured (ComposerRowLayout's one-row or
+    /// two-row choice; the offline-send hang, #57970).
+    @Test func aWiderWidthStillMeasuresOneLongLinePastTheCap() {
+        let view = ComposerUITextView()
+        view.font = .preferredFont(forTextStyle: .body)
+        view.textContainerInset = .zero
+        view.textContainer.lineFragmentPadding = 0
+        view.text = Array(repeating: "word", count: 60).joined(separator: " ")
+        view.frame = CGRect(x: 0, y: 0, width: 120, height: 400)
+        let capped = view.fittingSize(proposedWidth: nil).height
+        #expect(capped == Self.field(ComposerTextView.maxLines).bounds.height)
+        #expect(view.fittingSize(proposedWidth: 60).height == capped, "narrower wraps no less")
+        #expect(view.fittingSize(proposedWidth: 1_000).height < capped, "a wider width can fit it in fewer lines")
+    }
+
     @Test func growsToMaxLinesThenScrollsWithTheCaretInside() {
         let maxLines = ComposerTextView.maxLines
-        #expect(maxLines == 14)
+        // The agent chat's six (Leo, 2026-11-23: "composer growth in terminal view on ios is most certainly too high").
+        #expect(maxLines == 6)
         let heights = (1...17).map { Self.field($0).bounds.height }
         for index in 1..<maxLines { #expect(heights[index] > heights[index - 1]) }
         for index in maxLines..<heights.count { #expect(heights[index] == heights[maxLines - 1]) }

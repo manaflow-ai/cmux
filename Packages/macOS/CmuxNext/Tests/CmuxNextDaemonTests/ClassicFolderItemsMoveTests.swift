@@ -280,12 +280,13 @@ struct ClassicFolderItemsMoveTests {
     }
 
     /// The folders BuildStatePaths and the Rust defaults now keep in `cmux-next` (agent homes, chat
-    /// attachments, cmux-remote's identity, the browser host's backups, cmux-tasks' store) move once, each
+    /// attachments, cmux-remote's identity, the browser host's backups, cmux-tasks' store, app-try, the codex
+    /// bundle) move once, each
     /// leaving a link: chats and agent configs name agent-home and Chat Uploads paths.
     @Test func theApplicationSupportFoldersMoveOnceWithALinkBack() throws {
         let support = try Self.support()
         defer { try? FileManager.default.removeItem(at: support) }
-        let moved = ["agent-home", "Chat Uploads", "remote", "browser-host", "tasks"]
+        let moved = ["agent-home", "Chat Uploads", "remote", "browser-host", "tasks", "app-try", "codex-app-server"]
         for name in moved { try Self.write(name, support.appending(path: "cmux/\(name)/f")) }
         try Self.write("classic", support.appending(path: "cmux/session-com.cmuxterm.app.json"))
 
@@ -330,6 +331,38 @@ struct ClassicFolderItemsMoveTests {
         #expect(try Self.read(new.appending(path: "automations/a.json")) == "auto")
         // Once: the link is not moved again.
         #expect(ClassicFolderItemsMove.moveConfigItems(paths: Self.nightlyPaths(home: home))["github-worktrees"] == nil)
+    }
+
+    /// acpmux reads the person's model connections in `routes` beside the settings file. A Claude setup token
+    /// saved before the move (cosmic-gray, 2026-11-25: `claude-token.toml` left in `~/.config/cmux/routes`)
+    /// must follow it, or every Cloud start is refused "No Cloud connection serves claude yet". The move is
+    /// per entry and also runs on a Mac that already moved its settings file and made a new `routes`.
+    @Test func modelConnectionRoutesFollowTheSettingsFileEntryByEntry() throws {
+        let home = try Self.support()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let old = home.appending(path: ".config/cmux"), new = home.appending(path: ".config/cmux-next")
+        try Self.write("moved already", new.appending(path: "cmux-next.json"))
+        try Self.write("token", old.appending(path: "routes/claude-token.toml"))
+        try Self.write("plan", old.appending(path: "routes/chatgpt.toml"))
+        try Self.write("old key", old.appending(path: "routes/anthropic-key.toml"))
+        try Self.write("new key", new.appending(path: "routes/anthropic-key.toml"))
+        try Self.write("rules", old.appending(path: "turn-rules.json"))
+
+        let outcomes = ClassicFolderItemsMove.moveConfigItems(paths: Self.nightlyPaths(home: home))
+        #expect(outcomes["routes/claude-token.toml"] == .moved)
+        #expect(outcomes["routes/chatgpt.toml"] == .moved)
+        #expect(outcomes["turn-rules.json"] == .moved)
+        guard case .kept = outcomes["routes/anthropic-key.toml"] else {
+            Issue.record("a move over routes/anthropic-key.toml in cmux-next: \(outcomes)")
+            return
+        }
+        #expect(try Self.read(new.appending(path: "routes/claude-token.toml")) == "token")
+        #expect(try Self.read(new.appending(path: "routes/chatgpt.toml")) == "plan")
+        #expect(try Self.read(new.appending(path: "turn-rules.json")) == "rules")
+        #expect(try Self.read(new.appending(path: "routes/anthropic-key.toml")) == "new key")
+        #expect(try Self.read(old.appending(path: "routes/anthropic-key.toml")) == "old key")
+        #expect(try Self.read(new.appending(path: "cmux-next.json")) == "moved already")
+        #expect(!FileManager.default.fileExists(atPath: old.appending(path: "routes/claude-token.toml").path))
     }
 
     /// A config file, folder, skill or copy already at the new path is never replaced: both stay as they were.

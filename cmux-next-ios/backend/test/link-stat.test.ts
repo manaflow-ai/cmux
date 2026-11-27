@@ -51,6 +51,23 @@ describe("link_stat log line", () => {
     })
   })
 
+  it("accepts hop paths and bounds hop repair counters", () => {
+    const line = linkStatLine(
+      stat({ path: "hop", hop: { srttMs: 712, lossPermille: 12, resent: 8, repaired: 3 } }),
+      "phone",
+      ingress,
+      "LAX"
+    )!
+    expect(line).toMatchObject({ path: "hop", hopSrttMs: 712, hopLossPermille: 12, hopResent: 8, hopRepaired: 3 })
+    const bounded = linkStatLine(
+      stat({ path: "hop", hop: { srttMs: 1e12, lossPermille: 1e12, resent: 1e12, repaired: 1e12 } }),
+      "phone",
+      undefined,
+      null
+    )!
+    expect(bounded).toMatchObject({ hopSrttMs: 600_000, hopLossPermille: 1_000, hopResent: 100_000, hopRepaired: 100_000 })
+  })
+
   it("clamps numbers, drops unknown marks, words and free text, and never copies an id", () => {
     const line = linkStatLine(
       stat({
@@ -79,6 +96,13 @@ describe("link_stat log line", () => {
     expect(JSON.stringify(line)).not.toMatch(/alice|6f1c7a6e|10\.0\.0\.1|192\.168/)
     expect(line).toMatchObject({ ingressColo: null, country: null, continent: null, hubColo: null })
     expect(linkStatLine(stat({ reason: "end", end: "keepalive" }), "phone", ingress, null)!.end).toBe("keepalive")
+  })
+
+  it("keeps how the link left the device (proxy, inspected) and drops any other word", () => {
+    expect(linkStatLine(stat({ egress: "inspected" }), "phone", ingress, null)!.egress).toBe("inspected")
+    expect(linkStatLine(stat({ egress: "proxy" }), "phone", ingress, null)!.egress).toBe("proxy")
+    expect(linkStatLine(stat({ egress: "proxy.corp:3128" }), "phone", ingress, null)!.egress).toBeUndefined()
+    expect(linkStatLine(stat(), "phone", ingress, null)!.egress).toBeUndefined()
   })
 
   it("logs which protocol mapped the Mac's endpoint and whether the route uses it, fixed words only", () => {

@@ -510,6 +510,7 @@ async fn world(tag: &str, route: Route) -> World {
                     peer_token: Some(peer_token.clone()),
                     vm_boundary: false,
                     github_broker: false,
+                    group: None,
                 };
             let mut b_wg = config();
             b_wg.transport.wireguard = true;
@@ -706,6 +707,21 @@ async fn run(row: Row) -> Times {
         )
         .await;
     let early = cc.reply(outage, OUTAGE_HOLD).await;
+    // A black hole lifts once A's link gave up on it (`downReason` names why), so the row
+    // redials, as its name says. Lifted before acpmux's own deadline, a WireGuard tunnel's TCP
+    // can retransmit and the link heal in place from `degraded`: then nothing redialed, and
+    // whether it did was a race between the retransmit and the request probe (#56198).
+    if matches!(row.cut, Cut::BlackHole) && row.restore {
+        let deadline = Instant::now() + DETECT_BOUND + STEP;
+        while down_reason(&w.a).is_none() {
+            assert!(
+                Instant::now() < deadline,
+                "{}: the black hole never took the link down",
+                row.tag
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
     let restored_at = Instant::now();
     if row.restore {
         w.carrier.restore();
@@ -1277,11 +1293,31 @@ async fn hub_outage_delivers_a_waiting_message_once_when_the_hub_returns() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     // Each message once: the waiting one, and the outage send if A's outbox kept it.
-    assert_eq!(
-        info["turnCount"], turns,
-        "{turns} messages ran {} turns: {info}",
-        info["turnCount"]
-    );
+    if info["turnCount"] != turns {
+        let delivery =
+            sent.as_ref().ok().and_then(|r| r["deliveryId"].as_str()).unwrap_or_default();
+        let status = sender
+            .call(method::MUX_SEND_STATUS, json!({"deliveryId": delivery}))
+            .await
+            .map_or_else(|e| e.to_string(), |v| v.to_string());
+        let hub = {
+            let s = fake.state.lock().unwrap();
+            format!(
+                "keys={:?} waiting={} acks={:?}",
+                s.keys,
+                s.waiting.len(),
+                s.acks.iter().map(|(m, a)| format!("{m}:{a:?}")).collect::<Vec<_>>()
+            )
+        };
+        let events = on_b
+            .call(method::MUX_EVENTS, json!({"sessionId": session, "afterSeq": 0, "limit": 1000}))
+            .await
+            .map_or_else(|e| e.to_string(), |v| v.to_string());
+        panic!(
+            "{turns} messages ran {} turns (outage send {outage_send}); A's status {status}; hub {hub}; B's events {events}; B {info}",
+            info["turnCount"]
+        );
+    }
     let acked = fake.state.lock().unwrap().acks.iter().filter(|(m, _)| m == "msg_waiting").count();
     eprintln!(
         "carrier_faults row=hub-outage cut=Down redeliver_ms={} total_ms={} outage_send={outage_send}",
@@ -1291,4 +1327,211 @@ async fn hub_outage_delivers_a_waiting_message_once_when_the_hub_returns() {
     assert!(acked >= 1, "B never acked the waiting message");
     relay.stop().await;
     let _ = std::fs::remove_dir_all(&scratch);
+}
+
+// ------------------------------------------------------------------ the drop sweep
+
+/// Chunks in the sweep's scripted turn; each frame boundary 1..=SWEEP_TOTAL is one cut.
+const SWEEP_TOTAL: u64 = 24;
+
+/// Which cut a seed gives an offset: seed 0 resets every offset (the fast default); any other
+/// seed picks reset or black hole per offset from a fixed generator, so the same seed cuts the
+/// same offsets the same way and fails the same way.
+fn sweep_cut(seed: u64, offset: u64) -> Cut {
+    if seed == 0 {
+        return Cut::Reset;
+    }
+    let mut x = seed ^ offset.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    x ^= x >> 33;
+    x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
+    x ^= x >> 33;
+    if x & 1 == 0 { Cut::Reset } else { Cut::BlackHole }
+}
+
+/// The chunk texts a client saw, in order.
+fn chunks(c: &Client) -> Vec<String> {
+    c.lines().iter().filter_map(chunk_text).map(str::to_owned).collect()
+}
+
+fn sha(parts: &[String]) -> String {
+    use sha2::Digest;
+    let mut h = sha2::Sha256::new();
+    for p in parts {
+        h.update(p.as_bytes());
+    }
+    format!("{:x}", h.finalize())
+}
+
+/// One offset: the scripted turn, the carrier cut once chunk `offset` reached A's client, the
+/// rest streamed while it is down, the carrier restored. Passes when A's client saw chunks
+/// 1..=SWEEP_TOTAL once each in order with no journal sequence twice or backwards, and the
+/// sha of what it was shown equals the sha of B's own journal of the turn (the pass rule
+/// cloud-carrier-chaos-staging applies on a real machine: contiguous seq, matching sha).
+/// Where one offset's cut fell, so a red names the frame that went missing: the frame the
+/// carrier dropped at, the last journal seq A's client held then (A's reconnect cursor only
+/// moves on what was delivered, so this is the seq the resume asks after), and the first and
+/// last seq A's client got after the cut (the replay plus the live tail).
+#[derive(Default)]
+struct SweepFacts {
+    acked_seq: Option<u64>,
+    replayed: Option<(u64, u64)>,
+}
+
+async fn sweep_one(seed: u64, offset: u64, cut: Cut) -> (SweepFacts, Result<String, String>) {
+    let mut facts = SweepFacts::default();
+    let outcome = sweep_run(seed, offset, cut, &mut facts).await;
+    (facts, outcome)
+}
+
+async fn sweep_run(
+    seed: u64,
+    offset: u64,
+    cut: Cut,
+    facts: &mut SweepFacts,
+) -> Result<String, String> {
+    // The seed is in the tag: both sweeps run at once in one process, and the scratch
+    // folder is named for the tag and the pid.
+    let tag = format!("sweep-{seed}-{offset}");
+    let w = world(&tag, Route::Ws).await;
+    let gate = w.scratch.join("gate");
+    // B's own journal of the turn: what the agent's machine holds.
+    let mut cb = Client::new(&w._b).await;
+    cb.call(method::MUX_ATTACH, json!({"session": "lane", "limit": 0})).await.unwrap();
+    let mut ca = Client::new(&w.a).await;
+    ca.call(method::MUX_ATTACH, json!({"session": "b/lane", "limit": 0})).await.unwrap();
+    let text = format!("carrier-sweep: {SWEEP_TOTAL} {offset} {}", gate.display());
+    let turn = ca
+        .send(
+            method::SESSION_PROMPT,
+            json!({"sessionId": "b/lane", "prompt": [{"type": "text", "text": text}]}),
+        )
+        .await;
+    let at = format!("ev-{offset} ");
+    ca.find(0, STEP, |v| (chunk_text(v) == Some(at.as_str())).then_some(()))
+        .await
+        .ok_or_else(|| format!("chunk {offset} never reached A's client before the cut"))?;
+    let before = ca.len();
+    facts.acked_seq = ca.lines().iter().filter_map(journal_seq).max();
+    w.carrier.cut(cut);
+    std::fs::write(&gate, b"go").unwrap();
+    w.until_not("connected", DETECT_BOUND + STEP).await.ok_or("the link never left connected")?;
+    if cut == Cut::BlackHole {
+        let deadline = Instant::now() + DETECT_BOUND + STEP;
+        while down_reason(&w.a).is_none() {
+            if Instant::now() >= deadline {
+                return Err("the black hole never took the link down".into());
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+    w.carrier.restore();
+    w.until_state("connected", REDIAL_BOUND + STEP).await.ok_or("the link never came back")?;
+    let ended = ca.reply(turn, STEP).await.ok_or("the turn never ended")?;
+    match ended {
+        Ok(r) if r["stopReason"] == "end_turn" => {}
+        other => return Err(format!("the turn ended {other:?}")),
+    }
+    let last = format!("ev-{SWEEP_TOTAL} ");
+    cb.find(0, STEP, |v| (chunk_text(v) == Some(last.as_str())).then_some(())).await;
+    ca.find(0, STEP, |v| (chunk_text(v) == Some(last.as_str())).then_some(())).await;
+    let after: Vec<u64> = ca.lines()[before..].iter().filter_map(journal_seq).collect();
+    facts.replayed = after.iter().min().zip(after.iter().max()).map(|(a, b)| (*a, *b));
+    let (shown, held) = (chunks(&ca), chunks(&cb));
+    let numbers: Vec<u64> =
+        shown.iter().filter_map(|t| t.strip_prefix("ev-")?.trim().parse().ok()).collect();
+    let want: Vec<u64> = (1..=SWEEP_TOTAL).collect();
+    if numbers != want {
+        let missing: Vec<_> = want.iter().filter(|n| !numbers.contains(n)).collect();
+        return Err(format!("chunks not contiguous: shown {numbers:?}, missing {missing:?}"));
+    }
+    let seqs: Vec<u64> = ca.lines().iter().filter_map(journal_seq).collect();
+    if let Some(p) = seqs.windows(2).find(|p| p[0] >= p[1]) {
+        return Err(format!("journal sequence {} came after {}", p[1], p[0]));
+    }
+    let (got, want) = (sha(&shown), sha(&held));
+    if got != want {
+        return Err(format!(
+            "sha {got} shown, {want} in B's journal ({} vs {} chunks)",
+            shown.len(),
+            held.len()
+        ));
+    }
+    Ok(got)
+}
+
+/// The deterministic drop sweep: cuts the carrier at every frame boundary of one scripted turn,
+/// one fresh pair of daemons per offset, and lists every offset that lost, doubled or reordered
+/// output. Each failing offset is its own repro: `CARRIER_SWEEP_OFFSETS=7 CARRIER_SWEEP_SEED=S
+/// cargo test -p acpmux --test carrier_faults carrier_drop_sweep`. `cloud-carrier-chaos-staging`
+/// runs this first, so the staging journey only confirms what the sweep proved in process.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn carrier_drop_sweep_every_frame_offset_loses_nothing() {
+    let seed: u64 =
+        std::env::var("CARRIER_SWEEP_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
+    sweep(seed).await;
+}
+
+/// The same sweep under a fixed nonzero seed, so black holes (the link waits out its
+/// liveness bound, then redials) are cut at their offsets on every run, not only on request.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn carrier_drop_sweep_seeded_black_holes_lose_nothing() {
+    sweep(SWEEP_MIXED_SEED).await;
+}
+
+/// The fixed seed of the mixed sweep: it cuts about half the offsets with a black hole.
+const SWEEP_MIXED_SEED: u64 = 7;
+
+async fn sweep(seed: u64) {
+    let offsets: Vec<u64> = match std::env::var("CARRIER_SWEEP_OFFSETS") {
+        Ok(list) if !list.trim().is_empty() => list
+            .split(',')
+            .map(|s| s.trim().parse().expect("CARRIER_SWEEP_OFFSETS: numbers"))
+            .collect(),
+        _ => (1..=SWEEP_TOTAL).collect(),
+    };
+    let mut failed = Vec::new();
+    let mut rows = Vec::new();
+    for offset in offsets {
+        let cut = sweep_cut(seed, offset);
+        // Each offset in its own task, so one offset's panic is a row of the list, not the end.
+        let (facts, outcome) = match tokio::spawn(sweep_one(seed, offset, cut)).await {
+            Ok(r) => r,
+            Err(e) => (SweepFacts::default(), Err(format!("panicked: {e}"))),
+        };
+        let seq = |s: Option<u64>| s.map_or("none".to_owned(), |s| s.to_string());
+        let replayed = facts.replayed.map_or("none".to_owned(), |(a, b)| format!("{a}..={b}"));
+        let at =
+            format!("drop_at=frame{offset} acked_seq={} replayed={replayed}", seq(facts.acked_seq));
+        match &outcome {
+            Ok(sha) => {
+                eprintln!("carrier_sweep seed={seed} offset={offset} cut={cut:?} {at} ok sha={sha}")
+            }
+            Err(why) => {
+                eprintln!("carrier_sweep seed={seed} offset={offset} cut={cut:?} {at} FAIL {why}");
+                failed.push(format!("{offset} ({cut:?}, {at}): {why}"));
+            }
+        }
+        rows.push(json!({
+            "offset": offset,
+            "cut": format!("{cut:?}"),
+            "drop_at_frame": offset,
+            "acked_seq": facts.acked_seq,
+            "replayed": facts.replayed.map(|(a, b)| json!([a, b])),
+            "ok": outcome.is_ok(),
+            "sha": outcome.as_ref().ok(),
+            "error": outcome.as_ref().err(),
+        }));
+    }
+    // CARRIER_SWEEP_REPORT_DIR: each seed's rows as JSON, for the pre-gate of cloud-carrier-chaos-staging.
+    if let Ok(dir) = std::env::var("CARRIER_SWEEP_REPORT_DIR") {
+        let path = std::path::Path::new(&dir).join(format!("sweep-seed-{seed}.json"));
+        let report = json!({"seed": seed, "total": SWEEP_TOTAL, "rows": rows});
+        std::fs::write(&path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
+    }
+    assert!(
+        failed.is_empty(),
+        "carrier_sweep seed={seed}: {} offset(s) lost output:\n{}",
+        failed.len(),
+        failed.join("\n")
+    );
 }

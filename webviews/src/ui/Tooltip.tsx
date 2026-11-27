@@ -8,6 +8,7 @@
 import {
   useCallback,
   useLayoutEffect,
+  useRef,
   useState,
   type KeyboardEvent,
   type PointerEventHandler,
@@ -20,13 +21,16 @@ import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { virtualAnchor, type UiAnchor } from "./Popover";
 import { cx } from "./cx";
-import { keycapLegend } from "./keycapLegend";
+import { KeyHint } from "./KeyHint";
 import { attachSeeThroughBlur, type CoveredCandidates, type SeeThroughOptions } from "./glass/seeThroughBlur";
 import { hoverCardGlass, hoverCardUnder } from "./glass/hoverCardGlass";
 import { HOVER_INTENT } from "./hoverIntent";
 import { UI_TOOLTIP_EDGE, UI_TOOLTIP_GAP, UI_TOOLTIP_MAX_WIDTH, tooltipGap, tooltipScale } from "./tooltipTokens";
 import { usePopupPadding } from "./popupInset";
 import { fitTooltipWidth } from "./tooltipFit";
+import { markPopupWithin } from "./popupWithin";
+import { announceHoverSurface } from "./hoverSurface";
+import { oneHoverSurface } from "./hoverLook";
 
 /**
  * A page's tooltips wait the hover delay before the first shows, then show at once while the group
@@ -89,6 +93,20 @@ export function Tooltip({
   const padding = usePopupPadding();
   const [trigger, setTrigger] = useState<HTMLElement | null>(null);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
+  // While it shows, Base UI puts `data-popup-open` on the control and the control's row keeps its
+  // actions shown (ui/popupWithin.ts), in the same frame; cleared when it hides and on unmount.
+  const [open, setOpen] = useState(false);
+  if (disabled && open) setOpen(false);
+  const self = useRef<HTMLElement | null>(null);
+  const placeOn = host || anchor ? setTrigger : undefined;
+  const triggerRef = useCallback(
+    (node: HTMLElement | null) => {
+      self.current = node;
+      placeOn?.(node);
+    },
+    [placeOn],
+  );
+  useLayoutEffect(() => (open ? markPopupWithin(self.current) : undefined), [open]);
   // No room in the page (a tiny pane): past the window's edge, as a Mac tooltip (popupHost.ts). A
   // hover card (`ui-card`) wraps its lines, so its width never sends it there.
   const wraps = /(^|\s)ui-card(\s|$)/.test(className ?? "");
@@ -114,8 +132,14 @@ export function Tooltip({
   // Chromium's see-through page draws no underlay under it. Before, a Tooltip card kept that
   // underlay and read solid (Leo, 2026-11-14: "this has no transparency at all + is not
   // scrollable"). The popup mounts only while it shows.
+  // Under the One hover look (experiments.hoverLook = one, ui/hoverLook.css) a label blurs what it
+  // covers too, as a card does, and says it opened so a title tooltip beside it goes
+  // (ui/hoverSurface.ts). Off, a label is as before.
   useLayoutEffect(() => {
-    if (!popup || !wraps) return;
+    if (!popup) return;
+    const one = oneHoverSurface(popup.ownerDocument);
+    if (one) announceHoverSurface(popup);
+    if (!wraps && !one) return;
     return attachSeeThroughBlur(popup, hoverCardUnder, hoverCardGlass);
   }, [popup, wraps]);
   // A card taller than the window scrolls (desktop.css .ui-tooltip.ui-card); from the keyboard, its
@@ -128,12 +152,8 @@ export function Tooltip({
     popup.scrollBy({ top: event.key === "PageDown" ? page : -page });
   };
   return (
-    <BaseTooltip.Root disabled={disabled}>
-      <BaseTooltip.Trigger
-        ref={host || anchor ? setTrigger : undefined}
-        render={children}
-        {...(wraps && { onKeyDown: scrollCard })}
-      />
+    <BaseTooltip.Root disabled={disabled} onOpenChange={setOpen}>
+      <BaseTooltip.Trigger ref={triggerRef} render={children} {...(wraps && { onKeyDown: scrollCard })} />
       {/* Disabled while it shows (the control changed under the pointer), it goes at once. */}
       {!disabled && (
         <BaseTooltip.Portal container={container}>
@@ -149,6 +169,10 @@ export function Tooltip({
             <BaseTooltip.Popup
               ref={setPopup}
               className={cx("ui-tooltip ui-glass", className)}
+              // A tooltip says what it is, as AnchoredCard's and a title tooltip's do (titleTooltips.ts):
+              // Base UI's popup carries no role, so a play or an assistive tool looking for the
+              // label within its panel (kit.gallery.tsx `[data-scheme] [role="tooltip"]`) found none.
+              role="tooltip"
               data-surface-role={wraps ? "hoverCard" : "tooltip"}
               // On the App's glass under the page (glass/hostGlass.ts): a card at the popover level, a
               // label at the chip level, the native tooltip's glass, blurring what it covers in place.
@@ -156,7 +180,7 @@ export function Tooltip({
                 ? { "data-host-glass": "popover", "data-tooltip-card": "" }
                 : { "data-host-glass": "chip", "data-host-glass-cover": "" })}
             >
-              {shortcut && <span className="ui-tooltip-hint">{keycapLegend(shortcut)}</span>}
+              {shortcut && <KeyHint keys={shortcut} className="ui-tooltip-hint" />}
               {typeof label === "string" || typeof label === "number" ? (
                 <span className="ui-tooltip-text">{label}</span>
               ) : (
@@ -248,8 +272,15 @@ export function AnchoredCard({
   );
   const shown = open ?? anchor !== null;
   useLayoutEffect(() => {
-    if (!popup || !under || !shown) return;
-    return attachSeeThroughBlur(popup, under, underOptions);
+    if (!popup || !shown) return;
+    // Under the One hover look every card blurs what it covers (the chat and Session Info by
+    // default, glass/hoverCardGlass.ts) and says it opened (ui/hoverSurface.ts); off, only a card
+    // given `under` blurs, as before.
+    const one = oneHoverSurface(popup.ownerDocument);
+    if (one) announceHoverSurface(popup);
+    const covered = under ?? (one ? hoverCardUnder : undefined);
+    if (!covered) return;
+    return attachSeeThroughBlur(popup, covered, under ? underOptions : hoverCardGlass);
   }, [popup, under, underOptions, shown]);
   return (
     <BaseTooltip.Root open={open ?? anchor !== null}>
