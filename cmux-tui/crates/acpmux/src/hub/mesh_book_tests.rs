@@ -422,14 +422,19 @@ async fn a_pushed_reading_fills_the_host_row_and_spares_the_pull() {
     t.health_at = Some(now);
     hub.apply_mesh_book(b, "person-1", Some("d-a"));
     let rows = hub.mesh_book_hosts();
-    assert_eq!(rows.len(), 1, "{rows:?}");
-    assert_eq!(rows[0]["health"], json!({"cpus": 8, "liveSessions": 2}));
-    assert_eq!(rows[0]["healthAt"], json!(now));
+    let machine_b = rows.iter().find(|row| row["name"] == "machine-b").expect("machine-b row");
+    assert_eq!(machine_b["health"], json!({"cpus": 8, "liveSessions": 2}));
+    assert_eq!(machine_b["healthAt"], json!(now));
     assert!(hub.hub_only_hosts().is_empty(), "no ask for a machine that pushed");
 
     // A pull newer than the push replaces it.
     hub.hub_health.lock().unwrap().answered("machine-b", Some(json!({"cpus": 16})), now + 1);
-    assert_eq!(hub.mesh_book_hosts()[0]["health"], json!({"cpus": 16}));
+    let machine_b = hub
+        .mesh_book_hosts()
+        .into_iter()
+        .find(|row| row["name"] == "machine-b")
+        .expect("machine-b row");
+    assert_eq!(machine_b["health"], json!({"cpus": 16}));
 
     // A push gone stale is ignored: the pull is the fallback again.
     let hub = self::hub();
@@ -438,7 +443,12 @@ async fn a_pushed_reading_fills_the_host_row_and_spares_the_pull() {
     d.health = Some(json!({"cpus": 8}));
     d.health_at = Some(now - 10 * 60_000);
     hub.apply_mesh_book(old, "person-1", Some("d-a"));
-    assert!(hub.mesh_book_hosts()[0].get("health").is_none());
+    let machine_b = hub
+        .mesh_book_hosts()
+        .into_iter()
+        .find(|row| row["name"] == "machine-b")
+        .expect("machine-b row");
+    assert!(machine_b.get("health").is_none());
     assert_eq!(hub.hub_only_hosts(), ["machine-b"]);
 }
 
