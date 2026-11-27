@@ -30,6 +30,34 @@ struct AgentPaneCloudStartRepositoryTests {
         #expect(AgentPaneCloudStart(params: Self.params("github:acme/api").merging(["home": true]) { $1 }) == nil)
     }
 
+    /// Add project's Git URL with Cloud picked (`cwd: git:URL`): any host's https URL is a repository the machine
+    /// clones, read by Rust's `cloud_machine_repo_parse`; a chat here is refused like `github:`.
+    @Test func aGitURLFolderIsARepositoryOnAnyHost() throws {
+        let gitlab = try #require(AgentPaneCloudStart(params: Self.params("git:https://gitlab.com/gitlab-org/gitlab-test")))
+        #expect(gitlab.repository == "https://gitlab.com/gitlab-org/gitlab-test")
+        #expect(gitlab.cwd == nil)
+        let repo = try #require(AgentPaneCloudStart.machineRepo("https://gitlab.com/gitlab-org/gitlab-test"))
+        #expect(repo.host == "gitlab.com")
+        #expect(repo.owner == "gitlab-org")
+        #expect(repo.name == "gitlab-test")
+        #expect(!repo.isGitHub)
+        let github = try #require(AgentPaneCloudStart.machineRepo("https://github.com/octocat/Hello-World.git"))
+        #expect(github.isGitHub)
+        #expect(github.name == "Hello-World")
+        #expect(AgentPaneCloudStart.machineRepo("acme/api")?.isGitHub == true)
+        #expect(AgentPaneCloudStart(params: Self.params("git:")) == nil)
+        #expect(AgentPaneCloudStart(params: Self.params("git:not a url")) == nil)
+        #expect(AgentPaneGitHubFolder.isRepository("git:https://gitlab.com/a/b"))
+        #expect(!AgentPaneGitHubFolder.isRepository("/Users/me/api"))
+    }
+
+    @Test func aChatHereIsRefusedAGitURL() async {
+        let model = AgentPaneModel(host: NoHost(), sessionId: nil)
+        let reply = await model.respond(to: .useFolder("git:https://gitlab.com/gitlab-org/gitlab-test", confirm: false))
+        let error = reply["error"] as? [String: Any]
+        #expect(error?["code"] as? String == "github.cloud_only")
+    }
+
     @Test func aRepositoryStartReachesTheAppWithNoFolder() async {
         let model = AgentPaneModel(host: NoHost(), sessionId: nil)
         let starts = Starts()

@@ -20,7 +20,7 @@ import React, {
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import { useKeyStyleSettings, useListKeys } from "../../../ui/useListKeys";
 import type { ConnectKind } from "../environments";
-import { githubFolder, githubFolderRepo } from "../githubRepos";
+import { githubFolder, githubFolderRepo, isCloneFolder } from "../githubRepos";
 import { useSendAfterCheckout } from "../sendAfterCheckout";
 import { cloudRepositoryPick } from "../sourcePickerModel";
 import type { CloudMachine } from "../cloudMachines";
@@ -872,7 +872,7 @@ export function NewTabScreen(props: Props) {
   // A remembered folder of this Mac counts only while the host's project list still has it (removed or deleted
   // gives way to the next pick, then `started`, as cmux#51272); a GitHub repository stays as it is.
   const cloudKnown = cloudRemembered.find(
-    (folder) => githubFolderRepo(folder) || firstProject([folder], undefined, props.knownProjects) !== undefined,
+    (folder) => isCloneFolder(folder) || firstProject([folder], undefined, props.knownProjects) !== undefined,
   );
   const cloudDefault = !picked && !none ? (cloudKnown ?? started) : undefined;
   // The default is the person's pick from before: the host grants it here too, so the Cloud start can copy it.
@@ -881,7 +881,7 @@ export function NewTabScreen(props: Props) {
     grantDefault.current = props.onProjectPicked;
   });
   const cloudDefaultHere =
-    cloudMode && cloudDefault !== undefined && !githubFolderRepo(cloudDefault) ? cloudDefault : undefined;
+    cloudMode && cloudDefault !== undefined && !isCloneFolder(cloudDefault) ? cloudDefault : undefined;
   // The host can grant only while Cloud is offered (PaneBody passes onProjectPicked then): a Cloud that becomes
   // offerable after the page mounts grants the default then.
   const canGrantDefault = props.onProjectPicked !== undefined;
@@ -901,7 +901,7 @@ export function NewTabScreen(props: Props) {
     cloud: string | undefined;
   }>(undefined);
   const pickedHereFolder =
-    picked && project !== undefined && localAskFolder === project && !githubFolderRepo(project) && !checkedOutRepo
+    picked && project !== undefined && localAskFolder === project && !isCloneFolder(project) && !checkedOutRepo
       ? project
       : undefined;
   const cloudFolder =
@@ -913,7 +913,7 @@ export function NewTabScreen(props: Props) {
         props.projects?.find((candidate) => candidate.cwd === localAskFolder)?.repo?.github,
     ) ??
     (picked && project !== undefined && localAskFolder === project ? project : undefined);
-  const askFolder = cloudMode ? cloudFolder : githubFolderRepo(localAskFolder) ? undefined : localAskFolder;
+  const askFolder = cloudMode ? cloudFolder : isCloneFolder(localAskFolder) ? undefined : localAskFolder;
   // A GitHub repository picked with This Mac picked, not checked out yet: the chip names it, Return checks it out.
   const pendingGitHubFolder = !cloudMode && githubFolderRepo(localAskFolder) ? localAskFolder : undefined;
   // Where the chips' picks start the chat (a harness or model pick, the slash command list): a real
@@ -925,7 +925,7 @@ export function NewTabScreen(props: Props) {
   // Issue fixes must never treat the tab's home or private agent-home as a checkout pick. An
   // absent folder lets the host search only its approved local checkout roots.
   const fixFolder = [project, askFolder].find(
-    (folder) => folder && !homeOrAbove(folder) && !isAgentHome(folder) && !githubFolderRepo(folder),
+    (folder) => folder && !homeOrAbove(folder) && !isAgentHome(folder) && !isCloneFolder(folder),
   );
   // The environment card checks the project the chat starts in: the chip's folder, else the tab's
   // own project (never the home ~ or a private agent-home folder it inherited).
@@ -979,7 +979,7 @@ export function NewTabScreen(props: Props) {
     // Back on This Mac with Cloud's folder as Cloud left it: This Mac's own folder from before, never Cloud's last
     // pick carried over nor No folder (cmux#53226). A folder picked while on Cloud stays as above.
     // A GitHub repository picked on Cloud has no folder here either: This Mac's comes back too.
-    if (mode === "persistent" && cloudMode && before && (project === before.cloud || githubFolderRepo(project))) {
+    if (mode === "persistent" && cloudMode && before && (project === before.cloud || isCloneFolder(project))) {
       saved.pick(undefined);
       setMachine(undefined);
       setPicked(before.picked);
@@ -988,7 +988,7 @@ export function NewTabScreen(props: Props) {
       props.runMode?.onMode(mode);
       return;
     }
-    if (mode === "cloud" || (cloudMode && githubFolderRepo(localAskFolder))) {
+    if (mode === "cloud" || (cloudMode && isCloneFolder(localAskFolder))) {
       const next = mode === "cloud" ? cloudFolder : undefined;
       if (mode === "cloud" && !cloudMode) localBeforeCloud.current = { picked, none, seeded, cloud: next };
       saved.pick(undefined);
@@ -2381,7 +2381,7 @@ export function NewTabScreen(props: Props) {
     setNone(cwd === undefined);
     setProject(cwd);
     // With Cloud picked too: the host grants it on this click, so the Cloud start can copy it (cmux#53226).
-    if (cwd && !githubFolderRepo(cwd)) props.onProjectPicked?.(cwd);
+    if (cwd && !isCloneFolder(cwd)) props.onProjectPicked?.(cwd);
     if (!cwd) setCloudFolderWaiting(false);
     field.current?.focus();
     // The folder menu hands focus back to its button as it closes: the field takes it after that,

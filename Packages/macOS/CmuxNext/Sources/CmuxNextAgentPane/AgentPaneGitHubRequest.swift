@@ -308,18 +308,28 @@ public enum AgentPaneGitHubConnect: Equatable, Sendable {
     }
 }
 
-/// A chat folder that names a GitHub repository instead of a folder on this Mac: `github:owner/name`.
+/// A chat folder that names a repository instead of a folder on this Mac: `github:owner/name`, or `git:URL` (Add
+/// project's Git URL with Cloud picked: an https Git URL on any host, GitLab too).
 /// Only a Cloud start takes one (its machine clones the repository); a chat here is refused.
 public nonisolated struct AgentPaneGitHubFolder {
     public nonisolated init() {}
     public static let prefix = "github:"
+    public static let gitURLPrefix = "git:"
     /// The refusal's code for a chat here that names one (`session/new`'s `cwd`, `workspace.useFolder`).
     public static let cloudOnlyReason = "github.cloud_only"
 
     public static func isGitHub(_ folder: String) -> Bool { folder.hasPrefix(prefix) }
 
-    /// `owner/name` of `github:owner/name`; nil for any other text, a bad name included.
+    /// A folder only a Cloud machine's clone gives: `github:` or `git:`.
+    public static func isRepository(_ folder: String) -> Bool { isGitHub(folder) || folder.hasPrefix(gitURLPrefix) }
+
+    /// `owner/name` of `github:owner/name`, or the URL of `git:URL` when Rust's `cloud_machine_repo_parse` reads a
+    /// repository in it (``CloudMachineRepo/parse(_:)``); nil for any other text, a bad name or URL included.
     public static func repository(_ folder: String) -> String? {
+        if folder.hasPrefix(gitURLPrefix) {
+            let url = String(folder.dropFirst(gitURLPrefix.count))
+            return (try? CloudMachineRepo.parse(url)) == nil ? nil : url
+        }
         guard isGitHub(folder) else { return nil }
         let name = String(folder.dropFirst(prefix.count))
         return CloudGitHubRepos.isFullName(name) ? name : nil

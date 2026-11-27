@@ -18,6 +18,8 @@ export type SourcePickerOptions = {
   cloudFolders?: readonly CloudFolder[];
   onCloudFolder?(folder: CloudFolder): void;
   onClone?(url: string): Promise<string>;
+  /// The clone runs on the Cloud machine, not this Mac: the Git URL page says so.
+  cloneOnMachine?: boolean;
   onEmpty?(): void;
 };
 
@@ -54,7 +56,7 @@ export function SourcePicker({
   returnFocus: RefObject<HTMLButtonElement | null>;
 }) {
   const t = useT();
-  const { github, cloudFolders, onCloudFolder, onClone, onEmpty } = options;
+  const { github, cloudFolders, onCloudFolder, onClone, cloneOnMachine, onEmpty } = options;
   const [page, setPage] = useState<SourcePage>(startPage ?? "add");
   const [query, setQuery] = useState("");
   const [machine, setMachine] = useState<CloudFolder>();
@@ -140,24 +142,22 @@ export function SourcePicker({
       icon: "folder",
       onAction: () => goTo("machines"),
     });
-  else {
-    if (onBrowse)
-      sources.push({
-        id: "browse",
-        label: t("source.folders"),
-        status: t("source.choose"),
-        icon: "folder",
-        onAction: () => finish(onBrowse),
-      });
-    if (onClone)
-      sources.push({
-        id: "url",
-        label: t("project.gitURL"),
-        status: t("source.clone"),
-        icon: "link",
-        onAction: () => goTo("url"),
-      });
-  }
+  else if (onBrowse)
+    sources.push({
+      id: "browse",
+      label: t("source.folders"),
+      status: t("source.choose"),
+      icon: "folder",
+      onAction: () => finish(onBrowse),
+    });
+  if (onClone)
+    sources.push({
+      id: "url",
+      label: t("project.gitURL"),
+      status: t("source.clone"),
+      icon: "link",
+      onAction: () => goTo("url"),
+    });
   if (onEmpty)
     sources.push({
       id: "empty",
@@ -193,7 +193,10 @@ export function SourcePicker({
       placeholder: t("source.url.placeholder"),
       scope: { label: t("project.gitURL"), icon: "link" },
       rows: [],
-      message: t(clone.error ?? (clone.cloning ? "source.url.cloning" : "source.url.destination")),
+      message: t(
+        clone.error ??
+          (clone.cloning ? "source.url.cloning" : cloneOnMachine ? "source.url.cloudDestination" : "source.url.destination"),
+      ),
     }),
   };
   function enterMachine(folder: CloudFolder) {

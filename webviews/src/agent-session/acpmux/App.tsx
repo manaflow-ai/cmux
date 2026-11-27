@@ -110,7 +110,7 @@ import { goalHatPlace } from "./goalHat.experiment";
 import { jumpLatestPlace } from "./jumpPlace.experiment";
 import { hatSide } from "./jumpPlace";
 import { hatPillPlace } from "./hatPillPlace.experiment";
-import { githubFolder, githubFolderRepo } from "./githubRepos";
+import { githubFolder, githubFolderRepo, isCloneFolder } from "./githubRepos";
 import { setFolderUseTimes } from "./addedRepos";
 import { useSendAfterCheckout } from "./sendAfterCheckout";
 import { composerPlace } from "./composerPlace.experiment";
@@ -1394,7 +1394,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     clientSnapshot.summary?.hostKind !== "cloud" && !clientSnapshot.summary?.host
       ? (clientSnapshot.summary?.cwd ?? projectDraft ?? blockedHarness?.folder) || undefined
       : undefined;
-  const catalogCwd = githubFolderRepo(catalogFolder) ? undefined : catalogFolder;
+  const catalogCwd = isCloneFolder(catalogFolder) ? undefined : catalogFolder;
   const catalog = useHarnessCatalog(catalogSource, clientSnapshot.catalog, undefined, catalogCwd);
   // A Cmd-T adoption reads the folder's harnesses again (the parked spare's read had no tab's roots); the
   // catalog keeps drawing until the new answer lands.
@@ -4719,7 +4719,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // Back on This Mac the chip names This Mac's folder from before Cloud, not Cloud's.
       setProjectDraft(localDraftBeforeCloud.current.draft);
       localDraftBeforeCloud.current = undefined;
-    } else if (githubFolderRepo(projectDraft)) {
+    } else if (isCloneFolder(projectDraft)) {
       setProjectDraft("");
     }
     composerModeNow.current = mode;
@@ -4734,17 +4734,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // The person's own pick here stays; else Cloud starts where their last Cloud chat did (a GitHub repository, or a
     // folder of this Mac the host grants again), never the tab's folder's GitHub origin or No folder (cmux#53226).
     const own =
-      shown !== undefined && shown !== "" && (shown === pickedProject.current || (!late && githubFolderRepo(shown)));
+      shown !== undefined && shown !== "" && (shown === pickedProject.current || (!late && isCloneFolder(shown)));
     // A folder of this Mac is granted as a pick is, which only a chat not started yet takes.
     const last = own
       ? undefined
-      : cloudPickChoices(newTab?.cloudStartedProject).find((folder) => githubFolderRepo(folder) || freshRef.current);
+      : cloudPickChoices(newTab?.cloudStartedProject).find((folder) => isCloneFolder(folder) || freshRef.current);
     const fallback = cloudSourcePick(shown) ?? "";
     if (sandboxModeRows.mode !== "cloud") localDraftBeforeCloud.current = { draft: projectDraft };
     // A late answer changes nothing it does not name, nor the folder already shown.
     if (late && (last === undefined || last === shown)) return;
     if (last === undefined) setProjectDraft(fallback);
-    else if (githubFolderRepo(last)) {
+    else if (isCloneFolder(last)) {
       // The person's own pick from before: a Cloud start here records it again.
       pickedProject.current = last;
       setProjectDraft(last);
@@ -7919,7 +7919,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       // A GitHub repository from a new Cloud chat's folder menu (githubRepos.ts, `github:owner/name`) is
       // no folder on this Mac: the host has nothing to check, and the Cloud start sends it as its `cwd`. It
       // replaces a folder request still out (a pick, the grant of Cloud's remembered folder), as a newer pick does.
-      if (!peer && githubFolderRepo(cwd)) {
+      if (!peer && isCloneFolder(cwd)) {
         dropFolderRequest.current?.();
         folderPick.current += 1;
         // The ended request's question and any checkout under way go with it, as a deferred repository's do.

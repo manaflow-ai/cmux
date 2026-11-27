@@ -53,7 +53,7 @@ import type { UnavailableGroup } from "./environmentPickerModel";
 import { FolderPopover, isGitHubLocation } from "./FolderPopover";
 import { cloudRepositoryPick, cloudSourceFolders, type CloudFolder } from "./sourcePickerModel";
 import { GitHubMark, GitHubGlyph } from "./GitHubIcons";
-import { githubFolderRepo, useGitHubPicker, type GitHubPicker } from "./githubRepos";
+import { gitURLFolder, githubFolderRepo, isGitURLFolder, useGitHubPicker, type GitHubPicker } from "./githubRepos";
 import { ExtraFolderList } from "./ExtraFolderList";
 import {
   addExtraFolder,
@@ -910,6 +910,7 @@ export function ComposerContext({
       if (waiting) clearWaiting();
       onNoProject();
     });
+  const cloneOnCloud = (url: string) => Promise.resolve(gitURLFolder(url));
   const pickFolder = (cwd: string) => {
     folderPicks.current += 1;
     setPickedHere(normalizeCwd(cwd));
@@ -933,10 +934,11 @@ export function ComposerContext({
       onGitHubHere(repo, candidates);
       return;
     }
-    // Anywhere else (another machine) a GitHub repository runs on Cloud: its pick moves the new chat there.
-    if (repo && runMode && runMode.mode !== "cloud" && !started && !readOnly) runMode.onMode("cloud");
+    // Anywhere else (another machine) a GitHub repository or a Git URL runs on Cloud: its pick moves the new chat there.
+    const cloned = Boolean(repo) || isGitURLFolder(cwd);
+    if (cloned && runMode && runMode.mode !== "cloud" && !started && !readOnly) runMode.onMode("cloud");
     // One of this Mac's folders, listed with Cloud picked while the chip held a machine: the chat is this Mac's.
-    if (cloudListsThisMac && selectedComputer !== "local" && !repo) setSelectedComputer("local");
+    if (cloudListsThisMac && selectedComputer !== "local" && !cloned) setSelectedComputer("local");
     onProject?.(cwd);
     const environment = savedRows && savedFolders.find((candidate) => normalizeCwd(candidate.folder) === cwd);
     if (environment) savedRows.onPick(environment.id);
@@ -1243,7 +1245,15 @@ export function ComposerContext({
               {...(extra ? { extra } : {})}
               sources={
                 cloudSide
-                  ? { github, cloudFolders, onCloudFolder: pickCloudFolder, onEmpty: chooseNoFolder }
+                  ? {
+                      github,
+                      cloudFolders,
+                      onCloudFolder: pickCloudFolder,
+                      // A Git URL with Cloud picked: the Cloud machine clones it (`git:URL`), nothing on this Mac.
+                      onClone: cloneOnCloud,
+                      cloneOnMachine: true,
+                      onEmpty: chooseNoFolder,
+                    }
                   : {
                       github: sandboxPicked ? undefined : github,
                       onClone: sandboxPicked ? undefined : onCloneRepository,

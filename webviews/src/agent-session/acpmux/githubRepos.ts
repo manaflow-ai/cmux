@@ -110,6 +110,24 @@ export function githubFolderRepo(folder: string | undefined): string | undefined
   return githubRepository(name) === name ? name : undefined;
 }
 
+/// An https Git URL picked for a new Cloud chat's folder (`git:URL`, Add project's Git URL with Cloud picked): the
+/// Cloud machine clones it, on any host (GitLab too), and nothing of this Mac is copied. The host reads the URL
+/// (AgentPaneGitHubFolder, Rust's `cloud_machine_repo_parse`); the page only carries it.
+export const GIT_URL_FOLDER_PREFIX = "git:";
+
+export function gitURLFolder(url: string): string {
+  return GIT_URL_FOLDER_PREFIX + url.trim();
+}
+
+export function isGitURLFolder(folder: string | undefined): boolean {
+  return folder !== undefined && folder.startsWith(GIT_URL_FOLDER_PREFIX) && folder.length > GIT_URL_FOLDER_PREFIX.length;
+}
+
+/// A repository a Cloud machine clones (`github:owner/name` or `git:URL`): no folder of this Mac, nothing to grant or copy.
+export function isCloneFolder(folder: string | undefined): boolean {
+  return githubFolderRepo(folder) !== undefined || isGitURLFolder(folder);
+}
+
 export function githubStatusFromReply(reply: unknown): GitHubStatus {
   const raw = (reply ?? {}) as {
     state?: unknown;

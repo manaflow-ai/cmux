@@ -158,7 +158,7 @@ nonisolated enum AcpmuxPathPolicy {
         if method == "session/new" {
             var fields = params as? [String: Any] ?? [:]
             // A GitHub repository with no folder (`github:owner/name`): only a Cloud start clones one.
-            if let cwd = fields["cwd"] as? String, AgentPaneGitHubFolder.isGitHub(cwd) {
+            if let cwd = fields["cwd"] as? String, AgentPaneGitHubFolder.isRepository(cwd) {
                 return .failure(Refusal(error: .pathInvalid, requestID: id, method: method, reason: AgentPaneGitHubFolder.cloudOnlyReason))
             }
             var meta = fields["_meta"] as? [String: Any]

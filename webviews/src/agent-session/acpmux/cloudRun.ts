@@ -9,7 +9,7 @@
 
 import { keepCloudLanding, takeCloudLanding, type AutoLanding } from "./autoWhereModel";
 import { shownChatFolder } from "./folderlessCloud";
-import { githubFolderRepo } from "./githubRepos";
+import { isCloneFolder } from "./githubRepos";
 import { isAgentHome } from "./sessionList";
 import { pickFolder } from "./startFolderModel";
 import type { ComposerAttachment } from "./attachments";
@@ -54,8 +54,8 @@ export type CloudStart = {
 /// whose folder is home or above it, which is never copied). Leo, 2026-10-31: "whenever i start a
 /// chat it should be able to send me to cloud autommatically".
 export function cloudStartFolder(project: string | undefined): { cwd: string } | { home: true } {
-  // A GitHub repository picked in the folder menu (githubRepos.ts): the machine clones it, nothing is copied.
-  if (githubFolderRepo(project)) return { cwd: project! };
+  // A GitHub repository or a Git URL picked in the folder menu (githubRepos.ts): the machine clones it, nothing is copied.
+  if (isCloneFolder(project)) return { cwd: project! };
   const folder = project?.replace(/\/+$/, "");
   // `/`, `/Users`, a home folder: never copied (NewTabScreen's homeOrAbove, CloudMoveFolder isTooBroad).
   if (!folder?.startsWith("/") || /^(?:\/(?:Users|home)(?:\/[^/]+)?)?$/.test(folder)) return { home: true };
@@ -100,7 +100,7 @@ export function newTabProjectPick(
   return {
     onProjectPicked: (cwd) => {
       // A GitHub repository is no folder on this Mac: nothing to grant.
-      if (!("cwd" in cloudStartFolder(cwd)) || githubFolderRepo(cwd)) return;
+      if (!("cwd" in cloudStartFolder(cwd)) || isCloneFolder(cwd)) return;
       const grant = pickFolder(callNative, cwd, () => undefined);
       granted?.(cwd, grant);
     },
@@ -122,7 +122,7 @@ export function cloudFolderGrants(waitMs: number = CLOUD_FOLDER_GRANT_WAIT_MS) {
     /// A grant of `cwd` is out. A folder Cloud never copies is never sent, so nothing waits for it.
     granting(cwd: string, grant: Promise<unknown>): void {
       const folder = cloudStartFolder(cwd);
-      if (!("cwd" in folder) || githubFolderRepo(folder.cwd)) return;
+      if (!("cwd" in folder) || isCloneFolder(folder.cwd)) return;
       grants.set(folder.cwd, grant);
       const leave = () => {
         if (grants.get(folder.cwd) === grant) grants.delete(folder.cwd);

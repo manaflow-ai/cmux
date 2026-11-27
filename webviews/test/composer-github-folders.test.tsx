@@ -624,7 +624,7 @@ test("repository search survives an outside click, Back returns, and Escape clos
   }
 });
 
-test("Cloud lists this Mac's folders with the repositories but no typed paths or Git URLs (cmux#53226)", async () => {
+test("Cloud lists this Mac's folders with the repositories but no typed paths or local clones (cmux#53226)", async () => {
   const gh = host({ "github.status": ready, "github.repos.list": installed });
   rememberAddedRepo({ fullName: "acme/api", private: true }, 2);
   rememberAddedRepo({ fullName: "acme/web", private: false }, 1);
@@ -657,10 +657,10 @@ test("Cloud lists this Mac's folders with the repositories but no typed paths or
     expect(labels(".acpmux-add-project-palette [data-source]")).toEqual([
       "GitHub repository",
       "Folder on a Cloud machine",
+      "Git URL",
       "Empty project",
     ]);
     expect(source("folders")?.querySelector(".acpmux-source-status")?.textContent).toBe("None yet");
-    expect(source("url")).toBeNull();
     expect(source("browse")).toBeNull();
     await press(source("folders")!);
     expect(message()).toBe("No Cloud folders yet");
@@ -955,6 +955,33 @@ test("the current worktree opens under its main checkout and the disclosure keep
     expect(labels("[role=option]:has([data-worktree][data-current])")).toEqual(["feature"]);
     await press(option("app")!);
     expect(picked).toEqual([[FOLDER, undefined]]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("Cloud's Git URL picks git:URL for the Cloud machine to clone, nothing cloned on this Mac", async () => {
+  const gh = host({ "github.status": status("not_connected") });
+  const { root, picked } = await renderTray(
+    {
+      onCloneRepository: async () => {
+        throw new Error("Cloud must never clone locally");
+      },
+    },
+    gh.store,
+  );
+  try {
+    await openFolderMenu();
+    await openSources();
+    await press(source("url")!);
+    expect(field().getAttribute("aria-label")).toBe("Git URL");
+    expect(message()).toBe("The Cloud machine clones it");
+    await type("https://gitlab.com/gitlab-org/gitlab-test");
+    await key("Enter");
+    expect(picked).toEqual([["git:https://gitlab.com/gitlab-org/gitlab-test", undefined]]);
+    expect(palette()).toBeNull();
+    expect(face()).toContain("gitlab-test");
+    expect(cloudStartFolder(picked[0]?.[0])).toEqual({ cwd: "git:https://gitlab.com/gitlab-org/gitlab-test" });
   } finally {
     await act(async () => root.unmount());
   }
