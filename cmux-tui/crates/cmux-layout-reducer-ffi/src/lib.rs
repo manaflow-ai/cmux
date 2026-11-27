@@ -21,6 +21,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 // Every module's `mod` line and the op modules' dispatch (`respond_op_module`), from the files
 // in src/: see build.rs.
 include!(concat!(env!("OUT_DIR"), "/dispatch.rs"));
+
+/// How many sidebar drag geometries stay live (`sidebar_geometry`, an op module build.rs declares).
+pub use sidebar_geometry::KEEP as SIDEBAR_GEOMETRY_KEEP;
+
 use sidebar_mirror::Mirror;
 
 pub const ABI_VERSION: u32 = 1;
