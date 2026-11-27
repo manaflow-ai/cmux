@@ -86,11 +86,11 @@ fn order_set_refuses_an_unknown_id_and_stores_a_known_order() {
 }
 
 #[test]
-fn spread_defaults_on_and_is_stored() {
+fn spread_defaults_off_and_is_stored() {
     let d = dirs();
-    assert_eq!(state(Some(&d.routes), &d.home)["spread"], true);
-    assert_eq!(set_spread(Some(&d.routes), &d.home, false).unwrap()["spread"], false);
-    assert_eq!(routes::bindings(&d.home).spread, Some(false));
+    assert_eq!(state(Some(&d.routes), &d.home)["spread"], false);
+    assert_eq!(set_spread(Some(&d.routes), &d.home, true).unwrap()["spread"], true);
+    assert_eq!(routes::bindings(&d.home).spread, Some(true));
 }
 
 #[test]
