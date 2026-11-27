@@ -18,7 +18,7 @@ pub fn start() {
         // SAFETY: called first in `main`, while no other thread runs.
         unsafe { std::env::remove_var(OUT_ENV) };
         // Deep enough to pass serde's recursion and reach the acpmux frame that asked.
-        let profiler = dhat::Profiler::builder().file_name(out).trim_backtraces(Some(160)).build();
+        let profiler = dhat::Profiler::builder().file_name(out).trim_backtraces(Some(48)).build();
         *PROFILER.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(profiler);
     }
 }

@@ -762,8 +762,8 @@ pub struct LinePos {
 pub(crate) use log_line::PARSED_LINES;
 
 use log_line::{
-    first_seq, for_each_line_rev, for_each_line_rev_between, for_each_line_rev_from, offset_of_seq,
-    parse_record, record_dir, record_kind, record_seq, start_of_seq,
+    check_record, first_seq, for_each_line_rev, for_each_line_rev_between, for_each_line_rev_from,
+    offset_of_seq, parse_record, record_dir, record_kind, record_seq, start_of_seq,
 };
 
 pub fn open(config: &StoreConfig, root: &Path) -> Result<Box<dyn Store>> {
