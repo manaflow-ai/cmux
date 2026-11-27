@@ -80,6 +80,40 @@ fn percentiles(request: &Request, runs: usize) -> (u128, u128) {
     (samples[runs / 2], samples[runs * 95 / 100])
 }
 
+/// Asserts a constant cost per workspace: no size may cost more than 4x the
+/// 1x size per workspace. `first` holds each size's p50 ns per workspace from
+/// the table pass. A shared CI runner can stall one size's samples (the app FFI
+/// release run 46066184657 read 6625 ns at 50x500 against 1607 at 1x and
+/// published nothing), so a miss re-measures every size up to two more rounds
+/// and keeps each size's fastest p50. Noise only ever adds time, so the minimum
+/// converges on the real cost; a quadratic walk misses in every round.
+fn assert_constant_cost(
+    sizes: &[(usize, usize)],
+    first: Vec<u128>,
+    floor: u128,
+    mut measure: impl FnMut(usize) -> u128,
+) {
+    let mut best = first;
+    for round in 0..3 {
+        if round > 0 {
+            for (index, slot) in best.iter_mut().enumerate() {
+                *slot = (*slot).min(measure(index));
+            }
+        }
+        let base = best[0].max(floor);
+        if best.iter().all(|ns| *ns <= base * 4) {
+            return;
+        }
+    }
+    let base = best[0].max(floor);
+    for (ns, (sections, workspaces)) in best.iter().zip(sizes) {
+        assert!(
+            *ns <= base * 4,
+            "{sections}x{workspaces}: {ns} ns per workspace vs {base} at 1x (fastest of 3 rounds)"
+        );
+    }
+}
+
 #[test]
 fn settings_still_apply_with_500_workspaces_in_one_section() {
     // One "Projects" section with 500 loose workspaces: the shape of a long
@@ -150,6 +184,7 @@ fn sidebar_customization_stress() {
     // (50+ sections, 500 workspaces) and the document's own ceiling.
     let sizes = [(8, 50), (50, 500), (MAX_SECTIONS, 5_000), (MAX_SECTIONS, MAX_ITEMS)];
     let mut per_workspace = Vec::new();
+    let mut measured = Vec::new();
     println!("sections | workspaces | p50 us | p95 us | p50 ns/workspace | hidden | regrouped");
     for (sections, workspaces) in sizes {
         let request = request(sections, workspaces);
@@ -175,14 +210,15 @@ fn sidebar_customization_stress() {
             reply.hidden_workspaces.len(),
             reply.workspace_groups.len()
         );
+        measured.push((request, runs, workspaces));
     }
     // Constant cost per workspace: the planner is one pass with map lookups,
     // so 400x more workspaces may cost at most 4x more per workspace (the
     // BTreeMap log factor and cache misses), never a quadratic walk.
-    let base = per_workspace[0].max(50);
-    for (ns, (sections, workspaces)) in per_workspace.iter().zip(sizes) {
-        assert!(*ns <= base * 4, "{sections}x{workspaces}: {ns} ns per workspace vs {base} at 1x");
-    }
+    assert_constant_cost(&sizes, per_workspace, 50, |index| {
+        let (request, runs, workspaces) = &measured[index];
+        percentiles(request, *runs).0 / *workspaces as u128
+    });
 }
 
 use crate::sidebar_row_layout::MAX_QUOTED;
@@ -279,6 +315,7 @@ fn sidebar_customization_stress_a_rule_for_every_workspace() {
     let sizes = [(8, 50), (50, 500), (MAX_SECTIONS, 5_000), (MAX_SECTIONS, MAX_ITEMS)];
     println!("sections | workspaces = rules | p50 us | p95 us | p50 ns/workspace");
     let mut per_workspace = Vec::new();
+    let mut measured = Vec::new();
     for (sections, workspaces) in sizes {
         let per = workspaces.div_ceil(sections);
         let rules: serde_json::Map<String, Value> = (0..workspaces)
@@ -305,9 +342,10 @@ fn sidebar_customization_stress_a_rule_for_every_workspace() {
         let ns = p50 / workspaces as u128;
         per_workspace.push(ns);
         println!("{sections} | {workspaces} | {} | {} | {ns}", p50 / 1_000, p95 / 1_000);
+        measured.push((request, runs, workspaces));
     }
-    let base = per_workspace[0].max(100);
-    for (ns, (sections, workspaces)) in per_workspace.iter().zip(sizes) {
-        assert!(*ns <= base * 4, "{sections}x{workspaces}: {ns} ns per workspace vs {base} at 1x");
-    }
+    assert_constant_cost(&sizes, per_workspace, 100, |index| {
+        let (request, runs, workspaces) = &measured[index];
+        percentiles(request, *runs).0 / *workspaces as u128
+    });
 }
