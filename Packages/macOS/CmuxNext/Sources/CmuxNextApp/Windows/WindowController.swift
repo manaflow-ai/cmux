@@ -102,11 +102,17 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
         SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
-        // The footer's Search button runs the one palette.open path (plans/cmux-next/sidebar-search.md).
+        // The footer's Search button opens the Command Palette (Lawrence 2026-11-23: "we need some mechanism to
+        // educate user about cmd shift p"): the press runs the same action as the shortcut, and the tooltip
+        // shows its bound key (plans/cmux-next/sidebar-search.md).
         sidebar.container.sidebarView.onSearch = { [weak registry = services.registry] _ in
-            _ = registry?.perform("palette.open", invocation: ActionInvocation(arguments: ["scope": .string("search")], origin: .user))
+            _ = registry?.perform("commandPalette", invocation: ActionInvocation(origin: .user))
         }
-        root = WindowRootView(sidebar: sidebar.container, activeLook: services.activeLook)
+        sidebar.container.sidebarView.followSearchShortcut { [registry = services.registry] in
+            registry.shortcutDisplay(for: "commandPalette")
+        }
+        DebugTimings.markLaunch("window.sidebar_made"); root = WindowRootView(sidebar: sidebar.container, activeLook: services.activeLook) // startup-tti sub-marks
+        services.wallpaperBadge.add(root.backdropView) // a live wallpaper's badge shows the signed-in account
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
@@ -115,7 +121,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         root.toolbarBand.followToggleDescription(title: { registry.descriptor(for: "toggleSidebar")?.title ?? "" },
                                                  shortcut: { registry.shortcutDisplay(for: "toggleSidebar") })
         root.toolbarBand.appButtons = services.apps.client.toolbarButtons(in: root.toolbarBand, reveal: root.titlebarReveal, registry: services.registry)
-        let window = ShellWindow(
+        DebugTimings.markLaunch("window.root_made"); let window = ShellWindow(
             contentRect: frame ?? NSRect(origin: .zero, size: Self.defaultSize),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
@@ -129,14 +135,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        super.init(window: window)
+        super.init(window: window); DebugTimings.markLaunch("window.shell_made")
         installHistoryButtons()
         // Kind, scope and backdrop before the content view (the root paints
         // the backdrop: `WindowSurfacePainting`).
         window.install(kind: .main, content: root, scope: themeScope, activeLook: services.activeLook)
         // contentRect grows by the titlebar; restore the saved frame exactly.
         if let frame { window.setFrame(frame, display: false) } else { window.center() }
-        window.delegate = self
+        window.delegate = self; DebugTimings.markLaunch("window.content_installed")
         let displayBackdrop = DisplayBackdropBinding(window: window, scope: themeScope,
                                                       displayID: { [weak window] in
                                                           window?.screen.flatMap(WindowPlacementFallback.displayID(of:))
@@ -151,7 +157,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
                 }
             }
         }
-        window.focus = focus
+        DebugTimings.markLaunch("window.backdrop_applied"); window.focus = focus
         window.focusLog = services.focusLog
         focus.applier = focusApplier
         focus.window = window
@@ -276,7 +282,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if requested != nil, state.machineID != MachineRegistry.localID, isWaiting(for: state.machineID) || showPausedMachine(state.machineID) { return }
         if let requested, services.windows.claims.awaits(requested, in: state.id) { return content == nil ? showConnecting() : () }  // keeps the request
         let members = services.windows.registry.members(of: state.id)
-        if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first { return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
+        if let (workspace, daemon) = members.lazy.compactMap({ machines.workspace(id: $0) }).first { state.shownVia = "showWorkspace-fallback"; return showsHomePage(instead: workspace) ? () : show(workspace, on: daemon) }
         // Keep what is shown (it stays until the manager closes or refills this window); a window with nothing yet waits.
         if content == nil { showConnecting() }
     }

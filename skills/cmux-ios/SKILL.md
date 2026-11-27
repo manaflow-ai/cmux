@@ -61,19 +61,17 @@ refuses and `swap` is the live route.
 - A PR into `feat-cmux-next` skips the gate unless it is labeled `full-ci`; the push after the merge runs it. A push or a `full-ci` PR fails only on a blocker that isn't in `known-blockers.json`. A fix removes its entry, and a PR that adds an entry is itself a blocker.
 - Every past rejection keeps a detector in `rejection-history.json`. When Apple rejects a build, add the rejection with the check that catches it.
 - `.github/workflows/ios-screenshots.yml` shoots the classic `ios/` app's listing, not the cmux-next app's.
+- How a person tests on their own iPhone (cmux INTERNAL, iPhone YOLO, cmux Dev, shake to report): [cmux-next-ios/TESTING-ON-YOUR-IPHONE.md](../../cmux-next-ios/TESTING-ON-YOUR-IPHONE.md). Send Leo or Aziz a PR preview with `-f yolo=PR` on `ios-internal-nightly-trigger.yml`.
 - TestFlight (`cmux INTERNAL`, `dev.cmux.app.internal`) builds come from `ios-internal-nightly.yml`. `cmux-next-ios/scripts/testflight-build.sh` uploads nothing without `--upload`.
 - A marketing version must be at least every version already uploaded: TestFlight orders by marketing version first, so a lower build processes but is never offered as an update.
 - Submit for App Review only when a person asks. Releasing an approved build live is a separate ask.
 
 ## Merging iOS PRs
 
-- Agents that land PRs automatically hold a PR touching iOS code (`cmux-next-ios/`, `ios/`, `Packages/iOS/`, the mobile core and FFI crates) until Aziz approves its exact head.
-- Docs (`*.md`), `cmux-next-ios/verify/`, iOS files that draw nothing (Rust, tests, Swift targets with no UI import) and screen-sharing paths don't hold a PR.
-- Other ways past the hold (each claim line stands alone on its own line in the PR body):
-  - Aziz's own PR with the `ready-to-land` label.
-  - A strict fix: a body line `iOS-hold: strict fix` and a one-paragraph `## ELI5` section (at most 120 words). It needs no review.
-  - A proven change: a body line `iOS-hold: proven`, a test that fails without the change, the flow shown working in a simulator or on a device, an `## Implications` section, and a SHIP review at the head that confirms correctness, full functionality and implications (a self or helper review counts).
-  - A screen-sharing PR touching no screen-sharing path: a body line `iPhone-tested: <device> at <head sha> <capture url>`.
-  - A change that flips a default stays with Leo.
-- A push after his approval needs a new one. The hold stops only the merge: keep testing and pushing fixes.
-- When you open one, mention `@azooz2003-bit` in a PR comment so he knows it's waiting.
+- An iOS PR merges on green CI and a review SHIP at its exact head, like any other PR. Don't hold it for Aziz and don't ping him (Leo, 2026-11-23: "do not hold. if you can argue for it strongly, then just merge it. we do not hold on people and arbitrary things and blockers than can be solved. ever."; "you dont have to keep telling aziz").
+- land-judge wants the case in the body when a PR touches iOS UI code (`cmux-next-ios/`, `ios/`, `Packages/iOS/`, the mobile core and FFI crates). Docs (`*.md`), `cmux-next-ios/verify/`, iOS files that draw nothing (Rust, tests, Swift targets with no UI import) and screen-sharing paths need none. Each line stands alone in the PR body:
+  - `Merge-case: <why it should merge now>`, at least 8 words. This is the usual route.
+  - `iOS-hold: strict fix` with a one-paragraph `## ELI5` section (at most 120 words).
+  - `iOS-hold: proven` with a test that fails without the change, the flow shown in a simulator or on a device, an `## Implications` section, and a SHIP review at the head confirming them.
+  - A screen-sharing PR touching no screen-sharing path: `iPhone-tested: <device> at <head sha> <capture url>`.
+- A change that flips a default stays with Leo.

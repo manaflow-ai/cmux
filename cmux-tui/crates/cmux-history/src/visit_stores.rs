@@ -134,7 +134,7 @@ impl VisitStores {
         let limit = query.limit.unwrap_or(DEFAULT_PAGE_LIMIT);
         let mut entries = Vec::new();
         for profile in self.profiles()? {
-            entries.extend(self.store(&profile)?.entries(&profile, &filter, limit)?);
+            entries.extend(self.store(&profile)?.entries(&profile, &filter, limit, query.actor)?);
         }
         Ok(entries)
     }

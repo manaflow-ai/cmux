@@ -102,3 +102,19 @@ fn check_state_bounds_what_the_vault_hands_back() {
     assert!(check_state(&"A".repeat(MAX_STATE_BYTES + 1)).is_err());
     assert_eq!(staged_contents(&Secret::new(STATE)), format!("{STATE}\n"));
 }
+
+#[test]
+fn adopt_starts_a_handshake_with_every_online_peer_once_running() {
+    let s = vm_adopt_script();
+    let online = s.find("cmux-tailnet-online-at").expect("prints online");
+    let kick = s.find("tailscale ping --tsmp").expect("kicks the peers");
+    let joined = s.find("printf 'cmux-tailnet-joined '").expect("result line");
+    assert!(online < kick && kick < joined, "after Running, before the result line");
+    // Through WireGuard (a disco ping starts no handshake), detached, bounded, skipping offline peers.
+    assert!(s.contains("--self=false") && s.contains("!~ / offline/") && s.contains("head -n 64"));
+    assert!(s.contains(" -c 1 --timeout 3s"));
+    // Waits (bounded, 2 s) until the node knows its own endpoints, so the first handshake can go direct.
+    let wait = s.find("--peers=false").expect("waits for its own endpoints");
+    assert!(wait < kick && s.contains("[ $i -gt 20 ] && break"));
+    assert!(s.contains("</dev/null >/dev/null 2>&1 &"), "never holds the adopt run's output");
+}

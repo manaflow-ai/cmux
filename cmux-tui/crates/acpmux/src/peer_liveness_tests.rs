@@ -694,6 +694,23 @@ fn the_wake_probe_is_the_network_probe_unless_the_peer_proved_slow() {
 /// A ready link to `url` that hears nothing, with a 600 ms silence budget: how it ended, how
 /// long it took, and whether a replacement waits for the next connect.
 async fn a_ready_link_that_goes_silent(url: &str) -> (Result<LinkEnd, String>, Duration, bool) {
+    // The peer's end stays open and says nothing: dropping it would reset the link.
+    a_ready_link_that_goes_silent_then(url, |theirs| async move {
+        let _held = theirs;
+        std::future::pending::<()>().await;
+    })
+    .await
+}
+
+/// `a_ready_link_that_goes_silent`, with the peer's end of the link handed to `peer`.
+async fn a_ready_link_that_goes_silent_then<F, Fut>(
+    url: &str,
+    peer_end: F,
+) -> (Result<LinkEnd, String>, Duration, bool)
+where
+    F: FnOnce(tokio::io::DuplexStream) -> Fut,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
     let (tx, _rx) = mpsc::channel(8);
     let mut peer = Peer::new("p", url, None, None, tx);
     {
@@ -707,13 +724,15 @@ async fn a_ready_link_that_goes_silent(url: &str) -> (Result<LinkEnd, String>, D
         l.opened(now);
         l.ready(now);
     });
-    let (ours, _theirs) = tokio::io::duplex(1 << 16);
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let peer_side = tokio::spawn(peer_end(theirs));
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let mut out_rx = peer.out_rx.lock().await.take().unwrap();
     let started = tokio::time::Instant::now();
     let ended = tokio::time::timeout(Duration::from_secs(10), peer.serve(client, &mut out_rx))
         .await
         .expect("a silent link ends within 10 s");
+    peer_side.abort();
     let replaced = peer.replacement.lock_or_recover().is_some();
     (ended, started.elapsed(), replaced)
 }
@@ -733,7 +752,7 @@ async fn a_silent_link_whose_peer_still_answers_a_dial_moves_to_it_without_a_dro
     let server = tokio::spawn(async move {
         let mut held = Vec::new();
         while let Ok((stream, _)) = listener.accept().await {
-            if let Ok(ws) = tokio_tungstenite::accept_async(stream).await {
+            if let Ok(ws) = crate::server::accept_ws(stream).await {
                 held.push(ws);
             }
         }
@@ -758,4 +777,90 @@ async fn a_silent_link_whose_replacement_does_not_open_still_drops() {
     assert!(error.contains("stopped answering"), "{error}");
     assert!(!replaced);
     assert!(took <= Duration::from_millis(1_500), "{took:?}");
+}
+
+/// The peer's end of a blacked-out link: silent for `quiet`, then the backlog it wrote into the
+/// blackout arrives a frame each 100 ms, and no ping is answered (every pong waits behind it).
+async fn a_backlog_after(theirs: tokio::io::DuplexStream, quiet: Duration) {
+    use futures_util::SinkExt;
+    use tokio_tungstenite::tungstenite::Message as Frame;
+    let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;
+    tokio::time::sleep(quiet).await;
+    loop {
+        let line = r#"{"jsonrpc":"2.0","method":"session/update","params":{"backlog":true}}"#;
+        if server.send(Frame::Text(line.into())).await.is_err() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// Job ce049556 (duress, a 5 s blackout): the first backlog frame after the blackout dropped the
+/// replacement dial, so the link stayed on a pipe still draining the 1.5 to 2.6 s of stream the
+/// peer wrote into it, ahead of the content the person waited for. A backlog frame is not an
+/// answer: the dial goes on, and the link moves to the replacement that opens.
+#[tokio::test]
+async fn a_backlog_frame_does_not_drop_the_replacement_dial() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    // The dial opens only after the backlog started: the case the old rule lost.
+    let server = tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((stream, _)) = listener.accept().await {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            if let Ok(ws) = crate::server::accept_ws(stream).await {
+                held.push(ws);
+            }
+        }
+    });
+    let (ended, took, replaced) =
+        a_ready_link_that_goes_silent_then(&format!("ws://127.0.0.1:{port}"), |theirs| {
+            a_backlog_after(theirs, Duration::from_millis(700))
+        })
+        .await;
+    server.abort();
+    assert_eq!(ended, Ok(LinkEnd::Switching), "a backlog frame dropped the replacement dial");
+    assert!(replaced, "the replacement that opened is not kept for the next connect");
+    assert!(took >= Duration::from_millis(600), "moved before its budget ran out: {took:?}");
+}
+
+/// The link talks again while its replacement fails to open: it is kept, not dropped.
+#[tokio::test]
+async fn a_link_that_talks_again_stays_when_its_replacement_does_not_open() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    // The dial reaches the peer but never opens: each connection is held 800 ms, then closed
+    // before the upgrade, so the backlog (from 650 ms) arrives while it still dials.
+    let server = tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(800)).await;
+                drop(stream);
+            });
+        }
+    });
+    let (tx, _rx) = mpsc::channel(8);
+    let mut peer = Peer::new("p", &format!("ws://127.0.0.1:{port}"), None, None, tx);
+    {
+        let timings = &mut Arc::get_mut(&mut peer).expect("only this test holds it").timings;
+        timings.ping_every = Duration::from_millis(200);
+        timings.handshake = Duration::from_secs(3_600);
+    }
+    peer.set_serving(Some(crate::peer_paths::Via::Url));
+    peer.with_link(|l| {
+        let now = crate::store::now_ms();
+        l.opened(now);
+        l.ready(now);
+    });
+    let (ours, theirs) = tokio::io::duplex(1 << 16);
+    let peer_side = tokio::spawn(a_backlog_after(theirs, Duration::from_millis(650)));
+    let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
+    let mut out_rx = peer.out_rx.lock().await.take().unwrap();
+    let link = peer.clone();
+    let serving = tokio::spawn(async move { link.serve(client, &mut out_rx).await });
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(!serving.is_finished(), "a link that talks again was dropped: {:?}", serving.await);
+    serving.abort();
+    peer_side.abort();
+    server.abort();
 }

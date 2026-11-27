@@ -9,6 +9,7 @@ import { answerAnotherChat } from "../needsYou/useNeedsYou";
 import type { LedgerSaveOutcome, LedgerScreen } from "../ledger/LedgerScreen";
 import type { LedgerExportKind } from "../ledger/ledgerModel";
 import type { TeamAuditScreen } from "../teamAudit/TeamAuditScreen";
+import type { DirectoryMethod, TeamDirectoryScreen } from "../teamDirectory/TeamDirectoryScreen";
 import type { QueueScreen } from "./QueueScreen";
 import { auditEntries, needsYouItem, QUEUE_LIMIT, verdictParams, type QueueItem } from "./queueModel";
 import type { AcpmuxSessionEntry } from "../sessionList";
@@ -20,6 +21,7 @@ type CallNative = <T>(method: string, params?: Record<string, unknown>) => Promi
 export type HistoryPagesClient = {
   ledger(params: Record<string, unknown>): Promise<unknown>;
   teamAudit(params: Record<string, unknown>): Promise<unknown>;
+  teamDirectory(method: DirectoryMethod, params: Record<string, unknown>): Promise<unknown>;
   reviewQueue(params?: Record<string, unknown>): Promise<unknown>;
   reviewVerdict(params: Record<string, unknown>): Promise<unknown>;
   audit(params?: Record<string, unknown>): Promise<unknown>;
@@ -99,6 +101,7 @@ export function historyPages({
   queue: ComponentProps<typeof QueueScreen>;
   ledger: ComponentProps<typeof LedgerScreen>;
   team: ComponentProps<typeof TeamAuditScreen>;
+  directory: ComponentProps<typeof TeamDirectoryScreen>;
 } {
   const connected = () => {
     const current = client();
@@ -175,5 +178,12 @@ export function historyPages({
     // Export's JSON saves through the same panel as Costs' Save. `loadUsage` stays unset until acpmux
     // serves the platform's usage export (teamAudit/usageExport.ts `USAGE_EXPORT_METHOD`, a stub).
     team: { load: async (params) => connected().teamAudit(params), save },
+    // People (RFD 0170): the team navigator, Send to and a session's links, each answered by acpmux's
+    // `_acpmux/team/*` reads; History shows it only while the `team-directory` experiment is on.
+    directory: {
+      load: async (method, params) => connected().teamDirectory(method, params),
+      openSession: selectSession,
+      copy,
+    },
   };
 }
