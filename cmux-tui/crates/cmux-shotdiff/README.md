@@ -77,6 +77,25 @@ re-blessing without `--spec` keeps the golden's spec.
 `missing` (no head; fails only with `--require-all`) or `error`, in `out/report.json`
 (`cmux-shotdiff.report/v1`) with `out/diff/<name>.png` for every one that is not identical.
 
+## Input keys (mac-golden-cache)
+
+```sh
+cmux-shotdiff key --inputs .github/golden-inputs.json --family ios-gate --variant iphone [--rev SHA]
+# {"schema":"cmux-shotdiff.key/v1","version":"golden-key/v2","family":"ios-gate","variant":"iphone","key":"f419…","files":16482,"rev":"SHA"}
+```
+
+A family in `.github/golden-inputs.json` names every file that can change its screenshots (`**` any folders,
+`*`/`?` within a name, `!` excludes, last match wins). The key is SHA-256 over the key version, family,
+variant, the family's entry as canonical JSON, and `mode blob path` of each matching file at REV from
+`git ls-tree` (no checkout needed, so a sparse or shallow clone works). Same inputs, same key, on any runner.
+
+A Mac files a render as a golden store named by its key; every later run with the same key, Linux included,
+restores that store and judges its own render with `batch`, with no Mac. The iOS gate's `seed-goldens` job
+saves `golden-ios-gate-<variant>-<key>` to R2 (`scripts/ci/r2-cache.sh`, namespace `goldens`); restores need
+no credentials. The first render of a key stays the golden; a later one is checked against it.
+
+Wide on purpose: a file left out lets a stale golden pass, one too many only costs a render.
+
 ## CI step
 
 ```yaml
@@ -93,3 +112,8 @@ re-blessing without `--spec` keeps the golden's spec.
 
 The action builds the binary from the checkout (pinned toolchain), runs `batch`, appends the table to the step
 summary and fails the step on a fail.
+
+`.github/workflows/shotdiff.yml` checks the step itself on real Chrome renders in `tests/fixtures/chrome`
+(sources in `html/`, store in `store/`, specs with `min_tile_ssim: 0.9`): same renders pass at SSIM 1.0, a
+clock change under its mask passes, and a 6 px nudge and a shortened label fail on their worst tile (0.62 and
+0.37 against 0.9) while moving only 0.31% and 0.53% of pixels.
