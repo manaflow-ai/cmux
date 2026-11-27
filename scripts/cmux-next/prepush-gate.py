@@ -768,18 +768,29 @@ def changed_files(repo: Path, base: str, head: str) -> list[str]:
 
 
 def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
-    """Files named by every RATCHET_BASELINES row, present at both revs.
+    """Files named by rows in a changed RATCHET_BASELINES file, present at both revs.
 
     The sparse scanner trees must include all listed files: the state-roots and classic-ids checks report a stale row
-    when a file is absent, even when the source file itself is unchanged. Restricting this context to rows changed by
-    the push made every scanner run falsely report the untouched baseline as deleted."""
+    when a file is absent, even when the source file itself is unchanged. This context is needed when a baseline file
+    changes (including a row added for an untouched file), but must not make every source edit look like a full-tree
+    scanner run.
+
+    The caller keeps these paths separate from the changed-file list: they populate the two scanner trees, while the
+    changed files alone decide which checks run and which formatter inputs are charged to the push."""
+    changed = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", base, head, "--",
+                  *(f"{SCRIPTS}/{name}" for name in RATCHET_BASELINES)).decode().splitlines()
+    names = {Path(path).name for path in changed}
+    if not names:
+        return []
     # Two batch reads, not a `git show` a file: each cost about 0.5 s on a Linux workstation's cmux mirror (2026-11-21: 11 s).
     try:
-        blobs = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in RATCHET_BASELINES for rev in (base, head)])
+        blobs = git_batch.cat_file(repo, [f"{rev}:{SCRIPTS}/{name}" for name in sorted(names)
+                                          for rev in (base, head)])
     except git_batch.GitError as error:
         raise CannotDecide(f"prepush-gate: {error}")
     files: set[str] = set()
-    for name, (keys, count) in RATCHET_BASELINES.items():
+    for name in sorted(names):
+        keys, count = RATCHET_BASELINES[name]
         rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count) if blob else {}
                 for blob in (blobs[f"{rev}:{SCRIPTS}/{name}"] for rev in (base, head))]
         files.update(key[0] for key in rows[0].keys() | rows[1].keys())
@@ -3683,7 +3694,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     if (DEFERRED_CHECKS >= CI_LAYER_CHECKS and only is not None
             and not only & {"swiftformat", "rustfmt", "crash-ratchet"}):
         return reserved
-    changed = sorted(set(changed_files(repo, base, head)) | set(ratchet_row_files(repo, base, head)))
+    changed = changed_files(repo, base, head)
+    # Baseline rows are tree context for the ratchet scanners, not changed inputs. Keeping them out of CHANGED avoids
+    # routing every formatter and scanner when one baseline file changes (or when a normal source edit leaves baselines
+    # untouched). The context is added only when building the trees below.
+    ratchet_context = ratchet_row_files(repo, base, head)
     deleted = deleted_package_swift(repo, base, head) if only is None or "scanners" in only else []
     if restrict is not None:
         changed = [p for p in changed if p in restrict]
@@ -3704,7 +3719,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     started = time.monotonic()
     found: list[tuple[str, list[str]]] = list(reserved)
     with scratch_dir() as tmp:
-        base_tree, head_tree = build_trees(repo, base, head, changed + deleted, absolute(Path(tmp)), trusted_scripts)
+        base_tree, head_tree = build_trees(repo, base, head, changed + ratchet_context + deleted,
+                                            absolute(Path(tmp)), trusted_scripts)
         # The tool rules and pins: on a hook run, only the installed reviewed copy's (head_tree/SCRIPTS is that copy);
         # a pin names a binary the gate downloads and runs, and its sha256 proves nothing when the same file names it.
         # An install without them refuses. A manual run reads the head's, else (a commit older than the gate) the

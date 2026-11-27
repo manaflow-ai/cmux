@@ -2611,6 +2611,27 @@ pub fn reset(snapshot: &Snapshot) {
             "swift-type-scale-baseline.tsv", "focus-routes-baseline.tsv", "visible-only-baseline.tsv",
             "keychain-no-prompt-baseline.tsv", "classic-ids-baseline.tsv"})
 
+    def test_ratchet_context_does_not_route_untouched_baselines(self):
+        # Baseline rows are tree context for the ratchet scanner only when that baseline changed. They must not turn an
+        # ordinary source edit into a full-tree sparse scan (or make SwiftFormat/rustfmt charge every listed path).
+        spec = importlib.util.spec_from_file_location("prepush_gate_ratchet_context", SOURCE / GATE)
+        gate = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(gate)
+        base = self.git("rev-parse", "HEAD").stdout.strip()
+        self.write(f"{PKG}/Sources/CmuxNextKit/Unrelated.swift", "struct Unrelated {}\n")
+        self.commit("change source without a baseline edit")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.assertEqual(gate.ratchet_row_files(self.repo, base, head), [])
+
+        baseline_base = head
+        baseline = self.repo / "scripts/cmux-next/classic-ids-baseline.tsv"
+        baseline.write_text(baseline.read_text() +
+                            f"{PKG}/Sources/CmuxNextKit/Old.swift\tcom.cmuxterm.app\t1\tkeep\ttest row\n")
+        self.commit("change a baseline and require its source as context")
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.assertIn(f"{PKG}/Sources/CmuxNextKit/Old.swift",
+                      gate.ratchet_row_files(self.repo, baseline_base, head))
+
     def test_classic_ids_baseline_takes_a_deleted_row(self):
         # A push that moves a Classic cache root and deletes its classic-ids row was refused as "no longer has ...:
         # delete its row" (the installed copy kept the row): now each tree reads its own lower row.
