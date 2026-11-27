@@ -1,11 +1,24 @@
 public import CMUXAuthCore
 public import CmuxNextDaemon
 public import Foundation
+import CmuxNextCompat
 import CmuxNextWakeups
+#if canImport(Network)
+import Network
+#endif
 
 /// The Cloud machine event socket. `/v1/wire/cloud` carries ephemeral VM events; the bundled `cmux` mints its
 /// one-use ticket and opens it (`cmux cloud wire-watch`, cmux-tui `cli/cloud_wire_watch.rs`), the access token on its
-/// stdin, never in argv or the subprotocol. Swift decodes the frame lines; reconnects back off after failure.
+/// stdin, never in argv or the subprotocol. Swift decodes the frame lines; reconnects are event driven and back off
+/// after failure.
+///
+/// The network decides too, as on the iPhone link (cmux-next-ios LinkMachine): when this Mac's path changes and is
+/// usable (Wi-Fi back, another network, a VPN), a socket waiting out its backoff dials at once, and a live one's
+/// `cmux` child is ended and redialed at once (the socket lives in the child, so Swift cannot ping it). Before, a
+/// socket that died with the old network waited up to 30 s of backoff, and one riding a dead route waited for TCP to
+/// give up.
+/// Leo, 2026-11-25: "I feel like iOS doesn't retry connections aggressively enough. Or like it isn't detecting when
+/// Wi-Fi is restored and all of that ... I mean likewise with all of our other connectivity things."
 @MainActor
 public final class CloudMachineWire {
     private let apiBaseURL: URL
@@ -17,6 +30,13 @@ public final class CloudMachineWire {
     private let lines: CloudCLICall.Lines
     private var runner: Task<Void, Never>?
     private var generation = 0
+    /// Each socket loop's wake (its backoff wait ends on a network change) and its live child's end, by loop.
+    private var wakes: [Int: RetryWake] = [:]
+    private var probes: [Int: @Sendable () -> Void] = [:]
+    private var nextLoop = 0
+    #if canImport(Network)
+    private var pathMonitor: NWPathMonitor?
+    #endif
     /// The person's spare that the platform says just became ready (`cloud.spare.ready`, for this socket's own team):
     /// its machine id, for the login copy before any claim (Rust's `spare_warm` `ready` coalesces repeats).
     public var onSpareReady: @MainActor (String) -> Void = { _ in }
@@ -46,6 +66,7 @@ public final class CloudMachineWire {
     public func start(_ sink: @escaping @MainActor (CloudPortChange) -> Void) {
         stop()
         let generation = generation
+        watchNetwork()
         runner = Task { [weak self] in
             guard let self else { return }
             let active = await self.team()
@@ -70,25 +91,78 @@ public final class CloudMachineWire {
         generation += 1
         runner?.cancel()
         runner = nil
+        #if canImport(Network)
+        pathMonitor?.cancel()
+        pathMonitor = nil
+        #endif
+    }
+
+    /// This Mac's network changed and is usable: every loop waiting out its backoff dials now, every live socket's
+    /// child is ended, so it redials at once (a change that comes while a dial runs is kept and ends the next wait at once).
+    func networkChanged() {
+        for wake in wakes.values { wake.fire() }
+        for probe in probes.values { probe() }
+    }
+
+    private func watchNetwork() {
+        #if canImport(Network)
+        let monitor = NWPathMonitor()
+        // The first update reports the path as it is at start: no change, so no wake.
+        let reported = Mutex(false)
+        monitor.pathUpdateHandler = { [weak self] path in
+            let first = reported.withLock { seen in
+                defer { seen = true }
+                return !seen
+            }
+            guard !first, path.status == .satisfied else { return }
+            // task-owner: one hop to the main actor per path change
+            Task { @MainActor [weak self] in self?.networkChanged() }
+        }
+        monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.cloud.wire.path", qos: .utility))
+        pathMonitor = monitor
+        #endif
     }
 
     /// One socket's reconnect loop: the active team's (`only` nil, read again per connection) or `only`'s, whose
     /// socket has no `sink` (its port changes stay with the active team's socket, as before).
     private func run(_ generation: Int, only: String?, sink: (@MainActor (CloudPortChange) -> Void)?) async {
-        var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
-        // wakeup-allow: one pass per connection; each pass awaits the socket and, after a failure, a Backoff delay.
-        while !Task.isCancelled, generation == self.generation {
-            do {
-                try await session(generation, only: only, sink: sink, onSubscribed: { backoff.reset() })
-            } catch is CancellationError {
-                return
-            } catch {}
-            // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
-            do { try await backoff.wait(owner: "cloud.machine.wire.reconnect") } catch { return }
+        let loop = nextLoop
+        nextLoop += 1
+        let wake = RetryWake(owner: "cloud.machine.wire.reconnect")
+        wakes[loop] = wake
+        defer { wakes[loop] = nil; probes[loop] = nil }
+        await Self.reconnecting(wake: wake, backoff: Backoff(initial: .milliseconds(500), maximum: .seconds(30)),
+                                keepGoing: { [weak self] in generation == self?.generation }) { [weak self] onSubscribed in
+            guard let self else { throw CancellationError() }
+            try await self.session(generation, loop: loop, only: only, sink: sink, onSubscribed: onSubscribed)
         }
     }
 
-    private func session(_ generation: Int, only: String?, sink: (@MainActor (CloudPortChange) -> Void)?,
+    /// One socket's reconnect loop: `session` runs a connection to its end (it calls its argument once subscribed,
+    /// which starts the backoff over), then the loop waits the backoff's next step or, sooner, a network change on
+    /// `wake`, which also starts the backoff over. Ends when the task is cancelled, `session` throws
+    /// `CancellationError` or `keepGoing` says no.
+    static func reconnecting(wake: RetryWake, backoff: Backoff, clock: any Clock<Duration> = ContinuousClock(),
+                             keepGoing: () -> Bool,
+                             session: (_ onSubscribed: () -> Void) async throws -> Void) async {
+        var backoff = backoff
+        // wakeup-allow: one pass per connection; each pass awaits the socket and, after a failure, a Backoff delay or a network change.
+        while !Task.isCancelled, keepGoing() {
+            do {
+                try await session { backoff.reset() }
+            } catch is CancellationError {
+                return
+            } catch {}
+            guard !Task.isCancelled, keepGoing() else { return }
+            switch await wake.awaitWake(delay: backoff.next(), clock: clock, socket: false) {
+            case .cancelled: return
+            case .event: backoff.reset()
+            case .socket, .timer: break
+            }
+        }
+    }
+
+    private func session(_ generation: Int, loop: Int, only: String?, sink: (@MainActor (CloudPortChange) -> Void)?,
                          onSubscribed: () -> Void) async throws {
         let selectedTeam = if let only { only } else { await team() }
         let stdin = try JSONSerialization.data(withJSONObject: ["api": apiBaseURL.absoluteString, "access": try await token(), "team": selectedTeam,
@@ -97,24 +171,31 @@ public final class CloudMachineWire {
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_BUILD_SPACE"] = buildSpace.childEnvironmentValue
         let (frames, continuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingNewest(256)) // the main actor drains each line as it comes
-        async let child: Void = Self.run(lines, stdin: stdin, environment: environment, into: continuation)
-        // wakeup-allow: each turn awaits the next frame line of the child; its exit ends the stream and the loop.
-        for await data in frames {
-            guard generation == self.generation else { throw CancellationError() }
-            switch Self.frameType(data) {
-            case "snapshot":
-                onSubscribed()
-                // The spares the platform says still need the login (at subscribe and after each recheck): the same copy as the event, coalesced per spare.
-                for machine in Self.sparesNeedingLogin(data, team: selectedTeam) { onSpareReady(machine) }
-            case "ephemeral":
-                if let machine = Self.spareReady(data, team: selectedTeam) { onSpareReady(machine) }
-                else if let machine = Self.machinePausing(data, team: selectedTeam) { onMachinePausing(machine) }
-                else if let sink, let change = CloudPortChange.parseWireFrame(data) { sink(change) }
-            default:
-                break
+        // task-owner: this session's one `cmux cloud wire-watch` child; cancelled on a network change, at the session's end and with its task.
+        let child = Task { [lines] in await Self.run(lines, stdin: stdin, environment: environment, into: continuation) }
+        probes[loop] = { child.cancel() }
+        defer { probes[loop] = nil; child.cancel() }
+        try await withTaskCancellationHandler {
+            // wakeup-allow: each turn awaits the next frame line of the child; its exit ends the stream and the loop.
+            for await data in frames {
+                guard generation == self.generation else { throw CancellationError() }
+                switch Self.frameType(data) {
+                case "snapshot":
+                    onSubscribed()
+                    // The spares the platform says still need the login (at subscribe and after each recheck): the same copy as the event, coalesced per spare.
+                    for machine in Self.sparesNeedingLogin(data, team: selectedTeam) { onSpareReady(machine) }
+                case "ephemeral":
+                    if let machine = Self.spareReady(data, team: selectedTeam) { onSpareReady(machine) }
+                    else if let machine = Self.machinePausing(data, team: selectedTeam) { onMachinePausing(machine) }
+                    else if let sink, let change = CloudPortChange.parseWireFrame(data) { sink(change) }
+                default:
+                    break
+                }
             }
+        } onCancel: {
+            child.cancel()
         }
-        await child
+        await child.value
         try Task.checkCancellation()
         throw CloudAPIError.transport("Cloud wire closed")
     }

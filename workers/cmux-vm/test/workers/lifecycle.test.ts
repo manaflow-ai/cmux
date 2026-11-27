@@ -172,6 +172,20 @@ describe("createVm", () => {
     expect(await json(limited)).toMatchObject({ _tag: "QuotaExceeded", retryAfterSeconds: expect.any(Number), budget: "rate" });
     expect((await createVm(t, keyB)).status).toBe(201);
   });
+
+  it("reports provider infrastructure overload as unavailable without exposing its response", async () => {
+    const t = await harness();
+    const key = await t.addKey(TENANT_A, ["vm:write"]);
+    t.upstream.fail("create", 429, 1, { message: "infrastructure overloaded: VM start capacity queue wait expired" });
+
+    const response = await createVm(t, key);
+
+    expect(response.status).toBe(503);
+    const body = await json(response);
+    expect(body).toMatchObject({ _tag: "ServiceUnavailable" });
+    expect(JSON.stringify(body)).not.toContain("infrastructure overloaded");
+    expect(JSON.stringify(body)).not.toContain("capacity queue wait expired");
+  });
 });
 
 describe("idempotency keys on create", () => {

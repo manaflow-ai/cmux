@@ -72,6 +72,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "FAST_CHECKS_OUT",
     "ACPMUX_GOD_DHAT",
     "ACPMUX_GOD_DHAT_TOP",
+    "ACPMUX_GOD_DHAT_FRAMES",
     // A control artifact for differential runs; the child still uses the hermetic environment.
     "ACPMUX_GOD_DAEMON_BIN",
     // `1`: the test client asks for peer row batches (`peerRowBatches`, `run_with`).
@@ -135,6 +136,9 @@ const PAGE_BYTES: u64 = 131072;
 /// How long the run waits for every chat log to be read, and how often it asks.
 const ALL_LOGS: Duration = Duration::from_secs(120);
 const ALL_LOGS_POLL: Duration = Duration::from_millis(50);
+
+/// The longest a size sweep waits for a chat's adoption checkpoint before its restart.
+const ADOPTION_CHECKPOINT_WITHIN: Duration = Duration::from_secs(300);
 
 /// The startup points kept as marks, not phases (`gauges.rs`).
 const MARKS: [&str; 4] = ["socket ready", "requests ready", "first list reply", "agents may spawn"];
@@ -2411,6 +2415,40 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let last_before_restart =
         rpc.call("_acpmux/attach", app_attach(&id)).ok().and_then(|a| a["lastSeq"].as_u64());
     drop(rpc);
+    // Its host up, the chat's adoption checkpoint is folded in the background
+    // (`hosts/checkpoint.rs` `prime_adoption_checkpoint`): how long after the sends it is there.
+    // A long chat's host has been up that long; a restart before it reads the whole log at
+    // adoption. A daemon that writes none waits the whole bound and restarts without one.
+    let checkpoint = home.join("sessions").join(&id).join("adoption-checkpoint.json");
+    let checkpoint_wait = Instant::now();
+    while !checkpoint.exists() && checkpoint_wait.elapsed() < ADOPTION_CHECKPOINT_WITHIN {
+        std::thread::sleep(ALL_LOGS_POLL);
+    }
+    let adoption_checkpoint_ms = checkpoint.exists().then(|| ms(checkpoint_wait));
+    // What the restart reads back of it: its bytes, and each field's (two levels into the
+    // folds), so a checkpoint that grows with the chat says which fold keeps what.
+    let checkpoint_bytes = std::fs::read(&checkpoint).ok();
+    let adoption_checkpoint_bytes = checkpoint_bytes.as_ref().map(Vec::len);
+    let adoption_checkpoint_fields =
+        // The file's first line is the compaction digest it was saved under (`store.rs`).
+        checkpoint_bytes
+            .as_deref()
+            .and_then(|b| b.iter().position(|&c| c == b'\n').map(|nl| &b[nl + 1..]))
+            .and_then(|b| serde_json::from_slice::<Value>(b).ok())
+            .map(|point| {
+            let mut sizes = serde_json::Map::new();
+            let len = |v: &Value| serde_json::to_vec(v).map_or(0, |b| b.len());
+            for (key, value) in point.as_object().into_iter().flatten() {
+                sizes.insert(key.clone(), len(value).into());
+                for (inner, value) in value.as_object().into_iter().flatten() {
+                    sizes.insert(format!("{key}.{inner}"), len(value).into());
+                    for (leaf, value) in value.as_object().into_iter().flatten() {
+                        sizes.insert(format!("{key}.{inner}.{leaf}"), len(value).into());
+                    }
+                }
+            }
+            Value::Object(sizes)
+        });
 
     // Restart with the agent host up: the new daemon adopts it (hub/hosts/journal.rs) and the
     // pane opens the chat again.
@@ -2439,6 +2477,9 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let restart_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted"));
     let (restart_rss, restart_peak_rss) = daemon.rss();
     let restart_maps = daemon.rss_maps();
+    // The restarted daemon's own startup phases (`gauges.rs`): where its time to adopt went.
+    let restart_startup =
+        rpc.call("_acpmux/status", json!({})).ok().map(|s| s["gauges"]["startup"].clone());
     drop(rpc);
     daemon.stop();
     let restart_heap = restart_profile.as_deref().map(|p| dhat_sites::attribute(p, dhat_top()));
@@ -2490,12 +2531,15 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
         "sendError": send_error,
         "rss": rss, "peakRss": peak_rss, "shutdownMs": shutdown_ms,
+        "adoptionCheckpointMs": adoption_checkpoint_ms, "adoptionCheckpointBytes": adoption_checkpoint_bytes,
+        "adoptionCheckpointFields": adoption_checkpoint_fields,
         "restartAttachMs": restart_attach_ms, "restartAttachError": restart_attach.as_ref().err(),
         "restartAllLogsMs": restart_all_logs.as_ref().ok(),
         "restartAllLogsError": restart_all_logs.as_ref().err(), "restartAdopted": adopted,
         "restartSendFirstTokenUs": restart_send.as_ref().ok(),
         "restartSendError": restart_send.as_ref().err(),
         "restartRss": restart_rss, "restartPeakRss": restart_peak_rss,
+        "restartStartup": restart_startup,
         "restartMaps": restart_maps, "restartHeap": restart_heap,
         "secondRestartAttachMs": second_attach_ms,
         "secondRestartAttachError": second_attach.as_ref().err(),
@@ -2506,7 +2550,9 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "homeBytes": home_bytes, "freeBytes": free,
     });
     if let Some(out) = std::env::var_os("FAST_CHECKS_OUT") {
-        let destination = PathBuf::from(out).join(format!("chat-size-{}-daemon.log", bytes));
+        let out = PathBuf::from(out);
+        std::fs::create_dir_all(&out).unwrap();
+        let destination = out.join(format!("chat-size-{}-daemon.log", bytes));
         // The sweep owns this artifact; preserve only the tail, never the generated chat.
         if let Ok(mut file) = std::fs::File::open(&daemon.log) {
             let len = file.metadata().map_or(0, |m| m.len());
@@ -2636,6 +2682,23 @@ fn chat_size_sweep() {
         let result = size_run(label, parse_size(label));
         println!("CHAT-SIZE {result}");
         println!("{}", page_cost_line(label, &result));
+        // Its own line: the result above is cut short in a CI log, and these say which fold
+        // of the adoption checkpoint grows with the chat.
+        // One field a line, largest first: a CI log cuts a long line short.
+        println!(
+            "CHAT-SIZE-CHECKPOINT {label} {} {}",
+            result["adoptionCheckpointBytes"], result["restartStartup"]
+        );
+        let mut fields: Vec<(&String, u64)> = result["adoptionCheckpointFields"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(k, v)| (k, v.as_u64().unwrap_or(0)))
+            .collect();
+        fields.sort_by(|a, b| b.1.cmp(&a.1));
+        for (field, bytes) in fields.into_iter().take(16) {
+            println!("CHAT-SIZE-FIELD {label} {field} {bytes}");
+        }
         if let Some(base) = results
             .first()
             .filter(|base| size_failure(base).is_none() && size_failure(&result).is_none())

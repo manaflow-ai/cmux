@@ -104,6 +104,31 @@ def step_named(steps: list[dict], fragment: str) -> dict:
 
 
 class WorkflowShape(unittest.TestCase):
+    def test_callers_forward_status_secrets(self):
+        # Run 45940333376/job 140314249449: the router passed no secrets, so minting the app token
+        # failed and a green gate could not post its status after the repository token hit quota.
+        # Derive the contract from every secret the callee reads, so a new fallback cannot silently
+        # work on dispatch alone. GITHUB_TOKEN is supplied by Actions, not by the caller.
+        secrets = set(re.findall(r"secrets\.([A-Za-z_][A-Za-z_0-9]*)", WORKFLOW.read_text())) - {"GITHUB_TOKEN"}
+        declared = (workflow()[True]["workflow_call"] or {}).get("secrets", {})
+        self.assertTrue(secrets)
+        self.assertEqual(set(declared), secrets)
+        for secret in secrets:
+            self.assertFalse(declared[secret].get("required", False))
+        callers = []
+        for path in sorted(WORKFLOW.parent.glob("*.yml")):
+            if "uses: ./.github/workflows/cmux-next-fast-gates.yml" not in path.read_text():
+                continue
+            for name, caller in yaml.safe_load(path.read_text())["jobs"].items():
+                if caller.get("uses") != "./.github/workflows/cmux-next-fast-gates.yml":
+                    continue
+                callers.append((path.name, name))
+                with self.subTest(workflow=path.name, job=name):
+                    self.assertEqual(caller.get("secrets"), {
+                        secret: "${{ secrets." + secret + " }}" for secret in secrets
+                    })
+        self.assertTrue(callers)
+
     def test_name_job_and_runner(self):
         doc = workflow()
         self.assertEqual(doc["name"], "cmux-next fast gates")
@@ -177,7 +202,7 @@ class WorkflowShape(unittest.TestCase):
                 run = pool["run"]
                 self.assertIn('echo "$mirror" > .git/objects/info/alternates', run)
                 self.assertIn("find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +", run)
-                fetch = next(line for line in run.splitlines() if "git fetch" in line)
+                fetch = next(line for line in run.splitlines() if re.search(r"\bgit\b.* fetch ", line))
                 self.assertNotIn("--filter", fetch)
                 self.assertIn("--depth=2", fetch)
                 self.assertNotIn("$TOKEN", fetch)
@@ -249,6 +274,17 @@ class WorkflowShape(unittest.TestCase):
                     with self.subTest(gate=str(path.relative_to(ROOT)), module=name):
                         self.assertIn(f"/tests/{name}.py", patterns, f"{path.relative_to(ROOT)} imports tests/{name}.py")
         self.assertIn("test_egress_gate", seen)
+        # 2026-11-27 (#61088, run 45997666983): test_outbound_hosts.py began importing tests/guard_delta.py and merged
+        # without this test running: it names none of these modules, so focused_tests.py never picked it for a change to
+        # one. Each module this walk reaches selects this test (scripts/ci/focused-tests-extra.json), so a new import
+        # is made in a file that already runs it.
+        extra = json.loads((ROOT / "scripts/ci/focused-tests-extra.json").read_text())["rules"]
+        selects = {rule["prefix"] for rule in extra if "tests/test_cmux_next_fast_gates.py" in rule.get("python", [])}
+        for name in sorted(seen):
+            with self.subTest(selects=name):
+                self.assertIn(f"tests/{name}.py", selects,
+                              f'add {{"prefix": "tests/{name}.py", "python": ["tests/test_cmux_next_fast_gates.py"]}} to '
+                              "scripts/ci/focused-tests-extra.json")
 
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
@@ -288,6 +324,11 @@ class WorkflowShape(unittest.TestCase):
         # them (else every gate runs and nothing of the PR's is read).
         for step in resolve["steps"]:
             if step.get("uses", "").startswith("actions/checkout@") or step.get("name", "").startswith("Pool mirror:"):
+                if "the base for the receipt verifier (lane dispatch)" in step.get("name", ""):
+                    # A lane dispatch checks out the base commit's verifier, never the pull request's code (#60742).
+                    self.assertIn("steps.resolve.outputs.lane_dispatch == 'true'", step["if"])
+                    self.assertIn("steps.resolve.outputs.base", str(step.get("with", {}).get("ref", "")) + str(step.get("env", {})))
+                    continue
                 self.assertTrue(step["if"].replace(" ", "").startswith("${{github.event_name=='pull_request'&&"),
                                 step.get("name"))
             if step.get("id") == "route":
@@ -354,9 +395,9 @@ class WorkflowShape(unittest.TestCase):
                 "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_OUTPUT": str(output),
                 "CALLS": str(calls), "WAITS": str(waits), "FAILURES": str(failures),
                 "API_ERROR": error or "",
-                "GRAPHQL_FIELDS": (graphql_fields or "open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|" + "c" * 40)
+                "GRAPHQL_FIELDS": (graphql_fields or "open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|topic/x|" + "c" * 40)
                 .replace("|", "\t"),
-                "PR_FIELDS": fields.replace("|", "\t") if fields is not None else "open\tmanaflow-ai/cmux\tfeat-cmux-next\t" + "a" * 40,
+                "PR_FIELDS": fields.replace("|", "\t") if fields is not None else "open\tmanaflow-ai/cmux\tfeat-cmux-next\t" + "a" * 40 + "\ttopic/x",
                 **(event or {}),
             }
             result = subprocess.run(["bash", "-c", body], env=env, capture_output=True, text=True, timeout=10)
@@ -411,9 +452,9 @@ class WorkflowShape(unittest.TestCase):
 
     def test_dispatch_graphql_fallback_still_refuses_a_fork_or_a_closed_pr(self):
         limited = "gh: API rate limit exceeded for installation (HTTP 403)"
-        for fields, words in (("open|fork/cmux|feat-cmux-next|" + "a" * 40 + "|" + "c" * 40, "comes from fork/cmux"),
-                              ("merged|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|" + "c" * 40, "is merged"),
-                              ("open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|", "incomplete")):
+        for fields, words in (("open|fork/cmux|feat-cmux-next|" + "a" * 40 + "|topic/x|" + "c" * 40, "comes from fork/cmux"),
+                              ("merged|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|topic/x|" + "c" * 40, "is merged"),
+                              ("open|manaflow-ai/cmux|feat-cmux-next|" + "a" * 40 + "|topic/x|", "incomplete")):
             result, calls, waits, output = self.resolve_dispatch(error=limited, failures=1, graphql_fields=fields)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(words, result.stdout + result.stderr)
@@ -445,7 +486,7 @@ class WorkflowShape(unittest.TestCase):
         self.assertEqual(output, "")
 
     def test_dispatch_valid_fork_is_still_refused(self):
-        result, calls, waits, output = self.resolve_dispatch(fields="open|fork/cmux|feat-cmux-next|" + "a" * 40)
+        result, calls, waits, output = self.resolve_dispatch(fields="open|fork/cmux|feat-cmux-next|" + "a" * 40 + "|topic/x")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("comes from fork/cmux", result.stdout + result.stderr)
         self.assertEqual(len(calls), 1)
@@ -524,6 +565,71 @@ class WorkflowShape(unittest.TestCase):
         self.assertFalse(any("uses" in step for step in audit["steps"]))
         self.assertIn("audience=cmux-ci-lane-receipt", audit["steps"][0]["run"])
 
+    def test_head_commit_tree_names_the_lane_commit_under_an_update_branch_merge(self):
+        # 4 of 11 lane misses on 2026-11-27 were GitHub's update-branch merge heads; the receipt is the lane commit's.
+        body = step_named(job(workflow(), "resolve")["steps"], "Resolve the head and the base")["run"]
+        start = body.index("head_commit_tree() {")
+        func = textwrap.dedent(body[start:re.compile(r"\n *}\n").search(body, start).end()])
+        func = func.replace('GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.https://github.com/.extraheader '
+                            'GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \\\n', '')
+        func = func.replace('"https://github.com/$GITHUB_REPOSITORY"', '"file://$SRC"')
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            def git(*args, **env):
+                return subprocess.run(["git", "-C", str(src), *args], check=True, capture_output=True, text=True,
+                                      env={**os.environ, "GIT_AUTHOR_NAME": "a", "GIT_AUTHOR_EMAIL": "a@x",
+                                           "GIT_COMMITTER_NAME": "a", "GIT_COMMITTER_EMAIL": "a@x", **env}
+                                      ).stdout.strip()
+            subprocess.run(["git", "init", "-q", "-b", "feat-cmux-next", str(src)], check=True)
+            git("commit", "-q", "--allow-empty", "-m", "base")
+            git("checkout", "-q", "-b", "lane/x")
+            (src / "f").write_text("lane\n"); git("add", "f"); git("commit", "-q", "-m", "lane change")
+            lane = git("rev-parse", "HEAD")
+            git("checkout", "-q", "feat-cmux-next")
+            (src / "g").write_text("base\n"); git("add", "g"); git("commit", "-q", "-m", "base moves")
+            git("checkout", "-q", "lane/x")
+            git("merge", "-q", "--no-ff", "-m", "Merge branch 'feat-cmux-next' into lane/x", "feat-cmux-next",
+                GIT_COMMITTER_NAME="GitHub")
+            merge = git("rev-parse", "HEAD")
+            def run(commit):
+                script = f'set -u; BRANCH=feat-cmux-next; SRC={src}; GH_TOKEN=x\n{func}\nhead_commit_tree {commit}'
+                return subprocess.run(["bash", "-c", script], check=True, capture_output=True, text=True).stdout
+            self.assertEqual(run(merge), f"{git('rev-parse', merge + '^{tree}')} {git('rev-parse', lane + '^{tree}')}")
+            self.assertEqual(run(lane), f"{git('rev-parse', lane + '^{tree}')} ")
+
+    def test_a_lane_head_takes_its_receipt_at_the_merger_dispatch(self):
+        # 78 of 100 fast-gates runs on 2026-11-26 were the merger's dispatches; on feat-cmux-next the pull request event
+        # skips the gates, so a lane receipt has to count there (Leo: "Shift checks left into the lanes").
+        steps = job(workflow(), "resolve")["steps"]
+        resolve = step_named(steps, "Resolve the head and the base")
+        body = resolve["run"]
+        self.assertIn(".head.ref] | @tsv", body)
+        self.assertIn("headRefName", body)
+        self.assertIn('if [[ "$head_ref" == lane/* && "${LANE:-1}" != 0 ]]; then', body)
+        # The head tree is read over git, not REST: the REST budget was spent on every dispatch on 2026-11-27.
+        self.assertNotIn("git/commits/$head", body)
+        self.assertIn('read -r head_tree parent_tree <<<"$(head_commit_tree "$head")"', body)
+        self.assertIn("--depth=2 --filter=tree:0", body)
+        self.assertIn('echo "lane_parent_tree=$parent_tree"', body)
+        self.assertIn('echo "merge_tree="; echo "lane_dispatch=true"', body)
+        self.assertEqual(resolve["env"]["LANE"], "${{ vars.CI_LANE_RECEIPTS }}")
+        verify = step_named(steps, "Verify the local test receipt")
+        self.assertIn("(github.event_name == 'workflow_dispatch' && steps.resolve.outputs.lane_dispatch == 'true')",
+                      verify["if"])
+        self.assertIn('[[ -n "$PR_NUMBER" && "${DISCOVER:-1}" != 0 ]]', verify["run"])
+        names = [s.get("name", "") for s in steps]
+        for name in ("Checkout the base for the receipt verifier (lane dispatch)",
+                     "Pool mirror: checkout the base for the receipt verifier (lane dispatch)"):
+            checkout = step_named(steps, name)
+            self.assertLess(names.index("Resolve the head and the base"), names.index(name))
+            self.assertLess(names.index(name), names.index("Verify the local test receipt"))
+            self.assertIn("steps.resolve.outputs.lane_dispatch == 'true'", checkout["if"])
+            self.assertIs(checkout["continue-on-error"], True)
+        checkout = step_named(steps, "Checkout the base for the receipt verifier (lane dispatch)")
+        self.assertIs(checkout["with"]["persist-credentials"], False)
+        self.assertEqual(checkout["with"]["ref"], "${{ steps.resolve.outputs.base }}")
+        self.assertIn("/scripts/ci/ci_receipt.py", checkout["with"]["sparse-checkout"])
+
     def test_receipt_steps_run_only_the_base_verifier_and_only_when_named(self):
         doc = workflow()
         self.assertNotIn("receipt", doc["jobs"], "the receipt is resolve's steps, not a runner of its own")
@@ -541,7 +647,8 @@ class WorkflowShape(unittest.TestCase):
             self.assertIn(fragment, verify["if"])
         # A verifier that fails or hangs leaves resolve green, and the gates run.
         self.assertIs(verify["continue-on-error"], True)
-        self.assertLessEqual(int(verify["timeout-minutes"]), 3)
+        # 5: OIDC 20 s + the lookup's 60 s deadline (#61555) + the head-tree and base git reads, 60 s each.
+        self.assertLessEqual(int(verify["timeout-minutes"]), 5)
         self.assertLess(int(verify["timeout-minutes"]), int(resolve["timeout-minutes"]))
         body = verify["run"]
         # The verifier is the base commit's, copied out of git, never a file of the pull request's work tree.
@@ -2286,6 +2393,12 @@ class WebviewsChecksGate(unittest.TestCase):
                     ":3176:23)\n")
         self.assertEqual(self.module.added(frames("1795522394672-bd727a4797f8c8"), frames("1795522301234-0a1b2c3d4e5f60")),
                          [])
+
+    def test_a_crash_dump_keys_without_its_process_id(self):
+        def dump(pid: int) -> str:
+            return f"Error: spawnSync tsgo ETIMEDOUT\n{{\n  errno: -110,\n  code: 'ETIMEDOUT',\n  pid: {pid},\n}}\n"
+        self.assertEqual(self.module.added(dump(1276995), dump(1180412)), [])
+        self.assertEqual(self.module.added(dump(1276995) + "Error: new crash\n", dump(1180412)), ["Error: new crash"])
 
     def test_a_wrapped_message_compares_whole(self):
         def wrapped(detail: str) -> str:

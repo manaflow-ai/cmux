@@ -693,3 +693,23 @@ async fn cpu_class_a_waited_on_turn_is_never_demoted_before_its_first_token() {
     assert_eq!(answered, (BACKGROUND_PRI, BACKGROUND_PRI), "not demoted after its first token");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The sampler's bursts of 10 ms sleeps woke each idle daemon about 12 times a second
+/// (cmux20-bench, 2026-11-27: acpmux-daemon 12.15/s against a 1.0/s budget, with no session at
+/// all). Only an opt-in `dynamic` session reads contention, so with none the sampler sleeps.
+#[tokio::test]
+async fn cpu_class_the_pressure_sampler_sleeps_while_no_session_is_dynamic() {
+    let dir = scratch("ps");
+    let (hub, mut c) = daemon(logged(&dir, &[])).await;
+    assert!(!hub.cpu_pressure_wants_samples(), "a daemon with no session samples");
+    let _plain = c.new_session(&dir, "plain").await.unwrap();
+    assert!(!hub.cpu_pressure_wants_samples(), "a normal-class session made the daemon sample");
+
+    let dyn_dir = scratch("pd");
+    let (dyn_hub, mut d) =
+        daemon(logged(&dyn_dir, &[("ACPMUX_SESSION_CPU_CLASS", "dynamic")])).await;
+    let _dynamic = d.new_session(&dyn_dir, "dyn").await.unwrap();
+    assert!(dyn_hub.cpu_pressure_wants_samples(), "a dynamic session needs the samples");
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&dyn_dir);
+}
