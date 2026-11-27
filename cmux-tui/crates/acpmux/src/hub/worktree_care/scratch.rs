@@ -49,8 +49,8 @@ pub(crate) fn is_peer_scratch_in(cwd: &Path, temp: &Path, uid: u32) -> bool {
 /// Makes `dir` owner-only, or accepts it when it is already this user's owner-only folder.
 #[cfg(unix)]
 fn own_dir(dir: &Path, uid: u32) -> std::io::Result<()> {
-    use std::os::unix::fs::{DirBuilderExt as _, MetadataExt as _};
-    match std::fs::DirBuilder::new().mode(0o700).create(dir) {
+    use std::os::unix::fs::MetadataExt as _;
+    match crate::home_fs::create_dir(dir, 0o700) {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             let meta = std::fs::symlink_metadata(dir)?;
@@ -77,7 +77,7 @@ pub(crate) fn revive_peer_scratch_in(cwd: &Path, temp: &Path, uid: u32) -> std::
     }
     own_dir(root, uid)?;
     own_dir(cwd, uid)?;
-    match std::fs::OpenOptions::new()
+    match crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(cwd.join(crate::trust::AGENT_HOME_MARKER))

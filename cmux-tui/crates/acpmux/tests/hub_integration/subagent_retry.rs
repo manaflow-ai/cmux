@@ -37,6 +37,12 @@ async fn until(hub: &Hub, id: &str, pred: impl Fn(&[String]) -> bool) -> Vec<Str
     outcomes(hub, id)
 }
 
+/// A chat whose resumed subagent fails again on a dropped connection: a transport error, which
+/// keeps its configured attempts (SR2's 503 is an outage, waited out past them, #58817).
+fn resume_fails() -> BTreeMap<String, String> {
+    BTreeMap::from([("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "agent-reset".to_owned())])
+}
+
 /// A Claude chat with `delays` as `autoResumeDelaysMs`, after its first turn ("agent-503" or
 /// another) ended.
 async fn chat(first: &str, delays: Vec<u64>) -> (Arc<Hub>, TestClient, String) {
@@ -201,12 +207,12 @@ async fn a_subagent_a_dropped_connection_failed_is_resumed() {
     assert_eq!(scheduled.msg["reason"], "transport", "{:?}", scheduled.msg);
 }
 
-/// A resume that fails on the 503 again waits for its next attempt, and after the configured
-/// attempts it is given up.
+/// A resume that fails on a dropped connection again waits for its next attempt, and after the
+/// configured attempts it is given up. (An outage such as SR2's 503 is waited out past them,
+/// `an_outage_failed_subagent_is_retried_past_the_configured_attempts`.)
 #[tokio::test]
 async fn a_subagent_that_keeps_failing_is_given_up_after_the_attempts() {
-    let env = BTreeMap::from([("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "1".to_owned())]);
-    let (hub, _c, id) = chat_env("agent-503", vec![20, 20], env).await;
+    let (hub, _c, id) = chat_env("agent-reset", vec![20, 20], resume_fails()).await;
     let got = until(&hub, &id, |o| o.iter().any(|o| o == "exhausted")).await;
     assert_eq!(
         got,
@@ -343,9 +349,9 @@ async fn close_after_stop_or_giving_up_is_not_retryable() {
     hub.kill(&hub.resolve(&id).unwrap(), false).await.unwrap();
     assert_eq!(last_entries(&hub, &id)[0]["retryable"], false, "stopped, then closed");
 
-    let env = BTreeMap::from([("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "1".to_owned())]);
-    let (hub, _c, id) = chat_env("agent-503", vec![20], env).await;
-    until(&hub, &id, |o| o.iter().any(|o| o == "exhausted")).await;
+    let (hub, _c, id) = chat_env("agent-reset", vec![20], resume_fails()).await;
+    let got = until(&hub, &id, |o| o.iter().any(|o| o == "exhausted")).await;
+    assert_eq!(got, ["scheduled", "fired", "exhausted"]);
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(last_entries(&hub, &id)[0]["retryable"], true);
     hub.kill(&hub.resolve(&id).unwrap(), false).await.unwrap();
@@ -382,9 +388,9 @@ async fn failures_past_the_limit_are_forgotten_after_a_stop_or_giving_up() {
 async fn a_forgotten_agent_that_keeps_failing_is_given_up_after_the_attempts() {
     let env = BTreeMap::from([
         ("FAKE_CLAUDE_FORGET_AGENTS".to_owned(), "1".to_owned()),
-        ("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "1".to_owned()),
+        ("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "agent-reset".to_owned()),
     ]);
-    let (hub, _c, id) = chat_env("agent-503", vec![20, 20], env).await;
+    let (hub, _c, id) = chat_env("agent-reset", vec![20, 20], env).await;
     let got = until(&hub, &id, |o| o.iter().any(|o| o == "exhausted")).await;
     assert_eq!(got, ["scheduled", "fired", "scheduled", "fired", "exhausted"]);
     let last = entries_of(&hub, &id, &retried(&hub, &id)).last().cloned().unwrap();

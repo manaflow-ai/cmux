@@ -87,11 +87,13 @@ fn rustc_and_llvm_use_their_published_minimums() {
     );
     assert_eq!(precheck("./x test tidy", &default_vm(), &nowhere()), None, "only a build");
 
-    let w = precheck("cmake -S llvm -B build -G Ninja", &default_vm(), &nowhere()).unwrap();
-    assert_eq!(w.project, Some(Project::Llvm));
-    assert_eq!(w.text, "LLVM needs 15 to 20 GB of disk; this machine has 20 GB free.");
-    assert_eq!(w.short, vec![Short::Disk], "LLVM publishes no memory minimum");
+    // 20 GB free meets LLVM's top (its minimum here), as a disk at a minimum does for the others.
+    assert_eq!(precheck("cmake -S llvm -B build -G Ninja", &default_vm(), &nowhere()), None);
     let small = Shape { disk_free: 10 * GB, ..default_vm() };
+    let w = precheck("cmake -S llvm -B build -G Ninja", &small, &nowhere()).unwrap();
+    assert_eq!(w.project, Some(Project::Llvm));
+    assert_eq!(w.text, "LLVM needs 15 to 20 GB of disk; this machine has 10 GB free.");
+    assert_eq!(w.short, vec![Short::Disk], "LLVM publishes no memory minimum");
     let in_llvm = Place { cwd: Some("/home/me/llvm-project/build"), checkout_bytes: None };
     assert_eq!(precheck("ninja", &small, &in_llvm).unwrap().project, Some(Project::Llvm));
     let w = precheck("cmake -G Ninja ../llvm", &small, &nowhere()).unwrap();
