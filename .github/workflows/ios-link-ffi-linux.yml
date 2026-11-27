@@ -10,7 +10,9 @@ name: iOS link FFI on Linux
 
 on:
   # A feat-cmux-next pull request starts this only through pr-router.yml (scripts/ci/pr_router.json
-  # `affects`: the FFI crate, the binding, the kit manifest, these tests, the script, this file).
+  # `affects`: the FFI crate, the binding, the kit manifest, these tests, Swift pairing/remote-view/
+  # terminal-projection sources, the script, this file). This is the required cross-commit receipt:
+  # both skew directions must link and complete the daemon identify handshake.
   workflow_call:
   push:
     branches: [feat-cmux-next]
