@@ -977,6 +977,46 @@ jobs:
           path: cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
           enableCrossOsArchive: true
           key: ${{ steps.xcf-key.outputs.fleet_key }}
+      # With the FFI cached, a hosted Mac still built the kit (144 s) and the app (215 s) from empty DerivedData on
+      # cmux#61812. ios-fast-verdict-seed.yml saves one warm build of both, at this pool's workspace path, on the
+      # feat-cmux-next push; this restores the newest seed of this Xcode and package graph, replays its input times
+      # (scripts/ci/e2e_warm_derived_data.py), and gives the seed's FFI time to the restored framework when it is
+      # the seed's, so the build step rebuilds only what differs. An owned Mac keeps its slot and skips this. A miss
+      # builds cold, as before.
+      - name: iOS fast DerivedData seed key (hosted Mac)
+        id: dd-key
+        if: ${{ steps.xcf-key.outputs.fleet_key != '' }}
+        continue-on-error: true
+        run: python3 -I scripts/ci/ios_fast_dd_key.py --workspace "$GITHUB_WORKSPACE" >> "$GITHUB_OUTPUT"
+      - name: Restore the seeded iOS fast DerivedData
+        id: dd-restore
+        if: ${{ steps.dd-key.outputs.prefix != '' }}
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          CMUX_LAN_CACHE_TIMEOUT: "480"
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/ios-fast-dd
+          key: ${{ steps.dd-key.outputs.key }}
+          restore-keys: ${{ steps.dd-key.outputs.prefix }}
+      - name: Replay the seed's input times
+        if: ${{ steps.dd-restore.outputs.cache-matched-key != '' }}
+        continue-on-error: true
+        env:
+          FFI_HIT: ${{ steps.xcf-fleet-restore.outputs.cache-hit }}
+          SEED: ${{ steps.dd-restore.outputs.cache-matched-key }}
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/ios-fast-dd"
+          python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" "$root/input-mtimes.json"
+          xcf=cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework
+          if [[ "$FFI_HIT" == true && "$(cat "$root/link-ffi.key" 2>/dev/null)" == "$(python3 -I scripts/ci/ios_link_ffi_key.py)" ]]; then
+            find "$xcf" -exec touch -h -t 202601010000 {} +
+          fi
+          echo "CMUX_IOS_FAST_DD_ROOT=$root" >> "$GITHUB_ENV"
+          echo "iOS fast DerivedData: seed $SEED"
       - name: Mark the restored CmuxMobileLinkFFI.xcframework as this job's copy
         if: ${{ steps.xcf-fleet-restore.outputs.cache-hit == 'true' }}
         continue-on-error: true
