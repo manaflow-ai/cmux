@@ -1,11 +1,11 @@
 import React, {
-  Component as ReactComponent,
-  type ErrorInfo,
   useLayoutEffect,
   useRef,
   useState,
   useEffectEvent,
   useCallback,
+  Component as ReactComponent,
+  type ErrorInfo,
 } from "react";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
 import { sendPopEnabled } from "../chatDisplay";
@@ -19,6 +19,7 @@ import { useLiveThoughtRow } from "../liveThought";
 import { noteMounted, noteUnmounted } from "../flickerLog";
 import { useT, type Translate } from "../i18n";
 import { type ReferenceScope, ReferenceScopeContext } from "../conversation/bareReferences";
+import { DisclosureRow } from "../conversation/transcriptDisclosureModel";
 import { rovingTabStopProps } from "../../../ui/listRowKeyboard";
 import { playSendMorph } from "../conversation/sendMorph";
 import { type RowProps, type OpenDiff } from "../rows/rowProps";
@@ -120,7 +121,9 @@ function UnrenderedRow() {
 
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
-/// (a font that loads, a custom renderer that grows).
+/// (a font that loads, a custom renderer that grows). A row kind fills the frame's slots (`lead`,
+/// `body`, `meta`, `actions`) through RowSlots (conversation/RowSlots.tsx), which places them, its
+/// actions in the fixed end slot; a prompt's footer does so far (UserBubble.tsx).
 export const RowFrame = React.memo(function RowFrame({
   row,
   kind,
@@ -159,6 +162,7 @@ export const RowFrame = React.memo(function RowFrame({
   gapBelow,
   offscreen,
   placedHeight,
+  shelved,
   children,
 }: {
   row: AcpmuxRow;
@@ -172,6 +176,9 @@ export const RowFrame = React.memo(function RowFrame({
   /// The row's height as the transcript places it (measured, or the estimate): a skipped row's box
   /// is this high. Read at its first mount only, with `offscreen`.
   placedHeight: number;
+  /// The placed height of a row shelved far above a followed view (conversation/shelvedRows.ts): it
+  /// keeps that height and skips its contents. 0 draws it.
+  shelved: number;
   /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
   joinsPrevious: boolean;
   /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
@@ -304,7 +311,12 @@ export const RowFrame = React.memo(function RowFrame({
   // repositories (sameRowFrame compares it so): a new object would redraw its content's chips.
   const [scope, setScope] = useState(referenceScope);
   if (scope !== referenceScope && !sameReferenceScope(scope, referenceScope)) setScope(referenceScope);
-  const content = <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>;
+  // The row a disclosure inside it is drawn in: its toggle's transition anchors on it (useDisclosure.ts).
+  const content = (
+    <DisclosureRow.Provider value={row.id}>
+      <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>
+    </DisclosureRow.Provider>
+  );
   useLayoutEffect(() => {
     if (acpmuxPerf.enabled) acpmuxPerf.render(`frame:${row.id}`);
   });
@@ -446,6 +458,7 @@ export const RowFrame = React.memo(function RowFrame({
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
       // The unread line's row takes no height and draws its mark over the gap under it
       // (conversation/unread.css), so it reads the gap's length.
+      data-shelved={shelved > 0 ? "true" : undefined}
       style={
         row.kind === SINCE_DIVIDER
           ? ({
@@ -453,7 +466,9 @@ export const RowFrame = React.memo(function RowFrame({
               marginTop: placedTop - integralTop,
               "--cv-since-gap": `${gapBelow}px`,
             } as React.CSSProperties)
-          : { top: integralTop, marginTop: placedTop - integralTop }
+          : shelved > 0
+            ? { top: integralTop, marginTop: placedTop - integralTop, height: shelved, contentVisibility: "hidden" }
+            : { top: integralTop, marginTop: placedTop - integralTop }
       }
       onFocus={() => onFocus(row.id)}
     >

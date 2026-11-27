@@ -218,6 +218,11 @@ impl AutoCloud for MachineCloud {
         Ok(answer.session)
     }
 
+    async fn give(&self, id: &str, fence: &Fence) -> CloudResult<SessionView> {
+        let answer: SessionAnswer = self.write(Kind::Give, id, fence).await?;
+        Ok(answer.session)
+    }
+
     async fn append_events(&self, id: &str, request: &EventsAppend) -> CloudResult<u64> {
         let answer: EventsAppended = self.write(Kind::EventsAppend, id, request).await?;
         Ok(answer.last_seq)

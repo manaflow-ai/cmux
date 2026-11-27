@@ -1,4 +1,7 @@
 import Foundation
+#if os(iOS)
+import CmuxMobileLinkFFI
+#endif
 
 /// The Mac's workspace row and group verbs a phone builds from moves it already sends
 /// (verify/parity-mac.md, Workspaces): New Workspace Above / Below / at Top / at Bottom and in
@@ -10,10 +13,21 @@ extension WorkspaceCreator {
     /// this phone can arrange, at Top and at Bottom of its Mac's sidebar. None for a pinned row
     /// (the Mac orders its pinned tiles with a layout move a phone may not send) or Home.
     public func newWorkspacePlacements(beside workspace: Workspace) -> [NewWorkspacePlacement] {
-        guard canArrange(workspace), !workspace.isHome, backend.canCreate(on: workspace.macID) else { return [] }
-        var placements: [NewWorkspacePlacement] = []
-        if !workspace.isPinned { placements += [.above(workspace.id), .below(workspace.id)] }
-        return placements + [.top, .bottom]
+        #if os(iOS)
+        // The rules: Rust's workspace_row_placements (workspace_row_actions.rs).
+        workspaceRowPlacements(row: workspace.rowFacts(pending: false), canArrange: canArrange(workspace),
+                               canCreate: backend.canCreate(on: workspace.macID)).map { place in
+            switch place {
+            case .above: .above(workspace.id)
+            case .below: .below(workspace.id)
+            case .top: .top
+            case .bottom: .bottom
+            }
+        }
+        #else
+        // Where Rust does not link (the macOS and Linux package builds, which have no phone UI).
+        []
+        #endif
     }
 
     /// Places a workspace the Mac just made (`create(…placement:)`): into the anchor's group or
@@ -47,16 +61,14 @@ extension WorkspaceCreator {
     /// The row a new workspace goes before (top) or after (bottom): the first or last of its Mac's
     /// unpinned rows other than Home and itself, in the Mac's sidebar order. Nil when it is alone.
     nonisolated static func edgeAnchor(_ top: Bool, of workspace: Workspace, in workspaces: [Workspace]) -> Workspace? {
-        let rows = workspaces.enumerated()
-            .filter { $0.element.macID == workspace.macID && $0.element.id != workspace.id && !$0.element.isPinned && !$0.element.isHome }
-            .sorted { ($0.element.sidebarIndex ?? Int.max, $0.offset) < ($1.element.sidebarIndex ?? Int.max, $1.offset) }
-            .map(\.element)
-        // Top: before the first loose row. A group shows before the row its `top_index` names, so a
-        // new row put at a grouped first row's index would show after that group. Bottom: after the
-        // last row, grouped or not (a group's run starts at its first member, so a row after its
-        // last member shows after it).
-        guard top else { return rows.last }
-        return rows.first { $0.group == nil } ?? rows.first
+        #if os(iOS)
+        // Rust's workspace_new_row_anchor (workspace_row_actions.rs) says which row and why.
+        guard let id = workspaceNewRowAnchor(top: top, workspaceId: workspace.id, macId: workspace.macID,
+                                           rows: workspaces.map { $0.rowFacts(pending: false) }) else { return nil }
+        return workspaces.first { $0.id == id }
+        #else
+        nil
+        #endif
     }
 
     // MARK: Merge Workspace Into…
@@ -64,18 +76,31 @@ extension WorkspaceCreator {
     /// The workspaces `workspace` can merge into: its Mac's others, never Home (the Mac's
     /// `WorkspaceMerge.staysPut`), in the Mac's sidebar order.
     public func mergeTargets(for workspace: Workspace) -> [Workspace] {
-        guard canManage(workspace), !workspace.isHome, !workspace.tabs.isEmpty, backend.canEditTabs(on: workspace.macID) else { return [] }
-        return store.workspaces.enumerated()
-            .filter { $0.element.macID == workspace.macID && $0.element.id != workspace.id && !$0.element.isHome && !store.isPending($0.element.id) }
-            .sorted { ($0.element.sidebarIndex ?? Int.max, $0.offset) < ($1.element.sidebarIndex ?? Int.max, $1.offset) }
-            .map(\.element)
+        guard canMerge(workspace) else { return [] }
+        #if os(iOS)
+        // Rust's workspace_merge_targets (workspace_row_actions.rs) picks and orders them.
+        let rows = store.workspaces
+        let ids = workspaceMergeTargets(workspaceId: workspace.id, macId: workspace.macID,
+                                        rows: rows.map { $0.rowFacts(pending: store.isPending($0.id)) })
+        let byID = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return ids.compactMap { byID[$0] }
+        #else
+        return []
+        #endif
+    }
+
+    /// Whether `workspace` may merge into another at all: the phone manages it and edits its
+    /// Mac's tabs, it is not Home and it has a tab to move.
+    func canMerge(_ workspace: Workspace) -> Bool {
+        canManage(workspace) && !workspace.isHome && !workspace.tabs.isEmpty && backend.canEditTabs(on: workspace.macID)
     }
 
     /// Merge Workspace Into…: every tab of `source` moves into `destination`, one after another
     /// so they keep their order (`move-tab-to-workspace`, as the Mac's `moveTabs`); the emptied
     /// workspace then closes, as on the Mac. Nothing restarts: each tab keeps its terminal, page or chat.
     public func merge(_ source: Workspace, into destination: Workspace) {
-        guard !mergeTargets(for: source).isEmpty, destination.macID == source.macID, !destination.isHome else { return }
+        guard canMerge(source), destination.id != source.id, destination.macID == source.macID, !destination.isHome,
+              !store.isPending(destination.id) else { return }
         let tabs = source.tabs
         track(source.id) { [weak self] in
             do {
@@ -109,8 +134,7 @@ extension WorkspaceCreator {
     /// the list once the Mac lists it, ready for New Workspace in Group or Move Workspace to Group.
     public func newGroup(on macID: String, name: String) {
         guard canCreateGroup(on: macID), let grouper else { return }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let name = trimmed.isEmpty ? MacWorkspaceGroup.newGroupName : trimmed
+        let name = MacWorkspaceGroup.chosenName(typed: name)
         let previous = groupRequestTail[macID]
         let task = track("group-\(macID)") { [weak self] in
             await previous?.value
@@ -181,3 +205,13 @@ extension WorkspaceCreator {
         groupRequestTail[macID] = task
     }
 }
+
+#if os(iOS)
+extension Workspace {
+    /// What Rust's row rules (workspace_row_actions.rs) read of this row.
+    fileprivate func rowFacts(pending: Bool) -> WorkspaceRowFacts {
+        WorkspaceRowFacts(id: id, macId: macID, sidebarIndex: sidebarIndex.map(Int64.init), pinned: isPinned,
+                          home: isHome, grouped: group != nil, pending: pending)
+    }
+}
+#endif
