@@ -34,6 +34,7 @@ export const AGENT_THEME_VARIABLES: Record<keyof AgentSessionTheme, string | nul
   motion: null,
   statusIndicators: null,
   workingLook: null,
+  homeCardStyle: null,
   slots: null,
   subagentTrayPlacement: null,
 };

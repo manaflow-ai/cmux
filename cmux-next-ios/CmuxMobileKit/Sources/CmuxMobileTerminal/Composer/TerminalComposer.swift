@@ -1,5 +1,6 @@
 #if os(iOS)
 import AVFoundation
+import CmuxMobileArtifacts
 import CmuxMobileDesign
 import CmuxMobileRealtime
 import CmuxMobileTransport
@@ -97,9 +98,14 @@ struct TerminalComposer: View {
         }
         .fullScreenCover(isPresented: $showCamera) {
             TerminalCameraPicker { image in
-                guard let data = image.jpegData(compressionQuality: 0.85) else { return }
-                model.addAttachment(ComposerAttachment(kind: .image, name: "Camera \(Self.stamp()).jpg",
-                                                       thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
+                guard let data = image.jpegData(compressionQuality: AttachmentImageEncoder.jpegQuality) else { return }
+                let name = "Camera \(Self.stamp()).jpg"
+                let thumbnail = image.preparingThumbnail(of: CGSize(width: 168, height: 168))
+                // A camera frame is 12 MP: shrink it as the chat composer does, before it is attached.
+                Task {
+                    let shrunk = await Self.shrinkImage(data, name: name)
+                    model.addAttachment(ComposerAttachment(kind: .image, name: shrunk.name, thumbnail: thumbnail, data: shrunk.data))
+                }
             }
             .ignoresSafeArea()
         }
@@ -361,9 +367,18 @@ struct TerminalComposer: View {
                                              string: board.hasStrings ? board.string : nil)
         switch route {
         case .image:
-            guard let image = board.image, let data = image.pngData() else { return }
-            model.addAttachment(ComposerAttachment(kind: .image, name: "Pasted image \(Self.stamp()).png",
-                                                   thumbnail: image.preparingThumbnail(of: CGSize(width: 168, height: 168)), data: data))
+            let stamp = Self.stamp()
+            let images = board.composerImages()
+            // A pasted screenshot is full resolution: shrink each as the chat composer does, before it is attached.
+            Task {
+                for (index, item) in images.enumerated() {
+                    let ext = UTType(mimeType: item.mimeType)?.preferredFilenameExtension ?? "png"
+                    let suffix = index == 0 ? "" : " \(index + 1)"
+                    let thumbnail = UIImage(data: item.data)?.preparingThumbnail(of: CGSize(width: 168, height: 168))
+                    let shrunk = await Self.shrinkImage(item.data, name: "Pasted image \(stamp)\(suffix).\(ext)")
+                    model.addAttachment(ComposerAttachment(kind: .image, name: shrunk.name, thumbnail: thumbnail, data: shrunk.data))
+                }
+            }
         case .file(let url):
             Task { await loadFiles([url]) }
         case .text(let text):
@@ -376,6 +391,16 @@ struct TerminalComposer: View {
     // MARK: Loading attachments
 
     /// Picked photos and videos keep their bytes (a video its local copy).
+    /// The chat composer's photo size (``AttachmentImageEncoder``: 2048 px, JPEG 0.82), off the
+    /// main actor. The original bytes and name stay when the encoder declines (already small, animated).
+    private static func shrinkImage(_ data: Data, name: String) async -> (data: Data, name: String) {
+        await Task.detached(priority: .userInitiated) {
+            guard let encoded = AttachmentImageEncoder.encode(data) else { return (data, name) }
+            let base = URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent
+            return (encoded.data, "\(base).\(encoded.ext)")
+        }.value
+    }
+
     /// Photos has no file name for an item without library access, so the
     /// name says what it is and when it was attached.
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
@@ -392,7 +417,10 @@ struct TerminalComposer: View {
             } else if let data = try? await item.loadTransferable(type: Data.self), let image = UIImage(data: data) {
                 let thumbnail = await image.byPreparingThumbnail(ofSize: CGSize(width: 168, height: 168))
                 let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                model.addAttachment(ComposerAttachment(kind: .image, name: "Photo \(stamp)\(suffix).\(ext)", thumbnail: thumbnail, data: data))
+                // The library's original (HEIC or JPEG, 12 MP) shrinks to 2048 px before it is
+                // attached, as the chat composer's photos do, so the link carries the small copy.
+                let shrunk = await Self.shrinkImage(data, name: "Photo \(stamp)\(suffix).\(ext)")
+                model.addAttachment(ComposerAttachment(kind: .image, name: shrunk.name, thumbnail: thumbnail, data: shrunk.data))
             }
         }
     }

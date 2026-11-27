@@ -9,6 +9,9 @@ use std::io::Write as _;
 use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
+/// The command type every plan git call is built on, named for the plan's other modules.
+pub(super) type GitCommand = Command;
+
 /// git with the plan's fixed settings and no `-C` or `--git-dir` yet.
 fn base() -> Command {
     let mut command = Command::new("git");
