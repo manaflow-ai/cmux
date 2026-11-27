@@ -111,11 +111,7 @@ fn verify_launchers_checked(
     let candidates: Vec<(String, Vec<String>)> = cfg
         .harnesses
         .iter()
-        .filter(|(n, p)| {
-            is_subrouter_proxy(&p.argv)
-                || (n.as_str() == super::CODEROUTER_CLAUDE_PROFILE
-                    && p.kind == HarnessKind::ClaudeStdio)
-        })
+        .filter(|(_, p)| is_subrouter_proxy(&p.argv))
         .map(|(n, p)| (n.clone(), p.argv.clone()))
         .collect();
     let checked: Vec<_> = std::thread::scope(|scope| {

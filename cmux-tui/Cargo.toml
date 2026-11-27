@@ -34,7 +34,6 @@ members = [
     "crates/acpmux-build-id",
     "crates/acpmux-standalone",
     "crates/acpmux-book",
-    "crates/cmux-coderouter",
     "crates/cmux-history",
     "crates/cmux-forum-hosted",
     "crates/cmux-session-cloud",
@@ -245,7 +244,6 @@ default-members = [
     "crates/acpmux-build-id",
     "crates/acpmux-standalone",
     "crates/acpmux-book",
-    "crates/cmux-coderouter",
     "crates/cmux-apps",
     "crates/cmux-cloud-cli",
     "crates/cmux-autocloud",
@@ -451,7 +449,6 @@ cmux-egress = { path = "crates/cmux-egress" }
 cmux-proxy = { path = "crates/cmux-proxy" }
 chrono = "0.4"
 chrono-tz = "0.10"
-cmux-coderouter = { path = "crates/cmux-coderouter" }
 cmux-session-cloud = { path = "crates/cmux-session-cloud" }
 cmux-automations = { path = "crates/cmux-automations" }
 cmux-tailnet = { path = "crates/cmux-tailnet" }

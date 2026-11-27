@@ -225,10 +225,8 @@ impl Facts {
         let mut out = self.answer();
         out.detail = one_sentence(&out.detail);
         if matches!(out.state, State::SignedOut | State::Expired | State::RouteAuthNeeded) {
-            // The route's kind names the party before the error's words do: a 401 on the cmux
-            // model router is the cmux account whatever the agent printed.
+            // The route's kind names the party before the error's words do.
             out.credential = match route_kind {
-                Some(routes::RouteKind::CmuxRouter) => Some(Credential::Cmux),
                 Some(routes::RouteKind::DirectApiKey) => Some(Credential::ApiKey),
                 _ if out.state == State::RouteAuthNeeded => None,
                 _ => out.credential.or(Some(Credential::Login)),
@@ -1032,17 +1030,6 @@ mod tests {
             "{out:?}"
         );
 
-        let mut cmux = facts(Some("auth_needed"), None, None);
-        cmux.route_kind = Some(routes::RouteKind::CmuxRouter);
-        assert_eq!(cmux.decide().credential, Some(Credential::Cmux));
-        let mut cmux = facts(None, Some(turn("failed", Some("auth.expired"), opencode, 7)), None);
-        cmux.route_kind = Some(routes::RouteKind::CmuxRouter);
-        let out = cmux.decide();
-        assert_eq!(
-            (out.credential, out.provider.as_deref()),
-            (Some(Credential::Cmux), None),
-            "{out:?}"
-        );
         // Another route's refusal is that route's, by its id.
         let out = facts(Some("auth_needed"), None, None).decide();
         assert_eq!((out.credential, out.route_id.as_deref()), (None, Some("proxy")));

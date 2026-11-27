@@ -825,9 +825,6 @@ pub enum Command {
     /// The daemon: run, status, start, restart, shutdown (also stop), config, harnesses, reload, models, schema.
     #[command(subcommand, aliases = aliases::DAEMON)]
     Daemon(DaemonCmd),
-    /// Serve the local CodeRouter in a separate process.
-    #[command(subcommand)]
-    Router(RouterCmd),
     /// cmux Computer Use for one agent session: an MCP stdio server
     /// (agent_tools.rs registers it; not for people; see `cmux computer-use`).
     #[command(hide = true)]
@@ -1757,15 +1754,8 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },
         Command::Host(pc) => Command::Host(pc),
-        Command::Router(RouterCmd::Serve) => Command::Router(RouterCmd::Serve),
         other => other,
     }
-}
-
-#[derive(Subcommand)]
-pub enum RouterCmd {
-    /// Start the phase-one local router listeners.
-    Serve,
 }
 
 #[cfg(test)]

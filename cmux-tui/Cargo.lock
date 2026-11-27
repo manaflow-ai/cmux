@@ -35,7 +35,6 @@ dependencies = [
  "cmux-cloud-environment",
  "cmux-cloud-start-core",
  "cmux-cloud-wire",
- "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-command-class",
  "cmux-composer-send",
@@ -1828,38 +1827,6 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "cmux-coderouter"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "axum",
- "base64",
- "cmux-egress",
- "cmux-json",
- "cmux-link",
- "cmux-local-auth",
- "cmux-unix-socket",
- "fs4",
- "getrandom 0.3.4",
- "hex",
- "hmac",
- "http",
- "libc",
- "reqwest",
- "rustls",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "tokio",
- "tower-http",
- "tracing",
- "url",
- "uuid",
- "zeroize",
 ]
 
 [[package]]

@@ -132,7 +132,6 @@ impl Hub {
             socket: agent_host::socket_path(&dir, &session_id),
             hosts_dir: dir,
             buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
-            router_owner_fifo: crate::daemon::router_owner_path(),
             // Never a sub-session's checked folder: a sub-session start takes no pooled harness.
             cwd_pin: None,
             orphan_exit: None,

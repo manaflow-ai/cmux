@@ -1,14 +1,12 @@
 //! A failover never moves a chat onto a fallback profile that cannot start, and never leaves it
-//! on one (`hub/fallback_start.rs`). A Claude chat's authentication error moved it onto the automatic
-//! `cmux` fallback, whose local CodeRouter was not running there; from then on every turn failed
-//! in its first second with "the local CodeRouter is not running", for good, while the chat
-//! looked idle.
+//! on one (`hub/fallback_start.rs`). A Claude chat's authentication error moved it onto a
+//! fallback whose route could not start there; from then on every turn failed in its first
+//! second, for good, while the chat looked idle.
 use super::*;
 
 /// A hub whose `primary` Claude profile dies on a prompt (always, or while `die_if` exists) and
-/// falls back to `direct`, which runs on route `route` (`cmux`: the built-in model router route,
-/// whose local router never runs here; `None`: a program that does not exist, on no route).
-/// Routes live in `root/config/routes`.
+/// falls back to `direct`, which runs on route `route` (a file in `root/config/routes` the test
+/// writes; `None`: a program that does not exist, on no route).
 async fn setup(
     root: &std::path::Path,
     die_if: Option<&std::path::Path>,
@@ -57,7 +55,7 @@ async fn setup(
     ]);
     let mut cfg =
         Config { harnesses: agents, default_harness: Some("primary".into()), ..Default::default() };
-    // The state folder (where the local router's socket would be) and the routes folder.
+    // The state folder and the routes folder.
     cfg.path = Some(root.join("home").join("config.json"));
     cfg.profile_sources.user_dir = Some(root.join("config").join("harnesses"));
     cfg.store.mode = StoreMode::Memory;
@@ -75,6 +73,9 @@ async fn setup(
         .unwrap();
     (hub, c)
 }
+
+/// A route that serves Codex only, so a Claude profile on it cannot start.
+const CODEX_ONLY: &str = "kind = \"direct-subscription\"\nfamilies = [\"codex\"]\n";
 
 fn scratch(tag: &str) -> std::path::PathBuf {
     let root = std::env::temp_dir().join(format!("acpmux-failover-{tag}-{}", uuid::Uuid::now_v7()));
@@ -117,7 +118,8 @@ fn records(hub: &Hub, id: &str, kind: &str) -> Vec<Value> {
 #[tokio::test]
 async fn a_failover_never_moves_a_chat_onto_a_fallback_that_cannot_start() {
     let root = scratch("skip");
-    let (hub, mut c) = setup(&root, None, Some("cmux")).await;
+    let (hub, mut c) = setup(&root, None, Some("codex-only")).await;
+    std::fs::write(root.join("config").join("routes").join("codex-only.toml"), CODEX_ONLY).unwrap();
     let id = new_chat(&mut c, "skip", None).await;
     let err = prompt(&mut c, &id, "hello").await.expect_err("the primary died on the prompt");
     let session = hub.resolve(&id).unwrap();
@@ -128,7 +130,7 @@ async fn a_failover_never_moves_a_chat_onto_a_fallback_that_cannot_start() {
     // A sign-in failure reads as one (`auth.signed_out`), naming the dead process after it.
     assert!(err.contains("agent process closed"), "{err}");
     assert!(err.contains("the fallback profile direct cannot start"), "{err}");
-    assert!(err.contains("CodeRouter is not running"), "{err}");
+    assert!(err.contains("does not serve the claude harness"), "{err}");
     // The dead primary's own last stderr line still comes first: the note is added after the
     // turn's end reads the error as a dead process's.
     let reason = err.find("Not logged in").expect(&err);
@@ -156,9 +158,9 @@ async fn a_chat_a_failover_left_on_a_fallback_that_cannot_start_goes_back() {
     let session = hub.resolve(&id).unwrap();
     assert_eq!(hub.session_summary(&session)["harness"], "direct");
 
-    // Then the route goes down (a local router that is not running), and the primary works
-    // again. The fallback's process ends, so the next turn starts an agent.
-    std::fs::write(&route, "kind = \"local-coderouter\"\n").unwrap();
+    // Then the route stops serving Claude, and the primary works again. The fallback's process
+    // ends, so the next turn starts an agent.
+    std::fs::write(&route, CODEX_ONLY).unwrap();
     std::fs::remove_file(&die).unwrap();
     hub.detach_child(&session).await;
     let own_session = hub.resolve(&own).unwrap();
@@ -174,13 +176,15 @@ async fn a_chat_a_failover_left_on_a_fallback_that_cannot_start_goes_back() {
     );
     assert_eq!(moves[1]["back"], true);
     assert!(
-        moves[1]["reason"].as_str().is_some_and(|r| r.contains("CodeRouter is not running")),
+        moves[1]["reason"]
+            .as_str()
+            .is_some_and(|r| r.contains("does not serve the claude harness")),
         "{moves:?}"
     );
 
     // The chat started on that profile stays on it: no failover put it there.
     let err = prompt(&mut c, &own, "hello").await.expect_err("its route cannot start");
-    assert!(err.contains("CodeRouter is not running"), "{err}");
+    assert!(err.contains("does not serve the claude harness"), "{err}");
     assert_eq!(hub.session_summary(&own_session)["harness"], "direct");
     assert!(records(&hub, &own, "failover").is_empty());
     let _ = std::fs::remove_dir_all(&root);
@@ -210,25 +214,5 @@ async fn a_failover_whose_fallback_fails_to_start_moves_the_chat_back_with_its_c
         (moves[1]["to"].as_str(), moves[1]["back"].as_bool()),
         (Some("primary"), Some(true))
     );
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-/// On a Cloud machine no failover goes to the local CodeRouter, and the turn's error names none:
-/// the machine is signed in from the Mac (Leo, 2026-10-31: "STOP USING CODEROUTER").
-#[tokio::test]
-async fn a_cloud_machine_never_falls_over_onto_the_coderouter_nor_names_it() {
-    let root = scratch("cloud");
-    let (hub, mut c) = setup(&root, None, Some("cmux")).await;
-    hub.config.write().await.cloud_host = true;
-    let id = new_chat(&mut c, "cloud", None).await;
-    let err = prompt(&mut c, &id, "hello").await.expect_err("the primary died on the prompt");
-    let session = hub.resolve(&id).unwrap();
-    assert_eq!(hub.session_summary(&session)["harness"], "primary", "{err}");
-    assert!(err.contains("Not logged in"), "{err}");
-    assert!(!err.contains("CodeRouter"), "{err}");
-    assert!(!err.contains("acpmux router serve"), "{err}");
-    assert!(!err.contains("fallback profile"), "{err}");
-    assert!(records(&hub, &id, "failover").is_empty(), "{:?}", records(&hub, &id, "failover"));
-    assert!(records(&hub, &id, "failover_skipped").is_empty());
     let _ = std::fs::remove_dir_all(&root);
 }

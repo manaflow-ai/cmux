@@ -746,6 +746,4 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ("Ask for full control instead of view-only", "acpmux share-host link --control"),
         ],
     ),
-    ("router", &[("Start the local CodeRouter", "acpmux router serve")]),
-    ("router serve", &[("Start the local router listeners", "acpmux router serve")]),
 ];

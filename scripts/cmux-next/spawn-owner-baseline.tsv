@@ -1,10 +1,5 @@
 # path	lines that spawn a task or process with no owner (check-spawn-owner.py; rows only go down:
 # move a site to Scope::spawn or cmux_process::Child, then lower its row with --update)
-cmux-tui/crates/acpmux-tui/src/actions.rs	3
-cmux-tui/crates/acpmux-tui/src/lib.rs	6
-cmux-tui/crates/acpmux-tui/src/links.rs	3
-cmux-tui/crates/acpmux-tui/src/run.rs	2
-cmux-tui/crates/acpmux-tui/src/session_ops.rs	6
 cmux-tui/crates/acpmux/src/agent_host/host.rs	11
 cmux-tui/crates/acpmux/src/agent_host/host/orphan.rs	4
 cmux-tui/crates/acpmux/src/agent_host/link.rs	5
@@ -95,7 +90,6 @@ cmux-tui/crates/acpmux/src/hub/offer_results.rs	1
 cmux-tui/crates/acpmux/src/hub/peer_snapshot/warm.rs	2
 cmux-tui/crates/acpmux/src/hub/peers.rs	1
 cmux-tui/crates/acpmux/src/hub/permission_groups.rs	1
-cmux-tui/crates/acpmux/src/hub/permissions/inbound.rs	2
 cmux-tui/crates/acpmux/src/hub/pool/held.rs	1
 cmux-tui/crates/acpmux/src/hub/pool/mod.rs	6
 cmux-tui/crates/acpmux/src/hub/pool/spare.rs	2
@@ -170,6 +164,11 @@ cmux-tui/crates/acpmux/src/supervise.rs	2
 cmux-tui/crates/acpmux/src/tailnet.rs	3
 cmux-tui/crates/acpmux/src/tailnet/embedded.rs	2
 cmux-tui/crates/acpmux/src/tailnet/embedded_service.rs	3
+cmux-tui/crates/acpmux-tui/src/actions.rs	3
+cmux-tui/crates/acpmux-tui/src/links.rs	3
+cmux-tui/crates/acpmux-tui/src/lib.rs	6
+cmux-tui/crates/acpmux-tui/src/run.rs	2
+cmux-tui/crates/acpmux-tui/src/session_ops.rs	6
 cmux-tui/crates/acpmux/src/vault.rs	1
 cmux-tui/crates/acpmux/src/vault/store.rs	3
 cmux-tui/crates/acpmux/src/wireguard.rs	2
@@ -187,8 +186,6 @@ cmux-tui/crates/cmux-automations/src/exec.rs	6
 cmux-tui/crates/cmux-automations/src/watch.rs	3
 cmux-tui/crates/cmux-browser-host/src/cdp/pipe.rs	1
 cmux-tui/crates/cmux-build-identity/build.rs	1
-cmux-tui/crates/cmux-coderouter/src/free_tier.rs	2
-cmux-tui/crates/cmux-coderouter/src/lib.rs	3
 cmux-tui/crates/cmux-git/src/run.rs	3
 cmux-tui/crates/cmux-git/src/write_run.rs	4
 cmux-tui/crates/cmux-holder-v3/src/client.rs	1
@@ -308,3 +305,4 @@ cmux-tui/crates/cmux-wg/src/net.rs	1
 cmux-tui/crates/cmux-wg/src/net_timers.rs	1
 cmux-tui/crates/cmux-wg/src/testing/sim.rs	2
 cmux-tui/crates/cmux-worktree-care/src/git.rs	2
+cmux-tui/crates/acpmux/src/hub/permissions/inbound.rs	2

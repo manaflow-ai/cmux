@@ -26,7 +26,7 @@
  *   host supervisor and the Cloud agent role (bind, status reports, events) in
  *   the Rust binary from the store. /etc/cmux/host.json selects the Freestyle
  *   edge carrier; it holds no secret.
- * - Model-plane env and the coderouter CLI point at the VM edge alias; no
+ * - Model-plane env points at the VM edge alias; no
  *   login and no token in the image.
  * - The resolver is systemd-resolved with /etc/resolv.conf its stub (dns.ts), checked by
  *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode. cmux-dns-scope.path
@@ -590,11 +590,6 @@ export function agyUserEnvironment(): string {
   return `# cmux: the store pins agy (images/cmux-vm/inputs.lock.json); its own updater stays off. Managed, do not edit.\n${AGY_NO_SELF_UPDATE_ENV}=1\n`;
 }
 
-function coderouterProfileScript(): string {
-  // The CLI dials the same edge alias as the agents; the edge injects the route token.
-  return `# cmux: the coderouter CLI uses the VM edge alias; no login and no token on disk. Managed, do not edit.\nexport CODEROUTER_API_URL=${sq(`https://${vmEdgeAliasDomain()}`)}\n`;
-}
-
 /** The boot unit (`cmux host run`); `extraEnv` (agent tools) reaches every terminal it creates. */
 export function daemonUnit(extraEnv: Readonly<Record<string, string>> = {}): string {
   return hostUnit(daemonEnvLines(extraEnv), STORE_PATH);
@@ -845,7 +840,6 @@ async function installStore(ctx: Ctx): Promise<void> {
   await parallelSteps(bakedPrograms(lock).map((p) => () => installStoreProgram(L, vm, `store-${p.name}`, programInstallCommand(p))));
   await L.step(vm, "store-profile", `${profileCommand(lock)} && chown -R root:root /opt/cmux`);
   await writeGuestFile(vm, "/etc/profile.d/00-cmux-store.sh", storeProfileScript(), 0o644);
-  await writeGuestFile(vm, "/etc/profile.d/cmux-coderouter.sh", coderouterProfileScript(), 0o644);
   await writeGuestFile(vm, AGY_PROFILE_PATH, agyProfileScript(), 0o644);
   await L.step(vm, "agy-user-env-dir", "mkdir -p /etc/environment.d");
   await writeGuestFile(vm, AGY_USER_ENV_PATH, agyUserEnvironment(), 0o644);

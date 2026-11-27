@@ -41,9 +41,6 @@
   "cmux_cloud_environment::client_config": {
    "test": "cmux-tui/crates/cmux-cloud-environment/tests/seeded_secret.rs::the_client_config_fetch_carries_no_person_state"
   },
-  "cmux_coderouter": {
-   "test": "cmux-tui/crates/cmux-coderouter/tests/seeded_secret.rs::the_scoped_key_stays_local_and_the_bearer_rides_only_in_authorization"
-  },
   "cmux_git_cache::server": {
    "test": "cmux-tui/crates/cmux-git-cache/tests/seeded_secret.rs::the_callers_credential_rides_only_in_authorization_to_github"
   },

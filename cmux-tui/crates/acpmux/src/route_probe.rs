@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use crate::routes::{Auth, Route, RouteFile, RouteKind, local_router_with, resolve_reference};
+use crate::routes::{Auth, Route, RouteFile, RouteKind, resolve_reference};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProbeStatus {
@@ -96,17 +96,11 @@ fn probed_family(route: &Route) -> &'static str {
     if route.file.anthropic_base_url.is_some() { "claude" } else { "codex" }
 }
 
-/// Whether [`probe`] tests what a `family` harness uses on `route`. A relay route
-/// (`local-coderouter`, or `cmux-router` with no secret) mints a key for each harness family
-/// (`local_router_with`), so its probe speaks only for the family it probed as
-/// ([`probed_family`]). Any other route sends every family its own secret: its health URL speaks
-/// for all of them, and its base URL for the families that use that endpoint (the Anthropic one
-/// for Claude, the OpenAI one for the rest).
+/// Whether [`probe`] tests what a `family` harness uses on `route`. A route sends every family
+/// its own secret: its health URL speaks for all of them, and its base URL for the families that
+/// use that endpoint (the Anthropic one for Claude, the OpenAI one for the rest).
 pub fn probes_for(route: &Route, family: &str) -> bool {
     use crate::routes::is_anthropic_family;
-    if route.uses_relay() {
-        return family == probed_family(route);
-    }
     route.file.health_url.is_some()
         || is_anthropic_family(probed_family(route)) == is_anthropic_family(family)
 }
@@ -131,7 +125,7 @@ async fn probe_once(route: &Route, home: &Path) -> Value {
     probe_once_with_timeout(route, home, PROBE_TIMEOUT).await
 }
 
-async fn probe_once_with_timeout(route: &Route, home: &Path, timeout: Duration) -> Value {
+async fn probe_once_with_timeout(route: &Route, _home: &Path, timeout: Duration) -> Value {
     let started = Instant::now();
     let answer = |status: ProbeStatus, message: String| {
         json!({
@@ -155,29 +149,14 @@ async fn probe_once_with_timeout(route: &Route, home: &Path, timeout: Duration) 
         );
     }
     let family = probed_family(route);
-    let mut base =
-        route.file.anthropic_base_url.clone().or_else(|| route.file.openai_base_url.clone());
-    let mut secret = match route.file.secret.as_deref().map(resolve_reference) {
+    let base = route.file.anthropic_base_url.clone().or_else(|| route.file.openai_base_url.clone());
+    let secret = match route.file.secret.as_deref().map(resolve_reference) {
         Some(Ok(v)) => Some(v),
         Some(Err(e)) => {
             return answer(ProbeStatus::AuthNeeded, format!("the secret did not resolve: {e}"));
         }
         None => None,
     };
-    if route.uses_relay() {
-        match local_router_with(home, family, route.file.kind == RouteKind::CmuxRouter) {
-            Ok((url, key)) => {
-                if route.file.kind == RouteKind::CmuxRouter {
-                    base = Some(url);
-                    secret = Some(key);
-                } else {
-                    base.get_or_insert(url);
-                    secret.get_or_insert(key);
-                }
-            }
-            Err(e) => return answer(ProbeStatus::Unreachable, e.to_string()),
-        }
-    }
     let url = match (&route.file.health_url, &base) {
         (Some(h), _) => h.clone(),
         (None, Some(b)) => {
@@ -260,15 +239,6 @@ mod tests {
         let health = route(json!({"kind": "custom-anthropic", "anthropicBaseUrl": "http://a",
                                   "openaiBaseUrl": "http://o", "healthUrl": "http://h"}));
         assert!(probes_for(&health, "claude") && probes_for(&health, "codex"));
-        // A relay route mints a key per family: a probe with Codex's says nothing of Claude's,
-        // OpenCode's or Pi's, health URL or not.
-        let relay = route(json!({"kind": "local-coderouter"}));
-        assert!(probes_for(&relay, "codex") && !probes_for(&relay, "claude"));
-        assert!(!probes_for(&relay, "opencode") && !probes_for(&relay, "pi"));
-        let relay = route(json!({"kind": "cmux-router", "healthUrl": "http://h"}));
-        assert!(probes_for(&relay, "codex") && !probes_for(&relay, "claude"));
-        let relay = route(json!({"kind": "local-coderouter", "anthropicBaseUrl": "http://a"}));
-        assert!(probes_for(&relay, "claude") && !probes_for(&relay, "codex"));
     }
 
     use super::*;

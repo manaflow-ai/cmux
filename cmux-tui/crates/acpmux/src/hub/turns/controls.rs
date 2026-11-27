@@ -3,16 +3,6 @@
 use super::*;
 
 impl Hub {
-    /// Whether the failover onto profile `to` is skipped because it runs through the local
-    /// CodeRouter (the built-in `cmux` profile or route) and this chat is on a Cloud machine or
-    /// came over a remote connection (`fallback_start::coderouter_fallback_skipped`).
-    pub(super) async fn no_coderouter_fallback(&self, session: &Session, to: &str) -> bool {
-        let cfg = self.config.read().await;
-        let Some(profile) = cfg.harnesses.get(to) else { return false };
-        let remote = session.meta().remote_origin;
-        super::fallback_start::coderouter_fallback_skipped(cfg.cloud_host, remote, to, profile)
-    }
-
     /// The profile to fall over to, when the current one names one that exists.
     pub(super) async fn fallback_profile(&self, session: &Session) -> Option<String> {
         let cfg = self.config.read().await;

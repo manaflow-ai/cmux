@@ -1037,7 +1037,7 @@ mod tests {
     fn secret_file(d: &Dirs, name: &str, value: &str) -> String {
         let path = d._root.path().join(name);
         std::fs::write(&path, format!("{value}\n")).unwrap();
-        crate::router_socket::owner_only(&path);
+        crate::private_file::owner_only(&path);
         format!("file:{}", path.display())
     }
 

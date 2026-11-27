@@ -99,15 +99,10 @@ impl Hub {
         let moved = route.clone();
         let before = route_account::home_var(&family).and_then(|var| env.get(var).cloned());
         let fam = family.clone();
-        let marker_root = self.vm_marker_root();
-        let spawn_env = env.clone();
-        let route_env = tokio::task::spawn_blocking(move || {
-            let gateway = cloud_gateway(&marker_root, &spawn_env);
-            routes::env_for_on(&route, &fam, &state, gateway.as_deref())
-        })
-        .await
-        .map_err(|e| RpcError::internal(e.to_string()))?
-        .map_err(|e| route_error(&e))?;
+        let route_env = tokio::task::spawn_blocking(move || routes::env_for(&route, &fam, &state))
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
+            .map_err(|e| route_error(&e))?;
         routes::apply(env, &route_env);
         env.insert(routes::NAME_KEY.into(), name);
         // A home the profile pins (a Chief turn's, a claude-sr profile's) is
@@ -153,14 +148,10 @@ impl Hub {
             let found = routes::find(dir.as_deref(), id).map_err(|e| route_error(&e))?;
             let family = crate::config::derive_family(&meta.harness, profile);
             let state2 = state.clone();
-            let marker_root = self.vm_marker_root();
-            tokio::task::spawn_blocking(move || {
-                let gateway = cloud_gateway(&marker_root, &Default::default());
-                routes::env_for_on(&found, &family, &state2, gateway.as_deref())
-            })
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))?
-            .map_err(|e| route_error(&e))?;
+            tokio::task::spawn_blocking(move || routes::env_for(&found, &family, &state2))
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))?
+                .map_err(|e| route_error(&e))?;
         }
         if let (Some(id), Some(profile)) = (&route, &profile)
             && route_account::has_home(&meta)
@@ -531,19 +522,6 @@ pub(crate) fn route_error(e: &routes::RouteError) -> RpcError {
         Some(reason) => base.with_data(json!({"reason": reason})),
         None => base,
     }
-}
-
-/// This machine's model plane origin when it is a cmux Cloud machine
-/// (`routes::cloud_gateway_origin`), read with the spawn's env over the daemon's.
-fn cloud_gateway(
-    root: &std::path::Path,
-    env: &std::collections::BTreeMap<String, String>,
-) -> Option<String> {
-    let var =
-        |k: &str| env.get(k).cloned().or_else(|| std::env::var(k).ok()).filter(|v| !v.is_empty());
-    let home =
-        var("HOME").map(std::path::PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
-    routes::cloud_gateway_origin(root, &home, &var)
 }
 
 #[cfg(test)]
