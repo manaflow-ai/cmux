@@ -5498,7 +5498,9 @@
     "errorInvalidTotp": "Taj kod za dvofaktorsku provjeru nije ispravan.",
     "errorSignUpNotAllowed": "Novi računi se trenutno ne mogu napraviti.",
     "errorPasskey": "Prijava pristupnim ključem nije završena. Pokušaj ponovo ili koristi drugi način.",
-    "errorGeneric": "Nešto nije u redu. Pokušaj ponovo."
+    "errorGeneric": "Nešto nije u redu. Pokušaj ponovo.",
+    "errorRedirectNotAllowed": "Adresa za prijavu ove verzije nije dozvoljena na {backend}.",
+    "backendDevelopment": "razvojnom backendu"
   },
   "MobileRelease106": {
     "title": "Novosti u verziji 1.0.6",
@@ -5534,5 +5536,15 @@
     "unavailableTitle": "Nismo mogli potvrditi vašu prijavu",
     "unavailableBody": "Naš servis za prijavu je zauzet. Sačekajte nekoliko sekundi, pa ponovo otvorite pozivnicu. Ne morate se ponovo prijaviti.",
     "retry": "Pokušaj ponovo"
+  },
+  "connected": {
+    "title": "Prijavljeni ste na {app}",
+    "titleGeneric": "Prijavljeni ste",
+    "errorTitle": "Prijava na {app} nije uspjela",
+    "errorTitleGeneric": "Prijava nije završena",
+    "body": "Vratite se u cmux da nastavite.",
+    "errorBody": "Vratite se u cmux i pokušajte ponovo.",
+    "button": "Nazad u cmux",
+    "closeHint": "Možete zatvoriti ovu karticu."
   }
 }

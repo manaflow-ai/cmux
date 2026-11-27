@@ -107,8 +107,6 @@ SINGLE_SIZE: dict[str, int] = {
     "cmux-tui-tree-request.yml": 0,
     "cmux-tui.yml": 0,
     "cmux-vm.yml": 0,
-    "coderouter-release.yml": 0,
-    "coderouter-verify-release.yml": 0,
     "docs-deploy-reusable.yml": 0,
     "feature-flag-review-drift.yml": 0,
     "fleet-artifact-cdn.yml": 0,
@@ -188,7 +186,6 @@ FIXED_PAIR: dict[str, int] = {
     "cmux-vm-clients.yml": 0,
     "cmux-vm-cloud.yml": 0,
     "cmux-vm.yml": 0,
-    "coderouter-ci.yml": 0,
     "iroh-v2.yml": 0,
     "nightly-next-launch-smoke.yml": 0,
     "presence.yml": 0,
@@ -290,7 +287,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")
         self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_web_subarea_scope_reads_the_linux_pool(self) -> None:
@@ -301,7 +298,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")
         self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_no_workflow_adds_a_single_size_linux_job(self) -> None:

@@ -23,6 +23,7 @@ pub(crate) mod turn;
 pub use dpi::dropped_wireguard_datagrams;
 /// Measurement support (cmux-mobile-path-probe).
 pub use turn::{TimedAllocation, TurnTransport, timed_allocation};
+pub use wireguard::EarlyTurn;
 pub mod webrtc;
 pub mod wireguard;
 
@@ -159,6 +160,11 @@ pub struct DialOptions {
     /// TURN allocation, and joins the relay at once, so the link rides it
     /// (path `https-relay`); without [`Self::relay`] the dial fails at once.
     pub force_relay: bool,
+    /// Join the relay as the dial starts (`relay: "first"`, PROTOCOL.md
+    /// "WebSocket relay") when the peer offers that too, rather than 3 s
+    /// after nothing reached it. On by default; off dials as a build before
+    /// relay-first did (tests of the older join rules).
+    pub relay_first: bool,
     /// Where a WireGuard dial records each path's failure, for the error it
     /// returns when none works ([`DialError::Blocked`]). Shared by clones.
     pub diagnosis: diagnosis::Diagnosis,
@@ -170,6 +176,10 @@ pub struct DialOptions {
     /// test TURN server's self-signed certificate); wins over `egress.trust`.
     #[doc(hidden)]
     pub turn_tls_roots: Option<std::sync::Arc<rustls::RootCertStore>>,
+    /// Where TURN and STUN names resolve: DNS raced against the literals they last resolved
+    /// to ([`crate::route_literals`]), so a dial with DNS down still reaches them. The
+    /// process's memory by default; a test's own (with its own resolver) otherwise.
+    pub routes: std::sync::Arc<crate::route_literals::RouteLiterals>,
     /// Test support: WireGuard silently drops every UDP datagram this side
     /// sends, as when the OS refuses the route (macOS Local Network
     /// privacy) or a firewall drops outbound UDP. Inbound UDP still works.
@@ -323,6 +333,7 @@ impl Default for DialOptions {
             ice_servers: Vec::new(),
             relay: None,
             force_relay: false,
+            relay_first: true,
             diagnosis: diagnosis::Diagnosis::default(),
             relay_leave_after: None,
             include_loopback: false,
@@ -332,6 +343,7 @@ impl Default for DialOptions {
             drop_wireguard_udp: false,
             egress: crate::egress::Egress::default(),
             turn_tls_roots: None,
+            routes: crate::route_literals::RouteLiterals::shared(),
             drop_outbound_udp: false,
             refuse_udp_to: None,
             drop_udp_to: None,
@@ -565,9 +577,16 @@ pub(crate) fn video_lane_listed(peer_lanes: &[String]) -> bool {
     peer_lanes.iter().any(|lane| lane == crate::media::VIDEO_LANE)
 }
 
-/// Whether both sides support the input lane.
+/// Whether both sides open the input lane: both offered it, and they did not
+/// agree on the reliable link, which carries input on its main carrier.
+/// Both sides decide it from the same two offers, so the phone never opens a
+/// lane the Mac does not take: on WireGuard the Mac's listener then reads
+/// the next connection as a resumed link, which ends the live one
+/// (2026-11-26: every reliable WireGuard link closed on its first send).
 pub(crate) fn input_lane_agreed(options: &DialOptions, peer_lanes: &[String]) -> bool {
-    options.input_lane && peer_lanes.iter().any(|lane| lane == crate::link::INPUT_LANE)
+    options.input_lane
+        && peer_lanes.iter().any(|lane| lane == crate::link::INPUT_LANE)
+        && !reliable_agreed(options, peer_lanes)
 }
 
 /// Attach the lane to `link` when it opens, or fall back when it fails.
@@ -709,6 +728,26 @@ pub async fn connect(
     connect_on(signaling, mac, kind, options, link_config, None).await
 }
 
+/// Phone side, [`connect`] taking `early`, the TURN allocation a cold dial
+/// started as soon as `/v1/ice` answered, beside the signaling socket's open
+/// ([`EarlyTurn::for_dial`] on these `options`): its round trips (behind a
+/// proxy: a `CONNECT`, TLS through it, then the allocation) overlap the
+/// socket's instead of following them. `None` is [`connect`]. An allocation
+/// the dial never takes (it was refused, or this future was dropped) is
+/// released at once.
+pub async fn connect_with_early_turn(
+    signaling: &SignalingClient,
+    mac: &str,
+    kind: TransportKind,
+    options: &DialOptions,
+    link_config: LinkConfig,
+    early: Option<EarlyTurn>,
+) -> Result<Connected, DialError> {
+    refuse_unreachable(kind, options)?;
+    connect_on(signaling, mac, kind, options, link_config, early.filter(|_| kind == TransportKind::WireGuard))
+        .await
+}
+
 /// Phone side, a redial: `signaling` is the signaling reconnect, and the
 /// dial ([`connect`]) follows it on the client it gives. A WireGuard dial's
 /// TURN allocation starts now, beside the reconnect, instead of after it:
@@ -726,7 +765,7 @@ pub async fn connect_after<E: std::fmt::Display>(
     link_config: LinkConfig,
 ) -> Result<(SignalingClient, Connected), DialError> {
     refuse_unreachable(kind, options)?;
-    let early = (kind == TransportKind::WireGuard).then(|| wireguard::EarlyTurn::start(options));
+    let early = EarlyTurn::for_dial(kind, options);
     let signaling = signaling.await.map_err(|error| DialError::Signaling(error.to_string()))?;
     options.timeline.mark("signaling_connected");
     let connected = connect_on(&signaling, mac, kind, options, link_config, early).await?;
@@ -1033,6 +1072,37 @@ mod tests {
         assert_eq!(route_name(LinkPath::Turn, ip("192.168.1.23")), "relay");
         assert_eq!(route_name(LinkPath::TurnTls, None), "relay");
         assert_eq!(route_name(LinkPath::NoPath, None), "none");
+    }
+
+    /// The phone and the Mac decide the input lane from the same two offers,
+    /// for every mix of input lane and reliable link: a lane one side opens
+    /// and the other does not take is read as a resumed link on WireGuard.
+    #[test]
+    fn both_sides_agree_on_the_input_lane() {
+        for phone_lane in [false, true] {
+            for mac_lane in [false, true] {
+                for phone_reliable in [false, true] {
+                    for mac_reliable in [false, true] {
+                        let phone = DialOptions {
+                            input_lane: phone_lane,
+                            reliable: phone_reliable,
+                            ..DialOptions::default()
+                        };
+                        let mac = DialOptions {
+                            input_lane: mac_lane,
+                            reliable: mac_reliable,
+                            ..DialOptions::default()
+                        };
+                        let phone_says = input_lane_agreed(&phone, &offered_lanes(&mac, false, false));
+                        let mac_says = input_lane_agreed(&mac, &offered_lanes(&phone, false, false));
+                        let case = (phone_lane, mac_lane, phone_reliable, mac_reliable);
+                        assert_eq!(phone_says, mac_says, "{case:?}");
+                        let reliable = phone_reliable && mac_reliable;
+                        assert_eq!(phone_says, phone_lane && mac_lane && !reliable, "{case:?}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]
