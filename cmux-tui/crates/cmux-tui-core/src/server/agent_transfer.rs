@@ -89,6 +89,8 @@ use super::agent_session_attach::{
     TRANSFER_FIELD, abort_transferred_chat_shares, detach_transferred_chat_shares,
     finish_transferred_chat_shares, freeze_transferred_chat_shares, stage_transferred_chat_shares,
 };
+#[cfg(test)]
+use super::agent_session_attach::{close_chat_shares, export_transferred_chat_shares};
 use super::remote_relay::gate::COMMAND_PARAMS;
 use super::responses::send_response_with_details;
 use super::{MessageWriter, Response, SurfaceId};
