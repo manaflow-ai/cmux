@@ -203,9 +203,21 @@ pub struct Lines {
     buffer: Vec<u8>,
 }
 
+/// A line exceeded the maximum size accepted by [`Lines::push`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LineTooLong;
+
+impl std::fmt::Display for LineTooLong {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("line exceeds maximum length")
+    }
+}
+
+impl std::error::Error for LineTooLong {}
+
 impl Lines {
     /// The complete lines in `bytes`, or `Err` when a line outgrows `max`.
-    pub fn push(&mut self, bytes: &[u8], max: usize) -> Result<Vec<Vec<u8>>, ()> {
+    pub fn push(&mut self, bytes: &[u8], max: usize) -> Result<Vec<Vec<u8>>, LineTooLong> {
         let mut lines = Vec::new();
         for &byte in bytes {
             if byte == b'\n' {
@@ -216,7 +228,7 @@ impl Lines {
                 // Check before appending so a newline-terminated line cannot
                 // bypass the limit after it is drained from the buffer.
                 if self.buffer.len() >= max {
-                    return Err(());
+                    return Err(LineTooLong);
                 }
                 self.buffer.push(byte);
             }
@@ -249,7 +261,7 @@ pub async fn serve(
             event = receiver.recv() => match event {
                 Some(ChannelEvent::Data(bytes)) => match lines.push(&bytes, cmux_phone_page::MAX_LINE) {
                     Ok(answers) => answers.iter().for_each(|line| attached.answered(line)),
-                    Err(()) => break Err(Refusal::new("too_large", "a phone-page line is too long")),
+                    Err(LineTooLong) => break Err(Refusal::new("too_large", "a phone-page line is too long")),
                 },
                 Some(ChannelEvent::Closed(_)) | None => break Ok(()),
             },
