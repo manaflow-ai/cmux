@@ -1283,6 +1283,12 @@ keep_test_logs() {
   local log=$1 bundle=$2 name=$3
   cp "$log" "$out/$name-test.log" 2>/dev/null || true
   xcrun xcresulttool get log --type console --path "$bundle" > "$out/$name-console.txt" 2> "$out/$name-console-error.txt" || true
+  # A bench test's own result lines go in the step log: a failed step uploads no
+  # artifact, and a run that missed its bound in one cell (heavy duress) is the
+  # number most worth reading (2026-11-26: an idle+heavy attach run on cmux9
+  # failed under heavy and left nothing readable for 4 h of queue and build).
+  grep -hoE 'attach first frame( median \(warm\))?: .*' "$log" "$out/$name-console.txt" 2>/dev/null |
+    awk '!seen[$0]++' | head -80 | sed "s/^/- $name: /" | tee -a "$summary" || true
   xcrun xcresulttool get test-results tests --path "$bundle" --compact > "$out/$name-tests.json" 2>/dev/null || true
   # XCTAttachments (UI tests' keepAlways screenshots) as files, with the
   # manifest.json that maps each one to its test.

@@ -81,7 +81,7 @@ pub(super) fn identify(
     if writeln!(
         connection.get_mut(),
         "{}",
-        serde_json::json!({"id":1,"cmd":"identify","revisions":true})
+        serde_json::json!({"id":1,"cmd":"identify","revisions":true,"restore_progress":true})
     )
     .and_then(|()| connection.get_mut().flush())
     .is_err()
