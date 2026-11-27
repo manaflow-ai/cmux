@@ -117,7 +117,9 @@ impl DiskReport {
             object.get(camel).or_else(|| object.get(snake)).and_then(Value::as_u64)
         };
         let field = |name: &str| {
-            let camel = format!("root{}{}Bytes", name[..1].to_uppercase(), &name[1..]);
+            let mut chars = name.chars();
+            let first = chars.next()?;
+            let camel = format!("root{}{}Bytes", first.to_uppercase(), chars.as_str());
             bytes(object, &format!("root_{name}_bytes"), &camel)
                 .or_else(|| object.get(&format!("{name}_bytes")).and_then(Value::as_u64))
                 .or_else(|| mib(object.get(&format!("{name}_mb")).and_then(Value::as_f64)))
@@ -305,23 +307,32 @@ fn widths(total: u64, bytes: &[u64]) -> Vec<u32> {
     let mut widths: Vec<u32> = exact.iter().map(|e| (e / total as u128) as u32).collect();
     let mut short = BAR_PARTS - widths.iter().sum::<u32>();
     let mut order: Vec<usize> = (0..bytes.len()).collect();
-    order.sort_by_key(|i| std::cmp::Reverse(exact[*i] % total as u128));
+    order.sort_by_key(|i| {
+        std::cmp::Reverse(exact.get(*i).copied().unwrap_or_default() % total as u128)
+    });
     for i in order.into_iter().cycle().take(short as usize) {
-        widths[i] += 1;
+        if let Some(width) = widths.get_mut(i) {
+            *width += 1;
+        }
         short -= 1;
     }
     debug_assert_eq!(short, 0);
     for i in 0..bytes.len() {
-        while bytes[i] > 0 && widths[i] < MIN_SEGMENT_PARTS {
-            let Some(widest) = (0..bytes.len()).filter(|j| *j != i).max_by_key(|j| widths[*j])
+        let Some(byte_count) = bytes.get(i).copied() else { continue };
+        while byte_count > 0 && widths.get(i).copied().unwrap_or_default() < MIN_SEGMENT_PARTS {
+            let Some(widest) = (0..bytes.len())
+                .filter(|j| *j != i)
+                .max_by_key(|j| widths.get(*j).copied().unwrap_or_default())
             else {
                 break;
             };
-            if widths[widest] <= MIN_SEGMENT_PARTS {
+            if widths.get(widest).copied().unwrap_or_default() <= MIN_SEGMENT_PARTS {
                 break;
             }
-            widths[widest] -= 1;
-            widths[i] += 1;
+            let Some(widest_width) = widths.get_mut(widest) else { break };
+            *widest_width -= 1;
+            let Some(width) = widths.get_mut(i) else { break };
+            *width += 1;
         }
     }
     widths
