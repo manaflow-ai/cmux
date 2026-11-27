@@ -178,6 +178,14 @@ test("the last step shrinking above a view's top under the list, in the same row
   expect(await draw([32, 32, 12])).toBe(4_932);
 });
 
+test("a move that would carry the view's top past its row's old end stops just inside it", async () => {
+  // The row reaches 20px below the view's top; the last step, above it, grows by 60px. Past the row's
+  // old end the transcript would read the next row and move the view by the growth again.
+  const draw = await drawList(-300, 224);
+  expect(await draw([32, 32, 32])).toBe(5_000);
+  expect(await draw([32, 32, 92])).toBe(5_019);
+});
+
 test("a row that grows onto the view's top moves no offset: the transcript corrects the row under it", async () => {
   // The row ends 4px above the view's top until step 0 grows by 30px.
   const draw = await drawList(-300, 200);
