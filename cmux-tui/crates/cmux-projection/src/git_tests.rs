@@ -612,5 +612,7 @@ fn more_big_blobs_than_processes_never_wait_on_a_held_stream() {
     // An idle sweep ends the held streams and their processes.
     blobs.held.sweep(Instant::now() + IDLE, IDLE, PACK_CHECK);
     assert!(blobs.held.streams.lock().unwrap().is_empty());
-    assert_eq!(blobs.held.pool.lock().unwrap().live, blobs.pooled(), "no process counted twice");
+    // Read apart: a guard held across `pooled()` would lock the pool twice on one thread.
+    let live = blobs.held.pool.lock().unwrap().live;
+    assert_eq!(live, blobs.pooled(), "no process counted twice");
 }
