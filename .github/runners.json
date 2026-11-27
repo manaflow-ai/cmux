@@ -489,10 +489,6 @@
     },
     "iroh-release-gate.yml#tailscale-version-skew": "macos-runtime-tests",
     "gateway-e2e.yml#mac": "macos-runtime-tests",
-    "iroh-v2.yml#client": {
-      "class": "apple-swift-tests",
-      "picker_followup": "runs-on names a fixed macOS label (it no longer reads the side or light lane variable); take it from a picker job's output"
-    },
     "machine-vault-e2e.yml#e2e": {"class": "macos-runtime-tests", "picker_followup": "adds an OS user and opens ssh to it while holding the dev stack secrets: an ephemeral Blacksmith Mac only, never a persistent owned Mac; an owned route needs a disposable VM on the fleet"},
     "macos-cross-parity.yml#runtime-x86_64": {
       "class": "macos-runtime-tests",
@@ -697,7 +693,6 @@
       "ci-web.yml#web-tests": {"routes": [16, 32], "target": 4, "measured": {"32": [14.0, 1.12, 1.32], "16": [464.5, 0.97, 1.33], "4": [46.5, 1.7, 2.37]}, "pending": "#30277 and #29981 change this file's runs-on"},
       "ci-web.yml#web-typecheck": {"routes": [16, 32], "target": 4, "measured": {"32": [4.5, 0.2, 0.23], "16": [115.5, 0.36, 0.6], "4": [12.5, 0.51, 0.82]}, "pending": "#30277 and #29981 change this file's runs-on"},
       "ci-web.yml#webviews-typecheck": {"routes": [16, 32], "target": 4, "measured": {}, "pending": "new job (ci-self-heal 0c): the webviews type check, moved out of react-apps-check (1); same runs-on as web-typecheck"},
-      "cloudflare-relay.yml#cloudflare-relay": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "cmux-actions.yml#check": {"size": 4, "failover": 8, "measured": {"16": [151.0, 0.71, 0.9]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-browser-host-chromium.yml#chromium": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "cmux-browser-host-release.yml#build": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
@@ -715,7 +710,7 @@
       "cmux-next-web-bundles.yml#bundles": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "cmux-next-web-bundles.yml#webviews-checks": {"size": 8, "failover": 16, "measured": {}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits; no runs in the window"},
       "cmux-next.yml#checks": {"size": 16, "failover": 8, "measured": {"16": [2677.0, 6.21, 7.33]}, "why": "6.2 min mean, 7.3 p90 on 16 vCPU against a 10 min timeout; 8 is its failover"},
-      "cmux-next.yml#fast-tier-cargo": {"size": 16, "measured": {"32": [2401.0, 3.24, 3.7]}, "why": "reads the linux_16 pool (GCP, then Blacksmith 16): on linux_8's Freestyle lead 2026-11-25..26 it passed 98 of 653 runs, 243 hit the 30 min timeout (docs/ci/cmux-next-workflow-notes.md#note-206); the fork lane keeps 4 vCPU"},
+      "cmux-next.yml#fast-tier-cargo": {"size": 16, "measured": {"32": [2401.0, 3.24, 3.7]}, "why": "names the GCP label (cmux-fleet-linux-x64), as the linux_16 pool did: on linux_8's Freestyle lead 2026-11-25..26 it passed 98 of 653 runs, 243 hit the 30 min timeout (docs/ci/cmux-next-workflow-notes.md#note-206); the fork lane keeps 4 vCPU"},
       "cmux-next.yml#web-bundles": {"size": 4, "failover": 8, "measured": {"32": [2024.5, 0.62, 1.17]}, "why": "setup-bound: under 2 min, or measured on 4 vCPU within 1.5x of 32; light jobs use 0.7 cores at p90 on the minis (HQ mini_job_cores_by_class)"},
       "cmux-tui-artifacts.yml#adopt-commit-manifest": {"size": 4, "failover": 8, "measured": {}, "why": "setup-bound: reads and writes a few small CDN objects; the same shape as mark-tree-commits (not measured yet)"},
       "cmux-tui-artifacts.yml#cmux-next-daemon-tests": {"size": 8, "failover": 16, "measured": {"32": [115.5, 5.51, 6.22]}, "why": "compile or test (cargo, swift, bun, playwright): on the minis these classes use at most 6.2 cores at p90 (HQ mini_job_cores_by_class, 2026-10-25..31: compile 3.8, isolated 6.2), so 8 fits"},
