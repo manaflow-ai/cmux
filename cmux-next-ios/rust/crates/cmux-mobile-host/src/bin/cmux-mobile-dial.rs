@@ -4,7 +4,7 @@
 //!            [--transport webrtc|wireguard]... [--relay-only] [--block-udp]
 //!            [--drop-wireguard] [--proxy-only]
 //!            [--exclude-cgnat] [--bytes N] [--daemon] [--pings N] [--no-turn]
-//!            [--no-turn-prewarm]
+//!            [--no-turn-prewarm] [--relay] [--init-after-gather] [--tunnel-after-gather]
 //!   cmux-mobile-dial --local --mac MAC_DEVICE_ID [--local-addr HOST:PORT]... [...]
 //!
 //! `--local` (ultra-connectivity P7) dials with no Worker and no internet:
@@ -23,6 +23,15 @@
 //! over UDP, only TURN over TLS on 443 (path `turn-tls`). `--no-turn` drops
 //! the TURN servers `/v1/ice` returned (with `--relay-only` or
 //! `--block-udp` the dial then fails: there is no backend relay any more).
+//!
+//! `--relay` joins cmux's WebSocket relay at `--base-url` (PROTOCOL.md
+//! "WebSocket relay") with the same token, as the app does, so relay first
+//! runs: the early join, `wg-init` before the STUN and TURN gather, the
+//! tunnel on the Mac's answer before the gather ends. Without it the dial has
+//! no relay, as before. `--init-after-gather` and `--tunnel-after-gather` are
+//! relay first's baselines (measurement only): the offer waits for the gather,
+//! and the tunnel waits for it, as before each went first. netlab's
+//! relay-legs.sh times both sides of RFD 0142 R1 with these.
 //!
 //! `--hold-seconds S` keeps the link up for S seconds instead and probes it:
 //! a 16-byte echo every `--probe-ms` (200), one JSON event line per answer
@@ -87,6 +96,9 @@ struct Args {
     device_file: Option<String>,
     turn_ca: Option<String>,
     network_probe_ms: u64,
+    relay: bool,
+    init_after_gather: bool,
+    tunnel_after_gather: bool,
 }
 
 static PROCESS_START: OnceLock<Instant> = OnceLock::new();
@@ -111,6 +123,7 @@ fn parse() -> Result<Args> {
     let mut network_probe_ms = 1000;
     let (mut hold_seconds, mut probe_ms, mut watch_net, mut dead_after_ms) = (0.0, 200, false, 0);
     let mut device_file = None;
+    let (mut relay, mut init_after_gather, mut tunnel_after_gather) = (false, false, false);
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
         match arg.as_str() {
@@ -147,6 +160,9 @@ fn parse() -> Result<Args> {
             "--watch-net" => watch_net = true,
             "--dead-after-ms" => dead_after_ms = value()?.parse()?,
             "--device-file" => device_file = Some(value()?),
+            "--relay" => relay = true,
+            "--init-after-gather" => init_after_gather = true,
+            "--tunnel-after-gather" => tunnel_after_gather = true,
             other => bail!("unknown argument {other}"),
         }
     }
@@ -196,6 +212,9 @@ fn parse() -> Result<Args> {
         device_file,
         turn_ca,
         network_probe_ms,
+        relay,
+        init_after_gather,
+        tunnel_after_gather,
     })
 }
 
@@ -248,7 +267,19 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     };
     let started = Instant::now();
     let timeline = cmux_mobile_link::Timeline::starting_at(started);
-    let options = dial_options(args, &timeline)?;
+    let mut options = dial_options(args, &timeline)?;
+    if args.relay {
+        let token = args.token.clone();
+        options.relay = Some(cmux_mobile_link::dial::relay::RelayEndpoint::new(
+            args.base_url.clone(),
+            None,
+            device.clone(),
+            move || {
+                let token = token.clone();
+                Box::pin(async move { Some(token) })
+            },
+        ));
+    }
     // `/v1/ice` beside the signaling socket's open, as the app does; the TURN
     // allocation starts once ICE answers.
     let ice = async {
@@ -330,6 +361,8 @@ fn dial_options(args: &Args, timeline: &cmux_mobile_link::Timeline) -> Result<Di
         input_lane: !args.no_input_lane,
         timeline: timeline.clone(),
         stock_ice_waits: args.stock_ice_waits,
+        init_after_gather: args.init_after_gather,
+        tunnel_after_gather: args.tunnel_after_gather,
         turn_tls_roots: args.turn_ca.as_deref().map(turn_roots).transpose()?,
         ..DialOptions::default()
     })
@@ -456,6 +489,9 @@ async fn measure(
     Ok(json!({
         "transport": format!("{kind:?}").to_lowercase(),
         "relay_only": args.relay_only,
+        "relay": args.relay,
+        "init_after_gather": args.init_after_gather,
+        "tunnel_after_gather": args.tunnel_after_gather,
         "block_udp": args.block_udp,
         "no_turn": args.no_turn,
         "path": path,
