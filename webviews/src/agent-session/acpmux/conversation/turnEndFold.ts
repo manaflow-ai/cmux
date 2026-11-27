@@ -1785,8 +1785,6 @@ export function playTurnEnd(
         return;
       }
       if (!before) {
-        // A row the swap added fades in where it lands, unless it plays its own entrance.
-        if (node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) return;
         // It holds at no ink while a kept row sliding into place still crosses its box, as a row that
         // arrives does (above): the "Worked for" of the work after a steer lands under the steer, and
         // the steer slides up out of that box as the rows above close the fold. Fading from the
@@ -1795,6 +1793,12 @@ export function playTurnEnd(
         // fold swept rows up past his steer). Read again each pass, as the arriving row's hold is.
         const clear = ms * clearFraction(index);
         const last = moving.get(node);
+        // Its own entrance is enough only when no kept row crosses it. Rows inserted between
+        // retained rows take this path too, so they need the same clearance as tail arrivals.
+        if (clear === 0 && !last && node.matches(".acpmux-row--enter, .acpmux-row--message-enter")) {
+          entering = true;
+          return;
+        }
         const running = !grew && last?.fades && (last.hold ?? 0) <= elapsed;
         const hold = clear > elapsed ? clear : running ? (last.hold ?? 0) : 0;
         holds = Math.max(holds, hold);

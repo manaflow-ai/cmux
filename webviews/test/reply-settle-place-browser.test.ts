@@ -314,6 +314,16 @@ const scenarios: Scenario[] = [
     ],
   },
   {
+    name: "kept-row-crosses-reply-with-row-entrance",
+    wasTop: 520,
+    keptTail: true,
+    after: [
+      { id: "worked-u", kind: "worked", top: 300, height: 34 },
+      { id: "answer-new", kind: "assistant", top: 334, height: 120, className: "acpmux-row--enter" },
+      { id: "tail", kind: "assistant", top: 700, height: 34 },
+    ],
+  },
+  {
     name: "kept-row-slides-up-short",
     wasTop: 380,
     after: [
