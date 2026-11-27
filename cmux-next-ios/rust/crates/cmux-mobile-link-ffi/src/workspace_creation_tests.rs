@@ -176,3 +176,34 @@ fn a_pane_of_a_thousand_tabs_is_linear() {
     let groups: Vec<Option<String>> = (0..1000).map(|_| Some("g".to_owned())).collect();
     assert_eq!(new_tab_move_index(NewTabSlot::AfterCurrent, 999, 0, pinned, groups), None);
 }
+
+#[test]
+fn paths_and_titles_keep_swifts_unicode_equality() {
+    let composed = "~/café";
+    let decomposed = "~/cafe\u{301}";
+    assert_eq!(
+        workspace_recents_noted(strings(&[decomposed, "~/other"]), composed.into()),
+        strings(&[composed, "~/other"])
+    );
+    assert_eq!(
+        workspace_recent_directories(true, strings(&[decomposed]), strings(&[composed])),
+        strings(&[decomposed])
+    );
+    let tap =
+        workspace_tap_start(choices(true, &[""]), strings(&[decomposed]), strings(&["~/other", composed]));
+    assert_eq!(tap.directory.as_deref(), Some(decomposed));
+    assert_eq!(
+        workspace_unique_title(decomposed.into(), vec![composed.into(), format!("{composed} 2")]),
+        format!("{decomposed} 3")
+    );
+}
+
+#[test]
+fn many_closed_recents_and_nonproject_open_folders_fall_back_to_terminal() {
+    let closed = (0..10_000).map(|n| format!("/tmp/closed-{n}")).collect();
+    let homes = (0..10_000).map(|n| format!("/Users/user-{n}")).collect();
+    assert_eq!(
+        workspace_tap_start(choices(true, &[""]), closed, homes),
+        WorkspaceTap { start: WorkspaceStart::Terminal, directory: None }
+    );
+}

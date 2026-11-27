@@ -8,9 +8,8 @@ import CmuxMobileLinkFFI
 /// in, the optimistic row's title, and where a New Tab row puts the tab. This maps Swift's types
 /// in and out; the Rust tests hold every case.
 ///
-/// The Rust library links only on iOS. The macOS kit test host gets plain answers (a terminal
-/// in the Mac's folder, no recents, "New Workspace", nothing moved), and the tests of these
-/// rules run on the iOS simulator.
+/// The portable kit also runs on macOS and Linux, which do not link the iOS framework.
+/// Those hosts retain the original rules and run the same model tests.
 enum WorkspaceCreationRules {
     #if os(iOS)
     private static func choices(_ options: WorkspaceCreationOptions) -> WorkspaceCreationChoices {
@@ -49,7 +48,9 @@ enum WorkspaceCreationRules {
         #if os(iOS)
         workspaceRecentsNoted(recents: recents, directory: directory)
         #else
-        [directory]
+        var list = recents.filter { $0 != directory }
+        list.insert(directory, at: 0)
+        return Array(list.prefix(RecentDirectories.limit))
         #endif
     }
 
@@ -58,7 +59,12 @@ enum WorkspaceCreationRules {
         #if os(iOS)
         workspaceRecentDirectories(directories: options.directories, used: used, seen: seen)
         #else
-        []
+        guard options.directories else { return [] }
+        var result: [String] = []
+        for directory in used + seen where !result.contains(directory) {
+            result.append(directory)
+        }
+        return Array(result.prefix(RecentDirectories.limit))
         #endif
     }
 
@@ -68,7 +74,16 @@ enum WorkspaceCreationRules {
         let tap = workspaceTapStart(choices: choices(options), used: used, seen: seen)
         return NewWorkspaceTap(start: swift(tap.start), directory: tap.directory)
         #else
-        NewWorkspaceTap(start: .terminal, directory: nil)
+        let terminal = NewWorkspaceTap(start: .terminal, directory: nil)
+        guard let harness = options.agents.contains("") ? "" : options.agents.first else { return terminal }
+        // The folders used from this phone first, then the Mac's by activity; only one open on the
+        // Mac now counts, so a closed recent folder never hides an open one.
+        let open = Set(seen)
+        guard options.directories,
+              let folder = (used + seen).first(where: { open.contains($0) && Self.isProjectFolder($0) }) else {
+            return terminal
+        }
+        return NewWorkspaceTap(start: .agent(harness), directory: folder)
         #endif
     }
 
@@ -77,7 +92,14 @@ enum WorkspaceCreationRules {
         #if os(iOS)
         workspaceIsProjectFolder(path: path)
         #else
-        false
+        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let parts = trimmed.split(separator: "/").map(String.init)
+        if parts.isEmpty || parts == ["~"] { return false }
+        if trimmed.hasPrefix("/") {
+            if parts == ["var"] || parts == ["var", "root"] { return false }
+            if parts.first == "Users", parts.count <= 2, parts.last != "Shared" { return false }
+        }
+        return true
         #endif
     }
 
@@ -86,7 +108,8 @@ enum WorkspaceCreationRules {
         #if os(iOS)
         workspaceDefaultDirectory(choices: choices(options), used: used)
         #else
-        nil
+        guard options.directories, options.tapUsesLastDirectory else { return nil }
+        return used.first ?? "~"
         #endif
     }
 
@@ -95,7 +118,11 @@ enum WorkspaceCreationRules {
         #if os(iOS)
         workspaceStartOffered(choices: choices(options), start: rust(start))
         #else
-        true
+        switch start {
+        case .terminal: true
+        case .agent(let harness): options.agents.contains(harness)
+        case .browser: options.browser
+        }
         #endif
     }
 
@@ -104,7 +131,9 @@ enum WorkspaceCreationRules {
         #if os(iOS)
         workspacePlaceholderTitle(directory: directory, existing: existing)
         #else
-        "New Workspace"
+        let last = directory.map { ($0 as NSString).lastPathComponent } ?? ""
+        let base = directory == "/" || last.isEmpty || last == "~" ? "New Workspace" : last
+        return uniqueTitle(base, existing: existing)
         #endif
     }
 
@@ -113,7 +142,11 @@ enum WorkspaceCreationRules {
         #if os(iOS)
         workspaceUniqueTitle(base: base, existing: existing)
         #else
-        base
+        let taken = Set(existing)
+        guard taken.contains(base) else { return base }
+        var n = 2
+        while taken.contains("\(base) \(n)") { n += 1 }
+        return "\(base) \(n)"
         #endif
     }
 
@@ -122,7 +155,7 @@ enum WorkspaceCreationRules {
         #if os(iOS)
         workspaceAgentTabTitle(harness: harness)
         #else
-        "Agent Chat"
+        harness.isEmpty ? "Agent Chat" : harness.capitalized
         #endif
     }
 
@@ -133,7 +166,25 @@ enum WorkspaceCreationRules {
         return newTabMoveIndex(slot: slot(position), from: UInt32(clamping: from), anchor: UInt32(clamping: anchor),
                                pinned: pinned, groups: groups).map(Int.init)
         #else
-        nil
+        let count = pinned.count
+        guard count > 1, pinned.indices.contains(from), pinned.indices.contains(anchor), anchor != from else { return nil }
+        // The places without the new tab, where the final index is counted.
+        let others = pinned.indices.filter { $0 != from }
+        let pinnedCount = others.prefix { pinned[$0] }.count
+        let final: Int
+        switch position {
+        case .sameKind, .afterCurrent:
+            guard var at = others.firstIndex(of: anchor) else { return nil }
+            if groups.indices.contains(anchor), let group = groups[anchor] {
+                while at + 1 < others.count, groups.indices.contains(others[at + 1]), groups[others[at + 1]] == group { at += 1 }
+            }
+            final = max(at + 1, pinnedCount)
+        case .start: final = pinnedCount
+        case .end: final = count - 1
+        }
+        let clamped = min(max(final, 0), count - 1)
+        guard clamped != from else { return nil }
+        return clamped > from ? clamped + 1 : clamped
         #endif
     }
 }

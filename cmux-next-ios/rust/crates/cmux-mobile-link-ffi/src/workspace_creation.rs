@@ -12,6 +12,20 @@
 //! Every function is pure and linear in its lists (the recents are capped at
 //! [`RECENT_LIMIT`]; a pane's tabs are counted once, except the anchor's group walk).
 
+use std::borrow::Cow;
+use std::collections::HashSet;
+use unicode_normalization::{UnicodeNormalization, is_nfc};
+
+/// Swift String compares canonically equivalent spellings equally. Keep the caller's
+/// spelling for display and for the request sent back to its Mac.
+fn comparison_key(text: &str) -> Cow<'_, str> {
+    if text.is_ascii() || is_nfc(text) { Cow::Borrowed(text) } else { Cow::Owned(text.nfc().collect()) }
+}
+
+fn same_text(left: &str, right: &str) -> bool {
+    left == right || comparison_key(left) == comparison_key(right)
+}
+
 /// The most recent folders the phone keeps and offers per Mac.
 pub const RECENT_LIMIT: usize = 5;
 
@@ -69,7 +83,7 @@ pub fn workspace_recents_noted(recents: Vec<String>, directory: String) -> Vec<S
         if list.len() == RECENT_LIMIT {
             break;
         }
-        if item != list[0] {
+        if !same_text(&item, &list[0]) {
             list.push(item);
         }
     }
@@ -89,7 +103,7 @@ pub fn workspace_recent_directories(directories: bool, used: Vec<String>, seen: 
         if result.len() == RECENT_LIMIT {
             break;
         }
-        if !result.contains(&directory) {
+        if !result.iter().any(|prior| same_text(prior, &directory)) {
             result.push(directory);
         }
     }
@@ -120,7 +134,11 @@ pub fn workspace_tap_start(
         return terminal;
     }
     // Only a folder open on the Mac now counts, so a closed recent folder never hides an open one.
-    let folder = used.iter().chain(seen.iter()).find(|path| seen.contains(path) && is_project_folder(path));
+    let open: HashSet<_> = seen.iter().map(|path| comparison_key(path)).collect();
+    let folder = used
+        .iter()
+        .find(|path| open.contains(&comparison_key(path)) && is_project_folder(path))
+        .or_else(|| seen.iter().find(|path| is_project_folder(path)));
     match folder {
         Some(folder) => {
             WorkspaceTap { start: WorkspaceStart::Agent { harness }, directory: Some(folder.clone()) }
@@ -170,7 +188,7 @@ pub fn workspace_default_directory(choices: WorkspaceCreationChoices, used: Vec<
 pub fn workspace_start_offered(choices: WorkspaceCreationChoices, start: WorkspaceStart) -> bool {
     match start {
         WorkspaceStart::Terminal => true,
-        WorkspaceStart::Agent { harness } => choices.agents.contains(&harness),
+        WorkspaceStart::Agent { harness } => choices.agents.iter().any(|agent| same_text(agent, &harness)),
         WorkspaceStart::Browser => choices.browser,
     }
 }
@@ -202,11 +220,16 @@ fn directory_title(directory: Option<&str>) -> String {
 /// `base`, or `base 2`, `base 3`, ...: the first one no title in `existing` has.
 #[uniffi::export]
 pub fn workspace_unique_title(base: String, existing: Vec<String>) -> String {
-    let taken: std::collections::HashSet<&str> = existing.iter().map(String::as_str).collect();
-    if !taken.contains(base.as_str()) {
+    let taken: HashSet<_> = existing.iter().map(|title| comparison_key(title)).collect();
+    let key = comparison_key(&base);
+    if !taken.contains(&key) {
         return base;
     }
-    (2..).map(|n| format!("{base} {n}")).find(|title| !taken.contains(title.as_str())).unwrap_or(base)
+    let mut suffix = 2usize;
+    while taken.contains(format!("{key} {suffix}").as_str()) {
+        suffix += 1;
+    }
+    format!("{base} {suffix}")
 }
 
 /// The optimistic agent tab's title for a harness: "Agent Chat" for the Mac's default agent,
@@ -269,7 +292,10 @@ pub fn new_tab_move_index(
             let mut at = others.iter().position(|&index| index == anchor)?;
             if let Some(Some(group)) = groups.get(anchor) {
                 while at + 1 < others.len()
-                    && groups.get(others[at + 1]).is_some_and(|g| g.as_ref() == Some(group))
+                    && groups
+                        .get(others[at + 1])
+                        .and_then(Option::as_ref)
+                        .is_some_and(|candidate| same_text(candidate, group))
                 {
                     at += 1;
                 }

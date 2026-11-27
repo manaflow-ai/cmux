@@ -683,6 +683,9 @@ public final class WorkspaceCreator {
     /// The rules are Rust's `workspace_tap_start`; this reads the folders it chooses from.
     public func tapStart(on macID: String) -> NewWorkspaceTap {
         let options = options(on: macID)
+        guard options.directories, !options.agents.isEmpty else {
+            return NewWorkspaceTap(start: .terminal, directory: nil)
+        }
         let used = recents.load(macID: macID)
         let seen = seenDirectories(on: macID, limit: RecentDirectories.limit + used.count)
         return WorkspaceCreationRules.tapStart(options, used: used, seen: seen)

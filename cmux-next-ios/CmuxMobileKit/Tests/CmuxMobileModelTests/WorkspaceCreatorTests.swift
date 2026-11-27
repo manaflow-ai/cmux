@@ -142,8 +142,6 @@ final class ScriptedBackend: WorkspaceCreationBackend {
         #expect(creator.targetMac?.id == "mac-studio")
     }
 
-    // These rules are Rust (workspace_creation), which links only on iOS.
-    #if os(iOS)
     @Test func unsupportedStartsAreRefusedUpFront() {
         let (_, creator, _) = make()
         #expect(creator.create(start: .agent("claude")) == nil)
@@ -179,7 +177,6 @@ final class ScriptedBackend: WorkspaceCreationBackend {
         #expect(WorkspaceCreationRules.placeholderTitle(directory: "~", existing: []) == "New Workspace")
         #expect(WorkspaceCreationRules.placeholderTitle(directory: "~/notes", existing: []) == "notes")
     }
-    #endif
 
     @Test func mockBackendSucceedsThenFailsOnRequest() async throws {
         let store = AppStore.mock(tabMemory: .inMemory())
