@@ -172,6 +172,9 @@ body {
   --ds-transient-web-saturation: 1.6;
   --elevation-1: 0 1px 2px color-mix(in srgb, black 7%, transparent); /* rows, cards and inline surfaces */
   --elevation-2: 0 2px 6px color-mix(in srgb, black 11%, transparent); /* popovers, menus, the palette, hover cards, the composer, sheets and find bars */
+  --elevation-lightbox: 0 8px 32px color-mix(in srgb, black 35%, transparent); /* an image shown in the lightbox, above its dimmed backdrop */
+  --ds-lightbox-scrim: color-mix(in srgb, black 45%, transparent); /* the lightbox's dim: the chat stays visible behind a viewed image */
+  --ds-lightbox-scrim-solid: color-mix(in srgb, black 70%, transparent); /* the same dim with Reduce Transparency on */
   --ds-color-surface: var(--cmux-surface-solid, var(--cmux-app-content, Canvas)); /* the page and pane surface, opaque */
   --ds-color-elevated: var(--cmux-elevated-background, var(--cmux-app-elevated, Canvas)); /* menus, popovers and sheets under Reduce Transparency */
   --ds-color-fg: var(--cmux-text, var(--cmux-app-text, CanvasText)); /* primary text */

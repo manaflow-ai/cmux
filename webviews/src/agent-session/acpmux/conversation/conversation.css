@@ -7750,10 +7750,10 @@ a.cv-sha:focus-visible {
 }
 .acpmux-image-lightbox-backdrop {
   /* The standard lightbox dim: the chat reads behind it (Quick Look, a browser's image lightbox). */
-  background: rgb(0 0 0 / 45%);
+  background: var(--ds-lightbox-scrim);
 }
 :root[data-reduce-transparency] .acpmux-image-lightbox-backdrop {
-  background: rgb(0 0 0 / 70%);
+  background: var(--ds-lightbox-scrim-solid);
 }
 .acpmux-image-lightbox .acpmux-image-viewer-body {
   position: absolute;
@@ -7762,7 +7762,7 @@ a.cv-sha:focus-visible {
 /* A small floating glass bar, not a full-width header (the popover level's tint and blur). */
 .acpmux-image-lightbox .acpmux-image-viewer-bar {
   position: absolute;
-  z-index: 1;
+  z-index: var(--layer-raised);
   top: var(--ds-space-3);
   left: 50%;
   transform: translateX(-50%);
@@ -7785,14 +7785,14 @@ a.cv-sha:focus-visible {
   position: absolute;
   inset: 0;
   /* Room for the floating bar above and the arrows at the sides. */
-  padding: 56px 56px 24px;
+  padding: var(--ds-space-56) var(--ds-space-56) var(--ds-space-5);
   box-sizing: border-box;
 }
 .acpmux-image-lightbox .acpmux-image-viewer-image {
   /* Its own size, scaled down only when it is larger than the stage. */
   flex: none;
   border-radius: 6px;
-  box-shadow: 0 8px 32px rgb(0 0 0 / 35%);
+  box-shadow: var(--elevation-lightbox);
 }
 .acpmux-image-viewer-step {
   position: absolute;
