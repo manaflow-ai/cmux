@@ -72,6 +72,17 @@ MAX_TEST_TARGETS = 6
 MAX_WHY = 20
 # The commit status a ruleset can require (pr-router.yml posts the route's state, pr-pipeline.yml the verdict).
 STATUS_CONTEXT = "cmux/ios-fast"
+SCREEN_SHARE_SUITE = "CmuxMobileBrowserStreamTests/SyntheticScreenSharingTests"
+SCREEN_SHARE_PATHS = (
+    KIT + "Sources/CmuxMobileBrowserStream/",
+    KIT + "Sources/CmuxMobileScreenSharing/",
+    KIT + "Sources/CmuxMobileTransport/",
+    KIT + "Tests/CmuxMobileBrowserStreamTests/",
+    "cmux-tui/crates/cmux-rd-host/",
+    "cmux-tui/crates/cmux-rd-link/",
+    "cmux-tui/crates/cmux-rd-proto/",
+    "cmux-tui/crates/cmux-transport/",
+)
 
 
 def kit_step(table: ci_steps.Table | None = None) -> ci_steps.Step:
@@ -92,7 +103,7 @@ def affects(paths: list[str], step: ci_steps.Step | None = None) -> bool:
     """Whether any of PATHS is one this check builds (the router's instant-success test; plan()'s `run` without the
     kit's test-target listing, which the router's sparse checkout does not have)."""
     step = step or kit_step()
-    return any(path in SELF or routes_ios(step, path) for path in paths)
+    return any(path in SELF or path.startswith(SCREEN_SHARE_PATHS) or routes_ios(step, path) for path in paths)
 
 
 def test_targets(root: Path) -> set[str]:
@@ -143,6 +154,12 @@ def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None)
         why.append(f"{len(tests)} test targets: kit build only, the full matrix runs the tests")
         tests = set()
         build = True
+    # A small end-to-end viewer detector must run for host/protocol changes too,
+    # including broad changes whose general tests fall back to compile-only.
+    if any(path.startswith(SCREEN_SHARE_PATHS) for path in paths):
+        if SCREEN_SHARE_SUITE.split("/")[0] not in tests:
+            tests.add(SCREEN_SHARE_SUITE)
+        why.append("screen-sharing path: synthetic frames decode and present")
     return {
         "run": bool(tests or build or app),
         "tests": sorted(tests),

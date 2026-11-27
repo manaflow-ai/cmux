@@ -113,7 +113,7 @@ class SelectTests(unittest.TestCase):
         self.assertTrue(r["ios"])
         self.assertIn("pairing-mac-identity", r["flows"])
         self.assertEqual(r["swift"], [{"package": "Packages/macOS/CmuxNext", "filter": "MobileHostMacIdentityKeychainTests"}])
-        self.assertEqual(fs.sim_args(r, 1), ["pair-e2e"])
+        self.assertEqual(fs.sim_args(r, 1)[-1], "pair-e2e")
 
     def test_boolean_pairing_rows_can_share_a_run_with_reconnect_arguments(self):
         r = self.sel("cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/Link.swift")

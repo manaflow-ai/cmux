@@ -4,7 +4,9 @@ Leo, 2026-11-27: "these feel extremely mockable to be de facto enough".
 
 Detector: `CmuxMobileBrowserStreamTests/SyntheticScreenSharingTests`, selected by
 FlowSuite's `screen-share-synthetic-frames` for viewer, transport, rd host/link/protocol
-and test changes. The normal kit simulator suite runs it too.
+and test changes. `cmux/ios-fast` runs it for those paths too, including broad
+changes that otherwise fall back to compile-only. The normal kit simulator suite
+runs it too.
 
 The host fixture encodes 20 changing grey pictures with VideoToolbox, at both
 320×240 and 1280×720. Its Annex-B frames enter the production `Sink` used by the
