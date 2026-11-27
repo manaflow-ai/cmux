@@ -36,7 +36,7 @@ pub fn agent_name(harness: &str) -> String {
         "claude" => "Claude Code",
         "codex" => "Codex",
         "opencode" => "OpenCode",
-        "gemini" => "Gemini CLI",
+        "gemini" => "Antigravity",
         "cursor" => "Cursor",
         "pi" => "Pi",
         other => other,

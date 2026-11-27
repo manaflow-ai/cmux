@@ -1047,7 +1047,7 @@ test("familyTabs: Antigravity is a route of the Gemini tab, drawn with the Gemin
   const { familyTabs, leadRoute } = await import("./quickModelMenuModel");
   const gemini: QuickFamily = {
     id: "gemini",
-    name: "Gemini CLI",
+    name: "Antigravity",
     mark: "gemini",
     models: [{ id: "gemini-3.8-flash", name: "3.8 Flash", family: "gemini" }],
     more: [],
@@ -1062,7 +1062,7 @@ test("familyTabs: Antigravity is a route of the Gemini tab, drawn with the Gemin
   };
   const tabs = familyTabs([gemini, antigravity]);
   expect(tabs.map((tab) => [tab.key, tab.name, tab.mark, tab.routes.map((route) => route.id)])).toEqual([
-    ["gemini", "Gemini", "gemini", ["gemini", "antigravity"]],
+    ["gemini", "Antigravity", "antigravity", ["gemini", "antigravity"]],
   ]);
   // The tab opens on the route that can start: Gemini CLI failed its probe (not signed in), even
   // when it is the new chat's harness.

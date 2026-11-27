@@ -132,7 +132,7 @@ pub fn harness_items(route_configured: bool, listed: &[String], strings: &String
 const ROUTES: &[(&str, &str)] = &[("cr", "CodeRouter"), ("sr", "Subrouter")];
 const BUILTINS: &[(&str, &str)] = &[
     ("aider", "Aider"),
-    ("gemini", "Gemini CLI"),
+    ("gemini", "Antigravity"),
     ("muse", "Muse Code"),
     ("opencode", "OpenCode"),
     ("pi", "Pi"),
@@ -170,7 +170,7 @@ pub fn word(part: &str) -> String {
 }
 
 /// A harness id as a name: the official engine or acpmux built-in it starts with, then the rest in
-/// brackets (`claude-sr2-pipe` → "Claude (SR2 Pipe)", `gemini` → "Gemini CLI"). A blank id comes back
+/// brackets (`claude-sr2-pipe` → "Claude (SR2 Pipe)", `gemini` → "Antigravity"). A blank id comes back
 /// as it is.
 pub fn harness_name(id: &str, strings: &Strings) -> String {
     let parts = tokens(id);

@@ -6,7 +6,7 @@ test("the Chief harness is named Chief", () => {
 });
 
 test("first-class provider harnesses keep their product names", () => {
-  expect(agentDisplayName("gemini")).toBe("Gemini CLI");
+  expect(agentDisplayName("gemini")).toBe("Antigravity");
   expect(agentDisplayName("muse")).toBe("Muse Code");
 });
 

@@ -24,6 +24,8 @@ type Props = {
   /** Leo's rail: Claude Code with claude-sr2 and a work login, Codex with its app server and an SR route. */
   routes?: boolean;
   noFamilies?: boolean;
+  /** Gemini CLI and Antigravity, the Google tab's two routes. */
+  google?: boolean;
 };
 
 const models = (family: string, names: string[]) =>
@@ -99,6 +101,12 @@ const routeFamilies: QuickFamily[] = [
   families[2]!,
 ];
 
+/// Gemini CLI (`gemini`) and Antigravity (`agy`): two routes of one Google tab.
+const googleFamilies: QuickFamily[] = [
+  { id: "gemini", name: "Antigravity", mark: "gemini", models: models("gemini", ["Gemini 4 Neon", "Gemini 4 Argon"]), more: [] },
+  { id: "antigravity", name: "Antigravity", mark: "antigravity", models: models("antigravity", ["Gemini 4 Carbon"]), more: [] },
+];
+
 const extras: Pick<QuickMenu, "effort" | "fast"> = {
   effort: {
     levels: ["low", "medium", "high", "xhigh", "max"].map((id) => ({
@@ -143,6 +151,7 @@ export default componentEntry<Props>({
           widthLook,
           routes,
           noFamilies,
+          google,
         }: Props) {
           const [isOpen, setOpen] = useState(false);
           const trigger = useRef<HTMLButtonElement | null>(null);
@@ -165,7 +174,9 @@ export default componentEntry<Props>({
               ]
             : routes
               ? routeFamilies
-              : families;
+              : google
+                ? [...families, ...googleFamilies]
+                : families;
           const list = tab ? [...available].sort((a, b) => (a.id === tab ? -1 : b.id === tab ? 1 : 0)) : available;
           return (
             <OnNewTab.Provider value={!chat}>
@@ -290,6 +301,7 @@ export default componentEntry<Props>({
     "plain-overflow": { height: 320, props: { noFamilies: true }, play: open },
     "newtab-midpoint": { props: { anchorMiddle: true }, play: open },
     "chat-flipped": { props: { chat: true, anchorTop: true }, play: open },
+    "google-routes": { props: { google: true, tab: "gemini" }, play: open },
     "claude-many-harnesses": { props: { many: true }, play: open },
     "claude-many-harnesses-inline-effort": { props: { many: true, inlineEffort: true }, play: open },
     // As a chat's composer opens it: each row's effort dropdown on (ModelPicker passes inlineEffort).

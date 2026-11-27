@@ -104,7 +104,7 @@ const OC_GPT: Row = { id: "opencode/gpt-6-astra", name: "GPT-6 Astra", provider:
 const HARNESSES: { id: string; name: string; mark: string; models: Row[] }[] = [
   { id: "claude", name: "Claude Code", mark: "claude", models: [OPUS, SONNET, OPUS_ALIAS, GPT] },
   { id: "codex", name: "Codex", mark: "openai", models: [GPT, OPUS, SONNET] },
-  { id: "gemini", name: "Gemini CLI", mark: "gemini", models: [GEMINI] },
+  { id: "gemini", name: "Antigravity", mark: "antigravity", models: [GEMINI] },
   { id: "opencode", name: "OpenCode", mark: "opencode", models: [DEEPSEEK, OC_CLAUDE, OC_GPT] },
   { id: "claude-sr2", name: "Claude (router)", mark: "claude", models: [OPUS, GPT] },
 ];

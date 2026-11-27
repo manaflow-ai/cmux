@@ -89,7 +89,7 @@ const settle = () => act(async () => await new Promise((resolve) => setTimeout(r
 const claude = { id: "claude", name: "Claude Code", models: [{ id: "opus", name: "Opus 5.5" }], pickable: true };
 const gemini = {
   id: "gemini",
-  name: "Gemini CLI",
+  name: "Antigravity",
   models: [{ id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro" }],
   pickable: false,
   notInstalled: true as const,
@@ -180,7 +180,7 @@ describe("harnesses this machine does not have", () => {
     await settle();
     const doc = dom.window.document;
     const geminiTab = [...doc.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].find(
-      (tab) => tab.textContent?.trim() === "Gemini CLI",
+      (tab) => tab.textContent?.trim() === "Antigravity",
     )!;
     expect(geminiTab).not.toBeUndefined();
     await act(async () => geminiTab.click());
@@ -188,7 +188,7 @@ describe("harnesses this machine does not have", () => {
     // Lucas 2026-11-25: "never show models unless the user has it installed"; the note names it.
     const models = doc.querySelector(".acpmux-mp-models")!;
     expect(models.querySelectorAll('[role="option"]').length).toBe(0);
-    expect(models.textContent).toContain("Gemini CLI not installed");
+    expect(models.textContent).toContain("Antigravity not installed");
     expect(picked).toEqual([]);
     const install = [...doc.querySelectorAll<HTMLButtonElement>(".acpmux-mp-models button")].find(
       (item) => item.textContent?.trim() === "Install…",
@@ -230,18 +230,18 @@ describe("harnesses this machine does not have", () => {
     expect(tabs).toEqual([
       "Starred",
       "Claude Code",
-      "Gemini CLI · Not installed",
+      "Antigravity · Not installed",
       "Pi · Not installed",
       "Add harness…",
     ]);
-    const geminiTab = doc.querySelector<HTMLElement>('.acpmux-cols-tab[role="tab"][aria-label="Gemini CLI"]')!;
+    const geminiTab = doc.querySelector<HTMLElement>('.acpmux-cols-tab[role="tab"][aria-label="Antigravity"]')!;
     await act(async () => geminiTab.click());
     await settle();
     expect(geminiTab.getAttribute("aria-selected")).toBe("true");
     const menu = doc.querySelector('.acpmux-cols [role="listbox"]')!;
     // No model of a harness this Mac does not have: only its named note and Install….
     expect(menu.querySelectorAll('[role="option"]').length).toBe(0);
-    expect(menu.querySelector(".acpmux-cols-note")?.textContent).toBe("Gemini CLI not installed");
+    expect(menu.querySelector(".acpmux-cols-note")?.textContent).toBe("Antigravity not installed");
     expect(picked).toEqual([]);
     const install = [...menu.querySelectorAll<HTMLElement>('[role="button"]')].find(
       (item) => item.textContent === "Install…",
@@ -260,7 +260,7 @@ describe("harnesses that cannot list models", () => {
     const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
     const geminiCli = {
       id: "gemini",
-      name: "Gemini CLI",
+      name: "Antigravity",
       models: [{ id: "gemini-3.8-flash", name: "3.8 Flash" }],
       pickable: true,
       unavailable: "Gemini API key is missing or not configured.",
@@ -288,7 +288,7 @@ describe("harnesses that cannot list models", () => {
     const titles = [...dom.window.document.querySelectorAll<HTMLElement>('.acpmux-cols-tab[role="tab"]')].map(
       (tab) => tab.title,
     );
-    expect(titles).toContain("Gemini CLI · Unavailable");
+    expect(titles).toContain("Antigravity · Unavailable");
   });
 
   // Lucas 2026-11-25: "we should also remove chief as a harness".
@@ -361,7 +361,7 @@ describe("every tab lists only its own models", () => {
     const doc = dom.window.document;
     const options = () =>
       [...doc.querySelectorAll<HTMLElement>('.acpmux-cols [role="option"]')].map((row) => row.textContent?.trim());
-    const gemini = doc.querySelector<HTMLElement>('.acpmux-cols-tab[role="tab"][aria-label="Gemini"]')!;
+    const gemini = doc.querySelector<HTMLElement>('.acpmux-cols-tab[role="tab"][aria-label="Antigravity"]')!;
     await act(async () => gemini.click());
     await settle();
     expect(options()).toEqual(["Gemini 4 Neon", "Gemini 3.8 Flash"]);
@@ -458,7 +458,7 @@ test("the Gemini tab's account avatar wears the Gemini mark on its Antigravity r
   const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
   const geminiCli = {
     id: "gemini",
-    name: "Gemini CLI",
+    name: "Antigravity",
     mark: "gemini",
     models: [{ id: "gemini-3.8-flash", name: "3.8 Flash" }],
     pickable: true,
@@ -491,7 +491,7 @@ test("the Gemini tab's account avatar wears the Gemini mark on its Antigravity r
   await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
   await settle();
   const badge = dom.window.document.querySelector(".acpmux-cols-corner .acpmux-cols-avatar-badge [data-agent]");
-  expect(badge?.getAttribute("data-agent")).toBe("gemini");
+  expect(badge?.getAttribute("data-agent")).toBe("antigravity");
 });
 
 // Lucas 2026-11-25: "resizing seems to move the anchor ... ensure the anchor of the menu is always the

@@ -254,6 +254,12 @@ export function familyTabs(list: readonly QuickFamily[]): QuickTab[] {
       tab.name = AGENT_BRANDS[tab.key as keyof typeof AGENT_BRANDS].name;
       tab.mark = tab.key;
     }
+    // The Gemini tab shows as Antigravity, Google's current name for its agent, with its mark
+    // (Lawrence 2026-11-27: "let's call it antigravity", "needs the new antigravity logo").
+    if (tab.key === "gemini") {
+      tab.name = AGENT_BRANDS.antigravity.name;
+      tab.mark = "antigravity";
+    }
   }
   return [...tabs.values()];
 }

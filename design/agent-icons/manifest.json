@@ -1022,7 +1022,7 @@
     },
     {
       "id": "gemini",
-      "name": "Gemini CLI",
+      "name": "Antigravity",
       "brand": "gemini",
       "aliases": [
         "gemini-cli"

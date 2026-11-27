@@ -19,7 +19,7 @@ fn harness_ids_read_as_their_engine_and_route() {
         ("claude-sr2-pipe", format!("{claude} (SR2 Pipe)")),
         ("claude-cr", format!("{claude} (CodeRouter)")),
         ("claude-sr", format!("{claude} (Subrouter)")),
-        ("gemini", "Gemini CLI".into()),
+        ("gemini", "Antigravity".into()),
         ("pi", "Pi".into()),
         ("opencode", "OpenCode".into()),
         ("muse", "Muse Code".into()),
@@ -27,7 +27,7 @@ fn harness_ids_read_as_their_engine_and_route() {
     ] {
         assert_eq!(op("harnessName", json!({ "id": id })), json!(name), "{id}");
     }
-    assert_eq!(op("backendBadge", json!({ "harness": "gemini" })), json!("Gemini CLI"));
+    assert_eq!(op("backendBadge", json!({ "harness": "gemini" })), json!("Antigravity"));
     assert_eq!(
         op("backendBadge", json!({ "harness": "claude-cr" })),
         Value::Null,

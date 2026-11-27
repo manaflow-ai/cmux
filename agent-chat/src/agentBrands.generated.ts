@@ -403,7 +403,7 @@ export const SUPPORTED_AGENTS: readonly { id: string; name: string; brand: Agent
   { id: "omp", name: "oh-my-pi", brand: "omp" },
   { id: "hermes-agent", name: "Hermes Agent", brand: "hermes" },
   { id: "deepseek", name: "DeepSeek", brand: "deepseek" },
-  { id: "gemini", name: "Gemini CLI", brand: "gemini" },
+  { id: "gemini", name: "Antigravity", brand: "gemini" },
   { id: "cursor", name: "Cursor", brand: "cursor" },
   { id: "amp", name: "Amp", brand: "amp" },
   { id: "copilot", name: "GitHub Copilot", brand: "copilot" },

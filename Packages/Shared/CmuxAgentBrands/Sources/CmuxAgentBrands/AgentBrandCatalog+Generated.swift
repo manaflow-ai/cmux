@@ -521,7 +521,7 @@ extension AgentBrandCatalog {
         AgentDescriptor(id: "omp", name: "oh-my-pi", brand: .omp),
         AgentDescriptor(id: "hermes-agent", name: "Hermes Agent", brand: .hermes),
         AgentDescriptor(id: "deepseek", name: "DeepSeek", brand: .deepseek),
-        AgentDescriptor(id: "gemini", name: "Gemini CLI", brand: .gemini),
+        AgentDescriptor(id: "gemini", name: "Antigravity", brand: .gemini),
         AgentDescriptor(id: "cursor", name: "Cursor", brand: .cursor),
         AgentDescriptor(id: "amp", name: "Amp", brand: .amp),
         AgentDescriptor(id: "copilot", name: "GitHub Copilot", brand: .copilot),
