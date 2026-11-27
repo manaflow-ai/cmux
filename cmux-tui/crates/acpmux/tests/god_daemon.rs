@@ -64,6 +64,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     // The chat size sweep's sizes (`chat_size_sweep`).
     "ACPMUX_CHAT_SIZES",
     "ACPMUX_CHAT_SIM_BIN",
+    "ACPMUX_PROFILE_ATTACH_SECS",
     // The fleet's output directory, not a credential: keep the bounded daemon-log artifacts.
     "FAST_CHECKS_OUT",
     "ACPMUX_GOD_DHAT",
