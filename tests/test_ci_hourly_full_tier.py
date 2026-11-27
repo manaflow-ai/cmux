@@ -167,6 +167,37 @@ class DispatchTests(unittest.TestCase):
         self.assertEqual(len([c for c in calls if "/compare/" in c[1]]), 1)  # one compare per base
 
 
+    def test_a_refused_dispatch_still_dispatches_the_rest_and_ends_red(self) -> None:
+        posts = []
+        manifest = {"ci.yml": [], "relay-tls.yml": [], "cmux-vnc.yml": []}
+
+        def api(path, method="GET", fields=None, token=None):
+            if path.endswith("/commits/feat-cmux-next"):
+                return {"sha": C}
+            if "/runs?" in path:
+                return {"workflow_runs": [run(1, A)]}
+            if "/compare/" in path:
+                return {"files": [{"filename": "web/x.ts"}]}
+            if method == "POST":
+                posts.append(path.split("/workflows/")[1].split("/")[0])
+                if "ci.yml" in path:
+                    raise RuntimeError("gh api POST ci.yml/dispatches: error parsing called workflow (HTTP 422)")
+                if "cmux-vnc" in path:
+                    raise RuntimeError("gh api POST cmux-vnc.yml/dispatches: (HTTP 502)")
+            return None
+
+        args = Namespace(repo="o/r", branch="feat-cmux-next", manifest="", dry_run=False)
+        with unittest.mock.patch.object(hft, "load_manifest", lambda path: manifest), \
+                unittest.mock.patch("sys.stdout"):
+            self.assertEqual(hft.run(args, api), 1)
+        self.assertEqual(posts, ["ci.yml", "relay-tls.yml", "cmux-vnc.yml"])
+
+    def test_only_a_transient_dispatch_error_stays_a_warning(self) -> None:
+        self.assertTrue(hft.transient("(HTTP 502)"))
+        self.assertTrue(hft.transient("API rate limit exceeded (HTTP 403)"))
+        self.assertFalse(hft.transient("error parsing called workflow (HTTP 422)"))
+        self.assertFalse(hft.transient("Not Found (HTTP 404)"))
+
 class WorkflowTests(unittest.TestCase):
     def test_the_workflow_is_dispatched_registered_by_its_own_push_switchable_and_reverts_nothing(self) -> None:
         workflow = yaml.safe_load(WORKFLOW.read_text())

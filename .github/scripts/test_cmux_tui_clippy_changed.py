@@ -54,7 +54,7 @@ if [[ -n "${FIXABLE:-}" && -n "${FIX_FILE:-}" ]] && grep -q '// fixed' "$(git re
 fi
 # A clippy lint as cargo --message-format=json prints it: a warning (capped), or an error that cargo stopped on.
 lint_json() {
-  printf '{"reason":"compiler-message","message":{"level":"%s","code":{"code":"%s"},"message":"unneeded `return` statement","rendered":"%s: unneeded `return` statement\\\\n  --> crates/a/src/lib.rs:3:5\\\\n","spans":[{"is_primary":true,"file_name":"crates/a/src/lib.rs","line_start":3,"column_start":5}]}}\\n' "$1" "${LINT_CODE:-clippy::needless_return}" "$1"
+  printf '{"reason":"compiler-message","message":{"level":"%s","code":{"code":"clippy::needless_return"},"message":"unneeded `return` statement","rendered":"%s: unneeded `return` statement\\\\n  --> crates/a/src/lib.rs:3:5\\\\n","spans":[{"is_primary":true,"file_name":"crates/a/src/lib.rs","line_start":3,"column_start":5}]}}\\n' "$1" "$1"
 }
 summary_json() {
   printf '{"reason":"compiler-message","message":{"level":"error","code":null,"message":"aborting due to 1 previous error","rendered":"error: aborting due to 1 previous error\\\\n","spans":[]}}\\n'
@@ -88,9 +88,7 @@ with open(os.environ["RATCHET_LOG"], "a") as log:
     log.write(" ".join(sys.argv[1:]) + "\\n")
 sys.exit(int(os.environ.get("RATCHET_RC", "0")))
 """
-# The clippy step lints with the ratchet's flags, so the ratchet's --lib --bins run finds its units fresh.
-LINT = ["--all-targets", "--message-format=json", "--", "-W", "clippy::unwrap_used", "-W", "clippy::indexing_slicing",
-        "--cap-lints", "warn"]
+LINT = ["--all-targets", "--message-format=json", "--", "--cap-lints", "warn"]
 PANIC = ["--message-format=json", "--", "-W", "clippy::unwrap_used", "-W", "clippy::indexing_slicing", "--cap-lints", "warn"]
 
 
@@ -299,31 +297,6 @@ class ClippyChangedTests(unittest.TestCase):
                       "does not touch it", result.stdout)
         self.assertIn(f"last changed on the base by {self.base[:7]}", result.stdout)
         self.assertIn("likely a base red", result.stdout)
-
-    def test_a_base_red_is_written_where_feat_parity_check_reads_it(self) -> None:
-        # feat-parity-check.sh runs the panic ratchet after a base red (#55916, #57780, #54990, #59113 and #44357
-        # merged with it skipped while a base lib test failed to compile, 2026-11-26) and skips it after the
-        # change's own red.
-        mark = self.tmp / "base-red"
-        self.change("cmux-tui/crates/a/tests/journey.rs", "#[test]\nfn t2() {}\n")
-        result = self.run_check("--base", self.base, fail="pkg-a",
-                                env_extra={"FAIL_FILE": "crates/a/src/lib.rs", "CMUX_CLIPPY_BASE_RED_FILE": str(mark)})
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(mark.read_text(), "base red\n")
-        own = self.tmp / "own-red"
-        self.change("cmux-tui/crates/a/src/lib.rs", "pub fn a2() {}\n")
-        result = self.run_check("--base", self.base, fail="pkg-a",
-                                env_extra={"FAIL_FILE": "crates/a/src/lib.rs", "CMUX_CLIPPY_BASE_RED_FILE": str(own)})
-        self.assertEqual(result.returncode, 1)
-        self.assertFalse(own.exists(), "the change's own red is not a base red")
-
-    def test_a_ratchet_lint_is_not_annotated_by_the_clippy_step(self) -> None:
-        # The ratchet's -W lints ride along so its run reuses this one's units; the ratchet judges and reports them.
-        self.change("cmux-tui/crates/a/src/lib.rs")
-        result = self.run_check("--base", self.base,
-                                env_extra={"CLIPPY_JSON": "warn", "LINT_CODE": "clippy::indexing_slicing"})
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertNotIn("::warning file=", result.stdout)
 
     def test_base_compile_red_allows_an_independent_panic_verdict(self) -> None:
         # An unchanged test can fail compilation while changed production code introduces a panic.

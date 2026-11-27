@@ -53,6 +53,7 @@ exports:
                        '_CFRunLoopRemoveSource',
                        '_CFRunLoopRun',
                        '_CFRunLoopRunInMode',
+                       '_CFRunLoopSourceInvalidate',
                        '_CFRunLoopStop',
                        '_CFStringCompare',
                        '_CFStringCreateExternalRepresentation',
