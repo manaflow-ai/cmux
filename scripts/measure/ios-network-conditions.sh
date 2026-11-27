@@ -58,6 +58,11 @@
 # a lost answer), and what the host applied: double and lost sends per 100. Rows: idle, lte,
 # lossy-3, link-down (lte, the link drops for 3 s at each tap), duress (lte, a loaded host).
 # n= is the sends per row (25 by default in this mode); blackout_ms= the link-down length.
+# The attachment row: attach_bytes= the image or video size, attach_rows= its conditions
+# (idle,lte,duress by default), attach_sends= its sends per row (20 by default). A large attach
+# splits by condition, one run per row, so each run stays inside its step's time limit:
+#   cmux-ci test -- bash scripts/measure/ios-network-conditions.sh mode=send surfaces=chat \
+#     attach_bytes=170000000 attach_rows=lte attach_sends=20
 #   cmux-ci test -- bash scripts/measure/ios-network-conditions.sh mode=send surfaces=chat,terminal n=25
 #
 # mode=background (Leo, 2026-11-24: "the syncing can arguably happen in the background too, so
@@ -83,7 +88,7 @@
 set -euo pipefail
 trap 'echo "ios-network-conditions.sh: line $LINENO exited $? ($BASH_COMMAND)" >&2' ERR
 
-before="" after="" mode=links duress_profiles="lte,lossy-3" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0 relay="" blackout_ms=3000 send_rows="idle,lte,lossy-3,link-down,duress" n_given="" away="1m,10m,1h,8h" loads="idle,busy" attach_bytes="" leg=headless evidence=""
+before="" after="" mode=links duress_profiles="lte,lossy-3" n=5 profiles="" surfaces="terminal,chat" scales="1x,10x,100x" seed=0 relay="" blackout_ms=3000 send_rows="idle,lte,lossy-3,link-down,duress" n_given="" away="1m,10m,1h,8h" loads="idle,busy" attach_bytes="" attach_rows="" attach_sends="" leg=headless evidence=""
 for kv in "$@"; do
   case "$kv" in
     before=*) before="${kv#*=}" ;;
@@ -101,9 +106,11 @@ for kv in "$@"; do
     away=*) away="${kv#*=}" ;;
     loads=*) loads="${kv#*=}" ;;
     attach_bytes=*) attach_bytes="${kv#*=}" ;;
+    attach_rows=*) attach_rows="${kv#*=}" ;;
+    attach_sends=*) attach_sends="${kv#*=}" ;;
     leg=*) leg="${kv#*=}" ;;
     evidence=*) evidence="${kv#*=}" ;;
-    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, after=, mode=, duress_profiles=, n=, profiles=, surfaces=, scales=, seed=, relay=, blackout_ms=, send_rows=, away=, loads=, attach_bytes=, leg=, evidence=)" >&2; exit 2 ;;
+    *) echo "ios-network-conditions.sh: unknown arg '$kv' (before=, after=, mode=, duress_profiles=, n=, profiles=, surfaces=, scales=, seed=, relay=, blackout_ms=, send_rows=, away=, loads=, attach_bytes=, attach_rows=, attach_sends=, leg=, evidence=)" >&2; exit 2 ;;
   esac
 done
 [[ -z "$before" || "$before" =~ ^[0-9a-f]{40}$ ]] || { echo "ios-network-conditions.sh: before= is a 40-character SHA" >&2; exit 2; }
@@ -120,6 +127,8 @@ done
 [[ "$scales" =~ ^[0-9]+x(,[0-9]+x)*$ ]] || { echo "ios-network-conditions.sh: scales=1x,10x,100x" >&2; exit 2; }
 [[ -z "$profiles" || "$profiles" =~ ^[a-z0-9-]+(,[a-z0-9-]+)*$ ]] || { echo "ios-network-conditions.sh: profiles=NAME,..." >&2; exit 2; }
 [[ -z "$attach_bytes" || "$attach_bytes" =~ ^[1-9][0-9]{0,8}$ ]] || { echo "ios-network-conditions.sh: attach_bytes is the photo size in bytes (default 5242880)" >&2; exit 2; }
+[[ -z "$attach_rows" || "$attach_rows" =~ ^[a-z0-9-]+(,[a-z0-9-]+)*$ ]] || { echo "ios-network-conditions.sh: attach_rows=idle,lte,duress" >&2; exit 2; }
+[[ -z "$attach_sends" || "$attach_sends" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "ios-network-conditions.sh: attach_sends is 1-999 (default 20)" >&2; exit 2; }
 [[ -z "$relay" || "$relay" =~ ^[a-z0-9-]+$ ]] || { echo "ios-network-conditions.sh: relay=NAME (one link profile)" >&2; exit 2; }
 [[ "$leg" == headless || "$leg" == sim ]] || { echo "ios-network-conditions.sh: leg=headless or leg=sim" >&2; exit 2; }
 
@@ -296,6 +305,7 @@ bench() {
     NETCOND_PROFILES="$profiles" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" NETCOND_SEED_BASE="$seed" NETCOND_RELAY="$relay" \
     NETCOND_DURESS_PROFILES="$duress_profiles" NETCOND_SENDS="$n" NETCOND_SEND_BLACKOUT_MS="$blackout_ms" \
     NETCOND_SEND_ROWS="$send_rows" NETCOND_AWAY="$away" NETCOND_LOADS="$loads" ${attach_bytes:+NETCOND_ATTACH_BYTES="$attach_bytes"} \
+    ${attach_rows:+NETCOND_ATTACH_ROWS="$attach_rows"} ${attach_sends:+NETCOND_ATTACH_SENDS="$attach_sends"} \
     cargo test --release ${locked[@]+"${locked[@]}"} -p "$crate" --test mobile_link_conditions -- \
       ${filter[@]+"${filter[@]}"} --ignored --nocapture --test-threads 1 2>&1 | tee "$log" |
     # Live as they come, so a run cut at its deadline still shows how far it got.

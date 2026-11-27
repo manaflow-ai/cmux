@@ -21,6 +21,8 @@ impl Peer {
         let mut backoff = Backoff::default();
         // Refused ssh logins in a row (`Backoff::login_refused`).
         let mut login_refusals = 0u32;
+        // Refused host keys in a row (`Backoff::host_key_refused`).
+        let mut host_key_refusals = 0u32;
         let Some(mut out_rx) = self.out_rx.lock().await.take() else {
             // A second run: the first owns the outbound queue and the link.
             tracing::warn!(peer = %self.name, "peer link already running");
@@ -74,6 +76,11 @@ impl Peer {
             } else {
                 0
             };
+            host_key_refusals = if self.host_key_refused.load(Ordering::SeqCst) {
+                host_key_refusals.saturating_add(1)
+            } else {
+                0
+            };
             // A peer down for a day or more is parked on an hourly retry (`PeerLink::retry_delay`).
             // Scheduled before the notice goes out: the hub saves `next_retry_at` to the peer
             // cache while handling it, so a daemon restart mid-wait keeps the parked deadline.
@@ -84,6 +91,13 @@ impl Peer {
                     if login_refusals > 0 {
                         let least =
                             Backoff::login_refused(login_refusals, crate::peer_link::jitter());
+                        delay = delay.max(least);
+                    }
+                    if host_key_refusals > 0 {
+                        let least = Backoff::host_key_refused(
+                            host_key_refusals,
+                            crate::peer_link::jitter(),
+                        );
                         delay = delay.max(least);
                     }
                     // Reported only (`nextRetryAt`): the wait below keeps its own delay.
@@ -240,9 +254,15 @@ impl Peer {
         use crate::peer_paths::Via;
         self.facts.lock_or_recover().refused = false;
         self.login_refused.store(false, Ordering::SeqCst);
+        self.host_key_refused.store(false, Ordering::SeqCst);
         self.link_timed_out.store(false, Ordering::SeqCst);
         #[cfg(test)]
         if test_dial::refused() {
+            if test_dial::host_key_refused() {
+                let reason = ssh_errors::reason(b"Host key verification failed.");
+                self.note_ssh_failure(reason);
+                return Err(ssh_errors::describe("ssh to box failed (test)".into(), reason));
+            }
             if test_dial::login_refused() {
                 let reason =
                     ssh_errors::reason(b"leo@box: Permission denied (publickey,password).");
