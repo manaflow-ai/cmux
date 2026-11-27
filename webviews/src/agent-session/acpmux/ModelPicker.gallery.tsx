@@ -193,13 +193,12 @@ const familyRecommendationsCodex: ModelPickerProps = {
 
 /// A machine with many agents installed (Lawrence 2026-10-13: the picker grew to the window's
 /// height): each is its own harness profile, several of one brand (Claude Code, Claude Agent,
-/// the subrouter and CodeRouter Claude routes).
+/// the subrouter Claude route).
 const manyHarnesses: ModelPickerProps["catalog"] = [
   ...catalog.filter((entry) => entry.pickable !== false),
   ...[
     ["claude-acp", "Claude Agent"],
     ["claude-sr", "Claude (subrouter)"],
-    ["claude-cr", "Claude (CodeRouter)"],
     ["cmux-codex", "cmux Codex"],
     ["gemini", "Gemini CLI"],
     ["opencode", "OpenCode"],

@@ -84,7 +84,7 @@ pub fn add(
             "registry id {id:?} does not make a harness id (1-40 lowercase letters, digits or '-')"
         );
     };
-    if matches!(harness.as_str(), "claude" | "claude-cr" | "claude-sr") {
+    if matches!(harness.as_str(), "claude" | "claude-sr") {
         bail!("{harness} is acpmux's own Claude Code route; it cannot come from the registry");
     }
     let launch = agent.launch(registry::platform(), which);

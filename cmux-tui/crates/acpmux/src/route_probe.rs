@@ -97,7 +97,7 @@ fn probed_family(route: &Route) -> &'static str {
 }
 
 /// Whether [`probe`] tests what a `family` harness uses on `route`. A relay route
-/// (`local-coderouter`, or `cmux-router` with no secret) mints a key for each harness family
+/// (`cmux-router` with no secret) mints a key for each harness family
 /// (`local_router_with`), so its probe speaks only for the family it probed as
 /// ([`probed_family`]). Any other route sends every family its own secret: its health URL speaks
 /// for all of them, and its base URL for the families that use that endpoint (the Anthropic one

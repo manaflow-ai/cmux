@@ -374,7 +374,6 @@ fn program_is_agent(id: &str, program: &str) -> bool {
 /// and the harnesses its PATH discovery already finds by name.
 pub const RESERVED_IDS: &[&str] = &[
     "claude",
-    "claude-cr",
     "claude-sr",
     "codex",
     "gemini",

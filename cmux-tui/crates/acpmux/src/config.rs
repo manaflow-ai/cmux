@@ -1825,14 +1825,6 @@ pub struct Config {
     /// Set with `acpmux config --set direct_port=PORT`; the carrier takes it at its start.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub direct_port: Option<u16>,
-    /// `coderouterClaudeRoute`: the CodeRouter CLI subcommand that runs
-    /// Claude Code through a CodeRouter route. When it is set (env
-    /// `ACPMUX_CODEROUTER_CLAUDE_ROUTE` wins) and `coderouter` or `cr` is on
-    /// PATH, discovery adds the `claude-cr` profile and `-m claude` prefers
-    /// it. Unset (the default): no CodeRouter profile, and `claude` is the
-    /// user's own login. The binary names no route.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coderouter_claude_route: Option<String>,
     /// `sendRelay`: `{"argv": [...]}`, the command `acpmux send` hands a message to when its
     /// target names no session here and no peer lists it (`cli/send_relay.rs`). Unset (the
     /// default): such a send is refused as before.
@@ -1881,10 +1873,6 @@ pub struct Config {
     /// over onto the local CodeRouter, and a sign-in failure says only how to sign it in.
     #[serde(skip)]
     pub cloud_host: bool,
-    /// The `defaults.claude.prefer` list discovery filled in, not the user.
-    /// `save` drops it only while it is still unchanged.
-    #[serde(skip)]
-    pub auto_prefer: Option<Vec<String>>,
     /// The dashboard listener could not bind this run, so `websocket` is
     /// not being served. Kept apart so a save does not drop the address.
     #[serde(skip)]
@@ -2126,10 +2114,9 @@ mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
-    CHIEF_FAMILY, CHIEF_PROFILE, CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE,
-    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_chief,
-    add_cmux_router, add_cmux_router_with, add_coderouter_route, cmux_router_model_setting,
-    coderouter_claude_route, discover_harnesses, discover_harnesses_from, discoverable,
+    CHIEF_FAMILY, CHIEF_PROFILE, CMUX_ROUTER_MODEL_SETTING, CMUX_ROUTER_PROFILE, UNIICHAT_PROFILE,
+    add_chief, add_cmux_router, add_cmux_router_with, cmux_router_model_setting,
+    discover_harnesses, discover_harnesses_from, discoverable,
 };
 mod peer;
 pub use peer::PeerConfig;

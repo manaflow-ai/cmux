@@ -137,9 +137,6 @@ pub enum RouteKind {
     DirectSubscription,
     /// The provider's API with a key.
     DirectApiKey,
-    /// cmux's local Rust CodeRouter (crate cmux-coderouter, LOCAL-CODEROUTER):
-    /// its loopback port and a per-install key come from the running router.
-    LocalCoderouter,
     /// A team subrouter.
     Subrouter,
     /// CLIProxyAPI (an Anthropic/OpenAI-compatible proxy over subscription logins).
@@ -147,7 +144,10 @@ pub enum RouteKind {
     /// The hosted cmux model router (open-source models), reached through the
     /// local relay (crate cmux-coderouter): the relay holds the app's upstream
     /// bearer; a harness gets only the relay's loopback URL and a crl_ key.
-    /// Serves both families (Messages API and OpenAI chat/completions).
+    /// Serves both families (Messages API and OpenAI chat/completions). A route file
+    /// that still says `local-coderouter` (the CodeRouter relay kind, removed) reads as this
+    /// kind: the same local relay, the same hosted upstream.
+    #[serde(alias = "local-coderouter")]
     CmuxRouter,
     CustomAnthropic,
     CustomOpenai,
@@ -165,7 +165,6 @@ impl RouteKind {
     pub const ALL: &[RouteKind] = &[
         Self::DirectSubscription,
         Self::DirectApiKey,
-        Self::LocalCoderouter,
         Self::Subrouter,
         Self::Cliproxyapi,
         Self::CmuxRouter,
@@ -179,7 +178,6 @@ impl RouteKind {
         match self {
             Self::DirectSubscription => "direct-subscription",
             Self::DirectApiKey => "direct-api-key",
-            Self::LocalCoderouter => "local-coderouter",
             Self::Subrouter => "subrouter",
             Self::Cliproxyapi => "cliproxyapi",
             Self::CmuxRouter => "cmux-router",
@@ -196,7 +194,7 @@ impl RouteKind {
 
     /// Kinds whose URL and key come from the running local router.
     pub fn relayed(self) -> bool {
-        matches!(self, Self::LocalCoderouter | Self::CmuxRouter)
+        matches!(self, Self::CmuxRouter)
     }
 
     /// The auth a preset of this kind starts with.
@@ -204,7 +202,7 @@ impl RouteKind {
         match self {
             Self::DirectSubscription | Self::ChatgptPlan | Self::ClaudeToken => Auth::Subscription,
             Self::DirectApiKey => Auth::ApiKey,
-            Self::LocalCoderouter | Self::CmuxRouter => Auth::Bearer,
+            Self::CmuxRouter => Auth::Bearer,
             Self::Subrouter | Self::Cliproxyapi | Self::CustomAnthropic | Self::CustomOpenai => {
                 Auth::None
             }
@@ -326,9 +324,9 @@ impl Route {
         self.file.auth.unwrap_or_else(|| self.file.kind.default_auth())
     }
 
-    /// Whether a spawn takes its URL and key from the local relay: always for
-    /// local-coderouter; for cmux-router unless the route file names its own
-    /// secret (a route made before the relay: it stays direct, as it was).
+    /// Whether a spawn takes its URL and key from the local relay: for cmux-router
+    /// unless the route file names its own secret (a route made before the relay:
+    /// it stays direct, as it was).
     pub fn uses_relay(&self) -> bool {
         uses_relay(&self.file)
     }
@@ -384,11 +382,7 @@ impl Route {
 }
 
 fn uses_relay(file: &RouteFile) -> bool {
-    match file.kind {
-        RouteKind::LocalCoderouter => true,
-        RouteKind::CmuxRouter => file.secret.is_none(),
-        _ => false,
-    }
+    file.kind == RouteKind::CmuxRouter && file.secret.is_none()
 }
 
 pub(crate) fn is_anthropic_family(family: &str) -> bool {
@@ -1189,4 +1183,19 @@ pub(crate) fn resolve_reference(value: &str) -> Result<String, String> {
         return crate::config::profiles::keychain_lookup(service, account);
     }
     Ok(value.to_owned())
+}
+
+#[cfg(test)]
+mod removed_kind_tests {
+    use super::*;
+
+    /// A route file from before the CodeRouter relay kind was removed still loads, as the
+    /// cmux router through the same local relay.
+    #[test]
+    fn a_local_coderouter_route_file_reads_as_the_cmux_router() {
+        let file: RouteFile = toml::from_str("kind = \"local-coderouter\"\n").unwrap();
+        assert_eq!(file.kind, RouteKind::CmuxRouter);
+        assert!(uses_relay(&file));
+        assert_eq!(RouteKind::parse("local-coderouter"), None);
+    }
 }

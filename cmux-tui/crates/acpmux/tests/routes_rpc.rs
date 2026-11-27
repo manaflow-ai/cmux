@@ -319,9 +319,9 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
         "ANTHROPIC_BASE_URL=http://127.0.0.1:9/a"
     );
 
-    // A route that cannot start (the local CodeRouter is not running) is
+    // A route that cannot start (the local relay is not running) is
     // refused before the binding changes: the chat stays on proxy A.
-    local.ok("_acpmux/route/add", json!({"id": "local", "kind": "local-coderouter"})).await;
+    local.ok("_acpmux/route/add", json!({"id": "local", "kind": "cmux-router"})).await;
     let down =
         local.err("_acpmux/chat/route.set", json!({"sessionId": id, "routeId": "local"})).await;
     assert_eq!(reason(&down), "route.unavailable", "{down}");

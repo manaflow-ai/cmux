@@ -131,7 +131,7 @@ public struct TurnFailureCopy: Hashable, Sendable {
     private static let subscription = #"not logged in|login required|please (?:run )?/login|(?:claude|codex) (?:auth )?login|oauth token (?:has )?expired|session (?:has )?expired|refresh token|invalid_grant|sign(?:ed)? ?in again"#
     private static let auth = #"\b40[13]\b|unauthori[sz]ed|forbidden|authenticat|\boauth\b"#
     /// Profiles that reach their provider through a proxy acpmux knows by name (the Mac's list).
-    private static let proxyProfiles = ["claude-sr": "subrouter", "claude-cr": "CodeRouter"]
+    private static let proxyProfiles = ["claude-sr": "subrouter"]
     private static let providerHosts = #"(?:^|\.)(?:anthropic\.com|openai\.com|chatgpt\.com|claude\.ai)(?::\d+)?$"#
 
     private static func matches(_ pattern: String, _ text: String) -> Bool {
