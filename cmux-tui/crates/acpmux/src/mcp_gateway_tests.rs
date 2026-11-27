@@ -580,6 +580,45 @@ async fn a_closed_chats_server_ends_with_it() {
     until("the closed chat's server ends", async || gone(pid)).await;
 }
 
+/// Before: a pooled session's end (a discarded or expired spare) never reached the chat close
+/// that forgets a chat, so the `cmux mcp serve` its harness's start began ran on, the daemon's
+/// child, for the whole idle window; a spare pool thrash left hundreds. After: it ends with the
+/// pooled session, long before the idle window, and its launch file and MCP config go too.
+#[tokio::test]
+async fn a_pooled_sessions_server_ends_with_it_not_after_the_idle_window() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    g.keep("spare-a", launch(home.path())).unwrap();
+    let config = crate::agent_tools::mcp_config_path(home.path(), "spare-a");
+    std::fs::write(&config, "{}").unwrap();
+    rpc(&g, "spare-a", call(1)).await;
+    let pid = g.server_pid("spare-a").await.unwrap();
+    assert!(launch_path(home.path(), "spare-a").exists());
+    pooled_ended_on(Some(&g), home.path(), "spare-a", false);
+    until("the ended pooled session's server ends", async || gone(pid)).await;
+    assert_eq!(g.running(), 0, "{} chats hold a server", g.running());
+    assert!(!g.chats.lock().unwrap().contains_key("spare-a"), "the gateway still holds the chat");
+    assert!(!launch_path(home.path(), "spare-a").exists(), "its launch file is left");
+    assert!(!config.exists(), "its MCP config is left");
+}
+
+/// A pooled session a chat claimed is that chat's id: its end stops the server, as a
+/// hibernation does, and keeps the chat's launch, so the chat's next call starts one again.
+#[tokio::test]
+async fn a_claimed_pooled_sessions_end_stops_its_server_and_keeps_the_chat() {
+    let home = tempfile::tempdir().unwrap();
+    let g = gateway(home.path(), IDLE_STOP).await;
+    g.keep("spare-b", launch(home.path())).unwrap();
+    rpc(&g, "spare-b", call(1)).await;
+    let pid = g.server_pid("spare-b").await.unwrap();
+    pooled_ended_on(Some(&g), home.path(), "spare-b", true);
+    until("the claimed pooled session's server ends", async || gone(pid)).await;
+    assert!(launch_path(home.path(), "spare-b").exists(), "the chat's launch went");
+    rpc(&g, "spare-b", call(2)).await;
+    let again = g.server_pid("spare-b").await.expect("the chat's next call starts its server");
+    assert_ne!(again, pid);
+}
+
 fn init(id: u64) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "harness"}}})
 }

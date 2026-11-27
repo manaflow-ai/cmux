@@ -1412,7 +1412,13 @@ pub(super) async fn end_pooled(p: Pooled) {
         signal_harness(&p.record, libc::SIGCONT);
     }
     let _ = tokio::time::timeout(END_GRACE, p.child.terminate(END_GRACE)).await;
-    end_pooled_host(&p.record).await;
+    end_pooled_host_only(&p.record).await;
+    // Its `cmux` server, which the daemon runs (`mcp_gateway.rs`), goes with the harness.
+    crate::mcp_gateway::pooled_ended(
+        &crate::config::home(),
+        &p.session_id,
+        p.claimed_under.is_some(),
+    );
 }
 
 /// Debug builds only: the mode in the file `ACPMUX_TEST_POOL_ADOPT_REPORT_FILE` names is held as a
@@ -1488,6 +1494,14 @@ fn hold_mode_report(p: &Pooled, mode: &str) {
 /// End a pooled host by nonce proof (when it still runs) and remove its
 /// pool-directory files.
 async fn end_pooled_host(record: &HostRecord) {
+    end_pooled_host_only(record).await;
+    // No chat claimed it: its `cmux` server and MCP config go too (`mcp_gateway::pooled_ended`).
+    crate::mcp_gateway::pooled_ended(&crate::config::home(), &record.session_id, false);
+}
+
+/// [`end_pooled_host`] without the session's MCP side, for [`end_pooled`], which knows whether a
+/// chat claimed it.
+async fn end_pooled_host_only(record: &HostRecord) {
     let dir = pool_dir();
     if agent_host::liveness(&dir, &record.session_id, &record.start_nonce) != Liveness::Dead {
         super::hosts::end_host_blocking(
