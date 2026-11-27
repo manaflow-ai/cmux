@@ -274,6 +274,17 @@ class WorkflowShape(unittest.TestCase):
                     with self.subTest(gate=str(path.relative_to(ROOT)), module=name):
                         self.assertIn(f"/tests/{name}.py", patterns, f"{path.relative_to(ROOT)} imports tests/{name}.py")
         self.assertIn("test_egress_gate", seen)
+        # 2026-11-27 (#61088, run 45997666983): test_outbound_hosts.py began importing tests/guard_delta.py and merged
+        # without this test running: it names none of these modules, so focused_tests.py never picked it for a change to
+        # one. Each module this walk reaches selects this test (scripts/ci/focused-tests-extra.json), so a new import
+        # is made in a file that already runs it.
+        extra = json.loads((ROOT / "scripts/ci/focused-tests-extra.json").read_text())["rules"]
+        selects = {rule["prefix"] for rule in extra if "tests/test_cmux_next_fast_gates.py" in rule.get("python", [])}
+        for name in sorted(seen):
+            with self.subTest(selects=name):
+                self.assertIn(f"tests/{name}.py", selects,
+                              f'add {{"prefix": "tests/{name}.py", "python": ["tests/test_cmux_next_fast_gates.py"]}} to '
+                              "scripts/ci/focused-tests-extra.json")
 
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())

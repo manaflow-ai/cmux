@@ -59,15 +59,15 @@ env:
 jobs:
   eval:
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
     # The job's clock is the fleet queue wait, then the step. The queue wait is bounded by the step's
     # own --queue-timeout (QUEUE_TIMEOUT below): finished steps waited 23 to 144 min for their
-    # exclusive host (p90 about 144 min; 300 min is twice that), and on 2026-11-27 an iphone-sim step
-    # strictly pinned to a worker whose claims stayed paused waited 8 h with no bound, holding the
-    # gateway runner while later runs queued behind it. The step itself is bounded by --timeout 7200
-    # (finished runs took 6 to 13 min; iphone-sim also builds the app). 300 + 120 + 20 min for
-    # checkout, the summary and the upload: 440.
-    timeout-minutes: 440
+    # exclusive host, the pinned worker's lease ran 2.5 h on 2026-11-22 and past 300 min on 2026-11-23
+    # (run 45160093472), and on 2026-11-27 an iphone-sim step strictly pinned to a worker whose claims
+    # stayed paused waited 8 h with no bound, holding the gateway runner while later runs queued behind
+    # it. The step itself is bounded by --timeout 7200 (finished runs took 6 to 13 min). 580 min of
+    # queue + 120 + 20 min for checkout, the summary and the upload: 720.
+    timeout-minutes: 720
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -130,7 +130,7 @@ jobs:
           WORKER: ${{ inputs.worker || vars.SCREEN_STREAM_EVAL_WORKER || '' }}
           BUDGET: ${{ inputs.budget || '' }}
           # Seconds the step may wait in the fleet queue (see timeout-minutes above).
-          QUEUE_TIMEOUT: "18000"
+          QUEUE_TIMEOUT: "34800"
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
