@@ -558,6 +558,8 @@ pub fn table() -> Vec<(&'static str, Ask)> {
             ),
         ),
         (method::MUX_HERE, Run(json!({"scope": "$S"}))),
+        (method::MUX_LIVE, Run(json!({}))),
+        (method::MUX_LIVE_LIST, Run(json!({}))),
         (method::MUX_ROOMS, Run(json!({"chats": ["$S"]}))),
         (method::MUX_FOLLOW, Run(json!({"target": null}))),
         (method::MUX_PIN, Run(json!({"sessionId": "$S", "pinned": true}))),
