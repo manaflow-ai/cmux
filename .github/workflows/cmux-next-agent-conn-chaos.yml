@@ -17,10 +17,12 @@ name: cmux-next agent connection chaos
 # ci-step list (hq build-fleet/cmd/controller/ci_step.go); the worker then checks the head did not change the
 # script's bytes. Until then a pull request run is refused (HTTP 400) and this job is red, not skipped.
 
+# First landing: dispatch only. The controller refuses a scripts/measure script whose bytes are not yet on
+# feat-cmux-next ("a change to it takes effect only after it lands there"), so the pull request that adds the
+# script can never run it and its check would be red on every connection-path pull request. The follow-up that
+# has a green fleet Mac run at a feat-cmux-next commit restores the trigger:
+#   pull_request: {branches: [feat-cmux-next], types: [opened, synchronize, reopened, ready_for_review]}
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
     inputs:
       ref:
