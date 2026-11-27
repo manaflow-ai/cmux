@@ -483,7 +483,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             state, desc = proof_record.with_tokens(lambda token: gate_now(repo, pr, sha, token, bots), tokens)
         except Exception as e:  # noqa: BLE001 - unread is an error state, never a pass
-            state, desc = "error", f"UI proof not read ({proof_record.unread(e)}): rerun this job"
+            state, desc = "error", f"UI proof not read ({proof_record.read_error(e)}): see job log"
         print(f"{state}\t{desc}")
         return 0
     if args.cmd == "record":
