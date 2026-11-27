@@ -359,7 +359,7 @@ fn a_mount_with_blobs_missing_fetches_none_and_the_first_read_fetches_one() {
     std::fs::remove_file(loose(&git_dir, &readme)).unwrap();
 
     // Mount again from the kept listing: nothing is asked for, though a blob is gone.
-    let asked = std::sync::Mutex::new(Vec::<String>::new());
+    let asked = Mutex::new(Vec::<String>::new());
     let items = ls_tree_cached_with(&git_dir, &commit, &cache, &|oids| {
         asked.lock().unwrap().extend(oids.iter().cloned());
         Ok(())
@@ -377,7 +377,7 @@ fn a_mount_with_blobs_missing_fetches_none_and_the_first_read_fetches_one() {
     let projection = Projection::build(&commit, &items, &mut Book::default(), &layout).unwrap();
     let entry = projection.manifest.resolve("README.md").unwrap();
 
-    let fetched = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let fetched = Arc::new(Mutex::new(Vec::<String>::new()));
     let (seen, root, wanted) = (fetched.clone(), git_dir.clone(), bytes);
     let blobs = GitBlobs::new(&git_dir, projection.sources.clone()).with_filler(Arc::new(
         move |oid: &str| {
@@ -405,8 +405,7 @@ fn a_blob_no_filler_can_get_fails_its_read() {
     let projection = project(&git_dir, &commit, &mut Book::default(), 5_000_000_000);
     std::fs::remove_file(loose(&git_dir, &oid_of(&items, "README.md"))).unwrap();
     let entry = projection.manifest.resolve("README.md").unwrap();
-    let blobs =
-        GitBlobs::new(&git_dir, projection.sources.clone()).with_filler(Arc::new(|_: &str| false));
+    let blobs = GitBlobs::new(&git_dir, projection.sources).with_filler(Arc::new(|_: &str| false));
     assert!(blobs.read(entry, 0, 10).is_err());
 }
 
@@ -428,7 +427,7 @@ fn only_blobs_with_no_kept_size_and_none_in_the_store_are_asked_for() {
     let bytes = std::fs::read(loose(&git_dir, &new)).unwrap();
     std::fs::remove_file(loose(&git_dir, &new)).unwrap();
     std::fs::remove_file(loose(&git_dir, &kept)).unwrap();
-    let asked = std::sync::Mutex::new(Vec::<String>::new());
+    let asked = Mutex::new(Vec::<String>::new());
     let listed = ls_tree_cached_with(&git_dir, &two, &trees.join(&two), &|oids| {
         asked.lock().unwrap().extend(oids.iter().cloned());
         std::fs::create_dir_all(loose(&git_dir, &new).parent().unwrap())?;
