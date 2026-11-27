@@ -408,6 +408,10 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23). A workflow guard no workflow runs (tests/test_ci_workflow_guards_are_wired.py UNWIRED gives what it checks); run python3 -m unittest tests/test_head_tier.py yourself after adding a pull_request workflow to its GATED set or editing a gated workflow's job conditions."
 
 [[test]]
+path = "tests/test_hook_context_window.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_hook_python.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Pins scripts/git-hooks/hook_python.sh, the hooks' per-host Python pick, and scans scripts/ and .github/ for per-host interpreter paths; run python3 tests/test_hook_python.py yourself after changing the hooks' interpreter handling (about a second, no build)."
