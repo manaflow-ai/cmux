@@ -81,6 +81,38 @@ async fn automatic_restart_keeps_queued_prompts_and_work_below_even_before_retry
 }
 
 #[tokio::test]
+async fn automatic_restart_ordinary_prompt_hibernates_required_stale_agent() {
+    let (hub, session) = live_chat().await;
+    let old = session.child.lock().await.clone().expect("live fake child");
+    hub.respawn_when_quiet_required(&session);
+    assert_eq!(session.queued(), 0, "the ordinary prompt has not entered the queue yet");
+
+    hub.prompt(
+        &session,
+        vec![json!({"type": "text", "text": "ordinary after route change"})],
+        "test",
+        false,
+    )
+    .await
+    .expect("ordinary prompt after a required restart");
+
+    let current = session.child.lock().await.clone().expect("prompt starts replacement child");
+    assert!(!Arc::ptr_eq(&old, &current), "ordinary prompt reused the stale child");
+    assert!(!old.is_alive().await, "quiet restart left the stale child alive");
+    assert!(current.is_alive().await, "replacement child did not survive the prompt");
+    assert_eq!(session.meta().hibernated_ms, 0, "the replacement has woken from hibernation");
+    assert!(
+        !session.respawn_when_quiet.load(Ordering::SeqCst),
+        "restart mark remained after replacement"
+    );
+    assert!(
+        !session.respawn_required.load(Ordering::SeqCst),
+        "required restart mark remained after replacement"
+    );
+    hub.shutdown_all().await;
+}
+
+#[tokio::test]
 async fn automatic_restart_retry_preserves_held_prompts_but_waits_for_admission() {
     let (hub, session) = live_chat().await;
     hub.append(
