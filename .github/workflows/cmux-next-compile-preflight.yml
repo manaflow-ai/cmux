@@ -68,11 +68,9 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      # Before the caller's path admission, this job ran on every head: 14-15 s of a 40 s no-op run
-      # (jobs 140303340556, 140303466828, 2026-11-27 04:00Z), about 300 runs an hour: ~1.8k runner-min/day.
-      # The router now keeps this job for web-bundle inputs and unknown diffs; the callee still has no job-level
-      # if: for an admitted input, so the build verdict remains required (Leo: "de facto, im asking for 99% fewer
-      # minutes of ci time, period.").
+      # The job-level web input skips changes whose paths cannot reach a bundle before allocating a runner.
+      # The caller is independent of the general tier/carry route: unknown diffs and possible web inputs still
+      # reach this live-base check. never-web-check verifies that the ignored paths exclude every bundle input.
 
       # Leo, 2026-11-27: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff".
       # cmux#51044 passed this job at 06:36Z and landed at 07:03Z, then broke feat-cmux-next: the merge commit above was
