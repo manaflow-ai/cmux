@@ -1,5 +1,4 @@
-public import CmuxNextBrowserCore
-import Foundation
+public import Foundation
 
 /// The page's publish, as the App provides it to the popover.
 public struct BrowserPublishSource {

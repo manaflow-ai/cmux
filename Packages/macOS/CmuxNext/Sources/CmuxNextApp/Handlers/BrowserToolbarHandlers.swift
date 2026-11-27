@@ -120,22 +120,13 @@ enum BrowserToolbarHandlers {
         guard let popover = entry.chrome?.toolbarButtons.publishPopover else { return }
         if popover.isShown { return popover.close() }
         guard let page = publisher(url: entry.tab.state.url, title: entry.tab.state.title, services: services) else { return }
-        popover.toggle(BrowserPublishSource(
-            suggestedName: page.target.suggestedName,
-            form: page.form(name:team:),
-            publish: { [weak services] name, team in
-                guard let services else { return .unreachable(CancellationError().localizedDescription) }
-                let api = services.cloud.machineAPI
-                let answer = await page.publish(name: name, team: team, exec: { try await api.exec($0, command: $1, timeoutMs: $2) })
-                if case .published = answer { services.appsTierPreviews.published() } // the sidebar's Apps section reads again
-                return answer
-            },
-            open: { [weak services] url in
-                guard let services, let pane = services.windows.active?.focusedPane?.pane else { return }
-                // task-owner: one tab opening after the popover closed; its failure leaves the link in the popover's answer.
-                Task { _ = try? await services.cache.browserTabs.open(BrowserEngineChoice(engine: .cef, pinned: true), in: pane,
-                                                                      url: url.absoluteString, activate: true) }
-            }))
+        let api = services.cloud.machineAPI
+        popover.toggle(page.source(exec: { try await api.exec($0, command: $1, timeoutMs: $2) }, open: { [weak services] url in
+            guard let services, let pane = services.windows.active?.focusedPane?.pane else { return }
+            // task-owner: one tab opening after the popover closed; its failure leaves the link in the popover's answer.
+            Task { _ = try? await services.cache.browserTabs.open(BrowserEngineChoice(engine: .cef, pinned: true), in: pane,
+                                                                  url: url.absoluteString, activate: true) }
+        }, ran: { [weak services] in services?.appsTierPreviews.published() })) // the sidebar's Apps section reads again
     }
 
     /// The sidebar's `+ Publish preview…` row: the focused pane's page's Publish; false when it has none.

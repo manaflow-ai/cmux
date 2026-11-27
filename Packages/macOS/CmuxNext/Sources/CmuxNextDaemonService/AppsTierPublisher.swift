@@ -34,6 +34,19 @@ public struct AppsTierPublisher: Sendable {
         }
     }
 
+    /// The popover's source: `exec` runs on the preview's machine, `open` shows the published app, and `ran` hears
+    /// every finished run, whatever its answer (the sidebar's Apps section reads its list again).
+    public func source(exec: @escaping Exec, open: @escaping @MainActor (URL) -> Void,
+                       ran: @escaping @MainActor () -> Void) -> BrowserPublishSource {
+        BrowserPublishSource(suggestedName: target.suggestedName, form: form(name:team:), publish: { name, team in
+            // task-owner: one publish run, unstructured: closing the popover cancels only its wait, so the run finishes.
+            let run = Task { await publish(name: name, team: team, exec: exec) }
+            let answer = await run.value
+            ran()
+            return answer
+        }, open: open)
+    }
+
     /// Runs the publish on the preview's machine and reads its answer.
     public func publish(name: String?, team: Bool, exec: Exec) async -> BrowserPublishAnswer {
         let laid = popover(name: name, team: team)
@@ -47,7 +60,7 @@ public struct AppsTierPublisher: Sendable {
         guard let outcome = rules.outcome(stdout: ran.stdout, stderr: ran.stderr, exit: ran.exitCode) else {
             return .unreadable(exit: ran.exitCode)
         }
-        if outcome.published, let link = outcome.url.flatMap(URL.init(string:)) { return .published(link) }
+        if outcome.published { return .published(outcome.url.flatMap(URL.init(string:))) }
         return .failed(code: outcome.code ?? outcome.kind, message: outcome.message ?? "")
     }
 }

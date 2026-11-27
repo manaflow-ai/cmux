@@ -29,8 +29,8 @@ public struct BrowserPublishForm: Equatable, Sendable {
 
 /// How a publish ended, as the popover shows it.
 public enum BrowserPublishAnswer: Equatable, Sendable {
-    /// Live at `url` (Open shows it).
-    case published(URL)
+    /// Live at `url` (Open shows it); nil when the run named no address.
+    case published(URL?)
     /// The publish refused or failed: its code and message.
     case failed(code: String, message: String)
     /// The run ended with `exit` but its answer was not one the rules read.

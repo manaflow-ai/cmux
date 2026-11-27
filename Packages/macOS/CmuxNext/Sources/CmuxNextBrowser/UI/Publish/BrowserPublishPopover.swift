@@ -171,7 +171,8 @@ public final class BrowserPublishPopover: NSObject, NSTextFieldDelegate {
         setRunning(true)
         result.isHidden = true
         openButton.isHidden = true
-        // task-owner: the popover's one publish; closing or reopening cancels it and drops its answer.
+        // task-owner: the popover's wait for its one publish; closing or reopening cancels the wait and drops its answer
+        // (the run itself finishes: ``BrowserPublishSource/publish`` outlives it).
         running = Task { [weak self] in
             let answer = await source.publish(name, team)
             guard let self, !Task.isCancelled else { return }
@@ -184,7 +185,9 @@ public final class BrowserPublishPopover: NSObject, NSTextFieldDelegate {
         setRunning(false)
         let url: URL?
         switch answer {
-        case .published(let link): url = link; result.stringValue = Strings.publishPublished(link.absoluteString)
+        case .published(let link):
+            url = link
+            result.stringValue = Strings.publishPublished(link?.absoluteString ?? typedName ?? source?.suggestedName ?? "")
         case .failed(let code, let message): url = nil; result.stringValue = Strings.publishFailed(code: code, message: message)
         case .unreadable(let exit): url = nil; result.stringValue = Strings.publishUnreadable(exit)
         case .unreachable(let reason): url = nil; result.stringValue = Strings.publishUnreachable(reason)
