@@ -18,6 +18,7 @@
 use super::*;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use futures::StreamExt as _;
 
 /// The most records a copy keeps, and so the most this asks for (`peer_snapshot::SESSION_EVENTS`).
 const SESSION_EVENTS: u64 = 1000;
@@ -172,6 +173,10 @@ pub(crate) async fn send_bundle(
     dst.request("_acpmux/transfer_finish", finish).await
 }
 
+/// Snapshot moves in flight at once: each is a copy already here sent to one target, so the
+/// bound is the target's import, not this machine.
+const MOVES_AT_ONCE: usize = 16;
+
 /// `session move --from-snapshot`: each chat in `args` started on the target from this
 /// machine's copy.
 pub(crate) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
@@ -188,11 +193,20 @@ pub(crate) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
             })
         })
         .transpose()?;
-    let mut targets = Targets::with_here(&args.host, &peers, here_target)?;
+    let targets = tokio::sync::Mutex::new(Targets::with_here(&args.host, &peers, here_target)?);
+    // A dead host's chats all move from here at once: one after another, the last of 100 waits
+    // on the 99 imports before it and starts long past 30 s. Rows still print in the asked order.
+    let moves = futures::stream::iter(&args.sessions)
+        .map(|key| {
+            let (local, peers, args, targets) = (&local, &peers, &args, &targets);
+            async move { (key, one(local, peers, key, args, targets).await) }
+        })
+        .buffered(MOVES_AT_ONCE);
+    futures::pin_mut!(moves);
     let mut rows = Vec::new();
     let mut failed = 0;
-    for key in &args.sessions {
-        let row = match one(&local, &peers, key, &args, &mut targets).await {
+    while let Some((key, moved)) = moves.next().await {
+        let row = match moved {
             Ok(row) => row,
             Err(e) => {
                 failed += 1;
@@ -241,11 +255,11 @@ async fn one(
     peers: &Value,
     key: &str,
     args: &MoveArgs,
-    targets: &mut Targets,
+    targets: &tokio::sync::Mutex<Targets>,
 ) -> Result<Value> {
     let qualified = qualified(key, args.from.as_deref())?;
     let source = qualified.split('/').next().unwrap_or_default().to_owned();
-    if targets.named.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(&source)) {
+    if targets.lock().await.named.as_deref().is_some_and(|n| n.eq_ignore_ascii_case(&source)) {
         bail!("the chat is on {source}: name another machine");
     }
     if let Some(peer) =
@@ -274,7 +288,7 @@ async fn one(
     let group = PathBuf::from(bundle.manifest["session"]["cwd"].as_str().unwrap_or_default());
     // The snapshot's records are few and already here: no history link to time (`wire` 0).
     let harness = bundle.manifest["session"]["harness"].as_str().unwrap_or_default();
-    let target = targets.pick(local, &group, 0, harness, 0).await?;
+    let target = targets.lock().await.pick(local, &group, 0, harness, 0).await?;
     let cwd = bundle.manifest["session"]["cwd"].clone();
     let mut row = json!({"sessionId": qualified, "name": name, "host": target.name, "cwd": cwd,
                          "records": bundle.records, "firstSeq": bundle.first_seq,
