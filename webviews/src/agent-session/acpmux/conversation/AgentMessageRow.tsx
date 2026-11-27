@@ -19,7 +19,7 @@
 // A row with a `peek` keeps its card shown while shut: the card holds the peek (an inbox thread's
 // newest message, whole, InboxNoticeCard.tsx), and opening swaps it for the body in place, the line
 // never carrying a first line of its own.
-import { useId, useRef, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import { ChevronRight } from "./icons";
 
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
@@ -30,6 +30,9 @@ import { UnverifiedMark } from "./UnverifiedMark";
 import type { SenderProgram } from "./incomingMessage";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import "./AgentMessageRow.css";
+/** The least a showing first line keeps: an ellipsis and a letter. */
+const MIN_PREVIEW_PX = 24;
+
 export function AgentMessageRow({
   direction,
   icon,
@@ -140,6 +143,21 @@ export function AgentMessageRow({
   // A click on the line (its words, its chevron) that closes the message hands focus to the toggle,
   // the line's one control, so focus inside the closing card (a reply's editor) is never dropped.
   const toggleRef = useRef<HTMLButtonElement>(null);
+  // A first line squeezed under room for an ellipsis and a letter is a sliver beside the chevron
+  // (Leo, 2026-11-27: "these chevrons are too close"): it goes, still laid out so the line's widths
+  // stay, and comes back with room.
+  const previewRef = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const preview = previewRef.current;
+    if (!preview || typeof ResizeObserver === "undefined") return;
+    const fit = () => {
+      preview.toggleAttribute("data-squeezed", preview.clientWidth < MIN_PREVIEW_PX && preview.scrollWidth > 0);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(preview);
+    return () => observer.disconnect();
+  });
   const closeToToggle = (event?: unknown) => {
     // The click itself, so a drag across the line toggles nothing (useAnchoredCollapse `deliberateClick`).
     if (collapse.toggle(event) && open) toggleRef.current?.focus({ preventScroll: true });
@@ -220,6 +238,7 @@ export function AgentMessageRow({
                 the row keeps its line as it was (`keepsPreviewOpen`). */}
             {/* A copy of the card's first line: Find counts the card's words, not this. */}
             <span
+              ref={previewRef}
               className={`cv-agentmsg__preview${previewClassName && inline ? ` ${previewClassName}` : ""}`}
               data-find-skip=""
             >

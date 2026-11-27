@@ -128,6 +128,9 @@ button.cv-agentmsg__name:focus-visible {
   white-space: nowrap;
   color: var(--cv-text-dim);
 }
+.cv-agentmsg__preview[data-squeezed] {
+  visibility: hidden;
+}
 .cv-agentmsg__chevron {
   cursor: default;
 }

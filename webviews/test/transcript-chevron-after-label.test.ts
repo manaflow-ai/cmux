@@ -20,6 +20,8 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
   setDefaultTimeout(240_000);
   /** The farthest a chevron's glyph may start after its words, in CSS px. */
   const MAX_GAP = 8;
+  /** The least a first-line preview may keep when it shows: room for an ellipsis and a letter, else it goes. */
+  const MIN_PREVIEW = 24;
   /** The nearest a chevron may start to the chip (sender, recipient) it follows: design/chevrons.md's 8px floor. */
   const MIN_CHIP_GAP = 8;
   const LOG = process.env.CMUX_CHEVRON_LOG === "1";
@@ -82,6 +84,8 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
     gap: number | null;
     /** From the chip (a name's box) on its line to the glyph, when one stands before it. */
     chip: number | null;
+    /** The width of the first-line preview on the chevron's line when it shows words, else null. */
+    preview: number | null;
     /** Whether the words it follows are a trailing status or duration, not the label. */
     trail: boolean;
     width: number;
@@ -173,11 +177,17 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
         }
         // A chip's box is the words' end when it is nearer than its label's text (its padding is the chip's).
         if (chip !== null && (gap === null || chip < gap)) gap = chip;
+        let preview: number | null = null;
+        const owner = chevron.closest(".cv-agentmsg__line");
+        const shown = owner?.querySelector(".cv-agentmsg__preview");
+        if (shown && shown.textContent?.trim() && laidOut(shown) && readable(shown))
+          preview = shown.getBoundingClientRect().width;
         const line = chevron.closest(".acpmux-row")!.getBoundingClientRect();
         out.push({
           row: `${row.className || row.tagName} | ${(row.textContent || "").replace(/\s+/g, " ").trim().slice(0, 50)}`,
           gap,
           chip,
+          preview,
           trail,
           width: glyph.width,
           height: glyph.height,
@@ -240,6 +250,10 @@ await requireBrowserLane("transcript-chevron-after-label.test.ts", async () => {
       test(`${name}: a chevron after a chip starts at least ${MIN_CHIP_GAP}px from it`, async () => {
         const close = (await of(scene, width)).filter(({ chip }) => chip !== null && chip < MIN_CHIP_GAP - 0.5);
         expect(close).toEqual([]);
+      });
+      test(`${name}: a preview that shows keeps ${MIN_PREVIEW}px`, async () => {
+        const squeezed = (await of(scene, width)).filter(({ preview }) => preview !== null && preview < MIN_PREVIEW);
+        expect(squeezed.map(({ row, preview }) => `${row} (${preview}px)`)).toEqual([]);
       });
       test(`${name}: a closed chevron points right and an open one down`, async () => {
         const wrong = (await of(scene, width)).filter(({ width: wide, height, open }) =>
