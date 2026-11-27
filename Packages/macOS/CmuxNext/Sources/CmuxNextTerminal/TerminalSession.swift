@@ -151,7 +151,7 @@ public final class TerminalSession {
 
     let io: any TerminalIO
     private let ioMode: ghostty_surface_io_mode_e
-    private let input: TerminalInputSink
+    let input: TerminalInputSink
     private var eventsTask: Task<Void, Never>?
     private var writerTask: Task<Void, Never>?
     /// Tasks an owner ties to this session's lifetime: ``close()`` cancels them.
