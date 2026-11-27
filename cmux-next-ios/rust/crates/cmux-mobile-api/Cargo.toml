@@ -1,0 +1,14 @@
+[package]
+name = "cmux-mobile-api"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The phone's app-level API on a Mac: every method the phone may call after the link connects, with JSON Schemas, strict request checks and capability discovery (cmux-next-ios/contract/README.md)"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json.workspace = true

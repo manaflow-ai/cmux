@@ -23,6 +23,7 @@ blake3 = "1"
 # The Chief's push body as words, not Markdown (src/notify.rs).
 cmux-message-preview.workspace = true
 cmux-mobile-link.workspace = true
+cmux-mobile-api.workspace = true
 # The relay publisher (src/relay_publish.rs): seals the newest snapshot and each delta per phone.
 cmux-relay-snapshot.workspace = true
 # Mac output to phone paint (src/output_paint.rs): its ring and window math.
@@ -79,6 +80,7 @@ name = "cmux-mobile-fake-backend"
 required-features = ["fake-backend"]
 
 [dev-dependencies]
+cmux-api-compat.workspace = true
 cmux-fault.workspace = true
 # The relay-cache catch-up rows (tests/catch_up_conditions.rs): the phone's reader.
 cmux-mobile-core.workspace = true

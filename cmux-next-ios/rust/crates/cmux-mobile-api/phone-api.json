@@ -1,0 +1,1 @@
+{"contract":"cmux-mobile-api","version":1,"methods":[{"name":"link/version","service":"version","kind":"request","params":true}],"types":{}}

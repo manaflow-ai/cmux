@@ -3505,6 +3505,10 @@ inputs = [
   "cmux-tui/crates/cmux-wg/**",
   "cmux-tui/crates/cmux-transport/**",
   "cmux-tui/vendor/smoltcp/**",
+  # The phone API contract (cmux-mobile-host tests/phone_api_contract.rs) is cut from these.
+  "cmux-tui/spec/sdk-schema.json",
+  "cmux-tui/crates/acpmux/spec/acpmux-protocol.json",
+  "cmux-tui/crates/cmux-api-compat/**",
   "scripts/ci/ios_reliability_matrix.py",
 ]
 run = '''
