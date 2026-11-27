@@ -1905,6 +1905,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rust_workspaces_land_head.py
 
+      - name: Validate Rust workspace PR diff gating
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_rust_workspaces_pr_diff_gate.py
+
       - name: Validate workflow self-edit sweep routing
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_self_edit_sweep.py
