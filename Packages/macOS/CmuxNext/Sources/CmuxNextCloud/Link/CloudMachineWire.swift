@@ -1,11 +1,23 @@
 import CmuxEgress
 public import CMUXAuthCore
 public import Foundation
+import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextWakeups
+#if canImport(Network)
+import Network
+#endif
 
 /// The Cloud machine event socket. `/v1/wire/cloud` carries ephemeral VM events;
 /// the access token is used only to mint a one-use ticket and never goes into the
 /// WebSocket subprotocol. Reconnects are event driven and back off after failure.
+///
+/// The network decides too, as on the iPhone link (cmux-next-ios LinkMachine): when this Mac's path changes and is
+/// usable (Wi-Fi back, another network, a VPN), a socket waiting out its backoff dials at once, and a live one sends
+/// a ping that must answer within ``networkProbe`` or is dropped and redialed. Before, a socket that died with the
+/// old network waited up to 30 s of backoff, and one riding a dead route waited for TCP to give up.
+/// Leo, 2026-11-25: "I feel like iOS doesn't retry connections aggressively enough. Or like it isn't detecting when
+/// Wi-Fi is restored and all of that ... I mean likewise with all of our other connectivity things."
 @MainActor
 public final class CloudMachineWire {
     private let apiBaseURL: URL
@@ -15,6 +27,16 @@ public final class CloudMachineWire {
     private let buildSpace: CMUXBuildSpaceState
     private var runner: Task<Void, Never>?
     private var generation = 0
+    /// Each socket loop's wake (its backoff wait ends on a network change) and its live socket's probe, by loop.
+    private var wakes: [Int: RetryWake] = [:]
+    private var probes: [Int: @Sendable () -> Void] = [:]
+    private var nextLoop = 0
+    #if canImport(Network)
+    private var pathMonitor: NWPathMonitor?
+    #endif
+    /// How long a ping sent because the network changed may take to answer before the socket is redialed (the
+    /// machine link's and acpmux peers' bound too).
+    nonisolated static let networkProbe: Duration = .seconds(2)
     /// The person's spare that the platform says just became ready (`cloud.spare.ready`, for this socket's own team):
     /// its machine id, for the login copy before any claim (Rust's `spare_warm` `ready` coalesces repeats).
     public var onSpareReady: @MainActor (String) -> Void = { _ in }
@@ -47,6 +69,7 @@ public final class CloudMachineWire {
     public func start(_ sink: @escaping @MainActor (CloudPortChange) -> Void) {
         stop()
         let generation = generation
+        watchNetwork()
         runner = Task { [weak self] in
             guard let self else { return }
             let active = await self.team()
@@ -71,25 +94,78 @@ public final class CloudMachineWire {
         generation += 1
         runner?.cancel()
         runner = nil
+        #if canImport(Network)
+        pathMonitor?.cancel()
+        pathMonitor = nil
+        #endif
+    }
+
+    /// This Mac's network changed and is usable: every loop waiting out its backoff dials now, every live socket is
+    /// probed (a change that comes while a dial runs is kept and ends the next wait at once).
+    func networkChanged() {
+        for wake in wakes.values { wake.fire() }
+        for probe in probes.values { probe() }
+    }
+
+    private func watchNetwork() {
+        #if canImport(Network)
+        let monitor = NWPathMonitor()
+        // The first update reports the path as it is at start: no change, so no wake.
+        let reported = Mutex(false)
+        monitor.pathUpdateHandler = { [weak self] path in
+            let first = reported.withLock { seen in
+                defer { seen = true }
+                return !seen
+            }
+            guard !first, path.status == .satisfied else { return }
+            // task-owner: one hop to the main actor per path change
+            Task { @MainActor [weak self] in self?.networkChanged() }
+        }
+        monitor.start(queue: DispatchQueue(label: "com.cmuxterm.next.cloud.wire.path", qos: .utility))
+        pathMonitor = monitor
+        #endif
     }
 
     /// One socket's reconnect loop: the active team's (`only` nil, read again per connection) or `only`'s, whose
     /// socket has no `sink` (its port changes stay with the active team's socket, as before).
     private func run(_ generation: Int, only: String?, sink: (@MainActor (CloudPortChange) -> Void)?) async {
-        var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
-        // wakeup-allow: one pass per connection; each pass awaits the socket and, after a failure, a Backoff delay.
-        while !Task.isCancelled, generation == self.generation {
-            do {
-                try await session(generation, only: only, sink: sink, onSubscribed: { backoff.reset() })
-            } catch is CancellationError {
-                return
-            } catch {}
-            // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
-            do { try await backoff.wait(owner: "cloud.machine.wire.reconnect") } catch { return }
+        let loop = nextLoop
+        nextLoop += 1
+        let wake = RetryWake(owner: "cloud.machine.wire.reconnect")
+        wakes[loop] = wake
+        defer { wakes[loop] = nil; probes[loop] = nil }
+        await Self.reconnecting(wake: wake, backoff: Backoff(initial: .milliseconds(500), maximum: .seconds(30)),
+                                keepGoing: { [weak self] in generation == self?.generation }) { [weak self] onSubscribed in
+            guard let self else { throw CancellationError() }
+            try await self.session(generation, loop: loop, only: only, sink: sink, onSubscribed: onSubscribed)
         }
     }
 
-    private func session(_ generation: Int, only: String?, sink: (@MainActor (CloudPortChange) -> Void)?,
+    /// One socket's reconnect loop: `session` runs a connection to its end (it calls its argument once subscribed,
+    /// which starts the backoff over), then the loop waits the backoff's next step or, sooner, a network change on
+    /// `wake`, which also starts the backoff over. Ends when the task is cancelled, `session` throws
+    /// `CancellationError` or `keepGoing` says no.
+    static func reconnecting(wake: RetryWake, backoff: Backoff, clock: any Clock<Duration> = ContinuousClock(),
+                             keepGoing: () -> Bool,
+                             session: (_ onSubscribed: () -> Void) async throws -> Void) async {
+        var backoff = backoff
+        // wakeup-allow: one pass per connection; each pass awaits the socket and, after a failure, a Backoff delay or a network change.
+        while !Task.isCancelled, keepGoing() {
+            do {
+                try await session { backoff.reset() }
+            } catch is CancellationError {
+                return
+            } catch {}
+            guard !Task.isCancelled, keepGoing() else { return }
+            switch await wake.awaitWake(delay: backoff.next(), clock: clock, socket: false) {
+            case .cancelled: return
+            case .event: backoff.reset()
+            case .socket, .timer: break
+            }
+        }
+    }
+
+    private func session(_ generation: Int, loop: Int, only: String?, sink: (@MainActor (CloudPortChange) -> Void)?,
                          onSubscribed: () -> Void) async throws {
         let selectedTeam = if let only { only } else { await team() }
         let access = try await token()
@@ -99,7 +175,8 @@ public final class CloudMachineWire {
         let task = CmuxEgress.websocket(CmuxEgress.shared(site: "CmuxNextCloud.CloudMachineWire"), with: request, site: "CmuxNextCloud.CloudMachineWire")
         task.maximumMessageSize = 8 << 20
         task.resume()
-        defer { task.cancel(with: .goingAway, reason: nil) }
+        probes[loop] = Self.probe(task)
+        defer { probes[loop] = nil; task.cancel(with: .goingAway, reason: nil) }
         try await withTaskCancellationHandler {
             // wakeup-allow: each turn awaits the next frame; a closed socket throws and ends the loop.
             while !Task.isCancelled {
@@ -130,6 +207,22 @@ public final class CloudMachineWire {
             throw CancellationError()
         } onCancel: {
             task.cancel(with: .goingAway, reason: nil)
+        }
+    }
+
+    /// A ping on `task` that must answer within ``networkProbe``, else the socket is cancelled (its receive throws and
+    /// the loop redials at once: the change that sent the probe is still pending on its wake).
+    nonisolated static func probe(_ task: URLSessionWebSocketTask) -> @Sendable () -> Void {
+        { [weak task] in
+            guard let task else { return }
+            let deadline = DemandTimer(owner: "cloud.machine.wire.probe")
+            deadline.schedule(after: networkProbe) { [weak task] in
+                task?.cancel(with: .goingAway, reason: nil)
+            }
+            task.sendPing { [weak task] error in
+                deadline.cancel()
+                if error != nil { task?.cancel(with: .goingAway, reason: nil) }
+            }
         }
     }
 
