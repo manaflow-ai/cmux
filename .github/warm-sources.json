@@ -13,6 +13,7 @@
     "app-host-test-rerun.yml:rerun": {"class": "mac-build", "warm": ["ssd-cas", "actions-cache"]},
     "auth-refresh-tests.yml:auth-refresh-tests": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
     "auto-journey.yml:journey": {"class": "mac-build", "warm": [], "exempt": "cold: a dispatch-only cargo build of cmux-tui from an empty target directory on a Mac; no warm source wired yet"},
+    "accounts-nightly-probe.yml:probe": {"class": "mac-run-product", "warm": [], "exempt": "launches the published signed NIGHTLY DMG from a fresh install; compiles nothing"},
     "auto-resume-nightly-notarization.yml:generate-deltas": {"class": "mac-sign", "warm": [], "exempt": "Sparkle deltas from DMGs earlier jobs built and published; compiles nothing"},
     "auto-resume-nightly-notarization.yml:staple-outer": {"class": "mac-sign", "warm": [], "exempt": "signing and notarization only: consumes the app or DMG an earlier job built, compiles nothing"},
     "auto-resume-nightly-notarization.yml:staple-stapled": {"class": "mac-sign", "warm": [], "exempt": "signing and notarization only: consumes the app or DMG an earlier job built, compiles nothing"},

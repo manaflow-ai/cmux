@@ -22,14 +22,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: accounts-nightly-probe
+  # A nightly workflow is never deduped (scripts/ci/cron_concurrency.py): one group per run.
+  group: accounts-nightly-probe-${{ github.run_id }}
   cancel-in-progress: false
 
 jobs:
   probe:
     name: Accounts flow on published NIGHTLY
     environment: cmux-next-cloud-journey
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    # The same Mac as the NIGHTLY canary's fallback (nightly-next-canary.yml): the overflow Mac, else cmux-mac.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
     timeout-minutes: 35
     env:
       CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL || secrets.CMUX_DOGFOOD_STACK_EMAIL }}
@@ -43,6 +45,8 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      - name: Select pinned Xcode
+        run: ./scripts/select-ci-xcode.sh
       - name: Run fresh-install Accounts probe
         env:
           BUILD: ${{ inputs.build }}
