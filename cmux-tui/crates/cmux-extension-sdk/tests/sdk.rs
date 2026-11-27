@@ -121,7 +121,52 @@ fn the_builder_makes_the_example_extensions_manifest() {
     );
 }
 
-/// A whole New Tab page (`cmux.newtab/1`, picked with `tabs.newTabApp`): the builder writes the
+/// The forkable workspace list (examples/extensions/workspace-list) draws the whole list
+/// (`cmux.sidebar/1`) and the same list as a section; the builder makes its manifest and cmux's
+/// validator takes it.
+#[test]
+fn the_builder_makes_a_workspace_list_that_replaces_the_built_in_one() {
+    let dir = repo().join("examples/extensions/workspace-list");
+    let example = json(dir.join("cmux-app.json"));
+    let built = Manifest::new(
+        "local/workspace-list",
+        "Workspace list",
+        "1.0.0",
+        "The built-in workspace list.",
+    )
+    .sidebar("renderSidebar", "Workspaces", "sidebar.left")
+    .section("renderSection", "Workspaces", "sidebar.left", Region::Middle)
+    .listen("workspace.changed")
+    .and_then(|m| m.listen("agent_chat.changed"))
+    .expect("known streams")
+    .scope("workspace:write", "Show a workspace when you click its row.");
+    let issues = built.validate();
+    assert!(is_valid(&issues), "{issues:?}");
+    let built = built.to_json();
+    assert_eq!(built["implements"]["cmux.sidebar/1"]["export"], "renderSidebar");
+    for key in ["id", "version", "engines", "runtime"] {
+        assert_eq!(built[key], example[key], "{key}");
+    }
+    let mut interfaces =
+        example["implements"].as_object().expect("implements").keys().collect::<Vec<_>>();
+    interfaces.sort();
+    assert_eq!(interfaces, ["cmux.section/1", "cmux.sidebar/1"]);
+    // dist/main.js is build output: the only error an unbuilt checkout has.
+    let report = check_package(&dir);
+    let errors: Vec<_> = report
+        .issues
+        .iter()
+        .filter(|i| i.severity == Severity::Error)
+        .map(|i| (i.path.as_str(), i.code))
+        .collect();
+    assert!(
+        errors.is_empty() || errors == [("/runtime/main", "path.missing")],
+        "{:?}",
+        report.issues
+    );
+}
+
+/// A New Tab view (`cmux.newtab/1`, picked with `tabs.newTabApp`): the builder writes the
 /// place, its activation and the scope a launcher's buttons need, and cmux's validator takes it.
 #[test]
 fn the_builder_makes_a_whole_new_tab_page_cmux_loads() {
@@ -315,4 +360,14 @@ fn the_builder_adds_composer_chips_cmux_accepts() {
         "{:?}",
         twice.validate()
     );
+}
+
+#[test]
+fn motion_contract_is_exported() {
+    use cmux_extension_sdk::motion;
+    use serde_json::json;
+    assert_eq!(motion::SCHEMA, "cmux.motion/1");
+    let parsed = motion::Motion::parse(&json!({"spring": {"response": 0.3}})).expect("a spring");
+    assert_eq!(parsed, motion::Motion::Spring { response: 0.3, damping_fraction: 1.0 });
+    assert!(motion::normalize_prop("transition", &json!("zoom")).expect("owned").is_err());
 }

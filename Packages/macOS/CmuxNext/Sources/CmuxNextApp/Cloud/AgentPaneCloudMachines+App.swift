@@ -1,12 +1,8 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextDaemonService
 
 extension AgentPaneCloudMachines {
-    /// How old the App's machine list may be when a picker reads it: an open picker reads every
-    /// few seconds, the server's list at most this often (the store also follows each machine's
-    /// own link between reads).
-    static let listAge: Duration = .seconds(60)
-
     /// The App's answers to `cloudMachine.*`: the signed-in account's machines (``CloudService``, never another user's or team's
     /// list), Open, Resume, Pause, Kill Machine and typing prewarm on one, run as the person's own; and each switch of team.
     func wire(_ services: AppServices) {
@@ -29,7 +25,17 @@ extension AgentPaneCloudMachines {
         teamWatch = TeamRowText.follow(services.cloud.auth) { [weak self] in self?.publishTeamChange() }
         list = { await inventory(Self.listAge) }
         recoveryList = { await inventory(.zero) }
-        attach = { [weak services] id in
+        // The facts the typing prewarm and wake on intent (hidden `cloud.wakeOnIntent`) give their Rust rules.
+        let facts: @MainActor (String) -> [String: Any] = { [weak services] id in guard let services else { return [:] }
+            let cloud = services.cloud, status = services.machines.cloud.first(where: { $0.machineID == id })?.effectiveStatus, allowed = !services.registry.disabledFeatures.contains(.cloud) && cloud.mayCallCloud && cloud.unavailableReason == nil
+            var facts: [String: Any] = ["enabled": CloudTunables.wakeOnIntent.value, "allowed": allowed && cloud.isSignedIn, "loaded": cloud.hasLoadedCurrentMachines]
+            if let status { facts["status"] = status.rawValue }
+            return facts
+        }
+        let wake = AgentPaneCloudWakeOnIntent(port: .init(ask: { CloudHandlerRules().ask($0, $1) }, facts: facts,
+            resume: { [weak services] id in (try? await services?.cloud.resumeMachine(id, origin: .script)) != nil }, pause: { [weak services] id in try? await services?.cloud.pauseMachine(id) }))
+        wakeHint = { id, signal, version in await wake.hint(machine: id, signal: signal, version: version) }
+        attach = { [weak services] id in wake.input(machine: id)
             guard let services else { return false }
             return await Self.recoveryAttach(
                 refresh: { services.cloud.isSignedIn ? await services.cloud.refresh() : false },
@@ -42,16 +48,24 @@ extension AgentPaneCloudMachines {
                 connect: { services.machines.session(id)?.retry() }
             )
         }
-        open = { [weak services] id in services.map { Self.perform("cloudOpenMachine", on: id, services: $0) { _ in true } } ?? false }
+        open = { [weak services] id in wake.input(machine: id); return services.map { Self.perform("cloudOpenMachine", on: id, services: $0) { _ in true } } ?? false }
         resume = { [weak services] id in services.map { Self.perform("cloudResumeMachine", on: id, services: $0) { $0.effectiveStatus == .paused } } ?? false }
         pause = { [weak services] id in services.map { Self.perform("cloudPauseMachine", on: id, services: $0) { $0.effectiveStatus == .running } } ?? false }
         // Kill Machine is destructive: as the person's own run, the registry shows its confirmation sheet first.
         delete = { [weak services] id in services.map { Self.perform("cloudKillMachine", on: id, services: $0) { $0.effectiveStatus != .deleting } } ?? false }
-        prewarm = { [weak services] id in
+        // The rule (which machine a typing hint resumes, and the pause after a failed resume) is Rust's:
+        // `cloud_handler_prewarm` (cmux-cloud-handlers `decide::prewarm`). This keeps the clock of each failure.
+        let failures = AgentPaneCloudPrewarmFailures()
+        prewarm = { [weak services] id in wake.input(machine: id)
             guard let services else { return false }
-            let cloud = services.cloud, status = services.machines.cloud.first(where: { $0.machineID == id })?.effectiveStatus
-            let allowed = !services.registry.disabledFeatures.contains(.cloud) && cloud.mayCallCloud && cloud.unavailableReason == nil
-            return await Self.prewarmIfPaused(allowed: allowed && cloud.isSignedIn && cloud.hasLoadedCurrentMachines, status: status) { try await cloud.resumeMachine(id, origin: .script) }
+            let status = services.machines.cloud.first(where: { $0.machineID == id })?.effectiveStatus
+            var facts = facts(id)
+            if let ms = failures.sinceFailureMs(id) { facts["sinceFailureMs"] = ms }
+            // An FFI without the op (nil) leaves the old rule: `prewarmIfPaused` below still resumes only a paused machine.
+            if let answer = CloudHandlerRules().ask("cloud_handler_prewarm", facts), answer["resume"] as? Bool != true { return false }
+            let resumed = await Self.prewarmIfPaused(allowed: true, status: status) { try await services.cloud.resumeMachine(id, origin: .script) }
+            if resumed { failures.clear(id) } else { failures.failed(id) }
+            return resumed
         }
     }
 

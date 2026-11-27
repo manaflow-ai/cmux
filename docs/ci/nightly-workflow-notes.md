@@ -1,4 +1,4 @@
-# nightly.yml notes
+# nightly.yml notes (frozen: a new note is its own file in [`docs/ci/nightly-workflow-notes/`](nightly-workflow-notes/README.md))
 
 Long comments moved out of `.github/workflows/nightly.yml` to keep it under GitHub's workflow file size limit
 (tests/test_ci_workflow_file_size.py). Each note's line in the workflow reads `# Why: docs/ci/nightly-workflow-notes.md#note-N`.
@@ -99,7 +99,7 @@ resolve-nightly-cmux-tui-client, Leave the build slot to a newer nightly-next pu
 
 A loop retry (nightly_next_loop_retry) always leaves the slot when nightly-next moved past its commit: the newer push's run waits in the same group and builds the head (run 43395323737 waited 19 min behind retry 43395284047 of the older c31b2b678, dispatched 18 s before the push). It runs before any build job starts, so no started build is left. A push run leaves a moved head at once only with vars.NIGHTLY_NEXT_SUPERSEDE_SKIP == '1'.
 
-Latest wins at the slot: a stale run waits here for a newer promotion when feat-cmux-next has moved past its commit. A stale run is a loop retry (it rebuilds a commit that just failed) or a push run that sat 5 min or more in the group behind another build. It waits up to 6 min (YIELD_MINUTES). Main's rolling rule counts a run in this step as no holder (LEAVE_SLOT_STEP in scripts/ci/nightly_next_rolling.py), so the finished build's tick or the 5-minute cron promotes the newest buildable commit, and this run leaves to it. If nothing is promoted in that time, it builds its own commit. A fresh push run never waits. Push run 43558081148 of a22a4eb1 (2026-11-14) waited 23 min behind another build, then built the old head beside 20 newer commits and failed. Its retry 43560964857 built a22a4eb1 again: 60.9 min from landing to the feed. tests/test_nightly_next_single_loop.py.
+Latest wins at the slot: a stale run reads nightly-next once, with no wait (2026-11-25, "no slot handoff waits": run 45562645699 sat 6.2 min polling), and leaves only if a newer commit is already promoted. A stale run is a loop retry (it rebuilds a commit that just failed) or a push run that sat 5 min or more in the group behind another build. Main's rolling rule counts a run in this step as no holder (LEAVE_SLOT_STEP in scripts/ci/nightly_next_rolling.py), so the finished build's tick or the 5-minute cron promotes the newest buildable commit, and this run leaves to it. If nothing is promoted in that time, it builds its own commit. A fresh push run never waits. Push run 43558081148 of a22a4eb1 (2026-11-14) waited 23 min behind another build, then built the old head beside 20 newer commits and failed. Its retry 43560964857 built a22a4eb1 again: 60.9 min from landing to the feed. tests/test_nightly_next_single_loop.py.
 
 Latest wins at nightly-next-one's slot too (2026-11-14). With the one job on, resolve's check runs before the slot (nightly-next-one-push), and a push run P2(C) may then wait ~30 min there while D and E land; admitted, it built C. So nightly-next-one's first step after the whole-Mac claim, "Leave the push slot to a newer nightly-next push", runs the same script with IN_SLOT=1: a run that waited YIELD_STALE_MINUTES or more at the slot (since its resolve job ended), while feat-cmux-next has commits after its own, waits up to YIELD_MINUTES for the tick's promotion. Main's tick counts a run in that step as building nothing (nightly_next_rolling.LEAVE_ONE_STEP), so it promotes the newest buildable commit; that push's nightly-next-one queues behind this running one (no pending job is replaced), and this run leaves: it sets LEFT_SLOT=1 in the job's env, every later build and publish step has `!env.LEFT_SLOT` in its `if` (cleanup steps still run), the job ends green with output left=true, and published-build and attest-nightly-remote-daemon skip. Nothing is cancelled. A run admitted at once builds at once. tests/test_nightly_next_push_slot_at_build.py.
 
@@ -121,7 +121,7 @@ nightly-next on one Mac, end to end (Leo, 2026-11-12: "Why isn't it just like th
 
 The workflow-level concurrency group and nightly-next's push slot:
 
-Each lane has its own group and a newer run replaces only a pending one; an in-flight nightly always finishes. nightly-next has its own group: sharing main's (#18150) let every main push replace the pending nightly-next run (run 37579667979), so it starved. Scheduled and manual cache seeds use different groups, so a tick never cancels a manual refresh. A nightly-next push shares one group (nightly-build-nightly-next-push): one run builds and the newest pushed head waits, and GitHub replaces a waiting run (never a started one) with a newer push, so only the newest head is built and signed. Leo, 2026-11-05, when 25 run-scoped nightlies queued behind the one signer: "why do multiple merges even build the f***ing nightlies anyway?". Other nightly-next runs (dispatches) stay run-scoped, except the loop's own retry of a failed run (nightly_next_loop_retry), which takes the push group's pending place like a push; the release/feed writers keep their own groups below. A loop run holds the group through publish and the GitHub release (the next run's decide reads its body and tag), then dispatch-published-in sends the deltas, notes, reel and PR comments to a run-scoped run (nightly_next_post_publish). Holding the group through that whole tail made the newest head wait about 79 min per cycle: 172 of 198 push runs were replaced while pending in 26 h (2026-11-07). With the one job on (vars.NIGHTLY_NEXT_ONE_JOB), the push slot is nightly-next-one's own group (nightly-next-one-push) and the run is run-scoped here: the GitHub release, dSYMs and the dispatch after the feed held this group 5-10 min more, and the next landing waited 22.1 and 23.9 min from landing to run created (holders 43581845419 and 43605506661). The next run's notes start from the live feed's published source, which nightly-next-one writes (publish-prepare-release-notes.sh), not from that tail's release body. A publishing nightly-next push builds only (decide's pipeline): its dispatch-nightly-next-sign hands the unsigned app to a sign run (nightly_next_sign_stage) in nightly-build-nightly-next-sign, so build N+1 runs while N signs and the publish period is the slower stage, not the whole run. That group works like the push group: one sign run at a time, and a newer dispatch replaces only a pending one, so the newest build signs next.
+Each lane has its own group and a newer run replaces only a pending one; an in-flight nightly always finishes. nightly-next has its own group: sharing main's (#18150) let every main push replace the pending nightly-next run (run 37579667979), so it starved. Scheduled and manual cache seeds use different groups, so a tick never cancels a manual refresh. A nightly-next push shares one group (nightly-build-nightly-next-push): one run builds and the newest pushed head waits, and GitHub replaces a waiting run (never a started one) with a newer push, so only the newest head is built and signed. Leo, 2026-11-05, when 25 run-scoped nightlies queued behind the one signer: "why do multiple merges even build the f***ing nightlies anyway?". Other nightly-next runs (dispatches) stay run-scoped, except the loop's own retry of a failed run (nightly_next_loop_retry), which takes the push group's pending place like a push; the release/feed writers keep their own groups below. A loop run holds the group through publish and the GitHub release (the next run's decide reads its body and tag), then dispatch-published-in sends the deltas, notes, reel and PR comments to a run-scoped run (nightly_next_post_publish). Holding the group through that whole tail made the newest head wait about 79 min per cycle: 172 of 198 push runs were replaced while pending in 26 h (2026-11-07). With the one job on (vars.NIGHTLY_NEXT_ONE_JOB), the push slot is nightly-next-one's own group (nightly-next-one-push) and the run is run-scoped here: the GitHub release, dSYMs and the dispatch after the feed held this group 5-10 min more, and the next landing waited 22.1 and 23.9 min from landing to run created (holders 43581845419 and 43605506661). The next run's notes start from the live feed's published source, which nightly-next-one writes (publish-prepare-release-notes.sh), not from that tail's release body.
 
 The push slot at nightly-next-one (2026-11-14). With the one job on (vars.NIGHTLY_NEXT_ONE_JOB), a push run and the loop's retry are run-scoped at the workflow level, and nightly-next-one takes its own group, nightly-next-one-push (cancel-in-progress false): one loop run builds and publishes at a time and the newest waits. The workflow-level push group held a loop run through its whole post-feed tail (published-build, keep-published-dsyms, publish-nightly-next-github, dispatch-published-in), 5-10 min after the feed write, and the next landing waited behind it: holder 43581845419 (feed 10:09:17Z, ended 10:19:08Z) delayed 43584856901, holder 43605506661 (feed 14:57:49Z, ended 15:02:43Z) delayed 43608103300, 22.1 and 23.9 min from landing to run created. With the one job off the split jobs keep the workflow-level push group, as before, and so do they with it on while vars.NIGHTLY_NEXT_SUBMISSIONS_PAUSED or vars.NIGHTLY_NEXT_NOTARY_PAUSED is 1: decide then leaves one_job false and builds the split jobs, which nightly-next-one-push does not serialize. The group reads exactly the variables decide's one_job reads (tests/test_nightly_next_push_slot_at_build.py reads oneJob from decide's script).
 
@@ -176,13 +176,13 @@ The helper builds with the Zig the Ghostty submodule pins (0.16.0) and links aga
 
 retry-nightly-next, the loop's retry:
 
-The nightly-next loop's retry (Leo, 2026-11-06: one nightly at a time, the newest head next; a failed run is retried at the newest commit, not at its own). When this run built and failed to publish, and nightly-next still points at its commit, it asks for one more run of the push group: GitHub keeps that group's one pending place for the newest arrival, so a push that lands meanwhile takes it instead and nothing waits beside the loop. The retry builds again from scratch: a dispatch runs at the head when it is dispatched, so a push that lands between the check and the dispatch (and loses its pending place to the retry) is still the commit the retry builds; resuming this run's unsigned app would publish the older commit for it. At most two retries in a row. In the pipeline a push run that handed its build to a sign run (dispatch-nightly-next-sign) retries nothing; the sign run retries a failed sign or publish the same way, and a sign run a newer published build superseded retries nothing.
+The nightly-next loop's retry (Leo, 2026-11-06: one nightly at a time, the newest head next; a failed run is retried at the newest commit, not at its own). When this run built and failed to publish, and nightly-next still points at its commit, it asks for one more run of the push group: GitHub keeps that group's one pending place for the newest arrival, so a push that lands meanwhile takes it instead and nothing waits beside the loop. The retry builds again from scratch: a dispatch runs at the head when it is dispatched, so a push that lands between the check and the dispatch (and loses its pending place to the retry) is still the commit the retry builds; resuming this run's unsigned app would publish the older commit for it. At most two retries in a row. When feat-cmux-next has moved past the failed commit, there is no retry of it: the job asks main's tick to promote the newest buildable commit instead, whose push run builds it (run 45589863477 retried 92c8d92d9, whose source the tip had already fixed, while 6c8931ce2 waited). Only a failed commit that is still the tip, likely a flake, is retried as itself.
 
 ## note-25
 
 keep-published-dsyms:
 
-A published nightly-next build's dSYMs, kept on R2. Nothing needs it and it continues on error, so it never delays a publication. The dSYMs come from the run that compiled the published binary (its build number is that run's id and attempt). A rerun repairs a missing object; an existing one (exit 75 from --write-once) counts as kept. A loop run keeps it in the run that published, as the GitHub release; a sign run (the record's sign_stage) leaves it to its tail run, so the sign group frees once the feed and the GitHub release are written: in sign run 43282010692 it held the group 6.3 min past the release, 4.3 of them waiting for the whole signing Mac. The release stays in the sign run: the next decide reads its body and tag (published_sha, the span of that build's notes and PR comments). It takes the trusted signing runner (the whole Mac, after the signing is done), never GitHub-hosted Ubuntu, whose queue (39 min for the oldest job on 2026-11-08) held the next push run for as long.
+A published nightly-next build's dSYMs, kept on R2. Nothing needs it and it continues on error, so it never delays a publication. The dSYMs come from the run that compiled the published binary (its build number is that run's id and attempt). A rerun repairs a missing object; an existing one (exit 75 from --write-once) counts as kept. A loop run keeps it in the run that published, as the GitHub release. It takes the trusted signing runner (the whole Mac, after the signing is done), never GitHub-hosted Ubuntu, whose queue (39 min for the oldest job on 2026-11-08) held the next push run for as long.
 
 ## note-26
 
@@ -196,9 +196,7 @@ The post-feed uploads (variant artifacts, DMG digests, SSH daemon assets, source
 
 ## note-27
 
-dispatch-nightly-next-sign:
-
-The push run's half of the nightly-next pipeline (decide's pipeline): once the unsigned app and what the resume restores beside it are uploaded, ask for this build's sign run. It is the unsigned resume of this run (resume-unsigned-nightly.py, which reads this live run only as a sign stage) in the sign group, so this run and the push group end here and the next build starts while this one signs. GitHub keeps one pending run in the sign group and replaces it with a newer dispatch: nothing started is cancelled, and a build that waited behind a newer one is never signed. A dispatch refused for the API rate limit waits for the reset and tries again (gh_budget_wait.sh; a refused request did nothing, so this never starts two runs): run 42726398544's dispatch failed on "API rate limit exceeded for installation" and nothing published for two hours. Any other failure fails this job, retry-nightly-next retries the build and report-nightly-failure lists it.
+Retired (2026-11-23): dispatch-nightly-next-sign and the sign stage it dispatched were deleted once nightly-next-one built, signed and published every nightly-next push in one job (plans/nightly-one-job.md).
 
 ## note-28
 
@@ -256,8 +254,8 @@ requests GitHub cancelled in its queue (REQUEST_TITLE in
 scripts/ci/promote-nightly-next.mjs). An unsigned resume's title names the run
 and attempt it resumes, so main's feed watch counts its resumes of each failed
 run (scripts/ci/nightly_next_unsigned_resume.py on main dispatches nothing
-until this title is here). A sign stage (nightly_next_sign_stage) has its own title, so the watch never
-counts it as a resume. Every other run keeps the default title.
+until this title is here).
+Every other run keeps the default title.
 Unsigned-resume titles stay anchored.
 
 ## note-35
@@ -282,7 +280,7 @@ One macOS SDK for the whole job: the SDK of the Xcode "Select Xcode" chose. A to
 or c++ with no SDK (a cargo build script, npm's node-gyp) otherwise takes xcrun's default SDK. On
 a macOS 27 Mac with Command Line Tools 27 that is MacOSX27.0.sdk, which the Xcode 26.6 linker
 cannot read ("unknown architecture arm64e.x1-macos", runs 42775849251 and 42804411758). The
-script is here, not in a file: a sign stage runs this workflow on an older build tree. Zig:
+script is here, not in a file: an unsigned resume runs this workflow on an older build tree. Zig:
 scripts/build-ghostty-cli-helper.sh removes SDKROOT for its own zig build. The step runs
 right after the Xcode selection, with its `if:`; tests/test_nightly_job_sdkroot.py runs it.
 
@@ -454,5 +452,63 @@ on one commit). This job runs the same `fast_gate_webviews_checks.py` on decide'
 resolve (~4.5 min), so it adds no time to a green run. nightly-next-one skips only when resolve's
 build_sha equals the red sha; the Mac's own check stays the publish guard's input. retry-nightly-next
 skips a webview red (early on the built commit, or the Mac's `webview_red`), which is deterministic, and
-waits for a new commit instead. Route: check-nightly-webviews' owned nightly-only pool, not Linux, since
-test_nightly_owned_minis_only allows a JIT Linux label only for Leo's listed tail and loop jobs.
+waits for a new commit instead. Route: check-nightly-webviews' Linux pool, cmux-linux (a fork: ubuntu-24.04).
+Both jobs run Bun, Node and Python and hold no secret, so neither needs a Mac: ci-web.yml runs the same script on
+Linux for every webviews push. On the nightly-only Mac they held it 2-5 min per nightly run. Leo, 2026-11-26: "How
+about freeing up the Mac's from doing things that don't need Mac's asap?"
+
+## note-53
+
+Leo, 2026-11-25 (ask-0275618397): "after one nightly is done, they got to go to the next nightly and the next
+nightly ... Just keep the train going like 24/7, constantly." Measured on 11-25 (runs 45670426505, 45680718388,
+45631022085): nightly-next-one held its signing Mac 27-43 min, of which notarization was 4.5-5.6 min and the work
+after the feed was 8-14 min, mostly the nearest deltas (266-337 s) and the bundle size report (85-101 s). Only two
+Macs sign (cmux15, ultra1), so that tail spaces the train. When nightly-next has already moved past the build's
+commit, a newer push is waiting and replaces this item within one build, so after the feed is written
+`newer-push-waiting.sh` sets NEWER_PUSH_WAITING and both skip: the live item stays full-only until the next one,
+and the Mac goes to the next build 6-7 min sooner. The dSYMs, variant artifacts and cleanup still run (later jobs
+and the next build's warm workspace need them). A ref read that fails keeps the tail.
+
+## note-52
+
+Above `check-nightly-app-store-shelf:` in `.github/workflows/nightly.yml`.
+
+No nightly whose App Store shelf is broken (Leo, 2026-11-16: "if i click install it means it works"). The
+App Store shelf workflow (`app-store-shelf.yml`) ran only on pull requests and pushes that touch the shelf's
+paths, and nothing read it before a publish: a tree whose shelf was red could still reach the feed
+(feat-cmux-next's shelf runs failed 2026-11-23 19:39-20:02Z). This job runs the same
+`scripts/ci/app-store-shelf-check.sh` on the exact build commit, beside the build in both modes: about
+14-26 min on Linux against a build, sign and notarize of tens of minutes, so it adds no time to a green run.
+A red shelf no longer holds a publish (Leo, 2026-11-25: "we need to make sure we can just have stuff be ok"): a
+NIGHTLY blocks on four things (compiles, signed and notarized, launch smoke, update from the previous NIGHTLY).
+`report-nightly-shelf-red` opens or updates "NIGHTLY App Store shelf is red". Webview checks: stale part unless
+`NIGHTLY_COMPONENT_GATES=block`. Route: resolve-nightly-cmux-tui-client's `cmux-linux` (no secret, no Mac).
+
+## note-54
+
+The comments of nightly.yml's "Checkout build ref (warm nightly-next builder)" step (`&x9`, run by
+nightly-next-one and build-nightly-app), moved here word for word to keep the workflow under GitHub's
+512,000-byte limit (over it, every run is a startup failure with no jobs; feat-cmux-next crossed it
+2026-11-26 16:12Z at #56682). In step order:
+
+- The release App's read-only token, minted for this checkout alone (nightly-next-one's "Mint the release App token for the warm checkout"): never the shared cmux-bot token, never the job's GITHUB_TOKEN, never anonymous. Run 45744507889 failed on GitHub's unauthenticated per-IP limit (raw.githubusercontent.com 429 four times, then git fetch 403). Where no step mints it (build-nightly-app, whose environment holds no release App key) the job's own token: never anonymous.
+
+- Every read here goes out with the job's token. Anonymous, nightlies 45744507889 and 45756842046..45763487534 (2026-11-26) got 429s for git_fetch_retry.py and a 403 for the fetch from the fleet's shared address. The header lives in this step's environment only, never in the kept slot's git config.
+
+- Run 45744507889 (11-26) failed here on a cold slot that had borrowed the mirror: its curl and git fetch to github.com got 429 four times, then 403. The mirror (glaeda-git-mirror: main, feat-cmux-next and nightly-next every 60 s) is the one GitHub reader on this host; read it first. Every github.com git transfer this step makes is counted from git's own trace2 events (one file per git process): the goal is 0 per nightly, the commit read from this host's mirror.
+
+- The mirror is fetched from GitHub every minute by the host's one fetcher (glaeda-git-mirror's LaunchAgent, under a flock). A commit pushed seconds ago may not be in it yet: ask that fetcher for a pass now and wait for it, instead of fetching from GitHub here.
+
+- The helper comes from local objects (the slot's, the borrowed mirror's, the mirror itself), never from raw.githubusercontent.com: that anonymous read is what answered 429.
+
+- The mirror never got the commit: fetch only that commit from GitHub, authenticated with the release App's token (the job's own where none is minted), with a bounded backoff on a 429 or 403. Before each try the mirror is read again, so a pass of the host's fetcher that lands meanwhile wins.
+
+- The job's token header is in the step's environment (GIT_CONFIG_*, above).
+
+- nightly-next-one checks out .publish-tooling (the claim script) before this step; the clean keeps it.
+
+- Run 45782377330 timed out here (600 s, 3 tries) reading the submodules from github.com. A mini keeps one bare mirror per submodule at submodules/NAME.git beside cmux.git (glaeda-git-mirror: each pin as refs/pins/<sha>, depth 1, glaeda.url naming its GitHub URL). Each submodule (nested too) whose commit one holds is read from it, through this step's environment only; the rest from github.com.
+
+- A warm slot holds the submodule commits already: check them out with no network (https refused, so a missing one fails here instead of cloning anonymously), then fetch only with the App's token. Without the mirror rewrite: a clone from a mirror here skips its refs/pins and leaves no HEAD.
+
+- A hybrid ref capture (cmux-next.yml, `hybrid_ref_capture`) fetches the same-tree cmux-tui of the PR head it is dispatched at; an unpublished tree fails it before any build. On 2026-11-26 22:3xZ feat-cmux-next took a merge about every 30 s while cmux-tui-artifacts built one tree per 60-min window, so none of the last 186 commits had a published tree (the newest was 328c5eab, 21:12Z). Dispatch a capture at a PR head whose `scripts/cmux-next/pin-cmux-tui.sh key` answers 200 on files.cmux.com, for example a docs-only branch off the newest published commit.

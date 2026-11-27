@@ -38,6 +38,9 @@ extension PageWebView {
     /// behind another tab, so it can be frozen and released (CMUX-571).
     public func setChromiumVisibility(_ requested: Bool) {
         guard let session = chromiumSession else { return }
+        // Health times only a page whose document can beat: it hears each change of what Chromium was told.
+        let wasHidden = session.toldHidden
+        defer { if session.toldHidden != wasHidden { healthFeed?.pageVisibilityChanged(self) } }
         guard requested, window != nil, !isHiddenOrHasHiddenAncestor else { return session.setVisible(false) }
         let ancestors = sequence(first: self as NSView, next: \.superview).dropFirst()
         let clear = ancestors.contains { $0.alphaValue <= 0.001 && !($0 is PageOffscreenParking) }
@@ -48,9 +51,14 @@ extension PageWebView {
         // scrolled out of the viewport) keeps its visibility: nothing lays it out again when it scrolls back.
         let away = shown && (inOffscreenParking || (outside && clear))
         session.setVisible(away ? drawsAway : shown)
-        if away, drawsAway { drawAwayIfNeeded() }
+        if away, drawsAway { drawAwayIfNeeded(); boundUnpaintedAwayDrawing() }
+        if !away, shown { awayDrawing.resetUnpaintedBound() }
     }
     public var chromiumShows: Bool { chromiumSession?.shows == true } // what ``setChromiumVisibility(_:)`` told the Chromium page last; false on WebKit
+
+    /// What the Chromium page was last told about its visibility (nil: no Chromium page). A page told it is
+    /// visible keeps drawing wherever its view is, so the agent page census (`AgentPageLiveness`) reads this.
+    public var chromiumReportedVisible: Bool? { chromiumSession.map(\.shows) }
 
     /// Whether the page is laid out wholly outside its window's content (a page held away until it
     /// drew, as an adopted New Tab spare is). A page or window not laid out yet is not.
@@ -135,6 +143,8 @@ extension PageWebView {
 
     /// Reloads the document in whichever engine shows it.
     func reloadPage() {
+        // First, while the old document still draws: its host can take its picture now.
+        onDocumentWillChange?(.reload)
         // At once, before WebKit's provisional start or Chromium's bridge: health must not read the
         // crash this reload answers, or the old document's silence, as a page to repair.
         documentStarted()
@@ -298,6 +308,8 @@ extension PageWebView {
     func fallBackToWebKit(_ reason: PageWebKitReason, detail: String, ended: Bool = false, level: OSLogType = .error) {
         // A Chromium start that fails after the tab closed: the retired web view stays unloaded.
         guard !isClosed else { return }
+        // The browser ended: the page it drew went with it, and the WebKit view shows nothing until it loads.
+        if ended { onDocumentWillChange?(.contentEnded) }
         chromiumStart?.cancel()
         chromiumStart = nil
         logger.log(level: level, "page \(self.descriptor.id, privacy: .public) reopens in WebKit: \(detail, privacy: .public)")
@@ -459,13 +471,40 @@ extension PageWebView {
     /// the host saw (a drag still under way, left or cancelled), it reports nothing. A drop the host
     /// took (``fileDrop``, ``hostDropped()``) is not the page's and is not reported here.
     private func pageDropped() {
-        guard let dragged = chromiumDragged, let confirmed = chromiumDropConfirmed else { return }
+        guard let dragged = chromiumDragged else { return }
+        guard let confirmed = chromiumDropConfirmed else {
+            pageWindowDropped(dragged)
+            return
+        }
         chromiumDragged = nil
         chromiumDropConfirmed = nil
         guard chromiumDragFile == nil, now().timeIntervalSince(confirmed.at) < Self.chromiumDropConfirmation else { return }
         droppedEnteredAt = dragged.at
         droppedEvent = confirmed.event
         defer { (droppedEnteredAt, droppedEvent) = (nil, nil) }
+        onFilesDropped?(dragged.urls)
+    }
+
+    /// The page's own window took the drop (Chromium's drag target, not the pane's relay): Chromium
+    /// says a drag of files entered (`OnDragEnter`, ``PageChromiumEvent/filesDragged(_:)``) but CEF
+    /// says nothing of its drop, so the relay's native confirmation never comes. Before, such a drop
+    /// reported nothing, the chat never learned the files' paths, and the composer streamed every
+    /// byte of them through the page (a 188 MB Finder recording took 128 s; Leo, 2026-11-22: "IT
+    /// IS LITERALLY COMING FROM FUCKING DISK ... WHAT THE FUCK ARE WE LOADING IT TO!?"). It is
+    /// taken as that drag's drop when the drag is over natively (``chromiumDragFinished``: the
+    /// mouse is up and the drag pasteboard, which page script cannot write, still holds those
+    /// files) within ``chromiumDropWindow`` of its entry. It carries no event, so the host records
+    /// where the files are but never counts it as the person's gesture (``droppedOnPageWindow``).
+    private func pageWindowDropped(_ dragged: (urls: [URL], at: Date)) {
+        guard chromiumDragFile == nil, now().timeIntervalSince(dragged.at) < Self.chromiumDropWindow,
+              chromiumDragFinished(dragged.urls) else {
+            logger.info("page \(self.descriptor.id, privacy: .public) drop message with no native drop of its drag")
+            return
+        }
+        chromiumDragged = nil
+        droppedEnteredAt = dragged.at
+        droppedOnPageWindow = true
+        defer { (droppedEnteredAt, droppedOnPageWindow) = (nil, false) }
         onFilesDropped?(dragged.urls)
     }
 

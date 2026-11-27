@@ -1,5 +1,8 @@
 //! Agent notification levels are applied before a producer adds an unread item.
 //! Ordinary errors, plan reviews and cache reminders keep their existing delivery.
+//! `Blocked` is the one opt-in event: a report (screen detection, a plugin, the
+//! socket) that turns an agent Blocked with no hook alert of its own posts only
+//! when `notifications.delivery.blocked` is `badge` or `banner`.
 use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -7,6 +10,7 @@ pub(super) enum AgentEvent {
     PermissionRequest,
     Question,
     TaskComplete,
+    Blocked,
 }
 
 impl AgentEvent {
@@ -28,11 +32,19 @@ pub(super) enum Delivery {
     Banner,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub(super) struct AgentNotificationLevels {
     permission_request: Delivery,
     question: Delivery,
     task_complete: Delivery,
+    blocked: Delivery,
+}
+
+impl Default for AgentNotificationLevels {
+    /// The levels of an empty settings file: every event at its default.
+    fn default() -> Self {
+        Self::from_settings(&Value::Null)
+    }
 }
 
 impl AgentNotificationLevels {
@@ -55,6 +67,11 @@ impl AgentNotificationLevels {
             } else {
                 Delivery::Banner
             },
+            blocked: match level("blocked") {
+                Some("badge") => Delivery::Badge,
+                Some("banner") => Delivery::Banner,
+                _ => Delivery::Off,
+            },
         }
     }
 
@@ -63,47 +80,11 @@ impl AgentNotificationLevels {
             AgentEvent::PermissionRequest => self.permission_request,
             AgentEvent::Question => self.question,
             AgentEvent::TaskComplete => self.task_complete,
+            AgentEvent::Blocked => self.blocked,
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn agent_delivery_settings_allow_all_eighteen_independent_combinations() {
-        let choices =
-            [("off", Delivery::Off), ("badge", Delivery::Badge), ("banner", Delivery::Banner)];
-        for (permission, expected_permission) in choices {
-            for (question, expected_question) in choices {
-                for (completion, expected_completion) in
-                    [("off", Delivery::Off), ("banner", Delivery::Banner)]
-                {
-                    let levels = AgentNotificationLevels::from_settings(&json!({
-                        "notifications": {"delivery": {"permissionRequest": permission, "question": question, "taskComplete": completion}}
-                    }));
-                    assert_eq!(
-                        levels.for_event(AgentEvent::PermissionRequest),
-                        expected_permission
-                    );
-                    assert_eq!(levels.for_event(AgentEvent::Question), expected_question);
-                    assert_eq!(levels.for_event(AgentEvent::TaskComplete), expected_completion);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn agent_delivery_leaves_unconfigured_and_unsupported_choices_at_normal_delivery() {
-        for root in [json!({}), json!({"notifications":{"delivery":{"taskComplete":"badge"}}})] {
-            let levels = AgentNotificationLevels::from_settings(&root);
-            for event in
-                [AgentEvent::PermissionRequest, AgentEvent::Question, AgentEvent::TaskComplete]
-            {
-                assert_eq!(levels.for_event(event), Delivery::Banner);
-            }
-        }
-    }
-}
+#[path = "agent_notification_delivery_tests.rs"]
+mod tests;

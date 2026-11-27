@@ -164,7 +164,7 @@
     "name": "tell"
   },
   {
-    "description": "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. tasks id items: keep the task list its chat and its sidebar row show (what is done, what is next), for a long task whose harness keeps no plan of its own; send the whole list each time, [] clears it; a harness plan (TodoWrite, update_plan) replaces yours. show id / hide id: move its workspace to the top of the sidebar, or into the collapsed \"Chief's workspaces\" group (spawn(sidebar) chose at its start; show one when the user asks to watch it or must allow its prompt, hide one the user is done watching); neither closes it. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.",
+    "description": "Control your subagents; every answer starts with its outcome (done, queued, noop, refused). status [id]: state, elapsed, last output, pending prompt with its options. interrupt id [message]: stop its turn now, keep its context, then send message. answer id deny: deny its pending prompt; only the user can allow one, with the Allow button in its workspace (an allow from you is refused: the user is told where to allow, or, when the app shows no Allow button for it, the prompt is denied). pause id / resume id [message]. cancel id: stop for good. restart id [message]: stop and continue in the same session. priority id: a queued one starts next. show id / hide id: move its workspace to the top of the sidebar, or into the collapsed \"Chief's workspaces\" group (spawn(sidebar) chose at its start; show one when the user asks to watch it or must allow its prompt, hide one the user is done watching); neither closes it. cap n: subagents at work at once (0: no cap). There is no cap by default; set one only when the user asks for one, and say how to lift it. cloud [peer[,peer...]|off]: the acpmux peers new subagents run on by default (each goes to the least busy; an idle VM pauses and resumes when needed), or off (here); without peer, shows it. Cloud subagents take no local slot. Never poll: reports, stuck notes and prompts come to you as messages.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -178,7 +178,6 @@
             "cancel",
             "restart",
             "priority",
-            "tasks",
             "show",
             "hide",
             "cap",
@@ -190,32 +189,6 @@
           "description": "The subagent (a<N>); status without it shows all.",
           "minLength": 1,
           "type": "string"
-        },
-        "items": {
-          "description": "tasks: the subagent chat's whole task list, in order; [] clears it.",
-          "items": {
-            "additionalProperties": false,
-            "properties": {
-              "content": {
-                "minLength": 1,
-                "type": "string"
-              },
-              "status": {
-                "enum": [
-                  "pending",
-                  "in_progress",
-                  "completed"
-                ],
-                "type": "string"
-              }
-            },
-            "required": [
-              "content",
-              "status"
-            ],
-            "type": "object"
-          },
-          "type": "array"
         },
         "message": {
           "description": "interrupt/restart/resume: the prompt sent once it has stopped.",
@@ -591,7 +564,7 @@
     "name": "sleep"
   },
   {
-    "description": "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `glaeda-gh wait run OWNER/REPO/ID` with no until waits for a run. Never poll GitHub: with glaeda on the host, the host runs a GitHub wait it recognises (a run's status, `gh run watch`, a PR's checks or merge, a comment) as one `glaeda-gh wait run|pr|comment`, and a file or pid check or sleep loop as `glaeda-gh wait file|pid`; a GitHub poll it cannot say as one wait (a loop, several targets, no OWNER/REPO) is refused with the command to use instead. Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.",
+    "description": "Wait for something outside your turn: the host runs `command` (sh -c) on this machine in the background and wakes you once with a message \"[watch w<N>] <note>: <what happened>\" and its last output lines, when an output line matches the regex `until`, when the command exits (no `until`), or at `timeout_seconds` (default 1800). A short check that exits without a match runs again every 15 s, so `aws sts get-caller-identity && echo SIGNED_IN` with until SIGNED_IN waits for a sign-in, and `gh run watch ID --repo OWNER/REPO --exit-status` with no until waits for a run. Your turn goes on: tell the user what you wait for, then end it. Use it whenever you would say you are watching or will continue when something finishes. cancel: a watch id or all. No arguments: lists the pending watches. At most 8 at once.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -711,7 +684,7 @@
           "type": "string"
         },
         "description": {
-          "description": "One line for index.md: what the file is about (\"Leo's machines\", \"renew the cmux.dev domain before Fri 2026-11-20\").",
+          "description": "One line for index.md: what the file is about (\"my machines\", \"renew the passport before Fri 2026-11-20\").",
           "maxLength": 300,
           "type": "string"
         },

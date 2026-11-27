@@ -40,7 +40,9 @@
 //! "deleted":N,"kept":N,"skipped":N,"bytes":N,"skipped_files":[{"path","kind","why"}],
 //! "skipped_counts":{KIND:N}}` (a pull adds `fast_forwarded` and `head`),
 //! exit 0; on failure `{"ok":false,"error":...,"error_code":...}` on stdout
-//! (a pull's conflict adds `"conflicts":[paths]` under `sync_conflict`; a
+//! (a pull's conflict adds `"conflicts":[paths]` under `sync_conflict`, and
+//! still writes every file that merged and names each file: see
+//! [`pull`]'s module docs; a
 //! full disk on the machine is `disk_full`), exit 1; bad usage exits 64. A
 //! push also prints its progress on stderr as JSON lines
 //! (`{"progress":{"files_done","files_total","bytes_done","bytes_total"}}`):
@@ -71,6 +73,7 @@ mod relay;
 pub(super) use relay::relay;
 mod fresh;
 mod remote;
+mod roots;
 mod seed_pull;
 mod small_writes;
 mod timings;
@@ -84,6 +87,9 @@ pub(crate) mod estimate;
 pub(crate) mod offload;
 pub(crate) mod project;
 pub(crate) mod project_back;
+mod project_hot;
+mod project_kept;
+pub(crate) mod project_pin;
 pub(crate) mod size_cap;
 pub(crate) mod skips;
 mod store;
@@ -451,6 +457,9 @@ pub(super) fn progress_printer() -> impl FnMut(Progress) {
 /// A failed push's error code and message: the machine's full disk is
 /// `disk_full` in plain words, a refusal of the machine its own code.
 pub(super) fn push_failure(error: &anyhow::Error) -> (String, String) {
+    if let Some(missing) = error.downcast_ref::<SourceFolderMissing>() {
+        return (SOURCE_FOLDER_MISSING.to_string(), missing.to_string());
+    }
     if let Some(too_big) = error.downcast_ref::<TooBig>() {
         return ("folder_too_big".to_string(), too_big.to_string());
     }
@@ -503,7 +512,7 @@ pub(super) fn run(args: &[String]) -> i32 {
         return 1;
     }
     if action == Action::Pull {
-        return finish_pull(pull::pull(&socket, &local, &remote));
+        return finish_pull(pull::pull_per_file(&socket, &local, &remote));
     }
     match push(&socket, &local, &remote) {
         Ok(summary) => {
@@ -872,9 +881,10 @@ pub(super) fn delete_remote(socket: &Path, path: &str) -> anyhow::Result<()> {
 /// Prints a pull's answer line and returns its exit code.
 fn finish_pull(pulled: anyhow::Result<pull::Pulled>) -> i32 {
     let line = match pulled {
+        // A per-file pull with a conflict applied the rest and says `"ok":false`.
         Ok(pull::Pulled::Done(summary)) => {
             println!("{summary}");
-            return 0;
+            return if summary.get("ok") == Some(&json!(false)) { 1 } else { 0 };
         }
         Ok(pull::Pulled::Conflict(conflicts, reasons, merge_files)) => {
             let mut error = format!(
@@ -1097,8 +1107,15 @@ fn push_inner(
     mut progress: Option<&mut dyn FnMut(Progress)>,
 ) -> anyhow::Result<Summary> {
     let mut stages = timings::Stages::new();
-    let local =
-        std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
+    let local = match std::fs::canonicalize(local) {
+        Ok(local) => local,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(SourceFolderMissing(local.to_owned()).into());
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("cannot open {}", local.display()));
+        }
+    };
     let rules = if files_only { local::Rules::Share } else { local::Rules::Copy };
     // A chat's copy stops at its limits before it sends anything, unless `--allow-large` said so.
     let cap = (rules == local::Rules::Copy && !size_cap::allowed(&local)).then(size_cap::Cap::new);
@@ -1375,6 +1392,7 @@ fn push_inner(
     stages.mark("prepare");
     // Through the store, the machine fetches first; what it did not write
     // goes over the link below, like every other write.
+    let mut cut = roots::Chunks::new();
     let fetched = if via_store {
         Some(send_through_store(
             &mut remote,
@@ -1382,6 +1400,7 @@ fn push_inner(
             &deferred,
             tally.done,
             &mut tally.progress,
+            &mut cut,
         )?)
     } else {
         None
@@ -1423,6 +1442,7 @@ fn push_inner(
         )?),
         None => None,
     };
+    let used_store = store_part.as_ref().is_some_and(|part| part["used"] == true);
     let Tally { mut summary, mut next, .. } = tally;
     summary.store = store_part;
     // A copy into a folder the machine had nothing of sent every byte it counted: its rate is the
@@ -1506,11 +1526,33 @@ fn push_inner(
     // copy after it, and an undo to it would delete every file it left out.
     if head_links.is_none() {
         snapshot_push(&local, remote_root, &next, &set.files, git_record);
+        // The store's GC keeps what this record and its history name ([`roots`]); a head leaves
+        // that to the whole copy after it. Never fails the push.
+        roots::register_after_push(&local, remote_root, &next, &cut, used_store);
     }
     stages.mark("finish");
     stages.print();
     Ok(summary)
 }
+
+/// A source root disappeared before a push could list it. The remote copy is
+/// intentionally left alone so a chat can restore the folder or be re-pointed.
+const SOURCE_FOLDER_MISSING: &str = "source_folder_missing";
+
+#[derive(Debug)]
+struct SourceFolderMissing(PathBuf);
+
+impl std::fmt::Display for SourceFolderMissing {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "The source folder {} is missing. Restore it locally or re-point the chat. The Cloud copy is still intact",
+            self.0.display()
+        )
+    }
+}
+
+impl std::error::Error for SourceFolderMissing {}
 
 /// Has the machine fetch the `deferred` files through the store
 /// ([`store::send`]). Answers the summary's `store` part and what the machine
@@ -1523,6 +1565,7 @@ fn send_through_store(
     deferred: &[Job],
     base: Progress,
     progress: &mut Option<&mut dyn FnMut(Progress)>,
+    cut: &mut roots::Chunks,
 ) -> anyhow::Result<(serde_json::Value, Option<BTreeMap<String, String>>)> {
     let total: u64 = deferred.iter().map(|job| job.bytes).sum();
     if total < STORE_MIN_BYTES {
@@ -1555,11 +1598,14 @@ fn send_through_store(
         other => other,
     };
     Ok(match sent {
-        Ok(sent) => (
-            json!({"used": true, "uploaded_bytes": sent.uploaded, "reused_bytes": sent.reused,
-                   "fetched_files": sent.written.len()}),
-            Some(sent.written),
-        ),
+        Ok(mut sent) => {
+            cut.append(&mut sent.chunks);
+            (
+                json!({"used": true, "uploaded_bytes": sent.uploaded, "reused_bytes": sent.reused,
+                       "fetched_files": sent.written.len()}),
+                Some(sent.written),
+            )
+        }
         Err(error) => (json!({"used": false, "error": format!("{error:#}")}), None),
     })
 }

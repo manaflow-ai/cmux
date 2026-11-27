@@ -1,6 +1,6 @@
 ---
 name: cmux-rich-output
-description: "Show work in a cmux chat as more than text when it helps: diagrams, charts and math the chat draws, live HTML pages, a page or file opened beside the chat, slide decks with present mode and PDF or PowerPoint export, documents as PDF, LaTeX, and Google Slides or Figma files shown live. Load it when the person asks for a chart, diagram, deck, slides, presentation, report, PDF or document, a Google Slides deck or a Figma file, or when a picture would explain better than prose."
+description: "Show work as more than text: Mermaid, charts, KaTeX, live HTML cards, slide decks (PDF, .pptx), Markdown pages. Use for a chart, diagram, deck, report, PDF, LaTeX, Slides or Figma."
 ---
 
 # Rich output in a cmux chat
@@ -30,14 +30,19 @@ never because it exists. The person's own instructions win.
      person's Run.
 3. A live page in the chat: the `render` tool (cmux MCP server) with one self-contained HTML page,
    for a chart the person can hover, a small calculator, a three.js scene.
-4. A file beside the chat: a page, deck or document the person keeps, reopens or sends on.
+4. A file beside the chat: a Markdown file, a deck (`slides`), a page or a document the person
+   keeps, reopens or sends on.
 
 ## Open a page or file beside the chat
 
 - `open` (cmux MCP server): `{kind: "page", url}` or `{kind: "file", path}`. It opens in the column
   right of this chat by default. From a shell: `cmux browser open URL`, `cmux file open PATH`.
 - An `.html` file opens as a real Chromium page: its relative CSS, images and scripts load. A PDF
-  opens in Chromium's PDF viewer. A Markdown file opens in cmux's Markdown page.
+  opens in Chromium's PDF viewer. A Markdown file opens in cmux's Markdown page (rendered, with
+  tables and Mermaid diagrams), which follows the file as it changes.
+- A plan, report or notes the person will read: write a `.md` file and `open` it. A `.md` file you
+  write or change also gets Open in the chat's edited-files card, so the person can open it there
+  themselves; there is nothing else to add to your reply.
 - A shown `.html`, SVG, PDF, image or `.pptx` file reloads in its tab when the file changes (`live`,
   on by default for those), so a file you keep writing stays current without another `open`.
 - A `.pptx` file previews in the right pane with `open {kind: "file", path}`: a slide strip on the
@@ -49,7 +54,16 @@ never because it exists. The person's own instructions win.
 
 ## Slide decks
 
-A deck is one HTML file, one `<section>` per slide. Copy `templates/deck.html` (beside this file)
+Fastest: the `slides` tool (cmux MCP server): `{path: "slides/topic.slides.md", markdown}`.
+Markdown in the common Markdown slide format: optional front matter with `title:`, slides split by a `---` line, a slide
+of only headings is a title slide, `<!-- _class: center -->` centers one, any other
+`<!-- comment -->` or a `Notes:` line is speaker notes, raw HTML (`div.cols`, inline `<svg>`, an
+`<img>` from the deck's folder) passes through. It opens beside the chat with the slide strip,
+Present (F), Export PDF and Export .pptx; call it again with the same path and the open tab
+updates in place. A `.slides.md` file (or front matter `slides: true`) opened with `open` shows as
+slides too.
+
+By hand, for full control of the layout: a deck is one HTML file, one `<section>` per slide. Copy `templates/deck.html` (beside this file)
 into the project (for example `slides/<topic>.html`), then change only the slides between
 `<main class="deck">` and `</main>`, the `<title>`, and if needed a `--cmux-*` or `--deck-*` value
 at the top of the `<style>`. Keep the `<script>` last and unchanged: it draws the slide strip, the

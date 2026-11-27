@@ -1,0 +1,32 @@
+// Halo Dark: near-monochrome black. A near-black page (#212121), the sidebar darker (#171717),
+// off-white ink (#ececec), a neutral gray selection and white as the accent.
+{
+  "name": "Halo Dark",
+  "description": "Near-monochrome black: a near-black page, a darker sidebar, off-white ink, no accent color.",
+
+  "appearance.theme": "Builtin Dark",
+  // The window, sidebar and pages take that theme too, over an App Theme of your own.
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#212121", "foreground": "#ececec", "selection": "#8e8e8e", "accent": "#ececec" },
+  "appearance.accent": "neutral",
+
+  "appearance.background": "none",
+  "appearance.borders": "none",
+  "appearance.chromeStyle": "flat",
+  "appearance.titleAreaTone": "oneColor",
+  "appearance.density": "spacious",
+
+  "appearance.metrics.sidebarWidth": 260,
+  "appearance.metrics.sidebarRowHeight": 36,
+  "appearance.metrics.chromeFontSize": 13,
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#171717",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#212121",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#212121",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "dot"
+}

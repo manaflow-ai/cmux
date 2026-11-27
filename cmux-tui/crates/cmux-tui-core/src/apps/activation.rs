@@ -26,8 +26,9 @@ use super::grants::{Decision, ScopeTable};
 use super::supervisor::{HostKey, HostState, Inner, Out, Supervisor};
 use crate::panic_free::RecoverPoison;
 
-/// The background part of a manifest's `activation` (`onInterface:` and
-/// `onOp:` start a host on demand already: a mount, a run).
+/// The background part of a manifest's `activation` (`onInterface:`,
+/// `onOp:` and `onKeybinding` start a host on demand already: a mount, a
+/// run, a contributed key's `apps-run`).
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct Activation {
     pub on_startup: bool,
@@ -78,7 +79,7 @@ impl Supervisor {
         if !activation.background()
             || !package.has_runtime()
             || self.config.host_binary.is_none()
-            || inner.safe_mode.is_some()
+            || super::safe_mode_bisect::held_off(inner, app)
             || !inner.mirror.apps.get(app).is_some_and(|r| r.installed && r.enabled)
             || inner.ladders.get(app).is_some_and(|ladder| ladder.paused.is_some())
             || (!retry && inner.failed.contains_key(app))

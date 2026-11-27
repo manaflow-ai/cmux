@@ -20,17 +20,21 @@
 #
 # The settings exports are judged from SETTINGS_MADE_AT, the commit the Mac
 # job made them at (base-autofix-settings-exports.sh regenerates them on the
-# newest tip while their inputs move; without it, BASE_SHA): they land only when
-# nothing in SETTINGS_MADE_AT..tip moved their inputs, and then whole, as made
-# there (every file of the list below whose made copy differs from the tip's).
-# An export made from inputs that changed later never lands as it is. A
-# SETTINGS_MADE_AT that is not between BASE_SHA and the tip holds them. A move
-# of the settings area whose sources give the same source stamp at the tip as at
-# SETTINGS_MADE_AT (defaults_guard.py source-stamp, derived from each tree; the
-# stamp is never committed), with the regeneration as it was, does not hold them:
-# their inputs did not change. Otherwise they wait, and the run fails, even when
-# someone else may have regenerated them on the tip: whether the tip's committed
-# exports are current takes the Mac export to say.
+# newest tip while their inputs move; without it, BASE_SHA), and land whole, as
+# made there (every file of the list below whose made copy differs from the
+# tip's). A SETTINGS_MADE_AT that is not between BASE_SHA and the tip holds them.
+# A move of the settings area whose sources give the same source stamp at the
+# tip as at SETTINGS_MADE_AT (defaults_guard.py source-stamp, derived from each
+# tree; the stamp is never committed), with the regeneration as it was, changed
+# none of their inputs. When SETTINGS_MADE_AT..tip did move their inputs they
+# still land, as progress, the way the action exports do (only with SETTINGS_MADE_AT given;
+# without it a move holds them): the tip's committed
+# copy is older still, and the next push run makes them on the newer tip.
+# Holding them instead meant none landed while settings merges outran the Mac
+# job, and feat-cmux-next kept the settings.agents.cmuxMcp.ask row #51725 had
+# removed, red in every web bundle build (2026-11-23, run 45126925631). When a
+# commit after SETTINGS_MADE_AT wrote one of them itself, they wait and the run
+# fails: whether the tip's own copies are current takes the Mac export to say.
 #
 # The action exports are judged from ACTIONS_MADE_AT, the commit the Mac job made them at
 # (base-autofix-action-exports.sh; without it, BASE_SHA), and land whole, as made there. When
@@ -101,6 +105,8 @@ output_areas() {
       web/data/next-docs/*.generated.json) echo actions; echo shortcuts ;;
       cmux-tui/crates/cmux-app-host/generated/* | Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/*) echo apphost; echo actions ;;
       scripts/lint-namespace-types-ratchet.txt) echo ratchets ;;
+      # The undeclared-job record (base-autofix.sh 6).
+      scripts/ci/job-inputs-always.json) echo jobinputs ;;
       # The namespace lint's safe rewrites (base-autofix.sh 1f').
       Packages/*.swift | ios/cmux/*.swift) echo ratchets ;;
       clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) echo cloud ;;
@@ -108,6 +114,10 @@ output_areas() {
       # The Cargo locks (base-autofix.sh --locks) follow every Cargo manifest (autofix-areas.sh locks); before
       # cmux-tui/*, which would claim cmux-app-ffi's lock for formatting.
       Cargo.lock | */Cargo.lock) echo locks ;;
+      # The iPhone app's uniffi Swift bindings (base-autofix.sh 5a).
+      cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/*) echo iosffi ;;
+      # Undeclared jobs recorded as runs-always (base-autofix.sh 6, job_inputs.py fix).
+      scripts/ci/job-inputs-always.json) echo jobinputs ;;
       cmux-tui/* | Native/OptChat/*) echo fmt ;;
       *) echo unknown ;;
     esac
@@ -193,6 +203,29 @@ held=""
 # moving, a rejection, an unreadable tip) leaves it empty, so no stale list reads as a hold.
 held_exit=0
 trap 'if [[ -n "${CMUX_BASE_AUTOFIX_HELD:-}" ]]; then if ((held_exit)); then printf "%s" "$held"; fi > "$CMUX_BASE_AUTOFIX_HELD"; fi' EXIT
+# The action catalog's swift_parity test in checkout DIR. land.sh injects its write token through
+# git's config environment. Cargo executes build scripts/tests: none may inherit publication
+# credentials. The parent retains its authentication for fetch/push; only this check runs without it.
+action_parity() { # <dir>
+  (
+    unset TOKEN GH_TOKEN GITHUB_TOKEN COMPILE_GATE_TOKEN GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
+    for auth_var in "${!GIT_CONFIG_KEY_@}" "${!GIT_CONFIG_VALUE_@}"; do
+      [[ -z "$auth_var" ]] || unset "$auth_var"
+    done
+    cd "$1"
+    cargo test --locked --manifest-path "$1/cmux-tui/Cargo.toml" -p cmux-action-catalog --test swift_parity
+  )
+}
+# The same check at commit REV, in a throwaway worktree that builds into this checkout's target dir.
+action_parity_at() { # <rev>
+  local dir status=0
+  dir="$(mktemp -d)"
+  git worktree add --quiet --detach "$dir/tree" "$1" || { rm -rf "$dir"; return 0; }
+  CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$(git rev-parse --show-toplevel)/cmux-tui/target}" action_parity "$dir/tree" || status=$?
+  git worktree remove --force "$dir/tree" >/dev/null 2>&1 || true
+  rm -rf "$dir"
+  return "$status"
+}
 # The tip the last rejected push went onto; a rejection that did not move the branch is no race.
 rejected_on=""
 # The compile gate's verdicts in this push ("pass|fail PATCH_ID" lines), and the Swift files it held this attempt.
@@ -305,6 +338,18 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     if [[ -n "$settings_unproven" ]]; then
       echo "::error::$settings_unproven; they wait." >&2
     fi
+    # The settings exports whose inputs moved after SETTINGS_MADE_AT land as progress, unless a newer
+    # commit wrote one of them itself (then the held_set loop below holds them, and the run fails).
+    # A revert after SETTINGS_MADE_AT of a change that carried its export writes the export, so it
+    # holds them; one whose change carried none left the tip's copy as stale as this one. Without
+    # SETTINGS_MADE_AT (no Mac export named where it was made) a move still holds them (#22474).
+    partial_settings=0
+    todo_settings="$(while IFS= read -r path; do [[ -z "$path" ]] || ! is_settings_export "$path" || echo "$path"; done <<<"$todo" | sort -u)"
+    if [[ -n "$settings_made_at" && -z "$settings_unproven" && -n "$todo_settings" ]] && grep -qx settings <<<"$moved_areas" \
+      && [[ -z "$(comm -12 <(printf '%s\n' "$todo_settings") <(printf '%s\n' "$newer_settings"))" ]]; then
+      partial_settings=1
+      echo "::warning::$branch moved the settings exports' inputs after ${settings_from:0:12}; the exports made there land as progress, and the next run makes them on the newer tip."
+    fi
     # The action exports this repair holds: a newer commit's own copy stays, else they land as progress.
     partial_actions=0
     todo_actions="$(while IFS= read -r path; do [[ -z "$path" ]] || ! is_action_export "$path" || echo "$path"; done <<<"$todo" | sort -u)"
@@ -322,6 +367,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
       [[ -n "$path" ]] || continue
       # The snapshot is derived again on the tip (below); only moved inputs and other waits hold it.
       if ! { ((partial_actions)) && is_action_export "$path"; } \
+        && ! { ((partial_settings)) && is_settings_export "$path"; } \
         && { grep -qxF unknown <<<"$(output_areas <<<"$path")" \
           || [[ -n "$(comm -12 <(output_areas <<<"$path") <(printf '%s\n' "$moved_areas"))" ]]; }; then
         held_set+="$path"$'\n'
@@ -467,20 +513,24 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
   # Judge the final candidate, including a repair reconstructed on a moved tip. A source,
   # export or re-pin marker disagreement is never safe progress. Keep this inside the retry
   # loop: a green result for the old candidate does not cover the next one.
-  if ! (
-    # land.sh injects its write token through git's config environment. Cargo executes
-    # build scripts/tests: none may inherit publication credentials. The parent retains
-    # its authentication for fetch/push; only this check runs without it.
-    unset TOKEN GH_TOKEN GITHUB_TOKEN COMPILE_GATE_TOKEN GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS
-    for auth_var in "${!GIT_CONFIG_KEY_@}" "${!GIT_CONFIG_VALUE_@}"; do
-      [[ -z "$auth_var" ]] || unset "$auth_var"
-    done
-    cargo test --locked --manifest-path "$(git rev-parse --show-toplevel)/cmux-tui/Cargo.toml" \
-      -p cmux-action-catalog --test swift_parity
-  ); then
-    echo "::error::swift_parity failed at $(git rev-parse HEAD); no automatic repair was pushed." >&2
-    echo "next: regenerate all action exports at this head and reconcile the re-pin markers in a reviewed fix, then rerun base autofix." >&2
-    exit 1
+  if ! action_parity "$(git rev-parse --show-toplevel)"; then
+    # A parity red the base tip already has, on a repair that writes none of the check's inputs, is
+    # not this repair's: it lands anyway. Refusing it kept a stale cmux-next-ios/rust/Cargo.lock on
+    # feat-cmux-next for 54 minutes on 2026-11-23 (run 45101521205: the lock was fixed, and the
+    # whole repair was dropped for the base's own swift_parity red).
+    # The test's own affected-reads line names its inputs; this default is that line on 2026-11-23.
+    parity_reads="$(sed -n 's#^ *// affected-reads: ##p' \
+      "$(git rev-parse --show-toplevel)/cmux-tui/crates/cmux-action-catalog/tests/swift_parity.rs" 2>/dev/null | head -1 || true)"
+    parity_reads="${parity_reads:-plans/cmux-next/action-catalog.json plans/cmux-next/action-surfaces.json Packages/macOS/CmuxNext/Sources cmux-tui/crates/cmux-action-catalog}"
+    # shellcheck disable=SC2086 # parity_reads is a list of paths
+    if git diff --quiet "$tip" HEAD -- $parity_reads cmux-tui/Cargo.lock cmux-tui/Cargo.toml \
+      && ! action_parity_at "$tip"; then
+      echo "::warning::swift_parity fails at the base tip ${tip:0:12} too, and this repair writes none of its inputs; pushing the repair anyway. The base red is its own fix."
+    else
+      echo "::error::swift_parity failed at $(git rev-parse HEAD); no automatic repair was pushed." >&2
+      echo "next: regenerate all action exports at this head and reconcile the re-pin markers in a reviewed fix, then rerun base autofix." >&2
+      exit 1
+    fi
   fi
   # A plain push: it fails rather than overwrite a commit pushed meanwhile.
   if git push --quiet "$remote" "HEAD:refs/heads/$branch"; then
@@ -503,5 +553,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
   rejected_on="$tip"
   echo "The push to $branch was refused (attempt $attempt of $attempts); reading the tip again."
 done
-echo "::error::$branch kept moving; the next run repairs it." >&2
-exit 1
+# Exit 75 (EX_TEMPFAIL): the branch kept moving. base-autofix-land.sh passes the run on it, since the
+# run each of those pushes started repairs it; any other exit is a real refusal.
+echo "::warning title=Base autofix::$branch kept moving; the next run repairs it." >&2
+exit 75

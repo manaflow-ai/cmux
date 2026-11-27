@@ -41,8 +41,8 @@ fn store_supervisor(root: &TempDir) -> Arc<Supervisor> {
     );
     write_store_app(
         &first_party,
-        "cmux/coderouter",
-        "CodeRouter",
+        "cmux/dev",
+        "Dev",
         json!(["developer-tools"]),
         // Written for an older version: stale, so not this version's news.
         news("0.9.0", 9000),
@@ -68,6 +68,7 @@ fn store_supervisor(root: &TempDir) -> Arc<Supervisor> {
                 extra: vec![],
                 local: None,
                 customize: None,
+                setups: None,
                 saved_prompts: None,
                 defaults: None,
             },
@@ -100,7 +101,9 @@ fn shelf(answer: &Value) -> Vec<(String, Value, Value)> {
 #[test]
 fn the_store_shelves_come_in_order_and_page() {
     let root = temp_dir();
-    write_app(&root.0.join("bundled"), "demo", "cmux/demo", json!({}));
+    // A sample under another publisher (a `cmux/` bundled package is a
+    // first-party STORE app since #47762, `Shelf::of`).
+    write_app(&root.0.join("bundled"), "demo", "examples/demo", json!({}));
     let supervisor = store_supervisor(&root);
 
     let answer = sections(&supervisor, json!({}));
@@ -115,17 +118,17 @@ fn the_store_shelves_come_in_order_and_page() {
         (&category["kind"], &category["category"], &category["title_key"]),
         (&json!("category"), &json!("cloud"), &json!("apps.store.category.cloud"))
     );
-    // Cloud and CodeRouter first, then by name; recent by the current
+    // Cloud first, then by name; recent by the current
     // version's date (a stale or missing file has none); one section per
     // category. The SDK example is on no shelf.
     let row = |id: &str, apps: Value| (id.to_string(), apps, Value::Null);
     assert_eq!(
         shelf(&answer),
         [
-            row("featured", json!(["cmux/cloud", "cmux/coderouter", "cmux/inbox", "cmux/notes"])),
+            row("featured", json!(["cmux/cloud", "cmux/dev", "cmux/inbox", "cmux/notes"])),
             row("recent", json!(["cmux/notes", "cmux/cloud"])),
             row("category:cloud", json!(["cmux/cloud"])),
-            row("category:developer-tools", json!(["cmux/cloud", "cmux/coderouter"])),
+            row("category:developer-tools", json!(["cmux/cloud", "cmux/dev"])),
             row("category:productivity", json!(["cmux/inbox", "cmux/notes"])),
         ]
     );
@@ -133,10 +136,7 @@ fn the_store_shelves_come_in_order_and_page() {
     // Paging: each section's first page names its next cursor; a section
     // and its cursor answer only that section's next page.
     let first = sections(&supervisor, json!({ "limit": 3 }));
-    assert_eq!(
-        first["sections"][0]["apps"],
-        json!(["cmux/cloud", "cmux/coderouter", "cmux/inbox"])
-    );
+    assert_eq!(first["sections"][0]["apps"], json!(["cmux/cloud", "cmux/dev", "cmux/inbox"]));
     assert_eq!(first["sections"][0]["next_cursor"], json!("3"));
     assert_eq!(first["sections"][1]["next_cursor"], Value::Null);
     let next = sections(&supervisor, json!({ "section": "featured", "cursor": "3", "limit": 3 }));
@@ -180,17 +180,17 @@ fn a_listing_answers_its_versions_and_whats_new() {
 
     // No file, or one written for another version: the one current version
     // and no What's New.
-    for app in ["cmux/inbox", "cmux/coderouter"] {
+    for app in ["cmux/inbox", "cmux/dev"] {
         let detail = get(app);
         assert_eq!(detail["versions"], json!([{ "version": "1.0.0" }]), "{app}: {detail}");
         assert!(detail.get("whats_new").is_none(), "{app}: {detail}");
     }
 }
 
-/// The shipped first-party tree: Cloud and CodeRouter lead the store, and
+/// The shipped first-party tree: Cloud leads the store, and
 /// each listing's versions start at its manifest's version.
 #[test]
-fn the_shipped_store_features_cloud_then_coderouter() {
+fn the_shipped_store_features_cloud_first() {
     let tree = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../first-party-apps");
     let root = temp_dir();
     let supervisor = Supervisor::new(
@@ -211,8 +211,8 @@ fn the_shipped_store_features_cloud_then_coderouter() {
     );
     let answer = sections(&supervisor, json!({}));
     let featured = answer["sections"][0]["apps"].as_array().unwrap();
-    assert_eq!(featured[..2], [json!("cmux/cloud"), json!("cmux/coderouter")], "{answer}");
-    for app in ["cmux/cloud", "cmux/coderouter"] {
+    assert_eq!(featured[..1], [json!("cmux/cloud")], "{answer}");
+    for app in ["cmux/cloud"] {
         let detail = supervisor
             .store_call(CLIENT, "apps.catalog.get", json!({ "app": app }), Origin::Cli)
             .unwrap();

@@ -17,13 +17,13 @@ Pick the fastest route that covers your change. The table and its numbers are in
 
 | Change | Route | Edit to visible |
 |---|---|---|
-| Swift values, strings, colors or logic in a running DEBUG app | Swift live code, `scripts/live-code/ios-sim.sh patch OUT FILE.swift` ([#45397](https://github.com/manaflow-ai/cmux/pull/45397)) | about 2 s |
-| Any change, sent from your checkout to an always-on simulator on another Mac | `scripts/ios-live/ios-live swift` or `swap` ([#45435](https://github.com/manaflow-ai/cmux/pull/45435)) | about 5 s live, about 16 s rebuild |
+| Any change, sent from your checkout to the always-on simulator | `scripts/ios-live/ios-live swap` (on `feat-cmux-next` since [#45435](https://github.com/manaflow-ai/cmux/pull/45435)) | about 16 s |
+| Swift values, strings, colors or logic in a running DEBUG app | `ios-live swift`, Swift live code ([#45397](https://github.com/manaflow-ai/cmux/pull/45397), `scripts/live-code/ios-sim.sh` not on the branch yet) | about 2 s once it lands |
 | PR evidence: tests, UI tests, benches, video | the fleet simulator step below | about 15 min |
 
-Both live routes are open PRs and aren't on `feat-cmux-next` yet, so until they land the fleet
-step is the only route that works from a branch. Once they land, use them for every edit and keep
-the fleet step for the evidence a PR cites.
+`ios-live swap` is on `feat-cmux-next`: use it for every edit and keep the fleet step for the evidence a PR
+cites. `ios-live swift` needs `scripts/live-code/ios-sim.sh` (#45397, still open); until it lands `swift`
+refuses and `swap` is the live route.
 
 ## Build and test on the fleet
 
@@ -67,13 +67,10 @@ the fleet step for the evidence a PR cites.
 
 ## Merging iOS PRs
 
-- Agents that land PRs automatically hold a PR touching iOS code (`cmux-next-ios/`, `ios/`, `Packages/iOS/`, the mobile core and FFI crates) until Aziz approves its exact head.
-- Docs (`*.md`), `cmux-next-ios/verify/`, iOS files that draw nothing (Rust, tests, Swift targets with no UI import) and screen-sharing paths don't hold a PR.
-- Other ways past the hold (each claim line stands alone on its own line in the PR body):
-  - Aziz's own PR with the `ready-to-land` label.
-  - A strict fix: a body line `iOS-hold: strict fix` and a one-paragraph `## ELI5` section (at most 120 words). It needs no review.
-  - A proven change: a body line `iOS-hold: proven`, a test that fails without the change, the flow shown working in a simulator or on a device, an `## Implications` section, and a SHIP review at the head that confirms correctness, full functionality and implications (a self or helper review counts).
-  - A screen-sharing PR touching no screen-sharing path: a body line `iPhone-tested: <device> at <head sha> <capture url>`.
-  - A change that flips a default stays with Leo.
-- A push after his approval needs a new one. The hold stops only the merge: keep testing and pushing fixes.
-- When you open one, mention `@azooz2003-bit` in a PR comment so he knows it's waiting.
+- An iOS PR merges on green CI and a review SHIP at its exact head, like any other PR. Don't hold it for Aziz and don't ping him (Leo, 2026-11-23: "do not hold. if you can argue for it strongly, then just merge it. we do not hold on people and arbitrary things and blockers than can be solved. ever."; "you dont have to keep telling aziz").
+- land-judge wants the case in the body when a PR touches iOS UI code (`cmux-next-ios/`, `ios/`, `Packages/iOS/`, the mobile core and FFI crates). Docs (`*.md`), `cmux-next-ios/verify/`, iOS files that draw nothing (Rust, tests, Swift targets with no UI import) and screen-sharing paths need none. Each line stands alone in the PR body:
+  - `Merge-case: <why it should merge now>`, at least 8 words. This is the usual route.
+  - `iOS-hold: strict fix` with a one-paragraph `## ELI5` section (at most 120 words).
+  - `iOS-hold: proven` with a test that fails without the change, the flow shown in a simulator or on a device, an `## Implications` section, and a SHIP review at the head confirming them.
+  - A screen-sharing PR touching no screen-sharing path: `iPhone-tested: <device> at <head sha> <capture url>`.
+- A change that flips a default stays with Leo.

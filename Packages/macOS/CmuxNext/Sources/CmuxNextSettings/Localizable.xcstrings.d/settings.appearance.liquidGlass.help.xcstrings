@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.liquidGlass.help" : {
+      "comment" : "Help for the Liquid Glass toggle: what turning it off does.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off draws the composer, menus, popovers and cards as solid surfaces with a plain border."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "عند الإيقاف، يُرسم محرر الرسائل والقوائم والنوافذ المنبثقة والبطاقات كأسطح مصمتة بحد بسيط."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Isključeno crta polje za pisanje, menije, skočne prozore i kartice kao pune površine s običnom ivicom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fra tegner skrivefeltet, menuer, popovers og kort som massive flader med en enkel kant."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aus zeichnet das Eingabefeld, Menüs, Popover und Karten als deckende Flächen mit einem schlichten Rahmen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desactivado dibuja el editor, los menús, los popovers y las tarjetas como superficies sólidas con un borde simple."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Désactivé, le champ de saisie, les menus, les popovers et les cartes sont des surfaces pleines avec une bordure simple."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Disattivato disegna il compositore, i menu, i popover e le schede come superfici piene con un bordo semplice."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オフにすると、入力欄、メニュー、ポップオーバー、カードを、シンプルな枠線の不透明な面として描画します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ពេលបិទ ប្រអប់សរសេរ ម៉ឺនុយ ផ្ទាំងលេចឡើង និងកាត ត្រូវបានគូរជាផ្ទៃរឹងដែលមានស៊ុមធម្មតា។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "끄면 입력창, 메뉴, 팝오버, 카드를 단순한 테두리가 있는 불투명한 면으로 그립니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Av tegner skrivefeltet, menyer, popovere og kort som heldekkende flater med en enkel kant."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wyłączone rysuje pole edycji, menu, okna podręczne i karty jako pełne powierzchnie z prostą ramką."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Desativado desenha o editor, os menus, os popovers e os cartões como superfícies sólidas com uma borda simples."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Если выключено, поле ввода, меню, всплывающие окна и карточки рисуются сплошными поверхностями с простой рамкой."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เมื่อปิด ช่องเขียนข้อความ เมนู ป๊อปโอเวอร์ และการ์ดจะแสดงเป็นพื้นผิวทึบพร้อมเส้นขอบธรรมดา"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kapalıyken yazma alanı, menüler, açılır pencereler ve kartlar düz kenarlıklı opak yüzeyler olarak çizilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Якщо вимкнено, поле введення, меню, спливні вікна й картки малюються суцільними поверхнями з простою рамкою."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Khi tắt, ô soạn thảo, menu, cửa sổ bật lên và thẻ được vẽ thành bề mặt đặc với viền đơn giản."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭后，输入框、菜单、弹出窗口和卡片显示为带简单边框的不透明表面。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "關閉後，輸入框、選單、彈出視窗和卡片會顯示為帶簡單邊框的不透明表面。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

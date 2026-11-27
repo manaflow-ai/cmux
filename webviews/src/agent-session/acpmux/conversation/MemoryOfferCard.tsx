@@ -1,6 +1,8 @@
 import { memo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useT } from "../i18n";
+import { Check, Close } from "./icons";
 import { actionableFacts, memoryCardState, type MemoryOffer } from "./memoryInbox";
+import "./cardFit.css";
 import "./MemoryOfferCard.css";
 
 /// How the card is drawn. `diff` (shipped): the facts as `+` lines of a small diff, Accept and
@@ -90,17 +92,26 @@ export const MemoryOfferCard = memo(function MemoryOfferCard({
   const tabStop = open[0];
   const note =
     card.accepted > 0 ? t("memoryInbox.added", { n: card.accepted, file: card.file }) : t("memoryInbox.dismissed");
+  const acceptWord = t("memoryInbox.accept");
+  const dismissWord = t("memoryInbox.dismiss");
+  const acceptAllWord = look === "checklist" ? acceptWord : t("memoryInbox.acceptAll");
 
   return (
     <section
-      className="cv-memory"
+      className="cv-memory cv-fit"
       data-look={look}
       data-settled={card.settled}
       aria-label={t("memoryInbox.label", { file: card.file })}
     >
       <Fold open={!card.settled} className="cv-memory__body">
         <div className="cv-memory__head">
-          <span className="cv-memory__file">{card.file}</span>
+          <span
+            className="cv-memory__file"
+            // tooltip-allow: a long memory file path is cut to the line; its whole path is the tooltip
+            title={card.file}
+          >
+            {card.file}
+          </span>
           {card.created && <span className="cv-memory__tag">{t("memoryInbox.newFile")}</span>}
         </div>
         {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- hears the keys of its focusable fact lines and their buttons. */}
@@ -108,8 +119,10 @@ export const MemoryOfferCard = memo(function MemoryOfferCard({
           {offer.heading && (
             <Fold open={card.heading !== null}>
               <div className="cv-memory__line cv-memory__line--heading" aria-hidden="true">
-                <span className="cv-memory__sign">+</span>
-                <span className="cv-memory__text">{offer.heading}</span>
+                <span className="cv-memory__main cv-fit-text">
+                  <span className="cv-memory__sign">+</span>
+                  <span className="cv-memory__text">{offer.heading}</span>
+                </span>
               </div>
             </Fold>
           )}
@@ -119,53 +132,61 @@ export const MemoryOfferCard = memo(function MemoryOfferCard({
             return (
               <Fold key={fact.text} open={waiting}>
                 <div
-                  className="cv-memory__line"
+                  className="cv-memory__line cv-fit-row"
                   data-fact-line=""
                   data-fact={fact.text}
                   data-state={fact.state}
                   aria-busy={busy || undefined}
                   tabIndex={actions && waiting ? (fact.text === tabStop ? 0 : -1) : undefined}
                 >
-                  {look === "checklist" && actions && (
-                    <input
-                      type="checkbox"
-                      className="cv-memory__check"
-                      defaultChecked
-                      disabled={busy}
-                      aria-label={fact.text}
-                      onChange={(event) => {
-                        if (event.target.checked) unticked.current.delete(fact.text);
-                        else unticked.current.add(fact.text);
-                      }}
-                    />
-                  )}
-                  <span className="cv-memory__sign" aria-hidden="true">
-                    +
+                  <span className="cv-memory__main cv-fit-text">
+                    {look === "checklist" && actions && (
+                      <input
+                        type="checkbox"
+                        className="cv-memory__check"
+                        defaultChecked
+                        disabled={busy}
+                        aria-label={fact.text}
+                        onChange={(event) => {
+                          if (event.target.checked) unticked.current.delete(fact.text);
+                          else unticked.current.add(fact.text);
+                        }}
+                      />
+                    )}
+                    <span className="cv-memory__sign" aria-hidden="true">
+                      +
+                    </span>
+                    <span className="cv-memory__text">- {fact.text}</span>
                   </span>
-                  <span className="cv-memory__text">- {fact.text}</span>
                   {actions && look !== "checklist" && (
-                    <span className="cv-memory__actions">
+                    <span className="cv-memory__actions cv-fit-actions">
                       <button
                         type="button"
                         className="cv-memory__button is-accept"
                         disabled={busy}
                         aria-keyshortcuts="A Enter"
+                        title={acceptWord}
+                        aria-label={acceptWord}
                         onClick={(event) =>
                           resolve(fact.text, true, event.currentTarget.closest("[data-fact-line]") as HTMLElement)
                         }
                       >
-                        {t("memoryInbox.accept")}
+                        <Check size={14} />
+                        <span className="cv-fit-label">{acceptWord}</span>
                       </button>
                       <button
                         type="button"
                         className="cv-memory__button"
                         disabled={busy}
                         aria-keyshortcuts="D Delete Backspace"
+                        title={dismissWord}
+                        aria-label={dismissWord}
                         onClick={(event) =>
                           resolve(fact.text, false, event.currentTarget.closest("[data-fact-line]") as HTMLElement)
                         }
                       >
-                        {t("memoryInbox.dismiss")}
+                        <Close size={14} />
+                        <span className="cv-fit-label">{dismissWord}</span>
                       </button>
                     </span>
                   )}
@@ -176,9 +197,16 @@ export const MemoryOfferCard = memo(function MemoryOfferCard({
         </div>
         {actions && (
           <Fold open={look === "checklist" ? open.length > 0 : open.length > 1}>
-            <div className="cv-memory__foot">
-              <button type="button" className="cv-memory__button is-accept" onClick={acceptAll}>
-                {look === "checklist" ? t("memoryInbox.accept") : t("memoryInbox.acceptAll")}
+            <div className="cv-memory__foot cv-fit-actions">
+              <button
+                type="button"
+                className="cv-memory__button is-accept"
+                title={acceptAllWord}
+                aria-label={acceptAllWord}
+                onClick={acceptAll}
+              >
+                <Check size={14} />
+                <span className="cv-fit-label">{acceptAllWord}</span>
               </button>
             </div>
           </Fold>

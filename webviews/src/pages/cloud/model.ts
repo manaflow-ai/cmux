@@ -63,16 +63,24 @@ export function machineTitle(machine: CloudMachine): string {
   return machine.name || machine.id;
 }
 
-const STATUSES = new Set<string>([
-  "provisioning",
-  "starting",
-  "running",
-  "pausing",
-  "paused",
-  "deleting",
-  "failed",
-  "unknown",
-]);
+/**
+ * Each status the page knows, with its label. `MachineStatus` is the generated wire's status plus
+ * `unknown`, and a `Record` over it names every one, so this is the page's one status list.
+ * `powerTable.test.ts` replays schemas/cloud-machine-power/table.json (cmux-cloud-machine's power
+ * table) against it.
+ */
+export const StatusLabel: Record<MachineStatus, StringKey> = {
+  provisioning: L.statusProvisioning,
+  starting: L.statusStarting,
+  running: L.statusRunning,
+  pausing: L.statusPausing,
+  paused: L.statusPaused,
+  deleting: L.statusDeleting,
+  failed: L.statusFailed,
+  unknown: L.statusUnknown,
+};
+
+const STATUSES = new Set<string>(Object.keys(StatusLabel));
 
 /** A status the page does not know becomes `unknown`, like the server's decoder. */
 export function normalizeMachine(machine: CloudMachine): CloudMachine {
@@ -128,6 +136,16 @@ export function settled(intent: PendingIntent, machines: CloudMachine[], revisio
  */
 export const QUICK_INTENTS = new Set<IntentKind>(["rename", "idle", "keep"]);
 
+/** A full list's machines, each unchanged one kept as the object already shown (one pass per list). */
+export function keptMachines(previous: readonly CloudMachine[], next: CloudMachine[]): CloudMachine[] {
+  if (previous.length === 0) return next;
+  const byId = new Map(previous.map((machine) => [machine.id, machine]));
+  return next.map((machine) => {
+    const old = byId.get(machine.id);
+    return old && JSON.stringify(old) === JSON.stringify(machine) ? old : machine;
+  });
+}
+
 /** The rows the list draws: every mirrored machine with its newest pending intent, then creates. */
 export function visibleRows(machines: CloudMachine[], pending: PendingIntent[]): MachineRow[] {
   const rows: MachineRow[] = machines.map((machine) => {
@@ -154,17 +172,6 @@ export function visibleRows(machines: CloudMachine[], pending: PendingIntent[]):
   }
   return rows;
 }
-
-export const StatusLabel: Record<MachineStatus, StringKey> = {
-  provisioning: L.statusProvisioning,
-  starting: L.statusStarting,
-  running: L.statusRunning,
-  pausing: L.statusPausing,
-  paused: L.statusPaused,
-  deleting: L.statusDeleting,
-  failed: L.statusFailed,
-  unknown: L.statusUnknown,
-};
 
 export const IntentLabel: Record<IntentKind, StringKey> = {
   create: L.pendingCreate,

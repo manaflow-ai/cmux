@@ -58,9 +58,9 @@
 .ui-menu-item.acpmux-chat-menu-item[data-highlighted],.ui-menu-item.acpmux-chat-menu-item[data-popup-open]{background:var(--acpmux-menu-hover);outline:none}
 .ui-menu-item.acpmux-chat-menu-item[data-disabled]{color:var(--agent-muted);opacity:1}
 /* Delete Machine… and a paused machine's near delete date: the danger colour, its glyph too, even on a row no click runs. */
-.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive,.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive>svg{color:var(--cmux-app-danger,var(--agent-danger,var(--agent-text)))}
+.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive,.ui-menu-item.acpmux-chat-menu-item.ui-menu-item-destructive>svg{color:var(--menu-destructive,var(--cmux-app-danger,var(--agent-danger,var(--agent-text))))}
 .acpmux-chat-menu-label{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.acpmux-chat-menu-key{flex:none;color:var(--agent-muted);font-family:var(--font-ui);font-size:var(--text-detail);line-height:18px;letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-chat-menu-key{flex:none}
 .ui-popup.acpmux-chat-menu-popover .ui-separator{height:.5px;margin:4px 8px;background:var(--agent-border)}
 /* The agent pane does not load src/ui/ui.css, so the pane carries the primitive's stacking: every Base UI overlay
    (menus, popovers, comboboxes, tooltips) portals to the page root and must draw above the composer card and the
@@ -78,6 +78,15 @@
 .acpmux-header-status-content{display:flex;align-items:center;gap:4px;min-width:0;height:var(--acpmux-header-control-height)}
 /* The chat's name (ThreadTitle.tsx): plain text with no fill in any state, not a menu button. */
 .acpmux-thread-title{display:block;min-width:0;max-width:44vw;padding:0 4px;color:var(--agent-text);font-size:var(--text-control);font-weight:var(--weight-emphasis);line-height:var(--acpmux-header-control-height,26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;user-select:none}
+/* Whose subagent a subagent's own pane shows, beside its name on the same line (PaneBody.tsx, subagentPanes.ts
+   paneHeading): muted metadata, never wider than the room left. */
+.acpmux-subagent-of{flex:0 1 auto;min-width:3ch;max-width:min(42vw,360px);padding:0 var(--ds-space-1);color:var(--agent-muted);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);line-height:var(--acpmux-header-control-height,26px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;user-select:none}
+/* Header Path (agentPane.display.headerBreadcrumb, off by default; Taste Board #20): repo / branch / title
+   as one monospace path. The leading parts are muted and shrink first; the slashes are fainter still. */
+.acpmux-thread-crumbs{display:flex;align-items:baseline;min-width:0;max-width:60vw;padding:0 4px;font-family:var(--font-mono,ui-monospace,monospace);font-size:var(--text-control);line-height:var(--acpmux-header-control-height,26px);white-space:nowrap;overflow:hidden;cursor:default;user-select:none}
+.acpmux-thread-crumb{flex:0 1000 auto;min-width:3ch;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
+.acpmux-thread-crumb-sep{flex:none;color:color-mix(in srgb,var(--agent-muted) 55%,transparent)}
+.acpmux-thread-crumbs .acpmux-thread-title{flex:0 1 auto;padding:0;max-width:none;font-family:inherit;font-size:inherit}
 .acpmux-delete-dialog.ui-dialog{--ui-dialog-padding:var(--ds-space-4)}
 .acpmux-delete-dialog{max-width:360px;padding:var(--ui-dialog-padding,var(--ds-space-4));color:var(--agent-text)}
 .acpmux-delete-dialog h2{margin:0;color:inherit;font-size:var(--text-control);font-weight:var(--weight-emphasis)}
@@ -99,8 +108,8 @@
 .acpmux-header-pr[data-state=closed]>svg{color:var(--agent-status-failure)}
 .acpmux-header-pr[data-state=draft]>svg{color:var(--agent-muted)}
 .acpmux-header-pr[data-checks]:not([data-checks=none])::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--agent-status-success)}
-.acpmux-header-pr[data-checks=pending]::after{background:var(--agent-status-warning)}
-.acpmux-header-pr[data-checks=failing]::after{background:var(--agent-status-failure)}
+.acpmux-header-pr[data-checks][data-checks=pending]::after{background:var(--agent-status-warning)}
+.acpmux-header-pr[data-checks][data-checks=failing]::after{background:var(--agent-status-failure)}
 /* A worktree chat's branch (cx-lyqio.3b): a quiet label beside the PR chip, the full name in its tooltip. */
 .acpmux-header-tool.acpmux-header-worktree{width:auto;gap:4px;min-width:0;max-width:180px;padding:0 6px;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;letter-spacing:var(--text-detail--letter-spacing)}
 .acpmux-header-worktree>svg{flex:none}
@@ -198,7 +207,7 @@
 /* Under the solo tab row the top edge hides the rows behind the row, so it keeps its full depth over the scroller's inline reach (conversation.css). */
 .acpmux-stage[data-solo-tab]>.acpmux-scroll[data-fade-top]{--acpmux-fade-top:var(--acpmux-tab-row-height);--acpmux-fade-top-reach:1!important}
 .acpmux-stage[data-solo-tab]>.acpmux-scroll :is(.acpmux-find,.acpmux-minimap){top:var(--acpmux-tab-row-height)}
-.acpmux-stage[data-solo-tab]>.acpmux-header[data-tab-row]::before{content:"";position:absolute;inset:0;z-index:var(--layer-backdrop,-1);pointer-events:none;-webkit-backdrop-filter:blur(var(--acpmux-solo-blur));backdrop-filter:blur(var(--acpmux-solo-blur));-webkit-mask-image:linear-gradient(#000 35%,transparent);mask-image:linear-gradient(#000 35%,transparent)}
+.acpmux-stage[data-solo-tab]>.acpmux-header[data-tab-row]::before{content:"";position:absolute;inset:0;z-index:var(--layer-backdrop,-1);pointer-events:none;/* one-material-allow: the solo tab row's masked fade veil over the scrolling chat, not a glass surface */-webkit-backdrop-filter:blur(var(--acpmux-solo-blur));backdrop-filter:blur(var(--acpmux-solo-blur));-webkit-mask-image:linear-gradient(#000 35%,transparent);mask-image:linear-gradient(#000 35%,transparent)}
 /* Reduce Transparency: no blur; rows still fade out across the row, so the tools never sit on full-ink text. */
 @media (prefers-reduced-transparency:reduce){.acpmux-stage[data-solo-tab]>.acpmux-header[data-tab-row]::before{content:none}}
 :root[data-reduce-transparency] .acpmux-stage[data-solo-tab]>.acpmux-header[data-tab-row]::before{content:none}
@@ -355,6 +364,11 @@
 :root:is([data-agent-motion="off"], [data-cmux-motion="off"]) .acpmux-header-preview {
   animation: none;
 }
+/* The One hover look (experiments.hoverLook = one, ui/hoverLook.css): it shows and goes in one frame,
+   as every hover surface does (Leo, 2026-11-11, softened: "the fade-in, the fade-out" is pointless). */
+:root[data-hover-look="one"] .acpmux-header-preview {
+  animation: none;
+}
 :root:is([data-agent-motion="reduced"], [data-cmux-motion="reduced"]) .acpmux-header-preview {
   animation-name: acpmux-header-preview-fade;
 }
@@ -443,8 +457,6 @@
 }
 .acpmux-header-preview-key {
   flex: none;
-  font: inherit;
-  color: var(--agent-muted);
 }
 .acpmux-header-preview-detail {
   margin-top: 4px;
@@ -458,13 +470,13 @@
    off by default; with it off nothing here matches). A window toolbar's glass groups: every single action is a round
    glass button, the split actions share one glass capsule, "..." is round, and the search chip ends the row. Grouping
    by shape (circle vs capsule) shows which actions belong together; there is no bar behind them. The glass is the
-   shared material's tokens (ui/glass/glass.css: tint, backdrop, rim), so it follows Plain, Lens and Reduce
+   shared material (the buttons and the capsule are `.ui-glass`, ui/glass/glass.css: tint, backdrop, rim), so it follows Plain, Lens and Reduce
    Transparency. A held button changes only its fill (design/pressed-state.md). */
 /* chat-surface-allow: the default-off glass toolbar groups experiment (#47172), kept as tried until it ships */
-[data-glass-toolbar]{--acpmux-glass-size:calc(var(--grid-pill,24px) + 2px);--acpmux-glass-fill:var(--glass-tint,color-mix(in srgb,var(--agent-text) 6%,transparent));--acpmux-glass-rim:var(--glass-rim-shadow,inset 0 0 0 var(--cmux-hairline,0.5px) var(--glass-edge,color-mix(in srgb,var(--agent-text) 14%,transparent)));gap:var(--grid-step,8px)}
-[data-glass-toolbar] .acpmux-header-tool{width:auto;min-width:var(--acpmux-glass-size);height:var(--acpmux-glass-size);border-radius:999px;background:var(--acpmux-glass-fill);box-shadow:var(--acpmux-glass-rim);-webkit-backdrop-filter:var(--glass-backdrop,none);backdrop-filter:var(--glass-backdrop,none)}
+[data-glass-toolbar]{--acpmux-glass-size:calc(var(--grid-pill,24px) + 2px);--acpmux-glass-fill:var(--glass-tint,color-mix(in srgb,var(--agent-text) 6%,transparent));gap:var(--grid-step,8px)}
+[data-glass-toolbar] .acpmux-header-tool{width:auto;min-width:var(--acpmux-glass-size);height:var(--acpmux-glass-size);border-radius:999px}
 /* The capsule is one glass surface; its buttons are glyphs on it, each with the hover and on fills of the plain row. */
-[data-glass-toolbar] .acpmux-glass-capsule{gap:0;padding:0 var(--grid-half-step);height:var(--acpmux-glass-size);border-radius:999px;background:var(--acpmux-glass-fill);box-shadow:var(--acpmux-glass-rim);-webkit-backdrop-filter:var(--glass-backdrop,none);backdrop-filter:var(--glass-backdrop,none)}
+[data-glass-toolbar] .acpmux-glass-capsule{gap:0;padding:0 var(--grid-half-step);height:var(--acpmux-glass-size);border-radius:999px}
 [data-glass-toolbar] .acpmux-glass-capsule .acpmux-header-tool{min-width:var(--grid-pill,24px);height:var(--grid-pill,24px);background:none;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}
 /* Hover and on: the plain row's fills, over the glass (as specific as the rules above, after them). */
 /* chat-surface-allow: the default-off glass toolbar groups experiment (#47172), kept as tried until it ships */
@@ -474,17 +486,17 @@
 [data-glass-toolbar] .acpmux-header-tool:not(:disabled):is([aria-pressed=true],[data-popup-open]){background:color-mix(in srgb,var(--agent-text) 14%,var(--acpmux-glass-fill))}
 /* A button with a name or a keycap (the Keycaps and Labels arms, the search chip) grows to its text with even
    padding; the glyph keeps its box. */
-[data-glass-toolbar] .acpmux-header-tool:has(.acpmux-glass-keycap,.acpmux-glass-label){gap:var(--grid-half-step,4px);padding:0 var(--grid-half-step,4px) 0 var(--grid-step,8px)}
+[data-glass-toolbar] .acpmux-header-tool:has(.acpmux-glass-key,.acpmux-glass-label){gap:var(--grid-half-step,4px);padding:0 var(--grid-half-step,4px) 0 var(--grid-step,8px)}
 [data-glass-toolbar] .acpmux-glass-search{padding:0 var(--grid-half-step,4px) 0 var(--grid-step,8px)}
 .acpmux-glass-label{color:var(--agent-text);font-family:var(--font-ui);font-size:var(--text-detail);letter-spacing:var(--text-detail--letter-spacing);white-space:nowrap}
-.acpmux-glass-keycap{flex:none;display:inline-flex;align-items:center;min-width:16px;padding:0 4px;box-sizing:border-box;border-radius:999px;background:var(--ds-surface-inset);color:var(--agent-muted);font-family:var(--font-ui);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing);line-height:16px;white-space:nowrap}
+.acpmux-glass-key{flex:none}
 /* A narrow pane drops the names first, then the capsule's keycaps, before headerOverflow.ts folds a button into
    "...": the search chip keeps its ⌘K longest, as the one shortcut the row teaches. The header is the query's
    container, so the row answers the pane's width, not the window's. */
 .acpmux-header:has([data-glass-toolbar]){container:acpmux-header/inline-size}
 @container acpmux-header (max-width:720px){[data-glass-toolbar] .acpmux-glass-label{display:none}}
-@container acpmux-header (max-width:560px){[data-glass-toolbar] .acpmux-glass-capsule .acpmux-glass-keycap{display:none}[data-glass-toolbar] .acpmux-glass-capsule .acpmux-header-tool{padding:0}}
-@container acpmux-header (max-width:420px){[data-glass-toolbar] .acpmux-glass-search .acpmux-glass-keycap{display:none}[data-glass-toolbar] .acpmux-glass-search{padding:0}}
+@container acpmux-header (max-width:560px){[data-glass-toolbar] .acpmux-glass-capsule .acpmux-glass-key{display:none}[data-glass-toolbar] .acpmux-glass-capsule .acpmux-header-tool{padding:0}}
+@container acpmux-header (max-width:420px){[data-glass-toolbar] .acpmux-glass-search .acpmux-glass-key{display:none}[data-glass-toolbar] .acpmux-glass-search{padding:0}}
 /* The glass toolbar's title (ThreadTitle.tsx): the workspace over its chat count, as a window toolbar's title and
    subtitle, in the same height the one-line title takes, so turning it on moves nothing below the header. */
 .acpmux-thread-title.acpmux-glass-title{display:flex;flex-direction:column;justify-content:center;height:var(--acpmux-header-control-height);font-size:var(--text-detail);line-height:1.1}
@@ -492,48 +504,28 @@
 .acpmux-glass-title-detail{color:var(--agent-muted);font-size:var(--text-caption);font-weight:normal;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-live-tree-results{list-style:none;margin:0;padding:var(--ds-space-1) calc(var(--ds-space-1) + var(--grid-half-step));font-size:var(--text-detail)}
 .acpmux-live-tree-results li{display:flex;justify-content:space-between;gap:12px}
-/* The chat's rolling summary and next action beside its name (ChatSummaryLine.tsx): muted metadata, never wider
-   than the room left, the next action a step brighter than the summary. */
-.acpmux-chat-summary {
-  display: flex;
-  align-items: baseline;
-  gap: var(--ds-space-1);
-  flex: 0 1 auto;
-  min-width: 0;
-  max-width: min(52vw, 560px);
-  padding: 0 var(--ds-space-1);
-  color: var(--agent-muted);
-  font-size: var(--text-detail);
-  letter-spacing: var(--text-detail--letter-spacing);
-  line-height: var(--acpmux-header-control-height, 26px);
-  white-space: nowrap;
-  overflow: hidden;
-  cursor: default;
-  user-select: none;
+/* A row accessory (tabRow.ts TAB_ROW_ACCESSORY) with no room in the half of the row the tabs give up hides whole; the
+   tools stay where they are. */
+[data-tab-row-accessories="hidden"] [data-tab-row-accessory] {
+  display: none;
 }
-.acpmux-chat-summary--inline {
-  max-width: min(34vw, 300px);
+/* The connection warning is an accessory too (ChatHeaderStatus.tsx): with no room for it, the "..." carries it as a
+   dot, so a disconnected chat in a narrow pane still says so without moving a button. */
+.acpmux-handoff-header-tools[data-tab-row-accessories="hidden"]:has(.acpmux-status--inline) .acpmux-header-more {
+  --acpmux-header-more-dot-inset: 3px;
+  --acpmux-status-dot: 6px;
+  position: relative;
 }
-.acpmux-chat-summary__text {
-  flex: 0 1 auto;
-  min-width: 3ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.acpmux-chat-summary__arrow {
-  flex: none;
-  color: var(--agent-soft);
-}
-.acpmux-chat-summary__arrow:dir(rtl) {
-  display: inline-block;
-  transform: scaleX(-1);
-}
-.acpmux-chat-summary__next {
-  flex: 0 2 auto;
-  min-width: 3ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--agent-text);
+.acpmux-handoff-header-tools[data-tab-row-accessories="hidden"]:has(.acpmux-status--inline) .acpmux-header-more::after {
+  content: "";
+  position: absolute;
+  top: var(--acpmux-header-more-dot-inset);
+  right: var(--acpmux-header-more-dot-inset);
+  width: var(--acpmux-status-dot);
+  height: var(--acpmux-status-dot);
+  border-radius: 50%;
+  background: var(--agent-status-warning);
+  pointer-events: none;
 }
 /* Contextual header icons (headerRelevance.ts, Debug `agentChat.headerIcons.contextual`). Peek: the icons not relevant now hold their place at the row's leading end, so nothing at rest moves, and fade in while the pointer or focus is in the tools. The fades run on the page's motion tokens (the web Motion gate sets them to 0 when motion is off), and Reduce Motion drops them. */
 .acpmux-header-tools[data-header-icons=contextualPeek] [data-header-dormant]{opacity:0;pointer-events:none}

@@ -52,6 +52,18 @@ fn recipient(target: &str) -> Target {
     }
 }
 
+/// Whom `target` names at the hub, as [`recipient`] says, but a chat the hub lists by its
+/// handle (`HOST/Mango`, `Mango`) by its machine and id: the hub matches names only, and a
+/// handle is no name there (`Hub::mesh_book_handle`).
+fn recipient_in(hub: &Hub, target: &str) -> Target {
+    if !target.starts_with('@')
+        && let Some((host, id)) = hub.mesh_book_handle(target)
+    {
+        return Target { session_id: Some(id), host: Some(host), ..Target::default() };
+    }
+    recipient(target)
+}
+
 /// Whom the relay reaches for `target` while its peer's link is down: the session the peer's
 /// last list named, by its id alone (the hub matches every field it is given, and the host the
 /// hub knows is the peer's own machine name, which need not be the name this daemon gives it). A
@@ -91,11 +103,15 @@ pub(super) async fn relay(
         Some(_) if !hub.mesh.gate().may_try() => return Some(Err(backing_off(false))),
         Some(post) => post.clone(),
         None => {
-            let to = down_peer_recipient(hub, &delivery.target)?;
+            // A peer that is down, or a machine only the hub reaches (a chat that moved there
+            // over the hub, followed to `HOST/ID`: `Hub::mesh_only_host`).
+            let to = down_peer_recipient(hub, &delivery.target).or_else(|| {
+                hub.mesh_only_host(&delivery.target).then(|| recipient_in(hub, &delivery.target))
+            })?;
             let carried = carried(&delivery.request, &delivery.target).ok()?;
-            // A class goes to the peer itself once it is back, where the receiver reads it as
-            // one, rather than as a line of the text now.
-            if carried.inline.is_some() {
+            // A class or supersede key goes to the peer itself once it is back, where the
+            // receiver reads it as one, rather than as a line of the text (or dropped) now.
+            if carried.inline.is_some() || carried.dropped_supersede {
                 return None;
             }
             // Not asked while its gate is shut: nothing is posted, so the peer's link may still
@@ -105,7 +121,15 @@ pub(super) async fn relay(
             }
             let message = OutMessage {
                 to,
-                from: sender(hub, delivery.caller.as_deref(), carried.named, carried.claim),
+                // The outbox takes only this machine's unix socket (`outbox::handle`), so a
+                // delivery with no caller is a relay's there, as `relay_of` reads it.
+                from: sender(
+                    hub,
+                    delivery.caller.as_deref(),
+                    carried.named,
+                    carried.claim,
+                    delivery.caller.is_none().then(|| relay_of(&delivery.request)).flatten(),
+                ),
                 kind: Kind::Prompt,
                 op: None,
                 body: carried.body,
@@ -164,6 +188,7 @@ pub(super) fn waiting_reason(e: &HubError) -> String {
 }
 
 /// What `_acpmux/send_queue` does with a target only the hub routes.
+#[allow(clippy::large_enum_variant)] // built once per send and matched at once; boxing buys nothing
 pub(super) enum Posted {
     /// The hub took it, or refused it: the answer as it is.
     Answered(Result<Value, RpcError>),
@@ -182,7 +207,7 @@ pub(super) async fn post_or_queue(
     request: &Value,
     target: &str,
 ) -> Posted {
-    let (message, inline, caller) = match message(hub, conn, request, target) {
+    let (message, (inline, dropped), caller) = match message(hub, conn, request, target) {
         Ok(made) => made,
         Err(e) => return Posted::Answered(Err(e)),
     };
@@ -199,7 +224,7 @@ pub(super) async fn post_or_queue(
         Ok(receipt) => {
             hub.outbox.record_mesh_origin(&receipt.message_id, target, caller.as_deref(), false);
             let mut row = status_of(&receipt, target);
-            class_note(&mut row, inline);
+            class_note(&mut row, inline, dropped);
             Posted::Answered(Ok(row))
         }
         Err(e) if crate::mesh_retry::transient(&e, true) => {
@@ -210,25 +235,26 @@ pub(super) async fn post_or_queue(
 }
 
 /// The hub's message for a send to `target` (not a team address), the class it carries in its
-/// text, and the session that sent it.
+/// text and whether it dropped a supersede key, and the session that sent it.
 fn message(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     request: &Value,
     target: &str,
-) -> Result<(OutMessage, Option<PromptClass>, Option<String>), RpcError> {
+) -> Result<(OutMessage, (Option<PromptClass>, bool), Option<String>), RpcError> {
     let carried = carried(request, target)?;
     let caller = conn.caller().filter(|_| !conn.is_person());
     let message = OutMessage {
-        to: recipient(target),
-        from: sender(hub, caller, carried.named, carried.claim),
+        to: recipient_in(hub, target),
+        from: sender(hub, caller, carried.named, carried.claim, local_relay(conn, request)),
         kind: Kind::Prompt,
         op: None,
         body: carried.body,
         mode: carried.mode,
         idempotency_key: idempotency_key(&carried.prompt_id),
     };
-    Ok((message, carried.inline, caller.map(str::to_owned)))
+    let said = (carried.inline, carried.dropped_supersede);
+    Ok((message, said, caller.map(str::to_owned)))
 }
 
 /// The outbox's record of a delivery the hub took for a peer that is down (`relay`).
@@ -256,14 +282,16 @@ struct Carried {
     body: String,
     /// The class written into `body`'s first line, which the hub's message cannot carry.
     inline: Option<PromptClass>,
+    /// The request named a `supersede` key, which the hub's message cannot carry: sent without it.
+    dropped_supersede: bool,
     mode: Mode,
     prompt_id: String,
     named: Option<String>,
     claim: Option<Value>,
 }
 
-/// `request` as the relay carries it, or the refusal for what it cannot carry: an attachment or
-/// `--supersede`. A class other than result goes as the text's first line.
+/// `request` as the relay carries it, or the refusal for what it cannot carry: an attachment. A
+/// class other than result goes as the text's first line, and a `--supersede` key is dropped.
 fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
     let mut texts: Vec<&str> = Vec::new();
     // These refusals never say "no session": `acpmux send` turns any error with those words into
@@ -282,14 +310,11 @@ fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
     }
     let mux = request.pointer("/_meta/acpmux");
     let field = |k: &str| mux.and_then(|m| m.get(k));
-    // The hub's message carries no supersede key, so the target could not replace the earlier
-    // prompt: refused, never dropped (a send that says it replaced nothing it was asked to).
-    if field("supersede").is_some_and(|k| !k.is_null()) {
-        return Err(RpcError::invalid_params(format!(
-            "{target:?} is reached only through the mesh relay, which cannot carry --supersede: send it without one"
-        ))
-        .with_data(json!({"reason": "mesh.no_supersede", "session": target})));
-    }
+    // The hub's message carries no supersede key, so the target cannot replace the earlier
+    // prompt. The message goes without it and the sender's row says so (`class_note`): a
+    // refusal here bounced every such send, and the sender's next move was always to send it
+    // again without the key (cmuxterm-hq docs/findings/2026-11-23-mcp-tool-error-census.md).
+    let dropped_supersede = field("supersede").is_some_and(|k| !k.is_null());
     // Nor a class (`prompt_class.rs`): the hub's message has no field for it, so a block, a
     // question or an FYI goes with its class as the first line of the text the receiver reads
     // (`[question]`), and the sender's row says so (`classInline`). Before, it was refused, and
@@ -301,6 +326,7 @@ fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
     Ok(Carried {
         body: texts.join("\n\n"),
         inline,
+        dropped_supersede,
         mode: if field("steer") == Some(&json!(true)) { Mode::Now } else { Mode::TurnEnd },
         prompt_id: field("promptId")
             .and_then(Value::as_str)
@@ -313,7 +339,7 @@ fn carried(request: &Value, target: &str) -> Result<Carried, RpcError> {
 }
 
 /// The first line a relayed message carries its class in: `[question]`.
-fn class_line(class: PromptClass) -> &'static str {
+pub(super) fn class_line(class: PromptClass) -> &'static str {
     match class {
         PromptClass::Block => "[block]",
         PromptClass::Question => "[question]",
@@ -322,30 +348,77 @@ fn class_line(class: PromptClass) -> &'static str {
     }
 }
 
-/// What a sender's row says of a class the relay carried in the text (`carried`).
-fn class_note(row: &mut Value, inline: Option<PromptClass>) {
-    if let (Some(class), Some(row)) = (inline, row.as_object_mut()) {
+/// What a sender's row says of a class the relay carried in the text, and of a supersede key it
+/// dropped (`carried`).
+fn class_note(row: &mut Value, inline: Option<PromptClass>, dropped_supersede: bool) {
+    let Some(row) = row.as_object_mut() else { return };
+    let mut notes = Vec::new();
+    if let Some(class) = inline {
         row.insert("classInline".into(), json!(class.as_str()));
-        row.insert(
-            "note".into(),
-            json!(format!(
-                "the mesh relay carries no class field: sent with {} as the text's first line",
-                class_line(class)
-            )),
+        notes.push(format!(
+            "the mesh relay carries no class field: sent with {} as the text's first line, which the receiving daemon files it by",
+            class_line(class)
+        ));
+    }
+    if dropped_supersede {
+        row.insert("supersedeDropped".into(), json!(true));
+        notes.push(
+            "the mesh relay carries no supersede key: sent without it, so an earlier message it would have replaced stays"
+                .to_owned(),
         );
+    }
+    if !notes.is_empty() {
+        row.insert("note".into(), json!(notes.join("; ")));
     }
 }
 
 /// The proven caller names the sender; `fromAgent` (anything a client writes) only when no
-/// session is proven, as a display name. `claim` is provenance only, never the sender.
-fn sender(hub: &Hub, caller: Option<&str>, named: Option<String>, claim: Option<Value>) -> Sender {
+/// session is proven, as a display name. `claim` is provenance only, never the sender. `relay` is
+/// the relay record of a send no session made, which goes only when no caller is proven.
+fn sender(
+    hub: &Hub,
+    caller: Option<&str>,
+    named: Option<String>,
+    claim: Option<Value>,
+    relay: Option<Value>,
+) -> Sender {
+    // A program outside any session (`ACPMUX_FROM=glaeda-land`) with no relay of its own is its
+    // own relay: the record names it, so a receiver reads "glaeda-land on HOST", not the machine.
+    let relay = match caller {
+        Some(_) => None,
+        None => relay.or_else(|| program_relay(named.as_deref())),
+    };
     Sender {
         name: caller.map(|id| hub.session_name(id)).or(named),
         session_id: caller.map(str::to_owned),
-        host: Some(crate::pairing::machine_name()),
+        host: Some(crate::pairing::mesh_host()),
         claim,
+        relay,
         ..Sender::default()
     }
+}
+
+/// The relay record naming a program outside any session by its declared name on this machine,
+/// or None when the name is no one relay name ([`RelaySender::of`] decides).
+fn program_relay(named: Option<&str>) -> Option<Value> {
+    let by = named?.trim();
+    let machine = crate::pairing::mesh_host();
+    crate::prompt_provenance::RelaySender::of(&json!({"by": by, "machine": machine}))
+        .map(|r| r.to_value())
+}
+
+/// The relay record (`prompt_provenance::FROM_RELAY`) of a send a relay on this machine's unix
+/// socket made outside any session (the lane-gh broker's `acpmux send`), read as the peer link
+/// reads it (`peer_forward::name_sender`): only well-formed fields, from no proven caller.
+fn local_relay(conn: &Conn, request: &Value) -> Option<Value> {
+    (conn.origin == super::Origin::Local && conn.caller().is_none())
+        .then(|| relay_of(request))
+        .flatten()
+}
+
+/// `request`'s relay record, well formed, as the hub's message carries it (`Sender::relay`).
+fn relay_of(request: &Value) -> Option<Value> {
+    crate::prompt_provenance::relay_sender(request)?.relay.map(|r| r.to_value())
 }
 
 pub(super) async fn send(
@@ -365,11 +438,11 @@ pub(super) async fn send(
         }
     }
     let carried = carried(request, target)?;
-    let inline = carried.inline;
+    let (inline, dropped) = (carried.inline, carried.dropped_supersede);
     let caller = conn.caller().filter(|_| !conn.is_person());
     let message = OutMessage {
-        to: recipient(target),
-        from: sender(hub, caller, carried.named, carried.claim),
+        to: recipient_in(hub, target),
+        from: sender(hub, caller, carried.named, carried.claim, local_relay(conn, request)),
         kind: Kind::Prompt,
         op: None,
         body: carried.body,
@@ -392,7 +465,7 @@ pub(super) async fn send(
         hub.outbox.record_mesh_origin(&receipt.message_id, target, caller, false);
     }
     let mut row = status_of(&receipt, target);
-    class_note(&mut row, inline);
+    class_note(&mut row, inline, dropped);
     Ok(row)
 }
 
@@ -532,64 +605,5 @@ pub(super) fn valid_team_address(address: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn host_and_a_session_id_name_that_session_by_id() {
-        let id = "01a1acb2-5bb4-75a3-b5eb-a0eeea1d59d5";
-        let to = recipient(&format!("machine-b/{id}"));
-        assert_eq!(
-            (to.session_id.as_deref(), to.name, to.host.as_deref()),
-            (Some(id), None, Some("machine-b"))
-        );
-        let to = recipient("machine-b/own-e2e");
-        assert_eq!((to.name.as_deref(), to.session_id), (Some("own-e2e"), None));
-    }
-
-    /// cmuxterm-hq#17418: `class: question` to 9 sessions reached only through the relay sent 0
-    /// of 9 ("cannot carry --class"). The class now goes as the text's first line, the sender's
-    /// row says so, and a send with no class (or result) is the text it always was.
-    #[test]
-    fn a_class_the_relay_cannot_carry_goes_as_the_first_line() {
-        let request = |class: Option<&str>| {
-            json!({"sessionId": "host-b/lane-a", "prompt": [{"type": "text", "text": "ship it?"}],
-                "_meta": {"acpmux": {"class": class, "promptId": "0190f2a4-7c1e-7d3a-9f00-0123456789ab"}}})
-        };
-        let sent = carried(&request(Some("question")), "host-b/lane-a").unwrap();
-        assert_eq!(sent.body, "[question]\n\nship it?");
-        assert_eq!(sent.inline, Some(PromptClass::Question));
-        let sent = carried(&request(Some("blocker")), "host-b/lane-a").unwrap();
-        assert!(sent.body.starts_with("[block]\n\n"), "{}", sent.body);
-        for class in [None, Some("result"), Some("action")] {
-            let sent = carried(&request(class), "host-b/lane-a").unwrap();
-            assert_eq!((sent.body.as_str(), sent.inline), ("ship it?", None), "{class:?}");
-        }
-        let mut row = json!({"status": "queued"});
-        class_note(&mut row, Some(PromptClass::Question));
-        assert_eq!(row["classInline"], "question");
-        assert!(row["note"].as_str().unwrap().contains("[question]"), "{row}");
-        // What it still cannot carry is still refused, by name.
-        let mut attach = request(None);
-        attach["prompt"] = json!([{"type": "image", "data": "x"}]);
-        assert!(carried(&attach, "host-b/lane-a").is_err());
-    }
-
-    #[test]
-    fn a_prompt_id_the_hub_would_refuse_as_a_key_is_digested() {
-        let id = "0190f2a4-7c1e-7d3a-9f00-0123456789ab";
-        assert_eq!(idempotency_key(id), id);
-        let short = idempotency_key("abc");
-        assert!(short.starts_with("p:") && short.len() == 42, "{short}");
-        assert_eq!(idempotency_key("has space in it"), idempotency_key("has space in it"));
-        assert_eq!(recipient("huge-blue/dep-land").host.as_deref(), Some("huge-blue"));
-        assert_eq!(recipient("dep-land").host, None);
-        assert_eq!(
-            recipient("@lawrence/coordinator").team_address.as_deref(),
-            Some("@lawrence/coordinator")
-        );
-        assert!(valid_team_address("@team/role"));
-        assert!(valid_team_address("@member/reviewer:backend"));
-        assert!(!valid_team_address("@team"));
-    }
-}
+#[path = "mesh_send_tests.rs"]
+mod tests;
