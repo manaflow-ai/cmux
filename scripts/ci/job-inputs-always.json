@@ -1079,8 +1079,6 @@
         "why": "routed by its workflow's own job (needs.base-only.outputs.base_only in its if:), which no input map declares yet; it counts as runs-always until its inputs are declared",
         "suggested_inputs": [
           "Packages/Shared/CmuxAgentBrands/Sources/CmuxAgentBrands/AgentBrandCatalog+Generated.swift",
-          "Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/CtlWireModels.swift",
-          "Packages/Shared/CmuxIrxTransport/Sources/CmuxIrxTransport/ControlPlane/V2WireModels.swift",
           "Packages/Shared/CmuxSpinner/Sources/CmuxSpinner/CmuxSpinnerPeriod.swift",
           "Packages/macOS/CmuxNext/",
           "Packages/macOS/CmuxNext/Sources/",
