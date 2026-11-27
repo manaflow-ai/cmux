@@ -252,3 +252,17 @@ fn newest_runs_orders_by_job_id_then_start_time_then_place() {
     ]);
     assert_eq!(pr::newest_runs(two.as_array().unwrap()).len(), 2);
 }
+
+#[test]
+fn timeout_takes_seconds_or_a_duration() {
+    use super::timeout_secs;
+    assert_eq!(timeout_secs("3600"), Ok(3600));
+    assert_eq!(timeout_secs("90s"), Ok(90));
+    assert_eq!(timeout_secs("45m"), Ok(2700));
+    assert_eq!(timeout_secs("2h"), Ok(7200));
+    assert_eq!(timeout_secs("1h30m"), Ok(5400));
+    assert!(timeout_secs("").is_err());
+    assert!(timeout_secs("1x").is_err());
+    assert!(timeout_secs("m").is_err());
+    assert!(timeout_secs("30m5").is_err());
+}

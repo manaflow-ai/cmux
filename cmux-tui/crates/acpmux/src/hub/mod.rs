@@ -176,6 +176,7 @@ pub mod journal_restore;
 mod journal_restore_tests;
 pub(crate) mod key_route;
 mod key_store;
+pub(crate) mod session_lifecycle;
 // A dead lane on a peer tells its starter here (`lane_death_watch.rs`).
 mod lane_death_watch;
 // The per-lane fan-out cap (`lane_fanout.rs`).
@@ -502,9 +503,10 @@ pub mod vm_boundary;
 pub mod vm_host;
 #[cfg(test)]
 mod wait_reason_tests;
+mod wake_place;
 mod warm;
 mod watch;
-mod watch_events;
+pub(crate) mod watch_events;
 pub(crate) mod watches;
 mod web_control;
 mod web_token;
@@ -559,6 +561,7 @@ pub(crate) use pool::SESSION_NEW_BUDGET;
 pub use prompt_coach::CoachRewriter;
 pub use retention::RetentionRequest;
 pub(crate) use route_switch::is_chief;
+pub use session_lifecycle::LifecycleRequest;
 pub use subagent_transcript::FEATURE as SUBAGENT_TRANSCRIPT_FEATURE;
 pub use tool_start::{ToolStart, tool_start};
 pub use transcript_offload::TranscriptOffloadRequest;
@@ -1360,6 +1363,8 @@ pub struct Hub {
     pub(super) clone_boot: std::sync::OnceLock<String>,
     /// A chat closed: wakes the log retention worker (`retention.rs`).
     pub(super) retention_wake: Arc<Notify>,
+    /// A chat closed: the lifecycle worker's pass after its grace (`session_lifecycle.rs`).
+    pub(super) lifecycle_wake: Arc<Notify>,
     /// Chats whose log the store brought back from its cold archive, whose preview is not dropped
     /// yet, and the wake of the worker that drops it (`cold_archive.rs`).
     pub(super) cold_rehydrated: Arc<StdMutex<std::collections::BTreeSet<String>>>,
@@ -1917,6 +1922,7 @@ impl Hub {
             queues_resumed: AtomicBool::new(false),
             clone_boot: std::sync::OnceLock::new(),
             retention_wake: Arc::new(Notify::new()),
+            lifecycle_wake: Arc::new(Notify::new()),
             cold_rehydrated: Default::default(),
             cold_wake: Arc::new(Notify::new()),
             cold_sealed: Default::default(),
@@ -3327,9 +3333,10 @@ impl Hub {
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
-        // What its harness spent, read after a turn (`usage_view.rs`), is bookkeeping: it never
-        // keeps the chat's agent awake.
-        if !(dir == "mux" && kind == usage_view::RECORD_KIND) {
+        // Bookkeeping never keeps the chat's agent awake (`idle.rs`): what its harness spent,
+        // read after a turn (`usage_view.rs`), a restarted daemon taking its host back, and a
+        // read mark (`seen.rs`), which a look writes whoever looked.
+        if !idle::bookkeeping(&record.dir, &record.kind, &record.msg) {
             self.touch(session);
         }
         // A stub goes in without the record's recovery mark (`restore_writer.rs`).
@@ -3838,6 +3845,7 @@ impl Hub {
             self.refresh_parent_asks_below(session);
             if status == SessionStatus::Closed {
                 self.retention_wake();
+                self.lifecycle_wake();
             }
         }
         true
