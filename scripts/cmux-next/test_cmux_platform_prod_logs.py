@@ -569,6 +569,19 @@ class NeverBoundTests(unittest.TestCase):
         for msg in ("cloud.create.submit", "cloud.start.submit", "cloud.start.trace"):
             self.assertIn(msg, logs.PLATFORM_MSGS)
 
+    def test_an_approved_run_keeps_its_delivery_split_and_steps(self):
+        """Production 2026-11-27 02:15-03:15Z (hq#31342): 20 cloud.approval.run lines kept only msg, team, machine, op,
+        outcome and path; cmux-platform#2295's queued/admit/delivery/run ms and the create's steps were dropped."""
+        row = logs.line(event({"msg": "cloud.approval.run", "team": TEAM, "machine": VM, "op": "cloud.machine.create",
+                               "queued_ms": 410, "admit_ms": 12, "delivery_ms": 2140, "run_ms": 2128, "path": "spare",
+                               "steps": {"spare_claim": 90, "provider": 1700, "vm_api": 2050, "secret": 1},
+                               "outcome": "ok"}))
+        self.assertEqual(row["log"], {"msg": "cloud.approval.run", "team": logs.base.tag(TEAM),
+                                      "machine": logs.base.tag(VM), "op": "cloud.machine.create", "outcome": "ok",
+                                      "path": "spare", "queued_ms": 410, "admit_ms": 12, "delivery_ms": 2140,
+                                      "run_ms": 2128, "steps": {"spare_claim": 90, "provider": 1700, "vm_api": 2050}})
+        self.assertIn("cloud.create.approved", logs.PLATFORM_MSGS)
+
     def test_a_slow_start_trace_keeps_its_power_split_typed(self):
         row = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "attempt": 1, "outcome": "ok",
                                "steps": {"driver": 217, "power": 121058},
