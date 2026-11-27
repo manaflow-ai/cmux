@@ -7781,6 +7781,12 @@ jobs:
               echo "::warning title=Compile check::results service down ($down); the overflow compile posts cmux-next/compile for $SHA"
               exit 0
             fi
+            # Why: 2026-11-24-compile-status-down-superseded.md
+            if tip_moved; then
+              post error "[no-verdict] [superseded] Results service down ($down); the branch moved on and its newer tip check covers this commit" "$RUN_URL" || true
+              echo "::notice title=Compile check::results service down ($down) for superseded push $SHA; the branch moved on"
+              exit 0
+            fi
             # Why: note-84 ([no-verdict])
             post error "[no-verdict] No compile verdict: results service down ($down); no fallback compile runs here, re-run this job" "$RUN_URL" || true
             echo "::error title=Compile check::cmux-next/compile is not a pass for $SHA (results service down, $down)"
