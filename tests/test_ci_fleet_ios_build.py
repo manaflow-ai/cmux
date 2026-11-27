@@ -62,6 +62,10 @@ class Route:
 
     def __call__(self, req, timeout=None):
         if req.full_url == "https://store.example/out.tgz":
+            # The store sits behind the route's CDN: urllib's default agent got 403 there (run 45932893553).
+            if req.get_header("User-agent") != fib.USER_AGENT:
+                raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, io.BytesIO(b"error code: 1010"))
+            assert req.get_header("Authorization") is None, "the presigned URL is its own credential"
             return Resp(self.archive)
         assert req.full_url == fib.ROUTE, req.full_url
         if req.get_header("Authorization") != f"Bearer {self.bearer}":
@@ -196,6 +200,19 @@ class FleetIOSBuild(unittest.TestCase):
                       tgz(FFI))
         self.assertEqual(run(route, self.out), 0)
 
+    def test_refused_download_names_its_reason(self):
+        def store(req, timeout=None):
+            if req.full_url == "https://store.example/out.tgz":
+                raise urllib.error.HTTPError(req.full_url, 403, "Forbidden", {}, io.BytesIO(
+                    b"<?xml version='1.0'?><Error><Code>SignatureDoesNotMatch</Code></Error>"))
+            return route(req, timeout)
+        route = Route({"job": "j1"}, [{"state": "done", "verdict": "pass", "get_url": "https://store.example/out.tgz"}])
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(err):
+            code = fib.run("ffi", self.out, 1500, 600, "tok", opener=store, clock=Clock(), sleep=lambda s: None)
+        self.assertEqual(code, 2)
+        self.assertIn("output unreadable: HTTP 403 SignatureDoesNotMatch", err.getvalue())
+
     def test_missing_output_is_2(self):
         route = Route({"job": "j1"}, [{"state": "done", "verdict": "pass", "get_url": "https://store.example/out.tgz"}],
                       tgz({"CmuxMobileLinkFFI.swift": b"x"}))
@@ -302,6 +319,17 @@ class KitWorkflow(unittest.TestCase):
             self.assertTrue(steps[name].get("continue-on-error"), name)
         self.assertIn("|| status=$?", steps["build"]["run"])
         self.assertEqual(steps["pool"]["run"].strip(), "bash scripts/ci/kit_sim_fleet.sh pool")
+
+    def test_every_pool_submit_selects_its_bundle_mode(self):
+        for job_name, job in self.jobs.items():
+            for step in job["steps"]:
+                if step.get("run", "").strip() != "bash scripts/ci/kit_sim_fleet.sh pool":
+                    continue
+                with self.subTest(job=job_name):
+                    # The build comparison always runs all bundles. Production submits
+                    # must preserve the cutover split, including the owned-Mac fallback.
+                    expected = "shadow" if job_name == "kit-sim-fleet" else "${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}"
+                    self.assertEqual(step.get("env", {}).get("CMUX_IOS_SIM_LINUX"), expected)
 
     def test_no_pool_step_reads_an_exit_after_a_bare_command(self):
         # A step is bash -e: `cmd; status=$?` never reads a failure, and `grep -c || echo 0` prints "0\n0".
