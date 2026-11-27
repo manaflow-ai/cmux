@@ -94,7 +94,7 @@ jobs:
     # instruction counts 40 min, the compile canary 30 min, the Rust notices 20 min, the cmux VM Rust clients 30 min, the nightly and cmux-tui
     # release guards 20 min, the cmux cloud CLI 15 min): 649 min with 47 shared steps (24 waves) and the setup and
     # tool bounds, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 649
+    timeout-minutes: 656
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
