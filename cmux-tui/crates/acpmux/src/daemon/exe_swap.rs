@@ -56,6 +56,55 @@ pub(crate) const RETRY_AFTER: [Duration; 5] = [
     Duration::from_secs(120),
 ];
 
+// Busy sends leave a pending handoff; they do not consume the bad-build retry budget.
+// timeout: retry cadence, never permission to cut an accepted send.
+const BUSY_RETRY_AFTER: Duration = Duration::from_secs(30);
+
+#[derive(Default)]
+struct SwapRetry {
+    failures: usize,
+    busy: bool,
+}
+impl SwapRetry {
+    fn after(&self) -> Option<Duration> {
+        if self.busy {
+            Some(BUSY_RETRY_AFTER)
+        } else {
+            self.failures.checked_sub(1).and_then(|i| RETRY_AFTER.get(i)).copied()
+        }
+    }
+    fn deferred(&mut self) {
+        self.busy = true;
+    }
+    fn failed(&mut self) {
+        self.busy = false;
+        self.failures += 1;
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn busy_update_stays_pending_after_the_failure_budget_would_be_exhausted() {
+    let mut retry = SwapRetry::default();
+    assert_eq!(retry.after(), None);
+    retry.failed();
+    let failed_delay = retry.after();
+    // A long turn lasts past every old retry slot, then finishes.
+    for _ in 0..100 {
+        retry.deferred();
+        assert_eq!(retry.after(), Some(Duration::from_secs(30)));
+        assert_eq!(retry.failures, 1);
+    }
+    retry.busy = false;
+    assert_eq!(retry.after(), failed_delay);
+    for _ in 0..RETRY_AFTER.len() {
+        retry.failed();
+    }
+    assert_eq!(retry.after(), None, "bad builds retain their finite retry bound");
+    retry.deferred();
+    assert_eq!(retry.after(), Some(Duration::from_secs(30)));
+}
+
 /// The installed path and its identity when the watch started, for [`replaced`] and a client's
 /// swap request ([`request_swap`]).
 static WATCHED: std::sync::OnceLock<(PathBuf, super::home_watch::Owned)> =
@@ -114,10 +163,10 @@ impl Watch {
             return std::future::pending().await;
         };
         let mut watching = true;
-        // The next wait after a failed swap, by attempt; none after the last.
-        let mut failed = 0usize;
+        // Busy sends remain pending; real swap failures retain their finite budget.
+        let mut retries = SwapRetry::default();
         loop {
-            let retry = failed.checked_sub(1).and_then(|i| RETRY_AFTER.get(i)).copied();
+            let retry = retries.after();
             let wake = tokio::select! {
                 got = rx.recv(), if watching => match got {
                     Some(()) => Wake::Changed,
@@ -130,7 +179,7 @@ impl Watch {
                 () = tokio::time::sleep(retry.unwrap_or(Duration::MAX)), if retry.is_some() => Wake::Retry,
             };
             let Some(why) = owned.lost() else {
-                failed = 0;
+                retries = SwapRetry::default();
                 continue;
             };
             // The move, the new copy and its mode are separate steps of the update, and the last
@@ -157,7 +206,7 @@ impl Watch {
                 ),
                 Wake::Retry => tracing::warn!(
                     "update: {why}; trying the swap again (attempt {}) to the build at {}",
-                    failed + 1,
+                    retries.failures + 1,
                     installed.display()
                 ),
             }
@@ -166,11 +215,16 @@ impl Watch {
             let drain = match crate::server::update_drain::prepare(&hub).await {
                 Ok(drain) => drain,
                 Err(error) => {
-                    failed += 1;
+                    retries.deferred();
                     tracing::info!("update deferred; daemon serves on: {error}");
                     continue;
                 }
             };
+            // An explicit updater that already began shutdown owns the replacement.
+            if hub.shutting_down() {
+                return std::future::pending().await;
+            }
+            retries.busy = false;
             let mut steps = ExeSwap { installed: installed.clone(), args: args.clone() };
             match tokio::task::spawn_blocking(move || {
                 cmux_supervise_core::make_before_break(&mut steps, READY_WITHIN)
@@ -182,8 +236,8 @@ impl Watch {
                     return std::future::pending().await;
                 }
                 Ok(Swapped::KeptOld(why)) => {
-                    failed += 1;
-                    let next = RETRY_AFTER.get(failed - 1).map_or_else(
+                    retries.failed();
+                    let next = retries.after().map_or_else(
                         || "at the next change or a client's ask".to_owned(),
                         |d| format!("in {}s", d.as_secs()),
                     );
@@ -192,7 +246,7 @@ impl Watch {
                     );
                 }
                 Err(e) => {
-                    failed += 1;
+                    retries.failed();
                     tracing::warn!("update: the swap task: {e}");
                 }
             }
