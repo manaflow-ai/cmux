@@ -513,14 +513,14 @@ impl Hub {
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, true, false)
+        self.summary_with_tools(session, true, None)
     }
 
     /// The whole row of a chat for the `session_changed` that follows one of its records: its
     /// summary, with the time breakdown only when the row owes it
     /// (`time_breakdown::State::row_snapshot`). Built once per record (`HubEvent::row`).
-    pub(crate) fn session_change_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, true, true)
+    pub(crate) fn session_change_summary(&self, session: &Session, seq: u64) -> Value {
+        self.summary_with_tools(session, true, Some(seq))
     }
 
     /// Start restoring a chat's time breakdown off the request path, at most one at a time. Until
@@ -577,6 +577,13 @@ impl Hub {
     #[cfg(test)]
     pub(crate) fn seed_time_breakdown_for_test(&self, session: &Session) {
         self.seed_time_breakdown(session, false);
+    }
+
+    /// Whether a time-breakdown seed of the chat is running, for a server test that waits out
+    /// the one an attach started.
+    #[cfg(test)]
+    pub(crate) fn time_breakdown_seeding_for_test(&self, session: &Session) -> bool {
+        session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).seeding
     }
 
     /// Restore a chat's breakdown from its saved copy and fold the records past it, then keep the
@@ -748,7 +755,7 @@ impl Hub {
     /// Census rows omit the inventory and cut a long title (`TITLE_CHARS`); `_acpmux/info` and
     /// attach keep both.
     pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, false, false)
+        self.summary_with_tools(session, false, None)
     }
 
     /// Whether `fork_through.rs` and `fork.rs` fork this chat through any completed turn: its
@@ -768,7 +775,7 @@ impl Hub {
         &self,
         session: &Session,
         with_tools: bool,
-        change_row: bool,
+        change_row: Option<u64>,
     ) -> RowInputs {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
@@ -1029,12 +1036,12 @@ impl Hub {
             // A detail/attach read seeds this lazily; census rows never scan journals.
             time_breakdown: match (with_tools, change_row) {
                 (false, _) => None,
-                (true, false) => self.cached_time_breakdown(session),
-                (true, true) => session
+                (true, None) => self.cached_time_breakdown(session),
+                (true, Some(seq)) => session
                     .time_breakdown
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .row_snapshot(crate::store::now_ms()),
+                    .row_snapshot(crate::store::now_ms(), seq),
             },
             // Set from the row's own fields below (`set_composer_status`).
             composer_status: None,
@@ -1134,9 +1141,14 @@ impl Hub {
         RowInputs { summary, extras, notice, with_tools, limits }
     }
 
-    /// `change_row`: the row follows a record (`session_change_summary`), so it carries the
+    /// `change_row`: the record the row follows (`session_change_summary`), so it carries the
     /// time breakdown only when owed.
-    fn summary_with_tools(&self, session: &Session, with_tools: bool, change_row: bool) -> Value {
+    fn summary_with_tools(
+        &self,
+        session: &Session,
+        with_tools: bool,
+        change_row: Option<u64>,
+    ) -> Value {
         render_row(&self.row_inputs(session, with_tools, change_row))
     }
 
@@ -1208,6 +1220,21 @@ impl Hub {
     /// every later reader. Before this, one chat whose agent was starting or ending, or a slow
     /// disk walk, held status, and every pane said "Waiting for the agent service" at once
     /// (Leo, 2026-11-12, ask-64cfa32e34).
+    /// The part of [`Hub::status`] a listing reads (`_acpmux/status` with `listCounts`): the
+    /// closed rows the unfiltered list holds, of those the other machines' (decision 213), and
+    /// the peers. Counted, never built, and nothing awaited: under load the full status waits on
+    /// its host, disk and agent reads (up to their 1 s budget each), and `ls --json` read it
+    /// before its list (#58414).
+    pub fn list_counts(&self) -> Value {
+        let (all, live_ids) = self.session_counts();
+        let closed = self.closed_listed(all.saturating_sub(live_ids));
+        json!({
+            "closedListed": closed.all,
+            "closedRemoteListed": closed.remote,
+            "peers": self.peers(),
+        })
+    }
+
     pub async fn status(&self) -> Value {
         let loading = !self.store_loaded() || !self.startup_complete();
         let low = self

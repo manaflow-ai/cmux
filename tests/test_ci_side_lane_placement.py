@@ -2586,10 +2586,9 @@ class FeedReplyFullText(unittest.TestCase):
 
 
 class SmallMacChecks(unittest.TestCase):
-    """The zsh HEAD watcher check holds no secrets and changes no session, so a same-repository run takes
-    cmux-mac behind vars.CI_OVERFLOW_MAC; a fork pull request keeps Blacksmith macOS."""
+    """Host-only checks use the shared Mac pool on same-repository runs and an ephemeral Mac on forks."""
 
-    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"),)
+    JOBS = (("cmux-next-shell-integration.yml", "zsh-head-watch"), ("pr-pipeline.yml", "ios-macos"))
 
     def context(self, event: str = "pull_request", attempt: str = "1", owned: str = "1",
                 head: str = "manaflow-ai/cmux", owner: str = "manaflow-ai", overflow: str = "") -> dict:

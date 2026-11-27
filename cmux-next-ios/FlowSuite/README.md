@@ -71,3 +71,8 @@ Full rows (why each was not caught, evidence): [REGRESSIONS-2026-11.md](REGRESSI
 | 10 | Empty state says "Macs asleep" when cmux is not connected | pre-rename copy; cmux#53806 fixed one branch | cmux#57792 (open) | workspaces-empty-state | WorkspaceInboxTests, OfflineWorkspaceAlertUITests; the copy test lands with cmux#57792 |
 | 11 | A Mac with no workspaces shows Loading forever; the route flaps | | cmux#57410 (open) | workspaces-empty-mac-loads | WorkspaceInboxTests, NetworkPathFilterTests |
 | 12 | ChatMacLookUITests red after cmux#57773 | cmux#57773 | | chat-mac-look | ChatMacLookUITests |
+| 13 | Full-screen app's header goes off screen with the keyboard up (PR audit) | cmux#41895 | cmux#42760, #43454 | terminal-keyboard-fullscreen-app | TerminalKeyboardNoResizeUITests |
+| 14 | Mac's terminal keeps the phone's size after background or lock (PR audit) | cmux#41902 | cmux#42192 | terminal-size-claim-release | TerminalSizeClaimDebounceTests |
+| 15 | App stops compiling: LocalLinkBrowser captured var (PR audit) | cmux#53717 | cmux#55156 | compile-app-and-tests | build-for-testing |
+| 16 | Slow chat history never shows "Loading chat…" (PR audit) | cmux#51591 | cmux#54975 | chat-slow-history-loading | StartingAgentSourceTests |
+| 17 | macOS half of the kit stops compiling and hides test reds (PR audit) | cmux#56000 | cmux#55509, #56732 | kit-macos-swift-test | `swift test` NoRawTimeoutCopyTests, WorkedFoldTests |
