@@ -416,7 +416,10 @@ pub fn member_items(members: &Members) -> Option<Vec<GroupItem>> {
         .map(|listed| {
             let after = listed.after.as_ref().and_then(|after| {
                 let index = members.member_items.iter().position(|item| item == after)?;
-                members.member_items.get(..=index).unwrap_or_default()
+                members
+                    .member_items
+                    .get(..=index)
+                    .unwrap_or_default()
                     .iter()
                     .rev()
                     .find_map(|item| members.shown.get(item).cloned())

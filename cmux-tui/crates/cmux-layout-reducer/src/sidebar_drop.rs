@@ -214,7 +214,9 @@ fn hit(y: f64, rows: &[Row]) -> Option<(&Row, f64)> {
 /// (Swift `previousExpandedSection`).
 fn previous_expanded_section<'a>(row: &Row, rows: &'a [Row]) -> Option<&'a Row> {
     let index = rows.iter().position(|candidate| candidate == row)?;
-    let previous = rows.get(..index).unwrap_or_default()
+    let previous = rows
+        .get(..index)
+        .unwrap_or_default()
         .iter()
         .rev()
         .find(|candidate| matches!(candidate.key, RowKey::Section { .. }))?;
@@ -429,7 +431,8 @@ fn is_valid(target: &Target, ids: &[String], sections: &[Section]) -> bool {
         }
         Target::IntoGroup { group } => {
             let Some((section_index, _)) = locate_group(group, sections) else { return false };
-            sections.get(section_index)?
+            let Some(section) = sections.get(section_index) else { return false };
+            section
         }
         Target::OntoWorkspace { workspace: target } => {
             // A loose workspace of a machine section, not one of the dragged.

@@ -512,7 +512,9 @@ pub fn reduce(document: &Document, op: &Op) -> Result<Document, Reject> {
         Op::ItemRemove { id } => {
             let (s, i) = locate(id, &sections).ok_or(Reject::UnknownItem)?;
             let Some(section) = sections.get_mut(s) else { return Err(Reject::UnknownItem) };
-            if i >= section.items.len() { return Err(Reject::UnknownItem); }
+            if i >= section.items.len() {
+                return Err(Reject::UnknownItem);
+            }
             section.items.remove(i);
         }
         Op::ItemRemoveRef { reference } => {
@@ -525,7 +527,8 @@ pub fn reduce(document: &Document, op: &Op) -> Result<Document, Reject> {
         }
         Op::ItemUpdate { id, shows_label } => {
             let (s, i) = locate(id, &sections).ok_or(Reject::UnknownItem)?;
-            let Some(item) = sections.get_mut(s).and_then(|section| section.items.get_mut(i)) else {
+            let Some(item) = sections.get_mut(s).and_then(|section| section.items.get_mut(i))
+            else {
                 return Err(Reject::UnknownItem);
             };
             item.shows_label = *shows_label;
@@ -774,14 +777,20 @@ fn move_item(id: &str, target: &str, index: i64, sections: &mut [Section]) -> Re
     let Some(item) = sections.get(s).and_then(|section| section.items.get(i)).cloned() else {
         return Err(Reject::UnknownItem);
     };
-    if t != s && target_section.items.iter().any(|existing| existing.reference.same(&item.reference)) {
+    if t != s
+        && target_section.items.iter().any(|existing| existing.reference.same(&item.reference))
+    {
         return Err(Reject::DuplicateRef);
     }
     let Some(source) = sections.get_mut(s) else { return Err(Reject::UnknownItem) };
-    if i >= source.items.len() { return Err(Reject::UnknownItem); }
+    if i >= source.items.len() {
+        return Err(Reject::UnknownItem);
+    }
     source.items.remove(i);
     let target_index = if s < t { t - 1 } else { t };
-    let Some(target_section) = sections.get_mut(target_index) else { return Err(Reject::UnknownSection) };
+    let Some(target_section) = sections.get_mut(target_index) else {
+        return Err(Reject::UnknownSection);
+    };
     let at = clamp(index, target_section.items.len());
     target_section.items.insert(at, item);
     Ok(())
