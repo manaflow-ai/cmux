@@ -2,7 +2,7 @@
 import { Effect, Either, Option, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
 import { logTimedEvent, timedPhase, type TimedPhases } from "../lib/timing.ts";
-import type { CreateAdmissionClient } from "../limits/create-admission.ts";
+import { PROVIDER_CREATE_BUDGET_MS, type CreateAdmissionClient } from "../limits/create-admission.ts";
 import { upstreamIdOf } from "../proofs/tenant-owns-resource.ts";
 import { vmImageEvidenceOf } from "../proofs/vm-image.ts";
 import { initialNetworkBody } from "./initial-network.ts";
@@ -120,12 +120,13 @@ const admitSend = (admission: CreateAdmissionClient | undefined, holder: string,
  * - 15:52-16:00Z, with background requests (#61044): 6 of 11 creates failed at 129-152 s with no VM, each holding a
  *   slot the whole time; 42 were refused queue_full/wait_expired and POST /v1/vms answered 503 48 times against 5 201s.
  *
- * 45 s is above the provider's slowest own time seen (38.6 s). A cut create's exact-slug read below, and the same
+ * 45 s (PROVIDER_CREATE_BUDGET_MS, which the slot's lease also derives from) is above the provider's slowest own
+ * time seen (38.6 s). A cut create's exact-slug read below, and the same
  * key's retry (whose first step is that read: "recovered"), find its VM if the provider makes it later; one no create
  * records is deleted by the orphan sweep (upstream/orphan-sweep.ts, cmux_vm_orphan_sweep). "createCut" marks a
  * create given up here, so a later "recovered" under the same key counts a held create the provider did make.
  */
-export const CREATE_SEND_TIMEOUT_MS = 45_000;
+export const CREATE_SEND_TIMEOUT_MS = PROVIDER_CREATE_BUDGET_MS;
 /** A create the provider is still working on after this long answers 202 and is polled, within the send timeout. */
 export const CREATE_BACKGROUND_AFTER_SECS = 20;
 

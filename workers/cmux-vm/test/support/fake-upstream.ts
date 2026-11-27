@@ -40,7 +40,7 @@ export interface UpstreamCall {
   readonly json: unknown;
   readonly bytes: Uint8Array | null;
   /** The request's x-freestyle-background-after-secs, or null. */
-  readonly backgroundAfter: string | null;
+  readonly backgroundAfter?: string | null;
 }
 
 export type UpstreamOperation =

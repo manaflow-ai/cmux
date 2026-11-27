@@ -2514,5 +2514,17 @@ class DeepenFallbackTests(unittest.TestCase):
             self.run_deepen_fetch({"--filter=tree:0": "fatal: could not read from remote repository"})
 
 
+class FetchesSkipSubmodules(unittest.TestCase):
+    """Fast gates only read history: a fetch that recursed into submodules failed run 46017930661 on a reused pool
+    workspace with "Could not access submodule 'ghostty'" (handbook whole-origin-fetch-pulls-submodule-pins)."""
+
+    def test_every_fetch_passes_no_recurse_submodules(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "scripts/ci/cmux_next_fast_gates.py").read_text(encoding="utf-8")
+        calls = re.findall(r'git\(repo, "fetch",[^\n]*', source)
+        self.assertTrue(calls)
+        for call in calls:
+            self.assertIn('"--no-recurse-submodules"', call)
+
+
 if __name__ == "__main__":
     unittest.main()

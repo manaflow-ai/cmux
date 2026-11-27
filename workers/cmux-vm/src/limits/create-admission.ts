@@ -38,8 +38,19 @@ export const DEFAULT_CREATE_CONCURRENCY = 3;
  */
 export const DEFAULT_CREATE_QUEUE_WAIT_MS = 25_000;
 
-/** A slot outlives the provider create's own 120 s timeout plus its recovery read, then frees itself. */
-export const CREATE_SLOT_LEASE_MS = 130_000;
+/**
+ * How long a create's provider call may run, its background polls included (upstream/live-create.ts): under the 300 s
+ * a caller's create waits. The slot is held for all of it, so the lease derives from it. 45 s, not 240 s: a create the
+ * provider holds gives its slot back sooner (CREATE_SEND_TIMEOUT_MS has the staging data; a patch, not the cause).
+ */
+export const PROVIDER_CREATE_BUDGET_MS = 45_000;
+
+/**
+ * A slot outlives the longest provider call it covers, then frees itself (a Worker that died mid-create). It was a
+ * fixed 130 s, sized for the old 120 s cut; once a slow create became a background request polled for up to
+ * PROVIDER_CREATE_BUDGET_MS (cmux#61044), a 130 s lease freed a slot still in use and let a fourth create in.
+ */
+export const CREATE_SLOT_LEASE_MS = PROVIDER_CREATE_BUDGET_MS + 10_000;
 
 /** The first hold estimate: the median staging create at 1 to 3 in flight (14.4 s). Learned from releases after. */
 export const INITIAL_HOLD_MS = 14_000;
