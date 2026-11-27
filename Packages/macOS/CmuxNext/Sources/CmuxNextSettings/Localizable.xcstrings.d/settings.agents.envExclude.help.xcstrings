@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.envExclude.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Variable names agents never get, such as AWS_SECRET_ACCESS_KEY or AWS_*."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أسماء متغيرات لا يحصل عليها الوكلاء أبدًا، مثل AWS_SECRET_ACCESS_KEY أو AWS_*."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nazivi varijabli koje agenti nikad ne dobijaju, npr. AWS_SECRET_ACCESS_KEY ili AWS_*."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Variabelnavne, som agenter aldrig får, f.eks. AWS_SECRET_ACCESS_KEY eller AWS_*."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Variablennamen, die Agenten nie erhalten, etwa AWS_SECRET_ACCESS_KEY oder AWS_*."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nombres de variables que los agentes nunca reciben, como AWS_SECRET_ACCESS_KEY o AWS_*."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Noms de variables que les agents ne reçoivent jamais, comme AWS_SECRET_ACCESS_KEY ou AWS_*."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nomi di variabili che gli agenti non ricevono mai, come AWS_SECRET_ACCESS_KEY o AWS_*."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "エージェントに決して渡さない変数名（AWS_SECRET_ACCESS_KEY や AWS_* など）。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ឈ្មោះអថេរដែលភ្នាក់ងារមិនដែលទទួលបាន ដូចជា AWS_SECRET_ACCESS_KEY ឬ AWS_*។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "에이전트가 절대 받지 않는 변수 이름입니다(예: AWS_SECRET_ACCESS_KEY 또는 AWS_*)."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Variabelnavn agenter aldri får, for eksempel AWS_SECRET_ACCESS_KEY eller AWS_*."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nazwy zmiennych, których agenci nigdy nie dostają, np. AWS_SECRET_ACCESS_KEY lub AWS_*."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nomes de variáveis que os agentes nunca recebem, como AWS_SECRET_ACCESS_KEY ou AWS_*."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Имена переменных, которые агенты никогда не получают, например AWS_SECRET_ACCESS_KEY или AWS_*."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ชื่อตัวแปรที่เอเจนต์จะไม่ได้รับเลย เช่น AWS_SECRET_ACCESS_KEY หรือ AWS_*"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ajanların hiçbir zaman almadığı değişken adları, örneğin AWS_SECRET_ACCESS_KEY veya AWS_*."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Назви змінних, які агенти ніколи не отримують, наприклад AWS_SECRET_ACCESS_KEY або AWS_*."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Tên biến mà tác tử không bao giờ nhận, chẳng hạn AWS_SECRET_ACCESS_KEY hoặc AWS_*."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理永远不会获得的变量名，例如 AWS_SECRET_ACCESS_KEY 或 AWS_*。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "代理永遠不會取得的變數名稱，例如 AWS_SECRET_ACCESS_KEY 或 AWS_*。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
