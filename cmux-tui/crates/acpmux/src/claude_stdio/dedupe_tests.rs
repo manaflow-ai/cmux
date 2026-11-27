@@ -1,6 +1,8 @@
 //! Harness magic `dedupe` (`dedupe.rs`, `dedupe_shell.rs`).
 
-use super::dedupe::{Call, Dedupe, enabled_in, env_off, stub};
+use super::dedupe::{
+    Call, Dedupe, attached, attached_fingerprint, enabled_in, env_off, prefetch_stub, stub,
+};
 use super::dedupe_shell::{inputs, words};
 use super::*;
 use std::path::PathBuf;
@@ -225,8 +227,9 @@ fn a_git_read_is_stubbed_until_a_ref_moves() {
 
 #[test]
 fn the_switches() {
-    assert!(enabled_in(None));
-    assert!(enabled_in(Some(&json!({}))));
+    // Off unless the person turns it on.
+    assert!(!enabled_in(None));
+    assert!(!enabled_in(Some(&json!({}))));
     assert!(!enabled_in(Some(
         &json!({"agents": {"harnessMagic": {"dedupe": {"enabled": false}}}})
     )));
@@ -246,9 +249,7 @@ fn the_stub_is_one_line() {
 /// Through the translator: the callback's answers and the turn result's counts.
 #[tokio::test]
 async fn the_translator_stubs_a_repeated_read_and_counts_it() {
-    if !super::dedupe::enabled() {
-        return;
-    }
+    super::dedupe::ON_FOR_TEST.with(|on| on.set(true));
     let dir = tempfile::tempdir().unwrap();
     let f = file(dir.path(), "a.txt", "hello\n");
     let t = Translator::new("acp-1".into(), "default", "haiku", "default");
@@ -274,4 +275,123 @@ async fn the_translator_stubs_a_repeated_read_and_counts_it() {
     assert_eq!(out["permissionDecision"], "deny");
     assert!(out["permissionDecisionReason"].as_str().unwrap().starts_with("[dedupe]"));
     assert_eq!(t.dedupe.turn_ended().reads_stubbed, 1);
+}
+
+/// The block the hub's prefetch attaches for `prompt` in `dir` (`hub/prefetch.rs`).
+fn prefetch_block(dir: &Path, prompt: &str) -> Value {
+    crate::hub::prefetch::plan(prompt, dir, None, true).expect("a prefetch").block
+}
+
+fn seeded(d: &Dedupe, block: &Value, now: Instant) {
+    let files =
+        attached(block).into_iter().filter_map(|a| attached_fingerprint(&a).map(|f| (a, f)));
+    d.seed_prefetch(files.collect(), now);
+}
+
+#[test]
+fn a_prefetch_block_names_its_files_with_lines_and_blob() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = file(dir.path(), "a.txt", &"line\n".repeat(30));
+    let g = file(dir.path(), "b.rs", &"fn x() {}\n".repeat(400));
+    let block = prefetch_block(dir.path(), "read a.txt and b.rs:200");
+    let files = attached(&block);
+    assert_eq!(files.len(), 2, "{files:?}");
+    let a = files.iter().find(|a| a.path == std::fs::canonicalize(&f).unwrap()).unwrap();
+    assert_eq!((a.ranges.clone(), a.total_lines), (vec![(1, 30)], 30));
+    assert_eq!(a.blob, crate::hub::prefetch::blob_hash(&std::fs::read(&f).unwrap()));
+    let b = files.iter().find(|a| a.path == std::fs::canonicalize(&g).unwrap()).unwrap();
+    assert_eq!((b.ranges.clone(), b.total_lines), (vec![(120, 280)], 400));
+    // The marks are the hub's: the same text from anywhere else is not an attachment.
+    let mut unmarked = block.clone();
+    unmarked["_meta"]["acpmux"]["prefetch"] = json!(false);
+    assert!(attached(&unmarked).is_empty());
+    assert!(attached(&json!({"type": "text", "text": block["text"]})).is_empty());
+}
+
+#[test]
+fn a_read_of_an_attached_unchanged_file_is_stubbed_back_to_the_attachment() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = std::fs::canonicalize(file(dir.path(), "a.txt", &"line\n".repeat(30))).unwrap();
+    let d = Dedupe::default();
+    let now = Instant::now();
+    seeded(&d, &prefetch_block(dir.path(), "read a.txt"), now);
+    let s = call(&d, "1", "", &read(&f, None, None), "x", now).expect("stubbed");
+    assert_eq!(s, prefetch_stub());
+    let n = d.turn_ended();
+    assert_eq!((n.reads_stubbed, n.reads_stubbed_prefetched), (1, 1));
+    assert!(n.est_tokens_saved > 0, "{n:?}");
+    // Once: the model that asks again gets the Read.
+    assert_eq!(call(&d, "2", "", &read(&f, None, None), "x", now), None);
+    // A subagent's context does not hold the attachment.
+    let d = Dedupe::default();
+    seeded(&d, &prefetch_block(dir.path(), "read a.txt"), now);
+    assert_eq!(call(&d, "3", "sub-1", &read(&f, None, None), "x", now), None);
+}
+
+#[test]
+fn a_window_covers_reads_inside_it_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = std::fs::canonicalize(file(dir.path(), "b.rs", &"x\n".repeat(400))).unwrap();
+    let d = Dedupe::default();
+    let now = Instant::now();
+    seeded(&d, &prefetch_block(dir.path(), "see b.rs:200"), now);
+    // Each Read that runs is entered itself, so the order matters: inside, outside, whole.
+    let s = call(&d, "1", "", &read(&f, Some(150), Some(50)), "x", now).expect("inside");
+    assert_eq!(s, prefetch_stub());
+    assert_eq!(call(&d, "2", "", &read(&f, Some(100), Some(50)), "x", now), None, "outside runs");
+    assert_eq!(call(&d, "3", "", &read(&f, None, None), "x", now), None, "the whole file runs");
+}
+
+#[test]
+fn a_file_changed_since_its_attachment_is_not_entered() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = std::fs::canonicalize(file(dir.path(), "a.txt", "one\n")).unwrap();
+    let d = Dedupe::default();
+    let now = Instant::now();
+    let block = prefetch_block(dir.path(), "read a.txt");
+    std::fs::write(&f, "two\n").unwrap();
+    seeded(&d, &block, now);
+    assert_eq!(call(&d, "1", "", &read(&f, None, None), "x", now), None);
+    // Changed after it was entered: the fingerprint no longer matches.
+    let d = Dedupe::default();
+    let block = prefetch_block(dir.path(), "read a.txt");
+    seeded(&d, &block, now);
+    std::fs::write(&f, "three, longer\n").unwrap();
+    assert_eq!(call(&d, "2", "", &read(&f, None, None), "x", now), None);
+    // A compaction or an idle gap forgets it.
+    let d = Dedupe::default();
+    seeded(&d, &prefetch_block(dir.path(), "read a.txt"), now);
+    d.reset();
+    assert_eq!(call(&d, "3", "", &read(&f, None, None), "x", now), None);
+    let d = Dedupe::default();
+    seeded(&d, &prefetch_block(dir.path(), "read a.txt"), now);
+    let later = now + Duration::from_secs(301);
+    assert_eq!(call(&d, "4", "", &read(&f, None, None), "x", later), None);
+}
+
+#[tokio::test]
+async fn the_translator_enters_a_prompts_prefetch_and_stubs_its_read() {
+    super::dedupe::ON_FOR_TEST.with(|on| on.set(true));
+    let dir = tempfile::tempdir().unwrap();
+    let f = std::fs::canonicalize(file(dir.path(), "a.txt", "hello\n")).unwrap();
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    let block = prefetch_block(dir.path(), "read a.txt");
+    let prompt = Message::request(
+        1,
+        method::SESSION_PROMPT,
+        json!({"sessionId": "acp-1", "prompt": [{"type": "text", "text": "read a.txt"}, block]}),
+    );
+    let Outbound::Lines(_) = t.outbound(&prompt).await else { panic!("a prompt written") };
+    t.inbound(&json!({"type": "control_request", "request_id": "h1", "request": {
+        "subtype": "hook_callback", "callback_id": super::dedupe::DEDUPE_CALLBACK,
+        "tool_use_id": "u1",
+        "input": {"session_id": "s", "cwd": "/", "hook_event_name": "PreToolUse",
+            "tool_name": "Read", "tool_use_id": "u1",
+            "tool_input": {"file_path": f.to_str().unwrap()}}}}))
+        .await;
+    let replies = t.take_stdin_replies().await;
+    let out = replies[0].pointer("/response/response/hookSpecificOutput").expect("a decision");
+    assert_eq!(out["permissionDecision"], "deny");
+    assert_eq!(out["permissionDecisionReason"], prefetch_stub());
+    assert_eq!(t.dedupe.turn_ended().reads_stubbed_prefetched, 1);
 }

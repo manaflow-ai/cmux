@@ -134,17 +134,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.acpmux-md-placeholder-key {
+.acpmux-md-placeholder .ui-key-hint {
   flex: none;
   margin-left: 8px;
-  padding: 0 5px;
-  border: 1px solid var(--agent-border);
-  border-radius: 4px;
-  font: inherit;
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  vertical-align: 1px;
-  letter-spacing: var(--text-caption--letter-spacing);
 }
 .acpmux-md {
   min-height: var(--text-content--line-height);

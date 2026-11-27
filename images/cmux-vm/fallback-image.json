@@ -1,7 +1,7 @@
 {
-  "id": "cloud-native-c3eb192",
-  "revision": "ci-44125525637-1",
-  "displayName": "Cloud Native (cmux-tui c3eb1920, image roll 44125525637.1, cmux-platform fallback)",
-  "snapshotId": "sh-ec0d1f534bd44f70afb425c7fbf55092",
-  "inputs_sha256": "c0786d3bcb0c0eabd1ae21d502c23b7c97c2e303295c60fcede6da410ea9ea12"
+  "id": "cloud-native-6fde033",
+  "revision": "ci-45838325828-1",
+  "displayName": "Cloud Native (cmux-tui 6fde033d, image roll 45838325828.1, cmux-platform fallback)",
+  "snapshotId": "sh-0b7997274cb24f2288b9d0e579cbd01a",
+  "inputs_sha256": "7141c655b62425cea21d2259b2ca1d8878b4b22497de2525409e2d11dd2e98ab"
 }

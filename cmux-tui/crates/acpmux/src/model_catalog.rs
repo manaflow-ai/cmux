@@ -20,6 +20,39 @@ pub fn choices(option: &Value) -> Vec<(String, String)> {
     out
 }
 
+/// The reasoning levels ACP `session/new` names in model ids, low to high.
+const EFFORT_SUFFIXES: [&str; 7] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/// Each model's reasoning levels, read from the agent's `models.availableModels` when it lists
+/// one id per level in place of the model itself (Antigravity 1.5.16: option `gemini-3.8-flash`,
+/// `availableModels` `gemini-3.8-flash-low`, `-medium`, `-high`, never `gemini-3.8-flash`). A
+/// model the list names as it is (`gpt-oss-120b-medium`; `gpt-5.1-codex` beside its own model
+/// `gpt-5.1-codex-max`) or with no such ids (the orchestrators) gets no entry: no levels.
+pub fn variant_efforts(
+    models: &[(String, String)],
+    available: Option<&Value>,
+) -> std::collections::HashMap<String, Vec<String>> {
+    let ids: std::collections::HashSet<&str> = available
+        .and_then(|m| m.get("availableModels"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|m| m.get("modelId").and_then(Value::as_str))
+        .collect();
+    models
+        .iter()
+        .filter(|(id, _)| !ids.contains(id.as_str()))
+        .filter_map(|(id, _)| {
+            let levels: Vec<String> = EFFORT_SUFFIXES
+                .iter()
+                .filter(|level| ids.contains(format!("{id}-{level}").as_str()))
+                .map(|level| (*level).to_owned())
+                .collect();
+            (!levels.is_empty()).then(|| (id.clone(), levels))
+        })
+        .collect()
+}
+
 /// Preserve exact ids. DSH also permits the friendly provider/model spelling
 /// or a bare model name, but only if that name identifies one advertised route.
 pub fn resolve(option: &Value, requested: &str) -> Result<String, String> {

@@ -46,12 +46,25 @@ pub enum Item {
     },
 }
 
+/// A person's prompt the daemon queued and has not delivered yet. It docks at the tail, outside
+/// `items`, until its `user_message` arrives: rows that arrive meanwhile draw above it, and it
+/// joins `items` at its delivery point, so the transcript keeps the order things came in.
+#[derive(Debug, Clone, PartialEq)]
+pub struct QueuedPrompt {
+    /// The text shown: the record's, or the local echo's (image names included).
+    pub text: String,
+    /// The daemon's `promptId`; `None` for a local echo the daemon has not queued yet.
+    pub prompt_id: Option<String>,
+}
+
 /// The `dir` of a record `push_local_error` keeps: an error this client showed, with no seq.
 const LOCAL_ERROR: &str = "local_error";
 
 #[derive(Debug, Default, Clone)]
 pub struct Transcript {
     pub items: Vec<Item>,
+    /// Queued prompts, oldest first: drawn after `items` until each is delivered.
+    pub queue: Vec<QueuedPrompt>,
     /// Event records currently represented by `items`, kept only when `keeps_records` is set
     /// (the TUI's transcripts, which page older history in): they let it rebuild the display
     /// with an older page in front without reordering live updates. A CLI stream keeps none.
@@ -66,6 +79,9 @@ pub struct Transcript {
     pub model: Option<String>,
     pub usage: Option<(u64, u64)>,
     pub available_commands: Vec<String>,
+    /// What each of `available_commands` does, by name, when the agent says (ACP's
+    /// `availableCommands[].description`): the terminal's / rows show it, as the GUI's do (#50541).
+    pub command_descriptions: std::collections::BTreeMap<String, String>,
     /// Transient note for the working row, e.g. an API retry in progress.
     pub note: Option<String>,
     /// Provider-neutral live activity shown by every client.
@@ -95,6 +111,10 @@ pub struct Transcript {
     /// `capacityWait`): acpmux holds the cut turn and goes on by itself. A client draws that
     /// turn's error as a calm wait, never red. Set by the TUI from the row; None otherwise.
     pub capacity_wait: Option<Value>,
+    /// The turn's own subagents still running (`_meta.acpmux.subagents`, `subagents.rs`), by id,
+    /// each with the wall-clock ms it started: what the working row's "waiting on N subagents"
+    /// counts and times. One that outlives its turn (`background`) is never waited on.
+    pub subagents_running: std::collections::BTreeMap<String, u64>,
 }
 
 /// Line diff of two texts: `+`, `-` and ` ` prefixed lines, in order. LCS
@@ -274,6 +294,7 @@ impl Transcript {
     }
 
     fn apply_update_inner(&mut self, params: &Value) {
+        self.note_subagents(params);
         let Some(update) = params.get("update") else { return };
         // A subagent's words are its own view's, never the chat's reply.
         if crate::subagents::is_subagents(params) && is_words(update) {
@@ -429,17 +450,22 @@ impl Transcript {
                 }
             }
             "available_commands_update" => {
-                self.available_commands = update
-                    .get("availableCommands")
-                    .and_then(Value::as_array)
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(|c| {
-                                c.get("name").and_then(Value::as_str).map(str::to_owned)
-                            })
-                            .collect()
+                let listed =
+                    update.get("availableCommands").and_then(Value::as_array).map(Vec::as_slice);
+                self.available_commands = listed
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|c| c.get("name").and_then(Value::as_str).map(str::to_owned))
+                    .collect();
+                self.command_descriptions = listed
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|c| {
+                        let name = c.get("name").and_then(Value::as_str)?;
+                        let text = c.get("description").and_then(Value::as_str)?.trim();
+                        (!text.is_empty()).then(|| (name.to_owned(), text.to_owned()))
                     })
-                    .unwrap_or_default();
+                    .collect();
             }
             _ => {}
         }
@@ -517,13 +543,6 @@ impl Transcript {
         // A queued user can be promoted out of the middle of the transcript,
         // and a permission decision can update an older item.
         let from = match kind {
-            "user_message" => {
-                let text = msg.get("text").and_then(Value::as_str).unwrap_or("");
-                self.items
-                    .iter()
-                    .rposition(|i| matches!(i, Item::User { text: t, .. } if t == text))
-                    .unwrap_or(self.items.len().saturating_sub(1))
-            }
             "permission_decision" | "permission_auto" => {
                 let id = msg.get("permissionId").and_then(Value::as_str).unwrap_or("");
                 self.items
@@ -536,11 +555,23 @@ impl Transcript {
         self.invalidate_layout(from);
         self.pending_user_chunk = false;
         match kind {
-            "queued" => self.items.push(Item::User {
-                text: msg.get("text").and_then(Value::as_str).unwrap_or("").to_owned(),
-                steer: false,
-                queued: true,
-            }),
+            "queued" => {
+                let text = msg.get("text").and_then(Value::as_str).unwrap_or("");
+                let prompt_id =
+                    msg.get("promptId").and_then(Value::as_str).filter(|p| !p.is_empty());
+                self.dock(text, prompt_id);
+            }
+            // Withdrawn, refused, or joined into a digest: it never arrives as itself.
+            "queue_removed" | "prompt_refused" | "dequeued" => {
+                if let Some(id) =
+                    msg.get("promptId").and_then(Value::as_str).filter(|p| !p.is_empty())
+                    && let Some(pos) =
+                        self.queue.iter().position(|q| q.prompt_id.as_deref() == Some(id))
+                {
+                    let q = self.queue.remove(pos);
+                    self.take_optimistic_shown(&q.text);
+                }
+            }
             "user_message" => {
                 let text = msg.get("text").and_then(Value::as_str).unwrap_or("").to_owned();
                 let steer = msg.get("steer").and_then(Value::as_bool).unwrap_or(false);
@@ -554,23 +585,17 @@ impl Transcript {
                     let (_, pos) = self.waiting_steers.remove(w);
                     self.remove_user_item(pos);
                 }
-                // A queued message becomes the live one when its turn starts:
-                // it moves to the end so it sits after the turn that ran before it.
-                // A steer starts no turn, so it never takes a queued row.
-                let promoted = (!steer)
-                    .then(|| {
-                        self.items.iter().position(
-                            |i| matches!(i, Item::User { text: t, queued: true, .. } if *t == text),
-                        )
-                    })
-                    .flatten();
-                match promoted {
+                // A queued prompt leaves the dock when it is delivered and takes its place at
+                // the delivery point, the end of `items`: nothing already shown moves. It is
+                // matched by promptId, so two prompts with the same text deliver in order; by
+                // text only when one side has no id (an old record, or a local echo the daemon
+                // has not queued yet). A steer starts no turn, so it never takes a queued one.
+                let docked = if steer { None } else { self.docked(&text, prompt_id) };
+                match docked {
                     Some(pos) => {
-                        let item = self.remove_user_item(pos);
-                        if let Item::User { text, steer, .. } = item {
-                            self.items.push(Item::User { text, steer, queued: false });
-                        }
-                        // The queued row was this message's local echo: it is consumed.
+                        let q = self.queue.remove(pos);
+                        self.items.push(Item::User { text: q.text, steer: false, queued: false });
+                        // A docked local echo was this message's: it is consumed.
                         self.take_optimistic(&text);
                     }
                     None => {
@@ -622,6 +647,7 @@ impl Transcript {
                     self.activity = None;
                     self.active_tools = 0;
                     self.active_terminals = 0;
+                    self.subagents_running.clear();
                 }
             }
             "claude.system.api_retry" => {
@@ -644,6 +670,7 @@ impl Transcript {
                 self.activity = None;
                 self.active_tools = 0;
                 self.active_terminals = 0;
+                self.subagents_running.clear();
                 if let Some(last) = self.turn_times.last_mut()
                     && last.2.is_none()
                 {
@@ -813,9 +840,31 @@ impl Transcript {
         for event in page.iter().chain(self.raw_events.iter()) {
             rebuilt.apply_record(event);
         }
-        // Messages sent but not yet echoed stay last, as they were shown.
+        // Messages sent but not yet echoed stay last, as they were shown; a queued one goes
+        // back to the dock, onto the entry the replay docked for it when the daemon queued it.
         if self.optimistic_rows.len() == self.optimistic.len() {
-            rebuilt.items.extend(self.optimistic_rows.iter().cloned());
+            let mut adopted = vec![false; rebuilt.queue.len()];
+            for (text, row) in self.optimistic.iter().zip(&self.optimistic_rows) {
+                match row {
+                    Item::User { text: shown, queued: true, .. } => {
+                        let found = rebuilt.queue.iter().zip(&adopted).position(|(q, taken)| {
+                            !*taken && q.prompt_id.is_some() && q.text == *text
+                        });
+                        let slot =
+                            found.and_then(|n| adopted.get_mut(n).zip(rebuilt.queue.get_mut(n)));
+                        match slot {
+                            Some((taken, q)) => {
+                                *taken = true;
+                                q.text.clone_from(shown);
+                            }
+                            None => rebuilt
+                                .queue
+                                .push(QueuedPrompt { text: shown.clone(), prompt_id: None }),
+                        }
+                    }
+                    _ => rebuilt.items.push(row.clone()),
+                }
+            }
         } else {
             rebuilt.items.extend(self.optimistic.iter().map(|text| Item::User {
                 text: text.clone(),
@@ -834,6 +883,7 @@ impl Transcript {
         rebuilt.usage = self.usage.take().or(rebuilt.usage);
         if !self.available_commands.is_empty() {
             rebuilt.available_commands = std::mem::take(&mut self.available_commands);
+            rebuilt.command_descriptions = std::mem::take(&mut self.command_descriptions);
         }
         // A rebuild names every row afresh: folds move by the prepended count, not by
         // removals the replay made along the way.
@@ -877,11 +927,61 @@ impl Transcript {
     }
 
     /// Record a message shown before the daemon echoes it, with the row it is shown as.
+    /// A queued row (sent while a turn runs) docks at the tail, not in `items`.
     pub fn push_optimistic(&mut self, text: String, row: Item) {
-        self.items.push(row.clone());
+        match &row {
+            Item::User { text: shown, queued: true, .. } => {
+                self.queue.push(QueuedPrompt { text: shown.clone(), prompt_id: None });
+                self.invalidate_layout(self.items.len().saturating_sub(1));
+            }
+            _ => self.items.push(row.clone()),
+        }
         self.optimistic.push(text);
         if self.optimistic_rows.len() + 1 == self.optimistic.len() {
             self.optimistic_rows.push(row);
+        }
+    }
+
+    /// Dock a `queued` record: once per promptId (a digest that fails queues its prompts
+    /// again), onto this client's local echo of it when one waits, else at the tail.
+    fn dock(&mut self, text: &str, prompt_id: Option<&str>) {
+        if let Some(id) = prompt_id
+            && self.queue.iter().any(|q| q.prompt_id.as_deref() == Some(id))
+        {
+            return;
+        }
+        let echo =
+            self.queue.iter_mut().find(|q| q.prompt_id.is_none() && shows_prompt(&q.text, text));
+        match echo {
+            Some(q) if prompt_id.is_some() => q.prompt_id = prompt_id.map(str::to_owned),
+            _ => self.queue.push(QueuedPrompt {
+                text: text.to_owned(),
+                prompt_id: prompt_id.map(str::to_owned),
+            }),
+        }
+    }
+
+    /// The dock entry a delivered prompt is: by promptId, else by text when either side has
+    /// no id. The oldest match, so same-text prompts without ids still deliver in order.
+    fn docked(&self, text: &str, prompt_id: &str) -> Option<usize> {
+        if !prompt_id.is_empty()
+            && let Some(pos) =
+                self.queue.iter().position(|q| q.prompt_id.as_deref() == Some(prompt_id))
+        {
+            return Some(pos);
+        }
+        self.queue.iter().position(|q| {
+            (prompt_id.is_empty() || q.prompt_id.is_none()) && shows_prompt(&q.text, text)
+        })
+    }
+
+    /// Consume the local echo shown as SHOWN (a dock entry's text), if one is pending.
+    fn take_optimistic_shown(&mut self, shown: &str) {
+        if let Some(pos) = self.optimistic.iter().position(|t| shows_prompt(shown, t)) {
+            self.optimistic.remove(pos);
+            if pos < self.optimistic_rows.len() {
+                self.optimistic_rows.remove(pos);
+            }
         }
     }
 
@@ -952,6 +1052,56 @@ fn exited_text(msg: &Value) -> String {
         text.push_str("; the next message resumes it");
     }
     text
+}
+
+impl Transcript {
+    /// Track the turn's own running subagents from an update's `_meta.acpmux.subagents`: each by
+    /// id with the wall-clock ms it started (its first sighting less the `elapsedMs` it names).
+    fn note_subagents(&mut self, params: &Value) {
+        let Some(list) = params.pointer("/_meta/acpmux/subagents").and_then(Value::as_array) else {
+            return;
+        };
+        let now = wall_ms();
+        for s in list {
+            let Some(id) = s.get("id").and_then(Value::as_str) else { continue };
+            let own = s.get("parent").is_none_or(Value::is_null);
+            let waited = s.get("state").and_then(Value::as_str) == Some("running")
+                && s.get("background").and_then(Value::as_bool) != Some(true);
+            if own && waited {
+                let elapsed = s.get("elapsedMs").and_then(Value::as_u64).unwrap_or(0);
+                self.subagents_running.entry(id.to_owned()).or_insert(now.saturating_sub(elapsed));
+            } else {
+                self.subagents_running.remove(id);
+            }
+        }
+    }
+
+    /// "waiting on N subagents 2m 5s" while the turn's own subagents run: the time is the wait's
+    /// own, from the first one's start, never the turn's whole clock (GUI cmux#48009). None when
+    /// none runs; one that outlives the turn (`background`) is never waited on.
+    pub fn subagent_wait(&self, now_ms: u64) -> Option<String> {
+        let n = self.subagents_running.len();
+        let since = *self.subagents_running.values().min()?;
+        let s = if n == 1 { "" } else { "s" };
+        let ms = now_ms.saturating_sub(since);
+        let time = if ms >= 1000 { format!(" {}", short_duration(ms)) } else { String::new() };
+        Some(format!("waiting on {n} subagent{s}{time}"))
+    }
+}
+
+fn wall_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+fn short_duration(ms: u64) -> String {
+    let s = ms / 1000;
+    match s {
+        0..=59 => format!("{s}s"),
+        60..=3599 => format!("{}m {}s", s / 60, s % 60),
+        _ => format!("{}h {}m", s / 3600, (s % 3600) / 60),
+    }
 }
 
 /// A message or thought chunk: the words a reader of the chat's own text keeps.

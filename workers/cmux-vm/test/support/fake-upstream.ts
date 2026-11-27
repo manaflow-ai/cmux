@@ -16,6 +16,8 @@ export interface FakeVm {
   metadata: Record<string, string>;
   snapshotId: string | null;
   maxRunTotalSeconds?: number | null;
+  /** The provider's updatedAt; start and pause move it, as the provider's own does. */
+  updatedAt?: string;
 }
 
 export interface FakeSnapshot {
@@ -89,8 +91,11 @@ const vmBody = (vm: FakeVm) => ({
   displayName: vm.displayName,
   metadata: { ...vm.metadata, cmuxTenant: "leak-check" },
   createdAt: "2026-10-01T00:00:00Z",
-  updatedAt: "2026-10-02T00:00:00Z",
+  updatedAt: vm.updatedAt ?? "2026-10-02T00:00:00Z",
 });
+
+let clock = 0;
+const touch = (vm: FakeVm) => { clock += 1; vm.updatedAt = new Date(Date.UTC(2026, 9, 2) + clock * 1000).toISOString(); };
 
 /** The provider's public base images and their sizes (upstream/sdk/vms/types.d.ts). */
 const BASE_IMAGES: Readonly<Record<string, { cpu: number; memory: number; storage: number }>> = {
@@ -119,7 +124,11 @@ export function makeFakeUpstream(apiKey: string) {
    * Private networks belong to mesh-fakes.ts, which sets this: a create that names a network joins it here. Answers the
    * VM's attachments, or null when the account has no such network (the create is then refused, as the provider's).
    */
-  const hooks: { attachOnCreate: ((vmId: string, vpc: string) => NonNullable<FakeVm["vpcs"]> | null) | null } = { attachOnCreate: null };
+  const hooks: {
+    attachOnCreate: ((vmId: string, vpc: string) => NonNullable<FakeVm["vpcs"]> | null) | null;
+    /** Runs before each create is handled (a provider that is slow, or hangs under load); an answer replaces the create's. */
+    beforeCreate: (() => Promise<Response | null>) | null;
+  } = { attachOnCreate: null, beforeCreate: null };
   const vms = new Map<string, FakeVm>();
   const snapshots = new Map<string, FakeSnapshot>();
   const tlsRules = new Map<string, Record<string, unknown>>();
@@ -187,6 +196,8 @@ export function makeFakeUpstream(apiKey: string) {
       case "list":
         return Response.json({ vms: [...vms.values()].map(vmBody) });
       case "create": {
+        const gated = hooks.beforeCreate === null ? null : await hooks.beforeCreate();
+        if (gated !== null) return gated;
         const body: unknown = await request.clone().json();
         const record = typeof body === "object" && body !== null ? body : {};
         const read = (key: string): unknown => (key in record ? Reflect.get(record, key) : undefined);
@@ -300,11 +311,13 @@ export function makeFakeUpstream(apiKey: string) {
         if (vm === undefined) return notFound();
         if (vm.maxRunTotalSeconds === 0) return conflict("lifetime budget exhausted");
         vm.state = "running";
+        touch(vm);
         return Response.json(vmBody(vm));
       case "pause":
         if (vm === undefined) return notFound();
         if (vm.state !== "running") return conflict("the VM is not running");
         vm.state = "paused";
+        touch(vm);
         return Response.json(vmBody(vm));
       case "update": {
         if (vm === undefined) return notFound();
