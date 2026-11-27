@@ -147,16 +147,22 @@ async fn dns_down_still_reaches_turn_by_its_remembered_literal() {
 
 /// TURN over TLS by name with DNS down: the connect goes to the remembered literal and the
 /// certificate is still checked against the host name (the test server's certificate names
-/// [`TEST_TURN_HOST`]).
+/// [`TEST_TURN_HOST`]). Only the `turns:` URL is offered: with plain TCP beside it, a refused
+/// certificate fails over to TCP (no certificate there) and the link still comes up.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn dns_down_turn_over_tls_still_verifies_the_name() {
     let turn = TestTurn::start().await;
+    let tls_only = cmux_mobile_link::api::IceServer {
+        urls: turn.ice.urls.iter().filter(|url| url.starts_with("turns:")).cloned().collect(),
+        ..turn.ice.clone()
+    };
+    assert_eq!(tls_only.urls.len(), 1, "one turns: URL in {:?}", turn.ice.urls);
     let rig = rig().await;
     let dns = Arc::new(Switch(Mutex::new(Dns::Up)));
     let routes = memory(&dns);
     let phone = DialOptions {
         block_udp: true,
-        ice_servers: vec![ice_named(&turn.ice, TEST_TURN_HOST)],
+        ice_servers: vec![ice_named(&tls_only, TEST_TURN_HOST)],
         turn_tls_roots: Some(Arc::clone(&turn.roots)),
         routes: Arc::clone(&routes),
         ..options()
@@ -169,8 +175,9 @@ async fn dns_down_turn_over_tls_still_verifies_the_name() {
 
     // A name the certificate does not carry fails verification even at the right literal.
     routes.store("other.cmux.test", &[IpAddr::V4(Ipv4Addr::LOCALHOST)]);
-    let wrong = DialOptions { ice_servers: vec![ice_named(&turn.ice, "other.cmux.test")], ..phone.clone() };
-    assert!(dial_once(&rig, &wrong).await.0.is_err(), "TLS accepted a certificate for another name");
+    let wrong = DialOptions { ice_servers: vec![ice_named(&tls_only, "other.cmux.test")], ..phone.clone() };
+    let (refused, _) = dial_once(&rig, &wrong).await;
+    assert!(refused.is_err(), "TLS accepted a certificate for another name: {refused:?}");
 }
 
 /// A stale literal (the server moved) does not slow a dial while DNS works: DNS's answer is
