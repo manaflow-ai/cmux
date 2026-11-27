@@ -5,7 +5,8 @@ public import Foundation
 /// Claude Code's long-lived token from `claude setup-token` (`sk-ant-oat…`), as Settings > Models,
 /// Settings > Cloud and the chat's Add account take it pasted (webviews' `claudeSetupToken.ts` checks
 /// it the same way before it is sent).
-public nonisolated enum ClaudeSetupToken {
+public nonisolated struct ClaudeSetupToken {
+    public nonisolated init() {}
     public static let prefix = "sk-ant-oat"
     /// The longest secret the app takes (a key, a token).
     public static let limit = 16_384
