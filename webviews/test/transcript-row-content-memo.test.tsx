@@ -5,7 +5,7 @@
 // line under a running turn keeps one version while the send in flight changes recipient
 // (turns.ts `sendingTo`), and a stale "Sending to ..." is worse than a redraw.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { act, memo, useState } from "react";
+import { act, memo, useState, Profiler } from "react";
 import { createRoot } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -16,6 +16,10 @@ import { sameRowFrame } from "../src/agent-session/acpmux/virtualTranscriptModel
 import { MessageRow } from "../src/agent-session/acpmux/rows/MessageRow";
 import { teardownDom } from "./support/domTeardown";
 import { LiveUpdatesContext } from "../src/ui/liveUpdates";
+import { AgentNamesContext, AgentOpenContext } from "../src/agent-session/acpmux/conversation/agentNames";
+import { AgentTonesContext } from "../src/agent-session/acpmux/subagents/agentTones";
+import { MessageCard } from "../src/agent-session/acpmux/conversation/MessageCard";
+import { agentMessage } from "../src/agent-session/acpmux/conversation/agentMessages";
 import { RowFrame } from "../src/agent-session/acpmux/transcript/RowFrame";
 import { pageClocks, usePageNow } from "../src/ui/pageClock";
 
@@ -183,7 +187,7 @@ test("the row frame pauses unseen, scrolled-out and shelved clocks and keeps dis
     rowWidth: 800,
     expanded: false,
     observer: undefined,
-    queueDrawn: noop,
+    queueDrawn: () => noop,
     sendThinking: false,
     enter: false,
     onEntered: noop,
@@ -275,6 +279,57 @@ test("a recreated reply passes both memo boundaries even when its row id and ver
     expect(document.querySelectorAll(".cv-fresh")).toHaveLength(0);
     // A cloned, unchanged snapshot still reuses its row frame.
     expect(sameRowFrame({ row: next }, { row: { ...next } })).toBe(true);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("retained message cards ignore structural agent contexts and reveal the latest name and click target", async () => {
+  const root = createRoot(document.getElementById("root")!);
+  const opened: string[] = [];
+  let commits = 0;
+  const tool = {
+    id: "idle-message",
+    title: "SendMessage",
+    kind: "other",
+    status: "completed",
+    inputSummary: JSON.stringify({ to: "a39e817af38ddf5e7", message: "Result ready" }),
+    output: JSON.stringify({ queued: true }),
+  } as const;
+  function Card() {
+    return (
+      <Profiler id="message" onRender={() => commits++}>
+        <MessageCard item={{ kind: "tool", text: tool.title, tool }} message={agentMessage(tool)!} />
+      </Profiler>
+    );
+  }
+  const row = line("message");
+  const noop = () => {};
+  const render = (active: boolean, name: string) =>
+    root.render(
+      <LiveUpdatesContext.Provider value={active}>
+        <AgentNamesContext.Provider value={new Map([["a39e817af38ddf5e7", name]])}>
+          <AgentOpenContext.Provider
+            value={{ views: new Map([["a39e817af38ddf5e7", name]]), open: (id) => opened.push(id) }}
+          >
+            <AgentTonesContext.Provider value={new Map([["a39e817af38ddf5e7", name.length]])}>
+              <RowContent Component={Card} row={row} expanded={false} onToggleActivity={noop} />
+            </AgentTonesContext.Provider>
+          </AgentOpenContext.Provider>
+        </AgentNamesContext.Provider>
+      </LiveUpdatesContext.Provider>,
+    );
+  try {
+    await act(async () => render(true, "Original"));
+    await act(async () => render(false, "Hidden"));
+    const before = commits;
+    for (let tick = 0; tick < 20; tick++) await act(async () => render(false, `Update ${tick}`));
+    expect(commits).toBe(before);
+    expect(document.querySelector(".cv-agentmsg__name")?.textContent).toBe("Original");
+    await act(async () => render(true, "Current"));
+    expect(document.querySelector(".cv-agentmsg__name")?.textContent).toBe("Current");
+    await act(async () => document.querySelector<HTMLButtonElement>("button.cv-agentmsg__name")!.click());
+    expect(opened).toEqual(["Current"]);
   } finally {
     await act(async () => root.unmount());
   }

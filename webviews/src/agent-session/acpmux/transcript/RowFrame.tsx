@@ -4,6 +4,7 @@ import React, {
   useState,
   useEffectEvent,
   useCallback,
+  useContext,
   Component as ReactComponent,
   type ErrorInfo,
 } from "react";
@@ -30,6 +31,8 @@ import { isRunPart } from "../conversation/runPartId";
 import { type QueueDrawn } from "./drawnHeight";
 import { OlderRowFade } from "./OlderRowFade";
 import { OFFSCREEN_ROW_CLASS, onceRendered } from "../conversation/offscreenRows";
+import { AgentNamesContext, AgentOpenContext } from "../conversation/agentNames";
+import { AgentTonesContext } from "../subagents/agentTones";
 
 /// What a row's content draws from (the registry component's props, and the component).
 /// `liveTools`: the pane's live transcript, whose rows draw a running command's newer output ahead
@@ -53,11 +56,16 @@ type RowContentProps = {
 export const RowContent = React.memo(
   function RowContent({ Component, liveTools = false, ...props }: RowContentProps) {
     const active = useLiveUpdates();
+    const names = useContext(AgentNamesContext);
+    const open = useContext(AgentOpenContext);
+    const tones = useContext(AgentTonesContext);
     const live = active && liveTools;
     // What moved on without the pane (a running command's output, a thought, the live line's call):
     // this row alone draws it.
     const row = useLiveLineRow(useLiveThoughtRow(useLiveToolRow(props.row, live), live), live);
-    return <RowBody {...props} Component={Component} active={active} row={row} />;
+    return (
+      <RowBody {...props} Component={Component} active={active} row={row} names={names} open={open} tones={tones} />
+    );
   },
   (previous, next) => {
     const keys = Object.keys(next) as (keyof RowContentProps)[];
@@ -69,16 +77,27 @@ export const RowContent = React.memo(
 // Retain the rendered body (and its local disclosure state) while offscreen. Structural agent
 // updates still reach the small subscription owner above, but cannot reconcile a hidden body.
 // On reveal the latest props pass through, before the frame measures its restored contents.
-type RowBodyProps = Omit<RowContentProps, "liveTools"> & { active: boolean };
+type RowBodyProps = Omit<RowContentProps, "liveTools"> & {
+  active: boolean;
+  names: React.ContextType<typeof AgentNamesContext>;
+  open: React.ContextType<typeof AgentOpenContext>;
+  tones: React.ContextType<typeof AgentTonesContext>;
+};
 const RowBody = React.memo(
-  function RowBody({ Component, active: _active, ...props }: RowBodyProps) {
+  function RowBody({ Component, active: _active, names, open, tones, ...props }: RowBodyProps) {
     useLayoutEffect(() => {
       if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
     });
     return (
-      <RowBoundary row={props.row}>
-        <Component {...props} />
-      </RowBoundary>
+      <AgentNamesContext.Provider value={names}>
+        <AgentOpenContext.Provider value={open}>
+          <AgentTonesContext.Provider value={tones}>
+            <RowBoundary row={props.row}>
+              <Component {...props} />
+            </RowBoundary>
+          </AgentTonesContext.Provider>
+        </AgentOpenContext.Provider>
+      </AgentNamesContext.Provider>
     );
   },
   (previous, next) => {
