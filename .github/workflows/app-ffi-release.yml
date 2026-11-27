@@ -111,6 +111,10 @@ on:
       - "cmux-tui/crates/cmux-url-input/**"
       - "cmux-tui/crates/cmux-unix-socket/**"
       - "cmux-tui/crates/cmux-window-rules/**"
+      - "cmux-tui/crates/cmux-message-preview/**"
+      - "cmux-tui/crates/cmux-mobile-host-core/**"
+      - "cmux-tui/crates/cmux-share-approval/**"
+      - "cmux-tui/crates/cmux-vnc/**"
       # Reached through cmux-tui workspace dependencies (`name.workspace = true`), as check-app-ffi-pin.sh derives.
       - "cmux-tui/crates/cmux-app-host/**"
       - "cmux-tui/crates/cmux-egress/**"
@@ -306,7 +310,8 @@ jobs:
           workspaces: |
             cmux-tui -> target
             cmux-tui/crates/cmux-app-ffi -> target
-          key: app-ffi-unit-tests
+          # The toolchain and both workspaces' lockfiles: a fixed key restores its first entry forever.
+          key: app-ffi-unit-tests-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', 'cmux-tui/crates/cmux-app-ffi/Cargo.lock', '.cargo/config.toml') }}
 
       - name: Test the reducer
         working-directory: cmux-tui
@@ -576,7 +581,9 @@ jobs:
           CI_SIDE_LANE_RUNNER: ${{ vars.CI_SIDE_LANE_RUNNER }}
           RESCUE_TRIED: ${{ inputs.rescue_tried }}
           FFI_UNIVERSAL: ${{ inputs.universal && 'true' || '' }}
-        run: python3 scripts/ci/app_ffi_rescue.py
+        # -u: a buffered print stamped every line at the job's end (job 140538369006: a 17 min sleep to a rate-limit reset
+        # logged at 13:54Z for a read refused at 13:37Z).
+        run: python3 -u scripts/ci/app_ffi_rescue.py
 
   macos-cross-shadow:
     name: macOS cross-compile shadow (Linux, compare only)

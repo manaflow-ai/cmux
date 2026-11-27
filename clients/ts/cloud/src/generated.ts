@@ -556,6 +556,11 @@ export type CloudUsageCurrent = {
     readonly stored: number | "Infinity" | "-Infinity" | "NaN"
     readonly total: number | "Infinity" | "-Infinity" | "NaN"
   }
+  readonly rates?: {
+    readonly vcpu_hour_usd: number | "Infinity" | "-Infinity" | "NaN"
+    readonly memory_gib_hour_usd: number | "Infinity" | "-Infinity" | "NaN"
+    readonly stored_gib_month_usd: number | "Infinity" | "-Infinity" | "NaN"
+  }
   readonly gaps: ReadonlyArray<string>
   readonly payment_method: {
     readonly attached: boolean
