@@ -551,6 +551,10 @@ class ReadTypeBindingErrorTests(unittest.TestCase):
         self.assert_refused("which the schema does not have", {"ZoomState": {
             "type": "ZoomPaneResult", "fields": {"pane": {"prefer": "nope"}}}})
 
+    def test_write_only_encode_when_is_refused_for_read_types(self) -> None:
+        self.assert_refused("unknown key", {"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed": {"encode_when": "pane"}}}})
+
     def test_type_and_result_are_exclusive(self) -> None:
         self.assert_refused("exactly one of type", {"Z": {"type": "ZoomPaneResult", "result": "zoom-pane"}})
         self.assert_refused("exactly one of type", {"Z": {}})
@@ -574,6 +578,138 @@ class ReadTypeBindingErrorTests(unittest.TestCase):
 
     def test_generating_and_binding_one_schema_type_is_refused(self) -> None:
         self.assert_refused("RowHeight", {"RowHeightRecord": {"type": "RowHeight"}})
+
+
+def spawn_document() -> dict[str, Any]:
+    """A spawning write command: spawn fields to flatten, a size, a flag sent only when true."""
+    document = mutation_document()
+    optional = lambda name: _field({"kind": "scalar", "name": name}, required=False, nullable=True)  # noqa: E731
+    document["commands"]["spawn-pane"] = {
+        "authority": "control",
+        "since": 9,
+        "capability": None,
+        "request": {
+            "kind": "object",
+            "fields": {
+                "pane": _field(ID),
+                "cwd": optional("string"),
+                "cols": optional("uint16"),
+                "rows": optional("uint16"),
+                "label": optional("string"),
+                "before": _field({"kind": "scalar", "name": "boolean"}, required=False, default=False),
+                "origin": optional("string"),
+                "mutation_id": optional("string"),
+            },
+            "additional_properties": False,
+        },
+        "result": {"kind": "ref", "name": "EmptyResult"},
+        "stream": None,
+        "constraints": [],
+    }
+    return document
+
+
+def spawn_bindings(**request: Any) -> dict[str, Any]:
+    bindings = mutation_bindings()
+    bindings["flatten"] = {
+        "SpawnOptions": {"wire": ["cwd", "argv"], "encode": "try {value}.encode(to: encoder)"},
+        "CellSize": {"wire": ["cols", "rows"], "encode": "try {value}.encode(to: encoder)"},
+    }
+    bindings["families"]["Layout"]["requests"]["spawn-pane"] = {
+        "name": "SpawnPaneRequest",
+        "protocol": "TerminalSpawningRequest",
+        "order": ["pane", "options", "size", "before", "mutation"],
+        "mutation": True,
+        "flatten": {
+            "options": {"type": "SpawnOptions", "default": "SpawnOptions()"},
+            "size": {"type": "CellSize", "optional": True},
+        },
+        "fields": {"before": {"encode": "when_true"}},
+        **request,
+    }
+    return bindings
+
+
+class FlattenAndWhenTrueTests(unittest.TestCase):
+    def source(self, **request: Any) -> str:
+        return rendered(spawn_document(), spawn_bindings(**request))["Layout/SpawnPaneRequest.generated.swift"]
+
+    def test_flatten_takes_its_wire_fields_and_encodes_the_value_flat(self) -> None:
+        source = self.source()
+        self.assertIn("public var options: SpawnOptions\n", source)
+        self.assertIn("options: SpawnOptions = SpawnOptions()", source)
+        self.assertIn("        try options.encode(to: encoder)\n", source)
+        for wire in ("cwd", "cols", "rows"):
+            self.assertNotIn(f"case {wire}", source)
+        self.assertIn("case label", source)
+
+    def test_an_optional_flatten_is_written_only_when_set(self) -> None:
+        source = self.source()
+        self.assertIn("public var size: CellSize?", source)
+        self.assertIn("size: CellSize? = nil", source)
+        self.assertIn("        if let size { try size.encode(to: encoder) }\n", source)
+
+    def test_order_places_flattened_and_mutation_properties(self) -> None:
+        self.assertIn(
+            "public init(pane: PaneID, options: SpawnOptions = SpawnOptions(), size: CellSize? = nil,"
+            " before: Bool = false, mutation: MutationIdentity? = nil, label: String? = nil)",
+            self.source(),
+        )
+
+    def test_encode_writes_keyed_fields_then_flattened_values_then_the_mutation(self) -> None:
+        source = self.source()
+        self.assertLess(source.index("forKey: .label"), source.index("try options.encode"))
+        self.assertLess(source.index("if let size"), source.index("MutationFields(identity"))
+
+    def test_when_true_is_a_plain_bool_sent_only_as_true(self) -> None:
+        source = self.source()
+        self.assertIn("public var before: Bool\n", source)
+        self.assertIn("before: Bool = false", source)
+        self.assertIn("        if before { try container.encode(true, forKey: .before) }\n", source)
+
+    def test_encode_when_gates_an_optional_field_on_a_prior_property(self) -> None:
+        source = self.source(fields={"before": {"encode": "when_true"}, "label": {"encode_when": "before"}})
+        self.assertIn("        if before { try container.encodeIfPresent(label, forKey: .label) }\n", source)
+
+    def test_encode_when_requires_a_non_empty_string(self) -> None:
+        with self.assertRaises(BindingError):
+            self.source(fields={"before": {"encode": "when_true"}, "label": {"encode_when": ""}})
+
+    def test_encode_when_cannot_gate_required_or_when_true_fields(self) -> None:
+        for fields in (
+            {"pane": {"encode_when": "before"}},
+            {"before": {"encode": "when_true", "encode_when": "label"}},
+        ):
+            with self.subTest(fields), self.assertRaises(BindingError):
+                self.source(fields=fields)
+
+    def test_bad_flatten_and_when_true_bindings_are_refused(self) -> None:
+        cases = {
+            "unregistered type": {"flatten": {"options": {"type": "Nope"}}},
+            "no wire field in the schema": {"flatten": {"options": {"type": "Other"}}},
+            "unknown key": {"flatten": {"options": {"type": "SpawnOptions", "colour": "red"}}},
+            "flatten named mutation": {"flatten": {"mutation": {"type": "SpawnOptions"}}},
+            "when_true on a string": {"fields": {"before": {"encode": "when_true"}, "label": {"encode": "when_true"}}},
+            "when_true with optional": {"fields": {"before": {"encode": "when_true", "optional": True}}},
+        }
+        for label, request in cases.items():
+            bindings = spawn_bindings(**request)
+            bindings["flatten"]["Other"] = {"wire": ["argv"], "encode": "try {value}.encode(to: encoder)"}
+            with self.subTest(label), self.assertRaises(BindingError):
+                rendered(spawn_document(), bindings)
+
+    def test_a_flatten_may_not_take_a_required_field(self) -> None:
+        bindings = spawn_bindings()
+        bindings["flatten"]["SpawnOptions"]["wire"].append("pane")
+        with self.assertRaises(BindingError):
+            rendered(spawn_document(), bindings)
+
+    def test_a_registry_entry_needs_wire_names_and_a_value_statement(self) -> None:
+        for entry in ({"wire": [], "encode": "try {value}.encode(to: encoder)"}, {"wire": ["cwd"], "encode": "x"}):
+            bindings = spawn_bindings()
+            bindings["flatten"]["SpawnOptions"] = entry
+            with self.subTest(entry), self.assertRaises(BindingError):
+                rendered(spawn_document(), bindings)
 
 
 class OutAndCheckTests(unittest.TestCase):

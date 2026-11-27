@@ -40,7 +40,7 @@ extension DaemonConnection {
             return identity
         }()
         return try await request(RenameWorkspaceRequest(workspace: .key(key), name: name, source: source,
-                                                        expectedNameRevision: expectedNameRevision, release: release,
+                                                        expectedNameRevision: expectedNameRevision.map(String.init), release: release,
                                                         mutation: nameMutation))
     }
 
@@ -54,7 +54,7 @@ extension DaemonConnection {
                                      title: FieldUpdate<String> = .unchanged, pinned: Bool? = nil,
                                      markedUnread: Bool? = nil, keepAwake: Bool? = nil) async throws -> WorkspaceMetadataResult {
         try await request(SetWorkspaceMetadataRequest(workspace: .key(key), color: color, icon: icon, title: title, pinned: pinned,
-                                                      markedUnread: markedUnread, keepAwake: keepAwake, mutation: mutation()))
+                                                      markedUnread: markedUnread, mutation: mutation(), keepAwake: keepAwake))
     }
 
     /// Closes a workspace. `endTerminals` also ends, in the same daemon
@@ -212,10 +212,10 @@ extension DaemonConnection {
     @discardableResult
     public func newColumn(beside pane: PaneID, left: Bool, width: Double? = nil, options: SpawnOptions = SpawnOptions()) async throws -> SurfaceCreated {
         guard supportsPlacementEnv else {
-            return try await request(NewColumnRequest(pane: pane, width: width, left: left, options: served(options)))
+            return try await request(NewColumnRequest(pane: pane, width: width, side: left ? .left : nil, options: served(options)))
         }
         let options = await placed(options)
-        return Self.created(try await requestPaneCreation(NewColumnRequest(pane: pane, width: width, left: left, options: options)), options: options)
+        return Self.created(try await requestPaneCreation(NewColumnRequest(pane: pane, width: width, side: left ? .left : nil, options: options)), options: options)
     }
 
     @discardableResult
