@@ -2279,15 +2279,13 @@ function shapeTurn(
   // summary that is no longer running draws as it came.
   if (end < 0)
     return live
-      ? liveTurn(
-          user,
-          turn,
+      ? shapedLiveTurn(user, turn, [
           clockOffset,
           trayAgents,
           turnStartedAtMs,
           turnFoldStyle(agentFamily).conclusion && isAgentPrompt(user),
           expanded.has(`${WORKED}-${user.id}`),
-        )
+        ])
       : last
         ? turn.flatMap(withoutDrafts)
         : settledWithoutSummary(turn);
@@ -3466,6 +3464,53 @@ function liveTurn(
     clockOffset,
   );
 }
+
+/// What `liveTurn` shapes the running turn's rows from, past the turn itself.
+type LiveTurnArgs = readonly [
+  clockOffset: number,
+  trayAgents: number,
+  turnStartedAtMs: number | undefined,
+  foldsPrompt: boolean,
+  workOpen: boolean,
+];
+
+/// The running turn's rows as a pass of `turnViewFrom` last shaped them (`shaped`, the live line
+/// last), with what it shaped them from, and the pane draw it came after (`stamp`). The pane's
+/// hidden-call bypass (liveCallLine.ts) shapes the turn again with one row changed and keeps the
+/// pane's snapshot when only the line moved.
+export type LiveTurnShape = {
+  readonly user: AcpmuxRow;
+  readonly turn: readonly AcpmuxRow[];
+  readonly args: LiveTurnArgs;
+  readonly shaped: readonly AcpmuxRow[];
+  readonly stamp: number;
+};
+
+let liveShape: LiveTurnShape | undefined;
+let liveStamp = 0;
+
+/// `liveTurn` for the running turn's own pass, noted as `liveTurnShapes.last()`.
+function shapedLiveTurn(user: AcpmuxRow, turn: AcpmuxRow[], args: LiveTurnArgs): AcpmuxRow[] {
+  const shaped = liveTurn(user, turn, ...args);
+  liveShape = { user, turn: turn.slice(), args, shaped, stamp: liveStamp };
+  return shaped;
+}
+
+export const liveTurnShapes = {
+  /// The running turn as the newest pass shaped it, or undefined before one.
+  last: (): LiveTurnShape | undefined => liveShape,
+  /// The pane drew another snapshot (`stamp`): shapes from here on carry it.
+  stamp(stamp: number): void {
+    liveStamp = stamp;
+  },
+  /// `shape`'s turn shaped again from `turn`, with the same arguments. Notes nothing.
+  reshape: (shape: LiveTurnShape, turn: readonly AcpmuxRow[]): AcpmuxRow[] =>
+    liveTurn(shape.user, turn as AcpmuxRow[], ...shape.args),
+  /// Forgets the newest shape (tests).
+  reset(): void {
+    liveShape = undefined;
+  },
+};
 
 /// The running turn's retries (the client's `TURN_RETRY` row, direct.ts) on its "Thinking" line:
 /// while its harness retries a failed model request the line says the model cannot be reached,
