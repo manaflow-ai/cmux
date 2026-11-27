@@ -1401,7 +1401,9 @@ fn daemon_settings_scope(command_args: &[String]) -> bool {
         {
             false
         }
-        Some("get" | "set" | "reset" | "unset" | "edit" | "history" | "undo" | "restore") => true,
+        Some(
+            "get" | "explain" | "set" | "reset" | "unset" | "edit" | "history" | "undo" | "restore",
+        ) => true,
         _ => false,
     }
 }
@@ -1764,8 +1766,8 @@ fn scan_globals(
     Ok((global, command))
 }
 
-/// `machine add|vault`'s value-less switches (`machine_join::own_switch`) and the chat
-/// commands' (`chat_start::own_switch`); none on Windows, where those verbs do not exist.
+/// `machine add|revoke|rotate|vault`'s value-less switches (`machine_join::own_switch`) and
+/// the chat commands' (`chat_start::own_switch`); none on Windows, where those verbs do not exist.
 fn own_switch(command: &[String], flag: &str) -> bool {
     #[cfg(unix)]
     {
