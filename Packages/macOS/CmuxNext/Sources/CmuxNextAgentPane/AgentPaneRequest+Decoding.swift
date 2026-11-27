@@ -190,6 +190,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.composerFilled":
+            if let filled = params?["filled"] as? Bool {
+                self = .composerFilled(filled)
+            } else {
+                self = .unsupported(method)
+            }
         case "pane.commandAvailability":
             if let commands = params?["commands"] as? [String] {
                 self = .commandAvailability(commands)
@@ -457,6 +463,8 @@ extension AgentPaneRequest {
                 return
             }
             self = .cloudHandoffTurn(sessionId: session)
+        case "cloud.forkFirst":
+            if let fork = AgentPaneForkFirst(params: params) { self = .cloudForkFirst(fork) } else { self = .unsupported(method) }
         case "cloud.signInCancel": self = .cloudSignInCancel(expired: params?["expired"] as? Bool == true)
         case "cloud.plan.subscribe":
             // Only the plans the cards may name; anything else is refused here.
@@ -681,6 +689,8 @@ extension AgentPaneRequest {
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
         case AgentPaneTryAnotherApproach.method:
             self = AgentPaneTryAnotherApproach(params: params).map(AgentPaneRequest.tryAnotherApproach) ?? .unsupported(method)
+        case AgentPaneModel.cloudFolderAddMethod:
+            self = .cloudFolderAdd
         case AgentPaneCloudTurnRewind.checkpointMethod, AgentPaneCloudTurnRewind.rewindMethod:
             self = AgentPaneCloudTurnRewind(method: method, params: params).map(AgentPaneRequest.cloudTurnRewind) ?? .unsupported(method)
         case "chat.openTab":

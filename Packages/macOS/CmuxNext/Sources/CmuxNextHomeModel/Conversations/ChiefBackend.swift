@@ -71,16 +71,26 @@ public nonisolated struct ChiefBackend: Hashable, Sendable, Identifiable {
 
     /// The name to show for harness `id`: an official engine's title, else the id made readable
     /// (``Swift/String/chiefHarnessName``: `claude-cr` → "Claude (CodeRouter)"), never the raw id.
+    /// Rust's `chief_settings.backendTitle`.
     public static func title(for id: String) -> String {
-        ChiefBackend(id: id)?.title ?? id.chiefHarnessName
+        (try? HomeRules.call("chief_settings.backendTitle", ChiefNameRequest(id: id, strings: .official)))
+            ?? ChiefBackend(id: id)?.title ?? id.chiefHarnessName
     }
 
     /// The badge a Home row shows for a Chief whose effective harness is `harness`: nil for
     /// the default engine (no choice, `default`, or a Claude route such as `claude-cr`),
-    /// else the engine's name (an unknown id made readable).
+    /// else the engine's name (an unknown id made readable). Rust's `chief_settings.backendBadge`.
     public static func badge(for harness: String?) -> String? {
-        guard let harness = harness?.trimmingCharacters(in: .whitespacesAndNewlines), !harness.isEmpty,
-              harness != "default", !harness.hasPrefix(ChiefBackend.claude.id) else { return nil }
-        return title(for: harness)
+        do {
+            let badge: String? = try HomeRules.call("chief_settings.backendBadge", BadgeRequest(harness: harness, strings: .official))
+            return badge
+        } catch {
+            return nil
+        }
+    }
+
+    private nonisolated struct BadgeRequest: Encodable {
+        var harness: String?
+        var strings: ChiefBackendStrings
     }
 }

@@ -1,6 +1,7 @@
 //! The Chief's send-agents skill (https://github.com/manaflow-ai/cmux/issues/52990):
 //! "send Claude" and "send Codex" start agent chats in the app, each in its own
-//! `<issue#>: <liner>` workspace at the top, on the harness's default model, and every
+//! `<issue#>: <liner>` workspace at the top, Claude on Opus 5.5 at medium effort
+//! (https://github.com/manaflow-ai/cmux/issues/57789), an issue filed first, and every
 //! agent is told to open its pull request in the right split and keep going until it is
 //! ready. It names no one person's setup.
 
@@ -30,10 +31,17 @@ fn shipped() -> String {
 fn the_send_agents_skill_ships_with_the_whole_recipe() {
     let text = shipped();
     for needle in [
-        "cmux --json agents chat new --top --harness claude",
+        "cmux --json agents chat new --top --harness claude --model claude-opus-5-5",
+        "--effort medium",
+        "Claude runs on Opus 5.5 at medium effort",
         "--harness codex",
-        "Leave out `--model` and `--effort`",
-        "`<issue#>: <3-5 word liner>`",
+        "file one first (`gh issue create`)",
+        "never the person's raw prompt",
+        "exactly `<issue#>: <3-5 word liner>`",
+        "never a `#`",
+        "`PR #<number>: <3-5 words>`",
+        "Never `cmux workspace create` first (it adds a terminal)",
+        "no helper chat, subagent or workspace",
         "cmux --json workspace list",
         "Never start a second agent on the same issue.",
         "move --index 0",
@@ -44,6 +52,11 @@ fn the_send_agents_skill_ships_with_the_whole_recipe() {
         "split --right --ratio 0.5",
         "Keep going until the pull request is ready",
         "quit it once you are done verifying",
+        "Never move the person's focus.",
+        "check it against real data",
+        "`feat-cmux-next` whose change was verified",
+        "squash-merge it (`gh pr merge <n> --squash`)",
+        "Pull requests to any other branch wait for the person.",
         "close the workspace you made for it",
     ] {
         assert!(text.contains(needle), "send-agents lacks {needle:?}");
@@ -51,14 +64,11 @@ fn the_send_agents_skill_ships_with_the_whole_recipe() {
 }
 
 #[test]
-fn the_send_agents_skill_hardcodes_no_model_or_person() {
+fn the_send_agents_skill_names_no_person() {
     let text = shipped();
     for word in [
         "sr2",
-        "claude-sr2",
-        "claude-opus",
         "gpt-",
-        "Opus 5",
         "--dangerously-skip-permissions",
         "Austin",
         "Andrii",

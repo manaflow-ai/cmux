@@ -213,8 +213,10 @@ test("the pointer and the arrow keys move one selection in the suggestions", asy
   expect(selected(), "a reopened list keeps its selection on the first move").toEqual(before);
 });
 
+// A staged file goes to an agent: the rows keep only Ask, never a create row, a web search or an
+// address that would leave the file behind (Lucas 2026-11-26).
 test.each(["terminal", "browser", "chat"] as const)(
-  "Enter on %s with staged attachments runs the creation command",
+  "staged attachments offer only Ask rows for the %s create command",
   async (kind) => {
     const creates: string[] = [];
     const asks: unknown[][] = [];
@@ -243,19 +245,12 @@ test.each(["terminal", "browser", "chat"] as const)(
     const field = await promptField();
     await settleReact();
     const rows = [...document.querySelectorAll<HTMLElement>(".nt-row")];
-    const index = rows.findIndex(
-      (row) => row.dataset.type === "create" && row.textContent?.includes(translateNewTab(`create.${kind}`)),
-    );
-    expect(index).toBeGreaterThanOrEqual(0);
-    const downs = downsTo(index);
-    for (let i = 0; i < downs; i++) await press(field, "ArrowDown");
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((row) => row.dataset.type === "ask")).toBe(true);
     await press(field, "Enter");
-    expect(creates).toEqual(kind === "chat" ? [] : [kind]);
-    expect(asks.length).toBe(kind === "chat" ? 1 : 0);
-    if (kind === "chat") {
-      expect(asks[0]?.[1]).toBe("");
-      expect(asks[0]?.[5]).toEqual([attachment]);
-    }
+    expect(creates).toEqual([]);
+    expect(asks.length).toBe(1);
+    expect((asks[0]![5] as ComposerAttachment[]).map((sent) => sent.id)).toEqual([attachment.id]);
   },
 );
 
@@ -1022,6 +1017,8 @@ test("the `/` menu opens mid-prompt with the skills and writes the pick in place
       { name: "model", description: "", source: "cmux" },
       { name: "compact", description: "", source: "agent" },
       { name: "review-pr", description: "", source: "skill" },
+      // Computer use and browser use are listed only after `@`, never in the `/` menu.
+      ...toolSlashCommands((key) => key),
     ],
   });
   await act(async () => {
@@ -1032,7 +1029,10 @@ test("the `/` menu opens mid-prompt with the skills and writes the pick in place
       row.textContent?.trim(),
     );
   await typePrompt("/");
-  expect(names()).toEqual(["/model", "/compact", "/review-pr"]);
+  // Skills first, A to Z, then the other commands in their order (folderCommands.ts skillsFirst).
+  expect(names()).toEqual(["/review-pr", "/model", "/compact"]);
+  await typePrompt("/comp");
+  expect(names()).toEqual(["/compact"]);
   await typePrompt("src/app");
   expect(names()).toEqual([]);
   const field = await typePrompt("fix it /");
@@ -1043,6 +1043,76 @@ test("the `/` menu opens mid-prompt with the skills and writes the pick in place
   expect([...container.querySelectorAll(".nt-field .acpmux-slash-token")].map((token) => token.textContent)).toEqual([
     "/review-pr",
   ]);
+});
+
+test("before the agent's deferred chat answers, `/` lists the skills of the newest chat in this folder, A to Z", async () => {
+  const reads: string[] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat(
+          [
+            session({ sessionId: "older", cwd: "/Users/you/src/cmux", updatedAt: 1 }),
+            session({ sessionId: "newer", cwd: "/Users/you/src/cmux", updatedAt: 2 }),
+            // A deferred chat that never started: the newest, with no list yet.
+            session({ sessionId: "deferred", cwd: "/Users/you/src/cmux", updatedAt: 3 }),
+          ],
+          { commands: [{ name: "model", description: "", source: "cmux" }] },
+        )}
+        lastAgent="claude"
+        cwd="/Users/you/src/cmux"
+        startCwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        readChatCommands={async (sessionId) => {
+          reads.push(sessionId);
+          if (sessionId === "deferred") return [];
+          return [
+            { name: "prime", description: "", source: "skill" },
+            { name: "issues", description: "", source: "skill" },
+          ];
+        }}
+      />,
+    );
+  });
+  const names = () =>
+    [...container.querySelectorAll("#acpmux-slash-menu [role='option'] .acpmux-slash-name")].map((row) =>
+      row.textContent?.trim(),
+    );
+  await typePrompt("use this /");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  // The empty deferred chat gives way to the next newest.
+  expect(reads).toEqual(["deferred", "newer"]);
+  expect(names()).toEqual(["/issues", "/prime"]);
+  await typePrompt("/");
+  expect(names()).toEqual(["/issues", "/prime", "/model"]);
+  // Kept for this agent and folder: the menu opening again reads nothing more.
+  expect(reads).toEqual(["deferred", "newer"]);
+});
+
+test("a Codex skill from the newest chat's list goes as `/$name` before Codex's own list arrives", async () => {
+  const asks: unknown[][] = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        {...firstRunProps}
+        snapshot={noChat([session({ sessionId: "codex-chat", harness: "codex", cwd: "/Users/you/src/cmux" })], {
+          commands: [],
+        })}
+        lastAgent="codex"
+        cwd="/Users/you/src/cmux"
+        startCwd="/Users/you/src/cmux"
+        projects={[{ cwd: "/Users/you/src/cmux", label: "cmux" }]}
+        readChatCommands={async () => [{ name: "$emil-color", description: "", source: "skill" }]}
+        onAsk={(...args) => asks.push(args)}
+      />,
+    );
+  });
+  await typePrompt("use /");
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await typePrompt("use /emil-color now");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  expect((asks[0] as unknown[])[1]).toBe("use /$emil-color now");
 });
 
 test("a Codex skill typed without its `$` goes to the agent as `/$name`, other text as typed", async () => {
@@ -1060,6 +1130,46 @@ test("a Codex skill typed without its `$` goes to the agent as `/$name`, other t
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   expect(asks.length).toBe(1);
   expect((asks[0] as unknown[])[1]).toBe("Use /$emil-color in src/emil-color");
+});
+
+test("a `$` word opens the skills only while the chat starts on Codex", async () => {
+  const snapshot = noChat([], {
+    commands: [
+      { name: "$emil-color", description: "", source: "skill" },
+      { name: "review-pr", description: "", source: "skill" },
+    ],
+  });
+  const names = () =>
+    [...container.querySelectorAll("#acpmux-slash-menu [role='option'] .acpmux-slash-name")].map((row) =>
+      row.textContent?.trim(),
+    );
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} lastAgent="codex" snapshot={snapshot} />);
+  });
+  await typePrompt("use this $");
+  expect(names().length).toBe(2);
+  await typePrompt("use this $emil");
+  expect(names().length).toBe(1);
+  // On Claude Code a `$` is a price or a shell variable: no menu. Its `/` still lists the skills.
+  await act(async () => root!.render(<div />));
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} lastAgent="claude" snapshot={snapshot} />);
+  });
+  await typePrompt("use this $");
+  expect(container.querySelector("#acpmux-slash-menu")).toBeNull();
+  await typePrompt("use this /");
+  expect(names().length).toBe(2);
+  // A Codex profile under another id ("work") is Codex by its family.
+  await act(async () => root!.render(<div />));
+  const work = {
+    ...snapshot,
+    catalog: [...snapshot.catalog, { id: "work", name: "Work", models: [], family: "codex" }],
+  };
+  await act(async () => {
+    root!.render(<NewTabScreen {...firstRunProps} lastAgent="work" snapshot={work} />);
+  });
+  await typePrompt("use this $");
+  expect(names().length).toBe(2);
 });
 
 test("mid-prompt a Codex skill named like a command goes with its `$`, picked or not", async () => {
@@ -1299,7 +1409,9 @@ test("a chosen document uses the New Tab upload path and becomes sendable", asyn
   Object.defineProperty(input, "files", { configurable: true, value: [file] });
   await act(async () => input.dispatchEvent(new dom!.window.Event("change", { bubbles: true })));
   expect(uploaded).toEqual([[file]]);
-  expect(container.querySelector(".acpmux-md-inline-chip")).not.toBeNull();
+  // The tray is the default view (#55723): the document shows once, in the tray, not in the text.
+  expect(container.querySelectorAll(".acpmux-attachments .acpmux-attachment").length).toBe(1);
+  expect(container.querySelector(".acpmux-md-inline-chip")).toBeNull();
   const send = container.querySelector<HTMLButtonElement>(".nt-send")!;
   expect(send.disabled).toBe(false);
   await act(async () => send.click());
@@ -1882,7 +1994,9 @@ test("a page that goes with an unsent draft hands it over; an untouched page han
   await act(async () => root!.render(<main />));
   expect(left).toHaveLength(1);
   const attachment = (left[0]![1] as ComposerAttachment[])[0]!;
-  expect(left).toEqual([[inlineToken(attachment.id), [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
+  // In the default tray view (#55723) the text holds no mark; the attachment goes with the draft.
+  expect(attachment.id).toBeTruthy();
+  expect(left).toEqual([["", [expect.objectContaining({ path: "/tmp/notes.txt" })]]]);
 });
 
 async function clickProjectOption(label: string) {
@@ -2939,6 +3053,44 @@ test("Return waits for a screenshot still being read, then asks", async () => {
   expect(screenshot.reading()).toBe(false);
   expect(asks).toHaveLength(1);
   expect(String(asks[0]![1])).toStartWith("ls the notes folder");
+});
+
+// A screenshot still being read: the rows offer only Ask (attachedRows), so Return waits to ask. The
+// screenshot removed before it is read leaves the full rows, led by Run for a command: the waiting send
+// must not run it (or open an address); it is dropped and the draft stays.
+test("a send held for a screenshot that is then removed runs no command", async () => {
+  const asks: unknown[][] = [];
+  const shells: string[] = [];
+  const screenshot = screenshotBeingRead();
+  await act(async () =>
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={(...args) => void asks.push(args)}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={(command) => void shells.push(command)}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    ),
+  );
+  const field = await typePrompt("git status");
+  await screenshot.paste(field);
+  expect(screenshot.reading()).toBe(true);
+  const rows = [...document.querySelectorAll<HTMLElement>(".nt-popover .nt-row")];
+  expect(rows.every((row) => row.dataset.type === "ask")).toBe(true);
+  await press(field, "Enter");
+  expect(asks).toEqual([]);
+  const remove = document.querySelector<HTMLButtonElement>(".acpmux-attachment-pending .acpmux-attachment-remove")!;
+  await act(async () => remove.click());
+  await act(async () => screenshot.release());
+  for (let turn = 0; turn < 20; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(screenshot.reading()).toBe(false);
+  expect(shells).toEqual([]);
+  expect(asks).toEqual([]);
+  expect(promptValue()).toContain("git status");
 });
 
 test("a Cloud machine folder starts the chat on its existing peer", async () => {

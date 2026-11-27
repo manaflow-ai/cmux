@@ -183,6 +183,10 @@ def cef_trace_tasks(trace, skip_s: float = 30.0, top: int = 40, window=None) -> 
     rows = [{"process": p, "thread": t, "posted_from": f, "count": n, "per_s": round(n / seconds, 2)}
             for (p, t, f), n in counts.items()]
     rows.sort(key=lambda r: (-r["count"], r["process"], r["thread"], r["posted_from"]))
+    # The browser process (the one with a CrBrowserMain thread; Chromium names it by pid) on its own: the GPU
+    # process's display-link tasks fill the shared rows, and the browser's delayed tasks are what wake the app.
+    browser = {processes.get(pid, str(pid)) for (pid, _), name in threads.items() if name == "CrBrowserMain"}
+    browser_rows = [r for r in rows if r["process"] in browser]
     # The browser process's main and I/O threads (only it names them so: a renderer's is Chrome_ChildIOThread): every
     # other event there by name, the mojom category's IPC messages among them, which RunTask rows do not name.
     # Each with the arguments that name what it served (a mojo interface, a URL), busiest first.
@@ -208,7 +212,8 @@ def cef_trace_tasks(trace, skip_s: float = 30.0, top: int = 40, window=None) -> 
     event_rows.sort(key=lambda r: (-r["count"], r["thread"], r["name"]))
     url_rows = [{"process": p, "url": u, "count": c, "per_s": round(c / seconds, 2)} for (p, u), c in urls.items()]
     url_rows.sort(key=lambda r: (-r["count"], r["process"], r["url"]))
-    got = {"seconds": round(seconds, 1), "tasks": rows[:top], "events": event_rows[:top], "urls": url_rows[:top]}
+    got = {"seconds": round(seconds, 1), "tasks": rows[:top], "browser_tasks": browser_rows[:top],
+           "events": event_rows[:top], "urls": url_rows[:top]}
     if which:
         got["window"] = which
         got["trace_span_s"] = [round(min(stamps) / 1e6, 1), round(max(stamps) / 1e6, 1)]
@@ -1054,7 +1059,9 @@ def main(argv: list[str] | None = None) -> int:
             result["cef_trace"] = read_cef_trace(cef_trace_dir, window=(measured_from, measured_to))
             result["cef_trace"]["measured_s"] = [round(measured_from, 1), round(measured_to, 1)]
             log("IDLE-CPU-CEF-TRACE " + json.dumps({k: v for k, v in result["cef_trace"].items()
-                                                    if k not in ("events", "urls")})[:6000])
+                                                    if k not in ("events", "urls", "browser_tasks")})[:6000])
+            for row in result["cef_trace"].get("browser_tasks", [])[:25]:
+                log("IDLE-CPU-CEF-BROWSER-TASK " + json.dumps(row)[:600])
             # One line per event: its naming arguments make a row long, and a cut line hides the rest.
             for row in result["cef_trace"].get("events", [])[:25]:
                 log("IDLE-CPU-CEF-EVENT " + json.dumps(row)[:1500])
@@ -1065,6 +1072,13 @@ def main(argv: list[str] | None = None) -> int:
         result["pages"] = page_activity(lambda method, params=None: client.call(method, params, timeout=30))
         for entry in result["pages"]:
             log("IDLE-CPU-PAGE " + json.dumps(entry, sort_keys=True))
+        # The health model's parts that are not healthy and whether its one timer is armed: a part left slow or
+        # failed re-arms the timer every few seconds at idle (app.health.tick in the wake ledger).
+        try:
+            result["health"] = client.call("debug.health", {}, timeout=30)
+        except Exception as error:  # noqa: BLE001 - an older app or a closed socket: the run goes on
+            result["health"] = {"error": str(error)}
+        log("IDLE-CPU-HEALTH " + json.dumps(result["health"], sort_keys=True)[:4000])
         result["chromium_dirs"] = chromium_dirs(Path(env["HOME"]))
         log("IDLE-CPU-CHROMIUM-DIRS " + json.dumps(result["chromium_dirs"][:24]))
         for index, groups in enumerate(threads):

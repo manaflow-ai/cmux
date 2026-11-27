@@ -36,6 +36,16 @@ fi
 prefix="cmux-vm-image/$TAG"
 presign() { python3 "$root/scripts/ci/r2-presign.py" --endpoint-url "$R2_ENDPOINT" --bucket "$R2_BUCKET" --key "$prefix/$1" --method "$2" --expires 7200; }
 
+# Probe the key first, from this runner: a key that cannot write this bucket fails here in seconds, with R2's reason,
+# not after the export VM has spent minutes on the tarball (roll 45690843632: 403 on the guest's PUT).
+probe="$(mktemp)"; printf probe > "$probe"
+probe_code="$(curl -sS -T "$probe" -o "$probe.out" -w '%{http_code}' "$(presign probe PUT)" || echo curl-failed)"
+case "$probe_code" in
+  2??) ;;
+  *) echo "::error title=qcow2 export::R2 probe PUT to $R2_BUCKET/$prefix/probe returned $probe_code: $(head -c 600 "$probe.out" 2>/dev/null)"; rm -f "$probe" "$probe.out"; exit 1;;
+esac
+rm -f "$probe" "$probe.out"
+
 (cd "$root/web" && QCOW2_ROOTFS_PUT_URL="$(presign rootfs.tar.zst PUT)" \
   bun ../images/cmux-vm/qcow2-export.ts --snapshot "$SNAPSHOT" --tag "$TAG" --out-dir "$OUT_DIR") | tee "$OUT_DIR/qcow2-export.out"
 read -r _ tar_sha _ < <(grep '^ROOTFS_TAR ' "$OUT_DIR/qcow2-export.out" | tail -1)

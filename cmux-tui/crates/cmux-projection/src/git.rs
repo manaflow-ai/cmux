@@ -130,6 +130,45 @@ pub fn resolve(git_dir: &Path, rev: &str) -> anyhow::Result<(String, i64)> {
     Ok((id.to_owned(), time.parse()?))
 }
 
+/// The id of `commit`'s tree: what a kept listing is keyed by, so a commit that changed no file
+/// (a merge, a message edit) remounts from the listing of the commit before it.
+pub fn tree_of(git_dir: &Path, commit: &str) -> anyhow::Result<String> {
+    let mut command = git(git_dir);
+    command.args(["rev-parse"]).arg(format!("{commit}^{{tree}}"));
+    Ok(String::from_utf8(output(command)?)?.trim().to_owned())
+}
+
+/// The ids in `oids` the object store does not have. Never fetches (`GIT_NO_LAZY_FETCH`), so a
+/// partial clone's promisor is not asked one blob at a time.
+pub fn absent(git_dir: &Path, oids: &BTreeSet<&str>) -> anyhow::Result<Vec<String>> {
+    if oids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let input: String = oids.iter().map(|oid| format!("{oid}\n")).collect();
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos());
+    let path =
+        std::env::temp_dir().join(format!("cmux-projection-oids-{}-{nanos}", std::process::id()));
+    std::fs::write(&path, input)?;
+    let file = std::fs::File::open(&path);
+    let _ = std::fs::remove_file(&path);
+    let mut command = git(git_dir);
+    command
+        .args(["cat-file", "--batch-check"])
+        .env("GIT_NO_LAZY_FETCH", "1")
+        .stdin(Stdio::from(file?))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let out = command.output()?;
+    anyhow::ensure!(out.status.success(), "cat-file --batch-check failed");
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|line| line.strip_suffix(" missing"))
+        .map(str::to_owned)
+        .collect())
+}
+
 /// The blobs `commit` names that the object store does not have (a partial clone's mirror).
 pub fn missing(git_dir: &Path, commit: &str) -> anyhow::Result<Vec<String>> {
     let mut command = git(git_dir);
@@ -174,17 +213,23 @@ pub fn ls_tree(git_dir: &Path, commit: &str) -> anyhow::Result<Vec<TreeItem>> {
 /// git only for the blobs that one lacks: `ls-tree` without sizes reads only trees (1.2 s cold
 /// for cmux, against 11.9 s with them).
 pub fn ls_tree_cached(git_dir: &Path, commit: &str, cache: &Path) -> anyhow::Result<Vec<TreeItem>> {
+    ls_tree_cached_with(git_dir, commit, cache, &|_| Ok(()))
+}
+
+/// [`ls_tree_cached`] for a store that may lack blobs: a blob's size is the one thing a mount
+/// needs of it, so only blobs with no size in a kept listing and none in the store are handed to
+/// `fill` (before the mount, in one call); every other missing blob waits for its first read.
+pub fn ls_tree_cached_with(
+    git_dir: &Path,
+    commit: &str,
+    cache: &Path,
+    fill: &dyn Fn(&[String]) -> anyhow::Result<()>,
+) -> anyhow::Result<Vec<TreeItem>> {
     if let Some(items) = std::fs::read(cache).ok().and_then(|bytes| parse_ls_tree(&bytes).ok()) {
         return Ok(items);
     }
-    let bytes = match sizes_kept_beside(cache) {
-        Some(sizes) => listing_with_sizes(git_dir, commit, &sizes)?,
-        None => {
-            let mut command = git(git_dir);
-            command.args(["ls-tree", "-r", "-l", "-z", "--full-tree", commit]);
-            output(command)?
-        }
-    };
+    let sizes = sizes_kept_beside(cache).unwrap_or_default();
+    let bytes = listing_with_sizes(git_dir, commit, &sizes, fill)?;
     let items = parse_ls_tree(&bytes)?;
     if let Some(parent) = cache.parent() {
         std::fs::create_dir_all(parent)?;
@@ -214,6 +259,7 @@ fn listing_with_sizes(
     git_dir: &Path,
     commit: &str,
     sizes: &HashMap<String, u64>,
+    fill: &dyn Fn(&[String]) -> anyhow::Result<()>,
 ) -> anyhow::Result<Vec<u8>> {
     let mut command = git(git_dir);
     command.args(["ls-tree", "-r", "-z", "--full-tree", commit]);
@@ -234,6 +280,10 @@ fn listing_with_sizes(
             unknown.insert(oid);
         }
         rows.push((mode, kind, oid, path));
+    }
+    let gone = absent(git_dir, &unknown)?;
+    if !gone.is_empty() {
+        fill(&gone)?;
     }
     let found = object_sizes(git_dir, &unknown)?;
     let mut listing = Vec::with_capacity(bytes.len() + rows.len() * 8);
@@ -817,7 +867,22 @@ struct CatFile {
     _child: Child,
 }
 
+impl Drop for CatFile {
+    /// Ends and reaps the process, so a retired one keeps no pack open and leaves no zombie. Only
+    /// a process no read is using is dropped: the pool hands each to one read at a time.
+    fn drop(&mut self) {
+        let _ = self._child.kill();
+        let _ = self._child.wait();
+    }
+}
+
 impl CatFile {
+    /// The process id (tests: which packs it maps).
+    #[cfg(test)]
+    fn pid(&self) -> u32 {
+        self._child.id()
+    }
+
     fn spawn(git_dir: &Path) -> anyhow::Result<Self> {
         Self::spawn_from(git(git_dir))
     }
@@ -831,6 +896,12 @@ impl CatFile {
         let mut command = git(git_dir);
         command.env("GIT_NO_LAZY_FETCH", "1").env("GIT_ALLOW_PROTOCOL", "none");
         Self::spawn_from(command)
+    }
+
+    /// `lazy_fetch` false: a blob the store lacks is answered from nothing, not fetched from the
+    /// promisor remote (the caller asks its own sources first; see [`CatFile::spawn_local`]).
+    fn spawn_with(git_dir: &Path, lazy_fetch: bool) -> anyhow::Result<Self> {
+        if lazy_fetch { Self::spawn(git_dir) } else { Self::spawn_local(git_dir) }
     }
 
     fn spawn_from(mut command: Command) -> anyhow::Result<Self> {
@@ -962,6 +1033,11 @@ const RECENT_BYTES: usize = 64 * 1024 * 1024;
 const IDLE: Duration = Duration::from_secs(30);
 /// How often the reaper looks.
 const SWEEP: Duration = Duration::from_secs(10);
+/// How often the reaper checks the store's packs. A `git cat-file --batch` opens the packs it
+/// finds and keeps them open for its life: after a `git repack -ad` (gc, or the mirror's own
+/// maintenance) deletes them, a pooled process that is never idle for [`IDLE`] keeps their bytes
+/// on the disk, out of sight of `du` (a lane VM had 62 GB held so, by processes days old).
+const PACK_CHECK: Duration = Duration::from_secs(60);
 /// The most `git cat-file --batch` processes one mount runs at once. The pool starts empty, the
 /// first read starts one, and a second (up to this cap) starts only while every live one is busy;
 /// past the cap a read waits for the next free one (a blob read takes about a millisecond). The
@@ -974,6 +1050,47 @@ const MAX_CATS: usize = 4;
 struct Pooled {
     cat: CatFile,
     used: Instant,
+    /// The store's [`Packs::generation`] when the process started.
+    generation: u64,
+}
+
+/// The store's `objects/pack` folder, as last seen: its mtime moves whenever a pack is added or
+/// deleted, and each move is a new generation. A process from an older generation is retired.
+struct Packs {
+    dir: PathBuf,
+    mtime: Option<std::time::SystemTime>,
+    checked: Instant,
+    generation: u64,
+}
+
+impl Packs {
+    fn new(git_dir: &Path) -> Self {
+        let dir = objects_dir(git_dir).join("pack");
+        let mtime = std::fs::metadata(&dir).and_then(|meta| meta.modified()).ok();
+        Self { dir, mtime, checked: Instant::now(), generation: 0 }
+    }
+
+    /// Reads the folder's mtime when [`PACK_CHECK`] (`every`) has passed, and starts a new
+    /// generation when it moved.
+    fn check(&mut self, now: Instant, every: Duration) {
+        if now.saturating_duration_since(self.checked) < every {
+            return;
+        }
+        self.checked = now;
+        let mtime = std::fs::metadata(&self.dir).and_then(|meta| meta.modified()).ok();
+        if mtime != self.mtime {
+            self.mtime = mtime;
+            self.generation += 1;
+        }
+    }
+}
+
+/// The object folder of `git_dir`, or of the repository it shares one with (`commondir`).
+fn objects_dir(git_dir: &Path) -> PathBuf {
+    let common = std::fs::read_to_string(git_dir.join("commondir"))
+        .map(|text| git_dir.join(text.trim()))
+        .unwrap_or_else(|_| git_dir.to_owned());
+    common.join("objects")
 }
 
 /// The pool's processes: the free ones, and how many are alive (free and in use).
@@ -993,36 +1110,55 @@ struct Held {
     peak: AtomicUsize,
     recent: Mutex<VecDeque<(u32, Arc<Vec<u8>>)>>,
     last_read: Mutex<Instant>,
+    packs: Mutex<Packs>,
 }
 
 impl Held {
-    /// A free process, a new one while fewer than [`MAX_CATS`] live, or the next one freed.
-    fn take(&self, git_dir: &Path) -> Result<CatFile, FetchError> {
+    /// The store's pack generation now.
+    fn generation(&self) -> u64 {
+        self.packs.lock().unwrap_or_else(PoisonError::into_inner).generation
+    }
+
+    /// A free process, a new one while fewer than [`MAX_CATS`] live, or the next one freed;
+    /// with the pack generation it started in.
+    /// `lazy_fetch` false: the new process never fetches a blob the store lacks
+    /// ([`CatFile::spawn_with`]); every process of one mount is spawned the same way.
+    fn take(&self, git_dir: &Path, lazy_fetch: bool) -> Result<(CatFile, u64), FetchError> {
         let mut pool = self.pool.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if let Some(pooled) = pool.free.pop() {
-                return Ok(pooled.cat);
+                return Ok((pooled.cat, pooled.generation));
             }
             if pool.live < MAX_CATS {
                 pool.live += 1;
                 self.peak.fetch_max(pool.live, Ordering::Relaxed);
                 drop(pool);
-                return CatFile::spawn(git_dir).map_err(|_| {
-                    self.ended(1);
-                    FetchError::Failed
-                });
+                let generation = self.generation();
+                return match CatFile::spawn_with(git_dir, lazy_fetch) {
+                    Ok(cat) => Ok((cat, generation)),
+                    Err(_) => {
+                        self.ended(1);
+                        Err(FetchError::Failed)
+                    }
+                };
             }
             pool = self.freed.wait(pool).unwrap_or_else(PoisonError::into_inner);
         }
     }
 
-    /// Puts a process that answered back in the pool.
-    fn give(&self, cat: CatFile) {
-        self.pool
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .free
-            .push(Pooled { cat, used: Instant::now() });
+    /// Puts a process that answered back in the pool, or ends it when it started before the
+    /// store's packs last changed (a repack may have deleted a pack it holds open).
+    fn give(&self, cat: CatFile, generation: u64) {
+        if generation != self.generation() {
+            drop(cat);
+            self.ended(1);
+            return;
+        }
+        self.pool.lock().unwrap_or_else(PoisonError::into_inner).free.push(Pooled {
+            cat,
+            used: Instant::now(),
+            generation,
+        });
         self.freed.notify_one();
     }
 
@@ -1035,13 +1171,22 @@ impl Held {
     }
 
     /// Ends every pooled process unused for `idle` (dropping it closes its stdin, and git exits),
-    /// and, when the mount was not read for `idle`, drops the recent blobs and gives the freed
-    /// heap back to the system.
-    fn sweep(&self, now: Instant, idle: Duration) {
+    /// and every one that started before the store's packs last changed (checked once per
+    /// `pack_check`: a repack that deletes a pack moves the folder's mtime); when the mount was
+    /// not read for `idle`, drops the recent blobs and gives the freed heap back to the system.
+    /// A process a read is using is not in the pool: it finishes that read, and is ended instead
+    /// of pooled when it comes back ([`Held::give`]).
+    fn sweep(&self, now: Instant, idle: Duration, pack_check: Duration) {
+        let generation = {
+            let mut packs = self.packs.lock().unwrap_or_else(PoisonError::into_inner);
+            packs.check(now, pack_check);
+            packs.generation
+        };
         let ended: Vec<Pooled> = {
             let mut pool = self.pool.lock().unwrap_or_else(PoisonError::into_inner);
-            let (old, fresh): (Vec<_>, Vec<_>) =
-                pool.free.drain(..).partition(|p| now.saturating_duration_since(p.used) >= idle);
+            let (old, fresh): (Vec<_>, Vec<_>) = pool.free.drain(..).partition(|p| {
+                now.saturating_duration_since(p.used) >= idle || p.generation != generation
+            });
             pool.free = fresh;
             pool.live = pool.live.saturating_sub(old.len());
             old
@@ -1081,7 +1226,12 @@ pub struct GitBlobs {
     git_dir: PathBuf,
     sources: Vec<Source>,
     held: Arc<Held>,
+    filler: Option<Filler>,
 }
+
+/// Gets one blob into the object store (peers, the controller disk, R2, then a blobless fetch),
+/// true when it is there afterwards: what a first read of a missing blob calls.
+pub type Filler = Arc<dyn Fn(&str) -> bool + Send + Sync>;
 
 impl GitBlobs {
     #[must_use]
@@ -1092,6 +1242,7 @@ impl GitBlobs {
             peak: AtomicUsize::new(0),
             recent: Mutex::new(VecDeque::new()),
             last_read: Mutex::new(Instant::now()),
+            packs: Mutex::new(Packs::new(git_dir)),
         });
         let weak: Weak<Held> = Arc::downgrade(&held);
         // Without the thread (spawn refused) the mount still works; it only keeps its memory.
@@ -1099,10 +1250,17 @@ impl GitBlobs {
             loop {
                 std::thread::sleep(SWEEP);
                 let Some(held) = weak.upgrade() else { return };
-                held.sweep(Instant::now(), IDLE);
+                held.sweep(Instant::now(), IDLE, PACK_CHECK);
             }
         });
-        Self { git_dir: git_dir.to_owned(), sources, held }
+        Self { git_dir: git_dir.to_owned(), sources, held, filler: None }
+    }
+
+    /// Blobs the store lacks are got by `filler` on their first read, not before the mount.
+    #[must_use]
+    pub fn with_filler(mut self, filler: Filler) -> Self {
+        self.filler = Some(filler);
+        self
     }
 
     /// How many `git cat-file` processes wait in the pool (tests).
@@ -1127,16 +1285,33 @@ impl GitBlobs {
         }
         let bytes = match self.sources.get(entry as usize) {
             Some(Source::Blob(oid)) => {
-                let mut cat = self.held.take(&self.git_dir)?;
+                // A mount with a filler reads only what the store holds; a blob it lacks is
+                // filled, then read by a fresh process (the one that answered `missing` ended).
+                let lazy = self.filler.is_none();
+                let (mut cat, generation) = self.held.take(&self.git_dir, lazy)?;
                 match cat.blob(oid) {
                     Ok(bytes) => {
-                        self.held.give(cat);
+                        self.held.give(cat, generation);
                         bytes
                     }
                     Err(e) => {
                         drop(cat);
                         self.held.ended(1);
-                        return Err(e);
+                        if !self.filler.as_ref().is_some_and(|fill| fill(oid)) {
+                            return Err(e);
+                        }
+                        let (mut cat, generation) = self.held.take(&self.git_dir, lazy)?;
+                        match cat.blob(oid) {
+                            Ok(bytes) => {
+                                self.held.give(cat, generation);
+                                bytes
+                            }
+                            Err(e) => {
+                                drop(cat);
+                                self.held.ended(1);
+                                return Err(e);
+                            }
+                        }
                     }
                 }
             }

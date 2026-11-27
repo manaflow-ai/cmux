@@ -156,6 +156,10 @@ async fn read_cached(file: &Path) -> Option<(Vec<u8>, Meta)> {
 
 async fn store(file: &Path, body: &[u8], etag: Option<&str>) {
     let Some(dir) = file.parent() else { return };
+    // The cache's disk bound (room.rs): below the floor the crate is served, not kept.
+    if !crate::room::has_room(dir) {
+        return;
+    }
     if tokio::fs::create_dir_all(dir).await.is_err() {
         return;
     }

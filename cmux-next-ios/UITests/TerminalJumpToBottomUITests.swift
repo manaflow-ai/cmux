@@ -108,13 +108,16 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         let hide = app.buttons["Hide Toolbar"]
         let window = app.windows.firstMatch.frame
         let rowY = (keyboardKey.frame.midY - window.minY) / window.height
-        // 44 pt keys: the row is ~1900 pt wide, so a few more drags than the old 28 pt row took.
-        for _ in 0..<16 where !(hide.exists && hide.isHittable) {
+        // The row is ~1240 pt wide: up to 16 drags reach its end.
+        // On screen, not `isHittable` (TerminalComposerDockUITests says why); a finger's tap.
+        let onScreen = { hide.exists && hide.frame.width > 0 && hide.frame.minX >= window.minX && hide.frame.maxX <= window.maxX }
+        for _ in 0..<16 where !onScreen() {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.92, dy: rowY))
                 .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.38, dy: rowY)))
         }
-        XCTAssertTrue(hide.waitForHittable(timeout: 5), "Hide Toolbar at the row's end\n\(app.debugDescription)")
-        hide.tap()
+        let settled = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in onScreen() }, object: nil)
+        XCTAssertEqual(XCTWaiter().wait(for: [settled], timeout: 5), .completed, "Hide Toolbar at the row's end\n\(app.debugDescription)")
+        hide.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         XCTAssertTrue(keyboardKey.waitForNonExistence(timeout: 5), "Hide Toolbar hides the key row")
         let jump = app.buttons["terminal.jumpToBottom"]
         XCTAssertTrue(scrollUp(app, until: jump), "scrolled up with the toolbar hidden: Jump to bottom shows\n\(app.debugDescription)")

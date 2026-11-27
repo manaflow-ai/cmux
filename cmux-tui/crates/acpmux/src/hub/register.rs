@@ -30,10 +30,6 @@ use std::sync::Arc;
 #[path = "register_auto.rs"]
 mod auto;
 
-#[cfg(test)]
-#[path = "register_name_tests.rs"]
-mod name_tests;
-
 /// The tag a registered chat carries.
 pub const REGISTERED_TAG: &str = "bridge.registered";
 
@@ -330,16 +326,37 @@ impl Hub {
         // so two sessions registering the same name at once never both get it.
         static REGISTERING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
         let _one_at_a_time = REGISTERING.lock().await;
-        let shown = self
-            .prepare_registered_name(
-                &name,
-                claimed,
-                started,
-                launched_for.as_deref(),
-                &crate::config::home(),
-                &claude_home,
-            )
-            .await?;
+        let stores = super::adoption::store_families(&*self.config.read().await);
+        let (shown, holder) = {
+            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let shown = super::adoption::adopted_in(&sessions, &stores, family, &agent_session_id);
+            let holder = sessions
+                .values()
+                .find(|s| {
+                    s.read_meta(|m| m.name == name)
+                        && shown.as_ref().is_none_or(|own| own.id != s.id)
+                })
+                .cloned();
+            (shown, holder)
+        };
+        // A registered chat is taken over only by a process the kernel says was started for its
+        // conversation (`--resume ID` in its launch arguments, which no file rewrites; a desktop
+        // session's restart has it), and never while the process it is registered to still runs:
+        // the registry's session id is anyone's to write.
+        self.validate_registered_claim(
+            shown.as_ref(),
+            claimed,
+            started,
+            launched_for.as_deref(),
+            &agent_session_id,
+            &crate::config::home(),
+            &claude_home,
+        )?;
+        // Validate the claimant before mutating the incumbent. A failed takeover must leave a
+        // dead holder's address intact so its next registration can retry cleanly.
+        if let Some(holder) = holder {
+            self.yield_name_of_gone(&holder, &name, &crate::config::home(), &claude_home).await?;
+        }
         let session = match shown {
             Some(s) => {
                 if s.meta().name != name {
@@ -430,67 +447,45 @@ impl Hub {
         Ok(out)
     }
 
-    /// Called under REGISTERING. Validate the incoming conversation before changing the name
-    /// or persisted metadata of another session.
-    async fn prepare_registered_name(
+    /// Validates a takeover before the incumbent's address is changed. A failed claimant must
+    /// leave a gone holder untouched so its own session can retry registration.
+    fn validate_registered_claim(
         &self,
-        name: &str,
+        shown: Option<&Arc<Session>>,
         claimed: &crate::claude_peers::Peer,
         started: u64,
         launched_for: Option<&str>,
+        agent_session_id: &str,
         home: &std::path::Path,
         claude_home: &std::path::Path,
-    ) -> Result<Option<Arc<Session>>, RpcError> {
-        let agent_session_id = claimed.session_id.as_str();
-        let stores = super::adoption::store_families(&*self.config.read().await);
-        let (shown, holder) = {
-            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-            let shown = super::adoption::adopted_in(&sessions, &stores, "claude", agent_session_id);
-            let holder = sessions
-                .values()
-                .find(|s| {
-                    s.read_meta(|m| m.name == name)
-                        && shown.as_ref().is_none_or(|own| own.id != s.id)
-                })
-                .cloned();
-            (shown, holder)
-        };
-        // A registered chat is taken over only by a process the kernel says was started for its
-        // conversation (`--resume ID` in its launch arguments, which no file rewrites; a desktop
-        // session's restart has it), and never while the process it is registered to still runs:
-        // the registry's session id is anyone's to write.
-        if let Some(s) = shown.as_ref().filter(|s| is_registered(s)) {
-            // Files: off the runtime's workers (RFD 0124 R6).
-            let kept = crate::qos::off_worker(|| crate::claude_peers::kept_token(home, &s.id));
-            let same =
-                kept.as_ref().is_some_and(|k| k.pid == claimed.pid && k.started == Some(started));
-            if !same {
-                let recorded_live = kept.as_ref().is_some_and(|k| {
-                    k.started.is_some()
-                        && crate::qos::off_worker(|| {
-                            crate::claude_peers::started_at(claude_home, k.pid)
-                        }) == k.started
-                });
-                if recorded_live {
-                    return Err(unproven(format!(
-                        "chat {:?} is registered to process {}, which still runs",
-                        s.meta().name,
-                        kept.as_ref().map_or(0, |k| k.pid)
-                    )));
-                }
-                if launched_for != Some(agent_session_id) {
-                    return Err(unproven(format!(
-                        "chat {:?} is registered to another process; only a session started with `--resume {agent_session_id}` takes it over",
-                        s.meta().name
-                    )));
-                }
-            }
+    ) -> Result<(), RpcError> {
+        let Some(s) = shown.filter(|s| is_registered(s)) else { return Ok(()) };
+        // Files: off the runtime's workers (RFD 0124 R6).
+        let kept = crate::qos::off_worker(|| crate::claude_peers::kept_token(home, &s.id));
+        let same =
+            kept.as_ref().is_some_and(|k| k.pid == claimed.pid && k.started == Some(started));
+        if same {
+            return Ok(());
         }
-        // The name's holder is a registered chat whose Claude Code is gone: it yields the name.
-        if let Some(holder) = holder {
-            self.yield_name_of_gone(&holder, name, home).await?;
+        let recorded_live = kept.as_ref().is_some_and(|k| {
+            k.started.is_some()
+                && crate::qos::off_worker(|| crate::claude_peers::started_at(claude_home, k.pid))
+                    == k.started
+        });
+        if recorded_live {
+            return Err(unproven(format!(
+                "chat {:?} is registered to process {}, which still runs",
+                s.meta().name,
+                kept.as_ref().map_or(0, |k| k.pid)
+            )));
         }
-        Ok(shown)
+        if launched_for != Some(agent_session_id) {
+            return Err(unproven(format!(
+                "chat {:?} is registered to another process; only a session started with `--resume {agent_session_id}` takes it over",
+                s.meta().name
+            )));
+        }
+        Ok(())
     }
 
     /// Frees `name` from `holder`, the chat that has it, when [`registered_chat_gone`]: renamed
@@ -501,12 +496,23 @@ impl Hub {
         holder: &Arc<Session>,
         name: &str,
         home: &std::path::Path,
+        claude_home: &std::path::Path,
     ) -> Result<(), RpcError> {
         let registered = is_registered(holder);
-        // Files and process inspection run off the runtime's workers (RFD 0124 R6).
-        let gone = crate::qos::off_worker(|| {
-            let kept = crate::claude_peers::kept_token(home, &holder.id);
-            registered_chat_gone(registered, kept.as_ref())
+        let (home, claude_home, id) = (home.to_owned(), claude_home.to_owned(), holder.id.clone());
+        // Files: off the runtime's workers (RFD 0124 R6).
+        let gone = crate::qos::off_worker(move || {
+            let kept = crate::claude_peers::kept_token(&home, &id);
+            // Its registry entry's start, or the kept start while that process still runs with
+            // no entry: a live Claude Code never yields its name.
+            let started_now = kept.as_ref().and_then(|k| {
+                crate::claude_peers::started_at(&claude_home, k.pid).or_else(|| {
+                    crate::adopt_live::registered_runs(k.pid, k.started)
+                        .then_some(k.started)
+                        .flatten()
+                })
+            });
+            registered_chat_gone(registered, kept.as_ref(), started_now)
         });
         if !gone {
             return Err(RpcError::invalid_params(format!(
@@ -516,7 +522,7 @@ impl Hub {
         }
         let short: String = holder.id.chars().filter(char::is_ascii_alphanumeric).take(8).collect();
         // Leave room in an 80-byte address for the timestamp prefix and a collision suffix.
-        let prefix = &name[..name.floor_char_boundary(55)];
+        let prefix = name.get(..name.floor_char_boundary(55)).unwrap_or(name);
         let renamed = self.unique_name(&format!("{prefix}-gone-{short}"));
         tracing::info!(session = %holder.id, %name, %renamed, "a gone registered chat yields its name");
         self.rename_as(holder, renamed, super::task_names::Naming::Address).await
@@ -542,13 +548,15 @@ impl Hub {
 /// conversation. Its first registration is `acpmux register NAME`, or its first `acpmux send`.
 pub const NOT_RENEWABLE: &str = "register.not_renewable";
 
-/// Reclaim only when the process identified by the daemon's saved registration is gone.
-/// An absent start time or an inconclusive process lookup preserves the live holder.
-fn registered_chat_gone(registered: bool, kept: Option<&crate::claude_peers::ChildToken>) -> bool {
-    registered
-        && kept.is_some_and(|k| {
-            k.started.is_some() && !crate::adopt_live::registered_runs(k.pid, k.started)
-        })
+/// Whether a chat holding a name is a registered chat whose Claude Code process is gone: its
+/// kept token names a process start (`startedAt`) that no live registry entry under that pid has
+/// now. A chat with no such record is never taken as gone.
+fn registered_chat_gone(
+    registered: bool,
+    kept: Option<&crate::claude_peers::ChildToken>,
+    started_now: Option<u64>,
+) -> bool {
+    registered && kept.is_some_and(|k| k.started.is_some() && k.started != started_now)
 }
 
 /// Whether a chat (`registered` or not) renews to a process launched for `launched_for`, the
@@ -725,166 +733,9 @@ fn not_found() -> RpcError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::claude_peers::Peer;
+#[path = "register_name_tests.rs"]
+mod name_tests;
 
-    pub(super) fn peer(pid: u32, socket: &str) -> Peer {
-        Peer {
-            pid,
-            session_id: format!("sid-{pid}"),
-            cwd: None,
-            entrypoint: Some("claude-desktop".into()),
-            kind: Some("interactive".into()),
-            name: None,
-            version: None,
-            socket: Some(PathBuf::from(socket)),
-        }
-    }
-
-    #[test]
-    fn the_nearest_claude_ancestor_with_the_callers_inbox_registers() {
-        let live = vec![peer(42, "/s/42.sock"), peer(7, "/s/7.sock")];
-        // acpmux (50) under bash (45) under claude 42, itself run inside claude 7's shell.
-        let ancestry = [50, 45, 42, 30, 7, 1];
-        assert_eq!(nearest_claude(&ancestry, &live, None).map(|p| p.pid), Some(42));
-        let inbox = std::path::Path::new("/s/42.sock");
-        assert_eq!(nearest_claude(&ancestry, &live, Some(inbox)).map(|p| p.pid), Some(42));
-        // An inbox that is not the ancestor's: nothing, never another session.
-        let other = std::path::Path::new("/s/99.sock");
-        assert_eq!(nearest_claude(&ancestry, &live, Some(other)), None);
-        // Not under any listed session: nothing.
-        assert_eq!(nearest_claude(&[50, 45, 1], &live, None), None);
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn renew_hook_retries_an_unavailable_inbox_but_rejects_the_wrong_owner() {
-        let dir = tempfile::tempdir().unwrap();
-        let socket = dir.path().join("inbox.sock");
-        let claimed = peer(0, socket.to_str().unwrap());
-        assert_eq!(prove_claude(&claimed, dir.path(), &socket, true).await.unwrap(), None);
-        assert!(prove_claude(&claimed, dir.path(), &socket, false).await.is_err());
-
-        // Once it answers, this process owns the socket. The wrong PID is a hard failure.
-        let _listener = tokio::net::UnixListener::bind(&socket).unwrap();
-        assert!(!crate::claude_peers::inbox_proof(&socket, claimed.pid).await.unwrap());
-        assert!(prove_claude(&claimed, dir.path(), &socket, true).await.is_err());
-        let link = dir.path().join("link.sock");
-        std::os::unix::fs::symlink(&socket, &link).unwrap();
-        let owner = peer(std::process::id(), link.to_str().unwrap());
-        assert!(!crate::claude_peers::inbox_proof(&link, owner.pid).await.unwrap());
-        assert!(prove_claude(&owner, dir.path(), &link, true).await.is_err());
-    }
-
-    #[test]
-    fn the_walk_stops_below_this_daemon() {
-        let me = std::process::id();
-        assert_eq!(below_daemon(vec![50, 45, me, 42, 1]), vec![50, 45]);
-        assert_eq!(below_daemon(vec![50, 42, 1]), vec![50, 42, 1]);
-    }
-
-    /// The second step takes only the code delivered to that same process, for the same name,
-    /// inbox, token and start, and each code once (repro: a process echoing a guessed or replayed
-    /// code, or another session's).
-    #[test]
-    fn a_register_code_is_taken_once_and_only_from_its_own_process() {
-        let put = |pid: u32| {
-            let pending = Pending {
-                code: "c0de".into(),
-                started: 7,
-                socket: PathBuf::from("/tmp/cc-socks/1.sock"),
-                token: "tok".into(),
-                name: "desktop-zoe".into(),
-                at: std::time::Instant::now(),
-            };
-            PENDING.lock().unwrap().insert(pid, pending);
-        };
-        let sock = std::path::Path::new("/tmp/cc-socks/1.sock");
-        put(900_001);
-        assert!(take_code(900_001, "c0de", 7, sock, "tok", "desktop-zoe").is_ok());
-        assert!(take_code(900_001, "c0de", 7, sock, "tok", "desktop-zoe").is_err(), "once");
-        put(900_002);
-        assert!(take_code(900_002, "guess", 7, sock, "tok", "desktop-zoe").is_err());
-        assert!(
-            take_code(900_002, "c0de", 7, sock, "tok", "desktop-zoe").is_err(),
-            "a miss uses it up"
-        );
-        put(900_003);
-        assert!(
-            take_code(900_004, "c0de", 7, sock, "tok", "desktop-zoe").is_err(),
-            "another process"
-        );
-        assert!(
-            take_code(900_003, "c0de", 8, sock, "tok", "desktop-zoe").is_err(),
-            "a later process"
-        );
-        put(900_005);
-        assert!(take_code(900_005, "c0de", 7, sock, "tok", "other-name").is_err());
-        put(900_006);
-        assert!(take_code(900_006, "c0de", 7, sock, "other", "desktop-zoe").is_err());
-    }
-
-    #[test]
-    fn an_automatic_code_says_why_it_came_and_where_replies_go() {
-        let text = code_text("claude-desktop-03214b87", "c0de", &Why::Send("cosmic-gray".into()));
-        assert!(text.contains("its receiver cannot answer you"), "{text}");
-        assert!(text.contains("acpmux register claude-desktop-03214b87 --code c0de"), "{text}");
-        assert!(text.contains("replies reach cosmic-gray/claude-desktop-03214b87"), "{text}");
-        let asked = code_text("desktop-zoe", "c0de", &Why::Asked);
-        assert!(asked.contains("acpmux register desktop-zoe --code c0de"), "{asked}");
-        assert!(!asked.contains("acpmux send"), "{asked}");
-    }
-
-    #[test]
-    fn auto_is_the_first_step_only() {
-        let first =
-            json!({"name": "claude-desktop-0321", "socket": "/s", "token": "t", "auto": true});
-        assert!(RegisterRequest::from_params(&first).unwrap().auto);
-        let manual = json!({"name": "desktop-zoe", "socket": "/s", "token": "t"});
-        assert!(!RegisterRequest::from_params(&manual).unwrap().auto);
-        let both = json!({"name": "desktop-zoe", "token": "t", "auto": true, "code": "c0de"});
-        assert!(RegisterRequest::from_params(&both).is_err());
-    }
-
-    /// Repro (Leo, 2026-11-20, of a terminal coordinator restarted with `--resume`: "isn't one I
-    /// can message through acpmux"): the restarted process handed acpmux no token, so sends
-    /// waited on `bridge.registration_stale` until a person ran `acpmux register` in it.
-    #[test]
-    fn only_a_registered_chat_resumed_for_its_own_conversation_renews() {
-        assert!(renewable(true, Some("6e0bad7d"), "6e0bad7d"));
-        assert!(!renewable(false, Some("6e0bad7d"), "6e0bad7d"), "never registered");
-        assert!(!renewable(true, None, "6e0bad7d"), "a launch that names no conversation");
-        assert!(!renewable(true, Some("other"), "6e0bad7d"), "another conversation");
-    }
-
-    #[test]
-    fn renew_takes_no_code() {
-        let renew =
-            json!({"name": "claude-code-6e0bad7d", "socket": "/s", "token": "t", "renew": true});
-        assert!(RegisterRequest::from_params(&renew).unwrap().renew);
-        let both =
-            json!({"name": "claude-code-6e0bad7d", "token": "t", "renew": true, "code": "c"});
-        assert!(RegisterRequest::from_params(&both).is_err());
-    }
-
-    #[test]
-    fn a_tag_alone_never_registers_a_chat() {
-        assert!(!with_registered(|set| set.contains("never-registered-chat")));
-        mark_registered_for_test("chat-registered-in-test");
-        assert!(with_registered(|set| set.contains("chat-registered-in-test")));
-    }
-
-    #[test]
-    fn a_request_needs_a_valid_name_and_a_one_line_token() {
-        assert!(RegisterRequest::from_params(&json!({})).is_err());
-        assert!(RegisterRequest::from_params(&json!({"name": ""})).is_err());
-        let bad = json!({"name": "desktop-zoe", "token": "a\nb"});
-        assert!(RegisterRequest::from_params(&bad).is_err());
-        let ok = json!({"name": "desktop-zoe", "socket": "/tmp/cc-socks/1.sock", "token": "t"});
-        let req = RegisterRequest::from_params(&ok).unwrap();
-        assert_eq!(req.name, "desktop-zoe");
-        assert_eq!(req.socket.as_deref(), Some(std::path::Path::new("/tmp/cc-socks/1.sock")));
-        assert_eq!(req.token.as_deref(), Some("t"));
-    }
-}
+#[cfg(test)]
+#[path = "register_tests.rs"]
+mod tests;

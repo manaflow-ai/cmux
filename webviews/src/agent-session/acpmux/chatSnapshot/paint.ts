@@ -3,9 +3,8 @@
 // page's own code and selectors find it, under the page's own `pane.css` and `pane-copy.css` (its
 // `html`, `body` and `:root` rules rewritten for the shadow tree at build time); the live page's root is
 // clear under it until the swap
-// (live.ts). The copy takes no input: clicks, scrolls and focus go through it to the live page, and
-// typing before the live composer is up waits in the host's key queue (PageInputReadiness), as it does
-// with no snapshot.
+// (live.ts). The copy itself takes no input; its prompt does: a plain field drawn over it takes clicks
+// and typing before the live composer is up, and hands what it holds to the live prompt (skeleton.ts).
 import {
   fitsDocument,
   PAGE_STYLE_ID,
@@ -17,15 +16,16 @@ import {
   SNAPSHOT_SCROLL_ATTRIBUTE,
   SNAPSHOT_SHEETS_ATTRIBUTE,
   SNAPSHOT_SHOWN_GLOBAL,
-  SNAPSHOT_AGENT_THEME_GLOBAL,
-  SNAPSHOT_THEME_GLOBAL,
   shadowSelector,
   type ChatSnapshot,
   type SnapshotAttributes,
+  SNAPSHOT_AGENT_THEME_GLOBAL,
+  SNAPSHOT_THEME_GLOBAL,
   CHROME_ONLY_RULE,
   fitsChromeOnly,
   SNAPSHOT_CHROME_ONLY_ATTRIBUTE,
 } from "./shared";
+import { copyPrompt, drawSkeleton } from "./skeleton";
 import { agentThemeColors } from "../../shared/themeVariables";
 import type { AgentSessionTheme } from "../../shared/types";
 
@@ -272,6 +272,9 @@ export function paintSnapshot(
     host.style.removeProperty("opacity");
     live.style.opacity = "0";
     restoreScroll(body);
+    // The copy's prompt takes clicks and typing now (skeleton.ts); it never sends.
+    const prompt = copyPrompt(body);
+    if (prompt) drawSkeleton(doc, body, prompt);
     globals[SNAPSHOT_SHOWN_GLOBAL] = { at: view.performance.now(), ...(chromeOnly ? { chromeOnly: true } : {}) };
     view.performance.mark?.("cmux-chat:snapshot-paint");
     events.shown?.();

@@ -1,3 +1,4 @@
+#if canImport(AppKit)
 public import AppKit
 
 /// The menus AppKit tracks, as it posts `NSMenu.didBeginTrackingNotification` and
@@ -61,3 +62,4 @@ public final class MenuTracking {
         for subscriber in subscribers { subscriber(change) }
     }
 }
+#endif

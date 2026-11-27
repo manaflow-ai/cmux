@@ -75,6 +75,10 @@ PR_EVENTS = ("pull_request", "pull_request_target")
 
 # Workflows whose superseded pull request runs are deliberately not cancelled.
 ALLOWED = {
+    # Only the `changed` job (a few seconds, one compare call) runs without a group: it decides whether this push
+    # measures by the files changed since the previous head, so cancelling the previous head's `changed` would lose
+    # that head's chat-pane change. The measuring `report` job cancels a superseded head's run.
+    "chat-open-perf-report.yml": "its seconds-long changed job diffs against the previous head; report cancels",
     # Debounce runs supersede themselves and exit 0 (next_batch.py
     # `superseded`); a cancel would read as a red run. The batch job is never
     # cancelled. See OWN_SUPERSESSION in test_ci_required_checks_are_bounded.py.
@@ -498,7 +502,10 @@ def workflow_problem(workflow: dict) -> str | None:
 DESCRIPTION_READS = ("pull_request.body", "pull_request.title", "changes.body", "changes.title")
 
 # Workflows that run on every title or body edit although their own text never reads it, and why.
-READS_DESCRIPTION: dict[str, str] = {}
+READS_DESCRIPTION: dict[str, str] = {
+    "private-names.yml": "its checker (fetched from the private ops repository) reads the title and body over the API; "
+                         "an edit run re-checks the whole pull request at its head, so cancelling the push run loses nothing",
+}
 
 
 # Workflows whose edit skip lands in a pull request of its own, and why. An entry whose workflow

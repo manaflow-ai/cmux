@@ -368,9 +368,8 @@ function sameSettled(before: unknown, after: unknown): boolean {
   const left = before as { lastSeq?: unknown; forkSeqs?: unknown };
   const right = after as { lastSeq?: unknown; forkSeqs?: unknown };
   if (left.lastSeq !== right.lastSeq || left.forkSeqs === right.forkSeqs) return left.lastSeq === right.lastSeq;
-  if (!Array.isArray(left.forkSeqs) || !Array.isArray(right.forkSeqs)) return false;
-  return (
-    left.forkSeqs.length === right.forkSeqs.length &&
-    left.forkSeqs.every((value, index) => value === right.forkSeqs[index])
-  );
+  const leftSeqs = left.forkSeqs;
+  const rightSeqs = right.forkSeqs;
+  if (!Array.isArray(leftSeqs) || !Array.isArray(rightSeqs)) return false;
+  return leftSeqs.length === rightSeqs.length && leftSeqs.every((value, index) => value === rightSeqs[index]);
 }

@@ -39,7 +39,11 @@ impl AppKeybinding {
 }
 
 fn rows(m: &Value) -> impl Iterator<Item = (usize, &Value)> {
-    m.pointer("/contributes/keybindings").and_then(Value::as_array).into_iter().flatten().enumerate()
+    m.pointer("/contributes/keybindings")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .enumerate()
 }
 
 /// Whether `command` names a cmux action (or an old name of one).
@@ -90,7 +94,10 @@ pub(crate) fn check(m: &Value, out: &mut Vec<Issue>) {
             out.push(Issue::warning(
                 format!("{at}/key"),
                 "keybindings.shortcutConflict",
-                format!("{} is bound twice in this app for the same condition", entry.keys.join(" ")),
+                format!(
+                    "{} is bound twice in this app for the same condition",
+                    entry.keys.join(" ")
+                ),
             ));
         }
         if is_builtin_action(&entry.command) {
@@ -145,7 +152,9 @@ pub(crate) fn check_ops(m: &Value, catalog: &Value, out: &mut Vec<Issue>) {
             out.push(Issue::error(
                 at,
                 "keybindings.unknownCommand",
-                format!("{command} is neither a cmux action nor an op of the app's family {family}"),
+                format!(
+                    "{command} is neither a cmux action nor an op of the app's family {family}"
+                ),
             ));
         } else if !names.contains(command) {
             out.push(Issue::error(

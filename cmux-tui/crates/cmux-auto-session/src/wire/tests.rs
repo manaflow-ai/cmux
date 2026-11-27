@@ -298,10 +298,16 @@ fn a_wish_shows_in_the_chats_view_and_in_its_holders_lease_answer() {
     let session: SessionView = round_trip(&moving);
     assert_eq!(session.moving, Some(MoveWish { to: MoveTo::Cloud, device: None, at: 12 }));
     let text = format!(
+        r#"{{ "session": {moving}, "role": "holder", "leaseMs": 45000, "move": "cloud", "moveAt": 12 }}"#
+    );
+    let answer: LeaseAnswer = round_trip(&text);
+    assert_eq!((answer.move_to, answer.move_at), (Some(MoveTo::Cloud), Some(12)));
+    // A store that does not say when the person asked yet: the wish reads with no time.
+    let text = format!(
         r#"{{ "session": {moving}, "role": "holder", "leaseMs": 45000, "move": "cloud" }}"#
     );
     let answer: LeaseAnswer = round_trip(&text);
-    assert_eq!(answer.move_to, Some(MoveTo::Cloud));
+    assert_eq!((answer.move_to, answer.move_at), (Some(MoveTo::Cloud), None));
     let named: MoveWish = round_trip(r#"{ "to": "local", "device": "device:mac-2", "at": 12 }"#);
     assert_eq!(named.device, Some(Holder::device("mac-2")));
 
@@ -312,7 +318,8 @@ fn a_wish_shows_in_the_chats_view_and_in_its_holders_lease_answer() {
         r#"{{ "session": {}, "role": "holder", "leaseMs": 45000 }}"#,
         session_text("device:mac-1", "local")
     );
-    assert_eq!(round_trip::<LeaseAnswer>(&text).move_to, None);
+    let quiet: LeaseAnswer = round_trip(&text);
+    assert_eq!((quiet.move_to, quiet.move_at), (None, None));
 }
 
 #[test]

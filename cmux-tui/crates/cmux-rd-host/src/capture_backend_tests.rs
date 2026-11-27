@@ -80,3 +80,29 @@ fn mutter_applies_input_with_its_remote_desktop_and_no_grant() {
     assert!(wayland_control_with(WaylandCapture::Portal, false, true));
     assert!(!wayland_control_with(WaylandCapture::Portal, true, false));
 }
+
+#[test]
+fn a_mutter_that_fails_falls_back_to_the_portal() {
+    let portal_calls = std::cell::Cell::new(0);
+    let portal = || {
+        portal_calls.set(portal_calls.get() + 1);
+        Ok::<_, String>("portal")
+    };
+    let failing = || Err::<&str, _>("remote access inhibited".to_string());
+    assert_eq!(mutter_else_portal(Some(failing), portal), Ok("portal"));
+    assert_eq!(portal_calls.get(), 1);
+}
+
+#[test]
+fn a_mutter_that_starts_never_asks_the_portal() {
+    let portal = || -> Result<&str, String> { panic!("the portal was asked") };
+    assert_eq!(mutter_else_portal(Some(|| Ok("mutter")), portal), Ok("mutter"));
+}
+
+#[test]
+fn without_mutter_the_portal_starts_and_its_error_is_kept() {
+    let none: Option<fn() -> Result<&'static str, String>> = None;
+    assert_eq!(mutter_else_portal(none, || Ok("portal")), Ok("portal"));
+    let none: Option<fn() -> Result<&'static str, String>> = None;
+    assert_eq!(mutter_else_portal(none, || Err("denied".to_string())), Err("denied".to_string()));
+}

@@ -29,7 +29,7 @@ use super::checkpoint::ledger;
 use super::journal::Journal;
 use super::mutation::{Target, key, output_extra, refused, run_failed};
 use super::user_run::{UserGit, deadline};
-use super::worktree::{self, BRANCH_PREFIX};
+use super::worktree::{self, BRANCH_PREFIX, Names};
 use super::{
     MAX_SMALL_OUTPUT_BYTES, MAX_STATUS_BYTES, Repository, worktree_recipe, worktree_setup,
 };
@@ -74,7 +74,8 @@ pub(super) fn dispatch(
             Some(attempt) => attempt,
             None => {
                 let discard = request.fields.get("discard").and_then(Value::as_bool) == Some(true);
-                let mut attempt = plan(&target.repository, discard)?;
+                let prefix = Names::read(mux).branch_prefix;
+                let mut attempt = plan(&target.repository, &prefix, discard)?;
                 let resolved =
                     worktree_recipe::resolve(mux, Some(&attempt.main_root), &attempt.main_root);
                 let consent = resolved.consent();
@@ -143,7 +144,7 @@ fn run_teardown(
 
 /// The worktree to remove, refused while it holds work found nowhere else
 /// (unless `discard`).
-fn plan(repository: &Repository, discard: bool) -> Result<Attempt, ResourceError> {
+fn plan(repository: &Repository, prefix: &str, discard: bool) -> Result<Attempt, ResourceError> {
     let Some(main_root) = repository.main_checkout() else {
         let message = "this is no linked worktree: the main checkout is never removed";
         return Err(refused(OPERATION, "not_a_worktree", message, Value::Null));
@@ -158,7 +159,8 @@ fn plan(repository: &Repository, discard: bool) -> Result<Attempt, ResourceError
         });
     let delete_branch = branch.as_deref().is_some_and(|branch| {
         let setting = format!("branch.{branch}.cmuxBase");
-        branch.starts_with(BRANCH_PREFIX)
+        // `cmux/` or the `worktrees.branchPrefix` it was made with; the recorded base marks it as cmux's.
+        (branch.starts_with(BRANCH_PREFIX) || branch.starts_with(prefix))
             && repository
                 .run(&["config", "--get", setting.as_str()], MAX_SMALL_OUTPUT_BYTES)
                 .is_ok()
