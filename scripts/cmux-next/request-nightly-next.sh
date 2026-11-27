@@ -288,17 +288,25 @@ app_unchanged() { # <sha>
 #          nothing that reaches the app changed since (same_app: the nightly's input classifier and
 #          the cmux-tui tree key), so the same app compiled;
 #   red    that verdict failed;
-#   none   no verdict yet (queued, superseded by a newer tip, never checked): an older commit is tried,
-#          and the next tick tries this one again;
+#   covered  its record is superseded (the controller checked a newer push tip instead, and that check
+#          covers this push's commits) and the first checked tip after it passed. Most feat-cmux-next
+#          commits are superseded, and the tree publisher also keeps only one push per window, so
+#          requiring both on the same commit left the dedicated Macs idle for hours with commits waiting
+#          (11-25: 77, 132 and 100+ minute gaps, every tick "N refused"; Leo, 2026-11-25: "Just keep
+#          the train going like 24/7, constantly"). A commit between it and that tip could have fixed
+#          its compile; then its nightly fails at the Mac build, which the next commit replaces;
+#   none   no verdict yet (queued, never checked, or superseded by a tip not checked yet or red): an
+#          older commit is tried, and the next tick tries this one again;
 #   down   the results service did not answer: promoted as before, with a warning (the feed must not
 #          stop on an outage of a cache).
 # NIGHTLY_NEXT_PRECHECK=0 turns it off. CMUX_NIGHTLY_NEXT_PRECHECK_DEPTH (default 30) ancestors are read
 # at most; each verdict is read once a tick (the tick runs this script once per commit it walks).
 precheck_results="${CMUX_NIGHTLY_NEXT_PRECHECK_RESULTS:-https://gh-events.cmux.com/compile-checks/v1}"
 precheck_reason=""
-# fleet_verdict <sha>: pass, fail, pending, none (no usable record) or down.
+# fleet_verdict <sha>: pass, fail, pending, superseded (a newer push tip's check covers it), none (no
+# usable record) or down.
 fleet_verdict() { # <sha>
-  local cache="" body code word
+  local cache="" body code word curl_rc=0
   if [[ -n "${GITHUB_RUN_ID:-}" ]]; then
     cache="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/nightly-next-precheck-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT:-1}"
     mkdir -p "$cache" 2>/dev/null || cache=""
@@ -311,7 +319,7 @@ fleet_verdict() { # <sha>
   # scripts/ci/fleet_compile_result.py so a valid verdict is not mistaken for
   # an outage and an unchecked nightly is not promoted.
   code="$(curl -sS -A 'cmux-ci-fleet-compile-result/1' -o "$body" -w '%{http_code}' --connect-timeout 10 --max-time 20 \
-    "$precheck_results/$1?repo=${repo/\//%2F}" 2>/dev/null)" || code="${code:-000}"
+    "$precheck_results/$1?repo=${repo/\//%2F}" 2>/dev/null)" || { curl_rc=$?; code="${code:-000}"; }
   case "$code" in
     200) word="$(python3 -I -c '
 import json, sys
@@ -326,6 +334,8 @@ elif r.get("state") in ("pass", "fail"):
     print(r["state"])
 elif r.get("state") in ("queued", "running", "deferred", "", None):
     print("pending")
+elif r.get("state") == "superseded":
+    print("superseded")
 else:
     print("none")
 ' "$body" "$1" "$repo" 2>/dev/null)" || word=none ;;
@@ -334,7 +344,9 @@ else:
     # this tick. Wait for the next tick instead of treating them as a cache
     # outage and promoting an unchecked commit.
     429|503) word=pending ;;
-    *) word=down ;;
+    # Named in the log so a refusal (a 403 from the CDN) is told from an outage (curl exit 6, 7 or 28).
+    *) word=down
+       echo "nightly-next precheck: the results read for ${1:0:12} answered HTTP $code (curl exit $curl_rc)" >&2 ;;
   esac
   rm -f "$body"
   # Only a verdict is kept: a pending or missing one may be there on the next read.
@@ -355,6 +367,20 @@ precheck() { # <sha>
       echo "::warning title=nightly-next precheck::the compile results service did not answer for ${1:0:12}; promoting it unprechecked" >&2
       precheck_reason="the results service did not answer, so it is not prechecked"
       return 0 ;;
+    superseded)
+      # The check that covers it is the first checked push tip after it on feat-cmux-next.
+      local later
+      while read -r later; do
+        [[ "$later" =~ ^[0-9a-f]{40}$ ]] || continue
+        word="$(fleet_verdict "$later")"
+        case "$word" in
+          pass)
+            precheck_reason="its push was superseded by ${later:0:12}, whose Release compile on the build fleet covers it and passed"
+            return 0 ;;
+          fail|pending|down) break ;;
+        esac
+      done < <(git rev-list --first-parent --ancestry-path --reverse "$1..${tip:-$1}" 2>/dev/null | head -n "$depth")
+      ;;
   esac
   # No verdict of its own: the nearest ancestor with one stands for it when the app is the same.
   while read -r ancestor; do
@@ -585,6 +611,28 @@ backfill() { # <reason>
   if (( active > 0 )); then
     echo "backfill: a cmux-tui-artifacts run for feat-cmux-next ${dispatch_tip:0:12} is queued or running; not dispatching ($1)"
     return 0
+  fi
+  # One backfill an hour, at most (ci-min-per-pr-14, Leo: "de facto, im asking for 99% fewer minutes of
+  # ci time, period."). Every tick, Release compile and artifacts completion calls this, each from its own
+  # job, so the per-job stamp never held: 51 dispatches on feat-cmux-next in 31 h (2026-11-24 10:10Z to
+  # 2026-11-25 17:12Z), often 4-6 min apart, about 80 runner-min each (three target builds plus daemon
+  # tests), for a tip that moved by a few commits. The next tick after the gap dispatches the newest tip,
+  # which marks every commit the skipped ones would have. NIGHTLY_NEXT_BACKFILL_GAP_MIN=0 turns it off.
+  local gap_min="${NIGHTLY_NEXT_BACKFILL_GAP_MIN:-60}" last_dispatch last_s age_min
+  if [[ "$gap_min" =~ ^[0-9]+$ ]] && (( gap_min > 0 )); then
+    if ! last_dispatch="$(gh api "repos/$repo/actions/workflows/cmux-tui-artifacts.yml/runs?branch=feat-cmux-next&event=workflow_dispatch&per_page=1" \
+        --jq '.workflow_runs[0].created_at // ""' 2>/dev/null)"; then
+      echo "backfill: could not read the last cmux-tui-artifacts dispatch; not dispatching ($1)"
+      return 0
+    fi
+    if [[ -n "$last_dispatch" ]] && last_s="$(date -u -d "$last_dispatch" +%s 2>/dev/null \
+        || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$last_dispatch" +%s 2>/dev/null)"; then
+      age_min=$(( ($(date -u +%s) - last_s) / 60 ))
+      if (( age_min < gap_min )); then
+        echo "backfill: the last cmux-tui-artifacts dispatch on feat-cmux-next was ${age_min} min ago (gap ${gap_min} min); not dispatching ($1)"
+        return 0
+      fi
+    fi
   fi
   if gh workflow run cmux-tui-artifacts.yml --repo "$repo" --ref feat-cmux-next; then
     : > "$stamp"

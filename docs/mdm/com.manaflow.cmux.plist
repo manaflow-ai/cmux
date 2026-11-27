@@ -863,13 +863,22 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<string>download</string>
+			<key>pfm_description</key>
+			<string>Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running.</string>
 			<key>pfm_name</key>
-			<string>updates.checkAutomatically</string>
+			<string>updates.automatic</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>off</string>
+				<string>notify</string>
+				<string>download</string>
+				<string>idle</string>
+			</array>
 			<key>pfm_title</key>
-			<string>Check for Updates Automatically</string>
+			<string>Automatic Updates</string>
 			<key>pfm_type</key>
-			<string>boolean</string>
+			<string>string</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -884,18 +893,6 @@
 			<string>Check Every</string>
 			<key>pfm_type</key>
 			<string>real</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<true/>
-			<key>pfm_description</key>
-			<string>Off: cmux asks before downloading. It always asks before restarting.</string>
-			<key>pfm_name</key>
-			<string>updates.downloadAutomatically</string>
-			<key>pfm_title</key>
-			<string>Download Updates Automatically</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -995,18 +992,6 @@
 			<string>updates.installOnQuit</string>
 			<key>pfm_title</key>
 			<string>Install Updates When Quitting</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running.</string>
-			<key>pfm_name</key>
-			<string>updates.installWhenIdle</string>
-			<key>pfm_title</key>
-			<string>Update When Idle</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -1809,7 +1794,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>Compacts an idle Claude chat while its cache is warm, so the next message costs less.</string>
 			<key>pfm_name</key>
@@ -1853,7 +1838,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>Messages to an idle chat whose cache expired wait a little and arrive together, so its context is read once.</string>
 			<key>pfm_name</key>
@@ -1865,7 +1850,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>A large chat whose cache expired is compacted before batched messages arrive.</string>
 			<key>pfm_name</key>
@@ -4413,6 +4398,174 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>The gap between a sidebar row's fill and the sidebar's left and right edges. Unset is the density's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.sidebarRowInset</string>
+			<key>pfm_range_max</key>
+			<real>24</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Workspace Row Inset</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Where a sidebar row's first glyph or title starts inside its fill, and its last trailing mark ends. Unset is the density's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.sidebarRowPadding</string>
+			<key>pfm_range_max</key>
+			<real>24</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Workspace Row Padding</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The gap between two sidebar rows. Unset is the density's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.sidebarRowGap</string>
+			<key>pfm_range_max</key>
+			<real>12</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Workspace Row Gap</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>A sidebar row with a detail line under its title, such as a two-line card. Unset is the row height plus one line.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.sidebarRowHeightWithSubtitle</string>
+			<key>pfm_range_max</key>
+			<real>96</real>
+			<key>pfm_range_min</key>
+			<real>28</real>
+			<key>pfm_title</key>
+			<string>Two-Line Row Height</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The side of the chrome's icon buttons: the title bar's sidebar toggle, Back and Forward, the pane's tools and the sidebar's +. Unset is the density's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.toolbarButtonSize</string>
+			<key>pfm_range_max</key>
+			<real>40</real>
+			<key>pfm_range_min</key>
+			<real>16</real>
+			<key>pfm_title</key>
+			<string>Toolbar Button Size</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The space between neighboring icon buttons in the title bar. Unset is three tenths of a button.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.toolbarButtonGap</string>
+			<key>pfm_range_max</key>
+			<real>16</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Toolbar Button Gap</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The corner of an icon button's hover, pressed and active fill: 0 is square, half the button is round. Unset rounds as a tab does.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.toolbarButtonCornerRadius</string>
+			<key>pfm_range_max</key>
+			<real>20</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Toolbar Button Corner</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>How strong the fill under a toolbar button that is on draws, as a share of the text color. Unset is the hover fill.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.toolbarButtonActiveFill</string>
+			<key>pfm_range_max</key>
+			<real>0.40000000000000002</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Active Button Fill</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>How strong the hairline under the title bar and tab row draws: 0 is none, 1 a full separator. Unset is today's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.headerDivider</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Header Divider</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>One multiplier for the chrome's padding and gaps (the spacing grid). Unset is the density's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.spacingScale</string>
+			<key>pfm_range_max</key>
+			<real>2</real>
+			<key>pfm_range_min</key>
+			<real>0.5</real>
+			<key>pfm_title</key>
+			<string>Spacing</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The room from the chat prompt box's sides to its text and controls. Unset is the density's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.composerPadding</string>
+			<key>pfm_range_max</key>
+			<real>24</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Composer Padding</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The height of the chat's one-line prompt box; it still grows with a longer prompt. Unset is the density's.</string>
+			<key>pfm_name</key>
+			<string>appearance.metrics.composerMinHeight</string>
+			<key>pfm_range_max</key>
+			<real>160</real>
+			<key>pfm_range_min</key>
+			<real>32</real>
+			<key>pfm_title</key>
+			<string>Composer Height</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
 			<key>pfm_default</key>
 			<string>default</string>
 			<key>pfm_description</key>
@@ -5063,6 +5216,173 @@
 			<string>Show With One Pane</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Give each agent a small dot glyph made from its session, on sidebar rows and the running line.</string>
+			<key>pfm_name</key>
+			<string>appearance.agentSignature</string>
+			<key>pfm_title</key>
+			<string>Agent Dot Signatures</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>A soft glow in this color around the focused pane in the dark appearance. Unset, no glow.</string>
+			<key>pfm_name</key>
+			<string>appearance.accentGlow.dark</string>
+			<key>pfm_title</key>
+			<string>Accent Glow (Dark)</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The glow's color in the light appearance. Unset, the dark color.</string>
+			<key>pfm_name</key>
+			<string>appearance.accentGlow.light</string>
+			<key>pfm_title</key>
+			<string>Accent Glow (Light)</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>How far the accent glow spreads from the focused pane.</string>
+			<key>pfm_name</key>
+			<string>appearance.accentGlow.radius</string>
+			<key>pfm_range_max</key>
+			<real>200</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Accent Glow Radius</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>How strong the accent glow is.</string>
+			<key>pfm_name</key>
+			<string>appearance.accentGlow.opacity</string>
+			<key>pfm_range_max</key>
+			<real>1</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Accent Glow Opacity</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The color of a tab's close button. Unset, the text color.</string>
+			<key>pfm_name</key>
+			<string>appearance.tabClose.from</string>
+			<key>pfm_title</key>
+			<string>Tab Close Color</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The color a tab's close button turns to under the pointer in the dark appearance. Unset, the standard hover.</string>
+			<key>pfm_name</key>
+			<string>appearance.tabClose.toDark</string>
+			<key>pfm_title</key>
+			<string>Tab Close Hover Color (Dark)</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The close button's hover color in the light appearance. Unset, the dark color.</string>
+			<key>pfm_name</key>
+			<string>appearance.tabClose.toLight</string>
+			<key>pfm_title</key>
+			<string>Tab Close Hover Color (Light)</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>How the close button's color blends to its hover color.</string>
+			<key>pfm_name</key>
+			<string>appearance.tabClose.interpolation</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>oklab</string>
+				<string>srgb</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Tab Close Blend</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>A picture across the top of the sidebar in the dark appearance (file: and an absolute path). Unset, none.</string>
+			<key>pfm_name</key>
+			<string>appearance.sidebarHeader.dark</string>
+			<key>pfm_title</key>
+			<string>Sidebar Header Image (Dark)</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>The sidebar header picture in the light appearance. Unset, the dark picture.</string>
+			<key>pfm_name</key>
+			<string>appearance.sidebarHeader.light</string>
+			<key>pfm_title</key>
+			<string>Sidebar Header Image (Light)</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Pictures behind panes in the dark appearance, one per pane in turn. Empty, panes show the window background as set above.</string>
+			<key>pfm_name</key>
+			<string>appearance.paneArt.dark</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Pane Art (Dark)</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Pictures behind panes in the light appearance. Empty, the dark list.</string>
+			<key>pfm_name</key>
+			<string>appearance.paneArt.light</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Pane Art (Light)</string>
+			<key>pfm_type</key>
+			<string>array</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -6777,6 +7097,38 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_description</key>
+			<string>The terminal cursor's shape. Unset, the Ghostty config's cursor-style.</string>
+			<key>pfm_name</key>
+			<string>terminal.cursorStyle</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>block</string>
+				<string>bar</string>
+				<string>underline</string>
+				<string>block_hollow</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Cursor Style</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_description</key>
+			<string>Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink.</string>
+			<key>pfm_name</key>
+			<string>terminal.cursorBlink</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>on</string>
+				<string>off</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Cursor Blink</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
 			<key>pfm_default</key>
 			<string>cmux</string>
 			<key>pfm_description</key>
@@ -7796,6 +8148,7 @@
 				<string>claude</string>
 				<string>codex</string>
 				<string>studio</string>
+				<string>rex</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Sidebar Look</string>
@@ -7912,18 +8265,6 @@
 			<string>sidebar.showAgentSessions</string>
 			<key>pfm_title</key>
 			<string>Show Sessions Started by Agents</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<false/>
-			<key>pfm_description</key>
-			<string>Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.</string>
-			<key>pfm_name</key>
-			<string>sidebar.showAutomaticSessions</string>
-			<key>pfm_title</key>
-			<string>Show Automatic Sessions</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -11893,6 +12234,18 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Shows a finished turn as a work log: its steps folded, a card of the files it changed, and what each message added to context.</string>
+			<key>pfm_name</key>
+			<string>experiments.transcriptWorkLog</string>
+			<key>pfm_title</key>
+			<string>Transcript Work Log</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat.</string>
 			<key>pfm_name</key>
 			<string>experiments.terminalAgentMark</string>
@@ -12126,6 +12479,18 @@
 			<string>experiments.browserProfileCard</string>
 			<key>pfm_title</key>
 			<string>Browser Profile Card</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>The App Store gets a Features tab where built-in features turn on and off.</string>
+			<key>pfm_name</key>
+			<string>experiments.appStoreFeatures</string>
+			<key>pfm_title</key>
+			<string>App Store Features</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -12549,6 +12914,61 @@
 			</array>
 			<key>pfm_title</key>
 			<string>Prompt Cache</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>agent</string>
+			<key>pfm_description</key>
+			<string>The output style new Claude Code chats use. Agent’s Own keeps Claude Code’s setting.</string>
+			<key>pfm_name</key>
+			<string>agents.claudeOutputStyle</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>agent</string>
+				<string>default</string>
+				<string>Explanatory</string>
+				<string>Learning</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Claude Code Response Style</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>agent</string>
+			<key>pfm_description</key>
+			<string>The personality new Codex chats use. Agent’s Own keeps Codex’s setting.</string>
+			<key>pfm_name</key>
+			<string>agents.codexPersonality</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>agent</string>
+				<string>pragmatic</string>
+				<string>friendly</string>
+				<string>none</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Codex Personality</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<string>agent</string>
+			<key>pfm_description</key>
+			<string>Remove leaves Claude Code’s co-author line and footer off commits and pull requests. Codex has no such setting.</string>
+			<key>pfm_name</key>
+			<string>agents.commitAttribution</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>agent</string>
+				<string>strip</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Co-Author Line on Commits and PRs</string>
 			<key>pfm_type</key>
 			<string>string</string>
 		</dict>

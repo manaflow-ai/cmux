@@ -1,8 +1,14 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextCrashReporting
 import CmuxNextAgentPane
+import CmuxNextCompat
+import CmuxNextControl
+import CmuxNextCrashReporting
 import CmuxNextDaemon
+import CmuxNextDesign
+import CmuxNextSettings
+import CmuxNextUpdater
+import CmuxNextWakeups
 
 // Launch work no first frame needs: AppDelegate starts it once the first window's
 // frame is committed (FirstFrameGate), so it never delays that frame (perf-launch-memory).
@@ -18,6 +24,16 @@ extension AppServices {
         chatsFeed?.keepCurrent()
         if let feed = chatsFeed { AgentPageChats.wire(agentTabs, to: feed, opener: chatsOpener) }
         NewTabPlacesFeed.wire(agentTabs, services: self)
+        // The GitHub connection is deliberately off by default. Changes in
+        // Settings apply to the one feed owner and never create a second
+        // inbox store.
+        Task { [weak self, weak settings] in
+            guard let settings else { return }
+            await settings.waitForLoad(atLeast: 1)
+            for await github in ObservationStream({ settings.snapshot.feedGitHub }) {
+                self?.feed.configureGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)
+            }
+        }
         dockMenu.start()
         DebugTimings.markLaunch("launch.post_frame_feeds")
     }
@@ -25,6 +41,15 @@ extension AppServices {
     /// The free-tier attest, SSH, server reach, the updater (Sparkle), the marked-tab watch and the link places.
     func startNonPaintServices() {
         FreeTierAttestStarter(build: environment.build, bundle: .main, apiBaseURL: feed.apiBaseURL, settings: settings, loginKeychain: loginKeychain, signedIn: { [weak self] in self.map { $0.cloud.isSignedIn || $0.cloud.auth.isRestoring } ?? true }).start()
+        LastAppCLIPointer.publishAtLaunch()
+        // A design card made since this process started may still be entering the composer.
+        work.post(.bestEffort, mayBlock: .files) {
+            BrowserDesignModeController.tempFiles.removeLeftovers(before: LaunchTimesRecorder.processStart)
+        }
+        DaemonClosedHistory.emptyAgentHomeTrash()
+        CloudMachineUpdates.start(self)
+        autoArchive.start()
+        workspaceHibernation.start()
         ssh.start()
         serverReach.start()
         updater.start()
@@ -67,22 +92,21 @@ extension AppServices {
         DebugTimings.markLaunch("launch.non_paint_services")
     }
 
-    /// Warm-ups for later tabs (WebKit for agent pages, Chromium, the New Tab spare, page hosts)
+    /// Warm-ups for later tabs (WebKit for agent pages, Chromium)
     /// and the agent tab import. Each reads current state when it starts, so nothing the window build did is missed.
     func startLaterTabWarmups() {
         AgentPaneView.startWarmup()
         DebugTimings.markLaunch("launch.agent_page_warmup")
         if !crashRecovery.recovery.isSafeRestart, !backgroundReady.chromiumWarmupDeferred { startChromiumWarmup() }  // a hidden start warms at its show
-        newTabSpares.start()
-        pageHostPool.start(
-            isMainWindow: { [weak self] window in
-                self?.windows.controllers.contains { $0.window === window } == true
-            },
-            fallback: { [weak self] window in
-                self?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible }
-            })
-        pageHostPool.noteLikely()
         AgentTabImport.start(self)
         DebugTimings.markLaunch("launch.post_window_warmups")
+    }
+
+    /// The New Tab spare page and the page host pool's spare: pages nobody sees, once the open workspace is live (CMUX-629).
+    func startHiddenPageSpares() {
+        newTabSpares.prewarm(); newTabSpares.start()
+        pageHostPool.start(isMainWindow: { [weak self] window in self?.windows.controllers.contains { $0.window === window } == true },
+                           fallback: { [weak self] window in self?.windows.controllers.compactMap(\.window).first { $0 !== window && $0.isVisible } })
+        pageHostPool.noteLikely()
     }
 }

@@ -729,6 +729,61 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Approve, allow once, a Cloud request your own session confirmed, by its request id: refused unless it holds exactly that op and params, pending, posted by that team's Cloud. Answers the approved run's reply when it ends within the wait.
+    IntegrationApprovalApproveOp {
+        name: "integration.approval.approve",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:FeedDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: IntegrationApprovalApproveParams,
+        result: IntegrationApprovalApproveResult,
+        error: IntegrationApprovalApproveError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationApprovalApproveParams {
+    pub request: String,
+    pub op: String,
+    pub params: Value,
+    pub team: TeamId,
+}
+
+wire_enum! {
+    IntegrationApprovalApproveResultAnswered {
+        Here = "here",
+        Elsewhere = "elsewhere",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationApprovalApproveResult {
+    pub request: String,
+    pub answered: IntegrationApprovalApproveResultAnswered,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", with = "crate::value::present")]
+    pub reply: Option<Value>,
+}
+
+wire_errors! {
+    /// The error codes integration.approval.approve declares.
+    IntegrationApprovalApproveError {
+        ApprovalMismatch = "approval.mismatch",
+        ApprovalOneCallOff = "approval.one_call_off",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        FeedClosed = "feed.closed",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it.
     IntegrationApprovalGetOp {
         name: "integration.approval.get",
@@ -828,76 +883,4 @@ pub struct IntegrationCompleteResultResources {
     pub repos: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub linked_by_github_id: Option<i64>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationCompleteResult {
-    pub id: ConnectionId,
-    pub owner: TeamId,
-    pub created_by: UserId,
-    pub provider: IntegrationProvider,
-    pub account: Option<IntegrationCompleteResultAccount>,
-    pub scopes_requested: Vec<String>,
-    pub scopes_granted: Vec<String>,
-    pub status: ConnectionStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status_detail: Option<String>,
-    pub sharing: IntegrationCompleteResultSharing,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resources: Option<IntegrationCompleteResultResources>,
-    pub created_at: i64,
-    pub updated_at: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub return_to: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub configure_url: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes integration.complete declares.
-    IntegrationCompleteError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        IntegrationNotConfigured = "integration.not_configured",
-        IntegrationStateInvalid = "integration.state_invalid",
-        MutationIndeterminate = "mutation.indeterminate",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it, or connected when a connection already covers the GitHub repository asked for.
-    IntegrationConnectOp {
-        name: "integration.connect",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:ConnectionDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: IntegrationConnectParams,
-        result: IntegrationConnectResult,
-        error: IntegrationConnectError,
-    }
-}
-
-wire_enum! {
-    IntegrationConnectParamsSharing {
-        Private = "private",
-        Team = "team",
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct IntegrationConnectParams {
-    pub provider: IntegrationProvider,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub scopes: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sharing: Option<IntegrationConnectParamsSharing>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub repo: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub return_to: Option<String>,
 }

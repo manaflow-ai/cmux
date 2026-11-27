@@ -52,6 +52,10 @@ pub const VERSION: u64 = 2;
 /// next change goes out whole.
 pub(crate) const MAX_ROWS: usize = 256;
 
+/// The row field a change row leaves out when it has not changed (`views::CENSUS_LEAVES_OUT`,
+/// the time breakdown): left out, the reader keeps what it holds, so a patch never removes it.
+const KEPT_WHEN_LEFT_OUT: &str = crate::hub::views::CENSUS_LEAVES_OUT;
+
 /// A value as hashes: what a row was, without holding the row.
 #[derive(Debug)]
 enum Shape {
@@ -187,6 +191,27 @@ impl SentRows {
             && sent.full == full
             && !sent.resend
         {
+            // A change row that does not owe its time breakdown leaves it out, and its reader
+            // keeps the one it holds (`time_breakdown::State::row_snapshot`,
+            // `PeerRow::keeping_time_breakdown`). Diffed as a removal, it went out as
+            // `"timeBreakdown": null` and the next turn's chart, held nowhere here, went out
+            // whole: up to 512 spans, about 47 KB, every turn of a running chat, 80% of what a
+            // peer's link carried under load (transport pair matrix, duress, 2026-11-25). The
+            // held chart stays held, so the next one splices onto it.
+            let mut shape = shape;
+            if let (Shape::Object(held), Shape::Object(now)) = (&mut sent.shape, &mut shape)
+                && !now.contains_key(KEPT_WHEN_LEFT_OUT)
+                && let Some(chart) = held.remove(KEPT_WHEN_LEFT_OUT)
+            {
+                let patch = diff(&sent.shape, row);
+                now.insert(KEPT_WHEN_LEFT_OUT.to_owned(), chart);
+                sent.row_seq += 1;
+                sent.shape = shape;
+                return Change::Patch {
+                    patch: patch.unwrap_or_else(|| json!({})),
+                    row_seq: sent.row_seq,
+                };
+            }
             let patch = diff(&sent.shape, row).unwrap_or_else(|| json!({}));
             sent.row_seq += 1;
             sent.shape = shape;
@@ -406,6 +431,30 @@ mod tests {
         let patch = roundtrip(old, slid);
         assert_eq!(patch["timeBreakdown"]["spans"]["$splice"][0], 1, "{patch}");
         assert!(patch.to_string().len() < 400, "{patch}");
+    }
+
+    /// A change row that does not owe the chart leaves it out: the patch keeps it (no `null`),
+    /// and the next turn's chart splices onto the held one instead of going out whole.
+    #[test]
+    fn a_left_out_breakdown_stays_held_and_the_next_one_splices() {
+        let mut rows = SentRows::default();
+        let first =
+            json!({"title": "a", "timeBreakdown": {"totalMs": 1, "spans": spans(0..512, 511)}});
+        assert!(matches!(rows.change("s", true, &first), Change::Whole { .. }));
+        let mut held = first.clone();
+        let Change::Patch { patch, .. } = rows.change("s", true, &json!({"title": "b"})) else {
+            panic!("a patch")
+        };
+        assert_eq!(patch, json!({"title": "b"}), "no null for the left-out chart");
+        apply(&mut held, &patch);
+        assert_eq!(held["timeBreakdown"], first["timeBreakdown"]);
+        let next =
+            json!({"title": "b", "timeBreakdown": {"totalMs": 2, "spans": spans(1..513, 512)}});
+        let Change::Patch { patch, .. } = rows.change("s", true, &next) else { panic!("a patch") };
+        assert_eq!(patch["timeBreakdown"]["spans"]["$splice"][0], 1, "{patch}");
+        assert!(patch.to_string().len() < 400, "{patch}");
+        apply(&mut held, &patch);
+        assert_eq!(held, next);
     }
 
     #[test]

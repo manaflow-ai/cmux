@@ -60,6 +60,24 @@ fn a_device_name_never_carries_control_characters() {
     );
 }
 
+/// A call for a machine is never forwarded by a session it names. A Computer Use call carries the
+/// caller's Computer Use `session` and the tool's `name`; were the method session-scoped, a key
+/// that names a peer's chat would forward it there whole with both fields dropped (`peer_forward`
+/// strips them), and the far machine would refuse `unknown Computer Use tool ""` on every
+/// `machine:` call. The other machine-routed methods name a machine the same way.
+#[test]
+fn a_call_for_a_machine_is_never_forwarded_by_its_session() {
+    for m in [
+        method::MUX_COMPUTER_USE_CALL,
+        method::MUX_COMPUTER_USE_MACHINES,
+        method::MUX_COMPUTER_USE_STATE,
+        method::MUX_MACHINE_FILES_CALL,
+        method::MUX_KEYS_MINT,
+    ] {
+        assert!(!super::super::peer_forward::names_a_session(m), "{m}");
+    }
+}
+
 fn base() -> serde_json::Value {
     json!({"name": "click", "arguments": {"window_id": "w"}, "session": "s", "call_id": "c"})
 }

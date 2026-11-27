@@ -2145,7 +2145,7 @@ export interface CloudOps {
     }
     readonly result: CloudConnectInfo
   }
-  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine). After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
+  /** Create a machine (status provisioning; a cloud.machine.upsert follows when it is bound). The plan is checked before any provider call: cloud.plan.required, cloud.quota.exceeded {limit, used, resource, free_up} (at the machines cap, free_up names the oldest machine a person can delete to make room: {machine, name, reason: test|failed_create|never_used|requested}, or null), cloud.size.locked. A same-key retry never makes a second machine; cloud.machine.not_found {machine} when the machine it made or claimed is gone before it answers (deleted in between): retry with a new key. origin {kind?, label, url?, run?, workflow?, lane?} says who started it and ttl_seconds (300 to 604800) when the platform deletes it (expires_at on the machine). After mutation.indeterminate, retry with the same idempotency key. From an install: approval.pending {request, expires_at} (retryable) until the person answers the feed request with their own session; then the same key answers the op's result (replayed: true), approval.denied or approval.expired (ask again with a new key); approval.too_many_pending (retryable) past 5 pending requests per install or 20 per team. Agent principals are refused; the client asks a person first. */
   readonly "cloud.machine.create": {
     readonly params: {
       readonly name?: string
@@ -3324,6 +3324,21 @@ export interface CloudOps {
   readonly "install.sign_out": {
     readonly params: Readonly<Record<string, never>>
     readonly result: Install
+  }
+  /** Approve, allow once, a Cloud request your own session confirmed, by its request id: refused unless it holds exactly that op and params, pending, posted by that team's Cloud. Answers the approved run's reply when it ends within the wait. */
+  readonly "integration.approval.approve": {
+    readonly params: {
+      readonly request: string
+      readonly op: string
+      readonly params: unknown
+      readonly team: TeamId
+    }
+    readonly result: {
+      readonly request: string
+      readonly answered: "here" | "elsewhere"
+      readonly state?: string
+      readonly reply?: unknown
+    }
   }
   /** Read a provider op that waits for your approval (G8): the op, target, summary, full parameters and the digest the feed request shows. Parameters are deleted when the request ends. Only your own session reads it. */
   readonly "integration.approval.get": {
@@ -4717,6 +4732,7 @@ export const cloudOpMeta = {
   "install.rename": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
   "install.revoke": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "destructive" },
   "install.sign_out": { class: "mutation", idempotency: "required", owner: "cloud:UserDO", risk: "mutate-own" },
+  "integration.approval.approve": { class: "mutation", idempotency: "required", owner: "cloud:FeedDO", risk: "mutate-own" },
   "integration.approval.get": { class: "read", idempotency: "forbidden", owner: "cloud:ConnectionDO", risk: "read" },
   "integration.complete": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.connect": { class: "mutation", idempotency: "required", owner: "cloud:ConnectionDO", risk: "mutate-shared" },

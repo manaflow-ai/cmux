@@ -5,7 +5,7 @@
 #
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/screen-share-vs-pair.sh \
 #     --ref SHA --target-worker cmux20 --artifact artifacts/screen-share-vs-pair/report.tgz --timeout 3600 \
-#     --arg=mode=run --arg=partner=cmux17 [--arg=loss=1] [--arg=source=screen] [--arg=fps-trials=3] [--arg=trials=10] \
+#     --arg=mode=run --arg=partner=cmux17 [--arg=loss=1] [--arg=profile=ultra] [--arg=source=screen] [--arg=fps-trials=3] [--arg=trials=10] \
 #     [--arg=inputs=key,click,scroll] [--arg=samples=30] [--arg=host=nightly]
 #
 # mode=probe  prints this Mac's name and LAN address and whether `ssh -o BatchMode=yes` reaches the partner by
@@ -16,6 +16,9 @@
 #             datagrams the host drops after its loss meter counts them sent (no shaper, no sudo); the leg's
 #             --link is `loss<PCT>` then, else `wired`. report.tgz holds run.jsonl (the --out file, which
 #             cmuxterm-hq's screen_share_fast_receipt.py extract reads), run.log and probe.txt.
+# profile=    standard|ultra is --encode-profile (default: none sent, the host runs standard); with
+#             profile=ultra each leg's label gains `-ultra`, so a first p50 from any two reachable Macs
+#             reads as not-the-wired-pair unless the pair is cmux20 -> cmux17.
 # inputs=     the cmux leg's timed presses, one leg per kind (--cmux-input; default key): key,click,scroll
 #             times each through the host's injector, samples= presses per trial (default 30). run.jsonl
 #             holds every leg's rows; the fps trials run with the first kind only.
@@ -36,13 +39,14 @@
 # Exit: 0 measured, 1 the run failed, 2 bad arguments, 3 the partner is unreachable or the tools did not build.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
-mode="" partner="" partner_ip="" loss=0 source=screen fps_trials=3 trials=10 inputs=key samples=30 host=commit role=host peer_token="" hold_s=3600
+mode="" partner="" partner_ip="" loss=0 profile= source=screen fps_trials=3 trials=10 inputs=key samples=30 host=commit role=host peer_token="" hold_s=3600
 for arg in "$@"; do
   case "$arg" in
     mode=probe|mode=run) mode="${arg#mode=}" ;;
     partner=*) partner="${arg#partner=}" ;;
     partner-ip=*) partner_ip="${arg#partner-ip=}" ;;
     loss=*) loss="${arg#loss=}" ;;
+    profile=standard|profile=ultra) profile="${arg#profile=}" ;;
     source=screen|source=synthetic) source="${arg#source=}" ;;
     fps-trials=*) fps_trials="${arg#fps-trials=}" ;;
     trials=*) trials="${arg#trials=}" ;;
@@ -81,15 +85,25 @@ pack() { tar -czf "$out/report.tgz" -C "$work" $(cd "$work" && ls run.jsonl run.
 } | tee "$work/probe.txt"
 vs=cmux-tui/crates/cmux-rd-host/scripts/screen-share-vs.py
 peer_port=4181
+rig_root=""
 if [[ -n "$peer_token" ]]; then
   printf '%s\n' "$peer_token" >"$work/peer-token"; chmod 600 "$work/peer-token"
+  # Each cmux-ci step has its own HOME, so the two halves share no home-relative --root: both use one
+  # absolute path, named from the token so both halves agree on it, and each removes it when done.
+  rig_root="/tmp/ssvp-rd-$(printf '%s' "$peer_token" | shasum -a 256 | cut -c1-12)"
 fi
+# The rig root screen-share-vs.py uses on both Macs. Over peer-serve the two steps run in different homes (a
+# worker's step home, the bench account's), so its home-relative default fails "different homes". Absolute, the
+# same on both Macs, per run by the secret token (no other account can claim it first), space-free.
+root_args=()
+[[ -n "$peer_token" ]] && root_args=(--root "/tmp/cmux-ssvp-$(shasum -a 256 "$work/peer-token" | cut -c17-32)")
 if [[ "$role" == viewer ]]; then
   [[ -n "$self_ip" ]] || { echo "SSVP no LAN address on $self" | tee -a "$work/probe.txt"; pack; exit 3; }
   echo "SSVP viewer serving $self_ip:$peer_port for ${hold_s} s" | tee -a "$work/probe.txt"
   python3 -I "$vs" peer-serve --bind "$self_ip" --port "$peer_port" --token-file "$work/peer-token" \
     --hold-s "$hold_s" 2>&1 | tee "$work/run.log"
   rc=${PIPESTATUS[0]}
+  [[ -n "$rig_root" ]] && rm -rf "$rig_root"
   pack; exit "$rc"
 fi
 target=""
@@ -112,7 +126,7 @@ PY
     sleep 5
   done
   echo "SSVP peer $url out=${got:0:160}" | tee -a "$work/probe.txt"
-  [[ "$got" == "$partner"* ]] && target="$partner" via_args=(--via peer --peer-url "$url" --peer-token-file "$work/peer-token")
+  [[ "$got" == "$partner"* ]] && target="$partner" via_args=(--via peer --peer-url "$url" --peer-token-file "$work/peer-token" --root "$rig_root")
 fi
 [[ -n "$peer_token" ]] || for t in "$partner" "$partner.local" ${partner_ip:+"$partner_ip"}; do
   got=$(ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new "$t" 'hostname -s' 2>&1 | tail -1)
@@ -158,7 +172,8 @@ if [[ "$host" == nightly ]]; then
   echo "SSVP host NIGHTLY ${version:-?} $dmg" | tee -a "$work/probe.txt"
 fi
 
-link=wired loss_args=()
+link=wired loss_args=() profile_args=() suffix=
+[[ -n "$profile" ]] && { profile_args=(--encode-profile "$profile"); suffix="-$profile"; }
 if [[ "$loss" != 0 ]]; then
   link="loss${loss}" loss_args=(--host-test-loss "$loss")
 fi
@@ -170,13 +185,15 @@ for kind in ${inputs//,/ }; do
   python3 -I "$vs" run \
     --host "$self" --viewer "$target" --host-ip "$self_ip" --local-mac "$self" "${via_args[@]}" \
     --tools "$work/tools" ${host_args[@]+"${host_args[@]}"} --stacks cmux --source "$source" --link "$link" \
-    ${loss_args[@]+"${loss_args[@]}"} --cmux-input "$kind" --samples "$samples" \
-    --fps-trials "$legfps" --trials "$trials" --label "pair-job-$host-$kind" --rev "$(git rev-parse HEAD)" \
+    ${loss_args[@]+"${loss_args[@]}"} ${profile_args[@]+"${profile_args[@]}"} --cmux-input "$kind" --samples "$samples" \
+    --fps-trials "$legfps" --trials "$trials" --label "pair-job-$host-$kind$suffix" --rev "$(git rev-parse HEAD)" \
+    ${root_args[@]+"${root_args[@]}"} \
     --out "$work/run-$kind.jsonl" 2>&1 | tee -a "$work/run.log"
   leg=${PIPESTATUS[0]}
   cat "$work/run-$kind.jsonl" >>"$work/run.jsonl" 2>/dev/null
   [[ "$leg" == 0 ]] || rc=$leg
 done
+[[ -n "$rig_root" ]] && rm -rf "$rig_root"
 if [[ -n "$peer_token" ]]; then  # the viewer half ends now, not at its hold
   python3 -I -c 'import sys, urllib.request
 urllib.request.urlopen(urllib.request.Request(sys.argv[1] + "/done", data=b"{}", method="POST",

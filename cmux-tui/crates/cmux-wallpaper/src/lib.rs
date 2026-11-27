@@ -17,6 +17,8 @@
 //!   cap and the GPU budget.
 //! - [`first_party`]: the wallpapers under `wallpapers/`, embedded in the
 //!   binary with their build-time Metal.
+//! - [`signature`]: an agent's dot glyph, made from its session id and the
+//!   `particles` wallpaper's variants.
 //!
 //! Pure: no I/O, no globals, no threads. The caller passes every byte in.
 
@@ -44,6 +46,7 @@ pub mod manifest;
 pub mod program;
 pub mod scene;
 pub mod schedule;
+pub mod signature;
 pub mod trail;
 
 pub use first_party::{
@@ -60,6 +63,7 @@ pub use program::{
 };
 pub use scene::{Player, SCENE_BYTES, SCENE_FLOATS, Scene};
 pub use schedule::{Decision, HoldReason, ScheduleInput, gpu_strikes, idle_after, schedule};
+pub use signature::{Dot, Glyph, Signer, glyph};
 pub use trail::{TRAIL_LIFE_S, TRAIL_POINTS, TRAIL_STEP_S, TrailPoint, TrailState};
 
 /// The largest program accepted (`program::MAX_SOURCE_BYTES`, also without `compile`).

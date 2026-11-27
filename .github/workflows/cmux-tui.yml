@@ -116,8 +116,13 @@ jobs:
 
       - name: Install Linux build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -343,8 +348,13 @@ jobs:
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -529,8 +539,13 @@ jobs:
 
       - name: Install valgrind
         run: |
-          sudo apt-get update
-          sudo apt-get install -y valgrind
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s valgrind >/dev/null 2>&1; then
+            echo "valgrind: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y valgrind
+          fi
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -1053,8 +1068,13 @@ jobs:
 
       - name: Install Linux build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
@@ -1142,8 +1162,13 @@ jobs:
       - name: Install Linux build dependencies
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config bubblewrap
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config bubblewrap >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config bubblewrap: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config bubblewrap
+          fi
           echo "ACPMUX_REQUIRE_BWRAP=1" >> "$GITHUB_ENV"
 
       - name: Install zig
@@ -1712,8 +1737,13 @@ jobs:
 
       - name: Install Linux build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh

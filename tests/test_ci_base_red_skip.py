@@ -135,6 +135,70 @@ class BaseRedSkip(unittest.TestCase):
         self.assertEqual(brs.decide_many(args(job=["a", "b"], audit_percent=100), PR, now=NOW, read=red),
                          ["red_jobs=[]"])
 
+    def test_a_red_past_twelve_skipped_base_runs_still_skips(self):
+        """2026-11-25: 462 of 548 base push cargo rows were skipped, so 12 runs often held no verdict and the PR ran."""
+        runs = [(100 - i, [("kit", "skipped")]) for i in range(20)] + [(50, [("kit", "failure")])]
+        self.assertEqual(brs.decide(args(runs=12), PR, now=NOW, read=reader(runs)), ["base_red=false"])
+        self.assertEqual(brs.decide(args(runs=60), PR, now=NOW, read=reader(runs))[0], "base_red=true")
+
+    def test_a_failed_read_keeps_the_verdicts_already_read(self):
+        base = reader([(5, [("a", "failure")]), (4, [("b", "success")])])
+
+        def read(path):
+            if "/runs/4/" in path:
+                raise TimeoutError("deadline")
+            return base(path)
+        self.assertEqual(brs.decide_many(args(job=["a", "b"]), PR, now=NOW, read=read), ['red_jobs=["a"]'])
+
+        def none_found(path):
+            if "/runs/" in path and "/workflows/" not in path:
+                raise TimeoutError("deadline")
+            return base(path)
+        self.assertEqual(brs.decide_many(args(job=["a"]), PR, now=NOW, read=none_found), ["red_jobs=[]"])
+
+    def test_cmux_next_cargo_reads_past_the_skipped_base_runs(self):
+        with open(os.path.join(WORKFLOWS, "cmux-next.yml"), encoding="utf-8") as fh:
+            text = fh.read()
+        line = next(x for x in text.splitlines() if 'decide-many --workflow cmux-next.yml' in x)
+        runs = int(line.split("--runs ")[1].split()[0])
+        # 0.85 ** 12 = 14% of PRs found no verdict; 0.85 ** 40 = 0.15%.
+        self.assertGreaterEqual(runs, 40, line)
+
+    def test_get_json_tries_a_slow_or_5xx_read_again(self):
+        answers = [TimeoutError("slow"), (502, b"", {}), (200, b'{"ok": 1}', {})]
+        calls, pauses = [], []
+
+        def request(req, deadline):
+            calls.append(deadline.seconds)
+            answer = answers.pop(0)
+            if isinstance(answer, Exception):
+                raise answer
+            return answer
+        saved = brs.deadline_http.request
+        brs.deadline_http.request = request
+        try:
+            got = brs.get_json("/x", "t", brs.deadline_http.Deadline(90.0), sleep=pauses.append)
+        finally:
+            brs.deadline_http.request = saved
+        self.assertEqual(got, {"ok": 1})
+        self.assertEqual(len(calls), 3)
+        self.assertTrue(all(s <= brs.READ_S for s in calls), calls)  # one slow read cannot eat the whole budget
+        self.assertEqual(pauses, [2.0, 4.0])
+
+    def test_get_json_gives_up_after_its_tries_and_on_a_hard_status(self):
+        def request(req, deadline):
+            raise TimeoutError("slow")
+        saved = brs.deadline_http.request
+        brs.deadline_http.request = request
+        try:
+            with self.assertRaisesRegex(RuntimeError, "slow"):
+                brs.get_json("/x", "t", brs.deadline_http.Deadline(90.0), sleep=lambda s: None)
+            brs.deadline_http.request = lambda req, deadline: (403, b"", {})
+            with self.assertRaisesRegex(RuntimeError, "HTTP 403"):
+                brs.get_json("/x", "t", brs.deadline_http.Deadline(90.0), sleep=lambda s: None)
+        finally:
+            brs.deadline_http.request = saved
+
     def test_workflows_wire_the_switch_and_full_ci(self):
         wired = {
             "cmux-next-guards.yml": ["tooling-tests"],

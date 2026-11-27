@@ -248,7 +248,7 @@ final class QuitCoordinator {
                 await services.home.brain.stop()
                 let acpmux = QuitAgents.environment(services)
                 // A Chief home whose acpmux is the attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) ends nothing there.
-                if !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome) {
+                if acpmux?.isAttached(to: services.home.chief.home.acpmuxHome) != true {
                     await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
                                                          bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
                 }

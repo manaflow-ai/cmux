@@ -5,6 +5,78 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationCompleteResult {
+    pub id: ConnectionId,
+    pub owner: TeamId,
+    pub created_by: UserId,
+    pub provider: IntegrationProvider,
+    pub account: Option<IntegrationCompleteResultAccount>,
+    pub scopes_requested: Vec<String>,
+    pub scopes_granted: Vec<String>,
+    pub status: ConnectionStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_detail: Option<String>,
+    pub sharing: IntegrationCompleteResultSharing,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resources: Option<IntegrationCompleteResultResources>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_to: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configure_url: Option<String>,
+}
+
+wire_errors! {
+    /// The error codes integration.complete declares.
+    IntegrationCompleteError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        IntegrationNotConfigured = "integration.not_configured",
+        IntegrationStateInvalid = "integration.state_invalid",
+        MutationIndeterminate = "mutation.indeterminate",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Start connecting a provider account: returns a pending connection and the provider URL a human opens to approve it, or connected when a connection already covers the GitHub repository asked for.
+    IntegrationConnectOp {
+        name: "integration.connect",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: IntegrationConnectParams,
+        result: IntegrationConnectResult,
+        error: IntegrationConnectError,
+    }
+}
+
+wire_enum! {
+    IntegrationConnectParamsSharing {
+        Private = "private",
+        Team = "team",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationConnectParams {
+    pub provider: IntegrationProvider,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sharing: Option<IntegrationConnectParamsSharing>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub return_to: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct IntegrationConnectResult {
     pub connection: Connection,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -822,83 +894,4 @@ pub struct MessageSendParams {
     pub reply_to: Option<HomePartRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_root: Option<MessageId>,
-}
-
-wire_errors! {
-    /// The error codes message.send declares.
-    MessageSendError {
-        AddressCannotAct = "address_cannot_act",
-        AgentBudget = "agent_budget",
-        AgentRate = "agent_rate",
-        Archived = "archived",
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        Forbidden = "forbidden",
-        IdempotencyConflict = "idempotency.conflict",
-        IdempotencyConflict2 = "idempotency_conflict",
-        InvalidClientMsgId = "invalid_client_msg_id",
-        InvalidParts = "invalid_parts",
-        InvalidThreadRoot = "invalid_thread_root",
-        KindForbids = "kind_forbids",
-        NotParticipant = "not_participant",
-        OwnerUnreachable = "owner.unreachable",
-        UnknownConversation = "unknown_conversation",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// The chief's brain host acknowledges its wakes in a conversation up to seq (moves its catch-up cursor).
-    MuxAckOp {
-        name: "mux.ack",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:MuxDO",
-        risk: "mutate-own",
-        principals: [Install],
-        params: MuxAckParams,
-        result: MuxAckResult,
-        error: MuxAckError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MuxAckParams {
-    pub agent: AgentId,
-    pub conversation: ConversationId,
-    pub seq: i64,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct MuxAckResult {
-    pub cursor: i64,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cleared: Option<i64>,
-}
-
-wire_errors! {
-    /// The error codes mux.ack declares.
-    MuxAckError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        InvalidParams = "invalid_params",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Run a chief's brain locally (on a host) or in the cloud (the chief's owner).
-    MuxConfigureOp {
-        name: "mux.configure",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:MuxDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: MuxConfigureParams,
-        result: Value,
-        error: MuxConfigureError,
-    }
 }

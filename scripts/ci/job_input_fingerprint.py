@@ -2,7 +2,7 @@
 """The inputs of a cmux-next job as one key, so a pass can be reused.
 
 With `vars.CI_NEXT_JOB_REUSE == '1'`, cmux-next.yml's fast-tier, fast-tier-cargo,
-swift test, Release compile and generated files jobs look up a pass recorded
+swift test, daemon tests, Release compile and generated files jobs look up a pass recorded
 under `job-pass-<job>-<key>` (an Actions artifact, scripts/ci/job_reuse.py)
 before they build. A hit skips the build and the tests and names the run that
 passed; a job that passes records its own.
@@ -84,7 +84,8 @@ MAC_COMMON = (
     "scripts/ci/reset-stale-submodules.sh", "scripts/ci/owned_spm_scratch.py",
     "scripts/ci/e2e_warm_derived_data.py", "scripts/ci/swiftpm_prefetch_binary_artifacts.py",
     "scripts/ci/swiftpm_build_metrics.py", "scripts/ci/build_metrics.py",
-    "scripts/ci/run-xcodebuild-with-diagnostics.sh", "scripts/ci/job_input_fingerprint.py",
+    "scripts/ci/run-xcodebuild-with-diagnostics.sh", "scripts/ci/github-egress-direct.sh",
+    "scripts/ci/job_input_fingerprint.py",
     "scripts/ci/job_reuse.py", "schemas", "plans/cmux-next",
 ) + route.FULL_INPUTS + route.VENDORED_PINS + route.GENERATED_INPUTS
 
@@ -180,6 +181,8 @@ JOBS = {
     "swift-test": Job(MAC_TOOLCHAIN + ("web_bundles",), ("swift_targets", "swift_filter", "mini", "xcode_app",
                                                          "layout_reducer", "generated_base"),
                       SWIFT_TEST + GENERATED, web=True, whole_tree=True),
+    # The daemon suites read the whole tree (the app's packages, the same-tree cmux-tui, the web bundles).
+    "daemon-test": Job(MAC_TOOLCHAIN + ("web_bundles",), ("mini", "xcode_app", "generated_base")),
     "generated-files": Job(MAC_TOOLCHAIN + ("web_bundles",), ("mini", "xcode_app"), GENERATED, web=True,
                            base_inputs=SETTINGS_BASE, whole_tree=True),
     "release-compile": Job(MAC_TOOLCHAIN, ("mini", "xcode_app"), (

@@ -162,9 +162,6 @@ fn pending_turn(session: &Session, prompt_id: &str) -> Option<(String, bool)> {
     })
 }
 
-/// How long a prompt under admission waits to read whether its chat's agent runs.
-const LIVE_CHECK_WITHIN: std::time::Duration = std::time::Duration::from_secs(2);
-
 /// How many recent first-run acceptances a session keeps for resends (`Session::accepted_prompts`).
 pub(super) const KEPT_ACCEPTS: usize = 512;
 
@@ -345,6 +342,9 @@ impl Hub {
         // behind adoption's recovered turn below.
         self.session_log(session).await;
         self.wait_adopted(session).await;
+        // A chat a past capacity switch left on a smaller model runs this prompt on its own one
+        // while switching is off (`auto_resume/capacity_failover.rs`).
+        self.restore_capacity_fallback_if_off(session).await;
         // An Auto chat another holder runs takes the prompt through its Cloud inbox
         // (`auto_hold.rs`); nothing starts here.
         if self.auto_held(session) {
@@ -681,7 +681,7 @@ impl Hub {
                 .run_prompt_admitted(session, blocks, client, steer, opts, joined, &admission)
                 .await;
         }
-        use super::prompt_admission::{Admission, Unanswered};
+        use super::prompt_admission::{Admission, Stage, Unanswered};
         let unanswered = Unanswered::of(&blocks, client, &mut opts);
         let admission = opts.admission.take().unwrap_or_else(|| Admission::new(session));
         let mut setup = Box::pin(async {
@@ -700,7 +700,15 @@ impl Hub {
                 if admission.defer_requested() {
                     admission.release();
                     return match unanswered {
-                        Unanswered::Defer(deferral) => self.defer_unanswered(session, deferral, admission.stage_now()).await,
+                        Unanswered::Defer(deferral) => {
+                            let stage = admission.stage_now();
+                            let outcome = self.queue_unanswered(session, deferral, stage, || {})?;
+                            let mut answer = outcome.subscribe();
+                            self.start_restored(session);
+                            let dropped = || RpcError::internal("the queued run of this prompt was dropped");
+                            let settled = answer.wait_for(Option::is_some).await.map_err(|_| dropped())?.clone();
+                            settled.unwrap_or_else(|| Err(dropped()))
+                        }
                         Unanswered::Guarded(guard) => {
                             guard()?;
                             Err(super::auto_resume::retry_turn::busy())
@@ -717,19 +725,27 @@ impl Hub {
         if admission.committed() {
             return setup.await;
         }
-        // Nothing it did yet needs undoing: its setup is dropped where it waits.
         let stage = admission.stage_now();
-        drop(setup);
+        // Cancel a pending wait before charging the queue. If setup owns the turn,
+        // keep its lock until the durable row is in place ahead of later arrivals.
+        let claimed_setup = matches!(stage, Stage::DirectDispatch).then(move || setup);
         admission.release();
-        match unanswered {
-            Unanswered::Defer(deferral) => self.defer_unanswered(session, deferral, stage).await,
+        let outcome = match unanswered {
+            Unanswered::Defer(deferral) => {
+                self.queue_unanswered(session, deferral, stage, || drop(claimed_setup))?
+            }
             Unanswered::Guarded(guard) => {
                 guard()?;
-                Err(super::auto_resume::retry_turn::busy())
+                return Err(super::auto_resume::retry_turn::busy());
             }
-            Unanswered::Busy => Err(super::auto_resume::retry_turn::busy()),
-            Unanswered::SteerUnavailable => Err(super::turn_cap::steer_unavailable(false)),
-        }
+            Unanswered::Busy => return Err(super::auto_resume::retry_turn::busy()),
+            Unanswered::SteerUnavailable => return Err(super::turn_cap::steer_unavailable(false)),
+        };
+        let mut answer = outcome.subscribe();
+        self.start_restored(session);
+        let dropped = || RpcError::internal("the queued run of this prompt was dropped");
+        let settled = answer.wait_for(Option::is_some).await.map_err(|_| dropped())?.clone();
+        settled.unwrap_or_else(|| Err(dropped()))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -852,57 +868,8 @@ impl Hub {
                 }
             }
         };
-        // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
-        // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
-        // Bounded: this holds the chat's prompt admission, and the agent lock is held through a
-        // whole agent start. One not free within the bound is held by a start or a turn using the
-        // agent: an agent is coming, so no cold check. Unbounded, every later prompt of the chat
-        // (an outbox delivery each 120 s) waited behind it.
-        admission.enter("agent");
-        // A stale host or a teardown may hold either child mutex. Do not let that await keep
-        // this prompt's admission lease while a caller waits for acceptance. Unknown is treated
-        // as live so the cold-chat refusal never drops a deliverable prompt.
-        let live = if admission.queue_owned() {
-            let child = session.child.lock().await.clone();
-            match child {
-                Some(child) => child.is_alive().await,
-                None => false,
-            }
-        } else {
-            match tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, async {
-                let child = session.child.lock().await.clone();
-                match child {
-                    Some(child) => child.is_alive().await,
-                    None => false,
-                }
-            })
-            .await
-            {
-                Ok(live) => live,
-                Err(_) => {
-                    tracing::warn!(session = %session.id, "prompt live check lapsed during admission");
-                    if admission.listened() {
-                        // Do not continue into queue_slot: with a free turn lock it would
-                        // start the prompt after the caller's answer deadline. The outer
-                        // admission future owns the durable deferral and will accept queued.
-                        admission.request_defer();
-                        return Err(RpcError::deadline_exceeded(
-                            "prompt live check",
-                            super::prompt_admission::ADMISSION_BOUND,
-                        ));
-                    }
-                    true
-                }
-            }
-        };
-        let text = prompt_text(&blocks);
-        let running = session.turn();
-        // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
-        let capped = running.is_some()
-            && !opts.send_now
-            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref(), fyi);
         // Another agent's message goes into the chat's inbox, never a turn or a steer of its own
-        // (`inbox.rs`). Boxed, out of this future.
+        // (`inbox.rs`). It can be accepted even while startup holds the child lock.
         let route = self.inbox_route(
             session,
             &prompt_id,
@@ -959,6 +926,52 @@ impl Hub {
                 let _ = release.await;
             }
         }
+        // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
+        // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
+        // Bounded: this holds the chat's prompt admission, and the agent lock is held through a
+        // whole agent start. One not free within the bound is held by a start or a turn using the
+        // agent: an agent is coming, so no cold check. Unbounded, every later prompt of the chat
+        // (an outbox delivery each 120 s) waited behind it.
+        admission.enter("agent");
+        // A stale host or a teardown may hold either child mutex. Do not let that await keep
+        // this prompt's admission lease while a caller waits for acceptance. Unknown is treated
+        // as live so the cold-chat refusal never drops a deliverable prompt.
+        let live = if admission.queue_owned() {
+            let child = session.child.lock().await.clone();
+            match child {
+                Some(child) => child.is_alive().await,
+                None => false,
+            }
+        } else {
+            match tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, async {
+                let child = session.child.lock().await.clone();
+                match child {
+                    Some(child) => child.is_alive().await,
+                    None => false,
+                }
+            })
+            .await
+            {
+                Ok(live) => live,
+                Err(_) => {
+                    tracing::warn!(session = %session.id, "prompt live check lapsed during admission");
+                    if admission.listened() {
+                        admission.request_defer();
+                        return Err(RpcError::deadline_exceeded(
+                            "prompt live check",
+                            super::prompt_admission::ADMISSION_BOUND,
+                        ));
+                    }
+                    true
+                }
+            }
+        };
+        let text = prompt_text(&blocks);
+        let running = session.turn();
+        // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
+        let capped = running.is_some()
+            && !opts.send_now
+            && self.turn_cap_holds(session, opts.provenance.as_ref(), opts.agent.as_deref(), fyi);
         // An inbox notice steers in only while the turn is under its cap and no prompt waits
         // (`inbox.rs`), checked again here at dispatch.
         let notice_held = steer
@@ -1136,6 +1149,9 @@ impl Hub {
                 Ok(slot) => slot,
                 Err(done) => return done,
             };
+        if !waiting {
+            admission.claimed_direct_turn();
+        }
         admitted();
         // A normal Stop releases the next queued prompt. Its cancellation epoch starts
         // when it acquires the turn; an immediately admitted prompt keeps its entry epoch.
@@ -1234,10 +1250,14 @@ impl Hub {
         let trigger = crate::prompt_provenance::is_trigger(run.provenance.as_ref());
         let persons = super::inbox::persons_prompt(run.agent.as_deref(), run.provenance.as_ref())
             && self.config.read().await.agent_inbox();
-        let mut turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control)
-            .shown_as(&super::prompt_line::prompt_line(&text, client, provenance.as_ref()))
-            .noticed(super::prompt_line::is_notice(provenance.as_ref()))
-            .by_person(persons);
+        // Its line, masked once: the `turn_started` record below takes this masked line when
+        // its own line is the same (`shown`), so a prompt pays one secret scan, not three.
+        let shown_src = super::prompt_line::prompt_line(&text, client, provenance.as_ref());
+        let mut turn =
+            TurnInfo::prompted_as(client, &text, &turn_id, &prompt_id, control, &shown_src)
+                .noticed(super::prompt_line::is_notice(provenance.as_ref()))
+                .by_person(persons);
+        let mut shown = (shown_src, turn.masked_preview.clone());
         turn.trigger = trigger;
         // Its sender, set with the turn so no steer and no read sees the turn without it.
         turn.device = run.full_access_device.clone().filter(|_| control == Control::Web);
@@ -1298,6 +1318,9 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // After publishing the turn, finish its journal entry and acceptance together.
+        // Until here a stalled direct dispatch can still release its speculative claim.
+        admission.commit();
         if let Err(e) =
             self.start_turn(session, after_turn.as_deref(), fired, no_queue, retry, turn)
         {
@@ -1389,6 +1412,7 @@ impl Hub {
             && t.turn_id == turn_id
         {
             t.show(&line);
+            shown = (line.clone(), t.masked_preview.clone());
         }
         let mut draft_sent = false;
         {
@@ -1674,7 +1698,7 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "promptLine": super::auto_resume::shown_line(&line), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "persons": persons, "trigger": trigger, "cloudMobile": run.cloud_mobile, "device": device.as_deref().filter(|_| control == Control::Web)}),
+                json!({"prompt": short_text(&text, 200), "promptLine": if line == shown.0 { std::mem::take(&mut shown.1) } else { super::auto_resume::shown_line(&line) }, "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate, "persons": persons, "trigger": trigger, "cloudMobile": run.cloud_mobile, "device": device.as_deref().filter(|_| control == Control::Web)}),
             )
             .seq;
         // The chat's page before the turn changes it (`turn_shots.rs`), off the turn's path.

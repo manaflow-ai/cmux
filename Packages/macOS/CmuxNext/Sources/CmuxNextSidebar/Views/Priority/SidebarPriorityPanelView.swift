@@ -16,6 +16,10 @@ final class SidebarPriorityPanelView: NSView {
     private let header = SidebarSectionHeaderView()
     private let count = ChromeLabel(labelWithString: "")
     private let empty = ChromeLabel(labelWithString: Strings.priorityEmpty)
+    /// The filter chips under the header while `panel.filters` is set (`sidebar.priorityView.filters`).
+    let filterBar = SidebarPriorityFilterBarView()
+    /// Mark All as Read at the header's trailing edge while the chips show and a row can be marked.
+    let markAllRead = SidebarIconButton(symbol: "checkmark.circle", label: Strings.priorityMarkAllRead)
     private let scroll = OverlayScrollView()
     private let clip = ScrollReportingClipView()
     private lazy var fade = ScrollEdgeFadeView(scrollView: scroll)
@@ -74,7 +78,12 @@ final class SidebarPriorityPanelView: NSView {
         document.addSubview(archivedMore)
         SystemScrollers.followThin(scroll, scrollOnly: true)
         empty.isHidden = true
-        [header, count, fade, empty].forEach(addSubview)
+        filterBar.isHidden = true
+        filterBar.onAction = { [weak self] action in self?.onAction?(action) }
+        markAllRead.isHidden = true
+        markAllRead.setAccessibilityIdentifier("cmux.sidebar.priority.markAllRead")
+        markAllRead.onPress = { [weak self] in self?.onAction?(.markAllRead) }
+        [header, count, markAllRead, filterBar, fade, empty].forEach(addSubview)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(Strings.priorityTitle)
@@ -87,6 +96,9 @@ final class SidebarPriorityPanelView: NSView {
 
     /// The header's height and the rows' full height; the sidebar caps it (`height(maximum:)`).
     var headerHeight: CGFloat { SidebarDensityTokens.rowHeight }
+    /// The header and, while they show, the filter chips: where the rows start.
+    private var topHeight: CGFloat { headerHeight + (showsFilterBar ? SidebarPriorityFilterBarView.height : 0) }
+    private var showsFilterBar: Bool { panel.filters != nil && !panel.collapsed }
     private var contentHeight: CGFloat {
         guard !panel.collapsed else { return 0 }
         return rowsHeight + Self.archivedHeight(panel.archived)
@@ -108,7 +120,7 @@ final class SidebarPriorityPanelView: NSView {
 
     /// The height the panel takes, at most `maximum` (its rows then scroll inside).
     func height(maximum: CGFloat) -> CGFloat {
-        min(headerHeight + contentHeight + Metrics.space1, max(headerHeight, maximum))
+        min(topHeight + contentHeight + Metrics.space1, max(topHeight, maximum))
     }
 
     func show(_ panel: SidebarPriorityPanel) {
@@ -124,10 +136,18 @@ final class SidebarPriorityPanelView: NSView {
         let attention = panel.attentionCount
         count.stringValue = panel.collapsed && attention > 0 ? String(attention) : ""
         empty.isHidden = panel.collapsed || !panel.entries.isEmpty
+        // A filter with no rows says so, not that there are no chats at all.
+        empty.stringValue = (panel.filters?.selected ?? .all) == .all ? Strings.priorityEmpty : Strings.priorityFilterEmpty
         fade.isHidden = panel.collapsed
+        filterBar.isHidden = !showsFilterBar
+        if let filters = panel.filters { filterBar.show(filters) }
+        markAllRead.isHidden = !showsFilterBar || (panel.filters?.markable ?? 0) == 0
+        if old.statusWords != panel.statusWords {
+            for row in rows.values { row.statusWords = panel.statusWords }
+        }
         placeRows(animated: window != nil && old.entries != panel.entries)
         updateTicker()
-        if old.collapsed != panel.collapsed || old.entries.count != panel.entries.count
+        if old.collapsed != panel.collapsed || old.entries.count != panel.entries.count || (old.filters == nil) != (panel.filters == nil)
             || Self.archivedHeight(old.archived) != Self.archivedHeight(panel.archived)
             || old.entries.map({ SidebarPriorityRowView.height($0) }) != panel.entries.map({ SidebarPriorityRowView.height($0) }) {
             onHeightChange?()
@@ -167,6 +187,7 @@ final class SidebarPriorityPanelView: NSView {
                 runTop = nil
             } else {
                 let row = SidebarPriorityRowView(entry: entry)
+                row.statusWords = panel.statusWords
                 row.onAction = { [weak self] action in self?.onAction?(action) }
                 row.onMove = { [weak self, weak row] direction in
                     guard let self, let row else { return }
@@ -451,7 +472,13 @@ final class SidebarPriorityPanelView: NSView {
         // Left of the header's chevron, which shows while folded.
         count.frame = NSRect(x: b.width - inset * 2 - Metrics.smallIconSize - Metrics.space2 - size.width,
                              y: (headerHeight - size.height) / 2, width: size.width, height: size.height)
-        let body = NSRect(x: 0, y: headerHeight, width: b.width, height: max(0, b.height - headerHeight - Metrics.space1))
+        // Mark All as Read where the folded count sits (the two never show together).
+        let button = Metrics.smallIconSize + Metrics.space2
+        markAllRead.frame = NSRect(x: b.width - inset * 2 - Metrics.smallIconSize - Metrics.space2 - button,
+                                   y: (headerHeight - button) / 2, width: button, height: button)
+        let barHeight = showsFilterBar ? SidebarPriorityFilterBarView.height : 0
+        filterBar.frame = NSRect(x: 0, y: headerHeight, width: b.width, height: barHeight)
+        let body = NSRect(x: 0, y: topHeight, width: b.width, height: max(0, b.height - topHeight - Metrics.space1))
         fade.frame = body
         empty.font = SidebarStyle.subtitleFont
         let emptySize = empty.naturalSize

@@ -128,10 +128,6 @@ jobs:
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
           persist-credentials: false
           ref: ${{ github.sha }}
 
@@ -198,11 +194,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          # gcc-mingw-w64-x86-64 links the Windows GNU check that every
-          # cmux-tui-core or cmux-tui landing runs on the box:
-          # cargo check --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui
-          sudo apt-get install -y clang libclang-dev pkg-config gcc-mingw-w64-x86-64
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config gcc-mingw-w64-x86-64 >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config gcc-mingw-w64-x86-64: already installed"
+          else
+            sudo apt-get update
+            # gcc-mingw-w64-x86-64 links the Windows GNU check that every
+            # cmux-tui-core or cmux-tui landing runs on the box:
+            # cargo check --target x86_64-pc-windows-gnu -p cmux-tui-core -p cmux-tui
+            sudo apt-get install -y clang libclang-dev pkg-config gcc-mingw-w64-x86-64
+          fi
 
       # No Zig or Cargo download cache: the hq Blacksmith pilot (2026-10-12)
       # measured no gain. A cold target built in 102.8 s with the Zig cache
@@ -236,12 +237,10 @@ jobs:
           echo "CMUX_ZIG=$install_root/zig" >> "$GITHUB_ENV"
 
       - name: Fetch Ghostty Zig dependencies without compiling
-        working-directory: ghostty-next
         shell: bash
-        run: |
-          set -euo pipefail
-          # `--fetch` hydrates the package cache and exits before a build.
-          "$CMUX_ZIG" build --fetch
+        # From our mirror, with bounded retries; `--fetch=all` hydrates the
+        # package cache and exits before a build.
+        run: ZIG="$CMUX_ZIG" bash scripts/cmux-next/zig-fetch-all.sh ghostty-next
 
       - name: Set up repository-pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust

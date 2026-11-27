@@ -12,9 +12,12 @@ localhost, identity provider on 127.0.0.1, no real credentials) and drives one b
   3. a popup that calls window.close() reports closed to its opener;
   4. a script popup with no user activation is blocked (window.open returns null);
   5. a redirect across hosts lands on the final URL;
-  6. SameSite=None; Secure cookie is stored, a non-Secure SameSite=None one is refused (as Chrome);
-  7. an iframe on another host sees its own cookie and keeps its localStorage partitioned from the
-     top-level site's.
+  6. SameSite=None; Secure cookie is stored, a non-Secure SameSite=None one is refused (as Chrome); WebKit
+     keeps it, as Safari does (WebKit never shipped "SameSite=None requires Secure");
+  7. an iframe on another host sees its own cookie (Chromium: third-party cookies on, as Chrome) and keeps
+     its localStorage partitioned from the top-level site's. WebKit blocks every third-party cookie, as
+     Safari does (no public WKWebView switch); there an embedded sign-in must use the Storage Access API,
+     so the check is that the cookie is withheld and document.requestStorageAccess is offered.
 
   8. (Chromium gaps, ask-2d244f2b2e) target=_blank implies noopener, rel=opener keeps it, noreferrer drops the
      Referer, a named target is reused;
@@ -37,6 +40,8 @@ parser.add_argument("--socket", required=True)
 parser.add_argument("--port", type=int, default=8765)
 parser.add_argument("--only", default="", help="comma list of case numbers 8..15 (default: all)")
 parser.add_argument("--engine", choices=("chromium", "webkit"), default="chromium")
+parser.add_argument("--app-pid", type=int, default=0, help="the app's pid: sampled when its control socket stops answering")
+parser.add_argument("--diag-dir", default="", help="where a hang's sample and screenshot go (the report folder)")
 opts = parser.parse_args()
 HERE = os.path.dirname(os.path.abspath(__file__))
 failures = []
@@ -80,6 +85,35 @@ def check(ok, what):
         failures.append(what)
 
 
+DIAGNOSED = []
+
+
+def diagnose_hang(why):
+    """The control socket stopped answering: once, sample the app's threads (a main thread blocked in a
+    syscall, a sync wait or a modal shows there) and capture the screen (a system prompt the app waits on)."""
+    if DIAGNOSED or not opts.diag_dir:
+        return
+    DIAGNOSED.append(why)
+    os.makedirs(opts.diag_dir, exist_ok=True)
+    print(f"HANG control socket: {why}; sampling pid {opts.app_pid or '?'} into {opts.diag_dir}", flush=True)
+    steps = [["screencapture", "-x", os.path.join(opts.diag_dir, "hang-screen.png")]]
+    if opts.app_pid:
+        steps.append(["sample", str(opts.app_pid), "3", "-file", os.path.join(opts.diag_dir, "hang-sample.txt")])
+    for step in steps:
+        try:
+            subprocess.run(step, capture_output=True, timeout=60)
+        except (OSError, subprocess.SubprocessError) as error:
+            print(f"HANG diagnostics {step[0]} failed: {error!r}", flush=True)
+    sample = os.path.join(opts.diag_dir, "hang-sample.txt")
+    if os.path.exists(sample):
+        with open(sample, errors="replace") as handle:
+            lines = handle.read().splitlines()
+        # The main thread's stack, so the run log names what it waits on.
+        start = next((i for i, line in enumerate(lines) if "Thread_" in line and ("main-thread" in line or "DispatchQueue_1" in line)), None)
+        if start is not None:
+            print("\n".join("HANG " + line for line in lines[start:start + 60]), flush=True)
+
+
 def rpc(method, params=None, timeout=20):
     """The app's control socket (DEBUG builds answer debug.*): {} when it does not."""
     try:
@@ -95,9 +129,38 @@ def rpc(method, params=None, timeout=20):
             buf += chunk
         conn.close()
         reply = json.loads(buf)
+        error = reply.get("error") if not reply.get("ok") else None
+        if isinstance(error, dict) and error.get("code") == "timeout" and (error.get("data") or {}).get("not_run"):
+            # A call that timed out before it ran: the main thread never got to it, the app is stalled though
+            # the socket answers (a download's first look into ~/Downloads waited on macOS's access prompt).
+            diagnose_hang(f"{method} never ran in the app: {error.get('message', '')}")
         return (reply.get("result") if reply.get("ok") else {"error": reply.get("error")}) or {}
+    except socket.timeout as error:
+        diagnose_hang(f"{method} got no answer in {timeout} s")
+        return {"error": str(error)}
     except (OSError, ValueError) as error:
         return {"error": str(error)}
+
+
+def downloads():
+    """The app's downloads list, every tab's (`browser.page.downloads` with no tab): a list of rows."""
+    rows = rpc("browser.page.downloads").get("downloads")
+    return rows if isinstance(rows, list) else []
+
+
+def new_download(before, wait=10):
+    """The first download from the fixture's /dl not among the ids `before` that ended (finished, failed,
+    blocked, cancelled) within `wait` s, else the newest such row still running, else None."""
+    end = time.monotonic() + wait
+    seen = None
+    while time.monotonic() < end:
+        fresh = [r for r in downloads() if r.get("id") not in before and str(r.get("url") or "").endswith("/dl")]
+        done = [r for r in fresh if r.get("status") != "in_progress"]
+        if done:
+            return done[0]
+        seen = fresh[-1] if fresh else seen
+        time.sleep(0.5)
+    return seen
 
 
 def reports():
@@ -170,12 +233,19 @@ try:
 
     nav(IDP + "/setcookie"); nav(IDP + "/cookies")
     got = ev("document.body.innerText")
-    check("a=1" in got and "n=1" not in got and "l=1" in got, f"cookies: Secure SameSite=None and Lax kept, insecure None refused ({got})")
+    if opts.engine == "webkit":  # Safari keeps a SameSite=None cookie without Secure; Chrome refuses it
+        check("a=1" in got and "n=1" in got and "l=1" in got, f"cookies: Secure SameSite=None, Lax and insecure None kept, as Safari ({got})")
+    else:
+        check("a=1" in got and "n=1" not in got and "l=1" in got, f"cookies: Secure SameSite=None and Lax kept, insecure None refused ({got})")
 
     nav(IDP + "/cookies"); ev("localStorage.setItem('k','toplevel');1")
     nav(RP + "/embed", settle=3)
     seen = ev("JSON.stringify(__m)")
-    check('"cookie":"a=1"' in seen, f"iframe on another host sends and sees its cookie ({seen})")
+    if opts.engine == "webkit":  # WebKit's third-party cookie blocking, as Safari: Storage Access API is the way in
+        check('"cookie":""' in seen and '"saa":"function"' in seen,
+              f"iframe on another host gets no third-party cookie and is offered requestStorageAccess, as Safari ({seen})")
+    else:
+        check('"cookie":"a=1"' in seen, f"iframe on another host sends and sees its cookie ({seen})")
     nav(IDP + "/idp/plain")
     check(ev("localStorage.getItem('k')") == "toplevel", "iframe localStorage is partitioned from the top-level site's")
 
@@ -265,15 +335,22 @@ try:
         check(ev("location.href") == RP + "/done?code=9", f"popup sets opener.location and the opener lands on the callback ({ev('location.href')})")
 
     def c14():
+        # The app's own downloads list over the control socket, not `cmux browser right download list
+        # --agent`: that resolves an agent tab first, and the tab here is the one the harness opened
+        # (the person's), so it refused the read. A second download of login.bin lands as
+        # "login (1).bin": rows are matched by their source URL, not by the file name.
         nav(RP + "/dlflow")
-        before = cli("download", "list")
-        click("#dl"); time.sleep(3)
-        after = cli("download", "list")
-        check("login.bin" in after and after != before, f"a link to an attachment downloads and the page stays ({after.strip()[-160:]})")
+        before = {r.get("id") for r in downloads()}
+        click("#dl")
+        row = new_download(before)
+        check(bool(row) and row.get("status") == "finished",
+              f"a link to an attachment downloads and the page stays ({row or 'no download listed'})")
         check(ev("location.pathname") == "/dlflow", "the tab stays on the login page after the download")
-        click("#go"); time.sleep(4)
-        n = cli("download", "list").count("login.bin")
-        check(n >= 2, f"a popup sent to an attachment downloads it ({n} login.bin downloads listed)")
+        before = {r.get("id") for r in downloads()}
+        click("#go")
+        row = new_download(before)
+        check(bool(row) and row.get("status") == "finished",
+              f"a popup sent to an attachment downloads it ({row or 'no download listed'})")
         check(ev("location.pathname") == "/dlflow", "the opener stays on the login page after the popup's download")
 
     def c15():

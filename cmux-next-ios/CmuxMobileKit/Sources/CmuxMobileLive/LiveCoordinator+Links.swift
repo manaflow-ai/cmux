@@ -1043,6 +1043,8 @@ extension LiveCoordinator {
         // hostd closes the channel when the owner's socket is missing ("daemon channel closed").
         if reason.contains("No such file") || reason.contains("not set up") || reason.contains("Connection refused")
             || reason.contains("channel closed") {
+            // retry-prompt-ok: a step on the Mac (open cmux) the phone is not told about; the bar's
+            // Try Again (retryChief) reopens the channel once the person has done it.
             return String(localized: "Chief isn't running on \(mac). Open cmux on the Mac to start it, then try again.")
         }
         return String(localized: "Can't reach Chief on \(mac) right now (\(reason)).")

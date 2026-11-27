@@ -69,9 +69,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `app.shortcutLayout` | string | `"followLayout"` | `followLayout`, `qwertyPositions` | Keyboard Layout. Keep QWERTY Positions puts shortcuts on the US keys, for Dvorak, Colemak, AZERTY and QWERTZ. |
 | `shortcuts.showModifierHoldHints` | boolean | `true` |  | Show Shortcuts When Holding a Modifier. Hold Command or Control for 0.30 seconds to show shortcut hints. |
 | `updates.channel` | string | `"nightly"` | `stable`, `nightly`, `canary`, `dev` | Update Channel. Stable gets builds that ran a week without problems; Canary and Dev get them first. |
-| `updates.checkAutomatically` | boolean | `true` |  | Check for Updates Automatically |
+| `updates.automatic` | string | `"download"` | `off`, `notify`, `download`, `idle` | Automatic Updates. Install When Idle restarts cmux once you have been away, never while an agent works or a message is unsent. Terminals and agents keep running. |
 | `updates.checkIntervalSeconds` | real | `3600` | 900 to 604800 | Check Every |
-| `updates.downloadAutomatically` | boolean | `true` |  | Download Updates Automatically. Off: cmux asks before downloading. It always asks before restarting. |
 | `updates.oneClickInstall` | boolean | `false` |  | Update in One Click. One click on Update downloads, installs and restarts. Terminals and agents keep running. |
 | `updates.whatsNewInstall` | boolean | `false` |  | Install Versions from What's New. An Install button for each version listed in What's New. |
 | `updates.meteredNetwork` | string | `"defer-low-data"` | `defer-low-data`, `defer-expensive`, `download` | On Metered Networks. While downloads wait, a found update shows on Settings and one click downloads it. |
@@ -79,7 +78,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `updates.daemon` | string | `"off"` | `off`, `every-merge` | Live Background Updates. Every merge's background services (terminals, agents' daemon) update in place, with no restart. NIGHTLY only. |
 | `updates.liveWebReload` | boolean | `true` |  | cmux Live. Lets cmux live start show your checkout's web UI, each saved edit at once. |
 | `updates.installOnQuit` | boolean | `false` |  | Install Updates When Quitting. A downloaded update installs as cmux quits. Terminals keep running. |
-| `updates.installWhenIdle` | boolean | `false` |  | Update When Idle. Installs a downloaded update and restarts while you are away: no input for the time below, or the screen locked. Never over an unsent message. Agents and their turns keep running. |
 | `updates.installWhenIdleMinutes` | real | `15` | 1 to 240 | Idle Time Before Updating. How long cmux must be idle before Update When Idle installs. |
 | `updates.notify` | string | `"badge"` | `badge`, `silent` | When an Update Is Ready |
 | `updates.keepPreviousVersions` | real | `1` | 0 to 5 | Keep Previous Versions. Earlier builds kept so you can roll back. Uses almost no disk until files change. |
@@ -136,11 +134,11 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agents.autoRetry.attempts` | real | `4` | 1 to 12 | Retries per Error. How many times the chat tries again before it stops and waits for you. |
 | `agents.autoRetry.capacityFallbackAfter` | real | `0` | 0 to 12 | Capacity Failures Before Switching to Sonnet. After this many consecutive capacity errors, Opus or Fable switches to Sonnet until a turn succeeds. Set to 0 to stay on the original model. |
 | `models.spreadUsage` | boolean | `true` |  | Spread Usage Across My Subscriptions. When one subscription runs out, a chat moves to another with the same model. |
-| `agents.cacheCompact.enabled` | boolean | `true` |  | Compact Before the Cache Expires. Compacts an idle Claude chat while its cache is warm, so the next message costs less. |
+| `agents.cacheCompact.enabled` | boolean | `false` |  | Compact Before the Cache Expires. Compacts an idle Claude chat while its cache is warm, so the next message costs less. |
 | `agents.cacheCompact.minContextPercent` | real | `30` | 10 to 95 | Only Above Context Used (%). Chats using less of their context window than this are left as they are. |
 | `agents.cacheCompact.minContextTokens` | real | `20000` | 10000 to 500000 | Or Above Context Used (Tokens). Chats with at least this much context are compacted, whatever their window. |
-| `agents.coldWake.enabled` | boolean | `true` |  | Batch Wakes of Cold Chats. Messages to an idle chat whose cache expired wait a little and arrive together, so its context is read once. |
-| `agents.coldWake.compact` | boolean | `true` |  | Compact Cold Chats Before Waking. A large chat whose cache expired is compacted before batched messages arrive. |
+| `agents.coldWake.enabled` | boolean | `false` |  | Batch Wakes of Cold Chats. Messages to an idle chat whose cache expired wait a little and arrive together, so its context is read once. |
+| `agents.coldWake.compact` | boolean | `false` |  | Compact Cold Chats Before Waking. A large chat whose cache expired is compacted before batched messages arrive. |
 | `agents.coldWake.compactAboveTokens` | real | `100000` | 10000 to 500000 | Compact Cold Chats Above (Tokens). Cold chats with less context than this are woken without compacting. |
 | `agents.trust.autoTrust` | boolean | `false` |  | Trust My Own Folders Without Asking. Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first. |
 | `agents.trust.projectRoots` | array | `[]` |  | Trusted Project Roots. Everything inside these folders is trusted. Use full paths or ~/ paths. |
@@ -262,6 +260,18 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `appearance.metrics.dividerHitWidth` | real |  | 1 to 24 | Divider Drag Width |
 | `appearance.metrics.titlebarHeight` | real |  | 24 to 56 | Titlebar Height |
 | `appearance.metrics.sidebarRowHeight` | real |  | 20 to 48 | Workspace Row Height |
+| `appearance.metrics.sidebarRowInset` | real |  | 0 to 24 | Workspace Row Inset. The gap between a sidebar row's fill and the sidebar's left and right edges. Unset is the density's. |
+| `appearance.metrics.sidebarRowPadding` | real |  | 0 to 24 | Workspace Row Padding. Where a sidebar row's first glyph or title starts inside its fill, and its last trailing mark ends. Unset is the density's. |
+| `appearance.metrics.sidebarRowGap` | real |  | 0 to 12 | Workspace Row Gap. The gap between two sidebar rows. Unset is the density's. |
+| `appearance.metrics.sidebarRowHeightWithSubtitle` | real |  | 28 to 96 | Two-Line Row Height. A sidebar row with a detail line under its title, such as a two-line card. Unset is the row height plus one line. |
+| `appearance.metrics.toolbarButtonSize` | real |  | 16 to 40 | Toolbar Button Size. The side of the chrome's icon buttons: the title bar's sidebar toggle, Back and Forward, the pane's tools and the sidebar's +. Unset is the density's. |
+| `appearance.metrics.toolbarButtonGap` | real |  | 0 to 16 | Toolbar Button Gap. The space between neighboring icon buttons in the title bar. Unset is three tenths of a button. |
+| `appearance.metrics.toolbarButtonCornerRadius` | real |  | 0 to 20 | Toolbar Button Corner. The corner of an icon button's hover, pressed and active fill: 0 is square, half the button is round. Unset rounds as a tab does. |
+| `appearance.metrics.toolbarButtonActiveFill` | real |  | 0 to 0.4 | Active Button Fill. How strong the fill under a toolbar button that is on draws, as a share of the text color. Unset is the hover fill. |
+| `appearance.metrics.headerDivider` | real |  | 0 to 1 | Header Divider. How strong the hairline under the title bar and tab row draws: 0 is none, 1 a full separator. Unset is today's. |
+| `appearance.metrics.spacingScale` | real |  | 0.5 to 2 | Spacing. One multiplier for the chrome's padding and gaps (the spacing grid). Unset is the density's. |
+| `appearance.metrics.composerPadding` | real |  | 0 to 24 | Composer Padding. The room from the chat prompt box's sides to its text and controls. Unset is the density's. |
+| `appearance.metrics.composerMinHeight` | real |  | 32 to 160 | Composer Height. The height of the chat's one-line prompt box; it still grows with a longer prompt. Unset is the density's. |
 | `appearance.borders` | string | `"default"` | `default`, `none` | Borders. None removes every border, hairline and separator in the app. |
 | `appearance.liquidGlass` | boolean | `false` |  | Liquid Glass. Off draws the composer, menus, popovers and cards as solid surfaces with a plain border. |
 | `appearance.focusIndicator` | string | `"tabs"` | `border`, `tabs`, `both`, `none` | Focused Pane. How the focused pane stands out. |
@@ -307,6 +317,19 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `focusRing.color` | string |  |  | Color |
 | `focusRing.width` | real | `1` | 0.5 to 8 | Width |
 | `focusRing.showWhenSinglePane` | boolean | `false` |  | Show With One Pane |
+| `appearance.agentSignature` | boolean | `false` |  | Agent Dot Signatures. Give each agent a small dot glyph made from its session, on sidebar rows and the running line. |
+| `appearance.accentGlow.dark` | string |  |  | Accent Glow (Dark). A soft glow in this color around the focused pane in the dark appearance. Unset, no glow. |
+| `appearance.accentGlow.light` | string |  |  | Accent Glow (Light). The glow's color in the light appearance. Unset, the dark color. |
+| `appearance.accentGlow.radius` | real |  | 0 to 200 | Accent Glow Radius. How far the accent glow spreads from the focused pane. |
+| `appearance.accentGlow.opacity` | real |  | 0 to 1 | Accent Glow Opacity. How strong the accent glow is. |
+| `appearance.tabClose.from` | string |  |  | Tab Close Color. The color of a tab's close button. Unset, the text color. |
+| `appearance.tabClose.toDark` | string |  |  | Tab Close Hover Color (Dark). The color a tab's close button turns to under the pointer in the dark appearance. Unset, the standard hover. |
+| `appearance.tabClose.toLight` | string |  |  | Tab Close Hover Color (Light). The close button's hover color in the light appearance. Unset, the dark color. |
+| `appearance.tabClose.interpolation` | string |  | `oklab`, `srgb` | Tab Close Blend. How the close button's color blends to its hover color. |
+| `appearance.sidebarHeader.dark` | string |  |  | Sidebar Header Image (Dark). A picture across the top of the sidebar in the dark appearance (file: and an absolute path). Unset, none. |
+| `appearance.sidebarHeader.light` | string |  |  | Sidebar Header Image (Light). The sidebar header picture in the light appearance. Unset, the dark picture. |
+| `appearance.paneArt.dark` | array | `[]` |  | Pane Art (Dark). Pictures behind panes in the dark appearance, one per pane in turn. Empty, panes show the window background as set above. |
+| `appearance.paneArt.light` | array | `[]` |  | Pane Art (Light). Pictures behind panes in the light appearance. Empty, the dark list. |
 | `ui.calm` | string | `"off"` | `off`, `calm`, `still` | Calm Mode. Calm stops sliding, spinning and hover highlights; Still also makes animations instant. |
 | `ui.animations.enabled` | boolean | `true` |  | Play Animations. Off turns every animation off. On, the switches below pick by area. |
 | `ui.animations.sidebar` | boolean | `true` |  | Animate the Sidebar. Rows, groups and the sidebar itself slide as they change. |
@@ -436,6 +459,8 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.display.layout.header` | string | `"full"` | `full`, `quiet` | Chat Header. Full shows the chat's header tools at all times; Quiet shows them only while the pointer is over the header. |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
+| `terminal.cursorStyle` | string |  | `block`, `bar`, `underline`, `block_hollow` | Cursor Style. The terminal cursor's shape. Unset, the Ghostty config's cursor-style. |
+| `terminal.cursorBlink` | string |  | `on`, `off` | Cursor Blink. Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink. |
 | `terminal.linkOpener.default` | string | `"cmux"` |  | Open Program Links In. Where terminal programs open URLs: cmux, system, chrome, safari, app:<name> or command:<cmd>. |
 | `terminal.linkOpener.rules` | array | `[]` |  | Program Link Rules. <match> -> <target>, first match wins. Example: caller:gh github.com -> safari |
 | `terminal.term` | string | `"xterm-256color"` | `xterm-256color`, `xterm-ghostty` | Terminal Type (TERM). xterm-ghostty needs Ghostty's terminfo on every host you ssh to. |
@@ -511,7 +536,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.controlsOnHover` | boolean | `false` |  | Show Sidebar Controls Only on Hover. The sidebar's buttons show only while the pointer is over it. |
 | `sidebar.floatOnHover` | boolean | `true` |  | Float Hidden Sidebar on Hover. With the sidebar hidden, point at the window's edge to show it over your work. |
 | `sidebar.minimal` | boolean | `false` |  | Minimal Mode. Sidebar and tab bar buttons show only while the pointer is over them. |
-| `sidebar.look` | string | `"cmux"` | `cmux`, `claude`, `codex`, `studio` | Sidebar Look. Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win. |
+| `sidebar.look` | string | `"cmux"` | `cmux`, `claude`, `codex`, `studio`, `rex` | Sidebar Look. Rows, headers and status marks like another app's sidebar. Your own sidebar settings still win. |
 | `sidebar.style` | string | `"standard"` | `standard`, `rail` | Sidebar Style. Rail shrinks the sidebar to a strip; point at it to open the full sidebar. |
 | `sidebar.drawnMenus` | boolean | `false` |  | Styled Sidebar Menus. Right-click and more-button menus in the sidebar follow the menu look instead of the system menu. |
 | `sidebar.density` | string | `"compact"` | `compact`, `comfortable`, `expanded` | Sidebar Density. Expanded shows status, age, pull request and computer under each name. |
@@ -520,7 +545,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.showTimestamps` | boolean | `false` |  | Show Timestamps. Rows show when they last changed, such as 3d. |
 | `sidebar.settleFinished` | boolean | `false` |  | Settle Finished Chats. A chat whose answer you have read folds into Settled at the end of its list until its next turn. |
 | `sidebar.showAgentSessions` | boolean | `false` |  | Show Sessions Started by Agents. Sessions an agent starts list under the session that started them. Off, they stay in the parent chat's list; one that needs you still shows. |
-| `sidebar.showAutomaticSessions` | boolean | `false` |  | Show Automatic Sessions. Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list. |
 | `sidebar.showColors` | boolean | `true` |  | Show Workspace Colors |
 | `workspaceColors.indicatorStyle` | string | `"leftRail"` | `dot`, `leftRail`, `fill` | Workspace Color Style. How a workspace's color shows in the sidebar. |
 | `sidebar.showLocalMachine` | boolean | `false` |  | Mark This Mac's Workspaces. With more than one computer, this Mac's workspaces show its icon too. |
@@ -815,6 +839,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.composerCustomizer` | boolean | `false` |  | Customize Button Under the Composer. Point at the chat box for a Customize button that lists every experiment and Labs switch. |
 | `experiments.agentBadges` | boolean | `false` |  | Agent Badges. Agent tabs show a count of unread messages and approvals, and sidebar rows show a status pill: Running, Needs approval or Done. |
 | `experiments.agentBadgesBeam` | boolean | `false` |  | Agent Badges: Running Beam. With Agent Badges on, a thin light travels along a sidebar row's edge while its agent runs. |
+| `experiments.transcriptWorkLog` | boolean | `false` |  | Transcript Work Log. Shows a finished turn as a work log: its steps folded, a card of the files it changed, and what each message added to context. |
 | `experiments.terminalAgentMark` | boolean | `false` |  | Terminal Agent Marks. An agent running in a terminal tab shows its icon on a rounded square, so it stands apart from an agent chat. |
 | `experiments.menuStyleV2` | boolean | `false` |  | Menu Style v2. Restyled menus. |
 | `experiments.menuRowStates` | boolean | `false` |  | Menu Row States. Menu rows that are unavailable say why, and rows that start work show their progress. |
@@ -835,6 +860,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `experiments.foldSummaryCounts` | boolean | `false` |  | Fold Summary Counts. A finished turn's Worked for line also says what it hides, such as ran 4 commands, edited 2 files. |
 | `experiments.cloudDiskBar` | boolean | `false` |  | Cloud Disk Bar. Cloud machine cards show disk use as a bar split into system, project and caches. |
 | `experiments.browserProfileCard` | boolean | `false` |  | Browser Profile Card. The browser's profile menu opens with a profile card. |
+| `experiments.appStoreFeatures` | boolean | `false` |  | App Store Features. The App Store gets a Features tab where built-in features turn on and off. |
 | `feed.github.enabled` | boolean | `false` |  | GitHub Inbox. Inbox shows your GitHub notifications |
 | `feed.github.pollIntervalSeconds` | real | `120` | 60 to 900 | Refresh Interval. Seconds between GitHub refreshes. Refresh in the Inbox runs immediately. |
 | `agentPane.links.outsideRoots` | string | `"open"` | `confirm`, `text`, `open` | Files Outside the Project. What a link to a file outside the chat's folders does. Keys and .env files never open. |
@@ -863,6 +889,9 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `agentPane.zoom` | real | `1` | 0.5 to 2 | Agent Chat Zoom. The display size for agent chat. Cmd-0 resets it. |
 | `agents.defaultPermissionMode` | string | `"fullAccess"` | `fullAccess`, `standard`, `ask` | Permission Mode for New Chats. What a new chat may do without asking. A mode you pick in a chat applies to that chat only. |
 | `agents.promptCache` | string | `"1h"` | `1h`, `5m` | Prompt Cache. One hour keeps replies after a pause cheap; its cache writes cost a little more. |
+| `agents.claudeOutputStyle` | string | `"agent"` | `agent`, `default`, `Explanatory`, `Learning` | Claude Code Response Style. The output style new Claude Code chats use. Agent’s Own keeps Claude Code’s setting. |
+| `agents.codexPersonality` | string | `"agent"` | `agent`, `pragmatic`, `friendly`, `none` | Codex Personality. The personality new Codex chats use. Agent’s Own keeps Codex’s setting. |
+| `agents.commitAttribution` | string | `"agent"` | `agent`, `strip` | Co-Author Line on Commits and PRs. Remove leaves Claude Code’s co-author line and footer off commits and pull requests. Codex has no such setting. |
 | `agents.claudeCodeInboxRelay` | boolean | `false` |  | Add Message Relay to Claude Code. Adds a small server to Claude Code's settings so messages from other agents arrive without being held. Applies to Claude Code chats started afterwards. |
 | `agents.modelRouter.model` | string | `"deepseek/deepseek-v4.1-flash-1017"` | `deepseek/deepseek-v4.1-flash-1017`, `deepseek/deepseek-v4.1-flash`, `deepseek/deepseek-v4-flash`, `deepseek/deepseek-v4-pro` | cmux Model Router Model. The model new cmux model router chats start on. |
 | `agents.cmuxMcp` | string | `"on"` | `on`, `off` | Give Agents cmux’s Tools. Agents you start in cmux get cmux’s tools, Computer Use included: Claude Code and Codex in cmux’s terminals and agent chats. cmux never changes your agents’ own settings. |

@@ -99,7 +99,8 @@ class ShardSize(unittest.TestCase):
         for name in WEBVIEW_JOBS:
             runs_on = self.jobs[name]["runs-on"]
             self.assertNotIn("linux_16", runs_on, name)
-            self.assertEqual(runs_on, one_linux_label.CANONICAL, name)
+            # #50078 (Leo, 2026-11-23): the React shards read CI_REACT_SHARD_RUNNER first; unset, they take cmux-linux.
+            self.assertEqual(runs_on, one_linux_label.CANONICAL.replace("|| 'cmux-linux'", "|| vars.CI_REACT_SHARD_RUNNER || 'cmux-linux'"), name)
             self.assertEqual(evaluate(runs_on, EVENTS["push"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "ubuntu-24.04", name)
@@ -253,6 +254,40 @@ class Known(unittest.TestCase):
         pushes = history.record(pushes, "sha1", 1001, {FILE: True}, "same")
         base, replay = history.known(pushes, "same", head)
         self.assertEqual((base, replay), ({TEST: True, f"{FILE} > new test": True}, [other]))
+
+
+class KnownHeldRed(unittest.TestCase):
+    """A red no push at the merge parent's key answers, held red on the base's last pushes at any inputs, is a base red
+    without a replay (job 137269052440: 0 answered at its key, 168 files replayed for 55 min)."""
+
+    NOW = 1001 + 3600
+
+    def test_red_on_the_last_two_pushes_at_other_inputs_is_a_base_red(self):
+        pushes = runs(False, False, keys=["a", "b"])
+        self.assertEqual(history.known(pushes, "same", {TEST: False}, now=self.NOW), ({TEST: False}, []))
+        # A file that crashed on the base (a file-level red) holds red for the head's file-level red too.
+        self.assertEqual(history.known(runs(None, None, keys=["a", "b"]), "same", {FILE: False}, now=self.NOW),
+                         ({FILE: False}, []))
+
+    def test_one_red_a_green_after_it_or_an_old_red_still_replays(self):
+        for pushes in (runs(False, keys=["a"]), runs(False, True, keys=["a", "b"]), runs(True, False, keys=["a", "b"])):
+            self.assertEqual(history.known(pushes, "same", {TEST: False}, now=self.NOW), ({}, [FILE]), pushes)
+        # The newest red over a day before now: the base may have fixed it since.
+        old = self.NOW + history.HELD_RED_AGE_S
+        self.assertEqual(history.known(runs(False, False, keys=["a", "b"]), "same", {TEST: False}, now=old), ({}, [FILE]))
+
+    def test_a_file_crash_says_nothing_for_a_named_test_and_a_new_red_keeps_the_file_whole(self):
+        # The crash run is skipped: the two named reds around it hold.
+        pushes = runs(False, None, False, keys=["a", "b", "c"])
+        self.assertEqual(history.known(pushes, "same", {TEST: False}, now=self.NOW + 2), ({TEST: False}, []))
+        head = {TEST: False, f"{FILE} > new test": False}
+        self.assertEqual(history.known(runs(False, False, keys=["a", "b"]), "same", head, now=self.NOW), ({}, [FILE]))
+
+    def test_the_exact_key_still_decides_first(self):
+        # Green twice at the merge parent's key: the change's red, whatever older pushes held.
+        pushes = runs(False, False, keys=["a", "b"]) + [dict(r, sha=f"x{i}", time=2000 + i)
+                                                        for i, r in enumerate(runs(True, True))]
+        self.assertEqual(history.known(pushes, "same", {TEST: False}, now=2001), ({TEST: True}, []))
 
 
 class KnownReds(unittest.TestCase):
@@ -893,6 +928,32 @@ class Fetch(unittest.TestCase):
         self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=get)[::2], ([], False))
         get, _ = self.serve(listed(item(1, "2026-11-08T10:00:00Z")), {1: artifact_zip("nope")})
         self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=get)[::2], ([], False))
+
+    def test_a_rate_limited_list_is_listed_again_after_its_reset_within_the_wait(self):
+        # Ticks 45026611875 and 45037396919 (2026-11-22): a 403 with no quota left saved no history for a day.
+        flaky_runs = runs(True, False)
+        get, calls = self.serve(listed(item(1, "2026-11-08T10:00:00Z")), {1: artifact_zip(flaky_runs)})
+        limited = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1600"}
+        answers = [(403, limited, b"")]
+
+        def first_limited(url, token):
+            if answers:
+                calls.append((url, token))
+                return answers.pop()
+            return get(url, token)
+        slept = []
+        found, _, read = history.fetch("o/r", "feat-cmux-next", None, get=first_limited, wait=900,
+                                       sleep=slept.append, clock=lambda: 1000)
+        self.assertEqual((found, read, slept), (flaky_runs, True, [600 + history.RATE_WAIT_SLACK_S]))
+        # A reset past the wait, no wait, or a 403 that is not a rate limit: no sleep, unread.
+        for wait, headers in ((300, limited), (0, limited), (900, {})):
+            answers[:] = [(403, headers, b"")]
+            slept.clear()
+            self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=first_limited, wait=wait,
+                                           sleep=slept.append, clock=lambda: 1000)[::2], ([], False))
+            self.assertEqual(slept, [])
+        self.assertEqual(history.rate_wait(429, {"Retry-After": "30"}, 0), 30.0)
+        self.assertIsNone(history.rate_wait(404, limited, 0))
 
     def test_the_command_always_writes_a_history_and_exits_zero(self):
         with tempfile.TemporaryDirectory() as tmp:

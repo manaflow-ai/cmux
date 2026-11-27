@@ -168,6 +168,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-focus-core/",
     "cmux-tui/crates/cmux-cloud-start-core/",
     "cmux-tui/crates/cmux-tab-discard/",
+    "cmux-tui/crates/cmux-browser-rules/",
     "cmux-tui/crates/cmux-cloud-config/",
     "cmux-tui/crates/cmux-cloud-environment/",
     "cmux-tui/crates/cmux-build-space/",
@@ -180,6 +181,7 @@ SWIFT_JOB_INPUTS = (
     "cmux-tui/crates/cmux-health-core/",
     "cmux-tui/crates/cmux-launch-image/",
     "cmux-tui/crates/cmux-pane-pictures/",
+    "cmux-tui/crates/cmux-screenshots/",
     "cmux-tui/crates/cmux-local-auth/",
     "cmux-tui/crates/cmux-imessage/",
     "cmux-tui/crates/cmux-layout-reducer/",
@@ -190,6 +192,9 @@ SWIFT_JOB_INPUTS = (
     # The SDK's C ABI (the app's daemon client). The SDK it wraps (cmux-tui/bindings/rust/)
     # reaches the app only through the pinned FFI release, whose repin routes the Swift jobs.
     "cmux-tui/crates/cmux-sdk-ffi/",
+    # CmuxNextAgentPane's relay policy tables are generated from it at build time (AgentPanePolicyPlugin).
+    "cmux-tui/crates/cmux-agent-pane-policy/policy.json",
+    "scripts/cmux-next/gen-agent-pane-policy-swift.py",
     "cmux-tui/rust-toolchain.toml",
     "scripts/cmux-next/build-app-ffi.sh",
 )

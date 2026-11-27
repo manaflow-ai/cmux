@@ -74,6 +74,7 @@ extension ControlRouter {
             _ = call.progress.begin()
             guard let outcome = await joiner.outcome() else {
                 // It never started after all: say `not_run` explicitly.
+                // retry-prompt-ok: a socket API reply to a script, which owns its own retry
                 throw ControlError(code: "timeout", message: ControlStrings.format("control.error.idempotentRunNotStarted",
                                                                                    "The earlier run with idempotency key %@ never started; retry", key),
                                    data: ["idempotency_key": .string(key), "not_run": true])

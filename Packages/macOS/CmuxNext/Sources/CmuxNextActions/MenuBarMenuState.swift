@@ -95,8 +95,13 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
             }
         }
 
-        public init(sessions: [Session] = []) {
+        /// The floating live preview panel (`computerUse.floatingPreview`, prototype): nil while the
+        /// setting is off (no row), else whether the panel shows now (the row hides or shows it).
+        public var floatingPreview: Bool?
+
+        public init(sessions: [Session] = [], floatingPreview: Bool? = nil) {
             self.sessions = sessions
+            self.floatingPreview = floatingPreview
         }
 
         public init(session: Session?) {
@@ -138,6 +143,8 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
     public var showsGlobalKey: Bool
     /// `app.backgroundReady` is on: Quit Completely follows Quit.
     public var quitCompletely: Bool
+    /// What Sign In signs in to ("Signs in to cmux.com"), the line under it while signed out; nil hides it.
+    public var signInBackend: String?
 
     /// - Parameters:
     ///   - account: The signed-in account, nil when signed out.
@@ -150,9 +157,12 @@ public nonisolated struct MenuBarMenuState: Sendable, Hashable {
     ///   - running: The Running list; empty hides the section.
     ///   - keepingAwake: cmux keeps the Mac awake; nil hides the line.
     ///   - quitCompletely: Quit Completely follows Quit (`app.backgroundReady` on).
+    ///   - signInBackend: What Sign In signs in to, shown under it while signed out; nil hides it.
     public init(account: Account? = nil, agentsWorking: Int = 0, agentsNeedingInput: Int = 0,
                 updateReady: Bool = false, showsGlobalKey: Bool = false, computerUse: ComputerUse? = nil,
-                unread: Chats = Chats(), running: Chats = Chats(), keepingAwake: KeepingAwake? = nil, quitCompletely: Bool = false) {
+                unread: Chats = Chats(), running: Chats = Chats(), keepingAwake: KeepingAwake? = nil,
+                quitCompletely: Bool = false, signInBackend: String? = nil) {
+        self.signInBackend = signInBackend
         self.computerUse = computerUse
         self.keepingAwake = keepingAwake
         self.unread = unread

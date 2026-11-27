@@ -67,8 +67,27 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
     /// moves); a closed menu reads them when it opens.
     public func computerUseSessionsChanged() {
         guard let menu = openMenu, let host, host.menuBarComputerUseAvailable else { return }
-        MenuBarMenuBuilder(registry: registry).updateComputerUse(in: menu, MenuBarMenuState.ComputerUse(sessions: host.menuBarComputerUseSessions),
+        MenuBarMenuBuilder(registry: registry).updateComputerUse(in: menu, MenuBarMenuState.ComputerUse(sessions: host.menuBarComputerUseSessions,
+                                                                                                      floatingPreview: floatingPreview?.shown()),
                                                                  commands: commands)
+    }
+
+    /// The floating Computer Use preview's Show/Hide row (`computerUse.floatingPreview`, prototype),
+    /// installed by the panel's owner when it starts following (`ComputerUseFloatingPreview`); nil
+    /// shows no row.
+    public var floatingPreview: FloatingPreview?
+
+    /// What the menu reads and runs for the floating Computer Use preview.
+    public struct FloatingPreview {
+        /// Nil while `computerUse.floatingPreview` is off (no row), else whether the panel shows now.
+        public var shown: @MainActor () -> Bool?
+        /// Shows or hides the panel (the row's Show or Hide Floating Preview).
+        public var setShown: @MainActor (Bool) -> Void
+
+        public init(shown: @escaping @MainActor () -> Bool?, setShown: @escaping @MainActor (Bool) -> Void) {
+            self.shown = shown
+            self.setShown = setShown
+        }
     }
 
     /// The item is in the menu bar.
@@ -138,6 +157,8 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
             host.menuBarResumeComputerUse(session)
         case .computerUseShowCursor(let session):
             host.menuBarShowComputerUseCursor(session)
+        case .computerUseFloatingPreview(let shown):
+            floatingPreview?.setShown(shown)
         }
     }
 
@@ -147,8 +168,9 @@ public final class MenuBarExtra: NSObject, NSMenuDelegate {
         return MenuBarMenuState(account: host.menuBarAccount, agentsWorking: host.menuBarAgentsWorking,
                                 agentsNeedingInput: host.menuBarAgentsNeedingInput, updateReady: host.menuBarUpdateReady,
                                 showsGlobalKey: host.menuBarShowsGlobalKey,
-                                computerUse: host.menuBarComputerUseAvailable ? .init(sessions: host.menuBarComputerUseSessions) : nil,
+                                computerUse: host.menuBarComputerUseAvailable
+                                    ? .init(sessions: host.menuBarComputerUseSessions, floatingPreview: floatingPreview?.shown()) : nil,
                                 unread: .init(host.menuBarUnread), running: .init(host.menuBarRunning),
-                                keepingAwake: keepingAwake, quitCompletely: offersQuitCompletely)
+                                keepingAwake: keepingAwake, quitCompletely: offersQuitCompletely, signInBackend: host.menuBarSignInBackend)
     }
 }
