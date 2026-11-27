@@ -27,6 +27,8 @@ pub struct Mirrors {
     fills: Arc<Mutex<HashMap<PathBuf, Fill>>>,
     /// Owns the background fills and repacks.
     scope: Arc<cmux_scope::Scope>,
+    /// Asks GitHub how big a repository is before its first fill (`expected_fill_bytes`).
+    http: Option<reqwest::Client>,
 }
 
 fn safe_component(s: &str) -> String {
@@ -337,6 +339,66 @@ struct Fill {
     no_room: bool,
 }
 
+/// Bytes the mirror's packs (and loose objects) hold now.
+fn pack_bytes(dir: &Path) -> u64 {
+    fn walk(p: &Path) -> u64 {
+        let Ok(entries) = std::fs::read_dir(p) else { return 0 };
+        entries
+            .flatten()
+            .map(|e| match e.file_type() {
+                Ok(t) if t.is_dir() => walk(&e.path()),
+                Ok(t) if t.is_file() => e.metadata().map(|m| m.len()).unwrap_or(0),
+                _ => 0,
+            })
+            .sum()
+    }
+    walk(&dir.join("objects"))
+}
+
+/// GitHub's API address for the repository a mirror's upstream URL names
+/// (`https://github.com/OWNER/REPO.git`), or `None` for another upstream (the edge, a peer, a test).
+fn api_repo_url(upstream_url: &str) -> Option<String> {
+    let rest = upstream_url.strip_prefix("https://github.com/")?;
+    let (owner, repo) = rest.trim_end_matches('/').split_once('/')?;
+    let repo = repo.strip_suffix(".git").unwrap_or(repo);
+    let ok = |s: &str| {
+        !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+    };
+    (ok(owner) && ok(repo) && !repo.contains('/'))
+        .then(|| format!("https://api.github.com/repos/{owner}/{repo}"))
+}
+
+/// The repository's size from GitHub's answer (`size`, in KiB), in bytes.
+fn api_size_bytes(body: &[u8]) -> Option<u64> {
+    let v: serde_json::Value = serde_json::from_slice(body).ok()?;
+    v.get("size")?.as_u64().map(|kib| kib.saturating_mul(1024))
+}
+
+/// How many more bytes a first fill of `dir` will write: GitHub's size of the repository less
+/// what the mirror already holds (a cut fill resumes). `None` when it cannot be known (no client,
+/// another upstream, GitHub did not answer); the fill then starts under the floor watch alone.
+async fn expected_fill_bytes(
+    http: Option<&reqwest::Client>,
+    upstream_url: &str,
+    authorization: Option<&[u8]>,
+    dir: &Path,
+) -> Option<u64> {
+    let (http, url) = (http?, api_repo_url(upstream_url)?);
+    let mut req = http
+        .get(&url)
+        .header("accept", "application/vnd.github+json")
+        .timeout(Duration::from_secs(15));
+    if let Some(value) = authorization {
+        req = req.header("authorization", value);
+    }
+    let resp = req.send().await.ok()?;
+    if !resp.status().is_success() {
+        return None;
+    }
+    let size = api_size_bytes(&resp.bytes().await.ok()?)?;
+    Some(size.saturating_sub(pack_bytes(dir)))
+}
+
 impl Mirrors {
     pub fn new(root: PathBuf) -> Self {
         Self {
@@ -345,7 +407,14 @@ impl Mirrors {
             keeps: Mutex::new(HashMap::new()),
             fills: Arc::new(Mutex::new(HashMap::new())),
             scope: Arc::new(cmux_scope::Scope::new("git-cache mirrors")),
+            http: None,
         }
+    }
+
+    /// The client a first fill asks GitHub's API for the repository's size with.
+    pub fn with_http(mut self, http: reqwest::Client) -> Self {
+        self.http = Some(http);
+        self
     }
 
     /// The tenant's mirror of `repo_key` (`owner/repo`, already validated and lowercased).
@@ -617,7 +686,9 @@ impl Mirrors {
         let lock = self.lock(&dir);
         let fills = self.fills.clone();
         let scope = self.scope.clone();
+        let http = self.http.clone();
         self.scope.spawn_until_cancelled("fill mirror", async move {
+            let mut refused = false;
             let ok = {
                 let _held = lock.lock().await;
                 let (n, bytes) = clear_partial_writes_older(&dir, STALE_PARTIAL);
@@ -629,7 +700,27 @@ impl Mirrors {
                     );
                 }
                 let fresh = !Self::filled(&dir);
-                let ok = Self::init(&dir).await
+                // A first fill is the whole repository: it must end above the floor, not just
+                // start there. A filled mirror's fetch is an increment the floor watch bounds.
+                if fresh
+                    && let Some(need) = expected_fill_bytes(
+                        http.as_ref(),
+                        &upstream_url,
+                        authorization.as_deref(),
+                        &dir,
+                    )
+                    .await
+                    && !crate::room::has_room_for(&dir, need)
+                {
+                    eprintln!(
+                        "git-cache: fill {} not started: {}",
+                        dir.display(),
+                        crate::room::why_not_for(&dir, need)
+                    );
+                    refused = true;
+                }
+                let ok = !refused
+                    && Self::init(&dir).await
                     && Self::fetch(
                         low_priority_git(),
                         &dir,
@@ -651,10 +742,16 @@ impl Mirrors {
             eprintln!(
                 "git-cache: fill {} {} in {:.1} s",
                 dir.display(),
-                if ok { "done" } else { "stopped (resumes on the next miss)" },
+                if ok {
+                    "done"
+                } else if refused {
+                    "refused by the floor"
+                } else {
+                    "stopped (resumes on the next miss)"
+                },
                 now.elapsed().as_secs_f64()
             );
-            let no_room = !ok && !crate::room::has_room(&dir);
+            let no_room = refused || (!ok && !crate::room::has_room(&dir));
             let mut fills = fills.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(f) = fills.get_mut(&dir) {
                 f.running = false;
@@ -684,8 +781,13 @@ impl Mirrors {
     /// instead of counting objects. Beside serving (git swaps packs atomically), at low priority.
     fn bitmap_later(scope: &cmux_scope::Scope, dir: PathBuf) {
         scope.spawn_until_cancelled("repack with bitmap", async move {
-            if !crate::room::has_room(&dir) {
-                eprintln!("git-cache: repack not started: {}", crate::room::why_not(&dir));
+            // `repack -a -d` writes the new pack beside the old ones before it drops them.
+            let need = pack_bytes(&dir);
+            if !crate::room::has_room_for(&dir, need) {
+                eprintln!(
+                    "git-cache: repack not started: {}",
+                    crate::room::why_not_for(&dir, need)
+                );
                 return;
             }
             let mut cmd = low_priority_git();
@@ -708,6 +810,46 @@ mod tests {
         assert_ne!(m.dir("team-1", "o/r"), m.dir("team-2", "o/r"));
         let odd = m.dir("../x", "o/r");
         assert!(odd.starts_with("/c/") && !odd.to_string_lossy().contains(".."));
+    }
+
+    #[test]
+    fn a_first_fill_asks_github_for_the_repository_size() {
+        assert_eq!(
+            api_repo_url("https://github.com/Manaflow-AI/cmux.git").as_deref(),
+            Some("https://api.github.com/repos/Manaflow-AI/cmux")
+        );
+        assert_eq!(
+            api_repo_url("https://github.com/o/r").as_deref(),
+            Some("https://api.github.com/repos/o/r")
+        );
+        for other in [
+            "http://127.0.0.1:9/o/r.git",
+            "https://edge.example/o/r.git",
+            "https://github.com/o/r/x.git",
+        ] {
+            assert_eq!(api_repo_url(other), None, "{other}");
+        }
+        // manaflow-ai/cmux's answer on 2026-11-26 was about this size.
+        assert_eq!(
+            api_size_bytes(br#"{"size": 16252928, "name": "cmux"}"#),
+            Some(16_252_928 * 1024)
+        );
+        assert_eq!(api_size_bytes(b"{}"), None);
+        assert_eq!(api_size_bytes(b"not json"), None);
+    }
+
+    #[tokio::test]
+    async fn a_mirror_holding_part_of_the_repository_needs_only_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("objects/pack");
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::write(pack.join("pack-a.pack"), vec![0u8; 4096]).unwrap();
+        assert_eq!(pack_bytes(dir.path()), 4096);
+        // No client: unknown, so the fill is left to the floor watch.
+        assert_eq!(
+            expected_fill_bytes(None, "https://github.com/o/r.git", None, dir.path()).await,
+            None
+        );
     }
 
     #[test]

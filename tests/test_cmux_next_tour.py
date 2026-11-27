@@ -887,6 +887,14 @@ class FixtureCropTests(unittest.TestCase):
         self.assertIn("not visible", self.tour.capture_fixture(self.app, self.path, self.config))
         self.assertFalse(self.path.exists())
 
+    def test_a_failed_command_step_names_its_reason(self) -> None:
+        # The job log prints `detail`; "exited 1" alone hid "no terminal is \"focused\"" (run 45880649238).
+        self.app.cli.return_value = subprocess.CompletedProcess([], 1, "", 'no terminal is "focused"\n')
+        result = self.tour.run_step(self.app, mock.Mock(), {"title": "Send", "cmux": ["terminal", "focused", "send"], "wait": 0},
+                                    1, self.path.parent)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["detail"], 'exited 1 (no terminal is "focused")')
+
     def test_capture_failure_cannot_leave_a_passing_step(self) -> None:
         step = {"title": "menu", "capture": self.config, "wait": 0}
         with mock.patch.object(self.tour, "capture_fixture", return_value="no native menu overlay"):
@@ -1094,6 +1102,46 @@ class WindowVideoTests(unittest.TestCase):
             self.assertFalse(recording.stop())
             process.kill.assert_called_once_with()
             self.assertIsNone(recording.process)
+
+class RecorderEndTests(unittest.TestCase):
+    """A window whose frames stop for good is named in the manifest (frames_ended): warn-before-quit-shortcut's
+    before quits on the first ⌘Q, and whats-new-clips.py ends its clip on the window going away."""
+
+    def record(self, answers):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import tour
+        screen = mock.Mock(mode="direct")
+        queue = list(answers)
+
+        def capture(path, kind):
+            answer = queue.pop(0) if queue else answers[-1]
+            if answer is None:
+                path.write_bytes(b"jpg")
+            return answer
+        screen.capture.side_effect = capture
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(tour, "frame_interval", return_value=0.01):
+            recorder = tour.Recorder(screen, Path(root))
+            recorder.step = 2
+            recorder.start()
+            deadline = time.monotonic() + 5
+            while (queue or screen.capture.call_count < len(answers) + 2) and time.monotonic() < deadline:
+                time.sleep(0.01)
+            frames = recorder.stop()
+        return frames, recorder.ended
+
+    def test_frames_that_stop_for_good_name_the_step_and_reason(self):
+        frames, ended = self.record([None, None, "no window server id for the app's window"])
+        self.assertEqual(len(frames), 2)
+        self.assertEqual((ended["step"], ended["reason"]), (2, "no window server id for the app's window"))
+
+    def test_a_capture_that_fails_once_then_recovers_ends_nothing(self):
+        _, ended = self.record([None, "busy", None])
+        self.assertIsNone(ended)
+
+    def test_a_window_never_captured_is_frames_error_not_an_end(self):
+        frames, ended = self.record(["no such window"])
+        self.assertEqual((frames, ended), ([], None))
+
 
 class CustomizeTemplatesTourTests(unittest.TestCase):
     """The customize-templates tour types each template into the app's terminal (base64, so
