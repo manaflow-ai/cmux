@@ -137,7 +137,8 @@ export async function runOnce(o: Options, d: Deps, run: number): Promise<RunResu
     }
     const terminal = r.terminal === true
     const status: Status = terminal ? "fail" : r.status
-    if (status === "fail") broken = true
+    // join and chat are what port and file stand on; port and file are each measured on their own.
+    if (status === "fail" && (name === "join" || name === "chat")) broken = true
     const seconds = Math.round(((d.now() - t0) / 1000) * 1000) / 1000
     results.push({ step: name, status, seconds, calls: n, terminal, detail: terminal ? `terminal needed: ${r.detail}` : r.detail })
     d.write(`run ${run} ${name}: ${status} ${seconds}s ${r.detail}`)

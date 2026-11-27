@@ -63,6 +63,12 @@ describe("own-machine-parity", () => {
     expect(r.runs[0]!.steps[1]).toMatchObject({ status: "fail", terminal: true })
     expect(r.runs[0]!.steps[2]!.status).toBe("skipped")
   })
+  test("a failed port step still measures the file step", async () => {
+    const { d } = deps((argv) => (argv.join(" ").includes(" ports") ? { code: 1, stdout: "", stderr: "port lookup failed" } : allBuilt(argv)))
+    const r = await runScenario({ ...opts(), runs: 1 }, d)
+    expect(r.runs[0]!.steps[2]!.status).toBe("fail")
+    expect(r.runs[0]!.steps[3]!.status).not.toBe("skipped")
+  })
   test("a machine that never connects fails the join and skips the rest", async () => {
     const { d } = deps((argv) => (argv.join(" ").includes("app machines") ? ok("[]") : allBuilt(argv)))
     const r = await runScenario({ ...opts(), runs: 1 }, d)
