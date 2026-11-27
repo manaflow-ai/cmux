@@ -1688,6 +1688,12 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_MCP_SERVERS)}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "picked-model" replies with the model this process's session runs (FAKE_PICKER's set_model or
+    # model option), "default" when none was set: what the agent itself runs, not acpmux's meta.
+    if text == "picked-model":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": PICKER_MODELS.get(sid, "default")}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "dirs" replies with the additionalDirectories of the last session/new, load or fork.
     if text == "dirs":
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": json.dumps(LAST_DIRS)}})
@@ -2524,7 +2530,7 @@ def main():
                 if os.environ.get("FAKE_PICKER_MODES") == "1":
                     result["modes"] = {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]}
                 elif os.environ.get("FAKE_PICKER_MODES") == "claude":
-                    result["modes"] = {"currentModeId": "default", "availableModes": [
+                    result["modes"] = {"currentModeId": os.environ.get("FAKE_PICKER_INITIAL_MODE", "default"), "availableModes": [
                         {"id": "default", "name": "Default"}, {"id": "acceptEdits", "name": "Accept Edits"},
                         {"id": "plan", "name": "Plan Mode"}, {"id": "bypassPermissions", "name": "Bypass Permissions"}]}
                 # FAKE_MODELS=<id,id>: the models this account offers (ACP `models`), as Codex reports them.
@@ -2839,7 +2845,7 @@ def main():
                 import time as pause  # main() binds `time` locally
                 pause.sleep(int(os.environ["FAKE_SET_MODE_DELAY_MS"]) / 1000)
             # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change (after that delay).
-            if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
+            if os.environ.get("FAKE_SET_MODE_FAIL") == "1" or params.get("modeId") in os.environ.get("FAKE_REFUSE_MODES", "").split(","):
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": {}})

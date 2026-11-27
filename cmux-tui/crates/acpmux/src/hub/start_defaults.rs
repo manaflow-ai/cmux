@@ -428,7 +428,7 @@ fn c_ids(curated: Option<&CatalogHarness>) -> Vec<String> {
 /// Whether reported id `id` names `model`: the same id, or a DSH route
 /// (`["provider","model"]`) for `model` or `provider/model`, as
 /// `model_catalog::resolve` accepts them.
-fn names(id: &str, model: &str) -> bool {
+pub(super) fn names(id: &str, model: &str) -> bool {
     id == model
         || serde_json::from_str::<Vec<String>>(id)
             .is_ok_and(|p| p.len() == 2 && (p[1] == model || format!("{}/{}", p[0], p[1]) == model))
