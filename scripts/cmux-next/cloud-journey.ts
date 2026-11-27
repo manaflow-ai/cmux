@@ -326,17 +326,54 @@ export function readyMs(steps: Step[]): number | null {
   return total;
 }
 
+/**
+ * Whether create took a warm spare, from what the run read: the claim answer's spare_fallback (a create: cold), its
+ * claim object (claimed_behind is set only with one: warm), else the guest timeline's claimed_spare. Null: not known.
+ */
+export function spareTaken(extra: Pick<ProbeExtra, "spare_fallback" | "claimed_behind" | "claimed_spare">): boolean | null {
+  if (extra.spare_fallback) return false;
+  if (extra.claimed_behind != null) return true;
+  return extra.claimed_spare ?? null;
+}
+
+/**
+ * The plan's start numbers (cmuxterm-hq plans/cloud/ARCHITECTURE-2026-11.md), reported and never enforced:
+ * agent_ready_ms is the create call to agent started (readyMs), labeled warm or cold by the spare the claim took;
+ * first_reply_ms is send chat plus reply (the probe row's ms).
+ */
+export function agentReady(steps: Step[], warm: boolean | null): { agent_ready_ms: number | null; agent_ready_path: "warm" | "cold" | null; first_reply_ms: number | null } {
+  const send = steps.find((s) => s.step === "send chat");
+  const reply = steps.find((s) => s.step === "reply");
+  return { agent_ready_ms: readyMs(steps), agent_ready_path: warm === null ? null : warm ? "warm" : "cold", first_reply_ms: send?.status === "pass" && reply?.status === "pass" ? send.ms + reply.ms : null };
+}
+
+/** The M17, G1 warm and M3 lines for the summary: pass, fail, or not judged and why. */
+export function milestoneLines(steps: Step[], warm: boolean | null): string[] {
+  const { agent_ready_ms: ready, agent_ready_path: path, first_reply_ms: reply } = agentReady(steps, warm);
+  const start = steps.find((s) => s.step.startsWith("start agent ("));
+  const judge = (name: string, ms: number | null, limit: number, strict: boolean, why: string | null) =>
+    `- ${name}: ${why ?? (ms === null ? "not judged: not measured" : `${(strict ? ms < limit : ms <= limit) ? "pass" : "fail"} (${ms} ms, ${strict ? "<" : "<="} ${limit} ms)`)}`;
+  const warmOnly = path === "warm" ? null : `not judged: a ${path ?? "warm-or-cold unknown"} start`;
+  return [
+    `agent_ready_ms: ${ready ?? "-"} (${path ?? "warm or cold unknown"}); first_reply_ms: ${reply ?? "-"}`,
+    judge("M17 click to agent ready, warm", ready, 1000, false, warmOnly),
+    judge("G1 first reply, warm", reply, 3000, true, warmOnly),
+    judge("M3 agent started step", start?.status === "pass" ? start.ms : null, 4000, false, null),
+  ];
+}
+
 /** A failed command's output for a step's detail: its start, where a CLI puts the error, and its end. */
 const headTail = (out: string): string => (out.length <= 600 ? out : `${out.slice(0, 300)} ... ${out.slice(-300)}`);
 
-export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<string, string> = {}): string {
+export function summaryMarkdown(backend: Backend, steps: Step[], meta: Record<string, string> = {}, warm: boolean | null = null): string {
   const failed = steps.filter((s) => s.status === "fail").length;
   const total = steps.reduce((n, s) => n + s.ms, 0);
   const ready = readyMs(steps);
   const head = `${failed ? "FAIL" : "PASS"}: Cloud journey on \`${backend.name}\` (${backend.api}), ${(total / 1000).toFixed(1)} s${ready === null ? "" : `; create machine to agent running ${(ready / 1000).toFixed(1)} s`}`;
   const extra = Object.entries(meta).map(([k, v]) => `${k}: ${v}`).join(", ");
   const rows = steps.map((s) => `| ${s.status === "pass" ? "pass" : s.status === "fail" ? "**FAIL**" : "skip"} | ${s.step} | ${s.ms} | ${s.detail.replace(/\|/g, "\\|").replace(/\n/g, " ").slice(0, 1000)} |`);
-  return [head, extra ? `\n${extra}` : "", "", "| result | step | ms | detail |", "|---|---|---:|---|", ...rows, ""].join("\n");
+  const milestones = steps.some((s) => s.step === "create machine") ? ["", ...milestoneLines(steps, warm)] : [];
+  return [head, extra ? `\n${extra}` : "", ...milestones, "", "| result | step | ms | detail |", "|---|---|---:|---|", ...rows, ""].join("\n");
 }
 
 /** Preclaim artifacts are public: retain only the step outcome, never an API response or identifier. */
@@ -357,6 +394,8 @@ export class Journey {
   preclaimRows: PreclaimClaimRecord[] | null = null;
   preclaimBurst: PreclaimBurstFacts | null = null;
   preclaimFailures: PreclaimFailureRecord[] = [];
+  /** Whether create took a warm spare (spareTaken), for the summary's warm/cold label; null until known. */
+  warm: () => boolean | null = () => null;
   constructor(readonly backend: Backend, private readonly outDir: string | null, readonly meta: Record<string, string>, private readonly publicSafe = false) {}
   async step<T>(name: string, fn: () => Promise<{ value: T; detail: string }>): Promise<T> {
     const t0 = Date.now();
@@ -389,7 +428,7 @@ export class Journey {
     writeFileSync(path.join(this.outDir, "journey.json"), `${JSON.stringify({ backend: this.backend, meta, steps: this.steps }, null, 2)}\n`);
     writeFileSync(path.join(this.outDir, "guest-updater.json"), `${JSON.stringify({ schema: 1, observations: this.guestDiagnostics }, null, 2)}\n`);
     const preclaim = this.preclaimRows === null ? "" : `\n${preclaimSummaryMarkdown(this.preclaimRows, this.preclaimFailures, this.preclaimBurst)}`;
-    writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, meta) + preclaim);
+    writeFileSync(path.join(this.outDir, "summary.md"), summaryMarkdown(this.backend, this.steps, meta, this.publicSafe ? null : this.warm()) + preclaim);
   }
 }
 
@@ -524,6 +563,13 @@ export const ownerUnreachable = (body: any): boolean => {
   const e = body?.error && typeof body.error === "object" ? body.error : body;
   return e?.code === "owner.unreachable" && e?.retryable === true;
 };
+/**
+ * A machine delete sends the same key again on either retryable answer: a cut-off provider call, or an owner reset
+ * (owner.unreachable). Retrying only the first leaked all six machines of drill run 45979891007 (staging's team
+ * object overloaded and reset, 2026-11-27): each delete answered owner.unreachable once and gave up, and the drills'
+ * long names keep a leak for LONG_JOURNEY_MS before any sweep may delete it.
+ */
+export const deleteRetryable = (body: any): boolean => opRetryable(body) || ownerUnreachable(body);
 /** How long the resume matrix's send arm waits for cmux's own idle pause: the aggressive policy's 60 s window after
  * the turn ends, the VM's next activity report, and the pause itself. */
 const AUTO_PAUSE_WAIT_MS = 300_000;
@@ -594,7 +640,7 @@ export class Api {
   }
   /**
    * A machine delete that must not leak: retried under the same key while the ops API answers it was cut off
-   * (mutation.indeterminate, retryable), for up to `budgetMs`. op() gives up after three tries in about six
+   * (mutation.indeterminate, retryable) or its owner was reset (owner.unreachable), for up to `budgetMs`. op() gives up after three tries in about six
    * seconds, which leaked a machine on a 502 storm (cmux-vm run 42485334511).
    */
   async deleteMachine(machine: string, key: string, budgetMs = DELETE_BUDGET_MS): Promise<any> {
@@ -602,7 +648,7 @@ export class Api {
     await this.fresh();
     for (let attempt = 1; ; attempt++) {
       const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, await this.headers(), 60_000, true);
-      if (opRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
+      if (deleteRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`cloud.machine.delete: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
     }
@@ -3205,7 +3251,8 @@ export function probeRow(probe: string, steps: Step[], run?: string, at = new Da
   const ready = readyMs(steps);
   const fields = context ? [...steps].reverse().find((s) => s.fields)?.fields : undefined;
   const { failure_facts, ...spare } = extra;
-  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...(ready === null ? {} : { ready_ms: ready }), ...context, ...fields, ...spare };
+  const warm = spareTaken(extra);
+  const base = { probe, at: at.toISOString().replace(/\.\d+Z$/, "Z"), runner: "github-actions", ...(run ? { run } : {}), ...(ready === null ? {} : { ready_ms: ready, agent_ready_ms: ready, agent_ready_path: warm === null ? null : warm ? "warm" : "cold" }), ...context, ...fields, ...spare };
   if (reply?.status === "pass" && send) return { ...base, outcome: "ok", ms: send.ms + reply.ms };
   return { ...base, outcome: "fail", error: failed ? `${failed.step}: ${failed.detail}`.slice(0, 300) : "no reply step ran", ...(failure_facts ? { failure_facts } : {}) };
 }
@@ -3745,6 +3792,36 @@ export async function waitOwnerKind(exec: Exec, budgetMs = 90_000, pauseMs = 3_0
   }
 }
 
+/** The exit of {@link ownerKindGated} when the record does not read owner: the start after it did not run. */
+export const OWNER_KIND_GATE_EXIT = 97;
+
+/**
+ * {@link OWNER_KIND_PROGRAM} ahead of `command` in one exec: `command` runs only once the record reads owner, and the
+ * read prints `@@kind_ms N`. The start must not run before owner (team mode loses its launch credential), so the two
+ * cannot run side by side; one exec still drops the owner read's own trip to the machine and back (1.6 to 2.3 s
+ * before the start on the real leg's last two ok runs, 45563753386 and 45571173365).
+ */
+export function ownerKindGated(command: string): string {
+  return `__cmux_k0=$(date +%s%N)\n${OWNER_KIND_PROGRAM}\necho "@@kind_ms $(( ($(date +%s%N) - __cmux_k0) / 1000000 ))"\n` +
+    `if [ "$k" != owner ]; then exit ${OWNER_KIND_GATE_EXIT}; fi\n${command}`;
+}
+
+/**
+ * A start behind the owner read, both in one exec ({@link ownerKindGated}). A record that reads owner calls `onOwner`
+ * with the read's guest ms and returns the start's answer. Any other answer (not owner yet, or no read) runs `waitKind`,
+ * the journey's own wait, which fails the run as it did before, and then the start on its own.
+ */
+export async function startAfterOwnerKind(exec: Exec, command: string, timeoutMs: number, waitKind: () => Promise<void>, onOwner: (kindMs: number | null) => void): Promise<ExecResult> {
+  const r = await exec(guestTimed(ownerKindGated(command)), timeoutMs);
+  if (/^vm-kind=owner$/m.test(r.stdout)) {
+    const m = /@@kind_ms (\d+)/.exec(r.stdout);
+    onOwner(m ? Number(m[1]) : null);
+    return r;
+  }
+  await waitKind();
+  return exec(guestTimed(command), timeoutMs);
+}
+
 /** What the journey accepts as a login to install, per provider. */
 export function validLogin(provider: "claude" | "codex", value: string): boolean {
   if (Buffer.byteLength(value) > 12_000) return false;
@@ -4268,7 +4345,21 @@ export function autoMachineName(tag: string, long: boolean): string {
 }
 /** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
 export const IDLE_JOURNEY_MS = 60 * 60_000;
+/**
+ * A failed machine is dead whatever its age: the platform never brings a failed machine back, so a run's own
+ * window is no reason to keep it. Its own run deletes it inside the failing step (a create_overdue answer, then up to
+ * DELETE_BUDGET_MS of delete), so a failed machine is the sweep's once its tag is this old. Waiting LONG_JOURNEY_MS
+ * instead grew the drill account about 11 machines per drill pair (run 45979891007 left six failed ones; census
+ * 10:29Z 2026-11-27: 130 machines, 37 failed) while each sweep deleted 0-1.
+ */
+export const FAILED_JOURNEY_MS = 15 * 60_000;
 export interface StaleMachine { id: string; name: string; status: string; created: string }
+/** The account's machines counted by state, for the sweep's before and after (`running 12, paused 63, failed 37`). */
+export function machinesByState(rows: any[]): string {
+  const n = new Map<string, number>();
+  for (const r of rows) { const s = String(r?.status ?? "?"); n.set(s, (n.get(s) ?? 0) + 1); }
+  return [...n].sort((a, b) => b[1] - a[1]).map(([s, c]) => `${s} ${c}`).join(", ") || "none";
+}
 
 /**
  * The machines earlier journey runs meant to delete and left behind (killed or timed out before their cleanup):
@@ -4277,7 +4368,8 @@ export interface StaleMachine { id: string; name: string; status: string; create
  * staging test team to its 300-machine cap, cloud.quota.vm_limit on 2026-11-25), a name only a run that deletes its
  * machine gives, whose tag (`Date.now().toString(36)`, the run's start) is more than `maxAgeMs` old (`longMs` for a
  * long run's `jr-<tag> long…`), with no activity
- * in the last IDLE_JOURNEY_MS (`last_active_at`, when the row has it), and not deleted.
+ * in the last IDLE_JOURNEY_MS (`last_active_at`, when the row has it), and not deleted. A failed one is picked once
+ * its tag is FAILED_JOURNEY_MS old, whatever its window or activity.
  * Ownership is the name, never age or state: a --keep run's `cloud journey jr-<tag>`, any other name, and a tag that
  * does not read as a time are never picked.
  */
@@ -4293,8 +4385,8 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
-    if (nowMs - started <= (m[2] ? longMs : maxAgeMs)) continue;
-    if (typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
+    if (r.status === "failed" ? nowMs - started <= FAILED_JOURNEY_MS : nowMs - started <= (m[2] ? longMs : maxAgeMs)) continue;
+    if (r.status !== "failed" && typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
     const id = String(r.id ?? r.machine_id ?? "");
     const created = typeof r.created_at === "number" ? new Date(r.created_at).toISOString() : new Date(started).toISOString();
     if (id) out.push({ id, name, status: String(r.status ?? "?"), created });
@@ -5127,6 +5219,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // (the page-in, hq#17877's resume-memory-probe.sh measure, now beside the matrix's points).
   // --wake-echo N: right after the machine runs, N platform pause/wake cycles timed to the first echo of a typed
   // character (cloud-wake-echo.ts), then the machine is deleted; nothing else of the journey runs.
+  const cleanupCreatedIdsOnly = argv.includes("--cleanup-created-ids-only");
   const wakeEchoN = Number(argValue("--wake-echo", argv) ?? 0);
   const wakeEchoHoldMs = Number(argValue("--wake-echo-hold", argv) ?? 5) * 1000;
   const wakeEchoDeadline = argValue("--wake-echo-deadline", argv);
@@ -5238,8 +5331,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   };
   // The journey-only checks, once the machine runs: after the reply, or after the failure that cut the chat off.
   let runJourneyOnly: (() => Promise<void>) | null = null;
+  // The Cloud scroll-stress probe (SCROLL_PROBE_STEP), once the machine runs: after the carrier dial, or after the
+  // failure that cut the chat off, so a red chat still measures the Cloud terminal surface.
+  let runScrollProbe: (() => Promise<void>) | null = null;
   // What probe.json adds once create answered: the claim's spare report, claimed_spare and the failure facts.
   const probeExtra: ProbeExtra = {};
+  J.warm = () => spareTaken(probeExtra);
   let factsRead = false;
   // --preclaim-login's warm-spare state dir, removed by the cleanup.
   let preclaimStateDir: string | null = null;
@@ -5351,7 +5448,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     if (deleted) return;
     let id = machine;
-    if (!id) {
+    if (!id && !cleanupCreatedIdsOnly) {
       // Every page: the machine may sit past the first (a shared account's list).
       const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
       id = rows.find((r) => r?.name === machineName && r.status !== "deleted")?.id ?? null;
@@ -5431,7 +5528,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const v = await api.op("user.ensure", {}, `${tag}-ensure`);
       return { value: v, detail: `user ${v.id ?? v.user?.id ?? "?"}` };
     });
-    if (!keep) {
+    if (!keep && !cleanupCreatedIdsOnly) {
       // Installs that killed runs left live fill the account's state until install.register is refused
       // (owner.state_full). Revoked ones past 100 are pruned, so revoking frees the space. Never fails the journey.
       const name = "sweep leaked journey installs";
@@ -5570,7 +5667,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `was ${before}; set before the chat machine is made, so its edge route goes to the gateway` };
       });
     }
-    if (!keep) {
+    if (!keep && !cleanupCreatedIdsOnly) {
       // Machines that killed or timed-out runs left behind hold the account's quota (cloud.quota.exceeded at create).
       // A sweep error never fails the journey: the step is recorded as skipped with the error, and create goes on.
       const name = "sweep leaked journey machines";
@@ -5585,7 +5682,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           console.log(`sweep: deleting ${m.id} "${m.name}" status ${m.status} created ${m.created}`);
           await api.deleteMachine(m.id, `${tag}-sweep-${m.id}`).catch((e) => failed.push(`${m.id}: ${err(e)}`));
         }
-        const detail = `${stale.length - failed.length} of ${stale.length} leaked deleted (${rows.length} machines)${stale.length ? `: ${stale.map((m) => m.id).join(", ")}` : ""}${failed.length ? `; failed ${failed.join("; ")}` : ""}`;
+        // The account's count by state before and after, so a run's log shows whether the account is shrinking.
+        const after = await listAllMachines((params) => api.read("cloud.machine.list", params)).then((r) => `${r.length} machines: ${machinesByState(r)}`, (e) => `list failed: ${err(e)}`);
+        console.log(`sweep: before ${rows.length} machines: ${machinesByState(rows)}; after ${after}`);
+        const detail = `${stale.length - failed.length} of ${stale.length} leaked deleted; before ${rows.length} machines: ${machinesByState(rows)}; after ${after}${stale.length ? `: ${stale.map((m) => m.id).join(", ")}` : ""}${failed.length ? `; failed ${failed.join("; ")}` : ""}`;
         J.record({ step: name, status: failed.length ? "skip" : "pass", ms: Date.now() - t0, detail });
       } catch (e) {
         J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `list failed: ${err(e)}` });
@@ -5772,8 +5872,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-we-pause-${k++}`);
             return awaitPaused(async () => String((await row())?.status ?? "unread"), t0, 180_000);
           },
-          wake: () => startWithRetry(
-            (key) => api.raw("POST", "/v1/ops", { op: "cloud.machine.start", params: { machine: created.id }, idempotency_key: key }, 180_000),
+          wake: (recordAttempt) => startWithRetry(
+            async (key) => {
+              const sent = Date.now();
+              const r = await api.raw("POST", "/v1/ops", { op: "cloud.machine.start", params: { machine: created.id }, idempotency_key: key }, 180_000);
+              const answered = Date.now();
+              const timing = parseServerTiming(r.headers?.get("server-timing"));
+              const metrics = Object.fromEntries(Object.entries(timing ?? {}).filter(([name, ms]) =>
+                ["provider", "vmapi", "bind", "pre", "finish", "total"].includes(name) && Number.isFinite(ms)));
+              recordAttempt?.({ sent_at_ms: sent, answered_at_ms: answered, http_status: r.status,
+                machine_status: r.body?.value?.machine?.status ?? null, timing_ms: metrics });
+              return r;
+            },
             () => `${tag}-we-start-${k++}`,
             async () => String((await row())?.status ?? "unread"),
             180_000,
@@ -5805,6 +5915,28 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: r.stdout.trim() || "clean" };
       });
     }
+    // Report only: a probe that does not run leaves the Cloud surface unmeasured (NOW reads it unknown, never 0)
+    // instead of turning the chat journey red. `--skip scroll` leaves it out. The production journeys pass no --cmux
+    // (the carrier dial stays off there) but do pass the shipped cmux-tui as --preclaim-login, which serves the probe.
+    // Every production run from 11-27 04:16Z to 06:24Z failed at "reply" (no inference gateway online, Codex not
+    // signed in), and the probe sat after it behind --cmux, so the Cloud surface never got a reading.
+    const scrollCmux = cmux ?? preclaimLoginCmux;
+    let scrollProbeStarted = false;
+    const scrollProbe = async () => {
+      if (scrollProbeStarted) return;
+      scrollProbeStarted = true;
+      if (only.has("scroll")) return J.skip(SCROLL_PROBE_STEP, "--skip scroll");
+      if (!scrollCmux) return J.skip(SCROLL_PROBE_STEP, "not measured: no cmux-tui (--cmux or --preclaim-login)");
+      const t0 = Date.now();
+      try {
+        const t = await carrierScrollProbe(scrollCmux, api, created.id);
+        probeExtra.terminal_scroll = t;
+        J.record({ step: SCROLL_PROBE_STEP, status: "pass", ms: Date.now() - t0, detail: scrollDetail(t) });
+      } catch (e) {
+        J.record({ step: SCROLL_PROBE_STEP, status: "skip", ms: Date.now() - t0, detail: `not measured: ${(e as Error).message}`.slice(0, 1000) });
+      }
+    };
+    runScrollProbe = scrollProbe;
     // The checks only the journey makes (JOURNEY_ONLY_STEPS): none is part of what a person's chat waits on, so they
     // run after the reply, outside J.firstText's create-to-first-text window (they cost about 6 s at p50 inside it).
     // A run cut off before the reply runs them after the failure, before cleanup, so each still passes or fails.
@@ -6474,13 +6606,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }).catch(() => undefined);
       for (const step of ["send chat", "reply"]) J.skip(step, "--start-via app: the cell judges the app's start");
     } else {
-      await ownerKindStep();
+      // The owner read rides the start's own exec (startAfterOwnerKind): one trip to the machine, not two. Its step
+      // is still recorded, with its guest ms; a record that is not owner yet falls back to ownerKindStep's wait.
+      const kindNeeded = Boolean(provider && !team && !gatewayAny);
+      const startExec = (command: string) => kindNeeded
+        ? startAfterOwnerKind(exec, command, 120_000, ownerKindStep, (ms) => J.record({ step: "machine kind owner", status: "pass", ms: ms ?? 0, detail: `/etc/cmux/vm-kind reads owner (read in the start's exec${ms === null ? "" : `, ${ms} ms on the guest`})` }))
+        : exec(guestTimed(command), 120_000);
       J.firstText.mark("session_start");
       let promptedWithStart = false;
       await J.step(`start agent (${agent})`, async () => {
         if (launchCredential) {
           // The first prompt follows session/new on the same acpmux link, as the app's first send does.
-          const r = await exec(guestTimed(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login, prompt, sendTrace.id)}`), 120_000);
+          const r = await startExec(`${GUEST}${launchCredentialStartProgram(session, agent, "CLAUDE_CODE_OAUTH_TOKEN", login, prompt, sendTrace.id)}`);
           const id = /@@session (\S+)/.exec(r.stdout)?.[1];
           if (!id) throw new Error(scrub(r.stdout.slice(-400) || r.stderr.slice(-400), [login]));
           J.firstText.mark("session_ready");
@@ -6496,7 +6633,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           // sends the first prompt on the link its start opened. Before, the journey ran `acp ensure` and then `acp send`
           // as two execs and two fresh cmux-tui processes: session_ready -> sent 2,566 and 2,515 ms on the real leg's
           // last two ok runs (45563753386, 45571173365), a cost no person's first send pays.
-          const r = await exec(guestTimed(`${GUEST}${launchCredentialStartProgram(session, agent, null, null, prompt, sendTrace.id)}`), 120_000);
+          const r = await startExec(`${GUEST}${launchCredentialStartProgram(session, agent, null, null, prompt, sendTrace.id)}`);
           const id = /@@session (\S+)/.exec(r.stdout)?.[1];
           if (!id) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
           J.firstText.mark("session_ready");
@@ -6506,7 +6643,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           J.firstText.mark("sent");
           return { value: null, detail: `session ${session}, on the login copied on spare.ready; its first prompt went with the start${guestDetail(guestMs(r.stdout))}` };
         }
-        const r = await exec(guestTimed(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`), 120_000);
+        const r = await startExec(`${GUEST}"$c" acp ensure ${shq(session)} -m ${shq(agent)} --json 2>&1; echo "@@exit $?"`);
         if (!/@@exit 0/.test(r.stdout)) throw new Error(r.stdout.slice(-400) || r.stderr.slice(-400));
         J.firstText.mark("session_ready");
         J.firstText.guest("harness_spawn", guestMs(r.stdout));
@@ -6756,19 +6893,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const d = await carrierDial(cmux, api, created.id);
         return { value: null, detail: dialDetail(d) };
       });
-      // Report only: a probe that does not run leaves the Cloud surface unmeasured (NOW reads it unknown, never 0)
-      // instead of turning the chat journey red. `--skip scroll` leaves it out.
-      if (only.has("scroll")) J.skip(SCROLL_PROBE_STEP, "--skip scroll");
-      else {
-        const t0 = Date.now();
-        try {
-          const t = await carrierScrollProbe(cmux, api, created.id);
-          probeExtra.terminal_scroll = t;
-          J.record({ step: SCROLL_PROBE_STEP, status: "pass", ms: Date.now() - t0, detail: scrollDetail(t) });
-        } catch (e) {
-          J.record({ step: SCROLL_PROBE_STEP, status: "skip", ms: Date.now() - t0, detail: `not measured: ${(e as Error).message}`.slice(0, 1000) });
-        }
-      }
+      await scrollProbe();
       if (autocloudTui) {
         await J.step("autocloud TUI chat (cmux-autocloud --machine)", async () => ({ value: null, detail: autocloudTuiChat(autocloudTui, cmux, api, created.id, agent, modelStub ? null : "pong") }));
       }
@@ -6782,6 +6907,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `${r.body.value.relay}, ticket until ${r.body.value.expires_at}, grant and daemon key present` };
       });
       J.skip("connect (carrier dial)", "--cmux is required for a carrier dial");
+      await scrollProbe();
     }
     if (createAnsweredAt !== null) {
       await J.step("guest carrier timeline", async () => {
@@ -7083,6 +7209,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // A red run is the one whose trace matters most: save it before cleanup deletes the machine.
     await saveSendTraceOnce();
     await runJourneyOnly?.().catch(() => undefined);
+    await runScrollProbe?.().catch(() => undefined);
   } finally {
     await finishJourney(cleanup, firstTextObserver, onSignal);
   }

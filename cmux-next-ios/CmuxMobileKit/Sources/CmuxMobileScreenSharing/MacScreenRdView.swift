@@ -20,6 +20,14 @@ struct MacScreenRdView: View {
                 StreamedViewOnlySurface(model: model, label: title, identifier: "macScreen.stream")
             }
             status
+            if StreamedBrowserOverlay.enabled {
+                // The measurement meter (DEBUG, or `-cmux-mobile-browser-meter`), as the browser and
+                // simulator pages draw it: bottom left, clear of Close and Keyboard at the top right.
+                StreamedBrowserOverlay(model: model)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    .padding(.bottom, 24)
+                    .allowsHitTesting(false)
+            }
         }
         .ignoresSafeArea()
         .background(Color.black.ignoresSafeArea())

@@ -4,6 +4,7 @@ change can fail, and every group when it cannot tell (fails open)."""
 
 import json
 import fnmatch
+import re
 import subprocess
 import sys
 import tempfile
@@ -87,6 +88,73 @@ class Reach(unittest.TestCase):
                   "scripts/cmux-next/build-app-ffi.sh", "Packages/macOS/CmuxNext/LinuxAppFFI/x"):
             self.assertEqual(reach.reach([f])["listed"], "Packages/macOS/CmuxNext", f)
         self.assertEqual(reach.reach(["cmux-tui/README.md"])["listed"], "")
+
+    def test_extra_inputs_reach_the_kit_row_and_group(self):
+        for pkg, prefixes in reach.EXTRA_INPUTS.items():
+            for prefix in prefixes:
+                f = prefix + "x.json" if prefix.endswith("/") else prefix
+                out = reach.reach([f])
+                self.assertIn(pkg, out["listed"].split(), f)
+                self.assertIn("ios-kit", out["groups"], f)
+        self.assertEqual(reach.reach(["cmux-next-ios/rust/crates/cmux-mobile-link-ffi/src/lib.rs"])["groups"], [])
+
+    def test_every_file_a_listed_kit_test_reads_outside_the_kit_is_an_extra_input(self):
+        """The detector: a listed CmuxMobileKit test target that reads a file outside the kit through `#filePath`
+        (a string literal naming a path that exists from one of the test file's ancestors) must name it in
+        EXTRA_INPUTS, or a change to that file alone runs none of the Swift tests that read it."""
+        kit = "cmux-next-ios/CmuxMobileKit"
+        row = next(line.split() for line in (ROOT / reach.LIST).read_text().splitlines()
+                   if line.split() and line.split()[0].rstrip("/") == kit)
+        targets = row[1].split(",")
+        literal = re.compile(r'"((?:[^"\\]|\\.)*)"')
+        found = {}
+        for target in targets:
+            for f in sorted((ROOT / kit / "Tests" / target).rglob("*.swift")):
+                text = f.read_text(errors="replace")
+                if "#filePath" not in text:
+                    continue
+                for m in literal.finditer(text):
+                    s = m.group(1)
+                    if "\\(" in s:  # an interpolated name: its directory is the input
+                        s = s.split("\\(")[0].rsplit("/", 1)[0] + "/"
+                    if "/" not in s or s.startswith(("/", "http")) or " " in s:
+                        continue
+                    for up in f.parents:
+                        if up == ROOT.parent:
+                            break
+                        if (up / s).exists():
+                            rel = (up / s).resolve().relative_to(ROOT).as_posix()
+                            if not rel.startswith(kit + "/"):
+                                found.setdefault(rel, f.relative_to(ROOT).as_posix())
+                            break
+        self.assertIn("cmux-next-ios/rust/crates/cmux-mobile-link-ffi/tests/fixtures/connection_contract.json", found)
+        prefixes = reach.EXTRA_INPUTS[kit]
+        for rel, by in found.items():
+            self.assertTrue(rel.startswith(prefixes) or rel + "/" in prefixes,
+                            f"{by} reads {rel}; name it in swift_linux_reach.py EXTRA_INPUTS")
+
+    def test_push_paths_and_router_name_every_extra_input(self):
+        router = json.loads((ROOT / "scripts/ci/pr_router.json").read_text())
+
+        def find(o):
+            if isinstance(o, dict):
+                entry = o.get("swift-linux-packages.yml")
+                if isinstance(entry, dict) and "affects" in entry:
+                    return entry
+                for v in o.values():
+                    hit = find(v)
+                    if hit is not None:
+                        return hit
+            return None
+
+        entry = find(router)
+        push = WORKFLOW.read_text().split("  workflow_dispatch:")[0]
+        for prefixes in reach.EXTRA_INPUTS.values():
+            for prefix in prefixes:
+                want = prefix + "**" if prefix.endswith("/") else prefix
+                self.assertIn(want, entry["affects"], f"pr_router.json affects misses {want}")
+                self.assertIn(want, entry["paths"], f"pr_router.json paths misses {want}")
+                self.assertIn(f"      - {want}\n", push, f"{WORKFLOW.name} push paths miss {want}")
 
     def test_a_lost_target_list_fails_open(self):
         with tempfile.TemporaryDirectory() as d:

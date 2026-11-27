@@ -1081,6 +1081,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/history/read",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/surgery",
       "params": true,
       "result": true
@@ -1278,6 +1284,20 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/undelete",
+      "params": {
+        "$ref": "#/types/UndeleteParams"
+      },
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/deleted",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/side",
       "params": {
         "$ref": "#/types/SideParams"
@@ -1331,6 +1351,12 @@
     {
       "kind": "request",
       "name": "_acpmux/scorecard",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/scorecard_replay",
       "params": true,
       "result": true
     },
@@ -2727,6 +2753,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/heap_profile",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/peers",
       "params": {
         "$ref": "#/types/PeersParams"
@@ -2742,6 +2774,12 @@
     {
       "kind": "request",
       "name": "_acpmux/host_health",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/wireguard_admit",
       "params": true,
       "result": true
     },
@@ -3676,6 +3714,13 @@
             "null"
           ]
         },
+        "hold": {
+          "description": "The hold of a chat whose rows come from the row store (`attach-hold-v1`,\n`server/requests.rs` `hold_attach_filter`): no page and no log read, only the exact\npage-state `kinds` streamed live; needs `eventStream: true`.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "kinds": {
           "anyOf": [
             {
@@ -4322,6 +4367,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "attachments": true,
         "sessionId": true
       },
       "type": "object"
@@ -4332,6 +4378,7 @@
         "_meta": {
           "$ref": "#/types/RequestMeta"
         },
+        "attachments": true,
         "sessionId": true,
         "text": true
       },
@@ -5283,6 +5330,7 @@
         "cancelFork": true,
         "cancelToken": true,
         "expectRevision": true,
+        "grace": true,
         "ifIdle": true,
         "purge": true,
         "sessionId": true
@@ -10426,6 +10474,16 @@
         "sessionId",
         "on"
       ],
+      "type": "object"
+    },
+    "UndeleteParams": {
+      "additionalProperties": false,
+      "properties": {
+        "_meta": {
+          "$ref": "#/types/RequestMeta"
+        },
+        "sessionId": true
+      },
       "type": "object"
     },
     "UsageParams": {

@@ -210,6 +210,18 @@ export class ChatSource {
     this.host.close(shown.sid);
   }
 
+  /// The cmux host refused the chat's hold (holdKinds.ts `holdAttachRefused`): the chat leaves the
+  /// store and is v1 until another chat is chosen, as after a fall; its caller asks the plain attach.
+  holdRefused(chat: string): void {
+    const shown = this.shown;
+    if (shown?.chat !== chat) return;
+    this.shown = undefined;
+    shown.stop();
+    this.host.close(shown.sid);
+    this.fallen.add(chat);
+    this.toV1(chat);
+  }
+
   /// A batch from the host, as the document's receiver (`window.cmuxChatRows`) takes it.
   receive(event: { batch: number; changes: readonly string[] }): void {
     receiveChatRows(event);

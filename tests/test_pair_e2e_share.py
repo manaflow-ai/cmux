@@ -82,6 +82,16 @@ class RdViewerTests(unittest.TestCase):
         self.assertTrue(positive_fps(phone.stats()))
         self.assertIs(phone.screen_view(), stream)
 
+    def test_reads_the_mac_screen_viewers_meter_and_taps_its_stream(self):
+        # Run 45991353675: the rd/1 viewer is MacScreenRdView (macScreen.stream), not a browser page.
+        stream = {"AXIdentifier": "macScreen.stream", "frame": {"x": 0, "y": 0, "width": 390, "height": 844}}
+        phone = self.phone([stream, {"AXIdentifier": "macScreen.close"},
+                            {"AXLabel": "24 fps · 1900 kbps · 1512×982 · lan"}])
+        self.assertTrue(positive_fps(phone.stats()))
+        self.assertIs(phone.screen_view(), stream)
+        self.assertEqual(viewer_state(phone.ui.nodes),
+                         "viewer: no card; views: macScreen.stream, macScreen.close; meter: 24 fps · 1900 kbps")
+
     def test_a_still_rd_meter_reads_no_frame(self):
         phone = self.phone([{"AXLabel": "0 fps · 0 kbps · 0×0 · lan"}])
         self.assertFalse(positive_fps(phone.stats()))
