@@ -803,23 +803,24 @@ class NightlyTrustedRouting(unittest.TestCase):
                 self.assertTrue(evaluate(build_if, {**context, 'needs.resolve-nightly-cmux-tui-client.outputs.superseded': 'false'}))
                 self.assertFalse(evaluate(build_if, {**context, 'needs.resolve-nightly-cmux-tui-client.outputs.superseded': 'true'}))
 
-    def test_deltas_keep_trusted_signing_and_the_configured_mini(self):
+    def test_deltas_keep_trusted_signing_under_any_mini(self):
         route = parse_expression(DOC['jobs']['nightly-next-deltas']['runs-on'][3:-2].strip())
-        # runner_label_policy permits only glaeda-nightly-mini when this switch is set.
+        # The signer label alone, as nightly-next-one: no runner carries both it and glaeda-nightly-mini
+        # (hq build-fleet/mini-fleet.json), so an array of the two would queue with no runner to take it.
         for mini in ('', 'glaeda-nightly-mini', 'label"with-quote'):
             for owner in ('manaflow-ai', 'fork'):
                 with self.subTest(owner=owner, mini=mini):
-                    expected = ('macos-26' if owner != 'manaflow-ai' else
-                                ['glaeda-trusted-next-signing', 'glaeda-nightly-mini'] if mini else
-                                'glaeda-trusted-next-signing')
+                    expected = 'macos-26' if owner != 'manaflow-ai' else 'glaeda-trusted-next-signing'
                     self.assertEqual(evaluate(route, {'github.repository_owner': owner,
                                                      'vars.CI_NIGHTLY_MINI': mini}), expected)
 
     def test_only_a_build_replaced_before_it_started_goes_unreported(self):
         script = next(step for step in DOC['jobs']['report-nightly-failure']['steps']
                       if step.get('name') == 'Open or update the nightly failure issue')['with']['script']
-        self.assertIn("require('./scripts/ci/nightly-steps/report-nightly-failure.cjs')", script)
-        checkout = DOC['jobs']['report-nightly-failure']['steps'][0]
+        self.assertIn("require('./.publish-tooling/scripts/ci/nightly-steps/report-nightly-failure.cjs')", script)
+        checkout = next(s for s in DOC['jobs']['report-nightly-failure']['steps']
+                        if str(s.get('uses', '')).startswith('actions/checkout@'))
+        self.assertEqual(checkout['with']['path'], '.publish-tooling')
         self.assertIn('actions/checkout@', checkout['uses'])
         self.assertEqual(checkout['with']['ref'], '${{ github.sha }}')
         self.assertIs(checkout['with']['persist-credentials'], False)
