@@ -52,6 +52,12 @@ FORK_BRANCHES = (
 
 SIGNING = ("holds a release signing, notary or App Store key; an owned Mac takes such a job only as a glaeda "
            "SIGNING_JOBS entry (exclusive claim, scripts/ci/signing-runner-claim.sh), which this job is not")
+EPHEMERAL_MACHINE = ("creates a disposable machine user while holding the environment's Stack secrets; an owned "
+                     "Mac would leak the user or leave the job's access on a shared runner")
+SYSTEM_KEYCHAIN = ("adds a trust root to the System keychain as root; the shared owned Mac runner user cannot "
+                   "perform that operation safely and the keychain state must die with the VM")
+HOSTED_TIMING = ("is an explicit hosted launch-TTI timing measurement; changing it to an owned pool would make the "
+                 "before/after queue and startup measurement incomparable")
 # Jobs that stay on an ephemeral Mac, each with why. Keyed (workflow file name, job key).
 PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
     ("auto-resume-nightly-notarization.yml", "wait-and-staple"): SIGNING,
@@ -63,6 +69,9 @@ PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
     ("cmux-tui-team-signed.yml", "sign-helper"): SIGNING + " (Developer ID, environment release-next)",
     ("ios-internal-nightly.yml", "upload"): SIGNING + " (App Store Connect key and iOS distribution certificate)",
     ("ios-testflight.yml", "upload"): SIGNING + " (App Store Connect key and iOS distribution certificate)",
+    ("ios-launch-tti-hosted.yml", "measure"): HOSTED_TIMING,
+    ("machine-vault-e2e.yml", "e2e"): EPHEMERAL_MACHINE,
+    ("relay-tls.yml", "system-keychain"): SYSTEM_KEYCHAIN,
 }
 
 

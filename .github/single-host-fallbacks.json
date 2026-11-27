@@ -111,6 +111,10 @@
       "fallback": "GitHub-hosted Linux capacity for fork pull requests; unset uses the workflow's ubuntu-24.04 fallback",
       "after_minutes": 10
     },
+    "CI_GATE_SKIP_FLEET": {
+      "fallback": "unset keeps the owned cmux-gcp-gate-jit-x64 route; setting 1 skips that persistent fleet label and uses the workflow's declared Blacksmith trusted-runner fallback",
+      "after_minutes": 5
+    },
     "CI_NIGHTLY_NEXT_TRUSTED_RUNNER": {
       "fallback": "Blacksmith macOS after the dedicated-builder grace",
       "after_minutes": 5

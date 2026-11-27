@@ -234,6 +234,14 @@ UNRESOLVED_NAME_EXEMPT = {
         "named by matrix.root, a Cargo workspace directory from the plan job (its working-directory and cache "
         "key), never one of the required context names"
     ),
+    ("cmux-next-degenerate-lab.yml", "plan"): (
+        "the lab plan is a dynamic manual-only matrix producer; its unresolved name cannot become a required "
+        "merge context"
+    ),
+    ("cmux-next-degenerate-lab.yml", "run"): (
+        "the lab matrix runner is a dynamic manual-only probe; its unresolved name cannot become a required "
+        "merge context"
+    ),
 }
 # (workflow, job) -> why a job outside the required contexts still takes the trusted route.
 TRUSTED_RUNNER_EXTRA_JOBS: dict[tuple[str, str], str] = {}
