@@ -91,6 +91,7 @@ test("the page second advances elapsed text while group, row, card, summary and 
             <SubagentsSection agents={agents} waiting={waiting} />
           </div>
           <BackgroundTasksPanel
+            onClearFinished={noop}
             groups={[
               {
                 id: "agent:a",
@@ -137,7 +138,9 @@ test("the page second advances elapsed text while group, row, card, summary and 
     for (const selector of clocks) expect(host.querySelector(selector)?.textContent).toContain("5s");
     const counter = rowRenders();
     counter.begin(host, names.join(","));
-    act(() => jest.advanceTimersByTime(1_000));
+    act(() => {
+      jest.advanceTimersByTime(1_000);
+    });
     expect(counter.end()).toEqual({ rerendered: 0, wasted: 0, added: 0, maxRenders: 0 });
     for (const selector of clocks) expect(host.querySelector(selector)?.textContent).toContain("6s");
   } finally {
@@ -169,7 +172,9 @@ test("Session Info changes state at the idle deadline and an unknown ended run h
     );
     expect(host.querySelector(".acpmux-agent-line")?.getAttribute("data-status")).toBe("running");
     expect(host.querySelector(".cv-disclosure")?.textContent).not.toMatch(/0s| · /);
-    act(() => jest.advanceTimersByTime(2_010));
+    act(() => {
+      jest.advanceTimersByTime(2_010);
+    });
     expect(host.querySelector(".acpmux-agent-line")?.getAttribute("data-status")).toBe("idle");
   } finally {
     act(() => root.render(null));

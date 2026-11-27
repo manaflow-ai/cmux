@@ -29,7 +29,7 @@ import { useSubsessionInfo } from "../subagents/subsessions";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { StatusVerb } from "./StatusVerb";
 import { LiveShimmer } from "./LiveShimmer";
-import { workingParts, WorkingCountsContext } from "./workingForModel";
+import { workingParts, useWorkingCounts } from "./workingForModel";
 import { clockSizerAcrossUnits } from "../../../ui/Typography";
 /// Over the work (`row.below` false), `onToggle` opens and closes the running turn's work under the
 /// key its "Worked for" takes when it ends (turns.ts `shapeLiveRows`, #50987): the label is the toggle,
@@ -46,7 +46,7 @@ export function WorkingFor({
   onToggle?: () => void;
 }) {
   const t = useT();
-  const counts = useContext(WorkingCountsContext);
+  const counts = useWorkingCounts();
   const waiting = useContext(WaitingOnContext);
   const held = !row.below && row.durationMs !== undefined;
   // No tick while the line waits on the person: it shows no time.

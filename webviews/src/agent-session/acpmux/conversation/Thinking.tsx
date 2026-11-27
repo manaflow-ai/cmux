@@ -48,7 +48,7 @@ import { DefaultThinkingIndicator } from "../../../slots/thinkingIndicator/Defau
 import { formatDuration, spanDuration } from "./turns";
 import { WAITING_LABEL, type WaitingOn, WaitingOnContext } from "./waitingOn";
 import { usePageNow as useTicking } from "../../../ui/pageClock";
-import { WorkingCountsContext, workingParts } from "./workingForModel";
+import { useWorkingCounts, workingParts } from "./workingForModel";
 import { motionAllowed } from "../subagents/trayMotionModel";
 import { verbLeads } from "./toolVerbModel";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
@@ -903,7 +903,7 @@ function ThinkingLine({
           formatDuration(ownMs)
         : (own ?? turnTime);
   // What follows the time (the page a background command serves); the tray counts the running work.
-  const counts = useContext(WorkingCountsContext);
+  const counts = useWorkingCounts();
   // The chat's dot signature (appearance.agentSignature): undefined, and never asked for, while off.
   const signature = useAgentSignature();
   const parts = counts && !waiting ? workingParts(counts) : [];

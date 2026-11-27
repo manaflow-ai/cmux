@@ -21,6 +21,8 @@ import { AgentTonesContext } from "../src/agent-session/acpmux/subagents/agentTo
 import { MessageCard } from "../src/agent-session/acpmux/conversation/MessageCard";
 import { agentMessage } from "../src/agent-session/acpmux/conversation/agentMessages";
 import { RowFrame } from "../src/agent-session/acpmux/transcript/RowFrame";
+import { WorkingFor } from "../src/agent-session/acpmux/conversation/WorkingFor";
+import { WorkingCountsContext } from "../src/agent-session/acpmux/conversation/workingForModel";
 import { pageClocks, usePageNow } from "../src/ui/pageClock";
 
 const scope = globalThis as Record<string, unknown>;
@@ -354,6 +356,42 @@ test("retained message cards ignore structural agent contexts and reveal the lat
     expect(document.querySelector(".cv-agentmsg__name")?.textContent).toBe("Current");
     await act(async () => document.querySelector<HTMLButtonElement>("button.cv-agentmsg__name")!.click());
     expect(opened).toEqual(["Current"]);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test("retained working lines ignore token context updates and reveal the current preview", async () => {
+  const root = createRoot(document.getElementById("root")!);
+  const row = { ...line("working"), below: false, durationMs: 1_000 };
+  const noop = () => {};
+  let reads = 0;
+  const render = (active: boolean, tokens: number, port: number) => {
+    const counts = {
+      tokens,
+      get preview() {
+        reads++;
+        return { url: `http://localhost:${port}`, open: noop };
+      },
+    };
+    root.render(
+      <LiveUpdatesContext.Provider value={active}>
+        <WorkingCountsContext.Provider value={counts}>
+          <RowContent Component={WorkingFor} row={row} expanded={false} onToggleActivity={noop} />
+        </WorkingCountsContext.Provider>
+      </LiveUpdatesContext.Provider>,
+    );
+  };
+  try {
+    await act(async () => render(true, 0, 3000));
+    await act(async () => render(false, 1, 3001));
+    const before = reads;
+    expect(before).toBeGreaterThan(0);
+    for (let tick = 0; tick < 20; tick++) await act(async () => render(false, tick, 4000 + tick));
+    expect(reads).toBe(before);
+    expect(document.querySelector(".cv-worked__open")?.textContent).toContain("3000");
+    await act(async () => render(true, 100, 5000));
+    expect(document.querySelector(".cv-worked__open")?.textContent).toContain("5000");
   } finally {
     await act(async () => root.unmount());
   }
