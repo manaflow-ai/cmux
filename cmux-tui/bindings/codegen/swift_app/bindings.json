@@ -3140,6 +3140,49 @@
               ]
             }
           }
+        },
+        "ConversationTabRef": {
+          "type": "ConversationTabRecord",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Codable"
+          ],
+          "doc": [
+            "What a conversation tab shows (`conversation-tabs-v1`, plans/cmux-next/home.md 7): one",
+            "conversation of the `local` (daemon) or `cloud` conversation owner, or an acpmux agent session",
+            "(`agent-session-tabs-v1`), or one of the app's own pages by id (`page-tabs-v1`: App Store, Settings).",
+            "The store never reads any one's content; the app renders it. Exactly one source is set."
+          ],
+          "order": [
+            "conversation",
+            "owner",
+            "agent_session",
+            "page",
+            "route"
+          ],
+          "fields": {
+            "agent_session": {
+              "type": "AgentSessionRef"
+            }
+          }
+        },
+        "AgentSessionRef": {
+          "type": "AgentSessionSource",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Codable"
+          ],
+          "doc": [
+            "The acpmux session an agent chat tab shows (`agent-session-tabs-v1`)."
+          ],
+          "order": [
+            "host",
+            "host_name",
+            "session",
+            "harness"
+          ]
         }
       }
     }
