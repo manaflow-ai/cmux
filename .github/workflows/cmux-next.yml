@@ -3839,12 +3839,16 @@ jobs:
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || github.event_name == 'pull_request' && ((github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' swift-test ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26_large) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' swift-test ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' swift-test ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' swift-test ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26))) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     permissions:
+      id-token: write
       # Why: 2026-11-24-fast-tier-1.md
       actions: read
       contents: read
     # Why: note-47
     timeout-minutes: 135
     outputs:
+      swift_products_state: ${{ github.event_name == 'pull_request' && inputs.same_tree_sha == '' && (steps.products-upload.outcome == 'success' && 'ready' || (steps.build-tests.outcome == 'success' || steps.build-tests.outcome == 'failure') && 'failed' || '') || '' }}
+      swift_products_artifact: ${{ steps.products.outputs.artifact_name }}
+      swift_products_sha256: ${{ steps.products.outputs.sha256 }}
       # Why: note-215
       generated_files: ${{ steps.reuse.outputs.hit == 'true' && 'fresh' || steps.generated-files-verdict.outputs.verdict }}
     env:
@@ -4117,6 +4121,20 @@ jobs:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
           CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
         run: bash ../../../scripts/ci/github-egress-run.sh python3 ../../../scripts/ci/swiftpm_build_metrics.py --role swift-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+      - name: Pack shared Swift test products
+        id: products
+        if: ${{ github.event_name == 'pull_request' && inputs.same_tree_sha == '' && steps.build-tests.outcome == 'success' && steps.build-tests.outputs.restored != 'true' }}
+        working-directory: Packages/macOS/CmuxNext
+        run: python3 ../../../scripts/ci/swift-test-products.py pack --archive "$RUNNER_TEMP/shared-swift-products/swift-test-products.tar.gz"
+      - name: Upload shared Swift test products
+        id: products-upload
+        if: ${{ github.event_name == 'pull_request' && inputs.same_tree_sha == '' && steps.build-tests.outcome == 'success' && steps.build-tests.outputs.restored != 'true' }}
+        uses: ./.github/actions/r2-artifact/upload
+        with:
+          name: ${{ steps.products.outputs.artifact_name }}
+          path: ${{ runner.temp }}/shared-swift-products/swift-test-products.tar.gz
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Upload the test build measurement and log
         continue-on-error: true
@@ -4302,7 +4320,7 @@ jobs:
 
   # Why: note-55
   daemon-test:
-    needs: [path_route, macos-placement, push-head-preflight, web-bundles]
+    needs: [swift-test, path_route, macos-placement, push-head-preflight, web-bundles]
     # Why: note-240
     if: ${{ (inputs.same_tree_origin != 'push' && !cancelled() && (needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && (github.event_name != 'pull_request' || github.event.pull_request.base.ref != 'feat-cmux-next' && (github.event.pull_request.head.repo.full_name == github.repository || contains(needs.path_route.outputs.labels, ',full-ci,'))) && ((inputs.same_tree_sha == '' && needs.path_route.outputs.daemon == 'true' && needs.push-head-preflight.outputs.current == 'true' && needs.path_route.outputs.tree_state == 'ready') || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'daemon')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next daemon tests
@@ -4313,10 +4331,14 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.grant_jobs, ' daemon-test ') && fromJSON(needs.macos-placement.outputs.grant_runner) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.light_jobs, ' daemon-test ') && needs.macos-placement.outputs.light_runner || github.event_name == 'pull_request' && ((github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' daemon-test ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26_large) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' daemon-test ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' daemon-test ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' daemon-test ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.session_jobs, ' daemon-test ') && needs.macos-placement.outputs.session_spill_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26))) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     # Why: note-241
     permissions:
+      id-token: write
       actions: read
       contents: read
     timeout-minutes: 60
     outputs:
+      swift_products_state: ${{ github.event_name == 'pull_request' && inputs.same_tree_sha == '' && ((steps.products-upload.outcome == 'success' || steps.build-tests.outcome == 'success' && steps.build-tests.outputs.restored == 'true') && 'ready' || (steps.build-tests.outcome == 'success' || steps.build-tests.outcome == 'failure') && 'failed' || needs.swift-test.outputs.swift_products_state || '') || '' }}
+      swift_products_artifact: ${{ steps.products.outputs.artifact_name || needs.swift-test.outputs.swift_products_artifact }}
+      swift_products_sha256: ${{ steps.products.outputs.sha256 || needs.swift-test.outputs.swift_products_sha256 }}
       # Why: note-243
       generated_files: ${{ steps.reuse.outputs.hit == 'true' && 'fresh' || steps.generated-files-verdict.outputs.verdict }}
     env:
@@ -4556,6 +4578,29 @@ jobs:
         working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/build-web-bundles.sh
 
+      - name: Select shared Swift test products
+        id: shared-products
+        if: ${{ github.event_name == 'pull_request' && inputs.same_tree_sha == '' && steps.reuse.outputs.hit != 'true' }}
+        env:
+          PRODUCT_STATE: ${{ needs.swift-test.outputs.swift_products_state || '' }}
+          PRODUCT_NAME: ${{ needs.swift-test.outputs.swift_products_artifact || '' }}
+          PRODUCT_SHA256: ${{ needs.swift-test.outputs.swift_products_sha256 || '' }}
+        run: |
+          case "$PRODUCT_STATE" in
+            ready)
+              [[ -n "$PRODUCT_NAME" && ${#PRODUCT_SHA256} == 64 ]] || { echo '::error::The earlier build has no complete artifact receipt'; exit 1; }
+              echo 'restore=true' >> "$GITHUB_OUTPUT"
+              ;;
+            failed) echo '::error::The earlier Swift compilation failed; do not compile it again'; exit 1 ;;
+            '') ;;
+            *) echo '::error::Unknown Swift product state'; exit 1 ;;
+          esac
+      - name: Download shared Swift test products
+        if: ${{ steps.shared-products.outputs.restore == 'true' }}
+        uses: ./.github/actions/r2-artifact/download
+        with:
+          name: ${{ needs.swift-test.outputs.swift_products_artifact || '' }}
+          path: ${{ runner.temp }}/shared-swift-products
       - name: Build package and tests
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         id: build-tests
@@ -4563,16 +4608,35 @@ jobs:
         env:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
           CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
-          # Why: 2026-11-26-daemon-test-products.md
-          CMUX_SWIFT_TEST_PRODUCTS: ${{ vars.CI_FAST_TIER_PRODUCTS_FLEET == '1' && env.CMUX_NEXT_FOLD_GENERATED != 'true' && 'fleet' || 'build' }}
+          CMUX_SWIFT_TEST_PRODUCTS: ${{ !(github.event_name == 'pull_request' && inputs.same_tree_sha == '') && vars.CI_FAST_TIER_PRODUCTS_FLEET == '1' && env.CMUX_NEXT_FOLD_GENERATED != 'true' && 'fleet' || 'build' }}
           CMUX_FLEET_CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           CMUX_PR_NUMBER: ${{ github.event.pull_request.number }}
+          SHARED_SWIFT_PRODUCTS: ${{ steps.shared-products.outputs.restore }}
+          SHARED_SWIFT_SHA256: ${{ needs.swift-test.outputs.swift_products_sha256 || '' }}
         run: |
-          if [[ "$CMUX_SWIFT_TEST_PRODUCTS" == fleet ]]; then
-            python3 ../../../scripts/ci/fleet-test-products.py Packages/macOS/CmuxNext && exit 0
-            echo "::warning title=Fleet test products::none for this commit; building them on this Mac"
+          if [[ "$SHARED_SWIFT_PRODUCTS" == true ]]; then
+            python3 ../../../scripts/ci/swift-test-products.py restore --archive "$RUNNER_TEMP/shared-swift-products/swift-test-products.tar.gz" --sha256 "$SHARED_SWIFT_SHA256"
+          else
+            if [[ "$CMUX_SWIFT_TEST_PRODUCTS" == fleet ]]; then
+              python3 ../../../scripts/ci/fleet-test-products.py Packages/macOS/CmuxNext && exit 0
+              echo "::warning title=Fleet test products::none for this commit; building them on this Mac"
+            fi
+            bash ../../../scripts/ci/github-egress-run.sh python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
           fi
-          bash ../../../scripts/ci/github-egress-run.sh python3 ../../../scripts/ci/swiftpm_build_metrics.py --role daemon-test --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+      - name: Pack shared Swift test products
+        id: products
+        if: ${{ github.event_name == 'pull_request' && inputs.same_tree_sha == '' && steps.build-tests.outcome == 'success' && steps.build-tests.outputs.restored != 'true' }}
+        working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}/Packages/macOS/CmuxNext
+        run: python3 ../../../scripts/ci/swift-test-products.py pack --archive "$RUNNER_TEMP/shared-swift-products/swift-test-products.tar.gz"
+      - name: Upload shared Swift test products
+        id: products-upload
+        if: ${{ github.event_name == 'pull_request' && inputs.same_tree_sha == '' && steps.build-tests.outcome == 'success' && steps.build-tests.outputs.restored != 'true' }}
+        uses: ./.github/actions/r2-artifact/upload
+        with:
+          name: ${{ steps.products.outputs.artifact_name }}
+          path: ${{ runner.temp }}/shared-swift-products/swift-test-products.tar.gz
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Upload the test build measurement and log
         continue-on-error: true
@@ -4933,7 +4997,7 @@ jobs:
         run: *acpmux-stop
 
   generated-files:
-    needs: [path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red, generated-files-linux]
+    needs: [daemon-test, swift-test, path_route, macos-placement, push-head-preflight, web-bundles, generated-files-base-red, generated-files-linux]
     # Why: note-265
     if: ${{ !cancelled() && needs.generated-files-linux.outputs.verdict == '' && needs.generated-files-base-red.outputs.base_red != 'true' && ((needs.web-bundles.result == 'success' || needs.web-bundles.result == 'skipped') && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository || contains(needs.path_route.outputs.labels, ',full-ci,')) && needs.path_route.outputs.generated_host == 'generated-files') && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: cmux-next generated files (Mac fallback)
@@ -4945,6 +5009,7 @@ jobs:
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.grant_jobs, ' generated-files ') && fromJSON(needs.macos-placement.outputs.grant_runner) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.light_jobs, ' generated-files ') && needs.macos-placement.outputs.light_runner || github.event_name == 'pull_request' && ((github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' generated-files ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26_large) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' generated-files ') && (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_BLACKSMITH_MACOS != 'pr-rescue' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) || (github.run_attempt == 1 || contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor)) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.owned_jobs, ' generated-files ') && needs.macos-placement.outputs.runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.retry_jobs, ' generated-files ') && needs.macos-placement.outputs.retry_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && contains(needs.macos-placement.outputs.session_jobs, ' generated-files ') && needs.macos-placement.outputs.session_spill_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.deferred_runner || (vars.CI_PR_POOL_OWNED == '1' && (github.run_attempt == 1 || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && (startsWith(vars.CI_SIDE_LANE_RUNNER, 'glaeda-side-') && vars.CI_SIDE_LANE_RUNNER || 'glaeda-side-std-xcode-26.6') || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26))) || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_session_runner || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.free_gui_runner || vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.session_lane_runner != '' && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && vars.CI_SESSION_LANE_RUNNER || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && (github.run_attempt == 1 || !contains(fromJSON('["github-actions[bot]","cmux-bot[bot]"]'), github.triggering_actor) && needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt)) && (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || needs.macos-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gui_overflow != '' && needs.macos-placement.outputs.gui_overflow || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && github.run_attempt == 1 && 'glaeda-gui-std-xcode-26.6' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     permissions:
+      id-token: write
       # Why: 2026-11-24-fast-tier-1.md
       actions: read
       contents: read
@@ -5216,13 +5281,44 @@ jobs:
         working-directory: ${{ steps.spm-root.outputs.root || github.workspace }}
         run: scripts/cmux-next/build-web-bundles.sh
 
+      - name: Select shared Swift test products
+        id: shared-products
+        if: ${{ github.event_name == 'pull_request' && inputs.same_tree_sha == '' && steps.reuse.outputs.hit != 'true' }}
+        env:
+          PRODUCT_STATE: ${{ needs.daemon-test.outputs.swift_products_state || needs.swift-test.outputs.swift_products_state || '' }}
+          PRODUCT_NAME: ${{ needs.daemon-test.outputs.swift_products_artifact || needs.swift-test.outputs.swift_products_artifact || '' }}
+          PRODUCT_SHA256: ${{ needs.daemon-test.outputs.swift_products_sha256 || needs.swift-test.outputs.swift_products_sha256 || '' }}
+        run: |
+          case "$PRODUCT_STATE" in
+            ready)
+              [[ -n "$PRODUCT_NAME" && ${#PRODUCT_SHA256} == 64 ]] || { echo '::error::The earlier build has no complete artifact receipt'; exit 1; }
+              echo 'restore=true' >> "$GITHUB_OUTPUT"
+              ;;
+            failed) echo '::error::The earlier Swift compilation failed; do not compile it again'; exit 1 ;;
+            '') ;;
+            *) echo '::error::Unknown Swift product state'; exit 1 ;;
+          esac
+      - name: Download shared Swift test products
+        if: ${{ steps.shared-products.outputs.restore == 'true' }}
+        uses: ./.github/actions/r2-artifact/download
+        with:
+          name: ${{ needs.daemon-test.outputs.swift_products_artifact || needs.swift-test.outputs.swift_products_artifact || '' }}
+          path: ${{ runner.temp }}/shared-swift-products
       - name: Build package and tests
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         working-directory: ${{ format('{0}/Packages/macOS/CmuxNext', steps.spm-root.outputs.root || github.workspace) }}
         env:
           CMUX_METRICS_WEB_CACHE_OUTCOME: ${{ steps.web-bundle-cache.outcome }}
           CMUX_METRICS_WEB_CACHE_HIT: ${{ steps.web-bundle-r2.outputs.cache-hit == 'true' && 'true' || steps.web-bundle-cache.outputs.cache-hit }}
-        run: bash ../../../scripts/ci/github-egress-run.sh python3 ../../../scripts/ci/swiftpm_build_metrics.py --role generated-files --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+          SHARED_SWIFT_PRODUCTS: ${{ steps.shared-products.outputs.restore }}
+          SHARED_SWIFT_SHA256: ${{ needs.daemon-test.outputs.swift_products_sha256 || needs.swift-test.outputs.swift_products_sha256 || '' }}
+        run: |
+          if [[ "$SHARED_SWIFT_PRODUCTS" == true ]]; then
+            python3 ../../../scripts/ci/swift-test-products.py restore --archive "$RUNNER_TEMP/shared-swift-products/swift-test-products.tar.gz" --sha256 "$SHARED_SWIFT_SHA256"
+          else
+            bash ../../../scripts/ci/github-egress-run.sh python3 ../../../scripts/ci/swiftpm_build_metrics.py --role generated-files --output-dir "$RUNNER_TEMP/cmux-next-build-metrics" -- swift build --build-tests
+          fi
+        id: build-tests
 
       - name: Upload the test build measurement and log
         continue-on-error: true
