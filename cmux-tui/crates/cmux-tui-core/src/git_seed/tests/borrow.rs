@@ -258,8 +258,8 @@ fn a_clone_only_seed_without_a_usable_mirror_clones() {
 fn borrowable_answers_as_the_seed_would_borrow() {
     let world = World::new("borrowable");
     let service = world.service();
-    let mirror = mirror(&world, "mirror.git", "git@github.com:o/n.git");
     let other = mirror(&world, "other.git", "https://github.com/o/other.git");
+    let mirror = mirror(&world, "mirror.git", "git@github.com:o/n.git");
     let folder = world.home.join("work/project");
     let ask = |mirror: &Path, base: &str| {
         json!({
