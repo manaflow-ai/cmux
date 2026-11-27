@@ -44,6 +44,7 @@ test("History's Your asks reads through the pane and opens chats and pull reques
   const client = {
     ledger: async () => ({}),
     teamAudit: async () => ({}),
+    teamDirectory: async () => ({}),
     reviewQueue: async () => ({}),
     reviewVerdict: async () => ({}),
     audit: async () => ({}),

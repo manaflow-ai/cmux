@@ -88998,7 +88998,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.workspacesAsTabs.help",
-        "text" : "Each workspace is one line, and Cmd-Shift-[ and ] switch workspaces."
+        "text" : "Each workspace is one line in the sidebar, which stays a list (not a tab strip), and Cmd-Shift-[ and ] switch workspaces as they switch tabs."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.workspacesAsTabs",
