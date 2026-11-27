@@ -24,6 +24,11 @@ private let tabsLog = Logger(subsystem: "dev.cmux.mobile", category: "tabs")
 @MainActor
 @Observable
 public final class WorkspaceTabsSource: TabsDataSource {
+    /// Schedules work for the next main-actor turn. Tests inject a queue so
+    /// they can drain the exact deferred callback instead of guessing at
+    /// scheduler order with an unrelated task.
+    typealias MainActorEnqueuer = @MainActor (_ work: @escaping @MainActor () -> Void) -> Void
+
     public let workspaceID: String
     /// The tab chosen on this screen. When it disappears (a new workspace
     /// whose placeholder tab became the Mac's real tab), the active tab
@@ -84,6 +89,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Created with their tabs (never during a view update); each model is
     /// itself observable, so toolbar state follows the page.
     @ObservationIgnored private var browsers: [String: BrowserTabModel] = [:]
+    @ObservationIgnored private let enqueueMainActor: MainActorEnqueuer
     /// Streamed browser tabs while linked to a Mac.
     @ObservationIgnored let streamed: StreamedBrowserDirectory
     /// Browser tabs this iPhone shows itself instead of the Mac's page (Open on iPhone).
@@ -101,12 +107,23 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// vanished (a new workspace's first tab, once the Mac creates it; `refreshTabs`).
     @ObservationIgnored private var hasAppeared = false
 
-    public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
-                sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil,
-                native: NativeBrowserTabs = .shared, streamed: StreamedBrowserDirectory = .shared,
-                clock: any Clock<Duration> = ContinuousClock()) {
+    public convenience init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
+                            sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil,
+                            native: NativeBrowserTabs = .shared, streamed: StreamedBrowserDirectory = .shared,
+                            clock: any Clock<Duration> = ContinuousClock()) {
+        self.init(store: store, workspaceID: workspaceID, terminal: terminal, sessions: sessions, creator: creator,
+                  native: native, streamed: streamed, clock: clock,
+                  enqueueMainActor: { work in Task { @MainActor in work() } })
+    }
+
+    init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
+         sessions: AgentSessionDirectory = .shared, creator: WorkspaceCreator? = nil,
+         native: NativeBrowserTabs = .shared, streamed: StreamedBrowserDirectory = .shared,
+         clock: any Clock<Duration> = ContinuousClock(),
+         enqueueMainActor: @escaping MainActorEnqueuer) {
         self.store = store
         self.clock = clock
+        self.enqueueMainActor = enqueueMainActor
         self.native = native
         self.streamed = streamed
         self.creator = creator
@@ -933,10 +950,16 @@ public final class WorkspaceTabsSource: TabsDataSource {
             Task { await launchAgentTeams(teams) }
             return nil
         }
-        // One tab at a time; a second request says so instead of doing nothing (full verify D8).
+        // One tab at a time. The same option again is a second tap on what is already opening
+        // (its "Opening…" shows); another one opens right after the pending tab, instead of
+        // asking the person to pick it again (a question with only one answer).
         if let pending = pendingTabTitle {
             tabsLog.info("tab request \(option.id, privacy: .public) while \(pending, privacy: .public) is opening")
-            show("Still opening \(pending). Try again once it's open.")
+            guard pending != option.title else { return nil }
+            Task { @MainActor [weak self] in
+                guard let self, await self.waitForPendingTab() else { return }
+                self.beginTab(option)
+            }
             return nil
         }
         tabsLog.info("tab request \(option.id, privacy: .public) on \(self.macName, privacy: .public)")
@@ -952,6 +975,35 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     /// The new-tab option being created on the Mac ("New Claude Chat"), or nil.
     public internal(set) var pendingTabTitle: String?
+
+    /// How long a tab request waits for the tab being opened before it gives up: past this the
+    /// open is stuck (the Mac's own tab request answers well within it).
+    static let pendingTabPatience: Duration = .seconds(30)
+
+    /// Waits until no tab is opening (`pendingTabTitle` is nil), at most ``pendingTabPatience``,
+    /// so a second tab request opens right after the first instead of asking the person to try
+    /// again. True when the way is clear; on false the notice says the request did not open.
+    /// The caller sets `pendingTabTitle` before its next suspension point, so two waiters
+    /// never both go ahead.
+    func waitForPendingTab() async -> Bool {
+        guard pendingTabTitle != nil else { return true }
+        let deadline = ContinuousClock.now + Self.pendingTabPatience
+        while let pending = pendingTabTitle {
+            let left = deadline - ContinuousClock.now
+            var cleared = false
+            if left > .zero {
+                cleared = await BoundedWait(left).run { @MainActor [weak self] in
+                    // No strong reference across the wait: a source closed meanwhile goes away.
+                    await BoundedWait.observing { self?.pendingTabTitle != nil }
+                }
+            }
+            if !cleared, pendingTabTitle != nil {
+                show("\(pending) is still opening, so this one didn't open.")
+                return false
+            }
+        }
+        return true
+    }
     /// A tab the Mac just created and this phone made active: the screen leaves the
     /// grid for it, then clears this.
     public var openedTab: TabsKitTab.ID?
@@ -1100,7 +1152,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             heldTabRefreshes.insert(id)
             return
         }
-        Task { @MainActor [weak self] in self?.refreshTab(id) }
+        enqueueMainActor { [weak self] in self?.refreshTab(id) }
     }
 
     /// The grid rests or was covered: held title changes apply, in one turn.
@@ -1193,6 +1245,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     public func card(for kit: TabsKitTab) -> some View {
         WorkspaceTabCard(source: self, tabID: kit.id, insets: lastInsets)
             // The layout-shift count: a drawn card must not move or resize while the grid settles.
+            // Measured in the grid's visible bounds, so the grid's zoom scale is not a shift; the
+            // live page's stand-in and the context-menu preview sit outside the grid and report nothing.
             .layoutShiftTracked("tabcard.\(kit.id)", in: .window)
     }
 
@@ -1955,10 +2009,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
             await openOnPhone(url)
             return
         }
-        if let pending = pendingTabTitle {
-            show("Still opening \(pending). Try again once it's open.")
-            return
-        }
+        // Another tab is opening: this link opens right after it.
+        guard await waitForPendingTab() else { return }
         let title = WorkspaceTabsSource.option(.browser).title
         pendingTabTitle = title
         defer { pendingTabTitle = nil }
@@ -2263,11 +2315,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// chat itself stays as it was. acpmux's refusal (a Claude chat the Mac started) shows in its
     /// own words. False when no copy was made.
     public func editAndResend(_ id: TabsKitTab.ID, through seq: Int, prompt: String) async -> Bool {
+        // Another tab is opening: the copy is made right after it.
+        guard await waitForPendingTab() else { return false }
         guard let workspace, let creator, let tab = workspaceTab(id), tab.kind == .agent else { return false }
-        guard pendingTabTitle == nil else {
-            show(named("Another tab is opening. Try again in a moment."))
-            return false
-        }
         pendingTabTitle = "Fork"
         defer { pendingTabTitle = nil }
         let copy: WorkspaceTab
@@ -2392,10 +2442,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Launch Claude Teams / Launch Codex Teams: a new terminal beside the tab shown, in its
     /// folder (the Mac's focused tab's), that runs the team's line.
     public func launchAgentTeams(_ teams: AgentTeamsLaunch) async {
-        guard let workspace, let chatsBackend, pendingTabTitle == nil else {
-            if let pending = pendingTabTitle { show("Still opening \(pending). Try again once it's open.") }
-            return
-        }
+        // Another tab is opening: the team's terminal opens right after it.
+        guard await waitForPendingTab(), let workspace, let chatsBackend else { return }
         let current = selectedTabID.flatMap { workspaceTab($0) }
         let shown: String? = switch current?.kind {
         case .terminal: current?.subtitle
@@ -2749,6 +2797,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
             return [
                 [
                     TabsKitMenuItem(title: "Copy Link", systemImage: "link", isEnabled: model.url != nil) { UIPasteboard.general.url = model.url },
+                    // retry-prompt-ok: a browser's deliberate Reload (it may resubmit a form or lose page state)
                     TabsKitMenuItem(title: "Reload", systemImage: "arrow.clockwise") { model.reloadOrStop() },
                 ] + (streamedPage.map { page in
                     [
@@ -3040,33 +3089,48 @@ struct WorkspaceTabCard: View {
                 source.terminal.card(for: tab, in: workspace)
             case .browser:
                 // A page not shown in this launch has no snapshot of its own: its last-known picture stands in.
-                let lastKnown = source.snapshotEntry(tab.id)?.image
+                let snapshot = source.snapshotEntry(tab.id)
+                let lastKnown = snapshot?.image
                 if let model = source.nativeBrowser(tab) {
-                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id, host: (model.url ?? tab.url)?.host())
+                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown,
+                                lastKnownPixelWidth: snapshot?.pixelWidth ?? 0,
+                                lastKnownPixelHeight: snapshot?.pixelHeight ?? 0,
+                                tabID: tab.id, host: (model.url ?? tab.url)?.host())
                 } else if let model = source.streamedBrowser(tab) {
                     // Site monograms (off by default) stand in for the globe until the first frame.
-                    if model.snapshot == nil, lastKnown == nil,
+                    if model.snapshot == nil, lastKnown == nil, snapshot?.hasKnownPicture != true,
                        monograms, SiteMonogram.letter(tab.url?.host()) != nil {
                         SiteMonogramFace(host: tab.url?.host())
                             .modifier(TabCardFaceRecord(tabID: tab.id, face: "placeholder"))
                     } else {
                         // Laid out as its page is: the card covers an opening page (`isContentReady`).
-                        StreamedBrowserCard(model: model, insets: insets, lastKnown: lastKnown?.cgImage)
-                            .modifier(TabCardFaceRecord(tabID: tab.id, face: model.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown" : "placeholder"))
+                        StreamedBrowserCard(model: model, insets: insets, lastKnown: lastKnown?.cgImage,
+                                            lastKnownSize: snapshot?.knownPictureSize)
+                            .modifier(TabCardFaceRecord(tabID: tab.id, face: model.snapshot != nil ? "snapshot" : lastKnown != nil || snapshot?.hasKnownPicture == true ? "lastKnown" : "placeholder"))
                     }
                 } else {
                     // The tab's model only if its page was shown: a card never makes a web view.
                     let model = source.existingBrowser(tab.id)
-                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown, tabID: tab.id, host: (model?.url ?? tab.url)?.host())
+                    BrowserCard(model: model, insets: insets, lastKnown: lastKnown,
+                                lastKnownPixelWidth: snapshot?.pixelWidth ?? 0,
+                                lastKnownPixelHeight: snapshot?.pixelHeight ?? 0,
+                                tabID: tab.id, host: (model?.url ?? tab.url)?.host())
                 }
             case .simulator:
+                let snapshot = source.snapshotEntry(tab.id)
                 if let model = source.simulator(tab) {
-                    let lastKnown = source.snapshotEntry(tab.id)?.image
-                    StreamedBrowserCard(model: model, fit: true, lastKnown: lastKnown?.cgImage)
-                        .modifier(TabCardFaceRecord(tabID: tab.id, face: model.snapshot != nil ? "snapshot" : lastKnown != nil ? "lastKnown" : "placeholder"))
-                } else if let image = source.snapshotEntry(tab.id)?.image {
+                    let lastKnown = snapshot?.image
+                    StreamedBrowserCard(model: model, fit: true, lastKnown: lastKnown?.cgImage,
+                                        lastKnownSize: snapshot?.knownPictureSize)
+                        .modifier(TabCardFaceRecord(tabID: tab.id, face: model.snapshot != nil ? "snapshot" : lastKnown != nil || snapshot?.hasKnownPicture == true ? "lastKnown" : "placeholder"))
+                } else if let image = snapshot?.image {
                     ZStack { Color.black; Image(uiImage: image).resizable().interpolation(.medium).scaledToFit() }
                         .accessibilityHidden(true)
+                        .modifier(TabCardFaceRecord(tabID: tab.id, face: "lastKnown"))
+                } else if snapshot?.hasKnownPicture == true {
+                    TabSnapshotPicture(image: nil, pixelWidth: snapshot?.pixelWidth ?? 0,
+                                       pixelHeight: snapshot?.pixelHeight ?? 0)
+                        .background(Color.black)
                         .modifier(TabCardFaceRecord(tabID: tab.id, face: "lastKnown"))
                 } else {
                     // No picture yet: the card's background, never a stand-in glyph.

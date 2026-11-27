@@ -11,7 +11,8 @@ struct ViewerDemandTests {
     /// captures the full display: no cap, the size unchanged.
     @Test func withoutTheRulesTheHostCapturesTheFullDisplay() {
         var demand = ViewerDemand()
-        #expect(!demand.report(longEdge: 1280, displayLongEdge: 3456, pinch: false, now: 0))
+        let changed = demand.report(longEdge: 1280, displayLongEdge: 3456, pinch: false, now: 0)
+        #expect(!changed)
         #expect(demand.cap == nil)
         #expect(demand.captureCap(quality: .auto, scales: true) == nil)
         #expect(ViewerDemand.fit(CGSize(width: 3456, height: 2234), cap: 1280, rules: ScreenRules()) == CGSize(width: 3456, height: 2234))

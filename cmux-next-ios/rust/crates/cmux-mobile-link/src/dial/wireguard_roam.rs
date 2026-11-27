@@ -114,7 +114,9 @@ pub(super) enum Control {
     /// message; none: it has no second interface now).
     PeerMetered(Vec<String>),
     /// A joined relay socket: one more carrier, beside UDP and TURN.
-    Relay(super::RelayCarrier),
+    /// `pending`: send the pending handshake initiation through it at once
+    /// (both sides dial the relay first, so no reassert follows the join).
+    Relay { carrier: super::RelayCarrier, pending: bool },
     /// Debug and tests: the relay socket dies, as a proxy that resets it.
     KillRelay,
 }
@@ -125,6 +127,9 @@ pub(super) struct RelayPlan {
     pub endpoint: super::super::relay::RelayEndpoint,
     /// Join at once: one side said it has no other path.
     pub now: bool,
+    /// Join as the tunnel starts: both sides offered `relay: "first"`, so the
+    /// relay rides beside the direct race instead of joining 3 s later.
+    pub first: bool,
     /// This device's relay ticket for the session, as the service stamped it
     /// on a signal to this device (`relayTicket`); `None` from a service that
     /// stamps none, whose join is then refused.
@@ -161,7 +166,14 @@ async fn join_or_take(
             }
         }
     }
-    super::super::relay::RelayCarrier::join(&plan.endpoint, session_id, peer, plan.ticket.as_deref()).await
+    super::super::relay::RelayRung {
+        endpoint: &plan.endpoint,
+        session_id,
+        peer_device: peer,
+        ticket: plan.ticket.as_deref(),
+    }
+    .join()
+    .await
 }
 
 /// How long after the tunnel starts, or this side's network changes, a
@@ -214,6 +226,8 @@ pub(super) struct RelayShared {
     hold_port: watch::Sender<Option<super::super::relay::HoldPort>>,
     state: Mutex<RelayClock>,
     asked: tokio::sync::Notify,
+    /// Something authenticated ([`Self::heard`]).
+    heard_now: tokio::sync::Notify,
 }
 
 #[derive(Debug)]
@@ -295,6 +309,7 @@ impl Default for RelayShared {
                 allocated: None,
             }),
             asked: tokio::sync::Notify::new(),
+            heard_now: tokio::sync::Notify::new(),
         }
     }
 }
@@ -365,6 +380,22 @@ impl RelayShared {
 
     pub(super) fn heard(&self, at: Instant) {
         lock(&self.state).heard = Some(at);
+        self.heard_now.notify_waiters();
+    }
+
+    /// Wait until something authenticates after `at`, or `limit` passes.
+    async fn until_heard_after(&self, at: Instant, limit: Duration) -> bool {
+        let deadline = tokio::time::Instant::now() + limit;
+        loop {
+            let mut heard = std::pin::pin!(self.heard_now.notified());
+            heard.as_mut().enable();
+            if self.heard_after(at) {
+                return true;
+            }
+            if tokio::time::timeout_at(deadline, heard).await.is_err() {
+                return self.heard_after(at);
+            }
+        }
     }
 
     fn roamed(&self) {
@@ -1995,7 +2026,7 @@ pub fn relay_hold_port(
 /// peer asked or said it would) asks the peer to join too.
 async fn run_relay_watch(session: Weak<Session>) {
     let Some(first) = session.upgrade() else { return };
-    let mut join_now = first.relay.as_ref().is_some_and(|plan| plan.now);
+    let mut join_now = first.relay.as_ref().is_some_and(|plan| plan.now || plan.first);
     let shared = Arc::clone(&first.relay_shared);
     drop(first);
     let mut failures = 0usize;
@@ -2032,10 +2063,20 @@ async fn run_relay_watch(session: Weak<Session>) {
             peer_away_since = None;
         }
         let reason = if join_now && !shared.held() {
-            Some("one side has no other path")
+            Some(if session.relay.as_ref().is_some_and(|plan| plan.now) {
+                "one side has no other path"
+            } else {
+                "both sides dial the relay first"
+            })
         } else {
             shared.due(session.dialer)
         };
+        // This attempt is the dial's relay-first cold join: both sides join
+        // on their own clocks as the dial starts. Every later join (a retry,
+        // a rejoin after the relay was left, a socket that died) is recovery
+        // and asks the peer and reasserts like any other join.
+        let cold =
+            join_now && !shared.held() && session.relay.as_ref().is_some_and(|plan| plan.first && !plan.now);
         // Once: a retry waits for `due` like any later join.
         join_now = false;
         let Some(reason) = reason else { continue };
@@ -2068,7 +2109,7 @@ async fn run_relay_watch(session: Weak<Session>) {
                 }
                 *lock(&shared.peer_online) = Some(carrier.peer_online_watch());
                 shared.hold_port.send_replace(Some(carrier.hold_port()));
-                if session.control.send(Control::Relay(carrier)).is_err() {
+                if session.control.send(Control::Relay { carrier, pending: cold }).is_err() {
                     return;
                 }
                 shared.set_held(true);
@@ -2079,19 +2120,46 @@ async fn run_relay_watch(session: Weak<Session>) {
                 // and two handshake initiations that cross in lockstep each overwrite the
                 // other side's pending one (boringtun keeps one handshake state), so
                 // every response is refused and their fixed repeat schedule keeps them in
-                // step until the dial times out.
-                reassert_on_relay(&session, &shared).await;
+                // step until the dial times out. Not when both dial the relay first: the
+                // dialer's pending initiation just went through it (a new one would void
+                // a direct answer in flight), and its repeats find the Mac once it joins.
+                if !cold {
+                    reassert_on_relay(&session, &shared).await;
+                }
                 // Disco over the relay (ledger 13h): the peer may know none of
                 // this side's direct endpoints (a signaling path that dropped
                 // them, a peer that met this one on the relay), so they go to
                 // it again through the tunnel. Its upgrade probes then find the
                 // LAN path. The message is the roam announcement older peers
-                // already take.
-                session.reannounce().await;
+                // already take. A side that dials the relay first joins as its
+                // dial starts, before the tunnel is up, so an announcement then
+                // has no tunnel to ride: it goes once something authenticates,
+                // however long the dial takes, until the session ends.
+                if cold {
+                    let weak = Arc::downgrade(&session);
+                    let shared = Arc::clone(&shared);
+                    let joined = Instant::now();
+                    tokio::spawn(async move {
+                        loop {
+                            let heard = shared.until_heard_after(joined, RELAY_DISCO_WAIT).await;
+                            let Some(session) = weak.upgrade() else { return };
+                            if session.closed.load(Ordering::Relaxed) {
+                                return;
+                            }
+                            if heard {
+                                session.reannounce().await;
+                                return;
+                            }
+                        }
+                    });
+                } else {
+                    session.reannounce().await;
+                }
                 // The peer joins too unless it already does (it asked, or it said it
                 // has no other path). A plan exists only when the peer offered the
                 // relay, so `wg-relay` never reaches a build that does not know it.
-                if !asked && !plan.now {
+                // Nor on the relay-first cold join: the peer joins on its own clock.
+                if !asked && !plan.now && !cold {
                     let _ = session.signaling().send_signal(
                         &session.peer,
                         &session.session_id,
@@ -2133,6 +2201,11 @@ async fn run_relay_watch(session: Weak<Session>) {
 /// How long the answering side waits, at random within this range, before it
 /// reasserts on a relay it just joined ([`reassert_on_relay`]).
 const ANSWER_REASSERT_JITTER: std::ops::Range<u64> = 300..900;
+
+/// How often a relay-first join's pending endpoint announcement (disco over
+/// the relay) checks that its session is still alive while it waits for the
+/// tunnel to authenticate.
+const RELAY_DISCO_WAIT: Duration = Duration::from_secs(10);
 
 /// Send a handshake (or keepalive) through the relay this side just joined.
 async fn reassert_on_relay(session: &Arc<Session>, shared: &Arc<RelayShared>) {

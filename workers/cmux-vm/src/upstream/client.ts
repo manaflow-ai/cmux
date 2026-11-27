@@ -195,9 +195,10 @@ export interface UpstreamClientService {
     vm: Named<R, VmId>,
     proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:network"> },
   ) => Effect.Effect<number, UpstreamError>;
+  /** vm:files may read the state too: the paused-read replica answers only while the VM is unchanged. */
   readonly getVm: <C, R>(
     vm: Named<R, VmId>,
-    proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> },
+    proofs: { readonly owns: Owns<C, R>; readonly scope: KeyHasScope<C, "vm:read"> | KeyHasScope<C, "vm:files"> },
   ) => Effect.Effect<UpstreamVm, UpstreamError>;
   /** Reads a VM's state on the way to changing it. */
   readonly getVmForWrite: <C, R>(

@@ -52,6 +52,15 @@ stalled_status=124
 stall_dir="${CMUX_XCODEBUILD_STALL_DIR:-${RUNNER_TEMP:-${TMPDIR:-/tmp}}/xcodebuild-stall}"
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 
+# The package graph xcodebuild resolves first clones from github.com with
+# Xcode's own git, through the self-hosted mini's loopback egress proxy. A dead
+# or half-dead proxy fails that resolve (cmux runs 45830236598, 45836332236,
+# 2026-11-26), so the proxy is probed before the build and a resolve that
+# failed on it runs the build once more, direct (github-egress-direct.sh).
+# shellcheck source=scripts/ci/github-egress-direct.sh
+source "$script_dir/github-egress-direct.sh"
+github_egress_probe
+
 set +e
 collect_process_tree() {
   local pid="$1"
@@ -237,6 +246,25 @@ done
 kill "$tee_pid" 2>/dev/null || true
 wait "$tee_pid" 2>/dev/null || true
 trap - INT TERM
+
+if [[ "$status" -ne 0 && "$build_stalled" -eq 0 && "$interrupted_signal" -eq 0 ]] \
+  && grep -qE 'Could not resolve package dependencies|Failed to resolve dependencies' "$output_log" 2>/dev/null \
+  && github_egress_retry_direct "$output_log"; then
+  echo "xcodebuild: the package resolve failed on the github.com proxy (status=$status); running it once more, direct"
+  rm -rf "$output_dir"
+  # The first attempt already wrote its -resultBundlePath, and xcodebuild
+  # refuses an existing bundle ("Existing file at -resultBundlePath", status
+  # 64), so the rerun would fail on that instead of building direct. The
+  # bundle belongs to this build; clear it so the rerun can write it again.
+  prev_arg=""
+  for arg in "$@"; do
+    if [[ "$prev_arg" == "-resultBundlePath" && -n "$arg" ]]; then
+      rm -rf "$arg"
+    fi
+    prev_arg="$arg"
+  done
+  exec "$script_dir/$(basename "$0")" -- "$@"
+fi
 set -e
 
 # A compiler crash (swift-frontend or clang signal) prints a "Stack dump:" block

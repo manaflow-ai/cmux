@@ -72,7 +72,11 @@
     "vendor/stack-auth-swift-sdk-prerelease/**",
     "cmux-next-ios/CmuxMobileKit/**",
     "scripts/ci/swift-linux-packages.txt",
+    "scripts/ci/swift-linux-targets.txt",
+    "scripts/ci/swift_linux_targets.py",
     "scripts/ci/package-test-lane.sh",
+    "scripts/ci/package-test-lane/**",
+    "scripts/ci/require_swift_test_execution.py",
     ".github/workflows/swift-linux-packages.yml"
    ],
    "affects": [
@@ -81,21 +85,44 @@
     "Packages/macOS/CmuxUpdater/**",
     "Packages/macOS/CmuxPhonePush/**",
     "Packages/macOS/CmuxNext/Package.swift",
+    "Packages/macOS/CmuxNext/Package.resolved",
+    "Packages/macOS/CmuxNext/LinuxAppFFI/**",
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPanePlacement/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCLIInstall/**",
     "Packages/macOS/CmuxNext/Sources/CmuxNextChromiumRuntime/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextCopyMode/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextFocus/**",
     "Packages/macOS/CmuxNext/Sources/CmuxNextHostPressure/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalFind/**",
+    "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalGeometry/**",
     "Packages/macOS/CmuxNext/Tests/CmuxNextAgentPanePlacementTests/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextCLIInstallTests/**",
     "Packages/macOS/CmuxNext/Tests/CmuxNextChromiumRuntimeTests/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextCompatTests/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextFocusTests/**",
     "Packages/macOS/CmuxNext/Tests/CmuxNextHostPressureTests/**",
+    "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalGeometryTests/**",
     "vendor/stack-auth-swift-sdk-prerelease/**",
     "cmux-next-ios/CmuxMobileKit/**",
+    "cmux-next-ios/rust/crates/cmux-mobile-link-ffi/tests/fixtures/connection_contract.json",
     "scripts/ci/swift-linux-packages.txt",
+    "scripts/ci/swift-linux-targets.txt",
+    "scripts/ci/swift_linux_targets.py",
     "scripts/ci/package-test-lane.sh",
+    "scripts/ci/package-test-lane/**",
+    "scripts/ci/require_swift_test_execution.py",
     "scripts/ci/swift-test-debug-info.sh",
     "scripts/ci/swiftpm-binary-module-guard.sh",
+    "scripts/ci/github-egress-direct.sh",
+    "scripts/ci/github-egress-run.sh",
+    "scripts/ci/app_ffi_linux.py",
+    "scripts/cmux-next/build-app-ffi.sh",
+    "cmux-tui/crates/**",
+    "cmux-tui/Cargo.lock",
     ".github/workflows/swift-linux-packages.yml"
    ],
-   "affects_why": "Every package it tests (scripts/ci/swift-linux-packages.txt and the matrix's shared, mobile-core and stack-auth groups) lives under Packages/Shared, Packages/iOS or vendor/stack-auth-swift-sdk-prerelease, and their local path dependencies stay inside Packages/Shared (none reaches Packages/macOS, 2026-11-21), except CmuxNext's Linux shape: its three listed targets and their tests (2026-11-25); package-test-lane.sh sources swift-test-debug-info.sh and swiftpm-binary-module-guard.sh. The ios-kit group tests cmux-next-ios/CmuxMobileKit (its only path dependency outside the kit is Packages/Shared/CMUXAuthCore). Last 300 merges: the old filter started it on 96, this on 9."
+   "affects_why": "Every package it tests (scripts/ci/swift-linux-packages.txt and the matrix's shared, mobile-core and stack-auth groups) lives under Packages/Shared, Packages/iOS or vendor/stack-auth-swift-sdk-prerelease, and their local path dependencies stay inside Packages/Shared (none reaches Packages/macOS, 2026-11-21), except CmuxNext's Linux shape: the targets of linuxTargetNames and their tests, and CCmuxAppFFI, which it links as libcmux_app_ffi.a built from the cmux-tui crates by scripts/ci/app_ffi_linux.py over build-app-ffi.sh's headers (2026-11-26); package-test-lane.sh sources swift-test-debug-info.sh and swiftpm-binary-module-guard.sh. The ios-kit group tests cmux-next-ios/CmuxMobileKit (its only path dependency outside the kit is Packages/Shared/CMUXAuthCore). Last 300 merges: the old filter started it on 96, this on 9. The ios-kit group also reads the connection contract fixture (rust/crates/cmux-mobile-link-ffi/tests/fixtures/connection_contract.json, cmux-next-ios/contract/README.md): a Rust change to it must run the Swift side."
   },
   "pr-pipeline.yml": {
    "types": [
@@ -163,6 +190,17 @@
    ],
    "affects_why": "The linkage receipt (RFD 0051 route 2) breaks when the FFI surface, the checked-in binding, the kit manifest's Linux module, these tests, the script or the toolchain change. A change deeper in the crates the FFI compiles (cmux-mobile-link, cmux-tui/crates) is caught by the feat-cmux-next push run, which keeps the broad path filter, so a pull request touching only those does not start a 40-minute Rust and Swift build."
   },
+  "cmux-next-compile-preflight.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review",
+    "labeled"
+   ],
+   "draft": true,
+   "affects_why": "No path filter, and its caller job in pr-router.yml has no `start` gate: the compile preflight runs on every tier (Leo, 2026-11-27: \"surely we can just have legit build fail preflight checks\"), and the callee's first step decides from web-bundle-key.py --routed, the exact web bundle inputs, whether to build."
+  },
   "cmux-next-fast-gates.yml": {
    "types": [
     "opened",
@@ -173,6 +211,25 @@
    ],
    "draft": true,
    "affects_why": "No path filter (it had none as its own pull_request trigger): every head the router starts anything for starts it, and its jobs' own `if:`s keep their tier rules (a draft, a cheap or a not-yet-landing head skips resolve as before), so `draft` only lets those `if:`s decide. A head the router starts nothing for (head_tier's `none`: an idle or green-head base merge) starts none of its jobs; until 11-26 each such head still started its jobs (cmux-next-fast-gates.yml 32k runner-minutes in the 24 h to 2026-11-26; Leo, 2026-11-21: \"de facto, im asking for 99% fewer minutes of ci time, period.\"). `labeled` is listed as its trigger had it; the router turns an added ready-to-land or full-ci into ready_for_review and skips any other label."
+  },
+  "swift-logic-ratchet.yml": {
+   "types": [
+    "opened",
+    "synchronize",
+    "reopened",
+    "edited",
+    "ready_for_review"
+   ],
+   "affects": [
+    "**/*.swift",
+    "scripts/cmux-next/swift-logic-lines.py",
+    "scripts/cmux-next/swift-logic-delta.py",
+    "scripts/cmux-next/arch_counts.py",
+    "plans/cmux-next/swift-logic-classes.tsv",
+    ".github/workflows/swift-logic-ratchet.yml"
+   ],
+   "affects_why": "swift-logic-delta.py --gate counts swift_logic_lines + mirror_lines (swift-logic-lines.py) at the base and the merge commit: it reads only Swift files, the class table plans/cmux-next/swift-logic-classes.tsv and its own counter. A change touching none of them moves neither number. Before: the 400 feat-cmux-next merges to 2026-11-25T23Z added 3,334 lines in 43 PRs, none asked why.",
+   "skip_docs_only": true
   }
  }
 }

@@ -71,9 +71,6 @@ import Testing
         #expect(spikes.first?.duration == .milliseconds(400))
     }
 
-    /// `Thread.isMainThread` is unavailable from async contexts; a synchronous read is not.
-    nonisolated static func onMainThread() -> Bool { Thread.isMainThread }
-
     /// The sink (event build, Sentry capture, `beforeSend` scrubbing) never runs on the main
     /// thread that called `noteStall`, so a stall does not pay for its own report.
     @Test @MainActor func theSinkNeverRunsOnTheMainThread() async {
@@ -81,7 +78,7 @@ import Testing
         let sent = SpikeRecorder()
         let reporter = LagSpikeReporter(limiter: LagSpikeRateLimiter(minimumNanos: 250 * Self.ms), isEnabled: { true },
                                         sink: { spike in threads.onMain.withLock { $0.append(Thread.isMainThread) }; sent.add(spike) })
-        #expect(Self.onMainThread())
+        #expect(pthread_main_np() != 0)
         #expect(reporter.noteStall(duration: .milliseconds(400), cpu: .milliseconds(400), addresses: []))
         _ = await sent.wait(for: 1)
         #expect(threads.onMain.withLock { $0 } == [false])
