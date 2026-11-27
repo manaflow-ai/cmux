@@ -31,7 +31,12 @@ nonisolated func cmuxGhosttyModsFromFlags(modifierFlagsRawValue rawValue: UInt) 
 /// modifier look like a modifier change and re-dirty the screen. Key events
 /// must keep the side bits (`cmuxGhosttyModsFromFlags`); mouse paths send
 /// the normalized binding bits libghostty stores.
+///
+/// Cmd+Shift is sent as plain Cmd: libghostty activates a link only on an
+/// exact ctrl/super chord, and cmux reads the Shift itself to pick the other
+/// browser (`cmuxIsOtherBrowserLinkClickChord`).
 nonisolated func cmuxGhosttyMouseModsFromFlags(modifierFlagsRawValue rawValue: UInt) -> ghostty_input_mods_e {
+    if cmuxIsOtherBrowserLinkClickChord(modifierFlagsRawValue: rawValue) { return GHOSTTY_MODS_SUPER }
     let flags = NSEvent.ModifierFlags(rawValue: rawValue)
     var mods = GHOSTTY_MODS_NONE.rawValue
     if flags.contains(.shift) { mods |= GHOSTTY_MODS_SHIFT.rawValue }
@@ -39,6 +44,13 @@ nonisolated func cmuxGhosttyMouseModsFromFlags(modifierFlagsRawValue rawValue: U
     if flags.contains(.option) { mods |= GHOSTTY_MODS_ALT.rawValue }
     if flags.contains(.command) { mods |= GHOSTTY_MODS_SUPER.rawValue }
     return ghostty_input_mods_e(rawValue: mods)
+}
+
+/// Whether the held modifiers are exactly Cmd+Shift, the click that opens a
+/// terminal link in the browser `openTerminalLinksInCmuxBrowser` does not name.
+nonisolated func cmuxIsOtherBrowserLinkClickChord(modifierFlagsRawValue rawValue: UInt) -> Bool {
+    NSEvent.ModifierFlags(rawValue: rawValue)
+        .intersection([.shift, .control, .option, .command]) == [.command, .shift]
 }
 
 /// Applies libghostty's translation mods (the modifiers that should

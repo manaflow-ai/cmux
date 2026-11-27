@@ -16,6 +16,10 @@ struct TerminalLinkOpenRequest: Sendable {
         case cmuxBrowser
         /// The user picked the system default browser from a menu.
         case systemBrowser
+        /// The user Cmd+Shift-clicked: the browser the setting does not name,
+        /// so one click can leave the default without changing it. Like
+        /// `cmuxBrowser`, it overrides the setting and nothing else.
+        case otherBrowser
     }
 
     let rawValue: String

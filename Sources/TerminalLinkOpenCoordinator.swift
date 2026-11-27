@@ -196,6 +196,10 @@ struct TerminalLinkOpenCoordinator {
             return openExternally(destinations.externalURL, reason: "requested system browser")
         case .cmuxBrowser:
             break
+        case .otherBrowser:
+            if BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) {
+                return openExternally(destinations.externalURL, reason: "requested other browser")
+            }
         case .followsSetting:
             guard BrowserLinkOpenSettings.openTerminalLinksInCmuxBrowser(defaults: defaults) else {
                 return openExternally(destinations.externalURL, reason: "cmux browser disabled")
