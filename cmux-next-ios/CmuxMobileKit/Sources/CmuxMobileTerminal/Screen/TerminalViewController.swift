@@ -302,7 +302,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Jump to bottom's animated scroll, while it runs (CMUX-10).
     private var glide: BottomGlide?
     /// What the dock shows (key row, composer) and the soft keyboard's state.
-    private var dock = TerminalDockVisibility()
+    private var dock = TerminalDockVisibility(tuck: ComposerTuck.current)
+    /// Rows at the document's end that only repeat the harness's status (its input box, footer,
+    /// spinner), tucked under the composer while it is in use (`ComposerTuck`): the page's
+    /// bottom edge moves down by them, so no row of the conversation moves.
+    private(set) var tuckedRows = 0
+    /// The harness's status rows at the document's end, tucked or not (the numbers' base).
+    private(set) var harnessChromeRows = 0
+    #if DEBUG
+    /// `-cmux-mobile-tuck-probe`: a UI test reads the tuck here (`TerminalComposerTuckUITests`).
+    private let tuckProbe = UIView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+    #endif
     /// The old grid's rows, kept on the composer until the Mac's replay at
     /// the page's new rows is in (`TerminalTUIGridHold`). The soft keyboard
     /// never changes the rows (`TerminalGridSizing`); a chrome change does.
@@ -641,6 +651,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         hostGridNote.isAccessibilityElement = true
         hostGridNote.accessibilityTraits = .staticText
         hostGridNote.accessibilityIdentifier = "terminal.hostGridNote"
+        #if DEBUG
+        if CommandLine.arguments.contains("-cmux-mobile-tuck-probe") {
+            tuckProbe.isAccessibilityElement = true
+            tuckProbe.accessibilityIdentifier = "terminal.tuckProbe"
+            tuckProbe.accessibilityLabel = "tuck"
+            tuckProbe.accessibilityValue = "inUse=false"
+            view.addSubview(tuckProbe)
+        }
+        #endif
         hostGridNote.layer.cornerCurve = .continuous
         // Over the primary screen's rows and the TUI; the dock (added below) covers it.
         view.addSubview(hostGridNote)
@@ -1733,7 +1752,60 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The terminal or the composer gained or lost focus.
     func inputFocusChanged() {
-        // The key row follows the soft keyboard, not focus (`keyRowFollowsKeyboard`).
+        // The key row follows the soft keyboard (`keyRowFollowsKeyboard`), and tucks while the
+        // composer is in use (`ComposerTuck`): measured now, applied by the keyboard's own
+        // animation when it comes with one.
+        let inUse = model.composerFocused || (!model.composerText.isEmpty && !model.surfaceFocused)
+        guard inUse != dock.composerInUse else { return }
+        let showedKeyRow = dock.showsKeyRow
+        dock.composerInUse = inUse
+        outputSinceProbe = true
+        updateDocument()
+        measureTuck()
+        if dock.showsKeyRow != showedKeyRow { dockChanged(fadesInKeyRow: false) }
+        view.setNeedsLayout()
+    }
+
+    /// The harness rows to tuck at the document's end (`harness_tuck`, in Rust), and whether
+    /// the harness asks a question: read only while the composer is in use, from the Mac's
+    /// screen rows.
+    private func measureTuck() {
+        var rows = 0
+        var prompt = false
+        if dock.composerInUse, !model.isTUI, !documentPinsHostGrid, let document,
+           tuckHarness(program: model.programName) != nil {
+            let screenTop = max(0, scrollbar.total - (feedHostRows ?? surface.grid.rows))
+            let reader = rowReader
+            let texts = (screenTop..<max(screenTop, scrollbar.total)).map { reader.text(TerminalAbsoluteRow($0)) ?? "" }
+            let tuck = harnessTuck(program: model.programName, rows: texts)
+            prompt = tuck.prompt
+            if let from = tuck.tuckFrom {
+                // At least one row of the document stays above the composer.
+                rows = max(0, min(document.endRow - (screenTop + Int(from)), document.rowCount - 1))
+            }
+        }
+        let showedKeyRow = dock.showsKeyRow
+        dock.harnessPrompt = prompt
+        harnessChromeRows = rows
+        if !dock.tucksHarnessRows { rows = 0 }
+        if dock.showsKeyRow != showedKeyRow { dockChanged(fadesInKeyRow: true) }
+        updateTuckProbe()
+        guard rows != tuckedRows else { return }
+        tuckedRows = rows
+        view.setNeedsLayout()
+    }
+
+    /// DEBUG: the tuck and the rows the conversation gets between the toolbar and the composer.
+    private func updateTuckProbe() {
+        #if DEBUG
+        guard tuckProbe.superview != nil, cell.height > 0 else { return }
+        // The composer's top, not the tucked rows' bottom edge under it.
+        let composerInset = scrollView.contentInset.bottom + CGFloat(tuckedRows) * cell.height
+        let page = scrollView.bounds.height - scrollView.contentInset.top - composerInset
+        let pageRows = Int(floor(page / cell.height + 0.01))
+        let shown = pageRows - (harnessChromeRows - tuckedRows)
+        tuckProbe.accessibilityValue = "inUse=\(dock.composerInUse) prompt=\(dock.harnessPrompt) keys=\(dock.showsKeyRow) chrome=\(harnessChromeRows) tucked=\(tuckedRows) conversation=\(shown)"
+        #endif
     }
 
     /// The key row rides the soft keyboard (`TerminalDockVisibility.showsKeyRow`):
@@ -3169,6 +3241,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let pins = pinsHostGrid
         if pins, let pinned = hostLayout.pinnedBottomInset(pageHeight: bounds.height, top: top) {
             bottom = max(bottom, pinned)
+        } else {
+            // The harness's status rows go under the composer while it is in use (`ComposerTuck`).
+            bottom -= CGFloat(tuckedRows) * cell.height
         }
         if pins != documentPinsHostGrid {
             // The pin came or went (the Mac's rows, the keyboard): measure the document again now.
@@ -3177,10 +3252,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             updateDocument()
         }
         let insets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
+        defer { updateTuckProbe() }
         if scrollView.contentInset != insets {
             let previousOffset = scrollView.contentOffset.y
             scrollView.contentInset = insets
-            scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
+            // The indicator ends at the composer, tucked rows or not.
+            let indicatorBottom = pins ? bottom : bottom + CGFloat(tuckedRows) * cell.height
+            scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(top: top, left: 0, bottom: indicatorBottom, right: 0)
             if following || dragPinsToComposer, !model.isTUI {
                 // Rides the keyboard: the offset changes inside the keyboard's
                 // animation; the surface covers both ends of it.
@@ -3311,6 +3389,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let next = endHold.hold(measured, totalRows: scrollbar.total, cursorRow: cursor, screenTopRow: screenTop)
         guard next != document else {
             positionHostGridNote()
+            if dock.composerInUse { measureTuck() }
             return
         }
         let shift = CGFloat(next.originRow - originRow) * cell.height
@@ -3326,6 +3405,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             tuiSelection.redraw()
             finder.redraw()
         }
+        if dock.composerInUse { measureTuck() }
         // The scroll model places the rows: the bottom when following, the
         // anchored rows when reading, nothing while a finger owns the page.
         applyScroll(fromOutput: true)

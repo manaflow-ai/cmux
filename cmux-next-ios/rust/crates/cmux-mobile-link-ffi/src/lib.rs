@@ -30,6 +30,7 @@ mod cmux_link;
 mod composer_outbox;
 mod feed_list_edit;
 mod follow_camera;
+mod harness_tuck;
 mod lan;
 mod last_place;
 mod link_progress;
