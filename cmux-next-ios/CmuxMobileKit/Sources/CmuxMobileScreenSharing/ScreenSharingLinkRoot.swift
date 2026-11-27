@@ -100,12 +100,12 @@ private struct LatencyRun {
     let input: String
     let samples: Int
     let connectStart: CFTimeInterval
-    let engine: () -> String
+    let engine: @MainActor () -> String
     /// Points the click at the marker's click pad, `pad` in 0...1 of the frame.
-    let aim: (_ pad: CGPoint) async -> Void
-    let send: () -> Void
+    let aim: @MainActor (_ pad: CGPoint) async -> Void
+    let send: @MainActor () -> Void
     /// Called before the first input; its closure, after the last, adds the stream's stats.
-    let stats: () async -> (_ seconds: Double) async -> [String: Any]
+    let stats: @MainActor () async -> @MainActor (_ seconds: Double) async -> [String: Any]
 
     init(webRTC session: ScreenSession, probe: ScreenPresentProbe, input: String, samples: Int,
          connectStart: CFTimeInterval) {
@@ -120,7 +120,13 @@ private struct LatencyRun {
             let frame = session.frameSize
             session.movePointer(to: CGPoint(x: pad.x * frame.width, y: pad.y * frame.height))
         }
-        send = input == "key" ? { session.tap(VNCKeysym(character: "a")) } : { session.click() }
+        // if/else, not a ternary: a ternary types each closure as a plain `() -> Void` first, which
+        // Swift 6 will not convert to the property's `@MainActor` (Sendable) type.
+        if input == "key" {
+            send = { session.tap(VNCKeysym(character: "a")) }
+        } else {
+            send = { session.click() }
+        }
         stats = {
             let before = await session.stream?.videoStats()
             return { seconds in
@@ -150,9 +156,13 @@ private struct LatencyRun {
         engine = { "cmux.rd/1 (cmux-next-ios MacScreenRdView, BrowserVideoDecoder/AVSampleBufferDisplayLayer) in the iOS Simulator" }
         let pad = Box()
         aim = { pad.point = $0 }
-        send = input == "key" ? { model.debugPress("KeyA", key: "a", text: "a") } : {
-            model.touch("down", at: pad.point)
-            model.touch("up", at: pad.point)
+        if input == "key" {
+            send = { model.debugPress("KeyA", key: "a", text: "a") }
+        } else {
+            send = {
+                model.touch("down", at: pad.point)
+                model.touch("up", at: pad.point)
+            }
         }
         stats = {
             let frames = model.meter.frames
@@ -171,7 +181,7 @@ private struct LatencyRun {
         }
     }
 
-    private final class Box { var point = CGPoint.zero }
+    @MainActor private final class Box { var point = CGPoint.zero }
 
     func run() async -> [String: Any] {
         // The first decoded marker (bounded: 30 s, the simulator's first connect included).
