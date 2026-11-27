@@ -266,6 +266,46 @@ async fn append_latency_with_and_without_sealing() {
     }
 }
 
+/// A seal a daemon left mid-way (its `work-*` folder: the chat's whole log as lines) is removed
+/// by the chat's next seal, and only seal scratch is: the pack's chunks, manifest and any other
+/// folder stay. Leo's Mac, 2026-11-27: five such folders held 18.75 GB and none was ever removed.
+#[test]
+fn the_next_seal_removes_the_scratch_a_dead_seal_left() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions");
+    let hub = hub(&sessions);
+    let id = "pack-grows-e";
+    let session = chat(&hub, id);
+    let mut text = Text(17);
+    grow(&hub, &session, &sessions, (4 << 20) + (1 << 20), &mut text);
+    hub.seal_pack(id).unwrap().unwrap();
+    let store = hub.pack_store(id).unwrap();
+    let dead = store.root().join("work-01a21af97680716f93be95f70720972d");
+    std::fs::create_dir_all(&dead).unwrap();
+    std::fs::write(dead.join("history.ndjson"), vec![b'x'; 1 << 20]).unwrap();
+    let other = store.root().join("workbench");
+    std::fs::create_dir_all(&other).unwrap();
+    let file = store.root().join("work-file");
+    std::fs::write(&file, b"a file, not a seal's folder").unwrap();
+
+    assert_eq!(sweep_dead_work(&root.path().join("no-such-store")), 0, "no store, nothing");
+
+    grow(&hub, &session, &sessions, (8 << 20) + (1 << 20), &mut text);
+    assert!(hub.seal_pack(id).unwrap().unwrap().extended, "the seal still extends the pack");
+    assert!(!dead.exists(), "the dead seal's scratch is gone");
+    assert!(other.is_dir() && file.is_file(), "only `work-*` folders are seal scratch");
+    let left: Vec<_> = std::fs::read_dir(store.root())
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with("work-") && n != "work-file")
+        .collect();
+    assert!(left.is_empty(), "the seal removed its own scratch too: {left:?}");
+    let mut back = Vec::new();
+    pack::Pack::open(&store, id).unwrap().cat(&mut back).unwrap();
+    assert_eq!(back, export_lines(&hub, &session, root.path()), "the pack is whole");
+}
+
 /// A chat that is purged is not packed, and what the hub remembered of its pack goes with it.
 #[test]
 fn a_purged_chat_is_not_packed_and_is_forgotten() {
