@@ -1928,6 +1928,10 @@ path = "tests/test_ci_runner_set.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_download_artifact_stall.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cloud_journey_prod_own_login.py"
 lane = "linux-guard"
 
@@ -2111,6 +2115,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_cron_concurrency.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_namespace_autofix_rate_limit_wait.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2472,6 +2480,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_risk_tier_grades_once.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_risk_tier_rate_limit_wait.py"
 lane = "linux-guard"
 
 [[test]]

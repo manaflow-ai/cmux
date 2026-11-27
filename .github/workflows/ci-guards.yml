@@ -231,6 +231,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_set.py
 
+      - name: Validate every artifact download fails a stalled download
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_download_artifact_stall.py
+
       - name: Validate the real Cloud journey takes its own Claude login first
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cloud_journey_prod_own_login.py
@@ -774,6 +778,11 @@ jobs:
       - name: Check cron workflows keep one queued run and delivery builds are never deduped
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_cron_concurrency.py
+
+      # namespace-autofix lists a PR's files again once after a refused budget's reset, bounded, never skipping.
+      - name: Check namespace autofix waits out a refused file listing once
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_namespace_autofix_rate_limit_wait.py
 
       # Warn-level: a dispatched or PR workflow with macOS or long jobs needs a
       # concurrency group not keyed by SHA or run id (cmuxterm-hq#2568 flood).
