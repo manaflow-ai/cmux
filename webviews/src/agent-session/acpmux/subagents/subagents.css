@@ -2946,8 +2946,10 @@ button.cv-subagent > :last-child {
    headers are (Leo, 2026-11-27: "add the opaque backing to it again with proper size"). The header is
    the composer's row height, as every other hat header, and the words are the chat's text size, the
    prompt's and the replies' (--text-content), never a smaller metadata step. No marks, time or chevron;
-   hovered or pressed, the words take the full text colour, never the accent or a chip. A tray with no card (a
-   surface arm of `none`, settled) keeps the bare line. */
+   hovered or open, the words go from muted to the text's ink and nothing else: no accent, no chip
+   (Leo, 2026-11-27, ask-b6fc7a81c2: "dont put this garish blue in man we dont need it to be blue or
+   highlighted"). Keyboard focus keeps the focus ring, the one place the accent belongs (D3). A tray
+   with no card (a surface arm of `none`, settled) keeps the bare line. */
 .acpmux-dock > .acpmux-running-tray[data-line]:not([data-card]) {
   min-height: 0;
   background: transparent;
@@ -2968,13 +2970,27 @@ button.cv-subagent > :last-child {
   color: var(--agent-muted);
   font-size: var(--text-content);
   line-height: var(--text-content--line-height);
-  transition: color var(--cv-actions-out) var(--cv-actions-out-ease);
+  transition: color var(--cv-actions-out) var(--cv-actions-out-ease),
+    background-color var(--cv-actions-out) var(--cv-actions-out-ease);
 }
 .acpmux-running-tray[data-line] > .acpmux-running-tray__head:is(:hover, :focus-visible, [aria-expanded="true"])
   > .acpmux-running-tray__title {
-  /* Neutral: the words take the full text colour, no blue, no plate (Leo, 2026-11-27: "dont put this
-     garish blue in man we dont need it to be blue or highlighted"). */
   color: var(--agent-text);
+  background: none;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head:focus-visible {
+  outline: none;
+}
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head:focus-visible > .acpmux-running-tray__title {
+  outline: 2px solid var(--agent-accent);
+  outline-offset: -2px;
+}
+/* The line header has no chevron column, so its panel button lies over its own slot at the row's end,
+   not one chevron in from it on top of the deck's "+12 more" (Leo, 2026-11-27, ask-b6fc7a81c2:
+   "overlapping text here what do we doooo"). The slot's right edge is the inset plus the slot's
+   margin (`.acpmux-running-tray__open-slot` above: the tray gap less the header's 8px). */
+.acpmux-running-tray[data-line] > .acpmux-running-tray__open {
+  right: calc(var(--acpmux-tray-inset) + var(--acpmux-tray-gap) - var(--ds-space-2));
 }
 .acpmux-running-tray[data-line]:not([data-card]) > .acpmux-running-tray__rim {
   display: none;

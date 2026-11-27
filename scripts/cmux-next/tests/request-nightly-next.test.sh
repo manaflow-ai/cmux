@@ -419,9 +419,10 @@ branch() { # <commit>: feat-cmux-next's tip (the script's history, fetched or lo
   git_q -C "$src" update-ref refs/heads/feat-cmux-next "$1"
 }
 # No REST read. The one exception is the direct-push quarantine's single GraphQL read (its own budget, kept for the
-# whole tick in GH_TICK_CACHE), made only once a candidate is about to be requested.
+# whole tick in GH_TICK_CACHE), made only once a candidate is about to be requested. The other allowed read is
+# web_matrix_green's one commit-statuses read of the candidate (cmux-next/web-bundle-matrix, added by #61541).
 no_api() {
-  ! grep -v '^api graphql ' "$TMP/gh.log" | grep -q '^api' || fail "--tree-ready must read no GitHub REST API:" "$(cat "$TMP/gh.log")"
+  ! grep -v -e '^api graphql ' -e '^api repos/o/r/commits/[0-9a-f]*/statuses?per_page=100 --jq .*cmux-next/web-bundle-matrix' "$TMP/gh.log" | grep -q '^api' || fail "--tree-ready must read no GitHub REST API:" "$(cat "$TMP/gh.log")"
   (( $(grep -c '^api graphql ' "$TMP/gh.log") <= 1 )) || fail "the quarantine is read once a call:" "$(cat "$TMP/gh.log")"
 }
 branch "$other"
