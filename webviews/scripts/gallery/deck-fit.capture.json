@@ -8,7 +8,7 @@
       "width": 300,
       "height": 420,
       "deviceScaleFactor": 2,
-      "clip": ".acpmux-composer",
+      "clip": ".acpmux-dock",
       "arms": {
         "before": "",
         "stack": "",
@@ -36,7 +36,7 @@
       "width": 440,
       "height": 420,
       "deviceScaleFactor": 2,
-      "clip": ".acpmux-composer",
+      "clip": ".acpmux-dock",
       "arms": {
         "before": "",
         "stack": "",
@@ -64,7 +64,7 @@
       "width": 560,
       "height": 420,
       "deviceScaleFactor": 2,
-      "clip": ".acpmux-composer",
+      "clip": ".acpmux-dock",
       "arms": {
         "before": "",
         "stack": "",
@@ -92,7 +92,7 @@
       "width": 900,
       "height": 420,
       "deviceScaleFactor": 2,
-      "clip": ".acpmux-composer",
+      "clip": ".acpmux-dock",
       "arms": {
         "before": "",
         "stack": "",
