@@ -28,15 +28,15 @@ public nonisolated struct ChiefMovePlan: Equatable, Sendable {
     ///   - targetHome: where an SSH target keeps the Chief home (``targetHome(home:userHome:)``).
     ///   - tokenFile: a 0600 file holding the Cloud session token, for a Cloud target.
     public init(to: String, kind: ChiefMoveTargets.Kind, sourceHome: String, targetHome: String, tokenFile: String?) {
-        let token = tokenFile.map { ["--session-token-file", $0] } ?? []
-        let home = ["--chief-home", sourceHome]
-        dryRun = ["chief", "move", "--to", to, "--dry-run"] + home + token
-        move = ["chief", "move", "--to", to] + home + token
-        switch kind {
-        case .local(let home): reach = .cli(["chief", "move", "reach", "--chief-home", home])
-        case .ssh(let destination), .server(let destination?):
-            reach = .remote(["ssh", "-o", "BatchMode=yes", destination, "optchat-chief", "move", "reach", "--home", targetHome])
-        case .server(nil), .cloud: reach = .none
+        let plan: WirePlan = dockRule("dock.move_plan",
+                                      PlanRequest(to: to, kind: WireKind(kind), sourceHome: sourceHome, targetHome: targetHome, tokenFile: tokenFile),
+                                      fallback: WirePlan(dryRun: [], move: [], reach: WireReach(type: "none", args: nil)))
+        dryRun = plan.dryRun
+        move = plan.move
+        switch plan.reach.type {
+        case "cli": reach = .cli(plan.reach.args ?? [])
+        case "remote": reach = .remote(plan.reach.args ?? [])
+        default: reach = .none
         }
     }
 
@@ -44,13 +44,36 @@ public nonisolated struct ChiefMovePlan: Equatable, Sendable {
     /// marked moved back. Out of cmux Cloud the hosted brain is turned off, which takes the session
     /// (`tokenFile`, a 0600 file).
     public static func rollback(sourceHome: String, tokenFile: String?) -> [String] {
-        ["chief", "move", "rollback", "--chief-home", sourceHome] + (tokenFile.map { ["--session-token-file", $0] } ?? [])
+        dockRule("dock.move_rollback", RollbackRequest(sourceHome: sourceHome, tokenFile: tokenFile), fallback: [])
     }
 
     /// The moving home's path under the user's home folder as `~/…` (the same place on the target, as
     /// `optchat-chief move` puts it); a home outside that folder keeps its path.
     public static func targetHome(home: String, userHome: String) -> String {
-        let base = userHome.hasSuffix("/") ? userHome : userHome + "/"
-        return home.hasPrefix(base) ? "~/" + home.dropFirst(base.count) : home
+        dockRule("dock.move_target_home", ["home": home, "userHome": userHome], fallback: home)
+    }
+
+    private struct PlanRequest: Encodable {
+        var to: String
+        var kind: WireKind
+        var sourceHome: String
+        var targetHome: String
+        var tokenFile: String?
+    }
+
+    private struct RollbackRequest: Encodable {
+        var sourceHome: String
+        var tokenFile: String?
+    }
+
+    private struct WireReach: Decodable {
+        var type: String
+        var args: [String]?
+    }
+
+    private struct WirePlan: Decodable {
+        var dryRun: [String]
+        var move: [String]
+        var reach: WireReach
     }
 }
