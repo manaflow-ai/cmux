@@ -19,6 +19,10 @@ grep -Fq 'libcua_driver_sdk.dylib|libcmux_computer_use.dylib)' "$signer"
 grep -Fq 'Remote carries two Computer Use engines' "$signer"
 grep -Fq 'sign "$framework_dir/$engine"' "$signer"
 grep -Fq 'if [[ "$engine" == libcua_driver_sdk.dylib ]]; then' "$signer"
+# The screen stream's rules (cmux-rd-screen-ffi, #58368): optional, signed when present.
+grep -Fq 'libcmux_rd_screen.dylib) screen_rules=' "$signer"
+grep -Fq '[[ -z "$screen_rules" ]] || expected_count=3' "$signer"
+grep -Fq '[[ -z "$screen_rules" ]] || sign "$framework_dir/$screen_rules"' "$signer"
 if grep -Eq 'mapfile|readarray|-maxdepth|-quit' "$signer"; then
   echo "sign-cmux-remote-dev.sh must run on macOS Bash/find" >&2
   exit 1

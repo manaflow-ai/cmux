@@ -24,7 +24,7 @@ env:
 
 jobs:
   sweep:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 10
     # The canary's environment: only the Stack keys, deployments from main only.
     environment: cloud-vm-canary

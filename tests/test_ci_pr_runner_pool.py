@@ -4635,7 +4635,7 @@ class IOSWiring(unittest.TestCase):
         self.assertEqual(seed["runs-on"],
                          "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == "
                          "'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && "
-                         "'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}")
+                         "'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}")
         self.assertEqual(seed["environment"], "${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}")
         self.assertEqual(seed["needs"], ["ios-simulator-build"])
         # As the step ran: only after a successful build, only on a main seed_cache run.

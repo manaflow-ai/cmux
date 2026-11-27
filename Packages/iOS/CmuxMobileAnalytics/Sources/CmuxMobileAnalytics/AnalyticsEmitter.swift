@@ -1,6 +1,11 @@
 public import CMUXMobileCore
 public import Foundation
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
+#if canImport(os)
 internal import OSLog
+#endif
 
 private let analyticsLog = Logger(subsystem: "dev.cmux.ios", category: "analytics")
 

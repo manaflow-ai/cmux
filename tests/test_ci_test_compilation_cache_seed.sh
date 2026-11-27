@@ -214,6 +214,14 @@ for version in 26.3 26.6 26.6.1 27.0; do
   fi
 done
 echo "PASS: the app target builds without the compilation cache on every Xcode"
+: > "$STUB_XCODEBUILD_ARGS"
+CMUX_CI_ENABLE_APP_COMPILATION_CACHE=1 run_script build "$TMP_DIR/derived" "$TMP_DIR/packages" "$TMP_DIR/cas" "$TMP_DIR/build.log" >/dev/null
+if grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmux=NO "$STUB_XCODEBUILD_ARGS" \
+  || ! grep -Fxq -- CMUX_CI_COMPILATION_CACHE_cmuxTests=NO "$STUB_XCODEBUILD_ARGS"; then
+  echo "FAIL: the app-cache canary must enable cmux while keeping cmuxTests disabled"
+  exit 1
+fi
+echo "PASS: the app-cache canary enables cmux while keeping cmuxTests disabled"
 if ! grep -Fxq 'build output for cmux' "$TMP_DIR/derived/cmux-build.log" \
   || grep -Fq 'build output for cmux-unit' "$TMP_DIR/derived/cmux-build.log"; then
   echo "FAIL: the warning-budget log must retain only app/UI build output"

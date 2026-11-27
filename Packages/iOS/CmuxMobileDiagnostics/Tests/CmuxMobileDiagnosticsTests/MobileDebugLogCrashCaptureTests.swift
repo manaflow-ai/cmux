@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG && canImport(Darwin)
 import Darwin
 import Foundation
 import Testing

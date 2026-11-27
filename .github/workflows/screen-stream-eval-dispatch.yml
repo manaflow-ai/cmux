@@ -7,6 +7,13 @@ name: screen stream eval dispatcher
 # is already pending. The run reports only (results.json and a summary with each number's change
 # against the previous daily run); nothing reads its result and it never fails a check. GitHub only
 # dispatches a workflow name the default branch registers: screen-stream-eval.yml here is that (inert).
+# Two runs a day, each skipped while a run with its title is pending: the default targets (rd,webrtc)
+# on the eval's worker, and the iPhone viewer (targets=iphone-sim, cmuxterm-hq goals/ss-ios-viewer.md)
+# pinned to vars.SCREEN_STREAM_EVAL_IPHONE_WORKER (a Mac with an iOS simulator runtime and the eval
+# launcher's Screen Recording and Accessibility grants), else to the eval's own worker variable.
+# HQ's fleet-reconciler-screen-share-fast.yml pulls the iphone-sim run for NOW's
+# screen_share_fast.iphone_present_p95_ms. One run's failed dispatch (GitHub answered 500 on
+# 2026-11-25 and 11-26, so no eval ran those days) never skips the other; the job fails after both tries.
 on:
   schedule:
     - cron: "41 10 * * *"
@@ -25,7 +32,8 @@ env:
 jobs:
   dispatch:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # It holds the cmux-bot App key, so no variable may move it (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       actions: write
       contents: read
@@ -51,28 +59,66 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
 
-      - name: Start the screen stream eval on feat-cmux-next unless one is pending
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+      # Two hourly REST budgets instead of one: the cmux-bot installation's, then github.token's for reads
+      # (gh_budget_wait.cjs `spare`). github.token's budget is shared with every workflow in the repo, and a
+      # rate-limited read on it alone turned main red for a day (runs 45791594489, 45809391120, 45804008279,
+      # 45831824446, 45944569896: "the budget resets in ...s, past this job's 900s left to wait").
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
+
+      - name: Start the screen stream evals on feat-cmux-next unless one is pending
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          IPHONE_WORKER: ${{ vars.SCREEN_STREAM_EVAL_IPHONE_WORKER || '' }}
+          SPARE_READ_TOKEN: ${{ steps.cmux-bot-token.outputs.token && github.token || '' }}
+        with:
+          github-token: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           script: |
-            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core, spare: process.env.SPARE_READ_TOKEN ? getOctokit(process.env.SPARE_READ_TOKEN) : undefined });
             const { owner, repo } = context.repo;
             const source = 'feat-cmux-next';
             const workflow = 'screen-stream-eval.yml';
+            // Each run's title is the eval's run-name: the plain name for rd,webrtc, else the targets
+            // in parentheses. Its baseline is the last daily run with the same title.
+            const runs = [
+              { title: 'screen stream eval', inputs: { targets: 'rd,webrtc' } },
+              { title: 'screen stream eval (iphone-sim)', inputs: { targets: 'iphone-sim', worker: process.env.IPHONE_WORKER || '' } },
+            ];
+            const pending = new Map();
             for (const status of ['queued', 'in_progress', 'waiting', 'pending', 'requested']) {
               const { data } = await github.rest.actions.listWorkflowRuns({
-                owner, repo, workflow_id: workflow, branch: source, status, per_page: 5,
+                owner, repo, workflow_id: workflow, branch: source, status, per_page: 20,
               });
-              if (data.total_count > 0) {
-                core.notice(`A screen stream eval run is already ${status} (run ${data.workflow_runs[0].id}); nothing to start`);
-                return;
+              for (const run of data.workflow_runs) {
+                if (!pending.has(run.display_title)) pending.set(run.display_title, `${status} (run ${run.id})`);
               }
             }
-            // No inputs: the eval's defaults are the daily run. It finds its baseline as the last
-            // successful run this dispatcher started (actor github-actions[bot]).
-            await github.rest.actions.createWorkflowDispatch({
-              owner, repo, workflow_id: workflow,
-              // Fully qualified: a tag named feat-cmux-next must never be picked.
-              ref: `refs/heads/${source}`,
-            });
-            core.notice(`Started the screen stream eval on ${source}`);
+            const failed = [];
+            for (const { title, inputs } of runs) {
+              if (pending.has(title)) {
+                core.notice(`${title}: a run is already ${pending.get(title)}; nothing to start`);
+                continue;
+              }
+              try {
+                await github.rest.actions.createWorkflowDispatch({
+                  owner, repo, workflow_id: workflow,
+                  // Fully qualified: a tag named feat-cmux-next must never be picked.
+                  ref: `refs/heads/${source}`,
+                  inputs,
+                });
+                core.notice(`Started ${title} on ${source}`);
+              } catch (error) {
+                core.error(`${title}: dispatch failed: ${error.message}`);
+                failed.push(title);
+              }
+            }
+            if (failed.length) core.setFailed(`dispatch failed for: ${failed.join(', ')}`);

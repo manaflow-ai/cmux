@@ -592,7 +592,8 @@ class HostedQueueRescueCalls(StepHarness):
 
     def test_reads_use_the_read_token_and_the_rerun_the_workflow_token(self) -> None:
         self.assertEqual(self.STEP["env"]["READ_TOKEN"],
-                         "${{ steps.cmux-bot-token.outputs.token || steps.glaeda-token.outputs.token }}")
+                         # The spread mint's token first: it is whichever App has more left.
+                         "${{ steps.glaeda-token.outputs.token || steps.cmux-bot-token.outputs.token }}")
         with tempfile.TemporaryDirectory() as tmp:
             tokens = Path(tmp) / "tokens"
             self.run_step(self.STEP["run"], {**self.ENV, "READ_TOKEN": "app", "FAKE_GH_TOKEN_LOG": str(tokens)},
