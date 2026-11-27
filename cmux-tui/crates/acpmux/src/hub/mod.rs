@@ -423,6 +423,8 @@ mod tailnet_controller;
 mod tap;
 mod task_names;
 pub(crate) mod tasks;
+mod team_directory;
+pub use team_directory::{TeamView, view_of_book};
 mod team_information;
 mod team_sent;
 mod terminal_input;
@@ -1213,6 +1215,8 @@ pub struct Hub {
     pending_peer_routes: StdMutex<peer_idle::PendingRoutes>,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
+    /// RFD 0170's team directory for the navigator, picker and Session Info (`team_directory.rs`).
+    pub(super) team_directory: team_directory::TeamDirectoryCell,
     /// The health of the machines only the mesh hub reaches, read through it (`hub_health.rs`).
     pub(crate) hub_health: Arc<StdMutex<hub_health::HubHealth>>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
@@ -1841,6 +1845,7 @@ impl Hub {
             remote_sessions: Default::default(),
             pending_peer_routes: Default::default(),
             mesh_book: Default::default(),
+            team_directory: Default::default(),
             hub_health: Default::default(),
             mesh_read_parts: Default::default(),
             mesh_read_flights: Default::default(),
