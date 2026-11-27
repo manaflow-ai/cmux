@@ -44,7 +44,7 @@ nonisolated enum AgentPaneAttachmentFiles {
     /// chip sent without its bytes keeps the file `kept` names for it; one that carries bytes and
     /// has neither is left out.
     static func moveOut(_ attachments: [Attachment], _ contents: Contents = .bytes, to folder: URL,
-                        kept: [String: String] = [:]) -> (attachments: [Attachment], files: [String: String])? {
+                        kept: [String: String] = [:], failOnMissingKept: Bool = false) -> (attachments: [Attachment], files: [String: String])? {
         let manager = FileManager.default
         // Attachment ids are the persistence key. A reconnect or a rapid paste/remove race can
         // hand us the same id twice; keeping both entries would make them read back the last
@@ -69,7 +69,16 @@ nonisolated enum AgentPaneAttachmentFiles {
                 written.append(url)
                 files[attachment.id] = url.lastPathComponent
                 attachment[keyPath: contents.field] = nil
-            } else if value == nil, let name = kept[attachment.id], size(of: name, in: folder) != nil {
+            } else if value == nil, let name = kept[attachment.id] {
+                guard size(of: name, in: folder) != nil else {
+                    if failOnMissingKept {
+                        for url in written { try? manager.removeItem(at: url) }
+                        return nil
+                    }
+                    if contents == .bytes, carriesBytes(attachment) { continue }
+                    moved.append(attachment)
+                    continue
+                }
                 files[attachment.id] = name
             } else if value == nil, contents == .bytes, carriesBytes(attachment) {
                 continue
@@ -80,16 +89,31 @@ nonisolated enum AgentPaneAttachmentFiles {
     }
 
     /// `attachments` with each one's `contents` read back from the file `files` names for it in
-    /// `folder`. A chip whose file is missing or not a bare name in the folder is left out.
+    /// `folder`. A chip whose file is missing or unreadable is left out for the launch snapshot's
+    /// best-effort compatibility path.
     static func readBack(_ attachments: [Attachment], _ contents: Contents = .bytes, files: [String: String], in folder: URL) -> [Attachment] {
-        attachments.compactMap { attachment in
-            guard let name = files[attachment.id] else { return attachment }
-            guard size(of: name, in: folder) != nil,
-                  // concurrency-allow: the files a composer kept, read once off the main actor when its chat opens or the app launches
-                  let file = try? Data(contentsOf: folder.appending(path: name)) else { return nil }
+        attachments.compactMap { try? readBack($0, contents, files: files, in: folder) }
+    }
+
+    /// The strict store path. A chip whose file is missing or not a bare name in the folder makes
+    /// the whole read fail, so a transient disk failure cannot turn a valid draft into an empty one.
+    static func readBackStrict(_ attachments: [Attachment], _ contents: Contents = .bytes, files: [String: String], in folder: URL) throws -> [Attachment] {
+        try attachments.map { try readBack($0, contents, files: files, in: folder) }
+    }
+
+    private static func readBack(_ attachment: Attachment, _ contents: Contents, files: [String: String], in folder: URL) throws -> Attachment {
+        guard let name = files[attachment.id] else { return attachment }
+        guard size(of: name, in: folder) != nil else {
+            throw AgentPaneDraftAttachments.Failure.read(folder.appending(path: name))
+        }
+        do {
+            // concurrency-allow: the files a composer kept, read once off the main actor when its chat opens or the app launches
+            let file = try Data(contentsOf: folder.appending(path: name))
             var attachment = attachment
             attachment[keyPath: contents.field] = contents.value(file)
             return attachment
+        } catch {
+            throw AgentPaneDraftAttachments.Failure.read(folder.appending(path: name))
         }
     }
 
@@ -97,7 +121,9 @@ nonisolated enum AgentPaneAttachmentFiles {
     /// this code gives (never a path out of the folder).
     static func size(of name: String, in folder: URL) -> Int? {
         guard !name.isEmpty, !name.contains("/"), !name.hasPrefix(".") else { return nil }
-        return (try? folder.appending(path: name).resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        guard let values = try? folder.appending(path: name).resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+              values.isRegularFile == true else { return nil }
+        return values.fileSize
     }
 
     /// A chip that is nothing without its contents: an image, a PDF, a recording.

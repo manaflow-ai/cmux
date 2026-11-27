@@ -36,7 +36,7 @@ extension AgentPaneView {
         let page = answer.flatMap { JSONValue(foundation: $0) }
         var kept: [AgentPaneWakeState.Attachment] = []
         if page == nil || page == .null, let session, let store = AgentPaneDraftAttachments.shared {
-            kept = await store.attachments(for: session)
+            kept = (try? await store.attachments(for: session)) ?? []
         }
         return AgentPaneModel.composerJSON(session: session, page: page, kept: kept)
     }

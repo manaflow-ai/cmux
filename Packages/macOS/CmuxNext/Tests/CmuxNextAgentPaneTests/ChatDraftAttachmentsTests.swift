@@ -272,6 +272,93 @@ struct ChatDraftAttachmentsTests {
         #expect(!FileManager.default.fileExists(atPath: folder.path))
     }
 
+    /// A failed replacement leaves the last complete list and its files available for a retry.
+    @Test func aFailedWriteBeforeListReplacementPreservesThePreviousDraft() async throws {
+        let directory = try Self.directory()
+        var lockedFolder: URL?
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            if let lockedFolder {
+                try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: lockedFolder.path)
+            }
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: directory.appending(path: AgentPaneDraftAttachments.directoryName).path)
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = AgentPaneDraftAttachments(directory: directory)
+        AgentPaneDraftAttachments.shared = store
+        #expect(try await Self.keep([Self.chip(1)], for: "s-io") == ["shot-1"])
+        let folder = try #require(store.folder(for: "s-io"))
+        lockedFolder = folder
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: folder.path)
+
+        do {
+            _ = try await Self.keep([Self.chip(2)], for: "s-io")
+            Issue.record("the unwritable draft folder accepted a replacement")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.agent.draft_attachments.write_failed")
+            #expect(error.retryable)
+        }
+
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder.path)
+        let back = try await Self.kept("s-io")
+        #expect(back.map(\.id) == ["shot-1"], "the previous valid draft was lost")
+        #expect(back.first?.data.flatMap { Data(base64Encoded: $0) } == Self.screenshot(1))
+    }
+
+    /// A missing kept file is an I/O failure, not an empty draft, so the page can retry the read.
+    @Test func aFailedReadIsRejectedInsteadOfReturningAnEmptyDraft() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = AgentPaneDraftAttachments(directory: directory)
+        AgentPaneDraftAttachments.shared = store
+        #expect(try await Self.keep([Self.chip(1)], for: "s-read") == ["shot-1"])
+        let folder = try #require(store.folder(for: "s-read"))
+        let bytes = try #require(Self.files(in: folder).first(where: { $0.hasSuffix(".png") }))
+        try FileManager.default.removeItem(at: folder.appending(path: bytes))
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+
+        do {
+            _ = try await Self.kept("s-read")
+            Issue.record("the missing attachment file was reported as an empty draft")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.agent.draft_attachments.read_failed")
+            #expect(error.retryable)
+        }
+    }
+
+    /// A rewrite that names a temporarily missing kept file is rejected without replacing the
+    /// manifest. Once the file returns, the same draft remains readable for a retry.
+    @Test func aMissingKeptPayloadDoesNotDeleteTheExistingDraft() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        let store = AgentPaneDraftAttachments(directory: directory)
+        AgentPaneDraftAttachments.shared = store
+        #expect(try await Self.keep([Self.chip(1)], for: "s-held") == ["shot-1"])
+        let folder = try #require(store.folder(for: "s-held"))
+        let payload = try #require(Self.files(in: folder).first(where: { $0.hasSuffix(".png") }))
+        let displaced = directory.appending(path: "displaced-\(payload)")
+        try FileManager.default.moveItem(at: folder.appending(path: payload), to: displaced)
+
+        do {
+            _ = try await Self.keep([Self.chip(1, contents: false)], for: "s-held")
+            Issue.record("the missing kept payload was silently accepted")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.agent.draft_attachments.write_failed")
+            #expect(error.retryable)
+        }
+
+        try FileManager.default.moveItem(at: displaced, to: folder.appending(path: payload))
+        let back = try await Self.kept("s-held")
+        #expect(back.map(\.id) == ["shot-1"])
+        #expect(back.first?.data.flatMap { Data(base64Encoded: $0) } == Self.screenshot(1))
+    }
+
     @Test func badCallsAreRefused() async throws {
         let directory = try Self.directory()
         defer {

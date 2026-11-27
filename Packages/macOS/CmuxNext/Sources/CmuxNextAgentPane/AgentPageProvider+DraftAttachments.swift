@@ -16,12 +16,23 @@ extension AgentPageProvider {
         let store = AgentPaneDraftAttachments.shared
         if method == "chat.draftAttachments.get" {
             guard let store else { return .array([]) }
-            let kept = await store.attachments(for: session)
+            let kept: [AgentPaneWakeState.Attachment]
+            do {
+                kept = try await store.attachments(for: session)
+            } catch {
+                throw PageError.failed(error, code: "cmux.agent.draft_attachments.read_failed", retryable: true)
+            }
             return await Task.detached { AgentPaneDraftAttachments.json(kept) }.value
         }
         guard let list = body["attachments"], case .array = list else { throw PageError.invalidParams(op) }
         guard let store else { return .object(["held": .array([])]) }
-        guard let held = await store.keep(list, for: session) else { throw PageError.invalidParams(op) }
+        let held: [String]?
+        do {
+            held = try await store.keep(list, for: session)
+        } catch {
+            throw PageError.failed(error, code: "cmux.agent.draft_attachments.write_failed", retryable: true)
+        }
+        guard let held else { throw PageError.invalidParams(op) }
         return .object(["held": .array(held.map(JSONValue.string))])
     }
 }

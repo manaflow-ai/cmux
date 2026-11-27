@@ -25,40 +25,55 @@ public final class AgentPaneDraftAttachments {
     /// the page asked, a later small write never overtaking an earlier large one.
     private var queue: [String: Task<Void, Never>] = [:]
 
+    /// A disk failure is distinct from an empty draft. Callers reject the page operation and can
+    /// retry it, while the last valid list and its files remain in place.
+    nonisolated enum Failure: Error, Sendable, CustomStringConvertible {
+        case read(URL)
+        case write(URL)
+
+        var description: String {
+            switch self {
+            case let .read(url): "could not read draft attachment \(url.path)"
+            case let .write(url): "could not write draft attachment \(url.path)"
+            }
+        }
+    }
+
     public init(directory: URL?) {
         self.directory = directory?.appending(path: Self.directoryName, directoryHint: .isDirectory)
     }
 
     /// The chips chat `sessionId` was left with, contents read back; empty when it holds none.
-    public func attachments(for sessionId: String) async -> [AgentPaneWakeState.Attachment] {
+    public func attachments(for sessionId: String) async throws -> [AgentPaneWakeState.Attachment] {
         guard let folder = folder(for: sessionId) else { return [] }
-        return await queued(sessionId) { Self.read(folder) }
+        return try await queued(sessionId) { try Self.read(folder) }
     }
 
     /// Keeps `list` (the page's chips, as JSON) as chat `sessionId`'s chips; none forgets them. A
     /// chip sent without its contents keeps the file it already has. Answers the ids of the chips
     /// whose contents are kept, so the page knows which it need not send again; nil when `list` is
     /// not a list of chips. The list is decoded in the chat's queue, off the main actor.
-    public func keep(_ list: JSONValue, for sessionId: String) async -> [String]? {
+    public func keep(_ list: JSONValue, for sessionId: String) async throws -> [String]? {
         guard let directory, let folder = folder(for: sessionId) else { return [] }
-        return await queued(sessionId) { () -> [String]? in
+        return try await queued(sessionId) { () throws -> [String]? in
             guard let attachments = Self.decode(list) else { return nil }
-            return Self.write(attachments, to: folder, in: directory)
+            return try Self.write(attachments, to: folder, in: directory)
         }
     }
 
     /// Runs `work` off the main actor after the chat's queued work.
-    private func queued<T: Sendable>(_ sessionId: String, _ work: @escaping @Sendable () -> T) async -> T {
+    private func queued<T: Sendable>(_ sessionId: String, _ work: @escaping @Sendable () throws -> T) async throws -> T {
         let previous = queue[sessionId]
-        let task = Task.detached { () -> T in
+        let task = Task.detached { () throws -> T in
             await previous?.value
-            return work()
+            return try work()
         }
-        let done = Task.detached { _ = await task.value }
+        let done = Task.detached { _ = await task.result }
         queue[sessionId] = done
-        let value = await task.value
-        if queue[sessionId] == done { queue[sessionId] = nil }
-        return value
+        defer {
+            if queue[sessionId] == done { queue[sessionId] = nil }
+        }
+        return try await task.value
     }
 
     /// The page's chips from their JSON; nil when it is not a list of chips.
@@ -93,29 +108,85 @@ public final class AgentPaneDraftAttachments {
         var texts: [String: String]?
     }
 
-    private nonisolated static func saved(in folder: URL) -> Saved? {
-        // concurrency-allow: one small list file, read off the main actor
-        guard let data = try? Data(contentsOf: folder.appending(path: listName)) else { return nil }
-        return try? JSONDecoder().decode(Saved.self, from: data)
-    }
-
-    private nonisolated static func read(_ folder: URL) -> [AgentPaneWakeState.Attachment] {
-        guard let saved = saved(in: folder) else { return [] }
-        let bytes = AgentPaneAttachmentFiles.readBack(saved.attachments, files: saved.files ?? [:], in: folder)
-        return AgentPaneAttachmentFiles.readBack(bytes, .text, files: saved.texts ?? [:], in: folder)
-    }
-
-    private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], to folder: URL, in directory: URL) -> [String] {
+    private nonisolated static func saved(in folder: URL) throws -> Saved? {
         let manager = FileManager.default
-        let kept = saved(in: folder)
+        do {
+            // Listing distinguishes a genuinely absent folder from a folder that cannot be read.
+            // `fileExists` reports both as false, which used to turn permission failures into an
+            // empty draft.
+            _ = try manager.contentsOfDirectory(atPath: folder.path)
+        } catch CocoaError.fileNoSuchFile {
+            return nil
+        } catch CocoaError.fileReadNoSuchFile {
+            return nil
+        } catch {
+            throw Failure.read(folder)
+        }
+        let list = folder.appending(path: listName)
+        do {
+            // concurrency-allow: one small list file, read off the main actor
+            let data = try Data(contentsOf: list)
+            return try JSONDecoder().decode(Saved.self, from: data)
+        } catch CocoaError.fileNoSuchFile {
+            throw Failure.read(list)
+        } catch CocoaError.fileReadNoSuchFile {
+            throw Failure.read(list)
+        } catch {
+            throw Failure.read(list)
+        }
+    }
+
+    private nonisolated static func read(_ folder: URL) throws -> [AgentPaneWakeState.Attachment] {
+        guard let saved = try saved(in: folder) else { return [] }
+        let bytes = try AgentPaneAttachmentFiles.readBackStrict(saved.attachments, files: saved.files ?? [:], in: folder)
+        return try AgentPaneAttachmentFiles.readBackStrict(bytes, .text, files: saved.texts ?? [:], in: folder)
+    }
+
+    private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], to folder: URL, in directory: URL) throws -> [String] {
+        let manager = FileManager.default
+        // Empty is the page's explicit send/remove acknowledgement. Handle it before reading the
+        // manifest so a missing old folder remains a successful no-op.
+        if attachments.isEmpty {
+            do {
+                try manager.removeItem(at: folder)
+            } catch CocoaError.fileNoSuchFile {
+                return []
+            } catch CocoaError.fileReadNoSuchFile {
+                return []
+            } catch {
+                throw Failure.write(folder)
+            }
+            return []
+        }
+
+        let previous = try saved(in: folder)
+        let kept = previous
+        func removeUncommittedFiles() {
+            let old = Set((kept?.files?.values.map { $0 } ?? []) + (kept?.texts?.values.map { $0 } ?? []) + [listName])
+            for name in (try? manager.contentsOfDirectory(atPath: folder.path)) ?? [] where !old.contains(name) {
+                try? manager.removeItem(at: folder.appending(path: name))
+            }
+        }
         // A chat whose chips' contents can't be kept (none sent and no file, or a file that can't be
         // written) keeps nothing rather than some of its chips. Bytes and text alike go to files of
         // their own, so the list holds only the chips' names and kinds.
-        guard !attachments.isEmpty, let bytes = AgentPaneAttachmentFiles.moveOut(attachments, to: folder, kept: kept?.files ?? [:]),
-              let texts = AgentPaneAttachmentFiles.moveOut(bytes.attachments, .text, to: folder, kept: kept?.texts ?? [:]),
-              !texts.attachments.isEmpty else {
-            try? manager.removeItem(at: folder)
-            return []
+        guard let bytes = AgentPaneAttachmentFiles.moveOut(attachments, to: folder, kept: kept?.files ?? [:], failOnMissingKept: true) else {
+            if previous == nil { try? manager.removeItem(at: folder) }
+            throw Failure.write(folder)
+        }
+        guard let texts = AgentPaneAttachmentFiles.moveOut(bytes.attachments, .text, to: folder, kept: kept?.texts ?? [:], failOnMissingKept: true) else {
+            removeUncommittedFiles()
+            if previous == nil { try? manager.removeItem(at: folder) }
+            throw Failure.write(folder)
+        }
+        guard !texts.attachments.isEmpty else {
+            do {
+                try manager.removeItem(at: folder)
+                return []
+            } catch {
+                removeUncommittedFiles()
+                throw Failure.write(folder)
+            }
         }
         // The list is written last, atomically: one that fails (a full disk, a locked folder) leaves
         // the list before it and the files it names, never deletes them.
@@ -125,7 +196,8 @@ public final class AgentPaneDraftAttachments {
                                                       texts: texts.files.isEmpty ? nil : texts.files))
             try list.write(to: folder.appending(path: listName), options: .atomic)
         } catch {
-            return []
+            removeUncommittedFiles()
+            throw Failure.write(folder.appending(path: listName))
         }
         // Files no chip names any more (a chip taken out) go.
         let named = Set(bytes.files.values).union(texts.files.values).union([listName])
