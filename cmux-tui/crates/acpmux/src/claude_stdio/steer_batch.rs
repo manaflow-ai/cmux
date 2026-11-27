@@ -36,7 +36,7 @@ use super::*;
 /// interrupted by user for tool use]`, and the model took that for a person's stop order: lanes
 /// held for hours on an agent's blocker steered in now, each answering every later message "still
 /// holding on your stop order" (NOW's hold-no-lift red, 2026-11-27: ios-shared-logic-rust,
-/// moved-feed-relaunch-should-ke-252345-0c92 and six more on gcp-agent-lane-5, none sent a stop).
+/// moved-feed-relaunch-should-ke-252345-0c92 and six more lanes, none sent a stop).
 /// The line comes right after that text, so it says what the stop was.
 pub(super) const STEP_STOPPED_NOTE: &str = "[acpmux] The interruption just before this message \
      was acpmux delivering it at once, not anyone stopping you: no one asked you to stop or to \
