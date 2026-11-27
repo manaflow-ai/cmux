@@ -3357,6 +3357,9 @@ mod starter_exit_tests;
 mod terminal_resume_tests;
 
 #[cfg(test)]
+#[path = "server/new_workspace_room_pin_tests.rs"]
+mod new_workspace_room_pin_tests;
+#[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
 
@@ -3419,6 +3422,10 @@ mod creation_burst_tests;
 #[cfg(test)]
 #[path = "server/run_public_ids_tests.rs"]
 mod run_public_ids_tests;
+
+#[cfg(test)]
+#[path = "server/tree_schema_tests.rs"]
+mod tree_schema_tests;
 
 #[cfg(test)]
 #[path = "server/open_persistent_bench_tests.rs"]

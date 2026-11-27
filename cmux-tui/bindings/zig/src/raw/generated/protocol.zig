@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "6ca9835c2b5e897aea083c0a9ef5399cfceec848d825d37fd4bc0d69db6cfd89";
+pub const ir_sha256 = "96fdd810cffbc0561025fcf62f11518ed27c690bddd91e6ba838c9768d84cf08";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1335,6 +1335,27 @@ pub const Layout = union(enum) {
     }
 };
 
+pub const LayoutColumnNode = struct {
+    /// dock-columns-v1: the viewport edge the column is pinned to.
+    dock: ?JsonValue = null,
+    id: Id,
+    layout: Layout,
+    /// rows-v1: only for a column with two or more rows.
+    rows: ?[]const LayoutRowNode = null,
+    width: f64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "dock",
+        "rows",
+    };
+};
+
+pub const LayoutRowNode = struct {
+    height: u64,
+    id: Id,
+    layout: Layout,
+};
+
 pub const LayoutSizePaneWidth = struct {
     pane: Id,
     width: f32,
@@ -1434,12 +1455,17 @@ pub const LivePane = struct {
     focused_at: ?u64 = null,
     id: Id,
     name: wire.Nullable([]const u8),
+    /// The pane's public id.
+    resource_id: wire.Field([]const u8) = .absent,
     short_id: ?[]const u8 = null,
+    /// The pane's tab group runs.
+    tab_groups: ?[]const TabGroupRun = null,
     tabs: []const Tab,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "focused_at",
         "short_id",
+        "tab_groups",
     };
 };
 
@@ -2046,16 +2072,58 @@ pub const SavedTabGroupRecord = struct {
 pub const Screen = struct {
     active: bool,
     active_pane: Id,
+    /// The screen color.
+    color: wire.Field([]const u8) = .absent,
+    /// The screen's layout columns.
+    columns: ?[]const LayoutColumnNode = null,
+    /// floating-panes-v1: panes above the tiled layout, back to front.
+    floating: ?JsonValue = null,
+    /// The screen group the screen is in.
+    group: wire.Field([]const u8) = .absent,
+    /// split-divider-visibility-v1: splits whose divider is hidden.
+    hidden_dividers: ?[]const Id = null,
+    /// The screen icon.
+    icon: wire.Field([]const u8) = .absent,
     id: Id,
     layout: Layout,
     name: wire.Nullable([]const u8),
     panes: []const Pane,
+    /// The screen is pinned.
+    pinned: ?bool = null,
+    /// quick-terminal-v1: the screen's quick terminal.
+    quick_terminal: ?JsonValue = null,
+    /// The screen's public id.
+    resource_id: wire.Field([]const u8) = .absent,
     short_id: ?[]const u8 = null,
+    /// The viewport width the split widths are relative to.
+    viewport_base_width: ?f64 = null,
+    /// Viewport widths of splits.
+    viewport_splits: ?[]const ViewportSplitWidth = null,
     zoomed_pane: wire.Nullable(Id),
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "columns",
+        "floating",
+        "hidden_dividers",
+        "pinned",
+        "quick_terminal",
         "short_id",
+        "viewport_base_width",
+        "viewport_splits",
     };
+};
+
+pub const ScreenGroupRun = struct {
+    collapsed: bool,
+    color: []const u8,
+    count: u64,
+    icon: wire.Field([]const u8) = .absent,
+    id: []const u8,
+    name: []const u8,
+    saved_id: wire.Nullable([]const u8),
+    screens: []const Id,
+    /// The index of the run's first screen.
+    start: u64,
 };
 
 pub const SelectionPane = struct {
@@ -2679,6 +2747,24 @@ pub const SurfaceResult = struct {
     };
 };
 
+pub const TabBrowserRenderer = enum {
+    daemon,
+    frontend,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "daemon")) return .daemon;
+        if (std.mem.eql(u8, value, "frontend")) return .frontend;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .daemon => "daemon",
+            .frontend => "frontend",
+        };
+    }
+};
+
 pub const TabBrowserSource = enum {
     external,
     launched,
@@ -2722,11 +2808,13 @@ pub const TabKind = enum {
     pty,
     browser,
     conversation,
+    remote_terminal,
 
     pub fn fromWire(value: []const u8) !@This() {
         if (std.mem.eql(u8, value, "pty")) return .pty;
         if (std.mem.eql(u8, value, "browser")) return .browser;
         if (std.mem.eql(u8, value, "conversation")) return .conversation;
+        if (std.mem.eql(u8, value, "remote-terminal")) return .remote_terminal;
         return error.UnknownEnumValue;
     }
 
@@ -2735,38 +2823,94 @@ pub const TabKind = enum {
             .pty => "pty",
             .browser => "browser",
             .conversation => "conversation",
+            .remote_terminal => "remote-terminal",
         };
     }
 };
 
 pub const Tab = struct {
+    /// app-screens-v1: the app (and route) an app tab shows.
+    app: ?JsonValue = null,
+    /// tab-attention-v1: an agent needs the person in this tab.
+    attention: wire.Field(TabAttention) = .absent,
+    /// A frontend browser's engine.
+    browser_engine: wire.Field([]const u8) = .absent,
     browser_error: wire.Field([]const u8) = .absent,
     browser_frames_stalled: wire.Field(bool) = .absent,
+    /// The frontend that owns the browser.
+    browser_owner: wire.Field([]const u8) = .absent,
+    /// A frontend browser's profile.
+    browser_profile_id: wire.Field([]const u8) = .absent,
+    /// Who renders a browser tab.
+    browser_renderer: wire.Field(TabBrowserRenderer) = .absent,
     browser_source: wire.Nullable(TabBrowserSource),
     browser_status: wire.Field(TabBrowserStatus) = .absent,
+    /// The public id of what the tab shows.
+    content_resource_id: wire.Field([]const u8) = .absent,
+    /// What a conversation tab shows.
+    conversation: wire.Field(ConversationTabRecord) = .absent,
+    /// The terminal's working directory.
+    cwd: wire.Field([]const u8) = .absent,
     dead: bool,
+    /// terminal-state-v1: why a dead terminal ended.
+    end: wire.Field(JsonValue) = .absent,
+    /// A frontend browser's favicon.
+    favicon_url: wire.Field([]const u8) = .absent,
+    /// The git branch of cwd.
+    git_branch: wire.Field([]const u8) = .absent,
+    /// cwd's checkout has a detached HEAD.
+    git_detached: ?bool = null,
+    /// The tab group the tab is in.
+    group: wire.Field([]const u8) = .absent,
+    /// The record version of a terminal its host has but cannot adopt.
+    host_record_version: wire.Field(u64) = .absent,
     kind: TabKind,
     name: wire.Nullable([]const u8),
     notification: wire.Field(NotificationMarker) = .absent,
+    /// The tab is pinned.
+    pinned: ?bool = null,
+    /// A pinned browser tab's home URL.
+    pinned_url: wire.Field([]const u8) = .absent,
     program_status: wire.Field(ShownProgramStatus) = .absent,
+    /// How the tab relaunches after a restart.
+    relaunch: wire.Field(JsonValue) = .absent,
+    /// A remote terminal tab's record.
+    remote: ?JsonValue = null,
     short_id: ?[]const u8 = null,
     size: wire.Nullable(Size),
     supports_clear_history_key_fallback: ?bool = null,
     surface: Id,
+    /// The tab's public id.
+    tab_resource_id: wire.Field([]const u8) = .absent,
     /// Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason.
     terminal_host_fallback: wire.Field([]const u8) = .absent,
     terminal_id: wire.Field([]const u8) = .absent,
     terminal_incarnation: wire.Field([]const u8) = .absent,
     terminal_resource_id: wire.Field([]const u8) = .absent,
+    /// running, reconnecting, failed or exited, for a terminal tab.
+    terminal_state: wire.Field([]const u8) = .absent,
     title: []const u8,
     title_activity: wire.Field([]const u8) = .absent,
     title_text: ?[]const u8 = null,
+    /// A browser tab's URL.
+    url: wire.Field([]const u8) = .absent,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "app",
+        "git_detached",
+        "pinned",
+        "remote",
         "short_id",
         "supports_clear_history_key_fallback",
         "title_text",
     };
+};
+
+pub const TabAttention = struct {
+    /// When it was marked, in Unix milliseconds.
+    at_ms: u64,
+    /// Why the tab needs the person.
+    reason: []const u8,
 };
 
 pub const TabGroupEndedTerminal = struct {
@@ -2800,6 +2944,8 @@ pub const TabGroupRun = struct {
     /// Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors.
     color: []const u8,
     count: u64,
+    /// tab-group-icon-v1: the group's icon string.
+    icon: wire.Field([]const u8) = .absent,
     id: []const u8,
     name: []const u8,
     pane: ?Id = null,
@@ -3588,6 +3734,10 @@ pub const Tree = struct {
     delta: ?bool = null,
     epoch: ?[]const u8 = null,
     generation: ?[]const u8 = null,
+    /// The sidebar workspace groups.
+    groups: ?[]const WorkspaceGroup = null,
+    /// How many lines the connection had written when the tree was read: a later line may carry a change the tree lacks.
+    lines_written_before_read: ?u64 = null,
     next: ?u64 = null,
     order: ?[]const Id = null,
     pane_revision: ?u64 = null,
@@ -3606,6 +3756,8 @@ pub const Tree = struct {
         "delta",
         "epoch",
         "generation",
+        "groups",
+        "lines_written_before_read",
         "next",
         "order",
         "pane_revision",
@@ -3645,6 +3797,11 @@ pub const ViewportPaneWidthResult = struct {
     width: f32,
 };
 
+pub const ViewportSplitWidth = struct {
+    split: Id,
+    width: f64,
+};
+
 pub const VtStateResult = struct {
     cols: u16,
     data: Base64,
@@ -3664,21 +3821,72 @@ pub const WaitForResult = struct {
     text: []const u8,
 };
 
+pub const WorkspaceKind = enum {
+    normal,
+    home,
+    app,
+
+    pub fn fromWire(value: []const u8) !@This() {
+        if (std.mem.eql(u8, value, "normal")) return .normal;
+        if (std.mem.eql(u8, value, "home")) return .home;
+        if (std.mem.eql(u8, value, "app")) return .app;
+        return error.UnknownEnumValue;
+    }
+
+    pub fn toWire(self: @This()) []const u8 {
+        return switch (self) {
+            .normal => "normal",
+            .home => "home",
+            .app => "app",
+        };
+    }
+};
+
 pub const Workspace = struct {
     active: bool,
+    /// The app an app workspace shows.
+    app: wire.Field([]const u8) = .absent,
+    /// The workspace color.
+    color: wire.Field([]const u8) = .absent,
+    /// The sidebar group the workspace is in.
+    group: wire.Field([]const u8) = .absent,
+    /// The workspace icon.
+    icon: wire.Field([]const u8) = .absent,
     id: Id,
     key: ?[]const u8 = null,
+    /// What the workspace is.
+    kind: ?WorkspaceKind = null,
+    /// The person marked the workspace unread.
+    marked_unread: ?bool = null,
     name: []const u8,
     name_revision: ?[]const u8 = null,
     name_source: ?NameSource = null,
+    /// The workspace is pinned.
+    pinned: ?bool = null,
+    /// workspace-recovered-v1: every tab is a recovered terminal.
+    recovered: ?bool = null,
+    /// The workspace's public id.
+    resource_id: wire.Field([]const u8) = .absent,
+    /// The workspace's screen group runs.
+    screen_groups: ?[]const ScreenGroupRun = null,
     screens: []const Screen,
     short_id: ?[]const u8 = null,
+    /// The workspace title.
+    title: wire.Field([]const u8) = .absent,
+    /// Tabs with an unread notification.
+    unread_count: ?u64 = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "key",
+        "kind",
+        "marked_unread",
         "name_revision",
         "name_source",
+        "pinned",
+        "recovered",
+        "screen_groups",
         "short_id",
+        "unread_count",
     };
 };
 
@@ -3717,6 +3925,14 @@ pub const WorkspaceFirstTab = union(enum) {
         }
         return error.UnknownUnionVariant;
     }
+};
+
+pub const WorkspaceGroup = struct {
+    collapsed: bool,
+    color: wire.Nullable([]const u8),
+    id: []const u8,
+    index: u64,
+    name: []const u8,
 };
 
 pub const WorkspaceMutationResult = struct {
