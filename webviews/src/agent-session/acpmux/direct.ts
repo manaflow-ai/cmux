@@ -60,7 +60,7 @@ import {
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";
 import { hostIsReconnecting, jitteredDelay, lostRetryDelay } from "./hostRetry";
-import { sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
+import { SELF_RESEND_FIRST_MS, SELF_RESEND_MAX_MS, sendsHeldForHost, untilHostAnswers } from "./sendWhenReady";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { hasInlineMarks, promptBlocks, takesAudio, type ComposerAttachment } from "./attachments";
@@ -175,7 +175,7 @@ import { PlanBuildRows } from "./planBuild/planBuildRows";
 import { OfferChildren } from "./offer/offerChildren";
 import type { OfferPicks } from "./offer/offerChoice";
 import { errorMessage, startCancelled, knownRefusalText, switchFailedText } from "./transportErrors";
-import { failedSendText, heldSendNotice, retryHelps, sendCause } from "./sendFailure";
+import { failedSendText, heldSendNotice, retryHelps, sendCause, sendRetriesItself } from "./sendFailure";
 import {
   isLostConnection,
   lostPrompt,
@@ -1720,6 +1720,9 @@ export class AcpmuxDirectClient {
   private untakenSends = 0;
   /// The promptIds a Retry is sending: a refusal of one says "Still not sent".
   private retriedPrompts = new Set<string>();
+  /// The failed prompts that go again by themselves (``resendItself``), by row id: the next wait,
+  /// and its timer while one is set.
+  private selfResends = new Map<string, { delay: number; timer?: ReturnType<typeof setTimeout> }>();
   /// Where each prompt this pane sent is on its way, by prompt id, and the row that shows it.
   private deliveries = new Map<
     string,
@@ -6323,6 +6326,13 @@ export class AcpmuxDirectClient {
       this.daemonLivenessTimer = undefined;
     }
     if (wasWaiting && this.daemonWaitingSince === undefined) this.emit("daemon resumed");
+    // The request check's timer is due from the oldest sent request: timed again from the ones
+    // left, so a page whose requests all came back wakes for none (idle wakeups after a switch).
+    if (!this.requestCheck && this.requestCheckTimer !== undefined) {
+      clearTimeout(this.requestCheckTimer);
+      this.requestCheckTimer = undefined;
+      this.armRequestCheck(id);
+    }
   }
 
   /// While a request waits, checks on the socket's daemon (`DAEMON_PROBE_AFTER_MS`,
@@ -6458,15 +6468,16 @@ export class AcpmuxDirectClient {
 
   /// One timer at a time: due `REQUEST_CHECK_MS` after the oldest sent request (or the last
   /// answer), or, with a question out, `DAEMON_PROBE_ANSWER_MS` after the daemon's last sign.
-  private armRequestCheck(): void {
+  /// `settling`: a request whose reply just came, not yet out of `pending`.
+  private armRequestCheck(settling?: number | string): void {
     if (this.requestCheckTimer !== undefined || this.requestCheckOff || this.closed || this.daemonUnprobed()) return;
     let due: number;
     if (this.requestCheck) {
       due = Math.max(this.requestCheck.at, this.daemonFrameAt) + AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS;
     } else {
       let oldest = Number.POSITIVE_INFINITY;
-      for (const entry of this.pending.values()) {
-        if (this.checkable(entry) && entry.sentAt! < oldest) oldest = entry.sentAt!;
+      for (const [id, entry] of this.pending) {
+        if (id !== settling && this.checkable(entry) && entry.sentAt! < oldest) oldest = entry.sentAt!;
       }
       if (oldest === Number.POSITIVE_INFINITY) return;
       due = Math.max(oldest, this.requestCheckedAt) + AcpmuxDirectClient.REQUEST_CHECK_MS;
@@ -11827,7 +11838,8 @@ export class AcpmuxDirectClient {
     // A page kept in a background workspace cannot paint this snapshot. Keep only its newest
     // reason; showChanged() emits once after the page is visible again. This covers the direct
     // emit callers as well as emitInFrame(), so no hidden page runs snapshot construction work.
-    if (!pageShown()) {
+    // A replay draws only when asked (`seekReplay`): the spare's rehearsal folds one while parked hidden.
+    if (!pageShown() && !this.replayMode) {
       this.observeWorking();
       this.hiddenEmit = connection;
       return;
@@ -13137,6 +13149,7 @@ export class AcpmuxDirectClient {
           error: translate("prompt.delivery.noAnswer"),
         });
         this.noteUnsentFailure(promptId);
+        this.resendItself(rowId);
         this.emit();
       };
       timers.push(setTimeout(failUnanswered, this.localOrigin ? deliveryTiming.localFailMs : deliveryTiming.failMs));
@@ -13350,6 +13363,7 @@ export class AcpmuxDirectClient {
         });
         // A refusal never takes it off disk: the row, its words and its Retry come back after a relaunch.
         this.noteUnsentFailure(promptId);
+        this.resendItself(rowId);
         // The prompt stays as this failed row: the pane's sender puts nothing back in the composer,
         // and a Trust answer re-sends this row (not whatever the composer holds then).
         if (error && typeof error === "object") Object.assign(error, { failedRow: rowId });
@@ -13555,6 +13569,11 @@ export class AcpmuxDirectClient {
     this.unsentKept.delete(promptId);
     void this.unsentStore?.remove(kept.sessionId, promptId).catch(() => undefined);
   }
+  /// Whether the host's store keeps prompt `promptId` (unsentPrompts.ts): its chat, shown again,
+  /// drops it once acpmux has it, or draws it as not sent with Retry (lostPrompt.ts `leftForStore`).
+  keepsUnsentPrompt(promptId: string): boolean {
+    return this.unsentStore !== undefined && this.unsentKept.has(promptId);
+  }
   /// A lost prompt's sender (App.tsx, lostPrompt.ts keepLostPrompt) is done with the stored copy:
   /// the prompt showed on a later connection, or it went back into the composer, which keeps it.
   forgetUnsentPrompt(promptId: string): void {
@@ -13695,6 +13714,43 @@ export class AcpmuxDirectClient {
       error,
       delivery,
     });
+    this.resendItself(rowId);
+  }
+  /// A failed prompt whose failure passes by itself (sendFailure.ts `sendRetriesItself`: no answer
+  /// in time, the link down, a busy agent) goes again by itself, under its prompt id, which acpmux
+  /// runs once (Leo, 2026-11-24: "i dont ever want to see these, it should just fix itself
+  /// automtically"). It waits 1 s, then twice as long each time up to 30 s, with no last try: a
+  /// prompt never turns into a Not sent the person must act on. It goes only into its own chat
+  /// while that chat is the one selected (`send` writes to the selected chat); another chat shown
+  /// meanwhile only puts it off, and the chat's next showing draws it from the host's store
+  /// (``restoreUnsentPrompts``) and starts again. Removing it (the message menu) or a refusal that
+  /// would come back the same ends it.
+  private resendItself(rowId: string): void {
+    const row = this.rows.get(rowId);
+    if (this.closed || !this.failedPrompts.has(rowId) || row?.kind !== "user" || !row.failed) return;
+    if (!sendRetriesItself(row.delivery)) return;
+    const entry = this.selfResends.get(rowId) ?? { delay: SELF_RESEND_FIRST_MS };
+    if (entry.timer !== undefined) return;
+    this.selfResends.set(rowId, entry);
+    entry.timer = setTimeout(() => {
+      entry.timer = undefined;
+      const now = this.rows.get(rowId);
+      if (this.closed || !this.failedPrompts.has(rowId) || now?.kind !== "user" || !now.failed) {
+        this.selfResends.delete(rowId);
+        return;
+      }
+      entry.delay = Math.min(entry.delay * 2, SELF_RESEND_MAX_MS);
+      if (this.creating || now.delivery?.sessionId !== this.selectedSessionId) {
+        this.resendItself(rowId);
+        return;
+      }
+      void this.retryPrompt(rowId)
+        .catch(() => undefined)
+        .then(() => {
+          // Landed: the next failure of this row, if any, starts from the first wait again.
+          if (!this.rows.get(rowId)?.failed) this.selfResends.delete(rowId);
+        });
+    }, entry.delay);
   }
   /// Remove on a prompt that was not sent: its row goes.
   removeFailedPrompt(rowId: string): void {
@@ -13705,6 +13761,8 @@ export class AcpmuxDirectClient {
   }
   private dropFailedPrompt(rowId: string, promptId: string | undefined): void {
     this.failedPrompts.delete(rowId);
+    clearTimeout(this.selfResends.get(rowId)?.timer);
+    this.selfResends.delete(rowId);
     this.rows.delete(rowId);
     // The person's Remove or Edit (or a Retry folding it into another): the one way off disk besides an agent taking it.
     if (promptId) this.forgetUnsent(promptId);
@@ -18252,6 +18310,8 @@ export class AcpmuxDirectClient {
     // A prompt's slow and failed deadlines (sendNow) would fire on a closed client: emit to a pane
     // that is gone and look for a stall on a socket that is closed.
     for (const { timers } of this.deliveries.values()) timers.forEach(clearTimeout);
+    for (const { timer } of this.selfResends.values()) clearTimeout(timer);
+    this.selfResends.clear();
     this.cancelOlderPaging();
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);
