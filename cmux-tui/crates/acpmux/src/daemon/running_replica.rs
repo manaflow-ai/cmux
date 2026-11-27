@@ -159,7 +159,9 @@ pub(crate) async fn request(hub: Arc<Hub>, params: Value) -> Result<Value> {
             }
             // Finish importing after native files are placed even if the caller disconnects.
             // The task keeps both the scratch directory and operation guard until completion.
-            tokio::spawn(async move {
+            // Own it on the hub, not the connection, so shutdown can join it within its deadline.
+            let owner = hub.clone();
+            owner.scope.spawn_named("running-replica-recover", async move {
                 let _operation = _operation;
                 let (temp, bundle, receipt) = tokio::task::spawn_blocking(move || -> Result<_> {
                     let cloud = cloud(&state, true)?;
