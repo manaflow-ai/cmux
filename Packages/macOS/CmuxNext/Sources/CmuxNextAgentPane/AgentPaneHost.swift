@@ -784,10 +784,15 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             }
         } catch AcpmuxStatusClient.Failure.unreachable {
             logger.info("acpmux status unreachable socket=\(environment.socketPath, privacy: .public) startsDaemon=\(startsDaemon, privacy: .public)")
-            // Nothing listens on the socket: start a daemon below, unless
-            // the user stopped it. A reconnect starts one only after a crash
-            // (cx-6bgzj); the new daemon adopts the agents still running.
-            guard startsDaemon || owned && crashed(environment.home) else {
+            // Nothing listens on the socket: start a daemon below. A reconnect of the app's own
+            // home starts one too, after a crash (cx-6bgzj) and after a clean stop alike: a
+            // relaunch after an update finds the old daemon shut down (its pid file removed, so
+            // not a crash) and this launch holds no mark of who stopped it, which left every
+            // restored chat on a stopped line until someone pressed Retry. The new daemon adopts
+            // the agents still running. Only a restart this launch is carrying out keeps the
+            // reconnect from starting a second one beside it.
+            let restartUnderWay = daemons.isRestarting(home: environment.home) || daemons.stoppedByPerson(home: environment.home)
+            guard startsDaemon || owned && (crashed(environment.home) || !restartUnderWay) else {
                 // The Chief home's daemon: only its host starts it (cx-ebm.54). Ask the host, so a
                 // restored Chief chat connects after a relaunch without Home being shown (#25570).
                 if !owned, !environment.isAttached, let startOwner, await startOwner() {
@@ -797,13 +802,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                 // A handoff (another host of this home), or a person's restart from any pane, is
                 // stopping it: the start that follows ends this without the person, so the pane
                 // stays quiet meanwhile. An attached daemon is another app's to start, never this
-                // app's Retry: its stop stays quiet too, and the pane finds it when it is back.
-                if daemons.isRestarting(home: environment.home) || daemons.stoppedByPerson(home: environment.home)
-                    || environment.isAttached {
-                    throw AgentPaneHostError.daemonRestarting
-                }
-                // Stopped, and no reconnect starts it again (cx-6bgzj): only the line's Retry does.
-                throw AgentPaneHostError.daemonStopped
+                // app's: its stop stays quiet too, and the pane finds it when it is back.
+                throw AgentPaneHostError.daemonRestarting
             }
         } catch AcpmuxStatusClient.Failure.noWebSocket {
             logger.error("acpmux status returned no websocket socket=\(environment.socketPath, privacy: .public)")
