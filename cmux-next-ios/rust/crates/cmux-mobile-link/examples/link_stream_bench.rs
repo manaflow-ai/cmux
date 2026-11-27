@@ -25,7 +25,12 @@
 //! terminal's case instead: keystrokes on the input lane, their echo on the
 //! main stream behind another channel's flood (N Mbit/s, 0 for as fast as
 //! the link takes it). It prints the key-to-echo time and the flood's
-//! goodput (`echo_ms`, `flood_goodput_mbit_s`).
+//! goodput (`echo_ms`, `flood_goodput_mbit_s`), and each end's outbox wait
+//! after the warm-up (`phone_outbox_wait_ms`, `mac_outbox_wait_ms`: a frame's
+//! time from entering its link's outbox to the flush that handed it to the
+//! transport, `cmux_mobile_link::outbox_wait`). `--flood-mbps 0` is the
+//! saturated-reader case: the phone's reader always has flood to take while
+//! its writer sends keys, the shape where a hot recv starves a flush.
 //!
 //! Both workloads open the screen (`bench`, `echo`) with `Link::open_latest`
 //! and the keys on the input lane, so when both ends list the `classes`
@@ -193,6 +198,20 @@ fn frame_seq(bytes: &[u8]) -> Option<u32> {
 fn stamps(bytes: &[u8]) -> Option<(u64, u64)> {
     let word = |at: usize| Some(u64::from_be_bytes(bytes.get(at..at + 8)?.try_into().ok()?));
     Some((word(5)?, word(13)?))
+}
+
+/// An outbox wait window as `{"n","p50","p95","p99","max"}` in ms.
+fn outbox_ms(wait: &cmux_mobile_link::outbox_wait::OutboxWait) -> String {
+    let Some(s) = wait.summary() else { return "null".to_owned() };
+    let ms = |us: u32| f64::from(us) / 1000.0;
+    format!(
+        "{{\"n\":{},\"p50\":{:.3},\"p95\":{:.3},\"p99\":{:.3},\"max\":{:.3}}}",
+        s.n,
+        ms(s.p50),
+        ms(s.p95),
+        ms(s.p99),
+        ms(s.max)
+    )
 }
 
 fn percentiles(values: &mut [u64]) -> String {
@@ -455,8 +474,10 @@ async fn echo_flood(args: &Args, options: DialOptions) {
     let mac_id = uuid::Uuid::new_v4().to_string();
     let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.expect("mac");
     let flood_mbps = args.flood_mbps;
+    let mac_link: Arc<Mutex<Option<cmux_mobile_link::link::Link>>> = Arc::default();
     {
         let options = options.clone();
+        let mac_link = mac_link.clone();
         tokio::spawn(async move {
             let Some(session) = mac.next_session().await else { return };
             let events = SessionEvents {
@@ -467,6 +488,7 @@ async fn echo_flood(args: &Args, options: DialOptions) {
             let connected = dial::answer(&mac, session.first, events, &options, LinkConfig::default())
                 .await
                 .expect("answer");
+            *lock(&mac_link) = Some(connected.link.clone());
             let echo: Arc<tokio::sync::Mutex<Option<cmux_mobile_link::link::ChannelSender>>> = Arc::default();
             while let Some(incoming) = connected.link.accept().await {
                 let (sender, mut receiver) = incoming.channel.split();
@@ -567,6 +589,11 @@ async fn echo_flood(args: &Args, options: DialOptions) {
     }
     let mut keys_sent = 0u64;
     sleep_until(counted_from).await;
+    // Count outbox waits from the end of the warm-up, as the flood and echoes are.
+    let _ = link.take_outbox_wait();
+    if let Some(mac) = lock(&mac_link).as_ref() {
+        let _ = mac.take_outbox_wait();
+    }
     let mut next = Instant::now();
     let mut seq = 0u32;
     while next < end {
@@ -590,10 +617,12 @@ async fn echo_flood(args: &Args, options: DialOptions) {
     let mut echoes = lock(&echoes).clone();
     let missing = keys_sent.saturating_sub(echoes.len() as u64);
     let path = *connected.path.borrow();
+    let phone_outbox = outbox_ms(&link.take_outbox_wait());
+    let mac_outbox = lock(&mac_link).as_ref().map_or_else(|| "null".to_owned(), |mac| outbox_ms(&mac.take_outbox_wait()));
     println!(
         "{{\"classes\":{},\"datagram_wins\":{},\"workload\":\"echo-flood\",\"transport\":\"{}\",\"row\":\"{}\",\"lan_rtt_ms\":{},\"relay_rtt_ms\":{},\"seconds\":{},\
          \"flood_mbps\":{},\"loss_pct\":{},\"keys_on_input_lane\":{},\"keys_sent\":{},\"echo_missing\":{},\
-         \"echo_ms\":{},\"flood_goodput_mbit_s\":{:.1},\"final_path\":\"{:?}\"}}",
+         \"echo_ms\":{},\"flood_goodput_mbit_s\":{:.1},\"phone_outbox_wait_ms\":{},\"mac_outbox_wait_ms\":{},\"final_path\":\"{:?}\"}}",
         link.class_datagrams(),
         link.datagram_wins(),
         args.transport,
@@ -608,6 +637,8 @@ async fn echo_flood(args: &Args, options: DialOptions) {
         missing,
         percentiles(&mut echoes),
         goodput,
+        phone_outbox,
+        mac_outbox,
         path,
     );
 }

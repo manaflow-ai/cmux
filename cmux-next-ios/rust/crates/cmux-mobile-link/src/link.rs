@@ -478,7 +478,8 @@ impl Outbox {
         self.queues.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn enqueue(queues: &mut Queues, class: Class, frame: Frame) {
+    fn enqueue(queues: &mut Queues, class: Class, mut frame: Frame) {
+        frame.queued_at.get_or_insert_with(Instant::now);
         match class {
             Class::Control => queues.control.push_back(frame),
             Class::Input => {
@@ -931,6 +932,8 @@ pub(crate) struct Inner {
     ping_sent: Mutex<Option<Instant>>,
     /// Ping counts and round trips for the link's path report ([`Link::take_ping_stats`]).
     ping_stats: Mutex<PingStats>,
+    /// How long the writers sat on frames since the last [`Link::take_outbox_wait`].
+    outbox_wait: Mutex<crate::outbox_wait::OutboxWait>,
     closed: watch::Sender<Option<String>>,
     incoming: tokio::sync::Mutex<mpsc::Receiver<IncomingChannel>>,
     /// A sender for the input lane's reader; dropped when the link closes so
@@ -1029,6 +1032,7 @@ impl Inner {
         let mut sealed =
             Frame::new(channel, FrameType::Seq, rel::seq_payload(sequence, frame.kind, &frame.payload));
         sealed.flushed = frame.flushed;
+        sealed.queued_at = frame.queued_at;
         Sealed::Send(sealed)
     }
 
@@ -1627,6 +1631,7 @@ impl Link {
             last_datagram_ping: Mutex::new(None),
             ping_sent: Mutex::new(None),
             ping_stats: Mutex::new(PingStats::default()),
+            outbox_wait: Mutex::new(crate::outbox_wait::OutboxWait::default()),
             closed: watch::channel(None).0,
             incoming: tokio::sync::Mutex::new(incoming_rx),
             incoming_tx: Mutex::new(Some(incoming_tx)),
@@ -2427,6 +2432,13 @@ impl Link {
         }
     }
 
+    /// Outbox waits since the last call, which it takes: how long this link's writers sat on a
+    /// frame, from the outbox taking it to the flush that handed it to the transport finishing
+    /// ([`crate::outbox_wait`]). One reader: the path report ([`crate::link_stat`]).
+    pub fn take_outbox_wait(&self) -> crate::outbox_wait::OutboxWait {
+        self.inner.outbox_wait.lock().unwrap_or_else(PoisonError::into_inner).take()
+    }
+
     /// The latest measured round-trip time.
     pub fn rtt(&self) -> watch::Receiver<Option<Duration>> {
         self.inner.rtt.subscribe()
@@ -2623,12 +2635,15 @@ async fn write_loop<W>(
         // and whether the batch carries anything the peer answers.
         let mut marks: Vec<crate::frame::FlushMark> = Vec::new();
         let mut traffic = false;
+        // When each frame of the batch entered the outbox ([`crate::outbox_wait`]).
+        let mut queued: Vec<Instant> = Vec::new();
         // A frame this carrier may no longer send goes back to the front of
         // the outbox for the next carrier's writer, and this one stops.
         let carrier = tag.as_ref().map(|(_, generation)| *generation);
         let mut take = |frame: Frame| match inner.seal(frame, carrier) {
             Sealed::Send(mut frame) => {
                 marks.extend(frame.flushed.take());
+                queued.extend(frame.queued_at.take());
                 traffic |= expects_answer(frame.kind);
                 Ok(Some(frame))
             }
@@ -2686,6 +2701,13 @@ async fn write_loop<W>(
             Some(Err(error)) => {
                 inner.carrier_failed(&tag, &format!("write failed: {error}"));
                 return;
+            }
+        }
+        if !queued.is_empty() {
+            let flushed = Instant::now();
+            let mut wait = inner.outbox_wait.lock().unwrap_or_else(PoisonError::into_inner);
+            for at in queued.drain(..) {
+                wait.record(u64::try_from(flushed.saturating_duration_since(at).as_micros()).unwrap_or(u64::MAX));
             }
         }
         if !marks.is_empty() {
