@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import * as journey from "./cloud-journey";
 import { spawnSync } from "node:child_process";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,7 +15,7 @@ import { oidcSignIn, ownerKindGated, startAfterOwnerKind, waitOwnerKind, waitPre
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
-import { carrierScrollProbe, parseScrollReport, scrollDetail } from "./cloud-journey";
+import { carrierScrollProbe, parseScrollReport, scrollDetail, scrollNotes } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
 import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
@@ -487,6 +488,10 @@ describe("cloud journey", () => {
     expect(capacityOnly([red("cloud.quota.headroom quota_headroom:account-team used 5/5, need 2 (no room after 244 s, 17 reads)")])).toBe(true);
     expect(capacityOnly([red("cloud.quota.exceeded: at the cap (no room after 60 s, 5 refusals)")])).toBe(true);
     expect(capacityOnly([red("cloud.quota.headroom quota_headroom:t used 5/5, need 2"), red("reply timed out")])).toBe(false);
+    // The provider refusing to make a machine (run 46010808734's cold create), not a given machine breaking.
+    expect(capacityOnly([red('machine failed: {"error":{"code":"cloud.machine.create_overdue","message":"the machine\'s create did not settle within 300 s (6 failed tries, the last cloud.provider.unavailable: VM API: HTTP 503: ServiceUnavailable (vm-provider.createQueueFull))"}}')])).toBe(true);
+    expect(capacityOnly([red("FreestyleApiError: infrastructure overloaded: VM start capacity queue wait expired")])).toBe(true);
+    expect(capacityOnly([red("cloud.provider.unavailable"), red('exec: HTTP 502 "vm_unavailable"')])).toBe(false);
   });
   test("the login copy runs the Mac installer's own programs", () => {
     expect(swiftRawString('  static let x = #"""\n      a\n        b\n      """#', "x")).toBe("a\n  b");
@@ -3938,6 +3943,19 @@ describe("terminal scroll leg (carrier serve + __scroll-probe)", () => {
     expect(scrollDetail(parseScrollReport(report()))).toBe("bad 1 (mirror: 0 blank, 0 missing, 1 jumps; daemon: 0 blank, 0 missing, 0 jumps), 41.3 s");
   });
 
+  test("the notes of a view that counted a defect go into the detail, never the counts", () => {
+    const out = report({ bad: 1, views: {
+      mirror: { blank_rows: 0, missing_rows: 0, jumps: 0, notes: ["mirror top moved by the probe"] },
+      daemon: { blank_rows: 0, missing_rows: 0, jumps: 1, notes: ["daemon jump: top Some(812) -> Some(840) (offset 37)"] },
+    } });
+    const notes = scrollNotes(out);
+    expect(notes).toEqual(["daemon: daemon jump: top Some(812) -> Some(840) (offset 37)"]);
+    expect(parseScrollReport(out)).not.toHaveProperty("notes");
+    expect(scrollDetail(parseScrollReport(out), notes)).toBe("bad 1 (mirror: 0 blank, 0 missing, 0 jumps; daemon: 0 blank, 0 missing, 1 jumps), 41.3 s; notes: daemon: daemon jump: top Some(812) -> Some(840) (offset 37)");
+    expect(scrollNotes("not json")).toEqual([]);
+    expect(scrollNotes(report())).toEqual([]);
+  });
+
   test("a report that is not whole is refused, never read as 0", () => {
     expect(() => parseScrollReport("")).toThrow("not a JSON report");
     expect(() => parseScrollReport(report({ views: { mirror: { blank_rows: 0, missing_rows: 0, jumps: 0 } } }))).toThrow("daemon view");
@@ -4062,5 +4080,96 @@ describe("rpcFailureReason", () => {
     expect(rpcFailureReason("unreachable")).toBe(" (unreachable)");
     expect(rpcFailureReason("Error: secret text")).toBe("");
     expect(rpcFailureReason(undefined)).toBe("");
+  });
+});
+
+
+describe("wake-echo own-run cleanup", () => {
+  const scope = { repository: "manaflow-ai/cmux", run: "123", attempt: "2", job: "wake-echo", api: "https://staging.example", team: "" };
+  const machine = "vm_11111111111111111111";
+  const key = "jr-test123-cleanup-delete";
+  const withFile = async (run: (file: string) => Promise<void>) => {
+    const dir = mkdtempSync(join(tmpdir(), "wake-cleanup-test-"));
+    try { await run(join(dir, "created.json")); } finally { rmSync(dir, { recursive: true, force: true }); }
+  };
+
+  test("a fresh process recovers the returned ID and original delete key after the journey is killed", async () => withFile(async (file) => {
+    const child = spawnSync(process.execPath, ["-e", `
+      import { writeWakeCleanup } from ${JSON.stringify(new URL("./cloud-journey.ts", import.meta.url).pathname)};
+      writeWakeCleanup(${JSON.stringify(file)}, ${JSON.stringify(scope)}, ${JSON.stringify(machine)}, ${JSON.stringify(key)});
+      process.kill(process.pid, "SIGKILL");
+    `]);
+    expect(child.signal).toBe("SIGKILL");
+    const calls: string[][] = [];
+    const record = journey.readWakeCleanup(file, scope);
+    expect(record).toMatchObject({ version: 1, machine, key, scope });
+    let deleted = false;
+    await journey.cleanupWakeMachine(record, {
+      get: async (id: string) => { calls.push(["get", id]); return { status: deleted ? "deleting" : "paused" }; },
+      remove: async (id: string, k: string) => { calls.push(["delete", id, k]); deleted = true; },
+    });
+    expect(calls).toEqual([["get", machine], ["delete", machine, key], ["get", machine]]);
+    expect(readFileSync(file, "utf8")).not.toContain("token");
+  }));
+
+  test("missing record and already deleted machine need no delete", async () => withFile(async (file) => {
+    expect(journey.readWakeCleanup(file, scope)).toBeNull();
+    journey.writeWakeCleanup(file, scope, machine, key);
+    for (const row of [null, { status: "deleted" }, { status: "deleting" }]) {
+      await journey.cleanupWakeMachine(journey.readWakeCleanup(file, scope), {
+        get: async () => row, remove: async () => { throw new Error("unexpected delete"); },
+      });
+    }
+  }));
+
+  test("another run, attempt, job, backend or team cannot consume the record", async () => withFile(async (file) => {
+    journey.writeWakeCleanup(file, scope, machine, key);
+    for (const field of Object.keys(scope)) {
+      expect(() => journey.readWakeCleanup(file, { ...scope, [field]: "different" })).toThrow(/scope/);
+    }
+    const record = JSON.parse(readFileSync(file, "utf8"));
+    for (const bad of [{ ...record, version: 2 }, { ...record, machine: "" }, { ...record, key: "" }]) {
+      writeFileSync(file, JSON.stringify(bad));
+      expect(() => journey.readWakeCleanup(file, scope)).toThrow(/record/);
+    }
+  }));
+
+  test("read errors never trigger deletion and an unconfirmed delete fails", async () => withFile(async (file) => {
+    journey.writeWakeCleanup(file, scope, machine, key);
+    const record = journey.readWakeCleanup(file, scope);
+    await expect(journey.cleanupWakeMachine(record, {
+      get: async () => { throw new Error("HTTP 403"); },
+      remove: async () => { throw new Error("unexpected delete"); },
+    })).rejects.toThrow("HTTP 403");
+    await expect(journey.cleanupWakeMachine(record, {
+      get: async () => ({ status: "paused" }), remove: async () => {},
+    })).rejects.toThrow(/not confirmed/);
+  }));
+
+  test("a lost delete reply is settled by readback without hiding a live machine or another error", async () => withFile(async (file) => {
+    journey.writeWakeCleanup(file, scope, machine, key);
+    const record = journey.readWakeCleanup(file, scope);
+    for (const status of ["deleted", "deleting"]) {
+      let called = false;
+      await journey.cleanupWakeMachine(record, {
+        get: async () => ({ status: called ? status : "paused" }),
+        remove: async () => { called = true; throw new Error("TimeoutError"); },
+      });
+    }
+    await expect(journey.cleanupWakeMachine(record, {
+      get: async () => ({ status: "paused" }), remove: async () => { throw new Error("mutation.indeterminate"); },
+    })).rejects.toThrow("mutation.indeterminate");
+  }));
+
+  test("workflow cleans its record on failure or cancellation before artifact upload", () => {
+    const workflow = readFileSync(new URL("../../.github/workflows/cloud-wake-echo.yml", import.meta.url), "utf8");
+    const cleanup = workflow.indexOf("- name: Delete this run's machine");
+    expect(cleanup).toBeGreaterThan(workflow.indexOf("--wake-echo 50"));
+    const step = workflow.slice(cleanup, workflow.indexOf("uses: actions/upload-artifact", cleanup));
+    expect(step).toContain("if: always()");
+    expect(step).toContain("timeout-minutes: 6");
+    expect(step).toContain('--cleanup-wake-record "$out/created-machine.json"');
+    expect(workflow).toContain('--wake-cleanup-record "$out/created-machine.json"');
+    expect(workflow).toContain("wake-echo-${{ github.run_id }}-${{ github.run_attempt }}");
   });
 });
