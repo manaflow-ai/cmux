@@ -210,6 +210,7 @@ export function WorkedFor({
     <button
       type="button"
       className="cv-worked has-divider is-toggle"
+      data-alone={row.workedAlone ? "" : undefined}
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}
@@ -642,7 +643,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             ? "cv-turn-actions cv-turn-actions--failed"
             : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
               ? "cv-turn-actions cv-turn-actions--empty"
-              : "cv-turn-actions"
+              : waiting
+                ? "cv-turn-actions cv-turn-actions--waiting"
+                : "cv-turn-actions"
         }
       >
         <MessageFooterRow className="cv-turn-footer-row">
