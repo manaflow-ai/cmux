@@ -372,6 +372,21 @@ final class CEFInTreeHosting {
         return Int32(max(1, (refreshMs * CEFResizeSyncDeadline.frameShare).rounded(.down)))
     }
 
+    /// Whether the page shows in `window`, the window the host view is in: its view is in this hosting's container,
+    /// the container is in the host view, and neither is hidden or empty. Chromium counts the same page shown by its
+    /// view's window and hidden ancestors (the fork's visibility row V1, `-[WebContentsViewCocoa
+    /// updateWebContentsVisibility]`). The host view's own state (the tab it shows, hidden or not) is the caller's
+    /// (`CEFTab.contentVisibility`); a window off screen is `debug.surfaces`' `window_occluded`, as with page windows.
+    func pageVisibility(in window: NSWindow) -> BrowserContentVisibility {
+        guard let page, let container else { return .hidden("page_not_in_tree") }
+        guard container.window === window, container.superview === view, page.isDescendant(of: container) else {
+            return .hidden("page_view_elsewhere")
+        }
+        guard !page.isHiddenOrHasHiddenAncestor else { return .hidden("page_view_hidden") }
+        guard container.bounds.width >= 1, container.bounds.height >= 1 else { return .hidden("page_view_empty") }
+        return .visible
+    }
+
     /// Whether the page is in the tree and has its window's keyboard (``InTreePageFocus/holdsTheKeyboard(_:in:)``):
     /// Chromium's own ask to focus it is allowed then (`CEFTab.chromiumRequestsFocus`).
     var hasTheKeyboard: Bool {
