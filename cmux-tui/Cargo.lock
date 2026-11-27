@@ -253,6 +253,7 @@ dependencies = [
  "libc",
  "pulldown-cmark",
  "ratatui",
+ "regex",
  "serde_json",
  "syntect",
  "tokio",
