@@ -54,8 +54,15 @@ public final class AppStore {
     /// Live mode: where each Mac's workspaces came from (cached, live, ...).
     /// Empty states read this, never `workspaces` alone (`macDataPhase`).
     public var macData: [String: MacDataMachine] = [:]
-    /// Live mode: this phone's connection to each Mac it dials.
-    public var macConnection: [String: MacConnection] = [:]
+    /// Live mode: this phone's connection to each Mac it dials. A connected link
+    /// counts the Mac online on every screen, whatever presence says (``setMacs``).
+    public var macConnection: [String: MacConnection] = [:] {
+        didSet { overlayLinksIfChanged() }
+    }
+    /// Each Mac as presence last said, before ``linkOverlaid(_:)``.
+    @ObservationIgnored private var presenceMacs: [String: MacDevice] = [:]
+    /// The Macs whose link was connected at the last overlay.
+    @ObservationIgnored private var overlaidConnected: Set<String> = []
     /// Live mode: why this phone's last try at each Mac failed (``MacReachability``); nil once it works.
     public var macFailure: [String: MacLinkFailure] = [:]
     /// Live mode: a Retry from a Mac's view, step by step (``MacRecoveryAttempt``).
@@ -172,10 +179,40 @@ public final class AppStore {
         activeTeamID = candidates.first { id in teams.contains { $0.id == id } } ?? ""
     }
 
-    /// Replaces a team's Macs (presence snapshot or update).
+    /// Replaces a team's Macs (presence snapshot or update). A Mac this phone's link
+    /// is connected to stays online: presence is the service's heartbeat, which can lag
+    /// or miss a Mac the phone is talking to (Aziz, 2026-11-26: "im also getting this in
+    /// several screens despite my mac being connected").
     public func setMacs(_ macs: [MacDevice], teamID: String) {
-        guard let index = teams.firstIndex(where: { $0.id == teamID }), teams[index].macs != macs else { return }
-        teams[index].macs = macs
+        for mac in macs {
+            // A caller that edits the list it read back hands in the overlaid Mac: presence
+            // did not say that, so the raw one stays.
+            if let raw = presenceMacs[mac.id], raw != mac, linkOverlaid(raw) == mac { continue }
+            presenceMacs[mac.id] = mac
+        }
+        let next = macs.map(linkOverlaid)
+        guard let index = teams.firstIndex(where: { $0.id == teamID }), teams[index].macs != next else { return }
+        teams[index].macs = next
+    }
+
+    /// `mac` as this phone sees it: online while its link is connected.
+    private func linkOverlaid(_ mac: MacDevice) -> MacDevice {
+        guard !mac.isOnline, macConnection[mac.id] == .connected else { return mac }
+        var online = mac
+        online.isOnline = true
+        online.quietMs = nil
+        return online
+    }
+
+    /// Re-lays the links over presence when a Mac's link connects or stops being connected.
+    private func overlayLinksIfChanged() {
+        let connected = Set(macConnection.compactMap { $0.value == .connected ? $0.key : nil })
+        guard connected != overlaidConnected else { return }
+        overlaidConnected = connected
+        for index in teams.indices {
+            let next = teams[index].macs.map { linkOverlaid(presenceMacs[$0.id] ?? $0) }
+            if next != teams[index].macs { teams[index].macs = next }
+        }
     }
 
     /// The team's picked Mac (``Team/pickedMacID``): the one this phone focuses.
