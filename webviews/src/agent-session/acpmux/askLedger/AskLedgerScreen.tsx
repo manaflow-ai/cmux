@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
+import { intl } from "../../../ui/intl";
 import "./askLedger.css";
 
 type AskLedgerEntry = {
@@ -13,7 +14,7 @@ type AskLedgerEntry = {
 };
 
 function formatTime(createdAt: number): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(createdAt);
+  return intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(createdAt);
 }
 
 export function AskLedgerScreen({ load }: { load(): Promise<unknown> }) {
