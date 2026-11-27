@@ -935,6 +935,12 @@ pub struct Socket<'a> {
     /// If this is set, we will not send a SYN|ACK until this is unset.
     #[cfg(feature = "socket-tcp-pause-synack")]
     synack_paused: bool,
+
+    /// cmux patch: data on the SYN (`set_syn_data`).
+    syn_data: bool,
+    /// cmux patch: this listening socket took data from the peer's SYN; it is
+    /// in the receive buffer and the SYN|ACK acknowledges it.
+    syn_data_in: bool,
 }
 
 const DEFAULT_MSS: usize = 536;
@@ -1038,6 +1044,9 @@ impl<'a> Socket<'a> {
 
             #[cfg(feature = "socket-tcp-pause-synack")]
             synack_paused: false,
+
+            syn_data: false,
+            syn_data_in: false,
         }
     }
 
@@ -1184,6 +1193,42 @@ impl<'a> Socket<'a> {
     #[cfg(feature = "socket-tcp-pause-synack")]
     pub fn pause_synack(&mut self, pause: bool) {
         self.synack_paused = pause;
+    }
+
+    /// cmux patch: carry data on the SYN, both ways.
+    ///
+    /// Connecting, bytes sent before the SYN goes out ride on it (up to a
+    /// segment). A peer that takes them acknowledges them in its SYN|ACK; one
+    /// that ignores them acknowledges only the SYN, and they are sent again
+    /// as ordinary data once the connection is established.
+    ///
+    /// Listening, data on a peer's SYN is kept and acknowledged by the
+    /// SYN|ACK. Once the SYN|ACK has gone out ([`Socket::syn_data_acked`]),
+    /// the data can be read and replies sent, before the handshake's last
+    /// ACK arrives. The peer is authenticated by the tunnel below, so no
+    /// cookie (RFC 7413) guards it.
+    pub fn set_syn_data(&mut self, enabled: bool) {
+        self.syn_data = enabled;
+    }
+
+    /// cmux patch: whether data on the SYN is enabled (`set_syn_data`).
+    pub fn syn_data(&self) -> bool {
+        self.syn_data
+    }
+
+    /// cmux patch: a listening socket took data from the peer's SYN and its
+    /// SYN|ACK, which acknowledges that data, has been sent. The data may be
+    /// read, and replies sent, from now on.
+    pub fn syn_data_acked(&self) -> bool {
+        self.state == State::SynReceived
+            && self.syn_data_in
+            && self.remote_last_seq != self.local_seq_no
+    }
+
+    /// cmux patch: the socket connects with data on its SYN and the SYN is
+    /// not out yet, so a write now rides on it.
+    fn syn_data_open(&self) -> bool {
+        self.state == State::SynSent && self.syn_data && self.remote_last_seq == self.local_seq_no
     }
 
     /// Return the current window field value, including scaling according to RFC 1323.
@@ -2026,6 +2071,7 @@ impl<'a> Socket<'a> {
         self.path_mss_cap = None;
         self.repaired_below = None;
         self.window_before_cut = None;
+        self.syn_data_in = false;
         self.ack_delay_timer = AckDelayTimer::Idle;
         self.challenge_ack_timer = Instant::from_secs(0);
 
@@ -2284,6 +2330,10 @@ impl<'a> Socket<'a> {
             // In CLOSE-WAIT, the remote endpoint has closed our receive half of the connection
             // but we still can transmit indefinitely.
             State::CloseWait => true,
+            // cmux patch: data written before the SYN goes out rides on it,
+            // and a listener that took SYN data may reply before the last ACK.
+            State::SynSent => self.syn_data_open(),
+            State::SynReceived => self.syn_data_acked(),
             _ => false,
         }
     }
@@ -2303,6 +2353,10 @@ impl<'a> Socket<'a> {
             // In FIN-WAIT-1/2, we have closed our transmit half of the connection but
             // we still can receive indefinitely.
             State::FinWait1 | State::FinWait2 => true,
+            // cmux patch: a connection opened with SYN data is handed to its
+            // owner before it is established; its receive half is open.
+            State::SynSent if self.syn_data => true,
+            State::SynReceived if self.syn_data_acked() => true,
             // If we have something in the receive buffer, we can receive that.
             _ if self.can_recv() => true,
             _ => false,
@@ -2764,7 +2818,14 @@ impl<'a> Socket<'a> {
             (State::Listen, _, Some(_)) => unreachable!(),
             // SYN|ACK in the SYN-SENT state must have the exact ACK number.
             (State::SynSent, TcpControl::Syn, Some(ack_number)) => {
-                if ack_number != self.local_seq_no + 1 {
+                // cmux patch: with data on our SYN the SYN|ACK acknowledges the
+                // SYN alone (a peer that ignored the data) or some or all of it.
+                let acceptable = if self.syn_data {
+                    ack_number >= self.local_seq_no + 1 && ack_number <= self.remote_last_seq
+                } else {
+                    ack_number == self.local_seq_no + 1
+                };
+                if !acceptable {
                     net_debug!("unacceptable SYN|ACK in response to initial SYN");
                     return Some(Self::rst_reply(ip_repr, repr));
                 }
@@ -2779,7 +2840,13 @@ impl<'a> Socket<'a> {
                 // I'm not sure why, I think it may be a workaround for broken TCP
                 // servers, or a defense against reordering. Either way, if Linux
                 // does it, we do too.
-                if ack_number == self.local_seq_no + 1 {
+                // cmux patch: or one acknowledging data on our SYN: a reply the
+                // peer sent after its SYN|ACK, overtaking it. It comes again.
+                if ack_number == self.local_seq_no + 1
+                    || (self.syn_data
+                        && ack_number > self.local_seq_no + 1
+                        && ack_number <= self.remote_last_seq)
+                {
                     net_debug!(
                         "expecting a SYN|ACK, received an ACK with the right ack_number, ignoring."
                     );
@@ -2803,7 +2870,14 @@ impl<'a> Socket<'a> {
             }
             // ACK in the SYN-RECEIVED state must have the exact ACK number, or we RST it.
             (State::SynReceived, _, Some(ack_number)) => {
-                if ack_number != self.local_seq_no + 1 {
+                // cmux patch: after SYN data the listener may have sent replies
+                // before this ACK; it may acknowledge them too.
+                let acceptable = if self.syn_data_in {
+                    ack_number >= self.local_seq_no + 1 && ack_number <= self.send_max()
+                } else {
+                    ack_number == self.local_seq_no + 1
+                };
+                if !acceptable {
                     net_debug!("unacceptable ACK in response to SYN|ACK");
                     return Some(Self::rst_reply(ip_repr, repr));
                 }
@@ -3072,6 +3146,13 @@ impl<'a> Socket<'a> {
             // reason is TCP simultaneous open).
             (State::SynReceived, TcpControl::Rst) if self.listen_endpoint.port != 0 => {
                 tcp_trace!("received RST");
+                // cmux patch: a connection that took SYN data may already be
+                // its owner's; it ends instead of listening again.
+                if self.syn_data_in {
+                    self.set_state(State::Closed);
+                    self.tuple = None;
+                    return None;
+                }
                 self.tuple = None;
                 // cmux patch: the next SYN is a new connection: it gets the default
                 // MSS and a fresh controller (initial window), not this peer's.
@@ -3114,6 +3195,13 @@ impl<'a> Socket<'a> {
                 });
                 self.local_seq_no = Self::random_seq_no(cx);
                 self.remote_seq_no = repr.seq_number + 1;
+                // cmux patch: keep data on the SYN (`set_syn_data`). What fits
+                // is enqueued; the SYN|ACK acknowledges exactly that, and the
+                // peer sends the rest again.
+                if self.syn_data && !repr.payload.is_empty() {
+                    let taken = self.rx_buffer.enqueue_slice(repr.payload);
+                    self.syn_data_in = taken > 0;
+                }
                 self.remote_last_seq = self.local_seq_no;
                 self.remote_rewound = 0;
                 self.remote_has_sack = repr.sack_permitted;
