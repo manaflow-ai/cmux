@@ -12,12 +12,12 @@ struct EndToEndTests {
 
     @Test(arguments: [true, false])
     func connectsAndStreams(zrle: Bool) async throws {
-        let server = VNCDemoServer(configuration: .init(width: 320, height: 200, password: "hunter2", framesPerSecond: 30))
+        let server = VNCDemoServer(configuration: .init(width: 320, height: 200, password: "hunter2", framesPerSecond: 30, rules: .fixture))
         let port = try await server.start()
         defer { server.stop() }
         let encodings: [RFBEncoding]? = zrle ? nil : [.raw]
         let client = VNCClient(endpoint: VNCEndpoint(host: "127.0.0.1", port: port),
-                               options: VNCSessionOptions(credentials: VNCCredentials(password: "hunter2"), encodings: encodings))
+                               options: VNCSessionOptions(credentials: VNCCredentials(password: "hunter2"), encodings: encodings, rules: .fixture))
         await client.connect()
         var events = client.events.makeAsyncIterator()
         guard case let .connected(info)? = await events.next() else {
@@ -42,11 +42,11 @@ struct EndToEndTests {
     }
 
     @Test func wrongPasswordFails() async throws {
-        let server = VNCDemoServer(configuration: .init(width: 64, height: 64, password: "right"))
+        let server = VNCDemoServer(configuration: .init(width: 64, height: 64, password: "right", rules: .fixture))
         let port = try await server.start()
         defer { server.stop() }
         let client = VNCClient(endpoint: VNCEndpoint(host: "127.0.0.1", port: port),
-                               options: VNCSessionOptions(credentials: VNCCredentials(password: "wrong")))
+                               options: VNCSessionOptions(credentials: VNCCredentials(password: "wrong"), rules: .fixture))
         await client.connect()
         var last: VNCEvent?
         for await event in client.events { last = event }
@@ -58,10 +58,10 @@ struct EndToEndTests {
     }
 
     @Test func typingReachesTheServerAndCursorArrives() async throws {
-        let server = VNCDemoServer(configuration: .init(width: 200, height: 120, framesPerSecond: 0))
+        let server = VNCDemoServer(configuration: .init(width: 200, height: 120, framesPerSecond: 0, rules: .fixture))
         let port = try await server.start()
         defer { server.stop() }
-        let client = VNCClient(endpoint: VNCEndpoint(host: "127.0.0.1", port: port), options: VNCSessionOptions(localCursor: true))
+        let client = VNCClient(endpoint: VNCEndpoint(host: "127.0.0.1", port: port), options: VNCSessionOptions(localCursor: true, rules: .fixture))
         await client.connect()
         var sawCursor = false
         for await event in client.events {

@@ -18,6 +18,7 @@ const { OnboardingStore } = await import("./store");
 const { chatFeel, chatFeelWrites } = await import("./walk");
 const strings = createStrings(table, ["en"]);
 const SEND_POP = "agentPane.display.sendPop";
+const SEND_TOP = "agentPane.display.sendScrollsToTop";
 
 async function mount(screen?: "look" | "work" | "trust" | "tune", introWalk = true) {
   const calls: { op: string; params: unknown }[] = [];
@@ -68,12 +69,34 @@ describe("intro walk: chat feel row", () => {
     expect(calls).toEqual([{ op: OPS.walk, params: { writes: [{ path: SEND_POP, value: true }] } }]);
     await done();
   });
+
+  test("work: Pinned writes the sent-prompt-to-top setting and leaves the pop as opened", async () => {
+    const { calls, root, done } = await mount("work");
+    expect(root.textContent).toContain(strings.t("onboarding.makeItYours.chatFeel.top"));
+    await act(async () => radio(root, "top")!.click());
+    expect(calls).toEqual([{ op: OPS.walk, params: { writes: [{ path: SEND_TOP, value: true }] } }]);
+    await done();
+  });
 });
 
 describe("chatFeel", () => {
   test("unset reads as Instant, as cmux ships", () => {
     expect(chatFeel({})).toBe("instant");
     expect(chatFeel({ [SEND_POP]: true })).toBe("pop");
+    expect(chatFeel({ [SEND_TOP]: true })).toBe("top");
+    expect(chatFeel({ [SEND_POP]: true, [SEND_TOP]: true })).toBe("top");
+  });
+
+  test("Pinned and back: the opening values return, and the pop is kept as it opened", () => {
+    const opened = { [SEND_POP]: true, [SEND_TOP]: null };
+    expect(chatFeelWrites("top", opened, opened)).toEqual([{ path: SEND_TOP, value: true }]);
+    expect(chatFeelWrites("pop", opened, { [SEND_POP]: true, [SEND_TOP]: true })).toEqual([
+      { path: SEND_TOP, value: null },
+    ]);
+    expect(chatFeelWrites("instant", opened, { [SEND_POP]: true, [SEND_TOP]: true })).toEqual([
+      { path: SEND_POP, value: false },
+      { path: SEND_TOP, value: null },
+    ]);
   });
 
   test("back to Instant puts the opening value back; a no-op writes nothing", () => {

@@ -63,6 +63,7 @@ host_start() {
   host_flags=()
   [[ -n "${EVAL_BIND:-}" ]] && host_flags=(--single-tenant-overlay 1)
   [[ "${EVAL_RD_INPUT_FRAME_NOW:-0}" == 1 ]] && host_flags+=(--input-frame-now 1)
+  [[ "${EVAL_RD_LTR:-0}" == 1 ]] && host_flags+=(--ltr 1)
   # A variant target's own host flags (rd-ladder.sh), space-separated.
   if [[ -n "${EVAL_RD_HOST_FLAGS:-}" ]]; then
     read -ra extra <<<"$EVAL_RD_HOST_FLAGS"

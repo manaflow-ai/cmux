@@ -188,7 +188,7 @@ import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
 import { playUnpop } from "./conversation/unpopMorph";
 import { sendTucks, tuckContent, tuckSent } from "./conversation/sendTuck";
 import { shouldScrollToBottomAfterSend } from "./sendScrollSetting";
-import { ComposerStatusFoot, dotSaysQueuePaused, statusDotMounts } from "./ComposerStatusDot";
+import { ComposerStatusFoot, statusDotMounts, dotSaysQueuePaused } from "./ComposerStatusDot";
 import { peerLink, type PeerLink } from "./peerLink";
 import type { EmojiTrigger } from "./emojiShortcodes";
 import type { MentionTrigger } from "./composer/emojiTokens";
@@ -589,6 +589,9 @@ type Props = {
   /// stack's edge from it (App.tsx `data-focused` on `.acpmux-dock`, composerStates.css). Called on
   /// focus and shell changes only.
   onFocusEdge?(lit: boolean): void;
+  /// Whether the prompt holds anything (text, chips, pending tiles), on each change: Toggle
+  /// Terminal and Chat reads it without a page call (conversation/toggleDraft.ts).
+  onFilled?(filled: boolean): void;
 };
 
 /// What the prompt holds: its text and the chips placed in it.
@@ -865,6 +868,7 @@ function ComposerFrame({
   attachRefusal,
   relayed = false,
   onFocusEdge,
+  onFilled,
 }: Props) {
   acpmuxPerf.render("composer");
   const t = useT();
@@ -2618,6 +2622,7 @@ function ComposerFrame({
   const stopShown = !shell && stopPresence.shown;
   const stop = stopShown && facts.empty;
   const hasDraft = Boolean(!facts.empty || attachments.length || pending.length);
+  useEffect(() => onFilled?.(hasDraft), [hasDraft, onFilled]);
   // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
   // its panel, so only the pane counts an Esc that reaches the page.
   const escapeStop = useEscapeStop({
@@ -2965,6 +2970,7 @@ function ComposerFrame({
       {...(snapshot.peerConnected ? { peerConnected: snapshot.peerConnected } : {})}
       {...(snapshot.peerStates ? { peerStates: snapshot.peerStates } : {})}
       {...(snapshot.peerResources ? { peerResources: snapshot.peerResources } : {})}
+      {...(snapshot.peerGroups ? { peerGroups: snapshot.peerGroups } : {})}
       {...(snapshot.peerLinks ? { peerLinks: snapshot.peerLinks } : {})}
       {...(onRefreshMachines ? { onRefreshMachines } : {})}
       {...(runMode ? { runMode } : {})}

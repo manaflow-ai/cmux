@@ -89,7 +89,7 @@ fn the_grammar_takes_each_verb_and_refuses_the_rest() {
         Ok(Request::Remove { which: Some("a/b".to_owned()) })
     );
     assert_eq!(parse(&words(&["installed"])), Ok(Request::Installed));
-    let Ok(Request::Export { dir, header }) = parse(&words(&[
+    let Ok(Request::Export { dir, header, profile: None }) = parse(&words(&[
         "export",
         "out",
         "--id",
@@ -104,11 +104,18 @@ fn the_grammar_takes_each_verb_and_refuses_the_rest() {
     assert_eq!(dir, Path::new("out"));
     assert_eq!((header.id.as_str(), header.name.as_str()), ("leo/night", "night"));
     assert_eq!(header.extensions, ["github.com/a/b"]);
+    let Ok(Request::Export { profile, .. }) =
+        parse(&words(&["export", "out", "--id", "leo/night", "--profile", "kept-night"]))
+    else {
+        panic!()
+    };
+    assert_eq!(profile.as_deref(), Some("kept-night"));
     for bad in [
         &["install"][..],
         &["install", "a", "b"],
         &["export", "out"],
         &["export", "--id", "a/b"],
+        &["export", "out", "--id", "a/b", "--profile"],
         &["installed", "x"],
         &["remove", "--yes"],
         &["undo", "x"],
