@@ -855,8 +855,10 @@ public final class AgentPaneModel {
             }
             var reply: [String: Any] = ["projects": projects, "repos": repos]
             if query == nil, let page {
-                reply["projectRows"] = AgentPaneProjectSnapshot.rows(projects: projects, repos: repos,
+                let rows = AgentPaneProjectSnapshot.rows(projects: projects, repos: repos,
                     warm: page.warm, cwd: page.cwd, seed: page.projectRows)
+                newTab?.projectRows = rows
+                reply["projectRows"] = rows
             }
             return AgentPaneReply.success(reply)
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
