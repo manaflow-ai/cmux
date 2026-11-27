@@ -1057,6 +1057,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_stage_table_signin.py"
 
 [[test]]
+path = "tests/test_stage_table_viewer_done.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_stage_table_viewer_done.py"
+
+[[test]]
 path = "tests/test_stale_agent_prs.py"
 lane = "linux-guard"
 
@@ -1156,6 +1161,11 @@ reason = "Run by the lane that changes try-pr.sh's daemon path or hot-apply.py -
 path = "tests/test_try_pr_live_code.py"
 lane = "manual"
 reason = "Run by the lane that changes try-pr.sh or scripts/live-code/patch.py (kept manual under the 2026-10-23 no-new-CI rule, since lifted): python3 tests/test_try_pr_live_code.py; needs only bash, git and python3."
+
+[[test]]
+path = "tests/test_two_mac_viewer_bye.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_two_mac_viewer_bye.py"
 
 [[test]]
 path = "tests/test_ui_font.py"
