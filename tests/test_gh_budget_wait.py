@@ -259,6 +259,23 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(h.calls(), ["call workflow run nightly-next-tick.yml"] * 2)
         self.assertEqual(h.waited(), 1)
 
+    def test_a_dispatch_github_could_not_schedule_is_tried_again(self) -> None:
+        # Run 45798252585: dispatch-published-in got "HTTP 422 ... resource_exhausted: gitmon refuses to schedule
+        # us" (GitHub could not read the workflow file, so no run) and the published build got no deltas.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
+                         FAKE_ERROR="could not create workflow dispatch event: HTTP 422: Invalid Argument - failed to parse "
+                                    "workflow: failed to fetch workflow: getting blob contents: twirp error resource_exhausted: "
+                                    "gitmon refuses to schedule us: fail-fast:network")
+        result = h.gh("workflow", "run", "nightly.yml")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(h.calls(), ["call workflow run nightly.yml"] * 2)
+
+    def test_another_422_dispatch_is_not_tried_again(self) -> None:
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
+                         FAKE_ERROR="could not create workflow dispatch event: HTTP 422: Unexpected inputs provided")
+        self.assertEqual(h.gh("workflow", "run", "nightly.yml").returncode, 1)
+        self.assertEqual(h.calls(), ["call workflow run nightly.yml"])
+
     def test_a_request_that_may_have_reached_github_is_not_tried_again(self) -> None:
         # A reset or timeout after the request went out may have dispatched it already.
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
@@ -646,7 +663,10 @@ class WorkflowTests(unittest.TestCase):
         # 18.4 and 12.9 min for its reset after the feed was live. Each App installation has its own hour.
         for name, step_name in (("wake-nightly-next-tick", "Ask main's nightly-next tick"),
                                 ("wake-nightly-next-tick", "Retry the commit that left the slot unless nightly-next moved"),
-                                ("dispatch-published-in", "Ask for this build's post-publication run")):
+                                ("dispatch-published-in", "Ask for this build's post-publication run"),
+                                # Run 45819376175: the tail's read of the run that published died on github.token's
+                                # hour, and that build shipped with no deltas, notes or comments.
+                                ("published-build", "Check the run that published")):
             steps = self.jobs[name]["steps"]
             env = next(s for s in steps if s.get("name") == step_name).get("env") or {}
             self.assertIn("steps.cmux-bot-token.outputs.token", str(env.get("GH_TOKEN_SPARE")), (name, step_name))

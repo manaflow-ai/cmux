@@ -7793,7 +7793,8 @@ jobs:
     # publish either tho") it takes the nightly's reserved Linux label: on the nightly-only minis it queued 8-17 min
     # behind 25-min tail pollers before the GitHub release could start (runs 45572455172, 45575194160).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
-    timeout-minutes: 10
+    # Room for one capped wait (GH_BUDGET_WAIT_MAX_SECONDS below) when every token refuses.
+    timeout-minutes: 20
     permissions:
       contents: read
       actions: read
@@ -7853,10 +7854,19 @@ jobs:
       - name: Name the run that published
         id: source
         run: python3 scripts/ci/nightly_published_build.py source
+      # Run 45819376175 (2026-11-26): this read died on "API rate limit exceeded for installation" (HTTP 403),
+      # so build 4581341229801 got no deltas, notes or comments, and every Mac downloaded the full archive.
+      # A refusal moves to cmux-bot, then the CI pools, at once, as the dispatches do (test_dispatches_move_to_app_pools).
+      - *mint-dispatch-pools
+      - *mint-dispatch-spare
+      - *wait-through-github-api-rate-l
       - name: Check the run that published
         if: steps.source.outputs.run != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_TOKEN_SPARE: ${{ steps.cmux-bot-token.outputs.token }}
+          GH_TOKEN_SPARES: ${{ env.CI_POOL_GH_TOKEN }} ${{ env.CI_POOL_GH_TOKEN_SPARES }}
+          GH_BUDGET_WAIT_MAX_SECONDS: 600
           RUN: ${{ steps.source.outputs.run }}
           ATTEMPT: ${{ steps.source.outputs.attempt }}
           SOURCE_RUN_FILE: ${{ runner.temp }}/source-run.json
@@ -7869,7 +7879,7 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           run-id: ${{ steps.source.outputs.run }}
-          github-token: ${{ github.token }}
+          github-token: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           name: nightly-published-build-${{ steps.source.outputs.attempt }}
           path: ${{ runner.temp }}/published-build
       - name: Read the published build
