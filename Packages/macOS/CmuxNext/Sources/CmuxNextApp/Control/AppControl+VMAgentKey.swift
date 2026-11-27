@@ -23,7 +23,7 @@ extension AppControl {
                 guard let line = try? await mint.run(["cloud", "vm-agent-key-mint"], stdin: stdin, timeout: .seconds(23)),
                       let reply = try? JSONDecoder().decode(VMAgentKeyReply.self, from: line) else { throw silent }
                 if let value = reply.value { return value }
-                throw reply.error.map(vmAgentKeyError) ?? silent
+                throw reply.error.map(Self.vmAgentKeyError) ?? silent
             }.withDeadline(.fixed(.seconds(25))),
         ])
     }
