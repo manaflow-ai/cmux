@@ -37,8 +37,8 @@ pub fn find_in_lines<S: AsRef<str>>(
             let (snippet, snippet_start, snippet_len) = snippet(line, start, end);
             out.push(LineMatch {
                 line: index,
-                start: utf16_len(&line[..start]),
-                len: utf16_len(&line[start..end]),
+                start: utf16_len(line.get(..start).unwrap_or_default()),
+                len: utf16_len(line.get(start..end).unwrap_or_default()),
                 snippet,
                 snippet_start,
                 snippet_len,
@@ -56,16 +56,17 @@ fn utf16_len(text: &str) -> u32 {
 /// only when the match itself is longer), trimmed of leading blanks, with the match's offset
 /// and length in the snippet in UTF-16 units.
 pub(crate) fn snippet(line: &str, start: usize, end: usize) -> (String, u32, u32) {
-    let matched = &line[start..end];
+    let matched = line.get(start..end).unwrap_or_default();
     let room = SNIPPET_CHARS.saturating_sub(matched.chars().count());
     // A third of the room before the match, the rest after it: what follows a hit reads on.
     let before_room = room / 3;
-    let before: Vec<char> = line[..start].chars().collect();
+    let before: Vec<char> = line.get(..start).unwrap_or_default().chars().collect();
     let take_before = before.len().min(before_room);
     let after_room = room - take_before;
-    let lead: String = before[before.len() - take_before..].iter().collect();
+    let lead: String =
+        before.get(before.len() - take_before..).unwrap_or_default().iter().collect();
     let lead = lead.trim_start();
-    let tail: String = line[end..].chars().take(after_room).collect();
+    let tail: String = line.get(end..).unwrap_or_default().chars().take(after_room).collect();
     let tail = tail.trim_end();
     let text = format!("{lead}{matched}{tail}");
     (text, utf16_len(lead), utf16_len(matched))
