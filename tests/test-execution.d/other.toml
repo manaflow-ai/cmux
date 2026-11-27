@@ -339,6 +339,10 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_group_reaper.py"
 
 [[test]]
+path = "tests/test_guard_delta.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_guard_hooks_from_base.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_guard_hooks_from_base.py"
