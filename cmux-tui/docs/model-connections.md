@@ -157,8 +157,18 @@ All on the existing unix socket; method names in `rpc.rs`. Lane A owns these.
 - `_acpmux/connections/key.add` accepts `provider`, a `keychain:ITEM` reference, and optional
   `label` and `servesCloud` fields. To replace a key in place, send the route's id as `replace`
   and its current instance as `replaceInstance`. A route with `can_replace_key: true` supports
-  this operation. The app strips whitespace from the pasted key, stores it in the Keychain,
-  and calls `key.check` with the reference before saving the route.
+  this operation. The app strips whitespace from the pasted key, stores it in the Keychain
+  through `secret.store`, and calls `key.check` with the reference before saving the route.
+- `_acpmux/connections/secret.store` `{ "account": "<store>-<8 hex>", "label", "secret" }` ->
+  `{ "secret": "keychain:cmux-model-key/ACCOUNT" }`, and `_acpmux/connections/secret.delete`
+  `{ "account" }`. The unix socket only. On macOS acpmux adds the item through the Security
+  framework, so its access list trusts acpmux's signature, not `/usr/bin/security`: another
+  process of the user running `security find-generic-password -w` gets the Keychain's prompt,
+  not the key. The item carries the kind `cmux model key`; acpmux reads such an item through
+  the framework and an older one `security` wrote (no kind) with `security`, as before. Adding
+  the key again moves an older item. A key a differently signed acpmux wrote answers "saved by
+  another cmux build". The app and `cmux cloud connect` store through here; an acpmux without
+  the method gets the earlier `security -i` write. Off macOS: `secret-tool`.
 - `_acpmux/connections/key.check` `{ "provider", "secret": "keychain:ITEM" }` -> `{ "provider",
   "result": "ok|bad_shape|bad_key|unreachable", "save", "http_status", "detail", "message" }`
   (`key_check.rs`). The vendor prefix first (openai `sk-`, anthropic `sk-ant-`, openrouter `sk-or-`,
@@ -205,9 +215,13 @@ of its `oaiapp_...` client reads signed out and the person signs in again.)
   of Codex on the Mac.
 - On macOS, ChatGPT and Kimi Code subscription grants use the existing `cmux-vault`
   login Keychain service. The per-provider index contains a reference, identity and
-  expiry metadata. A legacy ChatGPT file is replaced by metadata only after the vault
-  accepts the grant. A locked or unavailable Keychain leaves the file intact.
-- Non-Mac ChatGPT connections retain the existing private JSON format. Other supported
+  expiry metadata. A legacy ChatGPT file (a full record from before the vault) moves at
+  startup, at its next read and at its next refresh, always under a fresh account; it is
+  replaced by metadata only after the vault accepts the grant. A locked or unavailable
+  Keychain leaves the file intact, refreshed tokens included.
+- Off macOS, ChatGPT uses the OS secret store (the Secret Service) when it can write, read
+  back and remove an item, and moves a legacy file the same way; a machine with none keeps
+  the owner-only JSON file (never daemon memory, which a restart would lose). Other supported
   subscriptions use the base vault's OS secret store or daemon memory. The owner's
   Cloud machine receives the launch credential through its authenticated owner link.
 - The ChatGPT route uses kind `chatgpt-plan`, family `codex`, and the Codex backend.

@@ -48,7 +48,7 @@ extension SettingsModels: PageProvider {
                             openClaudeCallback: CloudClaudeMachine.CallbackOpener? = nil,
                             closeSignInPage: @escaping @MainActor (String) -> Void) -> SettingsModels {
         let models = SettingsModels(
-            environment: environment, keys: KeychainModelKeyStore(),
+            environment: environment, keys: KeychainModelKeyStore(environment: environment),
             openURL: { _ in },
             team: {
                 guard !agentKeys.isPersonal, let team = activeTeam()?.team else { return nil }
@@ -70,7 +70,7 @@ extension SettingsModels: PageProvider {
     /// keys; a sign-in page opens in the app's own browser (`openSignInPage`), else the person's.
     public static func cloudSetup(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
                                   openSignInPage: @escaping @MainActor (URL) async -> (@MainActor () -> Void)?) -> SettingsModels {
-        SettingsModels(environment: environment, keys: KeychainModelKeyStore(),
+        SettingsModels(environment: environment, keys: KeychainModelKeyStore(environment: environment),
                        openURL: { NSWorkspace.shared.openInBackground($0) },
                        harnesses: SettingsHarnesses(environment: environment, openTerminal: { _ in false }, openSignInPage: { url, _ in await openSignInPage(url) }))
     }

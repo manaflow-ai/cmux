@@ -394,8 +394,14 @@ impl Hub {
         let route = if family == "claude" && self.has_delivered_credential(session) {
             None
         } else {
-            route_of(&routes::bindings(&state), dir.as_deref(), &meta, &harness_family, &profile.env)
-                .map_err(|e| RpcError::invalid_params(e.to_string()))?
+            route_of(
+                &routes::bindings(&state),
+                dir.as_deref(),
+                &meta,
+                &harness_family,
+                &profile.env,
+            )
+            .map_err(|e| RpcError::invalid_params(e.to_string()))?
         };
         if route.as_ref().is_some_and(|(r, _)| {
             !matches!(

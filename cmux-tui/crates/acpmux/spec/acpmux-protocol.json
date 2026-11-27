@@ -2633,6 +2633,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/connections/secret.store",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/connections/secret.delete",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/connections/chatgpt.begin",
       "params": true,
       "result": true

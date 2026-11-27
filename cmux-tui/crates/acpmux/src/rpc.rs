@@ -958,6 +958,12 @@ pub mod method {
     pub const MUX_CONNECTIONS_KEY_ADD: &str = "_acpmux/connections/key.add";
     /// Asks a provider whether a pasted API key (by its reference) is good, before `key.add`.
     pub const MUX_CONNECTIONS_KEY_CHECK: &str = "_acpmux/connections/key.check";
+    /// `{account, label, secret}`: the daemon writes a pasted key or token into the login Keychain
+    /// (`cmux-model-key`/ACCOUNT) itself, so the item trusts acpmux and not `/usr/bin/security`;
+    /// answers `{secret: "keychain:cmux-model-key/ACCOUNT"}`. The unix socket only.
+    pub const MUX_CONNECTIONS_SECRET_STORE: &str = "_acpmux/connections/secret.store";
+    /// `{account}`: removes a `cmux-model-key` item `secret.store` wrote (a refused add's rollback).
+    pub const MUX_CONNECTIONS_SECRET_DELETE: &str = "_acpmux/connections/secret.delete";
     pub const MUX_CONNECTIONS_CHATGPT_BEGIN: &str = "_acpmux/connections/chatgpt.begin";
     pub const MUX_CONNECTIONS_CHATGPT_WAIT: &str = "_acpmux/connections/chatgpt.wait";
     pub const MUX_CONNECTIONS_CHATGPT_CANCEL: &str = "_acpmux/connections/chatgpt.cancel";

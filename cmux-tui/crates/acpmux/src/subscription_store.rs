@@ -1,5 +1,8 @@
 //! Subscription grants use the daemon's existing vault. Per-provider indexes contain metadata
-//! only. Legacy ChatGPT grants stay in their owner-only records.
+//! only. A legacy grant (a full record in the provider's file) moves into the vault at startup, at
+//! its next read and at its next write; ChatGPT's always under a fresh account, so a Keychain item a
+//! restored backup left under the bare route id is never overwritten or adopted. A vault that
+//! refuses the move keeps the owner-only record, so a rotated refresh token is never lost.
 
 use std::path::{Path, PathBuf};
 
@@ -194,15 +197,24 @@ pub(crate) struct Store<'a> {
 
 pub(crate) fn migrate_legacy(home: &Path) {
     crate::subscriptions::migrate_all(home);
+    Store::new(home, "chatgpt").migrate_all::<Value>();
 }
 
 impl<'a> Store<'a> {
     pub(crate) fn new(home: &'a Path, provider: &'static str) -> Self {
         #[cfg(test)]
         let keychain: Option<&dyn Keychain> = Some(&tests::KEYCHAIN);
+        // ChatGPT off macOS: the OS secret store (the Secret Service) when it can hold the grant.
+        // A machine with none keeps the owner-only file rather than memory, which a restart loses.
         #[cfg(not(test))]
-        let keychain: Option<&dyn Keychain> =
-            if cfg!(target_os = "macos") || provider != "chatgpt" { Some(&Vault) } else { None };
+        let keychain: Option<&dyn Keychain> = if cfg!(target_os = "macos")
+            || provider != "chatgpt"
+            || crate::vault::store::os_usable()
+        {
+            Some(&Vault)
+        } else {
+            None
+        };
         Self { home, provider, keychain }
     }
 
@@ -306,6 +318,8 @@ impl<'a> Store<'a> {
         }
         let record = decode(&bytes)?;
         if self.provider == "chatgpt" {
+            // A fresh account: an item under the bare id may be a restored backup's other grant.
+            let _ = self.write_keychain(keychain, id, Some(Uuid::new_v4()), &index);
             return Ok(Some(record));
         }
         let generation = if self.other_provider_has_record(id)? {
@@ -346,7 +360,10 @@ impl<'a> Store<'a> {
             if self.provider == "chatgpt" {
                 let index = file(&path)?.as_deref().map(decode::<Value>).transpose()?;
                 if index.as_ref().is_some_and(|index| index.get("keychain").is_none()) {
-                    return write_file(&path, record);
+                    // A legacy record moves now; a vault that refuses keeps the refreshed file.
+                    return self
+                        .write_keychain(keychain, id, Some(Uuid::new_v4()), &value)
+                        .or_else(|_| write_file(&path, record));
                 }
                 // Reuse the item only when both the index and grant name the same identity.
                 // An older unbound index or an inaccessible item gets a fresh account.

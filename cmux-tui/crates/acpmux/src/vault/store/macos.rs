@@ -21,7 +21,7 @@ pub(crate) struct SubscriptionItems {
     isolate_search: bool,
 }
 
-fn without_ui<T>(body: impl FnOnce() -> T) -> Result<T, &'static str> {
+pub(crate) fn without_ui<T>(body: impl FnOnce() -> T) -> Result<T, &'static str> {
     // The interaction flag is process-wide. Keep these short calls serialized.
     static UI: Mutex<()> = Mutex::new(());
     let _guard = UI.lock().unwrap_or_else(|e| e.into_inner());

@@ -13,24 +13,39 @@ public protocol ModelKeyStoring: Sendable {
     func delete(_ reference: String) async
 }
 
-/// The login Keychain through `/usr/bin/security`, as acpmux's own `cmux harness secret set` stores
-/// one (cli/harness_secret.rs): the item's creator is `security`, so acpmux's
-/// `security find-generic-password` reads it without a prompt. The key goes only to the tool's
-/// standard input (`security -i`), never its arguments, and its output (which can echo the line) is
-/// dropped.
+/// The login Keychain, written by acpmux (`connections/secret.store`): the daemon adds the item through
+/// the Security framework, so its access list trusts acpmux, which reads it at each request, and not
+/// `/usr/bin/security`. (An item `security` creates trusts `security`, so any process of the user could
+/// read it with `security find-generic-password -w` and no prompt.) The key goes only over acpmux's unix
+/// socket. An acpmux too old for `secret.store` gets the earlier `security -i` write: the key on the
+/// tool's standard input, never its arguments, its output (which can echo the line) dropped.
 public struct KeychainModelKeyStore: ModelKeyStoring {
     public static let service = "cmux-model-key"
 
-    public init() {}
+    private let environment: @Sendable @MainActor () async -> AcpmuxEnvironment?
+
+    public init(environment: @escaping @Sendable @MainActor () async -> AcpmuxEnvironment?) {
+        self.environment = environment
+    }
 
     public func store(_ key: String, provider: String) async throws -> String {
         let account = "\(provider)-\(UUID().uuidString.lowercased().prefix(8))"
-        let line = "add-generic-password -U -s \(Self.quoted(Self.service)) -a \(Self.quoted(account)) "
-            + "-l \(Self.quoted("cmux \(provider) API key")) -w \(Self.quoted(key))\n"
-        let ran = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/usr/bin/security"), ["-i"],
-                                                              input: Data(line.utf8), errorOutput: .discard, timeout: .seconds(30), onCancel: .finish))
-        guard ran.succeeded else { throw PageError(code: "cmux.models.keychain", message: "the key could not be stored in the Keychain") }
-        return "keychain:\(Self.service)/\(account)"
+        let label = "cmux \(provider) API key"
+        guard let environment = await environment() else {
+            throw PageError(code: "cmux.page.unavailable", message: "no acpmux")
+        }
+        do {
+            let reply = try JSONValue.parse(try await environment.harness(.connectionsSecretStore,
+                                                                          params: ["account": account, "label": label, "secret": key]))
+            guard let reference = reply["secret"]?.stringValue else {
+                throw PageError(code: "cmux.models.keychain", message: "the key could not be stored in the Keychain")
+            }
+            return reference
+        } catch let error as AcpmuxRPCError where error.isMethodMissing {
+            return try await Self.storeWithSecurityTool(key, account: account, label: label)
+        } catch let error as AcpmuxRPCError {
+            throw PageError(code: "cmux.models.keychain", message: error.message)
+        }
     }
 
     public func delete(_ reference: String) async {
@@ -38,9 +53,28 @@ public struct KeychainModelKeyStore: ModelKeyStoring {
         guard reference.hasPrefix(prefix) else { return }
         let account = String(reference.dropFirst(prefix.count))
         guard !account.isEmpty, !account.contains("/") else { return }
+        // acpmux deletes what it wrote, and an earlier `security` item with `security`.
+        if let environment = await environment() {
+            do {
+                _ = try await environment.harness(.connectionsSecretDelete, params: ["account": account])
+                return
+            } catch let error as AcpmuxRPCError where !error.isMethodMissing && !error.isUnreachable {
+                return
+            } catch {}
+        }
         _ = try? await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/usr/bin/security"),
                                                          ["delete-generic-password", "-s", Self.service, "-a", account],
                                                          errorOutput: .discard, timeout: .seconds(30)))
+    }
+
+    /// An acpmux without `secret.store`: the item through `security -i`, as before.
+    private static func storeWithSecurityTool(_ key: String, account: String, label: String) async throws -> String {
+        let line = "add-generic-password -U -s \(quoted(service)) -a \(quoted(account)) "
+            + "-l \(quoted(label)) -w \(quoted(key))\n"
+        let ran = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/usr/bin/security"), ["-i"],
+                                                              input: Data(line.utf8), errorOutput: .discard, timeout: .seconds(30), onCancel: .finish))
+        guard ran.succeeded else { throw PageError(code: "cmux.models.keychain", message: "the key could not be stored in the Keychain") }
+        return "keychain:\(service)/\(account)"
     }
 
     /// One `security -i` word: quoted, with `\` and `"` escaped.

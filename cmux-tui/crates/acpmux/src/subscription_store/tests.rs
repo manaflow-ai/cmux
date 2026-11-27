@@ -176,7 +176,7 @@ fn chatgpt_access_token(workspace: &str) -> String {
 }
 
 #[test]
-fn chatgpt_reads_and_updates_the_restored_legacy_record_without_keychain_migration() {
+fn chatgpt_moves_a_restored_legacy_record_to_a_fresh_account_and_keeps_the_bare_item() {
     let home = tempfile::tempdir().unwrap();
     let keychain = MemoryKeychain::new();
     let store = Store { home: home.path(), provider: "chatgpt", keychain: Some(&keychain) };
@@ -194,11 +194,19 @@ fn chatgpt_reads_and_updates_the_restored_legacy_record_without_keychain_migrati
     write_file(&path, &restored).unwrap();
 
     assert!(store.read::<Value>(id).is_ok_and(|grant| grant.as_ref() == Some(&restored)));
+    // The file is now an index: no token on disk, the grant under a fresh account.
+    let index: Value = decode(&std::fs::read(&path).unwrap()).unwrap();
+    assert!(index["keychain"].is_string());
+    assert!(index["keychain_generation"].is_string());
+    assert!(index.get("refresh_token").is_none() && index.get("access_token").is_none());
+    assert!(store.read::<Value>(id).is_ok_and(|grant| grant.as_ref() == Some(&restored)));
     restored["expires_at"] = json!(300);
     store.write(id, &restored).unwrap();
-    assert_eq!(decode::<Value>(&std::fs::read(&path).unwrap()).unwrap(), restored);
+    assert!(store.read::<Value>(id).is_ok_and(|grant| grant.as_ref() == Some(&restored)));
+    let index: Value = decode(&std::fs::read(&path).unwrap()).unwrap();
+    assert!(index.get("refresh_token").is_none());
+    // The restored backup's other grant under the bare id is never overwritten or adopted.
     assert_eq!(keychain.read(&store.service(), id).unwrap(), Some(stored_bytes));
-    assert!(matches!(store.grants::<Value>(id), Err(Error::ReauthRequired)));
 }
 
 #[test]
@@ -371,7 +379,7 @@ fn subscription_migration_prefers_the_grant_with_the_later_expiry() {
 }
 
 #[test]
-fn subscription_startup_migrates_other_providers_and_keeps_legacy_chatgpt_records() {
+fn subscription_startup_migrates_every_provider_including_legacy_chatgpt_records() {
     let home = tempfile::tempdir().unwrap();
     let id = "orphan";
     let record = json!({
@@ -391,13 +399,9 @@ fn subscription_startup_migrates_other_providers_and_keeps_legacy_chatgpt_record
         let store = Store::new(home.path(), provider);
         let id = format!("{id}-{provider}");
         let index: Value = decode(&std::fs::read(store.path(&id).unwrap()).unwrap()).unwrap();
-        if provider == "chatgpt" {
-            assert_eq!(index, record);
-        } else {
-            assert!(index["keychain"].is_string());
-            assert!(index.get("access_token").is_none());
-            assert!(index.get("refresh_token").is_none());
-        }
+        assert!(index["keychain"].is_string());
+        assert!(index.get("access_token").is_none());
+        assert!(index.get("refresh_token").is_none());
         assert!(store.read::<Value>(&id).is_ok_and(|value| value.as_ref() == Some(&record)));
     }
 }
@@ -462,4 +466,25 @@ fn a_locked_keychain_is_probed_again_after_backoff() {
     assert!(!probe.available(now, || panic!("a burst must not repeat the probe")));
     assert!(probe.available(now + Duration::from_secs(2), || true));
     assert!(probe.available(now + Duration::from_secs(3), || panic!("success is cached")));
+}
+
+#[test]
+fn a_legacy_chatgpt_record_stays_on_disk_when_the_keychain_refuses_the_move() {
+    let home = tempfile::tempdir().unwrap();
+    let keychain = MemoryKeychain::new();
+    let store = Store { home: home.path(), provider: "chatgpt", keychain: Some(&keychain) };
+    let id = "chatgpt";
+    let path = store.path(id).unwrap();
+    let mut record = json!({
+        "client_id": "client", "sub": "subject", "expires_at": 100,
+        "access_token": chatgpt_access_token("workspace"), "refresh_token": "fixture-old"
+    });
+    write_file(&path, &record).unwrap();
+    keychain.reject_write.store(true, std::sync::atomic::Ordering::Relaxed);
+
+    assert!(store.read::<Value>(id).is_ok_and(|grant| grant.as_ref() == Some(&record)));
+    record["refresh_token"] = json!("fixture-rotated");
+    store.write(id, &record).unwrap();
+    // The rotated refresh token is kept, in the owner-only file, until the Keychain takes it.
+    assert_eq!(decode::<Value>(&std::fs::read(&path).unwrap()).unwrap(), record);
 }

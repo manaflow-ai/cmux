@@ -33,6 +33,7 @@ use crate::agent_credentials::AgentCredential;
 use crate::agent_login::{Agent, Cli};
 use crate::byo_endpoint::{self, Kind};
 use crate::chatgpt;
+use crate::claude_token::store;
 use crate::config::{self, HarnessProfile, ProfileSources};
 use crate::hub::Hub;
 use crate::key_check;
@@ -46,6 +47,8 @@ pub(super) const METHODS: &[&str] = &[
     method::MUX_CONNECTIONS_REMOVE,
     method::MUX_CONNECTIONS_KEY_ADD,
     method::MUX_CONNECTIONS_KEY_CHECK,
+    method::MUX_CONNECTIONS_SECRET_STORE,
+    method::MUX_CONNECTIONS_SECRET_DELETE,
     method::MUX_CONNECTIONS_CHATGPT_BEGIN,
     method::MUX_CONNECTIONS_CHATGPT_WAIT,
     method::MUX_CONNECTIONS_CHATGPT_CANCEL,
@@ -955,6 +958,15 @@ fn credential_plan(
     Ok((family, found.kind, var, Some(secret), route.file.credential_instance))
 }
 
+/// A `cmux-model-key` account as `new_account` makes it (`<store>-<8 hex>`), or the refusal.
+fn model_key_account(account: String) -> Result<String, RpcError> {
+    if store::is_account(&account) {
+        Ok(account)
+    } else {
+        Err(RpcError::invalid_params("account must be <store>-<8 hex>"))
+    }
+}
+
 fn not_cloud(id: &str) -> RpcError {
     RpcError::invalid_params(format!("{id} does not serve Cloud chats"))
         .with_data(json!({"reason": "connections.not_cloud", "id": id}))
@@ -1294,6 +1306,37 @@ pub(super) async fn handle(
                 "detail": detail,
                 "message": verdict.sentence(&provider),
             }))
+        }
+        method::MUX_CONNECTIONS_SECRET_STORE => {
+            let account = model_key_account(need("account")?)?;
+            let label =
+                text("label").unwrap_or("cmux model key").chars().take(128).collect::<String>();
+            let secret = Zeroizing::new(need("secret")?);
+            // The keychain may ask: off the runtime's threads. The value stays in this arm.
+            let reference = blocking(move || {
+                store::keychain_store(&account, &label, &secret)
+                    .map(|()| format!("keychain:{}/{account}", store::SERVICE))
+                    .map_err(RpcError::invalid_params)
+            })
+            .await??;
+            Ok(json!({ "secret": reference }))
+        }
+        method::MUX_CONNECTIONS_SECRET_DELETE => {
+            let account = model_key_account(need("account")?)?;
+            // Only an item no connection uses: a rollback or a replaced key, never a live one.
+            let reference = format!("keychain:{}/{account}", store::SERVICE);
+            blocking(move || {
+                if routes::load(dir.as_deref())
+                    .0
+                    .iter()
+                    .any(|route| route.file.secret.as_deref() == Some(reference.as_str()))
+                {
+                    return Err(RpcError::invalid_params("a connection still uses that key"));
+                }
+                store::keychain_delete(&account).map_err(RpcError::internal)
+            })
+            .await??;
+            Ok(json!({}))
         }
         method::MUX_CONNECTIONS_REMOVE => {
             let id = need("id")?;

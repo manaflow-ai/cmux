@@ -135,6 +135,11 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     /// `{provider, secret: "keychain:ITEM"}`: the key's shape, then one read of the provider (8 s), answering
     /// `{result: ok|bad_shape|bad_key|unreachable, save, message}`; never the key itself.
     case connectionsKeyCheck = "_acpmux/connections/key.check"
+    /// `{account, label, secret}`: acpmux writes the key into the login Keychain itself (an item that trusts
+    /// acpmux, not `/usr/bin/security`), answering `{secret: "keychain:cmux-model-key/ACCOUNT"}`.
+    case connectionsSecretStore = "_acpmux/connections/secret.store"
+    /// `{account}`: removes a `cmux-model-key` item (a refused add's rollback, a replaced key).
+    case connectionsSecretDelete = "_acpmux/connections/secret.delete"
     /// A Claude setup token's `keychain:ITEM` reference (`{secret, label?}`) as a `claude-token` connection.
     case claudeTokenAdd = "_acpmux/connections/claude_token.add"
     /// `{label?}` answers `{attempt, url}`: acpmux runs `claude setup-token` in its own PTY (never a
@@ -167,7 +172,7 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         case .terminalTranscriptPage, .terminalTranscriptFind, .list, .remove, .restore, .reload, .secretSet, .icon, .accounts, .accountSet, .routeRemove, .routeDefaultSet,
              .connections, .connectionsOrderSet, .connectionsSpreadSet, .chatgptCancel, .chatgptDeviceCancel, .subscriptionDeviceCancel,
              .claudeTokenCode, .claudeTokenCancel, .claudeLoginCancel, .claudeLoginStatus: .seconds(10)
-        case .routeAdd, .connectionsKeyAdd, .connectionsKeyCheck, .claudeTokenAdd: .seconds(20)
+        case .routeAdd, .connectionsKeyAdd, .connectionsKeyCheck, .connectionsSecretStore, .connectionsSecretDelete, .claudeTokenAdd: .seconds(20)
         case .routeTest: .seconds(15)
         // Starts the callback listener; a ChatGPT plan's removal calls the revocation endpoint.
         case .chatgptBegin, .connectionsRemove: .seconds(30)

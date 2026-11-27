@@ -1,7 +1,7 @@
 //! `cmux cloud connect claude|api-key|chatgpt` and `cmux cloud connections`: add the model
 //! connection a Cloud session runs on, from a terminal or an agent, the way Settings > Models does.
 //!
-//! A secret goes into the login Keychain first (service `cmux-model-key`, account
+//! A secret goes into the login Keychain first, written by acpmux (service `cmux-model-key`, account
 //! `claude-token-<8 hex>` or `<provider>-<8 hex>`, the items the app's own flow writes), and
 //! acpmux's `_acpmux/connections/*.add` gets only its reference, `keychain:cmux-model-key/ACCOUNT`.
 //! A refused add takes the item back out. The secret is never in argv, never printed and never
@@ -93,7 +93,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
     };
     let io = Io {
         daemon: &daemon,
-        keychain: &LiveKeychain,
+        keychain: &LiveKeychain(&daemon),
         claude_token: &|| capture::claude_setup_token(),
         api_key: &|provider: &str| {
             acpmux::cli::harness_secret::read_value(&format!("the {provider} API key"))
@@ -690,16 +690,24 @@ impl Daemon for LiveDaemon {
     }
 }
 
-/// The login Keychain (`security -i`, the value on its stdin only); `secret-tool` off macOS.
-struct LiveKeychain;
+/// The login Keychain, written by the daemon (`connections/secret.store`): on macOS acpmux adds the
+/// item through the Security framework, so it trusts acpmux, which reads it, and not this `cmux` or
+/// `/usr/bin/security`. The value goes only over the unix socket.
+struct LiveKeychain<'a>(&'a LiveDaemon);
 
-impl Keychain for LiveKeychain {
+impl Keychain for LiveKeychain<'_> {
     fn store(&self, account: &str, label: &str, value: &str) -> Result<(), String> {
-        acpmux::claude_token::store::keychain_store(account, label, value)
+        self.0
+            .call(
+                method::MUX_CONNECTIONS_SECRET_STORE,
+                json!({ "account": account, "label": label, "secret": value }),
+            )
+            .map(|_| ())
+            .map_err(|error| format!("cannot store it in the Keychain: {error}"))
     }
 
     fn delete(&self, account: &str) {
-        acpmux::claude_token::store::keychain_delete(account);
+        let _ = self.0.call(method::MUX_CONNECTIONS_SECRET_DELETE, json!({ "account": account }));
     }
 }
 

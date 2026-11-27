@@ -593,6 +593,8 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_CONNECTIONS_REMOVE, Request),
         untyped(method::MUX_CONNECTIONS_KEY_ADD, Request),
         untyped(method::MUX_CONNECTIONS_KEY_CHECK, Request),
+        untyped(method::MUX_CONNECTIONS_SECRET_STORE, Request),
+        untyped(method::MUX_CONNECTIONS_SECRET_DELETE, Request),
         untyped(method::MUX_CONNECTIONS_CHATGPT_BEGIN, Request),
         untyped(method::MUX_CONNECTIONS_CHATGPT_WAIT, Request),
         untyped(method::MUX_CONNECTIONS_CHATGPT_CANCEL, Request),
