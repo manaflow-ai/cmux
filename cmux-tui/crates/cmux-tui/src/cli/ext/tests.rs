@@ -579,11 +579,12 @@ fn serve(
         match request["cmd"].as_str().unwrap_or("") {
             "apps-list" => {
                 let apps = if local.join(name).is_dir() {
-                    vec![
-                        json!({"id": app, "version": "0.1.0", "installed": installed, "enabled": true,
+                    vec![json!({"id": app, "version": "0.1.0", "installed": installed,
+                        // As the daemon answers: an app never installed has the absent
+                        // record (mirror.rs `absent`), which is not enabled.
+                        "enabled": installed,
                         "hidden": false, "available": true, "bundle_dir": local.join(name),
-                        "web_pages": served_web_pages(&local.join(name))}),
-                    ]
+                        "web_pages": served_web_pages(&local.join(name))})]
                 } else {
                     vec![]
                 };
