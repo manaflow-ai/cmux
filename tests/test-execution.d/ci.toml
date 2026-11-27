@@ -716,6 +716,11 @@ path = "tests/test_ci_piece_swap.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pool_checkout_reuse_sparse.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs; run python3 tests/test_ci_pool_checkout_reuse_sparse.py yourself after changing a 'Pool mirror: Checkout' step's reuse or sparse lines."
+
+[[test]]
 path = "tests/test_ci_pool_make_room.py"
 lane = "manual"
 reason = "Checks that scripts/ci/pool-make-room.sh runs the pool start hook's beside-a-job prune in line with the step's need (fake hook), does nothing with room or off the pool, never fails the step, and that the darwin cross leg of cmux-tui-build-package.yml runs it before the R2 restore and the build; run python3 tests/test_ci_pool_make_room.py yourself after changing those (about 1 s, no build)."
@@ -738,6 +743,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_guards_list_files_from_git.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_media_lint.py"
 lane = "linux-guard"
 
 [[test]]
