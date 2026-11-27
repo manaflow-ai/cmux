@@ -147,4 +147,39 @@ await requireBrowserLane("composer-hat-line-align.test.ts", async () => {
         await page.close();
       }
     });
+
+  // Leo, 2026-11-27: "it shows all the way, and when you hover it pushes to the left".
+  test("a cut title scrolls left to its end while the pointer rests on the header, and back when it leaves", async () => {
+    const page = await open("trail-three", 900, "wide");
+    try {
+      const title = page.locator(".acpmux-running-tray__head > .acpmux-running-tray__title").first();
+      // A header too short for the whole title: the title is held to 60px, as a narrow pane cuts it.
+      await title.evaluate((node) => {
+        (node as HTMLElement).style.maxWidth = "60px";
+      });
+      const words = title.locator(":scope > span:last-child");
+      expect(await words.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeGreaterThan(2);
+      await title.hover({ force: true });
+      // The tabs' clock (ui/titleFade.ts MOTION_MARQUEE): 0.6s at rest, then 40px/s.
+      await page.waitForTimeout(1100);
+      const read = () =>
+        words.evaluate((node) => ({
+          marquee: (node as HTMLElement).dataset.marquee !== undefined,
+          indent: Number.parseFloat(getComputedStyle(node).textIndent) || 0,
+          ellipsis: getComputedStyle(node).textOverflow,
+        }));
+      const moving = await read();
+      await shoot(page, "title-marquee");
+      expect(moving.marquee).toBe(true);
+      expect(moving.indent).toBeLessThan(-2);
+      expect(moving.ellipsis).toBe("clip");
+      // Off the hat: 30px above or below its header.
+      const head = (await page.locator(".acpmux-running-tray__head").first().boundingBox())!;
+      await page.mouse.move(2, head.y > 40 ? head.y - 30 : head.y + head.height + 30);
+      await page.waitForTimeout(900);
+      expect(await read()).toEqual({ marquee: false, indent: 0, ellipsis: "ellipsis" });
+    } finally {
+      await page.close();
+    }
+  });
 });
