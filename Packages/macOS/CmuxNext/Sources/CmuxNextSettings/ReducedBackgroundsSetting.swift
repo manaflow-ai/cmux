@@ -34,14 +34,4 @@ public nonisolated struct ReducedBackgroundsSetting {
                                message: "Plain Backgrounds is on, so windows draw the plain theme color")
         }
     }
-
-    /// A missing key is off with no diagnostic; a bad value is off plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback, nil) }
-        guard let enabled = value.boolValue else {
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "ui.reducedBackgrounds",
-                                                 message: "expected true or false"))
-        }
-        return (enabled, nil)
-    }
 }

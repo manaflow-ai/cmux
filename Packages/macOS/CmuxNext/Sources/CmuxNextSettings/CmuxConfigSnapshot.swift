@@ -403,7 +403,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
             snapshot.diagnostics.append(SettingsDiagnostic(kind: .unreadableFile, path: "", message: "root is not an object"))
             return snapshot
         }
-        snapshot.retiredKeys = SettingsSchema.retiredKeys.keys.filter { root.value(at: $0.split(separator: ".").map(String.init)) != nil }.sorted()
+        // The plain true/false and choice keys, and the retired keys the file still sets, come from Rust.
+        let plain = SnapshotPlainKeys.read(root)
+        snapshot.retiredKeys = plain.retiredKeys
         snapshot.diagnostics += Self.chatDiagnostics(root) + Self.imessageDiagnostics(root)
         let tabBar = SurfaceTabBarParser.parse(root, configDirectory: configDirectory)
         snapshot.tabBar = tabBar.tabBar
@@ -415,53 +417,53 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BrowserDefaultEngine.parse(root), \.browserDefaultEngine)
         snapshot.take(BrowserSiteEngines.parse(root), \.browserSiteEngines)
         snapshot.take(BrowserNewTabPage.parse(root), \.browserNewTabPage)
-        snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
-        snapshot.take(BrowserVimKeysSetting().parse(root), \.browserVimKeys)
+        snapshot.take(plain.toggle(BookmarksBarSetting.configPath, fallback: BookmarksBarSetting.fallback), \.browserShowBookmarksBar)
+        snapshot.take(plain.toggle(BrowserVimKeysSetting.configPath, fallback: BrowserVimKeysSetting.fallback), \.browserVimKeys)
         snapshot.keyboardStyle = KeyboardStyleSettings.parse(root, diagnostics: &snapshot.diagnostics)
         // The Vim key style turns the browser's vim page keys on too (design/keyboard-style.md).
         if snapshot.keyboardStyle.keyStyle == .vim { snapshot.browserVimKeys = true }
-        snapshot.take(BrowserLoadingBarSetting().parse(root), \.browserShowLoadingBar)
-        snapshot.take(BrowserImportSetting.parse(root), \.browserImportEnabled)
-        snapshot.take(BrowserCookieBannerSetting.parse(root), \.browserImportCookieBanner)
-        snapshot.take(BrowserCookieSyncSetting.parse(root), \.browserImportCookieSync)
-        snapshot.take(HomeChiefBubbleStyleSetting.parse(root), \.homeChiefBubbleStyle)
-        snapshot.take(BuiltInAdBlockerSetting.parse(root), \.browserBuiltInAdBlocker)
-        snapshot.take(AgentCursorSetting.parse(root), \.browserShowAgentCursor)
+        snapshot.take(plain.toggle(BrowserLoadingBarSetting.configPath, fallback: BrowserLoadingBarSetting.fallback), \.browserShowLoadingBar)
+        snapshot.take(plain.toggle(BrowserImportSetting.configPath, fallback: BrowserImportSetting.fallback), \.browserImportEnabled)
+        snapshot.take(plain.toggle(BrowserCookieBannerSetting.configPath, fallback: BrowserCookieBannerSetting.fallback), \.browserImportCookieBanner)
+        snapshot.take(plain.toggle(BrowserCookieSyncSetting.configPath, fallback: BrowserCookieSyncSetting.fallback), \.browserImportCookieSync)
+        let (chiefBubbleStyle, chiefBubbleStyleDiagnostic) = plain.choice(HomeChiefBubbleStyleSetting.configPath,
+                                                                            fallback: HomeChiefBubbleStyleSetting.fallback)
+        snapshot.take((chiefBubbleStyle.rawValue, chiefBubbleStyleDiagnostic), \.homeChiefBubbleStyle)
+        snapshot.take(plain.toggle(BuiltInAdBlockerSetting.configPath, fallback: BuiltInAdBlockerSetting.fallback), \.browserBuiltInAdBlocker)
+        snapshot.take(plain.toggle(AgentCursorSetting.configPath, fallback: AgentCursorSetting.fallback), \.browserShowAgentCursor)
         snapshot.take(AgentMouseSetting.parse(root), \.browserAgentMouse)
         snapshot.takeHome(root)
-        snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
-        snapshot.take(Self.parseLabsToggle(root, path: appStorePath, fallback: appStoreDefault), \.appStore)
-        snapshot.take(Self.parseLabsToggle(root, path: liveTreePath, fallback: liveTreeDefault), \.liveTree)
-        snapshot.take(Self.parseLabsToggle(root, path: voiceRoomPath, fallback: voiceRoomDefault), \.voiceRoom)
+        snapshot.take(plain.toggle(previewFeaturesPath, fallback: previewFeaturesDefault), \.previewFeatures)
+        snapshot.take(plain.toggle(appStorePath, fallback: appStoreDefault), \.appStore)
+        snapshot.take(plain.toggle(liveTreePath, fallback: liveTreeDefault), \.liveTree)
+        snapshot.take(plain.toggle(voiceRoomPath, fallback: voiceRoomDefault), \.voiceRoom)
         snapshot.take(Self.parseLabsText(root, path: voiceRoomURLPath, fallback: voiceRoomURLDefault), \.voiceRoomURL)
-        snapshot.take(Self.parseLabsToggle(root, path: machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
-        snapshot.take(Self.parseLabsToggle(root, path: liveCodePath, fallback: liveCodeDefault), \.liveCode)
-        snapshot.take(Self.parseLabsToggle(root, path: pauseAgentMachinesPath, fallback: pauseAgentMachinesDefault), \.pauseAgentMachines)
-        snapshot.take(Self.parseLabsToggle(root, path: customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
-        snapshot.take(Self.parseLabsToggle(root, path: customizeDoctorNoticePath, fallback: customizeDoctorNoticeDefault), \.customizeDoctorNotice)
-        snapshot.take(Self.parseLabsToggle(root, path: agentCustomizationPath, fallback: agentCustomizationDefault), \.agentCustomization)
-        snapshot.take(Self.parseLabsToggle(root, path: teamComputePath, fallback: teamComputeDefault), \.teamCompute)
-        snapshot.take(Self.parseLabsToggle(root, path: commentThreadsPath, fallback: commentThreadsDefault), \.commentThreads)
-        snapshot.take(Self.parseLabsToggle(root, path: hostsSidebarPath, fallback: hostsSidebarDefault), \.hostsSidebar)
+        snapshot.take(plain.toggle(machineJoinPath, fallback: machineJoinDefault), \.machineJoin)
+        snapshot.take(plain.toggle(liveCodePath, fallback: liveCodeDefault), \.liveCode)
+        snapshot.take(plain.toggle(pauseAgentMachinesPath, fallback: pauseAgentMachinesDefault), \.pauseAgentMachines)
+        snapshot.take(plain.toggle(customizeFromTheAppPath, fallback: customizeFromTheAppDefault), \.customizeFromTheApp)
+        snapshot.take(plain.toggle(customizeDoctorNoticePath, fallback: customizeDoctorNoticeDefault), \.customizeDoctorNotice)
+        snapshot.take(plain.toggle(agentCustomizationPath, fallback: agentCustomizationDefault), \.agentCustomization)
+        snapshot.take(plain.toggle(teamComputePath, fallback: teamComputeDefault), \.teamCompute)
+        snapshot.take(plain.toggle(commentThreadsPath, fallback: commentThreadsDefault), \.commentThreads)
+        snapshot.take(plain.toggle(hostsSidebarPath, fallback: hostsSidebarDefault), \.hostsSidebar)
         snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
         snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
         snapshot.take(LinkRouting.parse(root), \.linkRouting)
         snapshot.take(TerminalLinkOpener.parse(root), \.terminalLinkOpener)
-        snapshot.take(TerminalTermSetting.parse(root), \.terminalTerm)
-        snapshot.take(TerminalPredictiveEchoSetting.parse(root), \.terminalPredictiveLocalEcho)
+        snapshot.take(plain.choice(TerminalTermSetting.configPath, fallback: TerminalTermSetting.fallback), \.terminalTerm)
+        snapshot.take(plain.toggle(TerminalPredictiveEchoSetting.configPath, fallback: TerminalPredictiveEchoSetting.fallback), \.terminalPredictiveLocalEcho)
         snapshot.take(TextEditorSetting.parse(root), \.textEditor)
         snapshot.take(EditorDefaultSetting.parse(root), \.editorDefault)
         snapshot.take(RemoteLocalhostSetting.parse(root), \.remoteLocalhost)
         let paneChrome = PaneChromeConfigParser.parse(root)
         snapshot.paneChrome = paneChrome.overrides
         snapshot.diagnostics += paneChrome.diagnostics
-        let (speed, speedDiagnostic) = AnimationSpeedSetting.parse(root)
-        snapshot.animationSpeed = speed
-        if let speedDiagnostic { snapshot.diagnostics.append(speedDiagnostic) }
+        snapshot.take(plain.choice(AnimationSpeedSetting.configPath, fallback: AnimationSpeedSetting.fallback), \.animationSpeed)
         snapshot.take(AnimationKindsSetting.parse(root), \.animationKinds)
         snapshot.take(MotionCategoriesSetting.parse(root), \.motionCategories)
-        snapshot.take(PaneAnimationsSetting.parse(root), \.paneAnimations)
-        snapshot.take(CalmModeSetting.parse(root), \.calmMode)
+        snapshot.take(plain.toggle(PaneAnimationsSetting.configPath, fallback: PaneAnimationsSetting.fallback), \.paneAnimations)
+        snapshot.take(plain.choice(CalmModeSetting.configPath, fallback: CalmModeSetting.fallback), \.calmMode)
         let (centering, centeringDiagnostic) = CenterFocusedColumnSetting.parse(root)
         snapshot.centerFocusedColumn = centering
         if let centeringDiagnostic { snapshot.diagnostics.append(centeringDiagnostic) }
@@ -493,11 +495,11 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.surfaceBackgrounds.twoTone = TwoToneSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }
-        snapshot.take(ReducedBackgroundsSetting.parse(root), \.reducedBackgrounds)
-        snapshot.take(AgentGlowSetting.parse(root), \.agentGlow)
-        snapshot.take(PreviousGlassSetting.parse(root), \.previousGlass)
+        snapshot.take(plain.toggle(ReducedBackgroundsSetting.configPath, fallback: ReducedBackgroundsSetting.fallback), \.reducedBackgrounds)
+        snapshot.take(plain.toggle(AgentGlowSetting.configPath, fallback: AgentGlowSetting.fallback), \.agentGlow)
+        snapshot.take(plain.toggle(PreviousGlassSetting.configPath, fallback: PreviousGlassSetting.fallback), \.previousGlass)
         snapshot.take(FontSmoothingSetting.parse(root), \.fontSmoothing)
-        snapshot.take(LiquidGlassSetting.parse(root), \.liquidGlass)
+        snapshot.take(plain.toggle(LiquidGlassSetting.configPath, fallback: LiquidGlassSetting.fallback), \.liquidGlass)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.agentSignature = AgentSignatureSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
@@ -520,20 +522,12 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
             root, at: PaneFocusSettings.inactiveTabStylePath, fallback: PaneFocusSettings.inactiveTabStyleDefault)
         snapshot.inactiveTabStyle = inactiveTabStyle
         if let inactiveTabDiagnostic { snapshot.diagnostics.append(inactiveTabDiagnostic) }
-        let (titlebar, titlebarDiagnostic) = WindowTitlebarSetting.parse(root)
-        snapshot.titlebar = titlebar
-        if let titlebarDiagnostic { snapshot.diagnostics.append(titlebarDiagnostic) }
-        let (titlebarButtons, titlebarButtonsDiagnostic) = TitlebarButtonsSetting.parse(root)
-        snapshot.titlebarButtons = titlebarButtons
-        if let titlebarButtonsDiagnostic { snapshot.diagnostics.append(titlebarButtonsDiagnostic) }
-        let (plusButton, plusButtonDiagnostic) = PlusButtonSetting.parse(root)
-        snapshot.plusButton = plusButton
-        if let plusButtonDiagnostic { snapshot.diagnostics.append(plusButtonDiagnostic) }
+        snapshot.take(plain.choice(WindowTitlebarSetting.configPath, fallback: WindowTitlebarSetting.fallback), \.titlebar)
+        snapshot.take(plain.choice(TitlebarButtonsSetting.configPath, fallback: TitlebarButtonsSetting.fallback), \.titlebarButtons)
+        snapshot.take(plain.choice(PlusButtonSetting.configPath, fallback: PlusButtonSetting.fallback), \.plusButton)
         ChromePlacementSetting.parse(root, into: &snapshot)
         _ = MenuLookSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applyMenuLook`)
-        let (paneBackgrounds, paneBackgroundsDiagnostic) = PaneBackgroundsSetting.parse(root)
-        snapshot.paneBackgrounds = paneBackgrounds
-        if let paneBackgroundsDiagnostic { snapshot.diagnostics.append(paneBackgroundsDiagnostic) }
+        snapshot.take(plain.choice(PaneBackgroundsSetting.configPath, fallback: PaneBackgroundsSetting.fallback), \.paneBackgrounds)
         snapshot.flourishes = ThemeFlourishSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.terminalCursor = TerminalCursorSetting.parse(root, diagnostics: &snapshot.diagnostics)
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
@@ -544,18 +538,16 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.diagnostics += Self.globalHotKeyDiagnostics(root) + Self.startAgentGlobalHotKeyDiagnostics(root)
             + Self.captureScreenshotGlobalHotKeyDiagnostics(root) + AgentPaneReplySetting.parse(root).1
         snapshot.diagnostics += [NewTabTemplate.parse(root).1, NewTabPosition.parse(root).1, NewTabPosition.parseButton(root).1].compactMap(\.self)
-        let (newTerminalOpensWorkspace, newTerminalOpensWorkspaceDiagnostic) = NewTerminalWorkspaceSetting.parse(root)
-        snapshot.newTerminalOpensWorkspace = newTerminalOpensWorkspace
-        if let newTerminalOpensWorkspaceDiagnostic { snapshot.diagnostics.append(newTerminalOpensWorkspaceDiagnostic) }
-        snapshot.take(NativeNewTabPageSetting.parse(root), \.nativeNewTabPage)
+        snapshot.take(plain.toggle(NewTerminalWorkspaceSetting.configPath, fallback: NewTerminalWorkspaceSetting.fallback),
+                      \.newTerminalOpensWorkspace)
+        snapshot.take(plain.toggle(NativeNewTabPageSetting.configPath, fallback: NativeNewTabPageSetting.fallback), \.nativeNewTabPage)
         snapshot.take(TabOverflowSetting.parse(root), \.tabOverflow)
-        snapshot.take(TabShellIconThemeSetting.parse(root), \.tabShellIconTheme)
-        snapshot.take(VerticalTabsSetting.parse(root), \.verticalTabs)
-        snapshot.take(VerticalTabsSetting.parseExpandOnHover(root), \.verticalTabsExpandOnHover)
-        snapshot.take(LoneChatTabSetting.parse(root), \.hideLoneChatTab)
-        let (swapCmdTAndCmdN, swapCmdTAndCmdNDiagnostic) = SwapCmdTAndCmdNSetting.parse(root)
-        snapshot.swapCmdTAndCmdN = swapCmdTAndCmdN
-        if let swapCmdTAndCmdNDiagnostic { snapshot.diagnostics.append(swapCmdTAndCmdNDiagnostic) }
+        snapshot.take(plain.choice(TabShellIconThemeSetting.configPath, fallback: TabShellIconThemeSetting.fallback), \.tabShellIconTheme)
+        snapshot.take(plain.toggle(VerticalTabsSetting.configPath, fallback: VerticalTabsSetting.fallback), \.verticalTabs)
+        snapshot.take(plain.toggle(VerticalTabsSetting.expandOnHoverPath, fallback: VerticalTabsSetting.expandOnHoverDefault),
+                      \.verticalTabsExpandOnHover)
+        snapshot.take(plain.toggle(LoneChatTabSetting.configPath, fallback: LoneChatTabSetting.fallback), \.hideLoneChatTab)
+        snapshot.take(plain.toggle(SwapCmdTAndCmdNSetting.configPath, fallback: SwapCmdTAndCmdNSetting.fallback), \.swapCmdTAndCmdN)
         let (commandDigits, commandDigitsDiagnostic) = CommandDigitsSetting.parse(root)
         snapshot.commandDigits = commandDigits
         if let commandDigitsDiagnostic { snapshot.diagnostics.append(commandDigitsDiagnostic) }

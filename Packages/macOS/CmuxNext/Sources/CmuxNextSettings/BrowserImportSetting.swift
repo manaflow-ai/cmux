@@ -8,16 +8,3 @@
 /// schemas/settings/source/browser.json (SettingsSchema+Browser.generated.swift).
 public nonisolated enum BrowserImportSetting {
 }
-
-nonisolated extension BrowserImportSetting {
-    /// A missing key is the default with no diagnostic; a bad value is the
-    /// default plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback, nil) }
-        guard let enabled = value.boolValue else {
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "browser.import.enabled",
-                                                 message: "expected true or false"))
-        }
-        return (enabled, nil)
-    }
-}

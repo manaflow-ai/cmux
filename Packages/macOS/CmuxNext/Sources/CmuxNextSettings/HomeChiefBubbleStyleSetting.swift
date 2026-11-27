@@ -9,14 +9,4 @@
 public nonisolated struct HomeChiefBubbleStyleSetting {
     public nonisolated init() {}
     public static let key = configPath.joined(separator: ".")
-
-    /// The style id; one that is not a style is the default plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (String, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback.rawValue, nil) }
-        guard let id = value.stringValue, HomeChiefBubbleStyle(rawValue: id) != nil else {
-            return (fallback.rawValue, SettingsDiagnostic(kind: .invalidValue, path: key,
-                                                    message: "expected one of " + HomeChiefBubbleStyle.allCases.map(\.rawValue).joined(separator: ", ")))
-        }
-        return (id, nil)
-    }
 }

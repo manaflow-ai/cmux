@@ -8,13 +8,4 @@
 public nonisolated struct PaneAnimationsSetting {
     public nonisolated init() {}
     // The path and default are generated from schemas/settings/source/appearance.json.
-
-    /// Absent is on; a value that is not a bool is on plus a diagnostic.
-    static func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: configPath) else { return (fallback, nil) }
-        guard let enabled = value.boolValue else {
-            return (fallback, SettingsDiagnostic(kind: .invalidValue, path: "ui.paneAnimations", message: "expected true or false"))
-        }
-        return (enabled, nil)
-    }
 }

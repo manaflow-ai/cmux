@@ -1,0 +1,58 @@
+name: Prune PR media
+
+# scripts/pr-media.py (and the retired pr-media.yml) add screenshots and GIFs
+# to the pr-media branch, and every default clone fetches that
+# branch. This bounds unreferenced open-PR revisions and drops folders of PRs closed over 30 days ago, then
+# squashes the branch to one commit so their files leave history too (see
+# scripts/ci/prune_pr_media.py). It is a dry run unless a dispatch asks to
+# apply or the repository variable CI_PR_MEDIA_PRUNE_APPLY is 1.
+on:
+  schedule:
+    - cron: "41 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Rewrite the branch. Unchecked reports what would be dropped.
+        required: false
+        default: false
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: pr-media-prune
+  cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
+jobs:
+  prune:
+    name: Prune obsolete pull request media
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/main' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          sparse-checkout: |
+            scripts/ci/prune_pr_media.py
+            .gitmodules
+          sparse-checkout-cone-mode: false
+
+      - name: Prune
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PRUNE_APPLY: ${{ (inputs.apply || vars.CI_PR_MEDIA_PRUNE_APPLY == '1') && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          args=()
+          if [ "$PRUNE_APPLY" = true ]; then args+=(--apply); fi
+          python3 scripts/ci/prune_pr_media.py "${args[@]}"

@@ -5,15 +5,6 @@
 /// `fallback` come from schemas/settings/source/browser.json
 /// (SettingsSchema+Browser.generated.swift).
 public nonisolated struct BrowserVimKeysSetting: Sendable {
-    /// Creates the `browser.vimKeys` parser.
+    /// Creates the `browser.vimKeys` setting.
     public init() {}
-
-    /// Absent is on; a value that is not a bool is on plus a diagnostic.
-    func parse(_ root: JSONValue) -> (Bool, SettingsDiagnostic?) {
-        guard let value = root.value(at: Self.configPath) else { return (Self.fallback, nil) }
-        guard let on = value.boolValue else {
-            return (Self.fallback, SettingsDiagnostic(kind: .invalidValue, path: "browser.vimKeys", message: "expected true or false"))
-        }
-        return (on, nil)
-    }
 }
