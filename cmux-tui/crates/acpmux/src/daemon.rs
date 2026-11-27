@@ -582,8 +582,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // Under systemd's watchdog: pings only while this socket answers hello (`daemon/watchdog.rs`).
     #[cfg(target_os = "linux")]
     watchdog::start(socket_path());
-    // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and `local-coderouter`
-    // routes read its port and mint keys from it. Opt-in (the cmux app sets ACPMUX_LOCAL_ROUTER=1).
+    // The local relay (crate cmux-coderouter): `cmux-router` routes read its port and mint
+    // keys from it. Opt-in (the cmux app sets ACPMUX_LOCAL_ROUTER=1).
     // Its owner ties the router's life to this daemon (daemon/router_owner.rs: the owner FIFO,
     // shared with the agent hosts, on Unix; a kill-on-close job on Windows).
     if std::env::var("ACPMUX_LOCAL_ROUTER").as_deref() == Ok("1") {

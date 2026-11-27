@@ -175,39 +175,6 @@ fn a_failing_sr_never_becomes_an_acp_adapter_under_the_claude_sr_name() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[test]
-fn a_coderouter_without_the_configured_route_is_unavailable() {
-    let dir = std::env::temp_dir().join(format!("acpmux-cr-launcher-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
-    let old = dir.join("cr-old");
-    write_executable(&old, "#!/bin/sh\necho 'error: unknown command: team-route' >&2\nexit 2\n");
-    let good = dir.join("cr-good");
-    write_executable(&good, "#!/bin/sh\necho '2.1.275 (Claude Code)'\n");
-    let argv = |p: &std::path::Path| vec![p.to_string_lossy().into_owned(), "team-route".into()];
-    let mut cfg = Config::default();
-    cfg.harnesses.insert("claude".into(), prof(HarnessKind::ClaudeStdio, &["claude"]));
-    let mut cr = prof(HarnessKind::ClaudeStdio, &[]);
-    cr.argv = argv(&old);
-    cfg.harnesses.insert("claude-cr".into(), cr.clone());
-    cfg.harnesses.get_mut("claude").unwrap().fallback = Some("claude-cr".into());
-    cfg.defaults.insert(
-        "claude".into(),
-        SessionDefaults { prefer: vec!["claude-cr".into(), "claude".into()], ..Default::default() },
-    );
-    // A known subrouter server never takes over a CodeRouter route.
-    verify_launchers_with(&mut cfg, Some("http://router.example:31415".into()));
-    assert!(cfg.unavailable.get("claude-cr").unwrap().contains("unknown command"));
-    assert_eq!(cfg.harnesses["claude-cr"].argv, argv(&old));
-    assert_eq!(cfg.harnesses["claude"].fallback, None);
-    assert_eq!(cfg.resolve_harness("claude").unwrap(), "claude");
-    let mut cfg = Config::default();
-    cr.argv = argv(&good);
-    cfg.harnesses.insert("claude-cr".into(), cr);
-    verify_launchers_with(&mut cfg, None);
-    assert!(!cfg.unavailable.contains_key("claude-cr"));
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
 #[cfg(unix)]
 #[test]
 fn a_launcher_failure_does_not_repeat_its_full_argv() {
@@ -345,7 +312,7 @@ fn a_state_home_below_an_acl_writable_ancestor_is_refused() {
 }
 
 #[test]
-fn claude_falls_back_to_the_cmux_router_on_deepseek_without_a_coderouter_route() {
+fn claude_falls_back_to_the_cmux_router_on_deepseek() {
     let mut cfg = Config::default();
     cfg.harnesses.insert("claude".into(), prof(HarnessKind::ClaudeStdio, &["claude"]));
     cfg.join_discovered(BTreeMap::from([(

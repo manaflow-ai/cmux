@@ -252,7 +252,7 @@ export function limitResetsAt(message: string | undefined): number | undefined {
 const URL_HOST = /https?:\/\/([^\s/'")\]]+)/i;
 const STATUS = /\b([45]\d\d)\b/;
 /// Harness profiles that reach their provider through a proxy acpmux knows by name.
-const PROXY_PROFILES: Record<string, string> = { "claude-sr": "subrouter", "claude-cr": "CodeRouter" };
+const PROXY_PROFILES: Record<string, string> = { "claude-sr": "subrouter" };
 const PROVIDER_HOSTS = /(?:^|\.)(?:anthropic\.com|openai\.com|chatgpt\.com|claude\.ai)(?::\d+)?$/i;
 
 /// True for any failure the old copy treated as "sign-in expired" (kept for callers that only need the flag).
