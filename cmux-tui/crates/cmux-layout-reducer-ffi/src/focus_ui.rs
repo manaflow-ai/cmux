@@ -8,6 +8,8 @@
 //! - `focus_ui_pane_hints`: a plan → `{chips}`.
 //! - `focus_ui_responder_move`: a move's facts → `{unseen, takesFromTyping}`.
 //! - `focus_ui_cross_window`: a key's windows → `{drops}`.
+//! - `focus_ui_creation_hold`: `{hold?, live?, op}` → `{hold, reply?, facts,
+//!   dropped?}` (crate::creation_hold).
 
 use crate::ERR_INVALID;
 use cmux_focus_core::ui::guards::{self, KeyWindows, ResponderMove};
@@ -124,6 +126,10 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
         b"focus_ui_cross_window" => {
             let facts: KeyWindows = parse(request)?;
             reply(&DropsResponse { drops: guards::drops_key(&facts) })
+        }
+        b"focus_ui_creation_hold" => {
+            let request: crate::creation_hold::Request = parse(request)?;
+            reply(&crate::creation_hold::respond(request))
         }
         _ => Err(ERR_INVALID),
     }

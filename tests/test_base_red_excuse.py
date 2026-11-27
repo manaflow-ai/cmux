@@ -18417,10 +18417,10 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
     # test_every_pull_request_workflow_is_classified until it is classified here or in excuse.GUARD_WORKFLOWS.
     NOT_GUARD_WORKFLOWS = {
         "product builds and tests (Swift, Rust, web, backend, cloud, iOS), whose reds read product code": (
-            "app-platform.yml", "auth-refresh-tests.yml", "automation-bench.yml", "backend-migrations.yml",
+            "app-platform.yml", "auth-refresh-tests.yml", "backend-migrations.yml",
             # The Billing lane (cmux#42867): billing web, DB and iOS package tests.
             "billing.yml",
-            "backend.yml", "ci.yml", "cloud-composer-journey.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml", "cloud-vm-image-lock.yml",
+            "backend.yml", "ci.yml", "cloud-composer-journey.yml", "cloud-journey-pr.yml", "cloud-vm-guest-install.yml",
             "cloudflare-relay.yml", "device-hub.yml", "cmux-cloud-cli.yml", "cmux-next-crash-class.yml",
             "cmux-next-media.yml", "cmux-next-hot-verify.yml", "cmux-next-motion-golden.yml", "cmux-next-remote-daemon.yml",
             "cmux-next-shell-integration.yml", "cmux-next-shim-cpp.yml", "cmux-tui-sdks.yml", "cmux-tui-spec.yml",
@@ -18459,6 +18459,10 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "vm-hassle.yml", "zero-to-going.yml",
             # RFD 0166's cas/1 replay: cmux-cas's tests and the web bundle replay (reports, does not gate).
             "cas-replay.yml",
+            # Its W1 row (RFD 0166): the web OTA bundles replayed through cas/1, path-gated on cmux-cas (reports).
+            "cmux-cas-replay.yml",
+            # The pool's first compile (#60943): `cargo check` of the app FFI workspace a change reaches.
+            "pool-build-path.yml",
             # The degenerate lab (#57434): one job per daemon part, scale and load; a red is the product's panic.
             "cmux-next-degenerate-lab.yml",
             # The Windows RD host's build (path-gated on its crates), as cmux-rd-windows.yml.
