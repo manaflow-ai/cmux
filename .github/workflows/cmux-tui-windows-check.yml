@@ -146,7 +146,10 @@ on:
       - "schemas/motion-scale/motion-scale.json"
       - "schemas/type-scale/type-scale.json"
       - "schemas/design-scale/scene-scale.json"
+      - "schemas/sidebar-hover-card-rules/vectors.json"
+      - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/settings/source/notifications.json"
       - ".github/workflows/nightly.yml"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/**"
@@ -175,6 +178,12 @@ on:
       - "webviews/bench/link-profiles.json"
       - "webviews/src/apps/scene/extTemplateScenes.json"
       - "webviews/test/fixtures/adopted-codex-turn.events.json"
+      - "schemas/settings/source/page-layout.json"
+      - "docs/mdm/cmux-example.mobileconfig"
+      - "docs/mdm/com.manaflow.cmux.intune.plist"
+      - "docs/mdm/com.manaflow.cmux.json"
+      - "docs/mdm/com.manaflow.cmux.plist"
+      - "docs/mdm/managed-preferences.md"
   workflow_dispatch:
 
 concurrency:

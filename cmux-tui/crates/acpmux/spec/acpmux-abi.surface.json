@@ -13059,6 +13059,12 @@
         "ty": "json"
       }
     },
+    "request:_acpmux/heap_profile": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "request:_acpmux/here": {
       "/scope": {
         "ty": "string",
@@ -22404,6 +22410,12 @@
       }
     },
     "request:_acpmux/scorecard": {
+      "/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "request:_acpmux/scorecard_replay": {
       "/*untyped*": {
         "ty": "json",
         "nullable": true
@@ -34263,6 +34275,12 @@
         "nullable": true
       }
     },
+    "response:_acpmux/heap_profile": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
     "response:_acpmux/here": {
       "/data/here": {
         "ty": "array",
@@ -36910,6 +36928,12 @@
       }
     },
     "response:_acpmux/scorecard": {
+      "/data/*untyped*": {
+        "ty": "json",
+        "nullable": true
+      }
+    },
+    "response:_acpmux/scorecard_replay": {
       "/data/*untyped*": {
         "ty": "json",
         "nullable": true
