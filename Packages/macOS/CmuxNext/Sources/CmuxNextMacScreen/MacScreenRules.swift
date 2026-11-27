@@ -27,3 +27,27 @@ nonisolated enum MacScreenRules {
         return nil
     }
 }
+
+extension MacScreenRules {
+    /// One `rd_devices_*` call (cmux-rd-core's rd_devices rules), decoded; nil when Rust does not answer.
+    static func rdDevices<T: Decodable>(_ operation: String, _ request: Any, as _: T.Type) -> T? {
+        guard let data = try? JSONSerialization.data(withJSONObject: request, options: .fragmentsAllowed),
+              let answer = call(operation, data) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: answer)
+    }
+}
+
+/// cmux-rd-core's `Words`: a localized format (`key`, its English `text`, `table`) with each `%@`
+/// filled from `args` the same way, or words not localized (`key` nil).
+nonisolated struct RdWords: Decodable, Sendable {
+    var key: String?
+    var text: String
+    var table: String?
+    var args: [RdWords]?
+
+    var string: String {
+        let format = key.map { Bundle.localizedModule.localizedString(forKey: $0, value: text, table: table) } ?? text
+        guard let args, !args.isEmpty else { return format }
+        return String(format: format, arguments: args.map { $0.string as any CVarArg })
+    }
+}
