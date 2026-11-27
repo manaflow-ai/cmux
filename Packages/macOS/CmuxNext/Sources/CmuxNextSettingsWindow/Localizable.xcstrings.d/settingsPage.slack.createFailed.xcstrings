@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.slack.createFailed" : {
+      "comment" : "Settings > Accounts > Slack connection card",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack could not create the app. You may have five bot apps, or new apps may be blocked."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تعذّر على Slack إنشاء التطبيق. ربما لديك خمسة تطبيقات بوت بالفعل، أو لا تسمح مساحة العمل بتطبيقات جديدة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack nije mogao napraviti aplikaciju. Možda već imaš pet bot aplikacija ili tvoj radni prostor ne dopušta nove aplikacije."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack kunne ikke oprette appen. Du har måske allerede fem bot-apps, eller dit arbejdsområde tillader ikke nye apps."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack konnte die App nicht erstellen. Möglicherweise hast du schon fünf Bot-Apps, oder dein Workspace erlaubt keine neuen Apps."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack no pudo crear la app. Puede que ya tengas cinco apps de bot o que tu espacio de trabajo no permita apps nuevas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack n’a pas pu créer l’application. Vous avez peut-être déjà cinq applications de bot, ou votre espace de travail n’autorise pas de nouvelles applications."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack non è riuscito a creare l'app. Potresti avere già cinque app bot, oppure il tuo workspace non consente nuove app."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack がアプリを作成できませんでした。ボットアプリがすでに 5 つある、またはワークスペースで新しいアプリが許可されていない可能性があります。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack មិនអាចបង្កើតកម្មវិធីបានទេ។ អ្នកប្រហែលជាមានកម្មវិធីបូតប្រាំរួចហើយ ឬកន្លែងធ្វើការរបស់អ្នកមិនអនុញ្ញាតកម្មវិធីថ្មី។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack에서 앱을 만들지 못했습니다. 봇 앱이 이미 5개이거나 워크스페이스에서 새 앱을 허용하지 않을 수 있습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack kunne ikke opprette appen. Du kan allerede ha fem bot-apper, eller arbeidsområdet tillater ikke nye apper."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack nie mógł utworzyć aplikacji. Możesz mieć już pięć aplikacji bota albo Twoja przestrzeń robocza nie zezwala na nowe aplikacje."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Slack não conseguiu criar o app. Você pode já ter cinco apps de bot, ou seu workspace pode não permitir novos apps."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack не смог создать приложение. Возможно, у вас уже пять приложений-ботов или рабочее пространство не разрешает новые приложения."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack สร้างแอปไม่ได้ คุณอาจมีแอปบอทครบห้าแอปแล้ว หรือเวิร์กสเปซไม่อนุญาตให้สร้างแอปใหม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack uygulamayı oluşturamadı. Zaten beş bot uygulamanız olabilir veya çalışma alanınız yeni uygulamalara izin vermiyor olabilir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack не зміг створити застосунок. Можливо, у вас уже п’ять застосунків-ботів, або робочий простір не дозволяє нові застосунки."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack không thể tạo ứng dụng. Có thể bạn đã có năm ứng dụng bot, hoặc không gian làm việc không cho phép ứng dụng mới."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack 无法创建应用。你可能已有五个机器人应用，或工作区不允许新建应用。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack 無法建立應用程式。你可能已有五個機器人應用程式，或工作區不允許新增應用程式。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

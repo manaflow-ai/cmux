@@ -2,8 +2,8 @@
 // the totals, Undo, and a chevron. A click anywhere on the row opens the whole card into every file's
 // diff, stacked as the diff viewer lists a turn (EditDiff, whole, each under its sticky repo-relative
 // name with its own counts, Open in Changes in its corner), in one box at most 60% of the view tall
-// that scrolls once. Opened, the card takes the transcript's width, past the message column where the
-// pane has room. A Markdown file (.md, .markdown) also has Open beside its name, or in the head of a
+// that scrolls once. Opened, the card keeps the message column's width. While the closed head is hovered,
+// its counts read what a click does: "View changes"; open, they stay the counts, the chevron alone closing it. A Markdown file (.md, .markdown) also has Open beside its name, or in the head of a
 // card for one file: it shows the file in cmux's Markdown page beside the chat (writtenArtifacts.tsx
 // `OpenWrittenMarkdown`), once per file however often the turn wrote it. The data is
 // turnChanges/model.ts; this file is only its view.
@@ -15,9 +15,8 @@
 // cmux.json `agentPane.editedFiles.*` (turnChanges/settings.ts): `show` always or collapsed (the
 // card, its one row until the reader opens it) or never (the plain tool rows); `scope` turn, or
 // session (one card, at the session's latest edit).
-import { useContext, useMemo } from "react";
+import { useContext, useMemo, useState } from "react";
 import { commonDirectory, turnFiles, turnPathsOnly, type PathRef, type TurnFile } from "../diff";
-import { ChevronDown } from "../changeIcons";
 import { EditDiff } from "./EditDiff";
 import { cornerAction } from "./cornerActions";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
@@ -27,14 +26,15 @@ import { namesCheckpointFile, outsideRepository, turnCounts } from "../changes/t
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { pathKey, plainEditLabels, type AcpmuxRow } from "../model";
 import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/model";
-import { SessionCwdContext, SessionEditsContext } from "../turnChanges/sessionRows";
+import { SessionCwdContext, SessionEditsContext, useSessionBranch } from "../turnChanges/sessionRows";
+import { useExperimentSwitch } from "../../../experiments/switches";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
-import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
+import { useDisclosure } from "./useDisclosure";
 import { TurnFramesStrip } from "../liveFrames/TurnFramesStrip";
 import { TurnShots } from "../turnChanges/TurnShotsPair";
 import { HEADER_TOGGLE_ATTRIBUTE, headerToggleClick } from "./headerToggle";
-import { DiffFile, Undo } from "./icons";
+import { ChevronDown, DiffFile, Undo } from "./icons";
 import { Icon } from "../icons/Icon";
 import { ToolRows } from "./TurnRows";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -42,7 +42,22 @@ import "./cardFit.css";
 import { OpenWrittenMarkdown } from "./writtenArtifacts";
 import { isMarkdownPath } from "./writtenArtifactsModel";
 import "./EditedFilesCard.css";
+import "./transcriptWorkLog.css";
 import { intl } from "../../../ui/intl";
+import { INSET_SCROLLER_ATTRIBUTE } from "../../../scrollers";
+import { installStackWheel } from "./stackWheel";
+import { installStackEdge } from "./stackEdge";
+
+/// The file stack's wheel (stackWheel.ts) and the code's fade under each file name (stackEdge.ts), installed
+/// while the stack is drawn. One function for every card, so a render does not install them again.
+const stackWheel = (node: HTMLDivElement) => {
+  const removeWheel = installStackWheel(node);
+  const removeEdge = installStackEdge(node);
+  return () => {
+    removeWheel();
+    removeEdge();
+  };
+};
 
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
 export function EditedFilesCard({
@@ -80,8 +95,9 @@ function Card({
   onOpenDiff?: (rowId: string, path?: string, opener?: HTMLElement) => void;
 }) {
   const t = useT();
-  // Derived on every render: the store outlives the card leaving the virtualized transcript.
-  const userOpened = useCardOpen(row.id);
+  // The store outlives the card leaving the virtualized transcript; one open-state store
+  // (useDisclosure.ts): a click is one transition of the transcript's owner.
+  const { open: userOpened, set: setOpen } = useDisclosure({ card: row.id });
   const edits = rows.flatMap((one) =>
     (one.items ?? []).filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange"),
   );
@@ -147,11 +163,19 @@ function Card({
       ? pathKey({ path: file.path, canonical: file.canonical })
       : undefined;
   const singleMarkdown = single ? markdownPath(single) : undefined;
-  const title = single
-    ? t("tools.edited.file", { file: single.path.split("/").pop() ?? single.path })
-    : total === 1
-      ? t("edited.one")
-      : t("tools.edited.files", { n: total });
+  // Transcript Work Log (taste build 9): "Changed 2 files +22 -10" over the session's branch. The
+  // head keeps its two lines and 64px (model.ts `editedCardHeight`).
+  const workLog = useExperimentSwitch("transcriptWorkLog");
+  const branch = useSessionBranch();
+  const title = workLog
+    ? total === 1
+      ? t("worklog.changed.one")
+      : t("worklog.changed.other", { n: total })
+    : single
+      ? t("tools.edited.file", { file: single.path.split("/").pop() ?? single.path })
+      : total === 1
+        ? t("edited.one")
+        : t("tools.edited.files", { n: total });
   // One row, and one click shows every change (Leo, 2026-11-25: "what do you think about just having
   // one row that expands out to the widest situation?"): the head is the card's only line, and opening
   // it stacks each file's whole diff under its own sticky name, as the diff viewer lists a turn's
@@ -161,9 +185,13 @@ function Card({
   // head where it is (useAnchoredCollapse).
   const fold = useAnchoredCollapse({
     open: total > 0 && userOpened,
-    onOpenChange: (value) => setCardOpen(row.id, value),
+    onOpenChange: setOpen,
   });
   const headClick = total > 0 ? headerToggleClick(fold.toggle) : undefined;
+  // A click that opens or closes the card quiets its hover label until the pointer leaves the head: a
+  // reader clicking open and closed sees the counts, and "View changes" only on a fresh hover (Lucas,
+  // 2026-11-26). Undo and the head's other buttons never quiet it; a key press never does.
+  const [quiet, setQuiet] = useState(false);
   const fullPath = single ? fromRoot(single.path) : undefined;
   // The host answers for the path Undo sent (turnChanges/model.ts `undoPath`), which may be another
   // spelling of the row's.
@@ -196,6 +224,12 @@ function Card({
         {...(headClick ? { [HEADER_TOGGLE_ATTRIBUTE]: "" } : {})}
         // A control of its own for the transcript's gap selection (#26704), as the title was.
         data-interactive={headClick ? "" : undefined}
+        data-hover-quiet={quiet ? "" : undefined}
+        onClickCapture={(event) => {
+          const target = event.target as Element;
+          if (headClick && event.detail > 0 && !target.closest("button:not(.acpmux-edited-toggle)")) setQuiet(true);
+        }}
+        onPointerLeave={quiet ? () => setQuiet(false) : undefined}
         onClick={headClick}
       >
         <span className="acpmux-edited-icon">
@@ -206,18 +240,49 @@ function Card({
             with an ellipsis, never drawn under a button; its whole path shows on hover. */}
         <div className="cv-fit-row acpmux-edited-main">
           <div className="cv-fit-text acpmux-edited-title">
-            <div
-              className="acpmux-edited-name"
-              // tooltip-allow: the line shows the file name, cut to the line; the tooltip is its whole path
-              title={fullPath}
-              data-tooltip-force={fullPath ? "" : undefined}
-            >
-              {title}
-            </div>
-            <div className="acpmux-edited-sub">
-              {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
-              {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
-            </div>
+            {workLog ? (
+              <>
+                <div className="acpmux-worklog-headline">
+                  <span>{title}</span>
+                  {files.length > 0 && <Counts additions={counts.additions} deletions={counts.deletions} />}
+                </div>
+                <div className="acpmux-edited-sub acpmux-worklog-branch">
+                  {branch ? (
+                    <>
+                      <Icon name="git.branch" size={14} />
+                      <bdi>{branch}</bdi>
+                    </>
+                  ) : (
+                    counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div
+                  className="acpmux-edited-name"
+                  // tooltip-allow: the line shows the file name, cut to the line; the tooltip is its whole path
+                  title={fullPath}
+                  data-tooltip-force={fullPath ? "" : undefined}
+                >
+                  {title}
+                </div>
+                <div className="acpmux-edited-sub">
+                  {files.length > 0 && (
+                    <span className="acpmux-edited-counts">
+                      <Counts additions={counts.additions} deletions={counts.deletions} />
+                      {/* Closed only: open, the head keeps its counts (Lucas, 2026-11-26: no "Hide changes"). */}
+                      {!fold.present && (
+                        <span className="acpmux-edited-hover-label" aria-hidden data-find-skip="">
+                          {t("edited.view")}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                  {counts.outside && <span className="acpmux-edited-outside">{t("turn.outside.card")}</span>}
+                </div>
+              </>
+            )}
           </div>
           {(undoable || singleMarkdown) && (
             <div className="cv-fit-actions acpmux-edited-actions">
@@ -231,10 +296,12 @@ function Card({
             type="button"
             className="acpmux-edited-toggle acpmux-edited-chevron"
             aria-expanded={fold.open}
-            aria-label={fold.open ? t("edited.hideFiles") : single ? t("edited.view") : t("edited.showFiles")}
+            aria-label={fold.open ? t("edited.hide") : single ? t("edited.view") : t("edited.showFiles")}
             onClick={fold.toggle}
           >
-            <ChevronDown width={14} height={14} style={fold.open ? { transform: "rotate(180deg)" } : undefined} />
+            {/* The cmux disclosure glyph at 16: about 10px wide, as wide as Undo's 14px arrow beside it (Lucas,
+                2026-11-26); at 14 the flat chevron read smaller than the arrow. */}
+            <ChevronDown size={16} style={fold.open ? { transform: "rotate(180deg)" } : undefined} />
           </button>
         )}
       </div>
@@ -249,7 +316,12 @@ function Card({
       )}
       {fold.present && (
         <div {...fold.bodyProps}>
-          <div className="acpmux-edited-stack" data-files={total}>
+          <div
+            ref={stackWheel}
+            className="acpmux-edited-stack"
+            data-files={total}
+            {...{ [INSET_SCROLLER_ATTRIBUTE]: "" }}
+          >
             {files.map((file) => {
               const markdown = single ? undefined : markdownPath(file);
               return (
@@ -258,6 +330,7 @@ function Card({
                     file={file}
                     whole
                     flat
+                    collapsible
                     label={fromRoot(file.path)}
                     actions={
                       <>
@@ -348,7 +421,8 @@ function UndoButton({
       onClick={() => void checkUndo(rowId, files)}
     >
       <span className="cv-fit-label">{label}</span>
-      <Undo size={12} />
+      {/* 14, the icon scale's mark inline with text: 12 drew the arrow smaller than its word. */}
+      <Undo size={14} />
     </button>
   );
 }

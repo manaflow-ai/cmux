@@ -44,6 +44,7 @@ from typing import Callable, Iterable
 from urllib.parse import quote, urlencode
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_http  # noqa: E402
 import tooling_steps  # noqa: E402
 
 ARTIFACT_PREFIX = "tooling-tests-passed-"
@@ -131,8 +132,11 @@ def github(repository: str, token: str) -> Callable[[str], bytes]:
         request.add_header("Accept", "application/vnd.github+json")
         # Not sent on to the artifact zip's storage redirect, which takes its own signed URL.
         request.add_unredirected_header("Authorization", f"Bearer {token}")
-        with urllib.request.urlopen(request, timeout=min(REQUEST_TIMEOUT_SECONDS, remaining)) as response:
-            return response.read()
+        # gh_http asks again on a passing refusal (429, a rate-limit 403, 5xx, a network error) within what is
+        # left of the lookup's deadline; a 401/404 or permission 403 raises at once, as urlopen did.
+        _, body, _ = gh_http.request(request, min(REQUEST_TIMEOUT_SECONDS, remaining), raise_errors=True,
+                                     budget_s=remaining)
+        return body
 
     return call
 
@@ -187,7 +191,10 @@ def record(workflow: str, job: str, root: Path, steps_json: str, out: Path, atte
     document = tooling_steps.load_yaml(root / workflow)
     job_steps = tooling_steps.mapping(tooling_steps.mapping(document.get("jobs")).get(job)).get("steps") or []
     keys = [str(s.get("id")) for s in job_steps if tooling_steps.selectable(s) and s.get("id")]
-    passed = [k for k in keys if isinstance(steps.get(k), dict) and steps[k].get("outcome") == "success"]
+    runner = steps.get("setup-tooling-run") if isinstance(steps.get("setup-tooling-run"), dict) else {}
+    side_by_side = str((runner.get("outputs") or {}).get("passed") or "")  # tooling_steps.py run's passes
+    passed = [k for k in keys if (isinstance(steps.get(k), dict) and steps[k].get("outcome") == "success")
+              or f" {k} " in side_by_side]
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"attempt": attempt, "passed": passed, "tree": tree_of(root)}), encoding="utf-8")
     return passed

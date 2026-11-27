@@ -3,7 +3,7 @@
 //
 // The tagged-ask card (agent-pane.next-step-card, NextStepCard.tsx) in real Chromium on the gallery
 // frame, light and dark: every look draws its question and one button per answer, the shipped box's
-// buttons sit on one line at the normal width with the first carrying its ⌘↩ keycap, nothing draws
+// buttons sit on one line at the normal width with the first carrying its number and arrow, nothing draws
 // past the frame's right edge, and an answered card has no buttons. With FAST_CHECKS_OUT set, each
 // state's card is saved there at 2x for the PR. CI fails the file when Chromium cannot launch.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
