@@ -5,7 +5,8 @@
 // (a teammate's, an acpmux session's) shows as it is; an id nothing names (its Agent call is not
 // in the loaded transcript) reads as a short id. The full id is the chip's tooltip
 // (MessageCard.tsx), so it is still there to copy or match against a log.
-import { createContext } from "react";
+import { createContext, use } from "react";
+import { RowAgentContext } from "../subagents/rowAgentContext";
 import type { Subagent } from "../subagents/subagentFold";
 
 /// Each subagent's agentId to the name its row shows, for the chat the pane draws (App.tsx).
@@ -61,3 +62,14 @@ export function shortId(id: string): string {
   return text.length > SHORT_ID ? text.slice(0, SHORT_ID) : text;
 }
 const SHORT_ID = 8;
+
+/** Inside a retained row, subscribe only to its snapshot; outside, follow the pane directly. */
+export function useAgentNames() {
+  const row = use(RowAgentContext);
+  return row ? row.names : use(AgentNamesContext);
+}
+
+export function useAgentOpen() {
+  const row = use(RowAgentContext);
+  return row ? row.open : use(AgentOpenContext);
+}

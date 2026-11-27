@@ -15,7 +15,7 @@
 // it, and on the row's hover or focus Stop takes the time's place (sessionInfo.css). The panel's body
 // scrolls, not the section; nothing is cut to a few rows. A command that starts while the list is drawn
 // drops in at the top (ui/presence.ts `useArrivals`); the ones the list is drawn with are simply there.
-import { useContext, useState } from "react";
+import { useContext, useState, type ReactNode } from "react";
 import { useArrivals } from "../../../ui/presence";
 import { OpenBackgroundTasks } from "../backgroundTasks/openBackgroundTasks";
 import { formatDuration, spanDuration } from "../conversation/turns";
@@ -66,13 +66,12 @@ export function TasksSection({
   // The finished row opens its list as one motion with the sections under it (foldMotion.ts).
   const finishedFold = useFoldMotion<HTMLDivElement>(showFinished, () => 0);
   const { running, finished } = splitCommands(commands);
-  const now = useNow(running.length > 0);
   // Moves once, when the earliest wakeup or cron job still ahead ends (no per-second poll).
   const scheduledNow = useScheduledClock(scheduled);
-  const { active, finished: ended } = splitScheduled(scheduled, Math.max(now, scheduledNow));
+  const { active, finished: ended } = splitScheduled(scheduled, scheduledNow);
   // Every command's id, so opening the finished fold, or a command finishing, replays nothing.
   const { arrived, played } = useArrivals(commands.map(arrivalKey));
-  const row = (command: BackgroundCommand, time: string | undefined, state?: string, enters = false) => {
+  const row = (command: BackgroundCommand, time: ReactNode, state?: string, enters = false) => {
     const toolCallId = command.toolCallId;
     // What a click opens: the terminal on this Mac (else the call, when the host refuses), the call
     // elsewhere; with neither, the row is not a button and says why in its tooltip and to VoiceOver,
@@ -112,8 +111,10 @@ export function TasksSection({
         >
           <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
           <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
-          {time !== undefined && (
+          {typeof time === "string" ? (
             <Clock className="acpmux-session-info-task__time" text={time} size={runningClockSize(time)} />
+          ) : (
+            time
           )}
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
         </button>
@@ -181,9 +182,11 @@ export function TasksSection({
             row(
               command,
               // A task only the transcript knows may not say when it started.
-              command.startedAt !== undefined
-                ? runningTime(Math.max(0, now - command.startedAt))
-                : t(COMMAND_STATE.running),
+              command.startedAt !== undefined ? (
+                <RunningTaskElapsed startedAt={command.startedAt} />
+              ) : (
+                t(COMMAND_STATE.running)
+              ),
               undefined,
               arrived.has(arrivalKey(command)),
             ),
@@ -274,6 +277,12 @@ export function runningTime(ms: number): string {
   const total = Math.floor(ms / 1000);
   if (total < 3600) return formatDuration(ms);
   return `${Math.floor(total / 3600)}h ${Math.floor((total % 3600) / 60)}m`;
+}
+
+function RunningTaskElapsed({ startedAt }: { startedAt: number }) {
+  const now = useNow(true);
+  const text = runningTime(Math.max(0, now - startedAt));
+  return <Clock className="acpmux-session-info-task__time" size={runningClockSize(text)} text={text} />;
 }
 
 /// The box a running command's time keeps: under an hour the steady "00m 00s" `Clock` reserves

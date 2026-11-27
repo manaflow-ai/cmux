@@ -10,7 +10,7 @@ import { usePaneLanguage, useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { StateMark } from "./StateMark";
 import { rowIconSize } from "../icons/iconSize";
-import { useNow } from "../subagents/subagentGroupModel";
+import { Elapsed } from "../subagents/Elapsed";
 import type { Subagent } from "../subagents/subagentFold";
 import type { WorkflowAgent } from "./workflow";
 import { modelName, tally, workflowOf } from "./foldWorkflows";
@@ -69,10 +69,15 @@ export function WorkflowCard({
   const workflow = useMemo(() => workflowOf(node, ""), [node]);
   const counts = tally(workflow.agents);
   const running = workflow.state === "running" && counts.running > 0;
-  // The card's one clock: the workflow's elapsed time (Leo's screenshot had a second, an agent's,
-  // that disagreed with it).
-  const now = useNow(running);
-  const elapsed = workflow.elapsedMs ?? (workflow.startedAt !== undefined ? Math.max(0, now - workflow.startedAt) : 0);
+  // The card's clock is its own leaf, so the transcript card stays mounted while it ticks.
+  const elapsed =
+    workflow.elapsedMs !== undefined ? (
+      <Clock text={formatDuration(workflow.elapsedMs)} />
+    ) : workflow.startedAt !== undefined ? (
+      <Elapsed since={workflow.startedAt} ended={!running} clock="" />
+    ) : (
+      <Clock text={formatDuration(0)} />
+    );
   const count = cardCount(workflow);
   // The bar's scale: every agent known or reported started or queued, never only the ones seen.
   const total = count.total;
@@ -120,7 +125,7 @@ export function WorkflowCard({
             </span>
           )}
           {countText && <span>{countText}</span>}
-          <Clock text={formatDuration(elapsed)} />
+          {elapsed}
           {tokens !== undefined && <span>{t("subagents.tokens", { n: tokens, tokens: compactTokens(tokens) })}</span>}
         </span>
         {presentation === "compact" ? (

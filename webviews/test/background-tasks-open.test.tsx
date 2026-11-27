@@ -4,7 +4,7 @@
 // thing would be quite cool..."), and the panel reads as Claude Desktop's: "Running N" and
 // "Finished N" headings, an agent's tasks under "N tasks", a failed agent's "Failed", and every row
 // opening its own transcript with a way back.
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import { teardownDom } from "./support/domTeardown";
 
@@ -55,6 +55,7 @@ const { trayItems } = await import("../src/agent-session/acpmux/subagents/runnin
 const { SubagentTray } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
 const { resetTrayOpenMemory } = await import("../src/agent-session/acpmux/subagents/trayFoldMemory");
 const { BackgroundTasksPanel } = await import("../src/agent-session/acpmux/backgroundTasks/BackgroundTasksPanel");
+const { pageClocks } = await import("../src/ui/pageClock");
 const { panelSections } = await import("../src/agent-session/acpmux/backgroundTasks/backgroundTasksPanelModel");
 type BackgroundGroup = import("../src/agent-session/acpmux/backgroundTasks/backgroundTasks").BackgroundGroup;
 type AcpmuxRow = import("../src/agent-session/acpmux/model").AcpmuxRow;
@@ -82,7 +83,14 @@ async function tray(onOpenPanel?: () => void) {
   const items = trayItems([agent("a1", "Review the tray", 9_000), agent("a2", "Audit the stack", 3_000)], [], [], true);
   await act(async () =>
     root.render(
-      createElement(SubagentTray, { items, working: true, waiting: new Set<string>(), onOpen: () => {}, onOpenPanel }),
+      createElement(SubagentTray, {
+        items,
+        working: true,
+        waiting: new Set<string>(),
+        onOpen: () => {},
+        onOpenPanel,
+        foldHeadLook: "groups",
+      }),
     ),
   );
   return {
@@ -104,7 +112,7 @@ describe("the running tray opens the Background tasks panel", () => {
       // A sibling of the header's own button (a button holds no button), over its slot.
       expect(bar.head().contains(button)).toBe(false);
       expect(bar.head().querySelector(".acpmux-running-tray__open-slot")).not.toBeNull();
-      // The folded header counts its two groups in words while they fit (the `groups` default,
+      // The folded header counts its two groups in words while they fit (the explicit `groups` arm,
       // trayFoldHead.experiment.ts; an unmeasured header draws its richest step); running needs no word.
       expect(bar.head().querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents");
       await act(async () => button!.click());
@@ -264,6 +272,31 @@ describe("the Background tasks panel", () => {
       expect(state?.classList.contains("acpmux-bg__failed")).toBe(true);
     } finally {
       await view.done();
+    }
+  });
+
+  test("drilling into a transcript pauses retained task clocks and Back catches up", async () => {
+    jest.useFakeTimers();
+    const view = await panel();
+    try {
+      const label = () =>
+        view.host.querySelector('[data-group="agent:live"] .acpmux-bg__agent .acpmux-bg__time')?.textContent;
+      const before = label();
+      expect(pageClocks().subscribers).toBeGreaterThan(0);
+      await view.click(view.host.querySelector('[data-section="finished"] .acpmux-bg__section-head'));
+      await view.click(view.host.querySelector('[data-group="agent:review"] .acpmux-bg__name'));
+      expect(view.listHidden()).toBe(true);
+      expect(pageClocks().subscribers).toBe(0);
+      await act(async () => {
+        jest.advanceTimersByTime(65_000);
+      });
+      expect(label()).toBe(before);
+      await view.click(view.back());
+      expect(pageClocks().subscribers).toBeGreaterThan(0);
+      expect(label()).not.toBe(before);
+    } finally {
+      await view.done();
+      jest.useRealTimers();
     }
   });
 

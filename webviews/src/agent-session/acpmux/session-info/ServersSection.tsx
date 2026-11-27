@@ -6,15 +6,13 @@
 // 2026-11-05, Session Info lab: "if its a server ... recognise that and give it a stop icon"). Only
 // what the command says is shown: a port it does not name is never guessed, and a server with none is
 // its command alone.
-import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
-import { useNow } from "../subagents/subagentGroupModel";
+import { Elapsed } from "../subagents/Elapsed";
 import { previewAddress } from "../conversation/previewChipModel";
 import { serverUrl, type SessionInfoServer } from "./processes";
 import { StopButton } from "./TasksSection";
-import { Clock } from "../../../ui/Typography";
 
 const ROW_ICON = rowIconSize(12);
 
@@ -29,7 +27,6 @@ export function ServersSection({
   onOpenUrl?: (url: string) => void;
 }) {
   const t = useT();
-  const now = useNow(servers.length > 0);
   return (
     <ul className="acpmux-session-info-list" data-section="servers">
       {[...servers]
@@ -60,10 +57,7 @@ export function ServersSection({
                 <span className="acpmux-session-info-task__command" data-detail={address ? "" : undefined}>
                   {server.command}
                 </span>
-                <Clock
-                  className="acpmux-session-info-task__time"
-                  text={formatDuration(Math.max(0, now - server.startedAt))}
-                />
+                <Elapsed since={server.startedAt} clock="acpmux-session-info-task__time" />
               </button>
               {onStop && <StopButton id={server.id} name={server.command} stop={onStop} solid />}
             </li>
