@@ -1,6 +1,7 @@
 import type { AcpmuxRow, PromptContentPart } from "../model";
 import { type FileAttachmentInfo } from "../FileAttachment";
 import { attachmentPath } from "../fileAttachmentModel";
+import { withoutAttachedFileNotes } from "../attachments";
 
 /// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
 /// as a sent prompt draws them; a file that is an image's companion, a video, or an image's
@@ -81,4 +82,21 @@ export function sentImageSize(size: { width?: number; height?: number }): { widt
     width: Math.max(1, Math.round(size.width * scale)),
     height: Math.max(1, Math.round(size.height * scale)),
   };
+}
+
+/// A sent prompt's row without the notes the composer added for its linked files (attachments.ts
+/// `promptText`: "Attached file: … Read the linked file with your tools."). They went to the agent
+/// only; the bubble draws the file as its chip or thumbnail, and the person never typed them.
+export function withoutFileNotes<Row extends { text?: string; inlineParts?: PromptContentPart[] }>(row: Row): Row {
+  const text = row.text === undefined ? undefined : withoutAttachedFileNotes(row.text);
+  let changed = text !== row.text;
+  const parts = row.inlineParts?.flatMap((part): PromptContentPart[] => {
+    if (part.kind !== "text") return [part];
+    const kept = withoutAttachedFileNotes(part.text);
+    if (kept === part.text) return [part];
+    changed = true;
+    return kept ? [{ ...part, text: kept }] : [];
+  });
+  if (!changed) return row;
+  return { ...row, ...(text !== undefined ? { text } : {}), ...(parts ? { inlineParts: parts } : {}) };
 }

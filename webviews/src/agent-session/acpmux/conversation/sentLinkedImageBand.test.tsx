@@ -10,6 +10,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow } from "../model";
+import { promptText, withoutAttachedFileNotes, type ComposerAttachment } from "../attachments";
 import { setChipHost } from "../chips/host";
 import { ImageViewerContext } from "./imageViewerContext";
 import { TurnActionsContext } from "./turnActions";
@@ -119,4 +120,37 @@ test("the thumbnail rules match the thumbnail and its button in any band", () =>
   expect(button).toMatch(/padding:\s*0/);
   expect(button).toMatch(/border:\s*0/);
   expect(button).toMatch(/background:\s*none/);
+});
+
+// The composer tells the agent about a linked file in the prompt's text (attachments.ts
+// `promptText`); the bubble showed that note as if the person had typed it.
+test("a linked file's note for the agent stays out of the bubble", async () => {
+  const link: ComposerAttachment = {
+    id: "drop-1",
+    kind: "link",
+    name: "Screenshot 2026-11-26 at 7.27.20 PM.png",
+    mimeType: "image/png",
+    size: 492191,
+    path: PATH,
+  };
+  const typed = "text is overlaying text on top of each other (see the screenshot)";
+  const sent = promptText(typed, [link]);
+  expect(sent).toContain("Attached file: Screenshot 2026-11-26 at 7.27.20 PM.png (image/png, 492191 bytes).");
+  expect(withoutAttachedFileNotes(sent)).toBe(typed);
+  // A line the person wrote that only starts the same way stays.
+  expect(withoutAttachedFileNotes("Attached file: see above")).toBe("Attached file: see above");
+
+  setChipHost(async () => undefined);
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <TurnActionsContext.Provider value={{}}>
+        <UserBubble row={{ ...droppedImageRow(), text: sent, retryAttachments: [link] }} text={sent} />
+      </TurnActionsContext.Provider>,
+    );
+  });
+  const bubble = container.querySelector(".cv-user__bubble")?.textContent ?? "";
+  expect(bubble).toContain(typed);
+  expect(bubble).not.toContain("Attached file");
 });

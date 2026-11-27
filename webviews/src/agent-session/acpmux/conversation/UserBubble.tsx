@@ -40,6 +40,7 @@ import { PromptText } from "./PromptText";
 import { InlinePromptContent, PromptFile } from "./InlinePromptContent";
 import { readsAsText } from "./inlinePromptContentModel";
 import { recordedPromptParts } from "../inlinePrompt";
+import { withoutAttachedFileNotes } from "../attachments";
 import { inlineBubbleParts, isStripMedia } from "./promptCollapse";
 import { attachmentOnly, imageOriginals } from "./bubbleParts";
 import { Slot } from "../../../slots/Slot";
@@ -59,7 +60,7 @@ import { SkillWordsContext } from "./skillWords";
 import { tourBubbleText } from "../repoTour/tourModel";
 import { SentVideoTile } from "./SentVideoTile";
 import { sentVideoOf, sentVideosOf, type SentVideo, sentVideoFor, withoutRepeatedVideos } from "./sentVideos";
-import { recordedFiles, isImageOriginal, sentImageSize, linkedImagePath } from "./userBubbleModel";
+import { recordedFiles, isImageOriginal, sentImageSize, linkedImagePath, withoutFileNotes } from "./userBubbleModel";
 import { readLinkedImage } from "../chips/host";
 import { useMessageScope } from "../chips/messageScope";
 import { useTranscriptReadOnly } from "./readOnly";
@@ -79,7 +80,8 @@ export function UserBubble({
   // in the bubble, its Copy and its editor; Retry sends the prompt as it went.
   // Only a skill of the chat's list reads so (skillWords.ts).
   const skills = useContext(SkillWordsContext);
-  const row = useMemo(() => shownSkills(withoutVideoFrames(given), skills), [given, skills]);
+  // A linked file's note ("Attached file: …") went to the agent only too (userBubbleModel.ts).
+  const row = useMemo(() => shownSkills(withoutFileNotes(withoutVideoFrames(given)), skills), [given, skills]);
   // Read before the frames go: a video's note and first frame are its tile (sentVideos.ts).
   const videos = useMemo(() => sentVideosOf(given), [given]);
   // A repo tour's prompt reads as its first line; the rest is instructions to the agent (repoTour/).
@@ -87,7 +89,9 @@ export function UserBubble({
     () =>
       tourBubbleText(givenText) ??
       withoutSkillDollars(
-        withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
+        withoutAttachedFileNotes(
+          withoutFramesNotes(givenText, frameTextOf(rowImageNames(given)), !given.pasted?.length),
+        ),
         skills,
       ),
     [givenText, given, skills],
