@@ -69,3 +69,37 @@ fn a_proxy_that_found_no_route_is_named_not_left_blank() {
     assert_eq!(reason(b"proxy dialer did not pass back a connection"), Some(NO_ROUTE));
     assert!(!NO_ROUTE.to_ascii_lowercase().contains("could not resolve"), "not this host's DNS");
 }
+
+/// `ssh -W` to a port nothing listens on: ssh logged in, so this is not the machine refusing
+/// ssh, and not a refused login.
+#[test]
+fn a_refused_forward_is_told_apart_from_a_refused_ssh() {
+    use crate::protocol::peer_state::DialFail;
+    let forward = b"channel 0: open failed: connect failed: Connection refused\n\
+        stdio forwarding failed\n";
+    assert_eq!(reason(forward), Some(FORWARD_REFUSED));
+    assert_eq!(reason(b"stdio forwarding failed"), Some(FORWARD_REFUSED));
+    assert_eq!(dial_fail(reason(forward)), Some(DialFail::Refused));
+    assert!(!login_refused(reason(forward)));
+    assert_eq!(
+        reason(b"ssh: connect to host box port 22: Connection refused"),
+        Some("SSH connection refused")
+    );
+}
+
+/// A host key ssh refused is a refused login for the route kind, and its own backoff class.
+#[test]
+fn a_refused_host_key_is_its_own_class() {
+    for stderr in
+        [&b"Host key verification failed."[..], b"WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!"]
+    {
+        assert!(host_key_refused(reason(stderr)), "{}", String::from_utf8_lossy(stderr));
+    }
+    for stderr in [
+        &b"leo@box: Permission denied (publickey)."[..],
+        b"No supported authentication methods available",
+        b"ssh: connect to host box port 22: Connection refused",
+    ] {
+        assert!(!host_key_refused(reason(stderr)), "{}", String::from_utf8_lossy(stderr));
+    }
+}
