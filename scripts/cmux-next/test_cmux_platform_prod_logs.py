@@ -530,6 +530,37 @@ class NeverBoundTests(unittest.TestCase):
         for secret in ("203.0.113", "10.0.0", "cmux.example", "coderouter.cmux.internal", "eth0", VM, TEAM):
             self.assertNotIn(secret, text)
 
+    def test_a_provider_call_failure_keeps_only_its_error_class(self):
+        cases = (("restore snapshot is missing", "restore snapshot is missing"),
+                 ("HTTP 409 (still running) secret-tenant-words", "HTTP 409"),
+                 ("HTTP 4291", "other"),
+                 ("unconfirmed create", "unconfirmed create"),
+                 ("read snapshot: wrong answer: " + VM, "read snapshot: wrong answer"),
+                 ("the VM this machine's first create made is not there yet",
+                  "the VM this machine's first create made is not there yet"),
+                 ("restore snapshot is missing because tenant-x", "other"),
+                 (None, "other"))
+        for message, want in cases:
+            with self.subTest(message=message):
+                row = logs.line(event({"msg": "cloud provider call failed", "team": TEAM, "machine": VM, "op": "create",
+                                       "attempt": 1, "code": "cloud.provider.unavailable", "error": message}))
+                self.assertEqual(row["log"]["error_class"], want)
+                self.assertIs(row["log"]["error"], True)
+                text = json.dumps(row)
+                for secret in ("secret-tenant-words", "tenant-x", VM, TEAM):
+                    self.assertNotIn(secret, text)
+
+    def test_a_window_total_groups_provider_failures_by_error_class(self):
+        events = [event({"msg": "cloud provider call failed", "machine": VM, "op": "create", "attempt": 1,
+                         "code": "cloud.provider.unavailable", "error": "restore snapshot is missing"})]
+        rows = logs.window_totals(events, ["cloud provider call failed"])[1]
+        self.assertEqual([r["log"]["error_class"] for r in rows], ["restore snapshot is missing"])
+        self.assertNotIn(VM, json.dumps(rows))
+
+    def test_other_lines_never_get_an_error_class(self):
+        row = logs.line(event({"msg": "cloud slow call failed", "machine": VM, "error": "restore snapshot is missing"}))
+        self.assertNotIn("error_class", row.get("log", {}))
+
     def test_every_probe_outcome_and_odd_out_text_stays_typed(self):
         cases = (({"outcome": "failed", "ms": 15, "error": "VmNotRunning"}, {"outcome": "failed", "ms": 15,
                                                                           "error": True}),
