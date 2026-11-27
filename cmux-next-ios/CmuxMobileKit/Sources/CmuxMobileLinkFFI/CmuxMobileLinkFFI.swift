@@ -6792,6 +6792,144 @@ public func FfiConverterTypePhoneReadStore_lower(_ value: PhoneReadStore) -> UIn
 
 
 /**
+ * One link's relay-held send route.
+ */
+public protocol RelayHoldRouteProtocol: AnyObject, Sendable {
+    
+    /**
+     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
+     */
+    func send(id: String, sealed: String, waitMs: UInt32) async  -> RelayHoldOutcome
+    
+}
+/**
+ * One link's relay-held send route.
+ */
+open class RelayHoldRoute: RelayHoldRouteProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_relayholdroute(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_relayholdroute(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
+     */
+open func send(id: String, sealed: String, waitMs: UInt32)async  -> RelayHoldOutcome  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cmux_mobile_link_ffi_fn_method_relayholdroute_send(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(id),FfiConverterString.lower(sealed),FfiConverterUInt32.lower(waitMs)
+                )
+            },
+            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeRelayHoldOutcome_lift,
+            errorHandler: nil
+            
+        )
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRelayHoldRoute: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RelayHoldRoute
+
+    public static func lift(_ handle: UInt64) throws -> RelayHoldRoute {
+        return RelayHoldRoute(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RelayHoldRoute) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayHoldRoute {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RelayHoldRoute, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayHoldRoute_lift(_ handle: UInt64) throws -> RelayHoldRoute {
+    return try FfiConverterTypeRelayHoldRoute.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRelayHoldRoute_lower(_ value: RelayHoldRoute) -> UInt64 {
+    return FfiConverterTypeRelayHoldRoute.lower(value)
+}
+
+
+
+
+
+
+/**
  * An in-memory [`RelayViewerKey`] from a P-256 scalar (tests, and a phone without an enclave).
  */
 public protocol RelaySoftwareKeyProtocol: AnyObject, Sendable {
@@ -7151,144 +7289,6 @@ public func FfiConverterTypeRelayViewerKey_lift(_ handle: UInt64) throws -> Rela
 #endif
 public func FfiConverterTypeRelayViewerKey_lower(_ value: RelayViewerKey) -> UInt64 {
     return FfiConverterTypeRelayViewerKey.lower(value)
-}
-
-
-
-
-
-
-/**
- * One link's relay-held send route.
- */
-public protocol RelayHoldRouteProtocol: AnyObject, Sendable {
-    
-    /**
-     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
-     */
-    func send(id: String, sealed: String, waitMs: UInt32) async  -> RelayHoldOutcome
-    
-}
-/**
- * One link's relay-held send route.
- */
-open class RelayHoldRoute: RelayHoldRouteProtocol, @unchecked Sendable {
-    fileprivate let handle: UInt64
-
-    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public struct NoHandle {
-        public init() {}
-    }
-
-    // TODO: We'd like this to be `private` but for Swifty reasons,
-    // we can't implement `FfiConverter` without making this `required` and we can't
-    // make it `required` without making it `public`.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    required public init(unsafeFromHandle handle: UInt64) {
-        self.handle = handle
-    }
-
-    // This constructor can be used to instantiate a fake object.
-    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
-    //
-    // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public init(noHandle: NoHandle) {
-        self.handle = 0
-    }
-
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public func uniffiCloneHandle() -> UInt64 {
-        return try! rustCall { uniffi_cmux_mobile_link_ffi_fn_clone_relayholdroute(self.handle, $0) }
-    }
-    // No primary constructor declared for this class.
-
-    deinit {
-        if handle == 0 {
-            // Mock objects have handle=0 don't try to free them
-            return
-        }
-
-        try! rustCall { uniffi_cmux_mobile_link_ffi_fn_free_relayholdroute(handle, $0) }
-    }
-
-    
-
-    
-    /**
-     * Hold `sealed` under `id` and wait up to `wait_ms` for the relay.
-     */
-open func send(id: String, sealed: String, waitMs: UInt32)async  -> RelayHoldOutcome  {
-    return
-        try!  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_cmux_mobile_link_ffi_fn_method_relayholdroute_send(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(id),FfiConverterString.lower(sealed),FfiConverterUInt32.lower(waitMs)
-                )
-            },
-            pollFunc: ffi_cmux_mobile_link_ffi_rust_future_poll_rust_buffer,
-            completeFunc: ffi_cmux_mobile_link_ffi_rust_future_complete_rust_buffer,
-            freeFunc: ffi_cmux_mobile_link_ffi_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterTypeRelayHoldOutcome_lift,
-            errorHandler: nil
-            
-        )
-}
-    
-
-    
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeRelayHoldRoute: FfiConverter {
-    typealias FfiType = UInt64
-    typealias SwiftType = RelayHoldRoute
-
-    public static func lift(_ handle: UInt64) throws -> RelayHoldRoute {
-        return RelayHoldRoute(unsafeFromHandle: handle)
-    }
-
-    public static func lower(_ value: RelayHoldRoute) -> UInt64 {
-        return value.uniffiCloneHandle()
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RelayHoldRoute {
-        let handle: UInt64 = try readInt(&buf)
-        return try lift(handle)
-    }
-
-    public static func write(_ value: RelayHoldRoute, into buf: inout [UInt8]) {
-        writeInt(&buf, lower(value))
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeRelayHoldRoute_lift(_ handle: UInt64) throws -> RelayHoldRoute {
-    return try FfiConverterTypeRelayHoldRoute.lift(handle)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeRelayHoldRoute_lower(_ value: RelayHoldRoute) -> UInt64 {
-    return FfiConverterTypeRelayHoldRoute.lower(value)
 }
 
 
@@ -8827,6 +8827,276 @@ public func FfiConverterTypeTerminalProjection_lower(_ value: TerminalProjection
 }
 
 
+
+
+/**
+ * What the Mac's sidebar knows beyond its tree. `rows` none: the Mac has no
+ * personal order. `pins` none: the Mac has no sidebar layout (the legacy pin
+ * flag counts).
+ */
+public struct ArrangementInput: Equatable, Hashable {
+    public var workspaces: [ArrangementWorkspace]
+    public var registryId: String?
+    /**
+     * The ids the daemon flags pinned.
+     */
+    public var legacyPinned: [String]
+    public var rows: [PhoneSidebarRow]?
+    public var pins: [ArrangementPin]?
+    public var groups: [PhoneWorkspaceGroup]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(workspaces: [ArrangementWorkspace], registryId: String?, 
+        /**
+         * The ids the daemon flags pinned.
+         */legacyPinned: [String], rows: [PhoneSidebarRow]?, pins: [ArrangementPin]?, groups: [PhoneWorkspaceGroup]) {
+        self.workspaces = workspaces
+        self.registryId = registryId
+        self.legacyPinned = legacyPinned
+        self.rows = rows
+        self.pins = pins
+        self.groups = groups
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ArrangementInput: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeArrangementInput: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ArrangementInput {
+        return
+            try ArrangementInput(
+                workspaces: FfiConverterSequenceTypeArrangementWorkspace.read(from: &buf), 
+                registryId: FfiConverterOptionString.read(from: &buf), 
+                legacyPinned: FfiConverterSequenceString.read(from: &buf), 
+                rows: FfiConverterOptionSequenceTypePhoneSidebarRow.read(from: &buf), 
+                pins: FfiConverterOptionSequenceTypeArrangementPin.read(from: &buf), 
+                groups: FfiConverterSequenceTypePhoneWorkspaceGroup.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ArrangementInput, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeArrangementWorkspace.write(value.workspaces, into: &buf)
+        FfiConverterOptionString.write(value.registryId, into: &buf)
+        FfiConverterSequenceString.write(value.legacyPinned, into: &buf)
+        FfiConverterOptionSequenceTypePhoneSidebarRow.write(value.rows, into: &buf)
+        FfiConverterOptionSequenceTypeArrangementPin.write(value.pins, into: &buf)
+        FfiConverterSequenceTypePhoneWorkspaceGroup.write(value.groups, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArrangementInput_lift(_ buf: RustBuffer) throws -> ArrangementInput {
+    return try FfiConverterTypeArrangementInput.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArrangementInput_lower(_ value: ArrangementInput) -> RustBuffer {
+    return FfiConverterTypeArrangementInput.lower(value)
+}
+
+
+/**
+ * One pinned tile: its layout item id and its ref value (`<session>:<ws_…>`).
+ */
+public struct ArrangementPin: Equatable, Hashable {
+    public var itemId: String
+    public var value: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(itemId: String, value: String) {
+        self.itemId = itemId
+        self.value = value
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ArrangementPin: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeArrangementPin: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ArrangementPin {
+        return
+            try ArrangementPin(
+                itemId: FfiConverterString.read(from: &buf), 
+                value: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ArrangementPin, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.itemId, into: &buf)
+        FfiConverterString.write(value.value, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArrangementPin_lift(_ buf: RustBuffer) throws -> ArrangementPin {
+    return try FfiConverterTypeArrangementPin.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArrangementPin_lower(_ value: ArrangementPin) -> RustBuffer {
+    return FfiConverterTypeArrangementPin.lower(value)
+}
+
+
+/**
+ * Where one workspace (same index as the input) sits.
+ */
+public struct ArrangementPlace: Equatable, Hashable {
+    public var isPinned: Bool
+    public var pinIndex: Int64?
+    public var pinItemId: String?
+    public var sidebarIndex: Int64
+    /**
+     * The id of its group (one of the input's groups), if any.
+     */
+    public var group: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(isPinned: Bool, pinIndex: Int64?, pinItemId: String?, sidebarIndex: Int64, 
+        /**
+         * The id of its group (one of the input's groups), if any.
+         */group: String?) {
+        self.isPinned = isPinned
+        self.pinIndex = pinIndex
+        self.pinItemId = pinItemId
+        self.sidebarIndex = sidebarIndex
+        self.group = group
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ArrangementPlace: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeArrangementPlace: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ArrangementPlace {
+        return
+            try ArrangementPlace(
+                isPinned: FfiConverterBool.read(from: &buf), 
+                pinIndex: FfiConverterOptionInt64.read(from: &buf), 
+                pinItemId: FfiConverterOptionString.read(from: &buf), 
+                sidebarIndex: FfiConverterInt64.read(from: &buf), 
+                group: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ArrangementPlace, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.isPinned, into: &buf)
+        FfiConverterOptionInt64.write(value.pinIndex, into: &buf)
+        FfiConverterOptionString.write(value.pinItemId, into: &buf)
+        FfiConverterInt64.write(value.sidebarIndex, into: &buf)
+        FfiConverterOptionString.write(value.group, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArrangementPlace_lift(_ buf: RustBuffer) throws -> ArrangementPlace {
+    return try FfiConverterTypeArrangementPlace.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArrangementPlace_lower(_ value: ArrangementPlace) -> RustBuffer {
+    return FfiConverterTypeArrangementPlace.lower(value)
+}
+
+
+/**
+ * One workspace of the daemon's tree, in the daemon's order.
+ */
+public struct ArrangementWorkspace: Equatable, Hashable {
+    public var id: String
+    public var resourceId: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, resourceId: String?) {
+        self.id = id
+        self.resourceId = resourceId
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ArrangementWorkspace: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeArrangementWorkspace: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ArrangementWorkspace {
+        return
+            try ArrangementWorkspace(
+                id: FfiConverterString.read(from: &buf), 
+                resourceId: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ArrangementWorkspace, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterOptionString.write(value.resourceId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArrangementWorkspace_lift(_ buf: RustBuffer) throws -> ArrangementWorkspace {
+    return try FfiConverterTypeArrangementWorkspace.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeArrangementWorkspace_lower(_ value: ArrangementWorkspace) -> RustBuffer {
+    return FfiConverterTypeArrangementWorkspace.lower(value)
+}
 
 
 /**
@@ -11626,6 +11896,163 @@ public func FfiConverterTypeLocalTxt_lower(_ value: LocalTxt) -> RustBuffer {
 
 
 /**
+ * What `mac_reachability_resolve` reads.
+ */
+public struct MacReachabilityInput: Equatable, Hashable {
+    /**
+     * What the cmux service lists.
+     */
+    public var isOnline: Bool
+    /**
+     * The Mac's heartbeat quiet past the bound (`mac_reachability_late_quiet`), in ms.
+     */
+    public var quietMs: Int64?
+    /**
+     * Nil: not linked.
+     */
+    public var connection: MacLinkState?
+    public var failure: MacLinkFailureKind?
+    /**
+     * False in mock mode, where presence alone decides.
+     */
+    public var live: Bool
+    /**
+     * The device has no network.
+     */
+    public var phoneOffline: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * What the cmux service lists.
+         */isOnline: Bool, 
+        /**
+         * The Mac's heartbeat quiet past the bound (`mac_reachability_late_quiet`), in ms.
+         */quietMs: Int64?, 
+        /**
+         * Nil: not linked.
+         */connection: MacLinkState?, failure: MacLinkFailureKind?, 
+        /**
+         * False in mock mode, where presence alone decides.
+         */live: Bool, 
+        /**
+         * The device has no network.
+         */phoneOffline: Bool) {
+        self.isOnline = isOnline
+        self.quietMs = quietMs
+        self.connection = connection
+        self.failure = failure
+        self.live = live
+        self.phoneOffline = phoneOffline
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension MacReachabilityInput: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacReachabilityInput: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacReachabilityInput {
+        return
+            try MacReachabilityInput(
+                isOnline: FfiConverterBool.read(from: &buf), 
+                quietMs: FfiConverterOptionInt64.read(from: &buf), 
+                connection: FfiConverterOptionTypeMacLinkState.read(from: &buf), 
+                failure: FfiConverterOptionTypeMacLinkFailureKind.read(from: &buf), 
+                live: FfiConverterBool.read(from: &buf), 
+                phoneOffline: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MacReachabilityInput, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.isOnline, into: &buf)
+        FfiConverterOptionInt64.write(value.quietMs, into: &buf)
+        FfiConverterOptionTypeMacLinkState.write(value.connection, into: &buf)
+        FfiConverterOptionTypeMacLinkFailureKind.write(value.failure, into: &buf)
+        FfiConverterBool.write(value.live, into: &buf)
+        FfiConverterBool.write(value.phoneOffline, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacReachabilityInput_lift(_ buf: RustBuffer) throws -> MacReachabilityInput {
+    return try FfiConverterTypeMacReachabilityInput.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacReachabilityInput_lower(_ value: MacReachabilityInput) -> RustBuffer {
+    return FfiConverterTypeMacReachabilityInput.lower(value)
+}
+
+
+public struct MacRecoveryAttemptState: Equatable, Hashable {
+    public var step: MacRecoveryStep
+    public var result: MacRecoveryResult?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(step: MacRecoveryStep, result: MacRecoveryResult?) {
+        self.step = step
+        self.result = result
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension MacRecoveryAttemptState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacRecoveryAttemptState: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacRecoveryAttemptState {
+        return
+            try MacRecoveryAttemptState(
+                step: FfiConverterTypeMacRecoveryStep.read(from: &buf), 
+                result: FfiConverterOptionTypeMacRecoveryResult.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MacRecoveryAttemptState, into buf: inout [UInt8]) {
+        FfiConverterTypeMacRecoveryStep.write(value.step, into: &buf)
+        FfiConverterOptionTypeMacRecoveryResult.write(value.result, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryAttemptState_lift(_ buf: RustBuffer) throws -> MacRecoveryAttemptState {
+    return try FfiConverterTypeMacRecoveryAttemptState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryAttemptState_lower(_ value: MacRecoveryAttemptState) -> RustBuffer {
+    return FfiConverterTypeMacRecoveryAttemptState.lower(value)
+}
+
+
+/**
  * What the host's answer says about its screen.
  */
 public struct MacScreenAnswer: Equatable, Hashable {
@@ -11933,16 +12360,24 @@ public struct MailboxRouteInput: Equatable, Hashable {
      * [`mailbox_available`] for this item.
      */
     public var mailboxAvailable: Bool
+    /**
+     * The chat's Auto record names a Cloud machine (`vm:`) as its holder.
+     */
+    public var cloudHolder: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(linkUp: Bool, presence: MailboxPresence, 
         /**
          * [`mailbox_available`] for this item.
-         */mailboxAvailable: Bool) {
+         */mailboxAvailable: Bool, 
+        /**
+         * The chat's Auto record names a Cloud machine (`vm:`) as its holder.
+         */cloudHolder: Bool) {
         self.linkUp = linkUp
         self.presence = presence
         self.mailboxAvailable = mailboxAvailable
+        self.cloudHolder = cloudHolder
     }
 
     
@@ -11963,7 +12398,8 @@ public struct FfiConverterTypeMailboxRouteInput: FfiConverterRustBuffer {
             try MailboxRouteInput(
                 linkUp: FfiConverterBool.read(from: &buf), 
                 presence: FfiConverterTypeMailboxPresence.read(from: &buf), 
-                mailboxAvailable: FfiConverterBool.read(from: &buf)
+                mailboxAvailable: FfiConverterBool.read(from: &buf), 
+                cloudHolder: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -11971,6 +12407,7 @@ public struct FfiConverterTypeMailboxRouteInput: FfiConverterRustBuffer {
         FfiConverterBool.write(value.linkUp, into: &buf)
         FfiConverterTypeMailboxPresence.write(value.presence, into: &buf)
         FfiConverterBool.write(value.mailboxAvailable, into: &buf)
+        FfiConverterBool.write(value.cloudHolder, into: &buf)
     }
 }
 
@@ -12382,6 +12819,69 @@ public func FfiConverterTypePaneFilterResult_lift(_ buf: RustBuffer) throws -> P
 #endif
 public func FfiConverterTypePaneFilterResult_lower(_ value: PaneFilterResult) -> RustBuffer {
     return FfiConverterTypePaneFilterResult.lower(value)
+}
+
+
+/**
+ * A parsed cmux link.
+ */
+public struct ParsedCmuxLink: Equatable, Hashable {
+    public var target: CmuxLinkTarget
+    /**
+     * An agent link's `?message=`: the message to scroll to (display only).
+     */
+    public var message: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(target: CmuxLinkTarget, 
+        /**
+         * An agent link's `?message=`: the message to scroll to (display only).
+         */message: String?) {
+        self.target = target
+        self.message = message
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ParsedCmuxLink: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeParsedCmuxLink: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ParsedCmuxLink {
+        return
+            try ParsedCmuxLink(
+                target: FfiConverterTypeCmuxLinkTarget.read(from: &buf), 
+                message: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ParsedCmuxLink, into buf: inout [UInt8]) {
+        FfiConverterTypeCmuxLinkTarget.write(value.target, into: &buf)
+        FfiConverterOptionString.write(value.message, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeParsedCmuxLink_lift(_ buf: RustBuffer) throws -> ParsedCmuxLink {
+    return try FfiConverterTypeParsedCmuxLink.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeParsedCmuxLink_lower(_ value: ParsedCmuxLink) -> RustBuffer {
+    return FfiConverterTypeParsedCmuxLink.lower(value)
 }
 
 
@@ -13756,6 +14256,183 @@ public func FfiConverterTypeTabsViewport_lower(_ value: TabsViewport) -> RustBuf
 
 
 /**
+ * A tap's outcome: what it did, and the chosen agents after it (harness ids, in the order they
+ * were chosen). Swift keeps each kept agent's settings and makes a fresh pick for a new id.
+ */
+public struct TaskPickToggle: Equatable, Hashable {
+    public var change: TaskPickChange
+    public var picks: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(change: TaskPickChange, picks: [String]) {
+        self.change = change
+        self.picks = picks
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TaskPickToggle: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTaskPickToggle: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TaskPickToggle {
+        return
+            try TaskPickToggle(
+                change: FfiConverterTypeTaskPickChange.read(from: &buf), 
+                picks: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TaskPickToggle, into buf: inout [UInt8]) {
+        FfiConverterTypeTaskPickChange.write(value.change, into: &buf)
+        FfiConverterSequenceString.write(value.picks, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTaskPickToggle_lift(_ buf: RustBuffer) throws -> TaskPickToggle {
+    return try FfiConverterTypeTaskPickToggle.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTaskPickToggle_lower(_ value: TaskPickToggle) -> RustBuffer {
+    return FfiConverterTypeTaskPickToggle.lower(value)
+}
+
+
+/**
+ * Where a terminal launch starts, and what it runs: the agent's CLI with the task.
+ */
+public struct TaskTerminalLaunch: Equatable, Hashable {
+    /**
+     * The task as typed (already trimmed by the composer).
+     */
+    public var prompt: String
+    /**
+     * The model id; `None`, empty or `default` leaves the CLI's own default.
+     */
+    public var model: String?
+    /**
+     * The agent's family (`claude`, `codex`): which CLI runs.
+     */
+    public var family: String?
+    /**
+     * The effort level, or `None` for the model's default.
+     */
+    public var effort: String?
+    /**
+     * The mode the agent starts in (Claude Code's permission mode), or `None`.
+     */
+    public var mode: String?
+    /**
+     * The workspace's folder to `cd` to first, or `None` to run where the shell is.
+     */
+    public var folder: String?
+    /**
+     * Paths of the task's uploaded photos and files, named after the prompt.
+     */
+    public var attachmentPaths: [String]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The task as typed (already trimmed by the composer).
+         */prompt: String, 
+        /**
+         * The model id; `None`, empty or `default` leaves the CLI's own default.
+         */model: String?, 
+        /**
+         * The agent's family (`claude`, `codex`): which CLI runs.
+         */family: String?, 
+        /**
+         * The effort level, or `None` for the model's default.
+         */effort: String?, 
+        /**
+         * The mode the agent starts in (Claude Code's permission mode), or `None`.
+         */mode: String?, 
+        /**
+         * The workspace's folder to `cd` to first, or `None` to run where the shell is.
+         */folder: String?, 
+        /**
+         * Paths of the task's uploaded photos and files, named after the prompt.
+         */attachmentPaths: [String]) {
+        self.prompt = prompt
+        self.model = model
+        self.family = family
+        self.effort = effort
+        self.mode = mode
+        self.folder = folder
+        self.attachmentPaths = attachmentPaths
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension TaskTerminalLaunch: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTaskTerminalLaunch: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TaskTerminalLaunch {
+        return
+            try TaskTerminalLaunch(
+                prompt: FfiConverterString.read(from: &buf), 
+                model: FfiConverterOptionString.read(from: &buf), 
+                family: FfiConverterOptionString.read(from: &buf), 
+                effort: FfiConverterOptionString.read(from: &buf), 
+                mode: FfiConverterOptionString.read(from: &buf), 
+                folder: FfiConverterOptionString.read(from: &buf), 
+                attachmentPaths: FfiConverterSequenceString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TaskTerminalLaunch, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.prompt, into: &buf)
+        FfiConverterOptionString.write(value.model, into: &buf)
+        FfiConverterOptionString.write(value.family, into: &buf)
+        FfiConverterOptionString.write(value.effort, into: &buf)
+        FfiConverterOptionString.write(value.mode, into: &buf)
+        FfiConverterOptionString.write(value.folder, into: &buf)
+        FfiConverterSequenceString.write(value.attachmentPaths, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTaskTerminalLaunch_lift(_ buf: RustBuffer) throws -> TaskTerminalLaunch {
+    return try FfiConverterTypeTaskTerminalLaunch.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTaskTerminalLaunch_lower(_ value: TaskTerminalLaunch) -> RustBuffer {
+    return FfiConverterTypeTaskTerminalLaunch.lower(value)
+}
+
+
+/**
  * One of the Mac's acpmux chats (`_acpmux/sessions`), as far as the pairing needs it.
  */
 public struct TerminalChatCandidate: Equatable, Hashable {
@@ -14617,6 +15294,181 @@ public func FfiConverterTypeWindowLayout_lower(_ value: WindowLayout) -> RustBuf
 
 
 /**
+ * The row a move goes next to, and on which side.
+ */
+public struct WorkspaceAnchor: Equatable, Hashable {
+    public var anchor: String
+    public var after: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(anchor: String, after: Bool) {
+        self.anchor = anchor
+        self.after = after
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceAnchor: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceAnchor: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceAnchor {
+        return
+            try WorkspaceAnchor(
+                anchor: FfiConverterString.read(from: &buf), 
+                after: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceAnchor, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.anchor, into: &buf)
+        FfiConverterBool.write(value.after, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceAnchor_lift(_ buf: RustBuffer) throws -> WorkspaceAnchor {
+    return try FfiConverterTypeWorkspaceAnchor.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceAnchor_lower(_ value: WorkspaceAnchor) -> RustBuffer {
+    return FfiConverterTypeWorkspaceAnchor.lower(value)
+}
+
+
+/**
+ * What a bulk close needs to know of one row.
+ */
+public struct WorkspaceCloseRow: Equatable, Hashable {
+    public var id: String
+    public var group: String?
+    public var isHome: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, group: String?, isHome: Bool) {
+        self.id = id
+        self.group = group
+        self.isHome = isHome
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceCloseRow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceCloseRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceCloseRow {
+        return
+            try WorkspaceCloseRow(
+                id: FfiConverterString.read(from: &buf), 
+                group: FfiConverterOptionString.read(from: &buf), 
+                isHome: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceCloseRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterOptionString.write(value.group, into: &buf)
+        FfiConverterBool.write(value.isHome, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceCloseRow_lift(_ buf: RustBuffer) throws -> WorkspaceCloseRow {
+    return try FfiConverterTypeWorkspaceCloseRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceCloseRow_lower(_ value: WorkspaceCloseRow) -> RustBuffer {
+    return FfiConverterTypeWorkspaceCloseRow.lower(value)
+}
+
+
+/**
+ * What splitting a Mac's rows into containers needs to know of one row.
+ */
+public struct WorkspaceContainerRow: Equatable, Hashable {
+    public var group: String?
+    public var sidebarIndex: Int64?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(group: String?, sidebarIndex: Int64?) {
+        self.group = group
+        self.sidebarIndex = sidebarIndex
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceContainerRow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceContainerRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceContainerRow {
+        return
+            try WorkspaceContainerRow(
+                group: FfiConverterOptionString.read(from: &buf), 
+                sidebarIndex: FfiConverterOptionInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceContainerRow, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.group, into: &buf)
+        FfiConverterOptionInt64.write(value.sidebarIndex, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceContainerRow_lift(_ buf: RustBuffer) throws -> WorkspaceContainerRow {
+    return try FfiConverterTypeWorkspaceContainerRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceContainerRow_lower(_ value: WorkspaceContainerRow) -> RustBuffer {
+    return FfiConverterTypeWorkspaceContainerRow.lower(value)
+}
+
+
+/**
  * A shown group's fold.
  */
 public struct WorkspaceGroupFold: Equatable, Hashable {
@@ -14906,6 +15758,249 @@ public func FfiConverterTypeWorkspaceGroupSlot_lift(_ buf: RustBuffer) throws ->
 #endif
 public func FfiConverterTypeWorkspaceGroupSlot_lower(_ value: WorkspaceGroupSlot) -> RustBuffer {
     return FfiConverterTypeWorkspaceGroupSlot.lower(value)
+}
+
+
+/**
+ * What the rules read of one workspace row.
+ */
+public struct WorkspaceRowFacts: Equatable, Hashable {
+    public var id: String
+    public var macId: String
+    /**
+     * Its place in the Mac's sidebar; nil sorts last, in list order.
+     */
+    public var sidebarIndex: Int64?
+    public var pinned: Bool
+    public var home: Bool
+    /**
+     * In a workspace group.
+     */
+    public var grouped: Bool
+    /**
+     * A create or close this phone sent is still on its way.
+     */
+    public var pending: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, macId: String, 
+        /**
+         * Its place in the Mac's sidebar; nil sorts last, in list order.
+         */sidebarIndex: Int64?, pinned: Bool, home: Bool, 
+        /**
+         * In a workspace group.
+         */grouped: Bool, 
+        /**
+         * A create or close this phone sent is still on its way.
+         */pending: Bool) {
+        self.id = id
+        self.macId = macId
+        self.sidebarIndex = sidebarIndex
+        self.pinned = pinned
+        self.home = home
+        self.grouped = grouped
+        self.pending = pending
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceRowFacts: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceRowFacts: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceRowFacts {
+        return
+            try WorkspaceRowFacts(
+                id: FfiConverterString.read(from: &buf), 
+                macId: FfiConverterString.read(from: &buf), 
+                sidebarIndex: FfiConverterOptionInt64.read(from: &buf), 
+                pinned: FfiConverterBool.read(from: &buf), 
+                home: FfiConverterBool.read(from: &buf), 
+                grouped: FfiConverterBool.read(from: &buf), 
+                pending: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceRowFacts, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.macId, into: &buf)
+        FfiConverterOptionInt64.write(value.sidebarIndex, into: &buf)
+        FfiConverterBool.write(value.pinned, into: &buf)
+        FfiConverterBool.write(value.home, into: &buf)
+        FfiConverterBool.write(value.grouped, into: &buf)
+        FfiConverterBool.write(value.pending, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceRowFacts_lift(_ buf: RustBuffer) throws -> WorkspaceRowFacts {
+    return try FfiConverterTypeWorkspaceRowFacts.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceRowFacts_lower(_ value: WorkspaceRowFacts) -> RustBuffer {
+    return FfiConverterTypeWorkspaceRowFacts.lower(value)
+}
+
+
+/**
+ * What sorting needs to know of one row.
+ */
+public struct WorkspaceSortRow: Equatable, Hashable {
+    public var id: String
+    public var title: String
+    /**
+     * Empty: none.
+     */
+    public var directory: String
+    /**
+     * Seconds since 1970 of its last activity; none when the phone has no time for it.
+     */
+    public var lastActivityAt: Double?
+    /**
+     * The daemon's focus order (higher: focused more recently).
+     */
+    public var focusOrder: Int64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, title: String, 
+        /**
+         * Empty: none.
+         */directory: String, 
+        /**
+         * Seconds since 1970 of its last activity; none when the phone has no time for it.
+         */lastActivityAt: Double?, 
+        /**
+         * The daemon's focus order (higher: focused more recently).
+         */focusOrder: Int64) {
+        self.id = id
+        self.title = title
+        self.directory = directory
+        self.lastActivityAt = lastActivityAt
+        self.focusOrder = focusOrder
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceSortRow: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceSortRow: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceSortRow {
+        return
+            try WorkspaceSortRow(
+                id: FfiConverterString.read(from: &buf), 
+                title: FfiConverterString.read(from: &buf), 
+                directory: FfiConverterString.read(from: &buf), 
+                lastActivityAt: FfiConverterOptionDouble.read(from: &buf), 
+                focusOrder: FfiConverterInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceSortRow, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.title, into: &buf)
+        FfiConverterString.write(value.directory, into: &buf)
+        FfiConverterOptionDouble.write(value.lastActivityAt, into: &buf)
+        FfiConverterInt64.write(value.focusOrder, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceSortRow_lift(_ buf: RustBuffer) throws -> WorkspaceSortRow {
+    return try FfiConverterTypeWorkspaceSortRow.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceSortRow_lower(_ value: WorkspaceSortRow) -> RustBuffer {
+    return FfiConverterTypeWorkspaceSortRow.lower(value)
+}
+
+
+/**
+ * One move of a sort: `workspace` goes right before (`after` false) or after `anchor`.
+ */
+public struct WorkspaceSortStep: Equatable, Hashable {
+    public var workspace: String
+    public var anchor: String
+    public var after: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(workspace: String, anchor: String, after: Bool) {
+        self.workspace = workspace
+        self.anchor = anchor
+        self.after = after
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension WorkspaceSortStep: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceSortStep: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceSortStep {
+        return
+            try WorkspaceSortStep(
+                workspace: FfiConverterString.read(from: &buf), 
+                anchor: FfiConverterString.read(from: &buf), 
+                after: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: WorkspaceSortStep, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.workspace, into: &buf)
+        FfiConverterString.write(value.anchor, into: &buf)
+        FfiConverterBool.write(value.after, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceSortStep_lift(_ buf: RustBuffer) throws -> WorkspaceSortStep {
+    return try FfiConverterTypeWorkspaceSortStep.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceSortStep_lower(_ value: WorkspaceSortStep) -> RustBuffer {
+    return FfiConverterTypeWorkspaceSortStep.lower(value)
 }
 
 
@@ -15967,6 +17062,196 @@ public func FfiConverterTypeCloudWakeIdle_lower(_ value: CloudWakeIdle) -> RustB
 }
 
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What a cmux link names.
+ */
+
+public enum CmuxLinkTarget: Equatable, Hashable {
+    
+    /**
+     * A workspace by its `ws_` resource id.
+     */
+    case workspace(id: String
+    )
+    /**
+     * A pane by its `pane_` resource id: its selected tab.
+     */
+    case pane(id: String
+    )
+    /**
+     * A terminal, browser or agent tab by its `tab_` resource id.
+     */
+    case tab(id: String
+    )
+    /**
+     * An acpmux chat session, optionally at one turn (`#turn-<id>`).
+     */
+    case session(id: String, turn: String?
+    )
+    /**
+     * A Chief subagent's chat (`chief/<home>/session/<id>`).
+     */
+    case chiefSession(home: String, session: String
+    )
+    /**
+     * An outside agent's session by the harness's own id.
+     */
+    case agent(harness: String, session: String
+    )
+    /**
+     * A cloud group, optionally one of its workspaces.
+     */
+    case group(id: String, workspace: String?
+    )
+    /**
+     * A Home conversation, optionally at one message.
+     */
+    case conversation(id: String, message: String?
+    )
+    /**
+     * A Mac's screen through the device hub: view only unless `control`.
+     */
+    case macScreen(
+        /**
+         * The hub device id (lowercase uuid).
+         */device: String, 
+        /**
+         * The CGDirectDisplayID in decimal; none is the host's default.
+         */display: String?, control: Bool, 
+        /**
+         * The run's label (display only, never used to route).
+         */name: String?
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension CmuxLinkTarget: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCmuxLinkTarget: FfiConverterRustBuffer {
+    typealias SwiftType = CmuxLinkTarget
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CmuxLinkTarget {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .workspace(id: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 2: return .pane(id: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 3: return .tab(id: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 4: return .session(id: try FfiConverterString.read(from: &buf), turn: try FfiConverterOptionString.read(from: &buf)
+        )
+        
+        case 5: return .chiefSession(home: try FfiConverterString.read(from: &buf), session: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 6: return .agent(harness: try FfiConverterString.read(from: &buf), session: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 7: return .group(id: try FfiConverterString.read(from: &buf), workspace: try FfiConverterOptionString.read(from: &buf)
+        )
+        
+        case 8: return .conversation(id: try FfiConverterString.read(from: &buf), message: try FfiConverterOptionString.read(from: &buf)
+        )
+        
+        case 9: return .macScreen(device: try FfiConverterString.read(from: &buf), display: try FfiConverterOptionString.read(from: &buf), control: try FfiConverterBool.read(from: &buf), name: try FfiConverterOptionString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: CmuxLinkTarget, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .workspace(id):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(id, into: &buf)
+            
+        
+        case let .pane(id):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(id, into: &buf)
+            
+        
+        case let .tab(id):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(id, into: &buf)
+            
+        
+        case let .session(id,turn):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(id, into: &buf)
+            FfiConverterOptionString.write(turn, into: &buf)
+            
+        
+        case let .chiefSession(home,session):
+            writeInt(&buf, Int32(5))
+            FfiConverterString.write(home, into: &buf)
+            FfiConverterString.write(session, into: &buf)
+            
+        
+        case let .agent(harness,session):
+            writeInt(&buf, Int32(6))
+            FfiConverterString.write(harness, into: &buf)
+            FfiConverterString.write(session, into: &buf)
+            
+        
+        case let .group(id,workspace):
+            writeInt(&buf, Int32(7))
+            FfiConverterString.write(id, into: &buf)
+            FfiConverterOptionString.write(workspace, into: &buf)
+            
+        
+        case let .conversation(id,message):
+            writeInt(&buf, Int32(8))
+            FfiConverterString.write(id, into: &buf)
+            FfiConverterOptionString.write(message, into: &buf)
+            
+        
+        case let .macScreen(device,display,control,name):
+            writeInt(&buf, Int32(9))
+            FfiConverterString.write(device, into: &buf)
+            FfiConverterOptionString.write(display, into: &buf)
+            FfiConverterBool.write(control, into: &buf)
+            FfiConverterOptionString.write(name, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCmuxLinkTarget_lift(_ buf: RustBuffer) throws -> CmuxLinkTarget {
+    return try FfiConverterTypeCmuxLinkTarget.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCmuxLinkTarget_lower(_ value: CmuxLinkTarget) -> RustBuffer {
+    return FfiConverterTypeCmuxLinkTarget.lower(value)
+}
+
+
 
 public enum CmuxMobileError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
@@ -17008,6 +18293,655 @@ public func FfiConverterTypeLinkPath_lower(_ value: LinkPath) -> RustBuffer {
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Why this phone's last try at a Mac failed, as far as the phone can tell.
+ */
+
+public enum MacLinkFailureKind: Equatable, Hashable {
+    
+    /**
+     * The phone dialed and the Mac never answered.
+     */
+    case hostUnreachable
+    /**
+     * The link opened, but cmux on the Mac did not answer or sent no workspaces.
+     */
+    case serviceDown
+    /**
+     * The cmux service refused this account's session.
+     */
+    case authRequired
+    /**
+     * The Mac refused this iPhone.
+     */
+    case notAllowed
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MacLinkFailureKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacLinkFailureKind: FfiConverterRustBuffer {
+    typealias SwiftType = MacLinkFailureKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacLinkFailureKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .hostUnreachable
+        
+        case 2: return .serviceDown
+        
+        case 3: return .authRequired
+        
+        case 4: return .notAllowed
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MacLinkFailureKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .hostUnreachable:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .serviceDown:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .authRequired:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .notAllowed:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacLinkFailureKind_lift(_ buf: RustBuffer) throws -> MacLinkFailureKind {
+    return try FfiConverterTypeMacLinkFailureKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacLinkFailureKind_lower(_ value: MacLinkFailureKind) -> RustBuffer {
+    return FfiConverterTypeMacLinkFailureKind.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * This phone's link to the Mac.
+ */
+
+public enum MacLinkState: Equatable, Hashable {
+    
+    case connecting
+    case connected
+    case failed
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MacLinkState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacLinkState: FfiConverterRustBuffer {
+    typealias SwiftType = MacLinkState
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacLinkState {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .connecting
+        
+        case 2: return .connected
+        
+        case 3: return .failed
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MacLinkState, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .connecting:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .connected:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .failed:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacLinkState_lift(_ buf: RustBuffer) throws -> MacLinkState {
+    return try FfiConverterTypeMacLinkState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacLinkState_lower(_ value: MacLinkState) -> RustBuffer {
+    return FfiConverterTypeMacLinkState.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The Mac's state. Swift attaches the Mac's last-seen date to `Offline` and `NoAnswer`.
+ */
+
+public enum MacReachabilityKind: Equatable, Hashable {
+    
+    case connected
+    case connecting
+    /**
+     * Online, the link is not on it (another Mac is linked).
+     */
+    case notConnected
+    /**
+     * Listed online, its heartbeat quiet this long.
+     */
+    case slow(quietSeconds: Int64
+    )
+    /**
+     * The service says it is offline; nothing dialed it since.
+     */
+    case offline
+    /**
+     * This phone dialed it and it never answered.
+     */
+    case noAnswer(listedOnline: Bool
+    )
+    case serviceDown
+    case authRequired
+    case notAllowed
+    case phoneOffline
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MacReachabilityKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacReachabilityKind: FfiConverterRustBuffer {
+    typealias SwiftType = MacReachabilityKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacReachabilityKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .connected
+        
+        case 2: return .connecting
+        
+        case 3: return .notConnected
+        
+        case 4: return .slow(quietSeconds: try FfiConverterInt64.read(from: &buf)
+        )
+        
+        case 5: return .offline
+        
+        case 6: return .noAnswer(listedOnline: try FfiConverterBool.read(from: &buf)
+        )
+        
+        case 7: return .serviceDown
+        
+        case 8: return .authRequired
+        
+        case 9: return .notAllowed
+        
+        case 10: return .phoneOffline
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MacReachabilityKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .connected:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .connecting:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .notConnected:
+            writeInt(&buf, Int32(3))
+        
+        
+        case let .slow(quietSeconds):
+            writeInt(&buf, Int32(4))
+            FfiConverterInt64.write(quietSeconds, into: &buf)
+            
+        
+        case .offline:
+            writeInt(&buf, Int32(5))
+        
+        
+        case let .noAnswer(listedOnline):
+            writeInt(&buf, Int32(6))
+            FfiConverterBool.write(listedOnline, into: &buf)
+            
+        
+        case .serviceDown:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .authRequired:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .notAllowed:
+            writeInt(&buf, Int32(9))
+        
+        
+        case .phoneOffline:
+            writeInt(&buf, Int32(10))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacReachabilityKind_lift(_ buf: RustBuffer) throws -> MacReachabilityKind {
+    return try FfiConverterTypeMacReachabilityKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacReachabilityKind_lower(_ value: MacReachabilityKind) -> RustBuffer {
+    return FfiConverterTypeMacReachabilityKind.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * The one thing a Mac's view offers when the phone can't use it.
+ */
+
+public enum MacRecoveryActionKind: Equatable, Hashable {
+    
+    case retry
+    case signIn
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MacRecoveryActionKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacRecoveryActionKind: FfiConverterRustBuffer {
+    typealias SwiftType = MacRecoveryActionKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacRecoveryActionKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .retry
+        
+        case 2: return .signIn
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MacRecoveryActionKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .retry:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .signIn:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryActionKind_lift(_ buf: RustBuffer) throws -> MacRecoveryActionKind {
+    return try FfiConverterTypeMacRecoveryActionKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryActionKind_lower(_ value: MacRecoveryActionKind) -> RustBuffer {
+    return FfiConverterTypeMacRecoveryActionKind.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What the link shows while the attempt runs.
+ */
+
+public enum MacRecoveryObservation: Equatable, Hashable {
+    
+    case dialing
+    /**
+     * The link is up; the Mac's workspaces have not come yet.
+     */
+    case linked
+    /**
+     * The Mac's workspaces came over the link.
+     */
+    case live
+    case failed(failure: MacLinkFailureKind
+    )
+    /**
+     * The dial ended with the Mac offline.
+     */
+    case offline
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MacRecoveryObservation: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacRecoveryObservation: FfiConverterRustBuffer {
+    typealias SwiftType = MacRecoveryObservation
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacRecoveryObservation {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .dialing
+        
+        case 2: return .linked
+        
+        case 3: return .live
+        
+        case 4: return .failed(failure: try FfiConverterTypeMacLinkFailureKind.read(from: &buf)
+        )
+        
+        case 5: return .offline
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MacRecoveryObservation, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .dialing:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .linked:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .live:
+            writeInt(&buf, Int32(3))
+        
+        
+        case let .failed(failure):
+            writeInt(&buf, Int32(4))
+            FfiConverterTypeMacLinkFailureKind.write(failure, into: &buf)
+            
+        
+        case .offline:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryObservation_lift(_ buf: RustBuffer) throws -> MacRecoveryObservation {
+    return try FfiConverterTypeMacRecoveryObservation.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryObservation_lower(_ value: MacRecoveryObservation) -> RustBuffer {
+    return FfiConverterTypeMacRecoveryObservation.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum MacRecoveryResult: Equatable, Hashable {
+    
+    case connected
+    /**
+     * Stopped at this step.
+     */
+    case failed(step: MacRecoveryStep
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MacRecoveryResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacRecoveryResult: FfiConverterRustBuffer {
+    typealias SwiftType = MacRecoveryResult
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacRecoveryResult {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .connected
+        
+        case 2: return .failed(step: try FfiConverterTypeMacRecoveryStep.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MacRecoveryResult, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .connected:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .failed(step):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypeMacRecoveryStep.write(step, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryResult_lift(_ buf: RustBuffer) throws -> MacRecoveryResult {
+    return try FfiConverterTypeMacRecoveryResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryResult_lower(_ value: MacRecoveryResult) -> RustBuffer {
+    return FfiConverterTypeMacRecoveryResult.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * One Retry's steps, in order.
+ */
+
+public enum MacRecoveryStep: Equatable, Hashable {
+    
+    /**
+     * Asking the cmux service (the relay) for the Mac's presence.
+     */
+    case service
+    /**
+     * Dialing the Mac.
+     */
+    case mac
+    /**
+     * The link is up; cmux on the Mac sends its workspaces and sessions.
+     */
+    case session
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension MacRecoveryStep: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMacRecoveryStep: FfiConverterRustBuffer {
+    typealias SwiftType = MacRecoveryStep
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MacRecoveryStep {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .service
+        
+        case 2: return .mac
+        
+        case 3: return .session
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: MacRecoveryStep, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .service:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .mac:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .session:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryStep_lift(_ buf: RustBuffer) throws -> MacRecoveryStep {
+    return try FfiConverterTypeMacRecoveryStep.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMacRecoveryStep_lower(_ value: MacRecoveryStep) -> RustBuffer {
+    return FfiConverterTypeMacRecoveryStep.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 
 public enum MailboxAction: Equatable, Hashable {
     
@@ -17375,6 +19309,10 @@ public enum MailboxRoute: Equatable, Hashable {
      */
     case mailbox
     /**
+     * Post it to the chat's Cloud inbox ([`mailbox_inbox_post`]): a Cloud machine holds the chat.
+     */
+    case cloudInbox
+    /**
      * Neither: fail as before.
      */
     case fail
@@ -17403,7 +19341,9 @@ public struct FfiConverterTypeMailboxRoute: FfiConverterRustBuffer {
         
         case 2: return .mailbox
         
-        case 3: return .fail
+        case 3: return .cloudInbox
+        
+        case 4: return .fail
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -17421,8 +19361,12 @@ public struct FfiConverterTypeMailboxRoute: FfiConverterRustBuffer {
             writeInt(&buf, Int32(2))
         
         
-        case .fail:
+        case .cloudInbox:
             writeInt(&buf, Int32(3))
+        
+        
+        case .fail:
+            writeInt(&buf, Int32(4))
         
         }
     }
@@ -18718,6 +20662,106 @@ public func FfiConverterTypeTabsEvent_lower(_ value: TabsEvent) -> RustBuffer {
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * What a tap on an agent's row did.
+ */
+
+public enum TaskPickChange: Equatable, Hashable {
+    
+    case added
+    case removed
+    /**
+     * The last agent stays: a task always has one.
+     */
+    case keptLast
+    /**
+     * `limit` agents are chosen already.
+     */
+    case atLimit
+    /**
+     * A phone can't start this agent.
+     */
+    case unavailable
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TaskPickChange: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTaskPickChange: FfiConverterRustBuffer {
+    typealias SwiftType = TaskPickChange
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TaskPickChange {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .added
+        
+        case 2: return .removed
+        
+        case 3: return .keptLast
+        
+        case 4: return .atLimit
+        
+        case 5: return .unavailable
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TaskPickChange, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .added:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .removed:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .keptLast:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .atLimit:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .unavailable:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTaskPickChange_lift(_ buf: RustBuffer) throws -> TaskPickChange {
+    return try FfiConverterTypeTaskPickChange.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTaskPickChange_lower(_ value: TaskPickChange) -> RustBuffer {
+    return FfiConverterTypeTaskPickChange.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * What a tap on face `to` does.
  */
 
@@ -18972,6 +21016,415 @@ public func FfiConverterTypeTransport_lift(_ buf: RustBuffer) throws -> Transpor
 #endif
 public func FfiConverterTypeTransport_lower(_ value: Transport) -> RustBuffer {
     return FfiConverterTypeTransport.lower(value)
+}
+
+
+
+/**
+ * Why [`vnc_json`] gave no answer.
+ */
+public enum VncJsonError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case UnknownOperation(operation: String
+    )
+    case Invalid(detail: String
+    )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension VncJsonError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVncJsonError: FfiConverterRustBuffer {
+    typealias SwiftType = VncJsonError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VncJsonError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .UnknownOperation(
+            operation: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .Invalid(
+            detail: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: VncJsonError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .UnknownOperation(operation):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(operation, into: &buf)
+            
+        
+        case let .Invalid(detail):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(detail, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVncJsonError_lift(_ buf: RustBuffer) throws -> VncJsonError {
+    return try FfiConverterTypeVncJsonError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVncJsonError_lower(_ value: VncJsonError) -> RustBuffer {
+    return FfiConverterTypeVncJsonError.lower(value)
+}
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Close Other Workspaces / Above / Below / Other Workspaces in Group / All.
+ */
+
+public enum WorkspaceCloseKind: Equatable, Hashable {
+    
+    case others
+    case above
+    case below
+    case othersInGroup
+    case all
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension WorkspaceCloseKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceCloseKind: FfiConverterRustBuffer {
+    typealias SwiftType = WorkspaceCloseKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceCloseKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .others
+        
+        case 2: return .above
+        
+        case 3: return .below
+        
+        case 4: return .othersInGroup
+        
+        case 5: return .all
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: WorkspaceCloseKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .others:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .above:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .below:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .othersInGroup:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .all:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceCloseKind_lift(_ buf: RustBuffer) throws -> WorkspaceCloseKind {
+    return try FfiConverterTypeWorkspaceCloseKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceCloseKind_lower(_ value: WorkspaceCloseKind) -> RustBuffer {
+    return FfiConverterTypeWorkspaceCloseKind.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Move Workspace to Top / to Bottom of its container.
+ */
+
+public enum WorkspaceEdgeSide: Equatable, Hashable {
+    
+    case top
+    case bottom
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension WorkspaceEdgeSide: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceEdgeSide: FfiConverterRustBuffer {
+    typealias SwiftType = WorkspaceEdgeSide
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceEdgeSide {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .top
+        
+        case 2: return .bottom
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: WorkspaceEdgeSide, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .top:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .bottom:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceEdgeSide_lift(_ buf: RustBuffer) throws -> WorkspaceEdgeSide {
+    return try FfiConverterTypeWorkspaceEdgeSide.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceEdgeSide_lower(_ value: WorkspaceEdgeSide) -> RustBuffer {
+    return FfiConverterTypeWorkspaceEdgeSide.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * A place New Workspace offers beside a row.
+ */
+
+public enum WorkspaceRowPlacement: Equatable, Hashable {
+    
+    case above
+    case below
+    case top
+    case bottom
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension WorkspaceRowPlacement: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceRowPlacement: FfiConverterRustBuffer {
+    typealias SwiftType = WorkspaceRowPlacement
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceRowPlacement {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .above
+        
+        case 2: return .below
+        
+        case 3: return .top
+        
+        case 4: return .bottom
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: WorkspaceRowPlacement, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .above:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .below:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .top:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .bottom:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceRowPlacement_lift(_ buf: RustBuffer) throws -> WorkspaceRowPlacement {
+    return try FfiConverterTypeWorkspaceRowPlacement.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceRowPlacement_lower(_ value: WorkspaceRowPlacement) -> RustBuffer {
+    return FfiConverterTypeWorkspaceRowPlacement.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * Sort Workspaces by Name / Last Used / Directory (the Mac's `WorkspaceSortKey`).
+ */
+
+public enum WorkspaceSortBy: Equatable, Hashable {
+    
+    case name
+    case lastUsed
+    case directory
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension WorkspaceSortBy: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWorkspaceSortBy: FfiConverterRustBuffer {
+    typealias SwiftType = WorkspaceSortBy
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorkspaceSortBy {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .name
+        
+        case 2: return .lastUsed
+        
+        case 3: return .directory
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: WorkspaceSortBy, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .name:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .lastUsed:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .directory:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceSortBy_lift(_ buf: RustBuffer) throws -> WorkspaceSortBy {
+    return try FfiConverterTypeWorkspaceSortBy.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWorkspaceSortBy_lower(_ value: WorkspaceSortBy) -> RustBuffer {
+    return FfiConverterTypeWorkspaceSortBy.lower(value)
 }
 
 
@@ -19434,6 +21887,54 @@ fileprivate struct FfiConverterOptionTypeLastPlaceRecord: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeMacRecoveryAttemptState: FfiConverterRustBuffer {
+    typealias SwiftType = MacRecoveryAttemptState?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMacRecoveryAttemptState.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMacRecoveryAttemptState.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeParsedCmuxLink: FfiConverterRustBuffer {
+    typealias SwiftType = ParsedCmuxLink?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeParsedCmuxLink.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeParsedCmuxLink.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypePhoneWorkspaceGroup: FfiConverterRustBuffer {
     typealias SwiftType = PhoneWorkspaceGroup?
 
@@ -19546,6 +22047,30 @@ fileprivate struct FfiConverterOptionTypeTranscriptPaint: FfiConverterRustBuffer
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeTranscriptPaint.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeWorkspaceAnchor: FfiConverterRustBuffer {
+    typealias SwiftType = WorkspaceAnchor?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeWorkspaceAnchor.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeWorkspaceAnchor.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -19698,6 +22223,102 @@ fileprivate struct FfiConverterOptionTypeLastPlaceScreen: FfiConverterRustBuffer
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeMacLinkFailureKind: FfiConverterRustBuffer {
+    typealias SwiftType = MacLinkFailureKind?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMacLinkFailureKind.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMacLinkFailureKind.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeMacLinkState: FfiConverterRustBuffer {
+    typealias SwiftType = MacLinkState?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMacLinkState.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMacLinkState.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeMacRecoveryActionKind: FfiConverterRustBuffer {
+    typealias SwiftType = MacRecoveryActionKind?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMacRecoveryActionKind.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMacRecoveryActionKind.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeMacRecoveryResult: FfiConverterRustBuffer {
+    typealias SwiftType = MacRecoveryResult?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeMacRecoveryResult.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeMacRecoveryResult.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionSequenceString: FfiConverterRustBuffer {
     typealias SwiftType = [String]?
 
@@ -19714,6 +22335,30 @@ fileprivate struct FfiConverterOptionSequenceString: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterSequenceString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionSequenceTypeArrangementPin: FfiConverterRustBuffer {
+    typealias SwiftType = [ArrangementPin]?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterSequenceTypeArrangementPin.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterSequenceTypeArrangementPin.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -19762,6 +22407,30 @@ fileprivate struct FfiConverterOptionSequenceTypeKeychainLeftover: FfiConverterR
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterSequenceTypeKeychainLeftover.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionSequenceTypePhoneSidebarRow: FfiConverterRustBuffer {
+    typealias SwiftType = [PhoneSidebarRow]?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterSequenceTypePhoneSidebarRow.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterSequenceTypePhoneSidebarRow.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -19862,6 +22531,81 @@ fileprivate struct FfiConverterSequenceData: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterData.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeArrangementPin: FfiConverterRustBuffer {
+    typealias SwiftType = [ArrangementPin]
+
+    public static func write(_ value: [ArrangementPin], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeArrangementPin.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ArrangementPin] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ArrangementPin]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeArrangementPin.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeArrangementPlace: FfiConverterRustBuffer {
+    typealias SwiftType = [ArrangementPlace]
+
+    public static func write(_ value: [ArrangementPlace], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeArrangementPlace.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ArrangementPlace] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ArrangementPlace]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeArrangementPlace.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeArrangementWorkspace: FfiConverterRustBuffer {
+    typealias SwiftType = [ArrangementWorkspace]
+
+    public static func write(_ value: [ArrangementWorkspace], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeArrangementWorkspace.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [ArrangementWorkspace] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [ArrangementWorkspace]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeArrangementWorkspace.read(from: &buf))
         }
         return seq
     }
@@ -20345,6 +23089,31 @@ fileprivate struct FfiConverterSequenceTypeLocalTxt: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeMacRecoveryAttemptState: FfiConverterRustBuffer {
+    typealias SwiftType = [MacRecoveryAttemptState]
+
+    public static func write(_ value: [MacRecoveryAttemptState], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeMacRecoveryAttemptState.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [MacRecoveryAttemptState] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [MacRecoveryAttemptState]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeMacRecoveryAttemptState.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeMacScreenDisplay: FfiConverterRustBuffer {
     typealias SwiftType = [MacScreenDisplay]
 
@@ -20620,6 +23389,56 @@ fileprivate struct FfiConverterSequenceTypeTimingMark: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeWorkspaceCloseRow: FfiConverterRustBuffer {
+    typealias SwiftType = [WorkspaceCloseRow]
+
+    public static func write(_ value: [WorkspaceCloseRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWorkspaceCloseRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WorkspaceCloseRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WorkspaceCloseRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWorkspaceCloseRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeWorkspaceContainerRow: FfiConverterRustBuffer {
+    typealias SwiftType = [WorkspaceContainerRow]
+
+    public static func write(_ value: [WorkspaceContainerRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWorkspaceContainerRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WorkspaceContainerRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WorkspaceContainerRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWorkspaceContainerRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeWorkspaceGroupFold: FfiConverterRustBuffer {
     typealias SwiftType = [WorkspaceGroupFold]
 
@@ -20745,6 +23564,81 @@ fileprivate struct FfiConverterSequenceTypeWorkspaceGroupSlot: FfiConverterRustB
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeWorkspaceRowFacts: FfiConverterRustBuffer {
+    typealias SwiftType = [WorkspaceRowFacts]
+
+    public static func write(_ value: [WorkspaceRowFacts], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWorkspaceRowFacts.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WorkspaceRowFacts] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WorkspaceRowFacts]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWorkspaceRowFacts.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeWorkspaceSortRow: FfiConverterRustBuffer {
+    typealias SwiftType = [WorkspaceSortRow]
+
+    public static func write(_ value: [WorkspaceSortRow], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWorkspaceSortRow.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WorkspaceSortRow] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WorkspaceSortRow]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWorkspaceSortRow.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeWorkspaceSortStep: FfiConverterRustBuffer {
+    typealias SwiftType = [WorkspaceSortStep]
+
+    public static func write(_ value: [WorkspaceSortStep], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWorkspaceSortStep.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WorkspaceSortStep] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WorkspaceSortStep]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWorkspaceSortStep.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFeedStackRow: FfiConverterRustBuffer {
     typealias SwiftType = [FeedStackRow]
 
@@ -20862,6 +23756,56 @@ fileprivate struct FfiConverterSequenceTypeTabsEvent: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeTabsEvent.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeWorkspaceRowPlacement: FfiConverterRustBuffer {
+    typealias SwiftType = [WorkspaceRowPlacement]
+
+    public static func write(_ value: [WorkspaceRowPlacement], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeWorkspaceRowPlacement.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [WorkspaceRowPlacement] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [WorkspaceRowPlacement]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeWorkspaceRowPlacement.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceSequenceUInt32: FfiConverterRustBuffer {
+    typealias SwiftType = [[UInt32]]
+
+    public static func write(_ value: [[UInt32]], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterSequenceUInt32.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [[UInt32]] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [[UInt32]]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterSequenceUInt32.read(from: &buf))
         }
         return seq
     }
@@ -21251,6 +24195,19 @@ public func setNetworkKind(kind: String)  {try! rustCall() {
 }
 }
 /**
+ * Keep the IP literals every dialed host (TURN, STUN, signaling, API) last resolved to in the
+ * file at `path` (an Application Support file of this build's own), so a dial after a relaunch
+ * with DNS down still reaches them (`cmux_mobile_link::route_literals`). Without a call they
+ * are kept for this process only. Returns how many hosts the file remembered.
+ */
+public func setRouteLiteralsPath(path: String) -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_set_route_literals_path(
+        FfiConverterString.lower(path),$0
+    )
+})
+}
+/**
  * What the phone's terminal declares in `set-client-info` for the lean stream
  * (`cmux_mobile_link::names::TERMINAL_LEAN_STREAM`).
  */
@@ -21382,6 +24339,17 @@ public func cloudWakeResumed(machine: String, ok: Bool) -> UInt64?  {
 public func cloudWakeVersion() -> UInt32  {
     return try!  FfiConverterUInt32.lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_cloud_wake_version($0
+    )
+})
+}
+/**
+ * The link `url` names, or none when it is not a cmux link (another scheme
+ * or host, the sign-in callback, a malformed id).
+ */
+public func cmuxLinkParse(url: String) -> ParsedCmuxLink?  {
+    return try!  FfiConverterOptionTypeParsedCmuxLink.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_cmux_link_parse(
+        FfiConverterString.lower(url),$0
     )
 })
 }
@@ -21573,6 +24541,75 @@ public func localLinkWantsResolve(instance: String, txt: [LocalTxt]) -> Bool  {
 })
 }
 /**
+ * Retry or Sign In; nil while it is connected or on its way.
+ */
+public func macReachabilityAction(state: MacReachabilityKind) -> MacRecoveryActionKind?  {
+    return try!  FfiConverterOptionTypeMacRecoveryActionKind.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mac_reachability_action(
+        FfiConverterTypeMacReachabilityKind_lower(state),$0
+    )
+})
+}
+/**
+ * `quiet_ms` as the Mac's row keeps it: only past the bound, rounded down to 10 s.
+ */
+public func macReachabilityLateQuiet(quietMs: Int64?) -> Int64?  {
+    return try!  FfiConverterOptionInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mac_reachability_late_quiet(
+        FfiConverterOptionInt64.lower(quietMs),$0
+    )
+})
+}
+public func macReachabilityResolve(input: MacReachabilityInput) -> MacReachabilityKind  {
+    return try!  FfiConverterTypeMacReachabilityKind_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mac_reachability_resolve(
+        FfiConverterTypeMacReachabilityInput_lower(input),$0
+    )
+})
+}
+/**
+ * "45 s", "3 min", "2 h".
+ */
+public func macReachabilitySpan(seconds: Int64) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mac_reachability_span(
+        FfiConverterInt64.lower(seconds),$0
+    )
+})
+}
+/**
+ * The attempt after the link showed `observation`, once the service step passed.
+ */
+public func macRecoveryAdvanced(attempt: MacRecoveryAttemptState, observation: MacRecoveryObservation) -> MacRecoveryAttemptState  {
+    return try!  FfiConverterTypeMacRecoveryAttemptState_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mac_recovery_advanced(
+        FfiConverterTypeMacRecoveryAttemptState_lower(attempt),
+        FfiConverterTypeMacRecoveryObservation_lower(observation),$0
+    )
+})
+}
+/**
+ * One Retry over several Macs (All Macs): running while any runs, at the furthest step any
+ * reached; connected once one connected; else failed at the furthest step. Nil with none.
+ */
+public func macRecoveryCombined(attempts: [MacRecoveryAttemptState]) -> MacRecoveryAttemptState?  {
+    return try!  FfiConverterOptionTypeMacRecoveryAttemptState.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mac_recovery_combined(
+        FfiConverterSequenceTypeMacRecoveryAttemptState.lower(attempts),$0
+    )
+})
+}
+/**
+ * The attempt when its deadline passed with no result: failed where it stood.
+ */
+public func macRecoveryTimedOut(attempt: MacRecoveryAttemptState) -> MacRecoveryAttemptState  {
+    return try!  FfiConverterTypeMacRecoveryAttemptState_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mac_recovery_timed_out(
+        FfiConverterTypeMacRecoveryAttemptState_lower(attempt),$0
+    )
+})
+}
+/**
  * Whether the mailbox can carry an item of `kind`: a trusted box key, and for `send` and
  * `compose` the Mac listed `mailbox-send-v1` on its last link.
  */
@@ -21596,6 +24633,19 @@ public func mailboxBuild(spec: MailboxItemSpec, boxKey: String, signer: MailboxS
         FfiConverterString.lower(boxKey),
         FfiConverterTypeMailboxSigner_lower(signer),
         FfiConverterUInt64.lower(now),$0
+    )
+})
+}
+/**
+ * The Cloud inbox request for one send: `[path, json body]`, or none when the chat id, the id or
+ * the text can't go there. Posting the same id again is safe.
+ */
+public func mailboxInboxPost(chatId: String, id: String, text: String) -> [String]?  {
+    return try!  FfiConverterOptionSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mailbox_inbox_post(
+        FfiConverterString.lower(chatId),
+        FfiConverterString.lower(id),
+        FfiConverterString.lower(text),$0
     )
 })
 }
@@ -21624,6 +24674,18 @@ public func mailboxNewNonce()throws  -> String  {
 public func mailboxRoute(input: MailboxRouteInput) -> MailboxRoute  {
     return try!  FfiConverterTypeMailboxRoute_lift(try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_func_mailbox_route(
+        FfiConverterTypeMailboxRouteInput_lower(input),$0
+    )
+})
+}
+/**
+ * Link, mailbox, Cloud inbox or fail for one send with client message id `id`. The id is the same
+ * on every path, and a Cloud inbox send fails if the inbox would mint a new id.
+ */
+public func mailboxRouteFor(id: String, input: MailboxRouteInput) -> MailboxRoute  {
+    return try!  FfiConverterTypeMailboxRoute_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_mailbox_route_for(
+        FfiConverterString.lower(id),
         FfiConverterTypeMailboxRouteInput_lower(input),$0
     )
 })
@@ -21820,6 +24882,48 @@ public func shareApprovalSigned(draft: ShareApprovalDraft, signature: String, si
 })
 }
 /**
+ * The MIME type of an attached image from its bytes' signature (the first 12 are enough):
+ * PNG, JPEG, GIF or WebP, the formats agents take; `None` for any other.
+ */
+public func taskImageMimeType(head: Data) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_task_image_mime_type(
+        FfiConverterData.lower(head),$0
+    )
+})
+}
+/**
+ * A tap on `harness`'s row: picks it, or unpicks it unless it is the last. With no pick, the
+ * agent the task would start (`fallback`, shown checked) becomes a real pick first. At most
+ * `limit` agents are chosen.
+ */
+public func taskPickToggle(picks: [String], harness: String, canStart: Bool, fallback: String?, limit: UInt32) -> TaskPickToggle  {
+    return try!  FfiConverterTypeTaskPickToggle_lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_task_pick_toggle(
+        FfiConverterSequenceString.lower(picks),
+        FfiConverterString.lower(harness),
+        FfiConverterBool.lower(canStart),
+        FfiConverterOptionString.lower(fallback),
+        FfiConverterUInt32.lower(limit),$0
+    )
+})
+}
+/**
+ * The line a terminal launch types into the new workspace's shell (zsh or bash, the Mac's
+ * default shells): `cd` to the folder and, only if that worked, the agent's CLI with its model
+ * and the prompt, the uploaded attachments' paths after it. `None` for an agent with no known
+ * CLI. Every value is one ANSI-C quoted word (`$'…'`), so nothing in it runs. Options are
+ * `--flag=value` and the prompt comes after `--`, so a value starting with `-` is never taken
+ * for an option.
+ */
+public func taskTerminalLine(launch: TaskTerminalLaunch) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_task_terminal_line(
+        FfiConverterTypeTaskTerminalLaunch_lower(launch),$0
+    )
+})
+}
+/**
  * The faces `facts`' tab offers.
  */
 public func terminalChatFaces(facts: TerminalChatFacts) -> TerminalChatFaces  {
@@ -21976,6 +25080,17 @@ public func terminalZoomToggle(grid: TerminalZoomGeometry, zoom: TerminalZoomSta
 })
 }
 /**
+ * Answers one `vnc_*` op: `request` and the answer are JSON.
+ */
+public func vncJson(operation: String, request: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeVncJsonError_lift) {
+    uniffi_cmux_mobile_link_ffi_fn_func_vnc_json(
+        FfiConverterString.lower(operation),
+        FfiConverterString.lower(request),$0
+    )
+})
+}
+/**
  * Columns of the tab overview in a page `width` points wide: as many
  * [`OVERVIEW_MIN_CARD`]-wide cards as fit, two to four.
  */
@@ -21997,6 +25112,85 @@ public func windowLayout(width: Double, height: Double) -> WindowLayout  {
     uniffi_cmux_mobile_link_ffi_fn_func_window_layout(
         FfiConverterDouble.lower(width),
         FfiConverterDouble.lower(height),$0
+    )
+})
+}
+/**
+ * Each workspace's pin and sidebar place. Rowed workspaces sit by personal
+ * place, the rest after them in daemon order (the Mac's `order`); pins are
+ * the tiles of this session's workspaces, in tile order, and a flagged
+ * workspace the Mac has not turned into its tile yet shows pinned too. With
+ * groups, the place is the Mac's mixed order (`applyGroups` below).
+ */
+public func workspaceArrangementApply(input: ArrangementInput) -> [ArrangementPlace]  {
+    return try!  FfiConverterSequenceTypeArrangementPlace.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_arrangement_apply(
+        FfiConverterTypeArrangementInput_lower(input),$0
+    )
+})
+}
+/**
+ * "Close 3 workspaces?" (the phone asks first; the Mac closes at once).
+ */
+public func workspaceCloseQuestion(count: UInt32) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_close_question(
+        FfiConverterUInt32.lower(count),$0
+    )
+})
+}
+/**
+ * The rows (indices of `order`) a bulk close chosen on `workspace` closes.
+ * Home never closes (the Mac's `HomeRules`).
+ */
+public func workspaceCloseTargets(kind: WorkspaceCloseKind, workspace: String, order: [WorkspaceCloseRow]) -> [UInt32]  {
+    return try!  FfiConverterSequenceUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_close_targets(
+        FfiConverterTypeWorkspaceCloseKind_lower(kind),
+        FfiConverterString.lower(workspace),
+        FfiConverterSequenceTypeWorkspaceCloseRow.lower(order),$0
+    )
+})
+}
+/**
+ * The containers of one Mac's sidebar (the loose rows, then each group's
+ * members in the order their first rows show), each in the Mac's order
+ * (sidebar place, rows without one last, ties in input order), as indices of
+ * `rows`. The caller leaves out rows a phone may not arrange.
+ */
+public func workspaceContainers(rows: [WorkspaceContainerRow]) -> [[UInt32]]  {
+    return try!  FfiConverterSequenceSequenceUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_containers(
+        FfiConverterSequenceTypeWorkspaceContainerRow.lower(rows),$0
+    )
+})
+}
+/**
+ * The row `workspace` goes next to in `order` (its container, in the Mac's
+ * order) for Move to Top / to Bottom; none when it is already there or not
+ * in the container.
+ */
+public func workspaceEdgeAnchor(edge: WorkspaceEdgeSide, workspace: String, order: [String]) -> WorkspaceAnchor?  {
+    return try!  FfiConverterOptionTypeWorkspaceAnchor.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_edge_anchor(
+        FfiConverterTypeWorkspaceEdgeSide_lower(edge),
+        FfiConverterString.lower(workspace),
+        FfiConverterSequenceString.lower(order),$0
+    )
+})
+}
+/**
+ * `rows` (one container, in its current order) sorted by `key`, as the Mac
+ * sorts, given as indices of `rows`: `Name` in Finder order; `Directory` by
+ * folder, then name, rows without one last; `LastUsed` most recent first
+ * (rows without a time last), then the daemon's focus order. Ties keep their
+ * current order.
+ */
+public func workspaceSorted(key: WorkspaceSortBy, rows: [WorkspaceSortRow]) -> [UInt32]  {
+    return try!  FfiConverterSequenceUInt32.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_sorted(
+        FfiConverterTypeWorkspaceSortBy_lower(key),
+        FfiConverterSequenceTypeWorkspaceSortRow.lower(rows),$0
     )
 })
 }
@@ -22133,6 +25327,124 @@ public func workspaceGroupSlots(rows: [PhoneSidebarRow], groups: [PhoneWorkspace
     )
 })
 }
+/**
+ * `order` once `workspace_id` sits right before (`above`) or after
+ * `target_id`; `order` unchanged when the target is not in it.
+ */
+public func neighborMoveReordered(above: Bool, workspaceId: String, targetId: String, order: [String]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_neighbor_move_reordered(
+        FfiConverterBool.lower(above),
+        FfiConverterString.lower(workspaceId),
+        FfiConverterString.lower(targetId),
+        FfiConverterSequenceString.lower(order),$0
+    )
+})
+}
+/**
+ * The rows `workspace_id` can go next to (Move Workspace Above…, `above`
+ * true, or Below…) in `order` (its container): every other row except the
+ * one it already sits right after (above) or right before (below). Empty
+ * when it is not in `order`.
+ */
+public func neighborMoveTargets(above: Bool, workspaceId: String, order: [String]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_neighbor_move_targets(
+        FfiConverterBool.lower(above),
+        FfiConverterString.lower(workspaceId),
+        FfiConverterSequenceString.lower(order),$0
+    )
+})
+}
+/**
+ * Move Workspace Up (`offset` -1) / Down (+1) among `visible_ids` (the Mac's
+ * sidebar order, pinned tiles left out), as the Mac's `movePersonalWorkspace`:
+ * the personal index next to its neighbour. None at either end, or when the
+ * neighbour has no personal row.
+ */
+public func personalIndexMoving(rows: [PhoneSidebarRow], workspaceId: String, offset: Int64, visibleIds: [String], registryId: String) -> Int64?  {
+    return try!  FfiConverterOptionInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_personal_index_moving(
+        FfiConverterSequenceTypePhoneSidebarRow.lower(rows),
+        FfiConverterString.lower(workspaceId),
+        FfiConverterInt64.lower(offset),
+        FfiConverterSequenceString.lower(visibleIds),
+        FfiConverterString.lower(registryId),$0
+    )
+})
+}
+/**
+ * The personal index that puts `workspace_id` right before (`after` false) or
+ * right after `anchor_id` (Move Workspace to Top / to Bottom, each step of
+ * Sort Workspaces). None when either has no personal row.
+ */
+public func personalIndexPlacing(rows: [PhoneSidebarRow], workspaceId: String, anchorId: String, after: Bool, registryId: String) -> Int64?  {
+    return try!  FfiConverterOptionInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_personal_index_placing(
+        FfiConverterSequenceTypePhoneSidebarRow.lower(rows),
+        FfiConverterString.lower(workspaceId),
+        FfiConverterString.lower(anchorId),
+        FfiConverterBool.lower(after),
+        FfiConverterString.lower(registryId),$0
+    )
+})
+}
+/**
+ * The moves that turn `order` (one container) into `sorted`, one row at a
+ * time as the Mac places them: the first row before the container's current
+ * first row, each next one right after the one before it. Rows already in
+ * place are not moved.
+ */
+public func workspaceSortSteps(order: [String], sorted: [String]) -> [WorkspaceSortStep]  {
+    return try!  FfiConverterSequenceTypeWorkspaceSortStep.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_sort_steps(
+        FfiConverterSequenceString.lower(order),
+        FfiConverterSequenceString.lower(sorted),$0
+    )
+})
+}
+/**
+ * The ids of the workspaces a row can merge into: its Mac's others, never Home (the Mac's
+ * `WorkspaceMerge.staysPut`) nor one still pending, in sidebar order.
+ */
+public func workspaceMergeTargets(workspaceId: String, macId: String, rows: [WorkspaceRowFacts]) -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_merge_targets(
+        FfiConverterString.lower(workspaceId),
+        FfiConverterString.lower(macId),
+        FfiConverterSequenceTypeWorkspaceRowFacts.lower(rows),$0
+    )
+})
+}
+/**
+ * The id of the row a new workspace goes before (top) or after (bottom): the first or last of
+ * its Mac's unpinned rows other than Home and itself, in sidebar order. Nil when it is alone.
+ */
+public func workspaceNewRowAnchor(top: Bool, workspaceId: String, macId: String, rows: [WorkspaceRowFacts]) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_new_row_anchor(
+        FfiConverterBool.lower(top),
+        FfiConverterString.lower(workspaceId),
+        FfiConverterString.lower(macId),
+        FfiConverterSequenceTypeWorkspaceRowFacts.lower(rows),$0
+    )
+})
+}
+/**
+ * The places New Workspace offers beside a row: Above and Below a row this phone can
+ * arrange, at Top and at Bottom of its Mac's sidebar. None for Home, a row the phone may not
+ * arrange or a Mac it can't create on; only Top and Bottom for a pinned row (the Mac orders
+ * its pinned tiles with a layout move a phone may not send).
+ */
+public func workspaceRowPlacements(row: WorkspaceRowFacts, canArrange: Bool, canCreate: Bool) -> [WorkspaceRowPlacement]  {
+    return try!  FfiConverterSequenceTypeWorkspaceRowPlacement.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_func_workspace_row_placements(
+        FfiConverterTypeWorkspaceRowFacts_lower(row),
+        FfiConverterBool.lower(canArrange),
+        FfiConverterBool.lower(canCreate),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -22197,6 +25509,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_set_network_kind() != 35548) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_set_route_literals_path() != 31443) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_lean_stream_capabilities() != 31447) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -22234,6 +25549,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_cloud_wake_version() != 59133) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_cmux_link_parse() != 54420) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_feed_move_edit() != 55354) {
@@ -22278,10 +25596,34 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_local_link_wants_resolve() != 31019) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_reachability_action() != 9011) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_reachability_late_quiet() != 16234) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_reachability_resolve() != 46047) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_reachability_span() != 52256) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_recovery_advanced() != 61462) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_recovery_combined() != 49049) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mac_recovery_timed_out() != 35581) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_available() != 25455) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_build() != 59703) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_inbox_post() != 15764) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_lifetime_cap() != 25453) {
@@ -22291,6 +25633,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_route() != 455) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_route_for() != 6729) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_mailbox_trusted_box_key() != 23702) {
@@ -22344,6 +25689,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_share_approval_signed() != 12150) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_task_image_mime_type() != 24668) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_task_pick_toggle() != 37761) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_task_terminal_line() != 3745) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_chat_faces() != 48000) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -22380,10 +25734,31 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_func_terminal_zoom_toggle() != 6399) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_vnc_json() != 29563) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_overview_columns() != 48015) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_window_layout() != 34233) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_arrangement_apply() != 30300) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_close_question() != 20211) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_close_targets() != 44269) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_containers() != 41600) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_edge_anchor() != 25436) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_sorted() != 1266) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_pending_group_edit_step() != 30336) {
@@ -22414,6 +25789,30 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_group_slots() != 48426) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_neighbor_move_reordered() != 10289) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_neighbor_move_targets() != 31307) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_personal_index_moving() != 566) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_personal_index_placing() != 56176) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_sort_steps() != 4292) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_merge_targets() != 44564) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_new_row_anchor() != 60987) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_func_workspace_row_placements() != 36676) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_channelhandle_close() != 40361) {
