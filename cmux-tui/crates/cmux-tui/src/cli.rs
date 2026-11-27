@@ -940,6 +940,21 @@ fn chief_write_refusal(_plan: &CommandPlan) -> Option<serde_json::Value> {
     None
 }
 
+fn agent_card_if_requested(args: &[String]) -> Option<i32> {
+    let (global, command) = parse_globals(args).ok()?;
+    let json_flag = command.iter().any(|w| w == "--json");
+    let words: Vec<&str> = command.iter().map(String::as_str).filter(|w| *w != "--json").collect();
+    let what = match words.as_slice() {
+        ["capabilities"] => "capabilities",
+        ["machine", "info"] => "machine",
+        _ => return None,
+    };
+    let json = json_flag || matches!(global.output, OutputMode::Json | OutputMode::JsonLines);
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+    println!("{}", acpmux::agent_card::cli(what, json, &cwd));
+    Some(0)
+}
+
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
     let surface = Surface::current();
     if let Ok((_, command)) = parse_globals(args) {
@@ -947,6 +962,11 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
     }
     // `cmux completion zsh|bash|fish` and the scripts' `cmux __complete -- WORDS`.
     if let Some(code) = completion::run_if_requested(args) {
+        return code;
+    }
+    // `cmux capabilities` and `cmux machine info`: what cmux lets an agent do in a chat here and
+    // this machine's numbers, the card a new chat gets in its system context (acpmux agent_card.rs).
+    if let Some(code) = agent_card_if_requested(args) {
         return code;
     }
     #[cfg(unix)]
