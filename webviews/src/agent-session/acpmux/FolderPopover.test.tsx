@@ -24,6 +24,7 @@ async function openPicker(
   folders: { id: string; label: string; repo?: { root: string; top?: string; name: string; branch?: string } }[] = [
     { id: "/projects/cmux", label: "cmux" },
   ],
+  props: Partial<React.ComponentProps<typeof FolderPopover>> = {},
 ) {
   dom = new JSDOM("<!doctype html><main></main>", { url: "http://localhost/", pretendToBeVisual: true });
   const { window } = dom;
@@ -55,6 +56,7 @@ async function openPicker(
         folders={folders}
         onPick={() => {}}
         onBrowse={() => {}}
+        {...props}
       />,
     ),
   );
@@ -114,4 +116,25 @@ test("a worktree count click holds the menu's height until the pointer leaves", 
   expect(held()).toBe("180px");
   await act(async () => popup().dispatchEvent(new window.MouseEvent("pointerleave")));
   expect(held()).toBe("");
+});
+
+async function typePath(window: JSDOM["window"], popup: () => HTMLElement, text: string) {
+  const input = popup().querySelector<HTMLInputElement>("input")!;
+  const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+  await act(async () => {
+    setValue.call(input, text);
+    input.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+}
+
+test("Cloud picked for a chat from this Mac offers a typed path of this Mac (macPaths); a machine's list does not", async () => {
+  const path = "/Users/cmux/start-matrix-small";
+  const thisMac = await openPicker(300, undefined, { sources: { cloudFolders: [] }, macPaths: true });
+  await typePath(thisMac.window, thisMac.popup, path);
+  expect(thisMac.popup().querySelector("[data-use-path]")?.textContent).toContain(path);
+  await act(async () => root?.unmount());
+  root = undefined;
+  const machine = await openPicker(300, undefined, { sources: { cloudFolders: [] } });
+  await typePath(machine.window, machine.popup, path);
+  expect(machine.popup().querySelector("[data-use-path]")).toBeNull();
 });

@@ -55,6 +55,7 @@ export function FolderPopover({
   sources,
   cloningRepository,
   pendingRepository,
+  macPaths = false,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -80,6 +81,9 @@ export function FolderPopover({
   cloningRepository?: string;
   /// A GitHub repository picked with This Mac picked, not checked out yet: Return checks it out (cmux#53226).
   pendingRepository?: string;
+  /// Cloud picked for a chat from this Mac, whose list is this Mac's folders (ComposerContext cloudListsThisMac):
+  /// a typed path of this Mac is offered too, as with This Mac, and the Cloud start copies it.
+  macPaths?: boolean;
 }) {
   const t = useT();
   const [query, setQuery] = useState("");
@@ -207,7 +211,7 @@ export function FolderPopover({
       return next;
     });
   };
-  const typedPath = !cloud && /^(?:\/|~\/)/.test(typed) && !shown.has(typed) ? typed : undefined;
+  const typedPath = (!cloud || macPaths) && /^(?:\/|~\/)/.test(typed) && !shown.has(typed) ? typed : undefined;
   // The GitHub repositories added as projects, read as the menu opens.
   const [added, setAdded] = useState<readonly AddedRepo[]>(NO_REPOS);
   // The repositories a listed folder is a clone of: that folder is their row. Listing the account's

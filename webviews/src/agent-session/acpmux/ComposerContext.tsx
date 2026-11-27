@@ -1237,6 +1237,7 @@ export function ComposerContext({
               newProject={newProject}
               cloningRepository={cloningRepository}
               {...(pendingRepository ? { pendingRepository } : {})}
+              macPaths={cloudSide && cloudListsThisMac}
               onNewWorktree={
                 !cloudSide && currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined
               }
