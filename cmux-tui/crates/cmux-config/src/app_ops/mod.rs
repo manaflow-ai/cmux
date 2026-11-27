@@ -19,8 +19,10 @@
 //!   different places and merge cleanly; no area answers another's op, so
 //!   the order is only for merging.
 
+pub mod backdrop_switch;
 pub mod chrome_theme;
 pub mod controller;
+pub mod custom;
 pub mod effective;
 pub mod fields;
 pub mod home_table;
@@ -54,8 +56,10 @@ pub enum OpError {
 /// op that is not its own.
 type AreaCall = fn(&str, &Value) -> Option<Result<Value, OpError>>;
 const AREAS: &[AreaCall] = &[
+    backdrop_switch::call,
     chrome_theme::call,
     controller::call,
+    custom::call,
     effective::call,
     fields::call,
     home_table::call,

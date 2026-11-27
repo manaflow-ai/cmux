@@ -2779,6 +2779,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/wireguard_admit",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/host_overload",
       "params": true,
       "result": true

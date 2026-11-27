@@ -149,6 +149,30 @@ class Plan(unittest.TestCase):
         self.assertEqual(v["changed"], ["a.png"])
         self.assertTrue(v["diffed"] and v["video"])
         self.assertFalse(ios_verify.visual(caps, None, None)["diffed"])
+        self.assertEqual(ios_verify.visual(caps, {"source": "nightly"}, None)["baseline_source"], "nightly")
+        self.assertEqual(ios_verify.visual(caps, None, None)["baseline_source"], "none")
+
+    def test_baseline_prefers_a_proof_in_the_nightly(self):
+        rec = dict(RECORD, runs=[dict(RECORD["runs"][0], mode="test")])
+        body = pr.render(rec)
+        merges = {1: "m1", 2: "m2"}
+        saved = (ios_verify.nightly_sha, ios_verify.search_prs, ios_verify.gh_json, ios_verify.in_nightly,
+                 ios_verify.fetch)
+        try:
+            ios_verify.nightly_sha = lambda: "n" * 40
+            ios_verify.search_prs = lambda repo, q: [{"number": 1}, {"number": 2}]
+            ios_verify.gh_json = lambda *a: ({"merge_commit_sha": merges[int(a[1].rsplit("/", 1)[1])]}
+                                             if "/pulls/" in a[1] else [comment(body, login="x")])
+            ios_verify.in_nightly = lambda sha, n: sha == "m2"
+            ios_verify.fetch = lambda step, into: [pathlib.Path("a.png")]
+            meta, shots = ios_verify.baseline("o/r", "feat-cmux-next", pathlib.Path("/nonexistent"))
+            self.assertEqual((meta["pr"], meta["source"]), (2, "nightly"))
+            ios_verify.in_nightly = lambda sha, n: False
+            meta, _ = ios_verify.baseline("o/r", "feat-cmux-next", pathlib.Path("/nonexistent"))
+            self.assertEqual((meta["pr"], meta["source"]), (1, "merged"))
+        finally:
+            (ios_verify.nightly_sha, ios_verify.search_prs, ios_verify.gh_json, ios_verify.in_nightly,
+             ios_verify.fetch) = saved
 
 
 class Launcher(unittest.TestCase):
