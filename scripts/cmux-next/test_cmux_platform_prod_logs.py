@@ -390,6 +390,19 @@ class ProjectionTests(unittest.TestCase):
                                               "mode": kept, "lacks": True, "shared": False})
                 self.assertNotIn(TEAM, json.dumps(row))
 
+    def test_the_edge_dns_check_keeps_outcome_exit_and_why_but_no_upstream(self):
+        # Production 2026-11-26 21:46Z: a fresh create's agents had no edge route and this line was dropped unlisted (hq#30520).
+        row = logs.line(event({"msg": "cloud.machine.edge_dns", "team": TEAM, "machine": VM, "why": "bind",
+                               "outcome": "kicked", "exit": 0, "dns_upstream": "10.0.0.2,", "ms": 4210}))
+        self.assertEqual(row["log"], {"msg": "cloud.machine.edge_dns", "team": logs.base.tag(TEAM),
+                                      "machine": logs.base.tag(VM), "outcome": "kicked", "ms": 4210,
+                                      "exit": 0, "why": "bind"})
+        odd = logs.line(event({"msg": "cloud.machine.edge_dns", "machine": VM, "why": "free text", "exit": True,
+                               "outcome": "unresolved"}))
+        self.assertNotIn("why", odd["log"])
+        self.assertNotIn("exit", odd["log"])
+        self.assertNotIn("10.0.0.2", json.dumps(row))
+
     def test_a_spare_claim_keeps_its_skip_reasons_steps_and_path(self):
         # Production 2026-11-26 16:09Z: a claim saw one spare and created, and the row read only `spares: 1` (hq#29939).
         row = logs.line(event({"msg": "machines.spare.claim", "team": TEAM, "spares": 1,

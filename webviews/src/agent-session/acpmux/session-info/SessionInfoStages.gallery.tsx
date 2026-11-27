@@ -16,10 +16,11 @@ import { setHeaderState } from "../header/headerState";
 import { setSessionInfoOpen } from "./sessionInfoState";
 import { GalleryPane } from "./SessionInfoSurfaces.gallery";
 import { SESSION_INFO, SESSION_INFO_TOGGLE } from "./sessionInfoSelectors";
+import type { SessionInfoPlacement } from "./sessionInfoModel";
 
 /// Opens or closes the panel with its toggle under a placement (Settings > Agent Chat > Session Info).
 const place =
-  (placement: "overlay" | "push", open: boolean): Play =>
+  (placement: SessionInfoPlacement, open: boolean): Play =>
   async (ctx) => {
     setChatDisplay({ "agentPane.display.sessionInfo.placement": placement });
     const wrong = `button.acpmux-session-info-toggle[aria-pressed="${open ? "false" : "true"}"]`;
@@ -58,6 +59,11 @@ export default componentEntry<{ surface: "transcript" }>({
       note: "Settings Push always: it takes its whole room at 1600px and 1200px, so the column moves left even where the gutter has room; over the chat at 1100px.",
       props: { surface: "transcript" },
       play: place("push", true),
+    },
+    inline: {
+      note: "Settings Inline: a band atop the transcript under the header, across the chat's column, at every width; the chat keeps its whole width and nothing floats over it.",
+      props: { surface: "transcript" },
+      play: place("inline", true),
     },
   },
 });
