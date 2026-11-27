@@ -743,6 +743,10 @@ path = "tests/test_ci_production_secrets_protected_env.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_proof_record.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_protocol_skew_check.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_protocol_skew_check.py"
@@ -1119,6 +1123,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_tui_routes_avoid_nightly_label.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ui_proof_verdict.py"
 lane = "linux-guard"
 
 [[test]]
