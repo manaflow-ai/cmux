@@ -151,11 +151,20 @@ def main() -> int:
             continue
         # A group is the requirement; whether it cancels a superseded pull
         # request run is checked by test_ci_pr_runs_cancel_superseded.py.
-        if not workflow.get("concurrency") and path.name not in OWN_SUPERSESSION:
+        if workflow.get("concurrency") or path.name in OWN_SUPERSESSION:
+            continue
+        for job_id, job in (workflow.get("jobs") or {}).items():
+            if job.get("concurrency"):
+                continue
+            # This gate compares adjacent heads. Cancelling it on the next push
+            # could lose the only measurement of a chat-pane change. The report
+            # itself must still have its own concurrency group.
+            if (path.name == "chat-open-perf-report.yml" and job_id == "changed"
+                    and job.get("timeout-minutes") == 3):
+                continue
             failures.append(
-                f"{path.relative_to(ROOT)} runs on pull_request with no "
-                "concurrency group, so every push leaves the superseded run "
-                "running"
+                f"{path.relative_to(ROOT)}:{job_id} runs on pull_request with no "
+                "workflow or job concurrency group, so every push leaves the superseded job running"
             )
 
     for name, reason in sorted(OWN_SUPERSESSION.items()):
@@ -173,7 +182,7 @@ def main() -> int:
 
     print(
         f"{len(REQUIRED_CONTEXTS)} required and always-bounded checks are bounded; "
-        "every pull_request workflow has a concurrency group"
+        "superseded pull request jobs are bounded"
     )
     return 0
 

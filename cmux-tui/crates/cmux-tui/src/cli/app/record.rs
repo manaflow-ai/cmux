@@ -42,6 +42,7 @@ pub(super) const MAX_FRAMES: u64 = 1800;
 /// of ms to capture and encode; eight cover 60 fps with room, measured on a mini at 40 fps with six.
 const CONNECTIONS: usize = 8;
 /// One capture's own deadline. A frame that misses it is a failed frame, not a failed recording.
+// timeout: a capture that misses it is one failed frame of the recording, counted in its report, never a failed recording.
 const FRAME_TIMEOUT: Duration = Duration::from_secs(10);
 /// The extensions `--out` encodes to a movie.
 const MOVIE_EXTENSIONS: &[&str] = &["mp4", "mov", "m4v"];
