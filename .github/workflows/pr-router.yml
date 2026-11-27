@@ -227,24 +227,62 @@ jobs:
           else
             desc="Cheap tier: the full tier runs when ready-to-land or full-ci is added"
           fi
-          # Each token in turn, LAND_STATUS_ROUNDS rounds: a spent budget or a 5xx on one is retried on the next, then again.
+          # Each token in turn (an unset pool slot is skipped with no call). A 5xx or other transient error is retried
+          # for LAND_STATUS_ROUNDS rounds, LAND_STATUS_RETRY_S * round apart. A spent hourly budget is not slept off
+          # blind: when every token tried says "rate limit", the earliest reset among them (GET /rate_limit, which
+          # costs no budget) decides. Within LAND_STATUS_MAX_WAIT_S it waits until then and tries once more; past it
+          # (or with 0, the route job's) it stops at once, unposted. 2026-11-27 01:40-02:40Z this job ran 84 times
+          # on cmux-linux, about 711 runner-min/h, nearly all of it asleep between six rounds of rate-limited tries;
+          # 16 of them slept the full 15 minutes and failed anyway. Recovery after an unposted exit: a rerun, or
+          # land-judge's land_tier pulse of ready-to-land, which starts a fresh pr-router run that posts.
           rounds="${LAND_STATUS_ROUNDS:-3}"
+          max_wait="${LAND_STATUS_MAX_WAIT_S:-0}"
           err="$(mktemp)"
-          for round in $(seq 1 "$rounds"); do
+          waited=0
+          round=1
+          while :; do
+            limited=0
+            tried=0
+            reset=""
             # shellcheck disable=SC2086 # POOL_TOKENS is a space-separated list
             for token in "$APP_TOKEN" ${POOL_TOKENS:-} "$JOB_TOKEN"; do
               [ -n "$token" ] || continue
+              tried=$((tried + 1))
               if GH_TOKEN="$token" gh api "repos/$REPO/statuses/$SHA" -f state="$STATE" -f context=cmux/land-tier \
                   -f description="${desc:0:140}" -f target_url="$RUN_URL" >/dev/null 2>"$err"; then
                 exit 0
               fi
               cat "$err" >&2
+              if grep -qi "rate limit" "$err"; then
+                limited=$((limited + 1))
+                r="$(GH_TOKEN="$token" gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || true)"
+                case "$r" in
+                  ''|*[!0-9]*) ;;
+                  *) { [ -z "$reset" ] || [ "$r" -lt "$reset" ]; } && reset="$r" ;;
+                esac
+              fi
             done
-            [ "$round" = "$rounds" ] || sleep "$((LAND_STATUS_RETRY_S * round))"
+            if [ "$tried" -gt 0 ] && [ "$limited" = "$tried" ]; then
+              # Every token is out of budget: wait for the first reset only when it is near, and only once.
+              now="$(date +%s)"
+              wait_s=$(( ${reset:-$((now + 3600))} - now + 5 ))
+              [ "$wait_s" -ge 5 ] || wait_s=5
+              if [ "$waited" = 0 ] && [ "$wait_s" -le "$max_wait" ]; then
+                echo "every token is rate-limited; the first budget resets in ${wait_s} s: waiting once"
+                sleep "$wait_s"
+                waited=1
+                continue
+              fi
+              echo "every token is rate-limited (first reset in ${wait_s} s, over this job's ${max_wait} s wait): not sleeping it off here"
+              break
+            fi
+            [ "$round" -lt "$rounds" ] || break
+            sleep "$((LAND_STATUS_RETRY_S * round))"
+            round=$((round + 1))
           done
           last="$(tail -n 1 "$err" | cut -c1-200)"
           echo "unposted=true" >> "${GITHUB_OUTPUT:-/dev/null}"
-          echo "::error::cmux/land-tier ($STATE) was not posted at $SHA after $rounds rounds (last: $last): its land waits on the last state posted there until a post gets through (rerun: gh run rerun $GITHUB_RUN_ID --failed)"
+          echo "::error::cmux/land-tier ($STATE) was not posted at $SHA (last: $last): its land waits on the last state posted there until a post gets through (rerun: gh run rerun $GITHUB_RUN_ID --failed)"
           exit 1
       # `cmux/ios-fast` (pr_router.py ios_status): success at once on a head that touches nothing iOS builds, so a
       # ruleset can require it; pending on an iOS-affecting head until ios-fast-status posts its verdict. Leo,
@@ -263,15 +301,16 @@ jobs:
         run: python3 -I scripts/ci/ios_fast_verdict.py status "$STATE" "$DESCRIPTION"
 
   land-tier-status:
-    # Runs only when the route job's post did not get through (spent budget, a refused description): it retries
-    # for about 15 minutes, long enough for an installation's hourly budget to come back, and fails red when it
+    # Runs only when the route job's post did not get through (spent budget, a refused description): when every
+    # token is rate-limited it waits for the first budget reset only if that is within a minute (read from
+    # GET /rate_limit), else fails at once instead of sleeping on a runner; one short retry covers 5xx; it fails red when it
     # still cannot, so the PR shows a red check instead of a `pending` that nothing will move. `gh run rerun --failed`
     # posts it again. Same script as the route job's step (the land-tier-post anchor).
     name: land tier status post
     needs: [route]
     if: ${{ needs.route.outputs.land_status_unposted == 'true' }}
     runs-on: cmux-linux
-    timeout-minutes: 20
+    timeout-minutes: 5
     permissions:
       statuses: write
     steps:
@@ -288,7 +327,7 @@ jobs:
           repositories: ${{ github.event.repository.name }}
           permission-statuses: write
       - name: Post the land tier status
-        timeout-minutes: 18
+        timeout-minutes: 4
         env:
           APP_TOKEN: ${{ steps.land-status-token.outputs.token }}
           POOL_TOKENS: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
@@ -297,8 +336,9 @@ jobs:
           SHA: ${{ github.event.pull_request.head.sha }}
           STATE: ${{ needs.route.outputs.land_status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          LAND_STATUS_RETRY_S: '60'
-          LAND_STATUS_ROUNDS: '6'
+          LAND_STATUS_RETRY_S: '15'
+          LAND_STATUS_ROUNDS: '2'
+          LAND_STATUS_MAX_WAIT_S: '60'
         run: *land-tier-post
 
   machine-channel-pr-head:

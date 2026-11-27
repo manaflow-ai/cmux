@@ -406,6 +406,20 @@ class ProjectionTests(unittest.TestCase):
         for leak in (TEAM, VM, "hunter2", "token=abc", "free text"):
             self.assertNotIn(leak, text)
 
+    def test_a_failed_spare_promotion_keeps_its_step_image_revision_and_recycled(self):
+        # cmux-platform#2318: a spare whose bind's edge name check stayed unresolved leaves the pool; the cold-start
+        # tables count these per image, so the image's build revision is kept and the rest of its name dropped.
+        row = logs.line(event({"msg": "cloud.spare.promotion_failed", "team": TEAM, "step": "edge_dns",
+                               "image": "cmuxnp-prod-vmimg-2d3eba54c1-2-1", "recycled": True, "error": "x y"}))
+        self.assertEqual(row["log"], {"msg": "cloud.spare.promotion_failed", "team": logs.base.tag(TEAM),
+                                      "step": "edge_dns", "recycled": True, "image_rev": "2d3eba54",
+                                      "error": True})
+        self.assertNotIn("cmuxnp-prod", json.dumps(row))
+        for image in ("no-revision-here", 7, "x" * 97):
+            with self.subTest(image=image):
+                row = logs.line(event({"msg": "cloud.spare.promotion_failed", "step": "edge_dns", "image": image}))
+                self.assertNotIn("image_rev", row["log"])
+
     def test_the_spare_gateway_read_keeps_its_booleans_and_mode(self):
         # cmux-platform#1629: the 2026-11-22 09:13Z gateway claim's line was dropped unlisted (hq#18324).
         for mode, kept in (("gateway", "gateway"), (None, "null"), ("unread", "unread")):
