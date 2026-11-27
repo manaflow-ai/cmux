@@ -117,6 +117,12 @@ jobs:
             # Not started within QUEUE_WAIT_S: the step would stay queued and build for nobody.
             "$client" cancel "$step" --reason "nightly pr build: not started within ${QUEUE_WAIT_S}s" || true
           fi
+          if [[ "$status" != 0 ]] && grep -q 'source depot full' "$log"; then
+            # The controller refused admission because its source depot was full (HTTP 503, or a step that
+            # "failed on no worker"): no Mac built anything, so this is no verdict on the PR, like 69. Exit 1
+            # here blocked land-judge on runs 46033734368 (#61459) and 46031330461 (#61407).
+            status=69
+          fi
           case "$status" in
             0) echo "passed=true" >> "$GITHUB_OUTPUT" ;;
             69|75|124) echo "::warning title=nightly app compile::the fleet job gave no verdict (exit $status: 69 controller unavailable, 75 or 124 did not finish); not judged" ;;
