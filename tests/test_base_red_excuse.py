@@ -10839,7 +10839,7 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
                     self.assertIsNone(suites.known[("CS_20", TreeReuseGitHub.MAC)])
 
     def test_a_suite_read_the_held_login_refused_is_judged_over_rest(self):
-        # cmux#58620 at a4b7e5010614 (2026-11-27 10:31Z, gcp-agent-lane-21): every REST read of the judgement went on
+        # cmux#58620 at a4b7e5010614 (2026-11-27 10:31Z, a lane VM): every REST read of the judgement went on
         # the read-pool App and answered, but the suite checks are GraphQL, which the lane-gh broker sends on the
         # shared login; it answered the by-commit read for "cmux-next checks (god files, concurrency, crash safety,
         # l10n)" with "GitHub's secondary rate limit holds login until 10:32Z ... retry after 84s", and the whole
