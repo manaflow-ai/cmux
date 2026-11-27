@@ -318,6 +318,7 @@ pub(crate) mod queue_origin;
 mod queued_turn;
 pub mod races;
 pub(crate) mod rate_hold;
+mod recent_creates;
 mod rediscover;
 #[cfg(test)]
 mod refused_append_tests;
@@ -1644,6 +1645,8 @@ pub struct Hub {
     pub(crate) peer_accepts: outbox::PeerAccepts,
     /// A peer's live asks for sessions it has not listed yet (`held_asks.rs`).
     pub(crate) held_peer_asks: held_asks::HeldAsks,
+    /// Sessions just created on another machine (`recent_creates.rs`).
+    pub(crate) recent_creates: recent_creates::RecentCreates,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
@@ -2043,6 +2046,7 @@ impl Hub {
             watches: Default::default(),
             peer_accepts: Default::default(),
             held_peer_asks: Default::default(),
+            recent_creates: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
             #[cfg(all(unix, feature = "tailnet"))]
