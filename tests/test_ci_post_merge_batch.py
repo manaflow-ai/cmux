@@ -568,13 +568,17 @@ class GuardTest(unittest.TestCase):
 
     def test_a_conflicted_revert_still_red_tells_the_culprits_pr_once(self) -> None:
         api, calls, args = self._conflict_api("failure")
-        culprit = pmb.git("rev-parse", "HEAD~1").strip()
-        line = pmb.revert_conflict(args, culprit, "123", ["scripts/ci/post_merge_batch.py"], api=api)
+        # Fleet source bundles and shallow checkouts need not contain a parent.
+        culprit = "d" * 40
+        with mock.patch.object(pmb, "git", return_value="abc1234 Fix forward\n") as history:
+            line = pmb.revert_conflict(args, culprit, "123", ["scripts/ci/post_merge_batch.py"], api=api)
+        history.assert_called_once_with("log", "--format=%h %s", f"{culprit}..HEAD", "--", "scripts/ci/post_merge_batch.py")
         posts = [c for c in calls if c[1].get("method") == "POST"]
         self.assertEqual([p[0] for p in posts], ["repos/o/r/issues/123/comments"])
         body = posts[0][1]["fields"]["body"]
         self.assertIn(pmb.CONFLICT_MARK.format(culprit=culprit, job=args.job), body)
         self.assertIn("`web / Web tests 1/2`", body)
+        self.assertIn("abc1234 Fix forward", body)
         self.assertIn("told #123's owner", line)
         mark = pmb.CONFLICT_MARK.format(culprit=culprit, job=args.job)
         api, calls, args = self._conflict_api("failure", comments=[{"body": mark}])
@@ -851,6 +855,52 @@ class KnownVerdictTest(unittest.TestCase):
     def test_an_earlier_probe_without_verdict_is_probed_again(self) -> None:
         sent, _ = self.judge({"c": "cancelled"})
         self.assertEqual([p.sha for p in sent], ["c" * 40])
+
+    def test_an_earlier_skipped_probe_is_not_probed_again(self) -> None:
+        sent, out = self.judge({"c": "skipped"})
+        self.assertEqual((sent, out["culprit"]), ([], ""))
+
+
+class SkippedProbeTest(unittest.TestCase):
+    """Probes 716208d2c92 and d98c77aec8a (compile-fleet, 11-27): the job's own condition skipped it, and each ran three times."""
+
+    def test_a_skipped_probe_is_not_retried(self) -> None:
+        probe = pmb.Probe("s", "s / j", "j", "c1", "g", "c3", "1")
+        self.assertEqual(pmb.next_step(probe, "skipped", ["c1", "c2", "c3"]), ("lost", None))
+
+    def test_a_skip_behind_a_lost_job_is_no_verdict(self) -> None:
+        probe = pmb.Probe("s", "s / j", "j", "c1", "g", "c3", "1")
+        self.assertEqual(pmb.probe_conclusion({"s / j": ("s", "skipped"), "s / plan": ("s", "cancelled")}, probe), "")
+        self.assertEqual(pmb.probe_conclusion({"s / j": ("s", "skipped"), "s / plan": ("s", "success")}, probe), "skipped")
+
+
+class FirstUnknownProbeTest(unittest.TestCase):
+    """A stuck red's bisect starts again about hourly: its first probe skips the commits earlier bisects probed."""
+    commits = [c * 40 for c in "bcdefghi"]  # good a, bad i
+
+    def first(self, earlier: dict[str, str]):
+        runs = [{"id": 100 + n, "status": "completed", "display_title": f"{pmb.PROBE} s j at {sha * 40}"} for n, sha in enumerate(earlier)]
+        verdicts = {100 + n: ({"s / j": ("s", c)}, True) for n, c in enumerate(earlier.values())}
+        start = pmb.stuck_probe("s / j", "s", "j", "a" * 40, "i" * 40, "1", self.commits)
+        return pmb.first_unknown_probe(runs, start, self.commits, lambda rid: verdicts[rid])
+
+    def test_no_earlier_probe_starts_mid_range(self) -> None:
+        probe, notes = self.first({})
+        self.assertEqual((probe.sha, notes), ("e" * 40, []))
+
+    def test_known_verdicts_move_the_first_probe(self) -> None:
+        # e failed earlier: b..e, its middle c; c passed earlier: d..e, its middle d.
+        probe, notes = self.first({"e": "failure", "c": "success"})
+        self.assertEqual((probe.sha, probe.good, probe.bad, len(notes)), ("d" * 40, "c" * 40, "e" * 40, 2))
+
+    def test_a_known_verdict_that_ends_the_bisect_keeps_its_probe(self) -> None:
+        probe, _ = self.first({"e": "failure", "c": "success", "d": "failure"})
+        self.assertEqual(probe.sha, "d" * 40)  # its judge reads d as the culprit, as before
+
+    def test_a_known_skip_dispatches_nothing(self) -> None:
+        probe, notes = self.first({"e": "skipped"})
+        self.assertIsNone(probe)
+        self.assertEqual(len(notes), 1)
 
 
 class ListRunsLookbackTest(unittest.TestCase):
