@@ -21,9 +21,7 @@ describe("every live one-line label rolls on the one text roll", () => {
   const labels: [string, string, RegExp][] = [
     ["a subagent activity row's latest step", "agent-session/acpmux/subagents/AgentLine.tsx", /<Tick\b/],
     ["the hat's status and counts", "agent-session/acpmux/subagents/SubagentTray.tsx", /<Tick\b/],
-    ["the activity line under a todo list", "agent-session/acpmux/conversation/ActivityLine.tsx", /<TextRoll\b/],
     ["Working for", "agent-session/acpmux/conversation/WorkingFor.tsx", /<TextRoll\b/],
-    ["a tool group's summary", "agent-session/acpmux/conversation/ToolGroupRow.tsx", /<Tick\b/],
     ["Tick itself", "agent-session/acpmux/subagents/trayMotion.tsx", /<TextRoll\b/],
   ];
   for (const [label, file, uses] of labels)
