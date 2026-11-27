@@ -904,6 +904,7 @@ impl Hub {
         }
         let (data, start, len) = page().map_err(|e| transfer_error("read", e))?;
         let next = start + data.len() as u64;
+        super::transfer_watch::note_paged(&dir);
         super::transfer_watch::note_activity(&dir, (next == len).then_some(path));
         Ok(json!({"data": BASE64.encode(&data), "next": next, "eof": next == len}))
     }
