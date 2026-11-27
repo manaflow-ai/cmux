@@ -51,6 +51,13 @@ mod verbs;
 #[cfg(all(test, unix))]
 mod tests;
 
+/// The pids the session records of `home` name, read only: a daemon that came through a restart's
+/// exec in place reaps those that are its children (`daemon/handoff.rs`).
+#[cfg(unix)]
+pub(crate) fn session_pids(home: &std::path::Path) -> Vec<u32> {
+    records::pids(&records::dir(home))
+}
+
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 

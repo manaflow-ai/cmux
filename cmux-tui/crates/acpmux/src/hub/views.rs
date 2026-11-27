@@ -1319,6 +1319,9 @@ impl Hub {
             "exeStable": exe_unstable.is_none(),
             "exeUnstable": exe_unstable,
             "startedAt": self.started_at,
+            // How many restarts this pid came through as an exec in place (`daemon/handoff.rs`):
+            // 0 on a normal start. `daemon restart` waits for it to grow.
+            "handoffs": crate::daemon::handoffs(),
             // What kind of device this machine is (`cmux-device-kind`), so the app draws This
             // Mac with its own glyph (a Mac mini as a Mac mini) beside the peers' `health.device`.
             "device": cmux_device_kind::this_device().kind.as_str(),

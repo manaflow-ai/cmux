@@ -65,6 +65,9 @@ fn the_successor_gets_this_daemons_flags_but_not_its_fds() {
         "--memory",
         "--person-key-fd=4",
         "--take-over",
+        "--handoff-unix-fd",
+        "8",
+        "--handoff-count=2",
         "--dev",
     ]
     .map(String::from)

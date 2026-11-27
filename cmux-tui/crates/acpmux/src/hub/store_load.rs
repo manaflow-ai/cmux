@@ -17,7 +17,9 @@ impl Hub {
     pub async fn load_store_async(self: &Arc<Self>) {
         let hub = self.clone();
         let result = tokio::task::spawn_blocking(move || {
+            tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store load");
             hub.load_from_store(true);
+            tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store installed");
             // Before spawns are released, after the index is complete. This sweep must never
             // mistake the initially empty in-memory session map for an empty store.
             #[cfg(unix)]
@@ -29,6 +31,7 @@ impl Hub {
         }
         self.watch_orphans();
         self.store_load.ready.send_replace(true);
+        tracing::debug!(target: crate::daemon::HANDOFF_TIMING, "handoff timing: store loaded");
         // Chats read now get the synced winners kept for them (`synced.rs`).
         self.synced_after_start();
         // Chats with no agent may leave memory (`evict.rs`): the reaper runs for them too.
