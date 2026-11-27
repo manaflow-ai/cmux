@@ -222,9 +222,7 @@ test("an extension with its own server gets Approve Credential, and the credenti
 test("a server the person has not allowed offers no credential, and a refusal shows the reason", async () => {
   const off = await renderCard(<ExtensionsCard />, {
     setup: (provider) => {
-      provider.extensionServers = [
-        { app: "acme/off", name: "Off", enabled: true, kind: "external", approved: false },
-      ];
+      provider.extensionServers = [{ app: "acme/off", name: "Off", enabled: true, kind: "external", approved: false }];
     },
   });
   const button = server(off.container, "acme/off").querySelector<HTMLButtonElement>("[data-server-approve]")!;
