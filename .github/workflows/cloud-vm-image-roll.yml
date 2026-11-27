@@ -273,14 +273,11 @@ jobs:
       large_image: ${{ inputs.large_image == true }}
       cmux_tui_commit: ${{ needs.plan.outputs.pin }}
     # The bake's Freestyle key and UI test login are repository secrets: a called workflow gets them only when
-    # passed, so exactly these six pass (never `secrets: inherit`). The bake job runs in cmux-next-vm-image-dev.
+    # passed, so exactly these three pass (never `secrets: inherit`). The bake job runs in cmux-next-vm-image-dev.
     secrets:
       FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
       CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_UITEST_STACK_EMAIL }}
       CMUX_UITEST_STACK_PASSWORD: ${{ secrets.CMUX_UITEST_STACK_PASSWORD }}
-      CF_R2_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
-      CF_R2_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
-      CF_R2_ACCOUNT_ID: ${{ secrets.CF_R2_ACCOUNT_ID }}
 
   promote:
     needs: [plan, bake]
