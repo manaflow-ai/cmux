@@ -26,11 +26,6 @@ EXEMPTIONS: dict[str, str] = {
     # whole, which contains each backend path the pull_request list names.
     "cmux-vm-cloud.yml": "push covers backend/** on codex/vm-api-cloud-* branches; pull requests "
     "name the cloud-VM API files inside it",
-    # The push filter only registers the workflow on feat-cmux-next (its jobs skip on push); pull requests take
-    # only the paths a look can apply without a build (the workflow's path gate).
-    "cmux-tui-spec.yml": "pull requests start every run and the `changes` job decides from the diff "
-    "(cmux-tui-spec-changed.py); the push list is the same decision made by GitHub. The pull request trigger lists "
-    "only `types` (opened, synchronize, reopened, ready_for_review: a draft skips its jobs until it is ready)",
     "cmux-next-hot-verify.yml": "push names only its own file, to register the workflow for dispatch; pull "
     "requests name the paths a no-build look can apply (web and Rust layers)",
     # #55455: the push runs only the `seed` job, which fills the R2 dependency cache from its key's inputs; the
