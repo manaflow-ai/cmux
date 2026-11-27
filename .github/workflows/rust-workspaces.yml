@@ -496,9 +496,6 @@ jobs:
           echo "tier=$tier"
           echo "tier=$tier" >> "$GITHUB_OUTPUT"
 
-      - name: Test the workspace check
-        run: python3 .github/scripts/test_rust_workspaces.py
-
       - name: Every Cargo workspace is listed
         run: python3 .github/scripts/rust-workspaces.py check
 
@@ -528,6 +525,23 @@ jobs:
             [[ -n "$fetched" ]] || echo "::warning::could not fetch $BASE_SHA; planning every workspace after 3 tries"
           fi
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+
+      # The test drives rust-workspaces.py on a scratch repository with a fake cargo, so only a change to the script, the
+      # test or this workflow can change its result (7 s of each plan, about 1.2k runs a day). A pull request whose
+      # comparison base is known runs it only then; a push, a dispatch, the post-merge batch or a failed base fetch
+      # run it every time, as before.
+      - name: Test the workspace check
+        env:
+          BASE_SHA: ${{ steps.base.outputs.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == pull_request && -n "$BASE_SHA" ]] && git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            if ! git diff --name-only "$BASE_SHA" HEAD | grep -qE '^\.github/(scripts/rust-workspaces\.py|scripts/test_rust_workspaces\.py|workflows/rust-workspaces\.yml)$'; then
+              echo "none of the workspace check's files changed against $BASE_SHA; its test cannot change"
+              exit 0
+            fi
+          fi
+          python3 .github/scripts/test_rust_workspaces.py
 
       # Seconds, no build: each tracked Cargo.lock resolves from the registry index (cargo update --workspace
       # --locked). A manifest change in one workspace can leave another workspace's lock stale through a path
