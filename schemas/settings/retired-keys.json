@@ -267,6 +267,13 @@
       "since": "2026-11-25",
       "until": "2027-01-24",
       "why": "The Automatic (N) sidebar row is removed (#55721, taking back #49506; Leo 2026-11-25: \"PLS REMOVE\"); workspace auto-renaming stays as silent behaviour."
+    },
+    {
+      "key": "agentPane.display.sessionInfo.sections.carried",
+      "reason": "Session Info no longer has a Carried memory section",
+      "since": "2026-11-27",
+      "until": "2027-01-26",
+      "why": "Session Info's Carried memory section is removed (Leo 2026-11-27: \"session info carried memory, get rid of it\"); nothing is left to show or hide."
     }
   ]
 }
