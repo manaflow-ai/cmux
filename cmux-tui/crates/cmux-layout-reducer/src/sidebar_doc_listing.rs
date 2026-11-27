@@ -416,7 +416,10 @@ pub fn member_items(members: &Members) -> Option<Vec<GroupItem>> {
         .map(|listed| {
             let after = listed.after.as_ref().and_then(|after| {
                 let index = members.member_items.iter().position(|item| item == after)?;
-                members.member_items[..=index]
+                members
+                    .member_items
+                    .get(..=index)
+                    .unwrap_or_default()
                     .iter()
                     .rev()
                     .find_map(|item| members.shown.get(item).cloned())
@@ -509,7 +512,9 @@ pub fn ordered(sort: Sort, members: &[SortMember]) -> Vec<usize> {
         }
     };
     indexes.sort_by(|&a, &b| {
-        let (left, right) = (&members[a], &members[b]);
+        let (Some(left), Some(right)) = (members.get(a), members.get(b)) else {
+            return std::cmp::Ordering::Equal;
+        };
         band(left).cmp(&band(right)).then_with(|| {
             let within = match sort {
                 Sort::Manual => std::cmp::Ordering::Equal,

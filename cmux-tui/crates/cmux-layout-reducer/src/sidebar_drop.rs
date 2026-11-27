@@ -214,7 +214,9 @@ fn hit(y: f64, rows: &[Row]) -> Option<(&Row, f64)> {
 /// (Swift `previousExpandedSection`).
 fn previous_expanded_section<'a>(row: &Row, rows: &'a [Row]) -> Option<&'a Row> {
     let index = rows.iter().position(|candidate| candidate == row)?;
-    let previous = rows[..index]
+    let previous = rows
+        .get(..index)
+        .unwrap_or_default()
         .iter()
         .rev()
         .find(|candidate| matches!(candidate.key, RowKey::Section { .. }))?;
@@ -316,7 +318,7 @@ fn group_target(
     section_top_fraction: f64,
 ) -> Option<Target> {
     let (section_index, _) = locate_group(group, sections)?;
-    let home = sections[section_index].id.clone();
+    let home = sections.get(section_index)?.id.clone();
     let index = match &row.key {
         RowKey::Workspace { .. } if row.group.is_some() => {
             let block_group = row.group.as_ref()?;
@@ -429,7 +431,8 @@ fn is_valid(target: &Target, ids: &[String], sections: &[Section]) -> bool {
         }
         Target::IntoGroup { group } => {
             let Some((section_index, _)) = locate_group(group, sections) else { return false };
-            &sections[section_index]
+            let Some(section) = sections.get(section_index) else { return false };
+            section
         }
         Target::OntoWorkspace { workspace: target } => {
             // A loose workspace of a machine section, not one of the dragged.
@@ -583,7 +586,7 @@ pub fn resolve_tab_drop(request: &TabRequest) -> Option<TabDrop> {
         }
         Target::IntoGroup { group } => {
             let (section_index, _) = locate_group(&group, &request.sections)?;
-            let machine = request.sections[section_index].machine.as_deref();
+            let machine = request.sections.get(section_index)?.machine.as_deref();
             machine_ok(machine).then_some(TabDrop::IntoGroup { group })
         }
         _ => None,
