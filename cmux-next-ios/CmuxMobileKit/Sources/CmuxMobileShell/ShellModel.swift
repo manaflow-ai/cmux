@@ -135,6 +135,8 @@ final class ShellModel {
     struct CloudChatsPresentation: Identifiable {
         let id = UUID()
         let attention: CloudChatAttention?
+        /// A New Task on a Cloud machine: its chat starts with this first message.
+        var task: CloudChatTask? = nil
     }
     /// A Mac screen link being opened: Screen Sharing as a sheet, that device's share asked for.
     var macScreenLink: MacScreenLinkPresentation?
@@ -327,6 +329,7 @@ final class ShellModel {
         creator.onTaskNotDelivered = { [weak self] workspace, task, failure in
             self?.taskNotDelivered(workspace, task: task, failure: failure)
         }
+        wireCloudTasks()
         creator.onManageFailure = { [weak self] _, what, message in
             self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
             theme.haptics.error()

@@ -61,7 +61,7 @@ phone from its DEBUG launch environment (CMUX_MOBILE_STACK_REFRESH_TOKEN, adopte
 session), the Mac from its own token store file, written before its launch. The refresh token is
 never printed, and is in no argv and no artifact.
 """
-import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, socket, stat, statistics, subprocess, sys, threading, time
+import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, signal, socket, stat, statistics, subprocess, sys, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
@@ -397,7 +397,11 @@ def main():
     ap.add_argument("--upload-relay-only", action="store_true")
     ap.add_argument("--upload-block-udp", action="store_true")
     ap.add_argument("--upload-wait", type=int, default=300)
+    # The reconnect leg (flows.json reconnect-after-drop, cmux-next-ios-sim.sh's reconnect-drops=10,60): the Mac's
+    # link drops for each of these seconds; the phone must reattach by itself.
+    ap.add_argument("--reconnect-drops", default="")
     a = ap.parse_args()
+    drops = [int(x) for x in a.reconnect_drops.split(",") if x.strip()]
     proof_path = os.environ.get("CMUX_IOS_CLOUD_PROOF_FILE")
     proof = read_proof(proof_path, artifact_root=a.out) if proof_path else None
     cloud_ok = proof is None
@@ -543,6 +547,7 @@ def main():
              f"{connect_timeline_aways()} s away, {connect_timeline_away_runs(connect_runs)} runs each "
              f"(the commit's Connect-Timeline-Runs / -Away / -Away-Runs)")
     ask_ok = restart_ok = not discovery
+    reconnect_ok = not drops
     keychain = RigKeychain(a.mac_app)
     try:
         note(f"- Keychain: {keychain.start()}")
@@ -689,6 +694,13 @@ def main():
                 note(f"- upload: {line}")
             if paired and attach:
                 attach_ok = attach_leg(simctl, a.udid, a.bundle_id, phone_env, phone_log, phone_shot, a.work, note)
+            if drops and paired and not connect_runs:
+                try:
+                    reconnect_ok = reconnect_after_drop(app, drops, simctl, a.udid, a.out, status, phone_log,
+                                                        phone_shot, note)
+                except Exception as error:  # noqa: BLE001  the leg fails; the restart leg still runs
+                    reconnect_ok = False
+                    note(f"- reconnect after drop: FAIL ({type(error).__name__}: {redact(str(error))[:300]})")
             if discovery and paired and not connect_runs:  # last: it quits and restarts the Mac
                 app, restart_ok = discovery_restart(app, exe, env, a.out, support, status, phone_log, streams,
                                                     phone_shot, note)
@@ -730,7 +742,7 @@ def main():
     if discovery:
         note(f"- discovery: Allow request {'PASS' if ask_ok else 'FAIL'}, restart with a split identity "
              f"{'PASS' if restart_ok else 'FAIL'}")
-    return 0 if paired and uploaded and attach_ok and theme_ok and cloud_ok and ask_ok and restart_ok else 1
+    return 0 if paired and uploaded and attach_ok and theme_ok and cloud_ok and ask_ok and restart_ok and reconnect_ok else 1
 
 
 # The connect-timeline leg (RFD 0049's connect rows): the paired phone's own ConnectTimeline marks
@@ -1144,6 +1156,73 @@ def discovery_restart(app, exe, env, out, support, status, phone_log, streams, p
          f"{'set aside as mac-identity.superseded' if aside else 'NOT set aside'}; phone {phone_shot('phone-after-restart')}"
          f" -> {'PASS' if ok else 'FAIL'}")
     return restarted.proc, ok
+
+
+RECONNECT_BOUND = 30  # seconds after the link comes back that the phone may take to reattach
+
+
+def app_tree(pid):
+    """PID and its children (the Mac app and its cmux-mobile-host, which holds the phone's link)."""
+    rows = subprocess.run(["/bin/ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True).stdout.split("\n")
+    kids = [int(r.split()[0]) for r in rows if len(r.split()) == 2 and r.split()[1] == str(pid)]
+    return [pid] + kids
+
+
+def reconnect_after_drop(app, drops, simctl, udid, out, status, phone_log, phone_shot, note):
+    """cmux#56894's redial, on a phone: for each of DROPS seconds the paired Mac app and its children (hostd)
+    are frozen (SIGSTOP: every socket stays open and silent, as a dead Wi-Fi or a stalled relay looks to the
+    phone), then resumed. Nothing touches the phone. It passes when, within RECONNECT_BOUND s of the resume,
+    the Mac lists the phone connected again and, if the phone began a new dial during the drop, that dial
+    reached a fresh mark (CONNECT_FRESH). simctl records the phone's screen for the whole leg."""
+    video = os.path.join(out, "reconnect-after-drop.mp4")
+    rec = subprocess.Popen(simctl + ["io", udid, "recordVideo", "--codec=h264", "--force", video],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(2)  # recordVideo's first frame
+    ok_all = True
+    try:
+        for seconds in drops:
+            before = wait_for(lambda: status().get("connectedPhones", 0) >= 1, 30, every=1)
+            pids = app_tree(app.pid)
+            t_drop = time.monotonic()
+            for pid in pids:
+                os.kill(pid, signal.SIGSTOP)  # this script's own Mac app and its children only
+            try:
+                time.sleep(seconds)
+            finally:
+                for pid in pids:
+                    try:
+                        os.kill(pid, signal.SIGCONT)
+                    except ProcessLookupError:
+                        pass
+            t_back = time.monotonic()
+
+            def reattached():
+                if status().get("connectedPhones", 0) < 1:
+                    return False
+                fresh = [m.group(1) for at, line in zip(list(phone_log.times), list(phone_log.lines))
+                         if at >= t_drop and (m := TIMING.search(line.rstrip())) and m.group(2) in CONNECT_FRESH]
+                started = {m.group(1) for at, line in zip(list(phone_log.times), list(phone_log.lines))
+                           if at >= t_drop and (m := TIMING.search(line.rstrip())) and m.group(2) == "dial_start"}
+                return not started or bool(started & set(fresh))
+
+            back = wait_for(reattached, RECONNECT_BOUND, every=0.5)
+            took = time.monotonic() - t_back
+            dials = sorted({m.group(1) for at, line in zip(list(phone_log.times), list(phone_log.lines))
+                            if at >= t_drop and (m := TIMING.search(line.rstrip())) and m.group(2) == "dial_start"})
+            ok = bool(back)
+            ok_all = ok_all and ok
+            note(f"- reconnect after a {seconds} s drop (Mac app + hostd SIGSTOP, pids {len(pids)}): connected before "
+                 f"{'yes' if before else 'NO'}; phone redials during/after: {', '.join(dials) or 'none (the link held)'}; "
+                 f"{'reattached %.1f s after the link came back' % took if ok else 'NOT reattached in %d s' % RECONNECT_BOUND}"
+                 f", no tap; phone {phone_shot(f'phone-after-drop-{seconds}s')} -> {'PASS' if ok else 'FAIL'}")
+    finally:
+        rec.send_signal(signal.SIGINT)  # recordVideo writes the file's index on SIGINT
+        try:
+            rec.wait(30)
+        except subprocess.TimeoutExpired:
+            rec.kill()
+    note(f"- reconnect recording: {os.path.basename(video) if os.path.exists(video) else 'none (recordVideo failed)'}")
+    return ok_all
 
 
 def random_file(path, size):

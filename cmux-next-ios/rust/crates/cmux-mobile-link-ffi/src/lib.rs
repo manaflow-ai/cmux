@@ -25,6 +25,7 @@ mod catch_up;
 mod chat_prompt_outbox;
 mod classic_leftovers;
 mod cloud_wake;
+mod cmux_link;
 mod composer_outbox;
 mod feed_list_edit;
 mod follow_camera;
@@ -33,6 +34,7 @@ mod last_place;
 mod link_progress;
 mod link_side;
 pub mod local_link;
+mod mac_reachability;
 mod mac_screen;
 mod mailbox_client;
 mod pair_requests;
@@ -53,6 +55,7 @@ mod window_layout;
 mod workspace_arrangement;
 mod workspace_groups;
 mod workspace_moves;
+mod workspace_row_actions;
 
 pub use attachment_upload::{
     AttachmentUploads, ImagePlan, Timings, UploadObserver, UploadProgress, UploadSpec, UploadStage,
@@ -75,6 +78,7 @@ pub use cloud_wake::{
     CloudWakeAnswer, CloudWakeHint, CloudWakeIdle, CloudWakeOutcome, cloud_wake_hint, cloud_wake_idle,
     cloud_wake_input, cloud_wake_resumed, cloud_wake_version,
 };
+pub use cmux_link::{CmuxLinkTarget, ParsedCmuxLink, cmux_link_parse};
 pub use composer_outbox::{
     ComposerOutbox, ComposerSendAnswer, ComposerSendDone, ComposerSendOutcome, ComposerSendRequest,
 };
@@ -82,6 +86,12 @@ pub use follow_camera::{FollowCamera, FollowCameraMode, FollowRect};
 pub use last_place::{LastPlaceAnchor, LastPlaceRecord, LastPlaceScreen, LastPlaceStore};
 pub use link_progress::{HeldKeysExpiryReason, LinkProgressClock, held_keys_expiry};
 pub use link_side::{LinkOpenSide, link_open_side};
+pub use mac_reachability::{
+    MacLinkFailureKind, MacLinkState, MacReachabilityInput, MacReachabilityKind, MacRecoveryActionKind,
+    MacRecoveryAttemptState, MacRecoveryObservation, MacRecoveryResult, MacRecoveryStep,
+    mac_reachability_action, mac_reachability_late_quiet, mac_reachability_resolve, mac_reachability_span,
+    mac_recovery_advanced, mac_recovery_combined, mac_recovery_timed_out,
+};
 pub use mac_screen::{MacScreenAnswer, MacScreenDisplay, MacScreenIceServer, MacScreenObserver, MacScreenRd};
 pub use pane_filter::{
     PaneFilter, PaneFilterResult, PaneKind, PaneScope, pane_filter_apply, pane_filter_decode,
@@ -117,6 +127,10 @@ pub use workspace_groups::{
 pub use workspace_moves::{
     WorkspaceSortStep, neighbor_move_reordered, neighbor_move_targets, personal_index_moving,
     personal_index_placing, workspace_sort_steps,
+};
+pub use workspace_row_actions::{
+    WorkspaceRowFacts, WorkspaceRowPlacement, workspace_merge_targets, workspace_new_row_anchor,
+    workspace_row_placements,
 };
 
 uniffi::setup_scaffolding!();
