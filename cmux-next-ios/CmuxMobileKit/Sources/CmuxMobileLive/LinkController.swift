@@ -5,7 +5,9 @@ import enum CmuxMobileModel.UserFacingError
 import CmuxMobileTransport
 import Foundation
 import Observation
+#if canImport(OSLog)
 import OSLog
+#endif
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -830,7 +832,7 @@ public final class LinkController {
     /// (`LiveAPI.Failure`), or the dial's signaling upgrade, which the Rust
     /// link reports as code `unauthorized`.
     nonisolated static func authRefused(_ error: any Error) -> Bool {
-        if let failure = error as? LiveAPI.Failure { return failure.status == 401 }
+        if let failure = error as? any LinkServiceFailure { return failure.status == 401 }
         if let error = error as? LinkError { return error.code == LinkError.unauthorized }
         return false
     }
@@ -848,7 +850,7 @@ public final class LinkController {
     /// The mapping lives with ``LinkError`` (`displayReason`); never a code or a type name.
     nonisolated static func reason(_ error: any Error) -> String {
         if let error = error as? LinkError { return error.displayReason }
-        if error is LiveAPI.Failure { return "the cmux service refused the request" }
+        if error is any LinkServiceFailure { return "the cmux service refused the request" }
         return String(UserFacingError.message(error, fallback: "the connection to the Mac failed").prefix(80))
     }
 }
