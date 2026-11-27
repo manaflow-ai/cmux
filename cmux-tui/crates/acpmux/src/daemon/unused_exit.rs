@@ -220,8 +220,16 @@ pub(super) async fn unused(hub: Weak<crate::hub::Hub>, memory_store: bool) -> St
             // No owner: a sender that never sends and is never dropped.
             None => (None, NO_OWNER.subscribe()),
         };
-        let why = unused_for(CLIENTS.subscribe(), grace, owner_gone, in_use).await;
-        match owner_pid {
+        let why = unused_for_relaunch(
+            CLIENTS.subscribe(),
+            grace,
+            owner_gone,
+            in_use,
+            super::owner_relaunch::left,
+        )
+        .await;
+        // The pid followed last: a relaunched app adopted after the first owner exited.
+        match owner_exit::current_pid().or(owner_pid) {
             Some(pid) if why.starts_with(OWNER_GONE) => format!("{why} (app pid {pid})"),
             _ => why,
         }
@@ -243,22 +251,44 @@ const OWNER_GONE: &str = "its app quit";
 /// the wait is [`owner_exit::OWNER_EXIT_GRACE`], and after a census that found the daemon kept,
 /// [`owner_exit::OWNER_KEPT_RECHECK`] (or the grace, when shorter).
 async fn unused_for<F, Fut>(
-    mut clients: watch::Receiver<Use>,
+    clients: watch::Receiver<Use>,
     grace: Option<Duration>,
-    mut owner_gone: watch::Receiver<bool>,
-    mut in_use: F,
+    owner_gone: watch::Receiver<bool>,
+    in_use: F,
 ) -> String
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Option<&'static str>>,
 {
+    unused_for_relaunch(clients, grace, owner_gone, in_use, || None).await
+}
+
+/// [`unused_for`] that, once the owner exited, also waits out a relaunch marker
+/// (`owner_relaunch.rs`): `relaunch` says how long a relaunch is still expected, and why. Until it
+/// ends, an owner's exit is an update's hand-off, not a quit; a relaunched owner adopted meanwhile
+/// (`owner_gone` false again) ends the short wait altogether.
+async fn unused_for_relaunch<F, Fut, R>(
+    mut clients: watch::Receiver<Use>,
+    grace: Option<Duration>,
+    mut owner_gone: watch::Receiver<bool>,
+    mut in_use: F,
+    relaunch: R,
+) -> String
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Option<&'static str>>,
+    R: Fn() -> Option<(Duration, String)>,
+{
     let mut kept_after_owner = false;
+    // Whether the last wait was a relaunch's: its stop says the relaunch did not come.
+    let mut waited_relaunch: Option<String> = None;
     loop {
         let gone = *owner_gone.borrow_and_update();
         // The guard `wait_for` returns is a lock: read from it and drop it before any await.
         // The owner's exit while a client is connected may leave only observers: look again.
+        // Once gone, a relaunched owner adopted (`owner_exit::adopt_if_relaunched`) turns it back.
         let owner_exits = async {
-            if gone || owner_gone.changed().await.is_err() {
+            if owner_gone.changed().await.is_err() {
                 std::future::pending::<()>().await;
             }
         };
@@ -273,8 +303,23 @@ where
             } else {
                 owner_exit::OWNER_EXIT_GRACE
             };
-            Some(grace.map_or(short, |g| g.min(short)))
+            let short = grace.map_or(short, |g| g.min(short));
+            match relaunch() {
+                Some((left, why)) if left > short => {
+                    tracing::info!(
+                        "the owner app is gone; {why}: its relaunch is awaited up to {}s",
+                        left.as_secs()
+                    );
+                    waited_relaunch = Some(why);
+                    Some(left)
+                }
+                _ => {
+                    waited_relaunch = None;
+                    Some(short)
+                }
+            }
         } else {
+            waited_relaunch = None;
             grace
         };
         let sleep = async {
@@ -285,7 +330,7 @@ where
         };
         // A closed owner channel (its watch ended) is no exit: it is not waited on again.
         let owner_changed = async {
-            if gone || owner_gone.changed().await.is_err() {
+            if owner_gone.changed().await.is_err() {
                 std::future::pending::<()>().await;
             }
         };
@@ -308,6 +353,13 @@ where
             continue;
         }
         match kept {
+            None if gone && waited_relaunch.is_some() => {
+                let why = waited_relaunch.unwrap_or_default();
+                return format!(
+                    "{OWNER_GONE} for a relaunch ({why}) that did not come within {}s, and nothing used the daemon: no client, agent, turn or task",
+                    waited.as_secs()
+                );
+            }
             None if gone => {
                 return format!(
                     "{OWNER_GONE} and nothing used the daemon for {}s: no client, agent, turn or task",

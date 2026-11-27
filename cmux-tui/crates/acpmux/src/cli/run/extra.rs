@@ -1246,6 +1246,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             crate::cli::shutdown::run(end_agents, keep_agents, restart, json_out).await
         }
         Command::DaemonRestart => crate::cli::shutdown::restart(json_out).await,
+        Command::DaemonExpectRelaunch { within, reason } => {
+            let home = crate::config::home();
+            crate::daemon::owner_relaunch::expect_in(
+                &home,
+                std::time::Duration::from_secs(within),
+                &reason,
+            )?;
+            let path = crate::daemon::owner_relaunch::path_in(&home);
+            if json_out {
+                println!("{}", serde_json::json!({"marker": path, "within": within.min(300)}));
+            } else {
+                println!("relaunch expected within {}s ({})", within.min(300), path.display());
+            }
+            Ok(())
+        }
         Command::DaemonFelt => crate::cli::daemon_felt::run(json_out).await,
         Command::DaemonPlacement { message } => crate::cli::daemon_placement::run(&message).await,
         Command::DaemonStats { by, since, top } => {

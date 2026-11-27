@@ -118,6 +118,7 @@ pub(crate) use crate::term_sender;
 use stop_causes::next_signal;
 use stop_causes::{AbortOnDrop, store_asks_to_stop};
 pub use stop_causes::{EXIT_REPAIR, exit_status};
+pub(crate) mod owner_relaunch;
 #[cfg(target_os = "linux")]
 mod restart_backoff;
 pub(crate) mod unused_exit;

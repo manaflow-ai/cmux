@@ -271,6 +271,15 @@ impl Swap for ExeSwap {
         for k in super::STARTER_SESSION_MARKS {
             successor.env_remove(k);
         }
+        // It follows the owner this daemon follows now (a relaunched app adopted after an update,
+        // `owner_exit::adopt_if_relaunched`), not the pid this daemon inherited, which an update
+        // quit; and it learns the owner's executable, so it can adopt the relaunched app too.
+        if let Some(pid) = crate::owner_exit::current_pid() {
+            successor.env(crate::owner_exit::OWNER_APP_PID_ENV, pid.to_string());
+        }
+        if let Some(exe) = crate::owner_exit::current_exe() {
+            successor.env(crate::owner_exit::OWNER_APP_EXE_ENV, exe);
+        }
         let mut child = successor
             .args(handover_args(&self.args))
             .stdin(cmux_process::Stdio::null())

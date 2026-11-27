@@ -1187,6 +1187,8 @@ pub enum Command {
     DaemonEnroll { person_key_fd: i32 },
     #[command(hide = true)]
     DaemonRestart,
+    #[command(hide = true)]
+    DaemonExpectRelaunch { within: u64, reason: String },
     /// `daemon stats`: the busiest callers or methods over a recent window.
     #[command(hide = true)]
     DaemonStats {
@@ -1440,6 +1442,17 @@ pub enum DaemonCmd {
     },
     /// Restart the daemon, preserving hosted sessions so they resume on startup.
     Restart,
+    /// Before an update quits the app: its relaunch is expected, so the daemon waits for it
+    /// (up to `--within` seconds) instead of stopping 2 s after the app is gone, and follows the
+    /// relaunched app once it connects. Writes `owner-relaunch.json` in the acpmux home.
+    ExpectRelaunch {
+        /// Seconds to wait for the relaunched app (at most 300).
+        #[arg(long, default_value_t = 60)]
+        within: u64,
+        /// Why, for the daemon log.
+        #[arg(long, default_value = "an update")]
+        reason: String,
+    },
     /// Clear what dead daemons left: for the shared home and each per-build home, the socket and
     /// pid file of a daemon whose lock nobody holds and whose pid is gone. A running daemon is
     /// never stopped from outside: one whose executable is gone stops itself once unused for 5
@@ -1741,6 +1754,9 @@ pub fn flatten(c: Command) -> Command {
                 Command::Shutdown { keep_agents, end_agents, restart }
             }
             DaemonCmd::Restart => Command::DaemonRestart,
+            DaemonCmd::ExpectRelaunch { within, reason } => {
+                Command::DaemonExpectRelaunch { within, reason }
+            }
             DaemonCmd::Stats { by, since, top } => Command::DaemonStats { by, since, top },
             DaemonCmd::Felt => Command::DaemonFelt,
             DaemonCmd::Placement { message } => Command::DaemonPlacement { message },
