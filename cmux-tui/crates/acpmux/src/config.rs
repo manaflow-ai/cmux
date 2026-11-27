@@ -918,9 +918,8 @@ pub struct HarnessProfile {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Profile to move a session onto when this one's account reports a
-    /// usage or rate limit mid-turn. Discovery sets `claude-cr` for
-    /// `claude` only when a CodeRouter route is configured
-    /// (`coderouterClaudeRoute`); never the subrouter pool.
+    /// usage or rate limit mid-turn. Discovery sets the cmux router (`cmux`)
+    /// for `claude` when nothing else did; never the subrouter pool.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<String>,
     /// Model family this profile belongs to (`claude`, `codex`, `opencode`,
@@ -996,7 +995,7 @@ pub struct SessionDefaults {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub policy: Option<PermissionPolicy>,
     /// Profiles to use, in order, when a session asks for this family:
-    /// `["claude-cr", "claude"]` sends `-m claude` to the CodeRouter route
+    /// `["claude-sr", "claude"]` sends `-m claude` to the subrouter route
     /// first. Absent: the family's only profile, else the profile named
     /// like the family, else the request is refused.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1618,7 +1617,7 @@ pub struct Config {
     pub login_env_allow: Vec<String>,
     /// Per-family (or per-profile) session defaults, keyed by family or
     /// profile name: `{"claude": {"model": "claude-opus-5", "effort": "high",
-    /// "policy": "approve-edits", "prefer": ["claude-cr", "claude"]}}`.
+    /// "policy": "approve-edits", "prefer": ["claude-sr", "claude"]}}`.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub defaults: BTreeMap<String, SessionDefaults>,
     /// Host-wide resource limits for new Linux session scopes.
