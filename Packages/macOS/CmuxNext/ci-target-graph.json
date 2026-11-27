@@ -1964,11 +1964,14 @@
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
         "CmuxNextDesign",
+        "CmuxNextIcons",
         "CmuxNextMobileHost",
         "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
-      "packages": []
+      "packages": [
+        "CmuxVisibleRows"
+      ]
     },
     "CmuxNextNowPlaying": {
       "kind": "regular",
