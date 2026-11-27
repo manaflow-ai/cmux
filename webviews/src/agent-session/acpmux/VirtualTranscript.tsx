@@ -33,7 +33,6 @@ import {
   type PlacedLayout,
   type ConversationLayout,
   type RowHeights,
-  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
