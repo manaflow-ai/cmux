@@ -679,3 +679,51 @@ async fn a_fork_start_normalizes_its_model_and_keeps_its_explicit_mode() {
     }
     hub.shutdown_all().await;
 }
+
+/// Catalog aliases must reach native launch arguments on both own-harness and retarget forks.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fork_catalog_aliases_reach_the_native_spawn_model() {
+    let dir = tempfile::tempdir().unwrap();
+    let hub = lister_hub(&dir.path().join("calls.jsonl"));
+    for harness in ["native", "lister"] {
+        let parent = hub
+            .new_session(NewRequest {
+                harness: Some(harness.into()),
+                cwd: Some(dir.path().to_path_buf()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        hub.prompt(&parent, vec![json!({"type": "text", "text": "ONE"})], "test", false)
+            .await
+            .unwrap();
+        for alias in ["fable-5.2", "claude/fable-5.2"] {
+            let fork = hub
+                .fork_start(
+                    &parent,
+                    (harness != "native")
+                        .then(|| Retarget { model: Some(alias.into()), ..to("native") }),
+                    None,
+                    None,
+                    Default::default(),
+                    None,
+                    false,
+                    super::fork_subagent::ForkStart {
+                        model: (harness == "native").then(|| alias.into()),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+            assert_eq!(fork.meta().model_request.as_deref(), Some("claude-fable-5-2"));
+            let before = replies(&hub, &fork).len();
+            hub.prompt(&fork, vec![json!({"type": "text", "text": "spawn flags"})], "test", false)
+                .await
+                .unwrap();
+            let argv: Vec<String> = serde_json::from_str(&replies(&hub, &fork)[before..]).unwrap();
+            let at = argv.iter().position(|arg| arg == "--model").unwrap();
+            assert_eq!(argv[at + 1], "claude-fable-5-2", "{harness}: {alias}");
+        }
+    }
+    hub.shutdown_all().await;
+}

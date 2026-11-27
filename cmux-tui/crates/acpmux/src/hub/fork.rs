@@ -234,6 +234,13 @@ impl Hub {
         let mut heads = vec![retarget.harness.clone(), r.agent.clone(), family.clone()];
         heads.dedup();
         let head_refs: Vec<&str> = heads.iter().map(String::as_str).collect();
+        // Fold catalog aliases before list validation and before a spawn-time model is saved.
+        // Forks accept the same spellings as new sessions and set_model.
+        retarget.model = retarget
+            .model
+            .as_deref()
+            .map(|model| self.rewrite_model(None, &r.agent, &r.profile, model, "session/fork"))
+            .transpose()?;
         if r.agent == parent.harness {
             // The chat's own harness: a model change, or an ordinary fork.
             let own = match retarget.model.as_deref() {
@@ -253,7 +260,11 @@ impl Hub {
             return Err(super::new_request::terminal_harness_refusal(&r.agent));
         }
         let explicit_model = retarget.model.is_some();
-        let mut model = retarget.model.or_else(|| r.profile.model.clone());
+        let mut model = retarget
+            .model
+            .or_else(|| r.profile.model.clone())
+            .map(|model| self.rewrite_model(None, &r.agent, &r.profile, &model, "session/fork"))
+            .transpose()?;
         // Taken at spawn (Claude Code): as the harness lists it (`claude/haiku` is `haiku`), and a
         // model the switch named that it does not list refused now, not at the first prompt.
         if spawn_model && let Some(m) = &model {

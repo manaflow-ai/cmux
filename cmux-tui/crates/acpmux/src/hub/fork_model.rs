@@ -151,6 +151,8 @@ impl Hub {
         requested: &str,
         explicit: bool,
     ) -> Result<String, RpcError> {
+        let requested = self.rewrite_session_model(fork, requested, "session/fork").await?;
+        let requested = requested.as_str();
         let listed = {
             let cfg = self.config.read().await;
             self.listed_models(&cfg, agent, Some(&fork.meta()))
