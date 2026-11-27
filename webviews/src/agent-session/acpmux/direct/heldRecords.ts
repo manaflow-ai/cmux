@@ -1,22 +1,23 @@
 import type { AcpmuxRow } from "../model";
 import { type EventRecord, startsTurn, mergeEventRecords } from "./records";
 
-/// Records one older page asks for at most (`limit`), with OLDER_PAGE_BYTES. It is also what a chat left open keeps
-/// (`HELD_KEPT`), so it sets what every open chat holds: at 2,000, two chats grown to 100k rows each held 4,000
-/// records and drew 1.61x an empty pair's renderer memory and 2.30x its JS heap; at 500, 1.44x and 1.74x
-/// (bench/chat-100k-flat.bench.ts grown-many; Leo, 2026-11-14: "memory and cpu staying flat on infinite chats").
-export const OLDER_PAGE_RECORDS = 500;
+/// Records one older page asks for at most (`limit`), with OLDER_PAGE_BYTES.
+export const OLDER_PAGE_RECORDS = 2000;
 
 /// The most held records a rebuild folds again (`rebuild`): a pane open on a busy chat holds every
 /// record streamed since it opened, and a lag read or a repaired turn refolded all of them.
 export const REBUILD_WINDOW = 5_000;
-/// How many records a chat left open keeps when it lets go of its oldest (`shedOlderHeld`): one older page's
-/// worth (`OLDER_PAGE_RECORDS`), so scrolling up past the cut reads one page to have them back. Kept at the
+/// How many records a chat left open keeps when it lets go of its oldest (`shedOlderHeld`): a quarter of one older
+/// page (`OLDER_PAGE_RECORDS`), so scrolling up past the cut still reads one page to have them back. It sets what
+/// every open chat holds: at 2,000, two chats grown to 100k rows each held 4,000 records and drew 1.48x an empty
+/// pair's renderer memory and 2.08x its JS heap; at 500, 1.37x and 1.64x (bench/chat-100k-flat.bench.ts grown-many;
+/// Leo, 2026-11-14: "memory and cpu staying flat on infinite chats"). The page stays 2,000: a jump far back walks
+/// pages, and 500-record pages took it from 27 reads to 41 (olderPagingBench.test.ts). Kept at the
 /// rebuild's whole window (5,000) and shed at twice that, a chat left open held 5,000 to 10,000 records: in the
 /// god log 3,000 to 6,500 rows, against a 600-turn chat's 2,800 whole, and each streamed thought and tool call
 /// cost 1.5x to 1.8x that chat's (bench/transcript-replay.bench.ts, FIXTURE=god; Leo, 2026-11-12: "even if a
 /// chat is long, there should be no percievable difference").
-export const HELD_KEPT = OLDER_PAGE_RECORDS;
+export const HELD_KEPT = OLDER_PAGE_RECORDS / 4;
 /// How many records a chat left open holds before its oldest are let go (`shedOlderHeld`): twice what a cut
 /// keeps, so it sheds at most once per `HELD_KEPT` records, each time dropping what leaves in place (`dropHeldRun`).
 export const HELD_RECORDS = 2 * HELD_KEPT;
