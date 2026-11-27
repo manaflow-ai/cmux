@@ -722,10 +722,10 @@ fn palette_ranking(read: &mut Read) {
     read.set("remembersSearches", remembers);
     // Swift ignores a bad `experiments.paletteV2` / `palettePreview` silently.
     let mut look = read.default_of("experiments.paletteV2");
-    if let Some(text) = read.at("experiments.paletteV2").and_then(Value::as_str) {
-        if read.choices_of("experiments.paletteV2").iter().any(|c| c == text) {
-            look = json!(text);
-        }
+    if let Some(text) = read.at("experiments.paletteV2").and_then(Value::as_str)
+        && read.choices_of("experiments.paletteV2").iter().any(|c| c == text)
+    {
+        look = json!(text);
     }
     read.set("paletteV2", look);
     let mut preview = read.default_of("experiments.palettePreview");
