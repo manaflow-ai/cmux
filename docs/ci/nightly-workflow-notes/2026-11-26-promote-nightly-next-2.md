@@ -1,4 +1,12 @@
-# nightly.yml: job `promote-nightly-next`
+# 2026-11-26-promote-nightly-next-2
+
+Above `await-release-surface-ack:` (job `promote-nightly-next`) in `.github/workflows/nightly.yml`.
+
+Legacy approval waiter retained for contract compatibility; validated moves now happen in
+promote-nightly-next without an environment approval. It reads no secret and writes nothing,
+so cancelling it never leaves nightly-next half-moved; the newest request wins its group.
+
+## nightly.yml: job `promote-nightly-next`
 
 Moved out of `.github/workflows/nightly.yml` to keep it under GitHub's workflow file size limit (`tests/test_ci_workflow_file_size.py`); the workflow keeps a `# Why:` line where it stood.
 

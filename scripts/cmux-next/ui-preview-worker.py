@@ -61,6 +61,8 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import fnmatch
+import hashlib
 import http.server
 import json
 import os
@@ -85,6 +87,7 @@ CMUX_REPO = "manaflow-ai/cmux"
 CMUX_URL = f"https://github.com/{CMUX_REPO}.git"
 BASE_BRANCH = "feat-cmux-next"
 SHA = re.compile(r"^[0-9a-f]{40}$")
+BRANCH_NAME = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/-]*$")  # a plain branch name, as the brokered fetch takes it
 SESSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,200}$")
 BRANCH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,250}$")
 # The web gallery also reads design/ (icons) and first-party-apps/<app>/preview: both are web looks.
@@ -106,13 +109,29 @@ SWIFT_SCENES = {
 }
 SHELL_LINKED = {"CmuxNextUiLayerPreview", "CmuxNextSettings", "CmuxNextCompat"}
 WEB_CAP = 4
-SWIFT_SPARSE = ("Packages/", "Prototypes/", "Resources/", "vendor/")
+# The Swift tree is whole but for the iOS app (0.5 of the tree's 1.35 GB, read by no macOS build). An allow-list drifts
+# out from under the builds: the shell's settings plugin came to run scripts/cmux-next/gen-settings-sources.py, and
+# every look failed on a file not checked out.
+SWIFT_SPARSE = ("/*", "!/cmux-next-ios/")
 # The web tree: everything but the large folders no web file imports. A hand list of folders drifted: bun install's
 # postinstall reads release-notes/ and schemas/, protocol:codegen the acpmux IR, gallery entries fixtures under
 # Packages/ and cmux-tui/crates/, the model catalog under web/data/; each missing one failed every web look.
 WEB_SPARSE = ("/*", "!/cmux-next-ios/", "!/ghostty/", "!/ghostty-next/")
 GALLERY_PORT = 4217
+# Warm galleries (web tree, vite, shooter) kept at once, each on one gallery config; ports GALLERY_PORT and up.
+GALLERIES = 2
 KEEP_H = 36
+# The published census copy (ui-preview/HOST.json on now-census) goes through the broker's state_put, which refuses a
+# file over STATE_MAX (1 MiB, cmuxterm-hq tools/lane-gh-broker/parts/46-calls-state.py). The local receipts file kept
+# 36 h pretty-printed with stages, plans and entries and passed it on 2026-11-26 about 11:20Z (1.4 MB by 23:30Z):
+# every publish after was refused, the refusal went nowhere, and NOW read 3 covered of 2203 pushes from a copy 12 h
+# old. So the published doc carries only what NOW's ui_preview reads (cmuxterm-hq fleet-reconcilers/now_ui_preview.py),
+# only the window it counts, compact, and under PUBLISH_MAX bytes, oldest receipts dropped first.
+PUBLISH_WINDOW_H = 25
+PUBLISH_MAX = 768 << 10
+PUBLISH_FILES = 8  # NOW asks only whether any is a UI path; the count stays as ui_files_n
+PUBLISH_FIELDS = ("repo", "head_sha", "branch", "pushed_at", "ui_files", "recipient", "posted_at", "error",
+                  "synthetic")
 # Bounds, seconds.
 FETCH_SECONDS = 180
 COLD_BUILD_SECONDS = 45 * 60
@@ -120,13 +139,15 @@ BUILD_SECONDS = 15 * 60
 SHOOT_SECONDS = 180
 INSTALL_SECONDS = 15 * 60
 GALLERY_UP_SECONDS = 180
+# The gallery's ranker of touched entries; a tree without it (a branch off main) has no gallery to shoot.
+GALLERY_RANKER = "webviews/scripts/gallery/touched.ts"
 SEND_SECONDS = 60
 PREFETCH_SECONDS = 300
 # The VM's own mirror of manaflow-ai/cmux (repo-mirrors.timer, about every 15 min): the clone borrows its objects
 # (objects/info/alternates), so a fetch from GitHub sends only what the mirror lacks and a checkout's blobs are local.
 MIRROR = Path(os.environ.get("CMUX_UI_PREVIEW_MIRROR") or Path.home() / "Projects/.wt-mirrors/manaflow-ai/cmux.git")
-# Looks run WEB_CAP at a time (fetch, verify, publish and send overlap; the one web tree and the one shell tree are
-# each one lock). A queued request is dropped for a newer push of its branch only once it waited this long.
+# Looks run WEB_CAP at a time (fetch, verify, publish and send overlap; each gallery's web tree and the one shell tree
+# are each one lock). A queued request is dropped for a newer push of its branch only once it waited this long.
 LOOK_THREADS = WEB_CAP
 SUPERSEDE_AGE_S = 45
 # A gallery shot waits this long for the frame's ready mark, then reloads the page and waits again, within its bound
@@ -140,6 +161,17 @@ GALLERY_CONFIG = ("webviews/vite.config*.ts", "webviews/package.json", "webviews
 # A gallery entry one side of the push does not have (the push adds it): that side's picture is a card that says so,
 # not a 60 s wait for a frame that never marks ready (the frame settles the whole registry first, then fails).
 ABSENT_PREFIX = "absent."
+# Every gallery vite keeps its React Compiler (Babel) output on disk (webviews/reactCompiler.mjs
+# CMUX_VITE_TRANSFORM_CACHE), one folder for all galleries: a vite restarted on a new config, or started on a spare
+# tree, reads what any gallery already compiled instead of recompiling agent-pane (App.tsx alone ~33 s), which was
+# the 41-63 s of a config push's cold side. Keyed by each module's exact code and the lockfile; pruned past
+# TRANSFORM_CACHE_MB, oldest first, at warm.
+TRANSFORM_CACHE_MB = 2048
+PRESHOOT_FAMILIES = ("agent-pane.", "pages.")
+# vite's optimized deps, one folder per gallery config in each tree (node_modules/.vite-<key>, CMUX_VITE_CACHE_DIR;
+# inside webviews/, where the gallery's fs.allow lets vite serve it), the newest DEPS_KEYS kept: a gallery back on a
+# config it served keeps its deps instead of a scan and bundle, and two galleries never share one folder.
+DEPS_KEYS = 6
 ENTRY_ID = re.compile(r'\bid:\s*"([a-z0-9][a-z0-9.-]*)"')
 NO_LAZY = {**os.environ, "GIT_NO_LAZY_FETCH": "1"}
 
@@ -265,6 +297,247 @@ def plan(files: list[str]) -> dict:
 
 # ---- the warm trees --------------------------------------------------------------------------------------------
 
+class Gallery:
+    """One web tree with its node_modules, its vite dev server (gallery:dev on its own port) and its resident shooter
+    (one chromium). A worker keeps up to GALLERIES of them, each on one gallery config: a look whose sides differ in
+    config shoots each side on a vite already on that config. Restarting one vite costs more than its start: the
+    restart drops vite's module graph, and the next page recompiles it (40-60 s for agent-pane entries)."""
+
+    def __init__(self, worker: "Worker", tree: Path, port: int, name: str) -> None:
+        self.worker = worker
+        self.tree = tree
+        self.port = port
+        self.name = name
+        self.key: str | None = None  # the gallery config of the tree's checkout (Worker.gallery_key)
+        self.used = 0.0
+        self.lock = threading.Lock()  # the tree, its vite and its shooter: one side's checkout and shots at a time
+        self.proc: subprocess.Popen | None = None
+        self.lock_hash: str | None = None
+        self.shooter: subprocess.Popen | None = None
+        self.shooter_lines: "queue.Queue[str | None]" = queue.Queue()
+        suffix = "" if name == "web" else f"-{name}"
+        self.log_path = worker.state / f"gallery-dev{suffix}.log"
+        self.shooter_log = worker.state / f"shooter{suffix}.log"
+
+    def checkout(self, sha: str) -> None:
+        """The tree at SHA. A checkout that changes the gallery's config, deps or dev server restarts the gallery here
+        (start waits for it to answer): vite would restart or re-optimize on its own, and pages loaded meanwhile
+        never marked ready (every base-side shot of a vite.config.ts push timed out at 60 s)."""
+        old = None
+        if (self.tree / ".git").exists():
+            with _suppress():
+                old = git(self.tree, "rev-parse", "HEAD").strip()
+        self.worker.ensure_tree(self.tree, WEB_SPARSE, sha)
+        if old and old != sha and self.worker.gallery_config_changed(old, sha):
+            log(f"gallery {self.name}: config changed {old[:12]}..{sha[:12]}: restarting it")
+            self.stop()
+        self.key = self.worker.gallery_key(sha)
+
+    def entry_ids(self) -> set[str]:
+        """The gallery entry ids the tree's checkout holds, as the dev server's entry index reads them
+        (webviews/dev-server/galleryHost.ts readEntryIndex: the first `id: "..."` after `export default` in each
+        *.gallery.ts(x), else the file's first)."""
+        ids = set()
+        root = self.tree / "webviews" / "src"
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d != "node_modules"]
+            for name in filenames:
+                if not re.search(r"\.gallery\.tsx?$", name):
+                    continue
+                with _suppress():
+                    text = (Path(dirpath) / name).read_text(errors="replace")
+                    at = text.find("export default")
+                    m = (ENTRY_ID.search(text[at:]) if at >= 0 else None) or ENTRY_ID.search(text)
+                    if m:
+                        ids.add(m.group(1))
+        return ids
+
+    def install(self) -> bool:
+        """bun install when the lockfile changed since the last install; True when it ran."""
+        lock = self.tree / "bun.lock"
+        digest = git(self.tree, "hash-object", str(lock)) if lock.exists() else "none"
+        if digest == self.lock_hash and (self.tree / "webviews" / "node_modules").is_dir():
+            return False
+        run([self.worker.bun(), "install", "--frozen-lockfile"], cwd=self.tree / "webviews", timeout=INSTALL_SECONDS,
+            what="bun install")
+        self.lock_hash = digest
+        return True
+
+    def deps_dir(self, key: str | None = None) -> Path:
+        return self.tree / "webviews" / "node_modules" / f".vite-{key or self.key or 'none'}"
+
+    def vite_env(self) -> dict:
+        """The gallery vite's port, the React Compiler pass, the shared transform cache and this config's deps folder.
+        oxc, not babel: four agent-pane entries on a cold vite took 64-70 s under babel (App.tsx alone ~33 s) and
+        21 s under oxc, with byte-identical PNGs. The transform cache only applies under babel (reactCompiler.mjs
+        returns before it for oxc); it stays set so CMUX_REACT_COMPILER=babel in the worker's env is still fast."""
+        return {"CMUX_GALLERY_DEV_PORT": str(self.port),
+                "CMUX_REACT_COMPILER": os.environ.get("CMUX_REACT_COMPILER") or "oxc",
+                "CMUX_VITE_TRANSFORM_CACHE": str(self.worker.state / "vite-transforms"),
+                "CMUX_VITE_CACHE_DIR": str(self.deps_dir())}
+
+    def seed_deps(self) -> None:
+        """This config's deps folder: kept when the tree served the config before; else a copy of a sibling's on the
+        same config, else of this tree's newest. vite keeps a copy whose hash still matches (most config pushes leave
+        the deps alone) instead of a 50 s scan and bundle. The newest DEPS_KEYS folders stay."""
+        mine = self.deps_dir()
+        modules = mine.parent
+        if not modules.is_dir():
+            return
+        if not mine.exists():
+            same = [g.deps_dir(self.key) for g in self.worker.galleries if g is not self]
+            own = sorted(modules.glob(".vite-*"), key=lambda p: p.stat().st_mtime, reverse=True)
+            source = next((d for d in [*same, *own] if d.is_dir() and (d / "deps").is_dir()), None)
+            if source is not None:
+                with _suppress():
+                    shutil.copytree(source, mine, symlinks=True, ignore=shutil.ignore_patterns("deps_temp_*"))
+        with _suppress():
+            mine.mkdir(exist_ok=True)
+            os.utime(mine)
+        kept = sorted(modules.glob(".vite-*"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for old in kept[DEPS_KEYS:]:
+            shutil.rmtree(old, ignore_errors=True)
+
+    def up(self) -> bool:
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/gallery/", timeout=3) as r:
+                return r.status == 200
+        except OSError:
+            return False
+
+    def start(self) -> None:
+        if self.proc is not None and self.proc.poll() is None and self.up():
+            return
+        self.stop()
+        self.seed_deps()
+        logf = open(self.log_path, "ab")
+        self.proc = subprocess.Popen([self.worker.bun(), "run", "gallery:dev"], cwd=self.tree / "webviews",
+                                     stdout=logf, stderr=subprocess.STDOUT, start_new_session=True,
+                                     env={**os.environ, **self.vite_env()})
+        deadline = time.monotonic() + GALLERY_UP_SECONDS
+        while time.monotonic() < deadline:
+            if self.proc.poll() is not None:
+                raise LookError(f"gallery:dev exited {self.proc.returncode} (see {self.log_path})")
+            if self.up():
+                return
+            time.sleep(0.5)
+        raise LookError(f"gallery:dev did not answer in {GALLERY_UP_SECONDS} s")
+
+    def stop(self) -> None:
+        if self.proc is not None and self.proc.poll() is None:
+            with _suppress():
+                os.killpg(self.proc.pid, signal.SIGTERM)
+            with _suppress():
+                self.proc.wait(10)
+        self.proc = None
+
+    def scenes(self, files: list[str]) -> list[str]:
+        """The gallery entries touched.ts ranks first for FILES, at the tree's checkout."""
+        changed = self.worker.state / f"changed-{threading.get_ident()}.txt"
+        changed.write_text("\n".join(files) + "\n")
+        try:
+            out = run([self.worker.bun(), "scripts/gallery/touched.ts", "--changed", str(changed)],
+                      cwd=self.tree / "webviews", timeout=120, what="touched.ts")
+        finally:
+            with _suppress():
+                changed.unlink()
+        touched = json.loads(out)
+        ranked = [r.get("id") for r in touched.get("ranked") or [] if isinstance(r, dict)]
+        return [i for i in ranked if isinstance(i, str) and re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", i)][:WEB_CAP]
+
+    def shoot(self, entries: list[str], out: Path, absent: dict | None = None) -> dict:
+        """ENTRIES shot into OUT by the resident shooter (one chromium kept open between looks); when it fails, one
+        shooter run of its own (a cold chromium) before the look gives up. An entry in ABSENT ({entry: sha}) is
+        not in this checkout: its picture is a card saying so (file ABSENT_PREFIX...). {entry: file}."""
+        if out.exists():
+            shutil.rmtree(out)
+        out.mkdir(parents=True)
+        absent = absent or {}
+        spec = {"base": f"http://127.0.0.1:{self.port}/gallery/", "scheme": "dark", "out": str(out),
+                "try_ms": SHOT_TRY_S * 1000, "bound_ms": SHOT_BOUND_S * 1000,
+                "shots": [{"name": e, "entry": e, **({"absent": absent[e][:12]} if e in absent else {})}
+                          for e in entries]}
+        try:
+            rows = self.shoot_resident(spec)
+        except LookError as err:
+            log(f"the resident shooter ({self.name}): {err}; one cold shoot")
+            self.stop_shooter()
+            rows = self.shoot_once(spec, out)
+        shots = {}
+        for row in rows:
+            if isinstance(row, dict) and row.get("file") and (out / row["file"]).is_file():
+                shots[row["name"]] = row["file"]
+        if not shots and entries:
+            errors = [str(r.get("error")) for r in rows if isinstance(r, dict) and r.get("error")]
+            raise LookError(f"the gallery shoot took no shot: {tail('; '.join(errors)) or 'no answer'}")
+        return shots
+
+    def shoot_once(self, spec: dict, out: Path) -> list:
+        (out / "spec.json").write_text(json.dumps(spec))
+        try:
+            done = subprocess.run([self.worker.bun(), str(HERE / "ui-preview-shoot.mjs"), str(out / "spec.json"),
+                                   str(out)], cwd=self.tree / "webviews", capture_output=True, text=True,
+                                  timeout=SHOOT_SECONDS)
+        except subprocess.TimeoutExpired:
+            raise LookError(f"the gallery shoot ran past {SHOOT_SECONDS} s") from None
+        rows = []
+        for line in done.stdout.splitlines():
+            with _suppress():
+                rows.append(json.loads(line))
+        if not rows and done.returncode != 0:
+            raise LookError(f"the gallery shoot exited {done.returncode}: {tail(done.stderr or done.stdout)}")
+        return rows
+
+    def shoot_resident(self, spec: dict) -> list:
+        """One spec line to `ui-preview-shoot.mjs --serve` (started on first use, cwd the tree's webviews/), one
+        answer line back: {"shots": [{name, file} | {name, error}]}."""
+        if self.shooter is None or self.shooter.poll() is not None:
+            self.shooter_lines = queue.Queue()
+            with open(self.shooter_log, "ab") as logf:
+                self.shooter = subprocess.Popen([self.worker.bun(), str(HERE / "ui-preview-shoot.mjs"), "--serve"],
+                                                cwd=self.tree / "webviews", stdin=subprocess.PIPE,
+                                                stdout=subprocess.PIPE, stderr=logf, text=True, start_new_session=True)
+            lines, stdout = self.shooter_lines, self.shooter.stdout
+
+            def pump() -> None:
+                for line in stdout:
+                    lines.put(line)
+                lines.put(None)
+
+            threading.Thread(target=pump, name=f"shooter-out-{self.name}", daemon=True).start()
+        try:
+            self.shooter.stdin.write(json.dumps(spec) + "\n")
+            self.shooter.stdin.flush()
+        except (OSError, ValueError) as err:
+            raise LookError(f"could not hand it the spec: {err}") from None
+        deadline = time.monotonic() + SHOOT_SECONDS
+        while True:
+            try:
+                line = self.shooter_lines.get(timeout=max(0.1, deadline - time.monotonic()))
+            except queue.Empty:
+                raise LookError(f"no answer in {SHOOT_SECONDS} s") from None
+            if line is None:
+                raise LookError(f"it exited {self.shooter.wait()} (see {self.shooter_log})")
+            with _suppress():
+                answer = json.loads(line)
+                if isinstance(answer, dict) and isinstance(answer.get("shots"), list):
+                    return answer["shots"]
+
+    def stop_shooter(self) -> None:
+        if self.shooter is not None and self.shooter.poll() is None:
+            with _suppress():
+                self.shooter.stdin.close()
+            with _suppress():
+                self.shooter.wait(10)
+            if self.shooter.poll() is None:
+                with _suppress():
+                    os.killpg(self.shooter.pid, signal.SIGTERM)
+        if self.shooter is not None and self.shooter.stdout is not None:
+            with _suppress():
+                self.shooter.stdout.close()
+        self.shooter = None
+
+
 class Worker:
     def __init__(self, state: Path, public: str | None, send: str | None, publish: str | None,
                  host: str | None = None) -> None:
@@ -272,26 +545,24 @@ class Worker:
         self.state.mkdir(parents=True, exist_ok=True)
         self.clone = self.state / "cmux"
         self.swift_tree = self.state / "swift"
-        self.web_tree = self.state / "web"
         self.public = (public or "").rstrip("/")
         self.send_template = send
         self.publish_template = publish
         self.host = host or socket.gethostname().split(".")[0]
+        self.started_at = dt.datetime.now(dt.timezone.utc)  # before warm: replayed() measures from the takeover
         self.receipts_path = self.state / f"ui-preview-{self.host}.json"
-        self.gallery: subprocess.Popen | None = None
-        self.gallery_port = GALLERY_PORT
-        self.web_lock_hash: str | None = None
-        self.lock = threading.Lock()  # the web tree and its gallery
         self.swift_lock = threading.Lock()  # the shell's tree and .build
         self.fetch_lock = threading.Lock()  # the clone's fetches (a prefetch and a look's fetch of one head)
         self.receipt_lock = threading.Lock()
         self.swift_on = True  # serve --no-swift: a web-only worker
         self.mirror = MIRROR if (MIRROR / "objects").is_dir() else None
         self.publisher = Publisher(self)
-        self.shooter: subprocess.Popen | None = None
-        self.shooter_lines: "queue.Queue[str | None]" = queue.Queue()
         self.newest: dict[str, tuple[float, str]] = {}  # branch -> (received, head) of its newest queued request
         self.newest_lock = threading.Lock()
+        self.galleries_lock = threading.Lock()
+        self.gallery_keys: dict[str, str] = {}  # sha -> its gallery config's key
+        self.web = Gallery(self, self.state / "web", GALLERY_PORT, "web")
+        self.galleries = [self.web]
 
     # The clone and its worktrees.
     def ensure_clone(self) -> None:
@@ -321,6 +592,12 @@ class Worker:
         return subprocess.run(["git", "-C", str(self.clone), "cat-file", "-e", f"{sha}^{{commit}}"],
                               capture_output=True, env=NO_LAZY).returncode == 0
 
+    def has_gallery(self, sha: str) -> bool:
+        """SHA's tree holds the gallery's ranker (GALLERY_RANKER): a branch off main, which has none, has no web look
+        to take (every one failed "Module not found scripts/gallery/touched.ts" and counted as a miss)."""
+        return subprocess.run(["git", "-C", str(self.clone), "cat-file", "-e", f"{sha}:{GALLERY_RANKER}"],
+                              capture_output=True, env=NO_LAZY).returncode == 0
+
     def is_ancestor(self, sha: str, tip: str) -> bool:
         return subprocess.run(["git", "-C", str(self.clone), "merge-base", "--is-ancestor", sha, tip],
                               capture_output=True, env=NO_LAZY).returncode == 0
@@ -338,14 +615,33 @@ class Worker:
                 tips.append(done.stdout.strip())
         return list(dict.fromkeys(tips))
 
-    def fetch(self, *shas: str) -> None:
-        """SHAS into the clone: what the clone or the mirror holds already is not fetched; the rest from GitHub, the
-        mirror's refs telling GitHub what is here (one lock, so a prefetch and a look never fetch one head twice)."""
+    def fetch(self, *shas: str, branches: tuple[str | None, ...] = ()) -> None:
+        """SHAS into the clone: what the clone or the mirror holds already is not fetched; the rest by BRANCHES (and
+        BASE_BRANCH) as origin/B, then by id only for what is still missing (one lock, so a prefetch and a look never
+        fetch one head twice). By branch, never by --filter or a bare id: on a lane VM that publishes through the
+        broker (host-gh) git fetch carries plain branch names and tracking refspecs only, and every warm-up died
+        "git fetch --filter=blob:none: an option the brokered fetch does not carry" (lane-1/2, 2026-11-26). The
+        blob-less clone's own config (remote.origin.partialclonefilter) keeps a plain git's fetch blob-less."""
         with self.fetch_lock:
             missing = [s for s in dict.fromkeys(shas) if not self.has_commit(s)]
             if missing:
-                git(self.clone, "fetch", "-q", "--filter=blob:none", "--no-tags", "--no-write-fetch-head", "origin",
-                    *missing, timeout=FETCH_SECONDS)
+                self.fetch_branches(*branches, BASE_BRANCH)
+                missing = [s for s in missing if not self.has_commit(s)]
+            if missing:
+                git(self.clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", *missing,
+                    timeout=FETCH_SECONDS)
+
+    def fetch_branches(self, *branches: str | None) -> None:
+        """BRANCHES' tips into the clone as refs/remotes/origin/B (the caller holds fetch_lock, or needs none)."""
+        names = [b for b in dict.fromkeys(branches) if b and BRANCH_NAME.match(b)]
+        if names:
+            git(self.clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin",
+                *(f"+refs/heads/{b}:refs/remotes/origin/{b}" for b in names), timeout=FETCH_SECONDS)
+
+    def remote_tip(self, branch: str) -> str | None:
+        done = subprocess.run(["git", "-C", str(self.clone), "rev-parse", "-q", "--verify",
+                               f"refs/remotes/origin/{branch}^{{commit}}"], capture_output=True, text=True, env=NO_LAZY)
+        return done.stdout.strip() if done.returncode == 0 and SHA.match(done.stdout.strip()) else None
 
     def prefetch(self, req: dict) -> None:
         """While REQ waits in the queue: its head and base into the clone, and the blobs the diff between them reads
@@ -354,7 +650,7 @@ class Worker:
         began = time.monotonic()
         try:
             self.ensure_clone()
-            self.fetch(head, base)
+            self.fetch(head, base, branches=(req.get("branch"),))
             git(self.clone, "diff", "--numstat", "--no-renames", base, head, "--", ".", ":!cmux-next-ios",
                 ":!ghostty", ":!ghostty-next", timeout=PREFETCH_SECONDS)
             log(f"prefetch {head[:12]}: {time.monotonic() - began:.1f} s")
@@ -372,6 +668,9 @@ class Worker:
             git(self.clone, "worktree", "prune")
             git(self.clone, "worktree", "add", "--no-checkout", "--detach", str(tree), sha, timeout=300)
             git(tree, "sparse-checkout", "set", "--no-cone", *sparse)
+        elif git(tree, "sparse-checkout", "list").split() != list(sparse):
+            # A resident tree made under an older list: widen it in place, keeping its .build and node_modules.
+            git(tree, "sparse-checkout", "set", "--no-cone", *sparse, timeout=600)
         self.checkout(tree, sha)
 
     def checkout(self, tree: Path, sha: str) -> None:
@@ -379,58 +678,24 @@ class Worker:
 
     def on_branch_tip_or_landed(self, head: str, branch: str | None) -> bool:
         """The head is a manaflow-ai/cmux branch's tip, or landed on feat-cmux-next: never a fork's commit (the
-        look builds and runs the head's code). A head under a base tip held here asks GitHub nothing; else one
-        ls-remote, and the base tip fetched only when it is not here (it was most of a 36 s fetch stage)."""
+        look builds and runs the head's code). A head under a base tip held here asks GitHub nothing; else the
+        branch tip the look's fetch wrote (origin/BRANCH: a tip the repo held, so the repo's own commit even if the
+        branch moved since), and only when that is not the head one fetch of the branch and the base. No ls-remote: a lane VM's git has no GitHub credential, only the broker's fetch."""
         if any(self.is_ancestor(head, tip) for tip in self.local_base_tips()):
             return True
-        refs = [f"refs/heads/{branch}"] if branch else []
-        out = git(self.clone, "ls-remote", "origin", *refs, f"refs/heads/{BASE_BRANCH}", timeout=60)
-        tips = dict(line.split("\t")[::-1] for line in out.splitlines() if "\t" in line)
-        if branch and tips.get(f"refs/heads/{branch}") == head:
+        if branch and self.remote_tip(branch) == head:
             return True
-        tip = tips.get(f"refs/heads/{BASE_BRANCH}")
-        if tip:
-            self.fetch(tip)
-            return self.is_ancestor(head, tip)
-        return False
-
-    def checkout_web(self, sha: str) -> None:
-        """The web tree at SHA. A checkout that changes the gallery's config, deps or dev server restarts the gallery
-        here (start_gallery waits for it to answer): vite would restart or re-optimize on its own, and pages loaded
-        meanwhile never marked ready (every base-side shot of a vite.config.ts push timed out at 60 s)."""
-        tree = self.web_tree
-        old = None
-        if (tree / ".git").exists():
-            with _suppress():
-                old = git(tree, "rev-parse", "HEAD").strip()
-        self.ensure_tree(tree, WEB_SPARSE, sha)
-        if old and old != sha and self.gallery_config_changed(old, sha):
-            log(f"gallery config changed {old[:12]}..{sha[:12]}: restarting the gallery")
-            self.stop_gallery()
+        with self.fetch_lock:
+            self.fetch_branches(branch, BASE_BRANCH)
+        if branch and self.remote_tip(branch) == head:
+            return True
+        tip = self.remote_tip(BASE_BRANCH)
+        return bool(tip) and self.is_ancestor(head, tip)
 
     def gallery_config_changed(self, old: str, new: str) -> bool:
         out = git(self.clone, "diff", "--name-only", "--no-renames", old, new, "--",
                   *(f":(glob){p}**" if p.endswith("/") else f":(glob){p}" for p in GALLERY_CONFIG))
         return bool(out.strip())
-
-    def entry_ids(self) -> set[str]:
-        """The gallery entry ids the web tree's checkout holds, as the dev server's entry index reads them
-        (webviews/dev-server/galleryHost.ts readEntryIndex: the first `id: "..."` after `export default` in each
-        *.gallery.ts(x), else the file's first)."""
-        ids = set()
-        root = self.web_tree / "webviews" / "src"
-        for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [d for d in dirnames if d != "node_modules"]
-            for name in filenames:
-                if not re.search(r"\.gallery\.tsx?$", name):
-                    continue
-                with _suppress():
-                    text = (Path(dirpath) / name).read_text(errors="replace")
-                    at = text.find("export default")
-                    m = (ENTRY_ID.search(text[at:]) if at >= 0 else None) or ENTRY_ID.search(text)
-                    if m:
-                        ids.add(m.group(1))
-        return ids
 
     # The Swift shell.
     def shell_binary(self) -> Path:
@@ -505,170 +770,73 @@ class Worker:
             raise LookError("no bun on this worker")
         return found
 
-    def web_install(self) -> bool:
-        """bun install when the lockfile changed since the last install; True when it ran."""
-        lock = self.web_tree / "bun.lock"
-        digest = git(self.web_tree, "hash-object", str(lock)) if lock.exists() else "none"
-        if digest == self.web_lock_hash and (self.web_tree / "webviews" / "node_modules").is_dir():
-            return False
-        run([self.bun(), "install", "--frozen-lockfile"], cwd=self.web_tree / "webviews", timeout=INSTALL_SECONDS,
-            what="bun install")
-        self.web_lock_hash = digest
-        return True
+    @property
+    def web_tree(self) -> Path:
+        return self.web.tree
 
-    def gallery_up(self) -> bool:
+    def gallery_key(self, sha: str) -> str | None:
+        """SHA's gallery config (GALLERY_CONFIG's blob ids, read from the tree: no blob fetched), or None when the
+        clone cannot read it. Two commits with one key run on one vite without a restart."""
+        with self.galleries_lock:
+            if sha in self.gallery_keys:
+                return self.gallery_keys[sha]
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{self.gallery_port}/gallery/", timeout=3) as r:
-                return r.status == 200
-        except OSError:
-            return False
+            rows = git(self.clone, "ls-tree", "-r", sha, "--", "webviews/", "bun.lock").splitlines()
+        except LookError:
+            return None
+        picked = []
+        for row in rows:
+            path = row.split("\t", 1)[-1]
+            if any(path.startswith(p) if p.endswith("/") else fnmatch.fnmatchcase(path, p) for p in GALLERY_CONFIG):
+                picked.append(row)
+        key = hashlib.sha256("\n".join(sorted(picked)).encode()).hexdigest()[:16]
+        with self.galleries_lock:
+            self.gallery_keys[sha] = key
+        return key
 
-    def start_gallery(self) -> None:
-        if self.gallery is not None and self.gallery.poll() is None and self.gallery_up():
-            return
-        self.stop_gallery()
-        logf = open(self.state / "gallery-dev.log", "ab")
-        self.gallery = subprocess.Popen([self.bun(), "run", "gallery:dev"], cwd=self.web_tree / "webviews",
-                                        stdout=logf, stderr=subprocess.STDOUT, start_new_session=True,
-                                        env={**os.environ, "CMUX_GALLERY_DEV_PORT": str(self.gallery_port)})
-        deadline = time.monotonic() + GALLERY_UP_SECONDS
-        while time.monotonic() < deadline:
-            if self.gallery.poll() is not None:
-                raise LookError(f"gallery:dev exited {self.gallery.returncode} (see {self.state / 'gallery-dev.log'})")
-            if self.gallery_up():
-                return
-            time.sleep(0.5)
-        raise LookError(f"gallery:dev did not answer in {GALLERY_UP_SECONDS} s")
+    def gallery_for(self, sha: str, avoid: tuple = ()) -> "Gallery":
+        """The gallery to shoot SHA on: one already on SHA's config (its vite warm), else one not yet checked out,
+        else a new one up to GALLERIES, else the least recently used (its checkout restarts it). Never one in AVOID
+        while another is free: the look's other side holds it."""
+        key = self.gallery_key(sha)
+        with self.galleries_lock:
+            free = [g for g in self.galleries if g not in avoid]
+            pick = next((g for g in free if key is not None and g.key == key), None)
+            pick = pick or next((g for g in free if g.key is None), None)
+            if pick is None and len(self.galleries) < GALLERIES:
+                n = len(self.galleries) + 1
+                pick = Gallery(self, self.state / f"web-{n}", GALLERY_PORT + n - 1, f"web-{n}")
+                self.galleries.append(pick)
+            pick = pick or min(free or self.galleries, key=lambda g: g.used)
+            pick.used = time.monotonic()
+            return pick
 
     def stop_gallery(self) -> None:
-        if self.gallery is not None and self.gallery.poll() is None:
-            with _suppress():
-                os.killpg(self.gallery.pid, signal.SIGTERM)
-            with _suppress():
-                self.gallery.wait(10)
-        self.gallery = None
-
-    def web_scenes(self, files: list[str]) -> list[str]:
-        """The gallery entries touched.ts ranks first for FILES, at the head (the web tree's checkout)."""
-        changed = self.state / f"changed-{threading.get_ident()}.txt"
-        changed.write_text("\n".join(files) + "\n")
-        try:
-            out = run([self.bun(), "scripts/gallery/touched.ts", "--changed", str(changed)],
-                      cwd=self.web_tree / "webviews", timeout=120, what="touched.ts")
-        finally:
-            with _suppress():
-                changed.unlink()
-        touched = json.loads(out)
-        ranked = [r.get("id") for r in touched.get("ranked") or [] if isinstance(r, dict)]
-        return [i for i in ranked if isinstance(i, str) and re.match(r"^[A-Za-z0-9][A-Za-z0-9._-]*$", i)][:WEB_CAP]
-
-    def shoot_gallery(self, entries: list[str], out: Path, absent: dict | None = None) -> dict:
-        """ENTRIES shot into OUT by the resident shooter (one chromium kept open between looks); when it fails, one
-        shooter run of its own (a cold chromium) before the look gives up. An entry in ABSENT ({entry: sha}) is
-        not in this checkout: its picture is a card saying so (file ABSENT_PREFIX...). {entry: file}."""
-        if out.exists():
-            shutil.rmtree(out)
-        out.mkdir(parents=True)
-        absent = absent or {}
-        spec = {"base": f"http://127.0.0.1:{self.gallery_port}/gallery/", "scheme": "dark", "out": str(out),
-                "try_ms": SHOT_TRY_S * 1000, "bound_ms": SHOT_BOUND_S * 1000,
-                "shots": [{"name": e, "entry": e, **({"absent": absent[e][:12]} if e in absent else {})}
-                          for e in entries]}
-        try:
-            rows = self.shoot_resident(spec)
-        except LookError as err:
-            log(f"the resident shooter: {err}; one cold shoot")
-            self.stop_shooter()
-            rows = self.shoot_once(spec, out)
-        shots = {}
-        for row in rows:
-            if isinstance(row, dict) and row.get("file") and (out / row["file"]).is_file():
-                shots[row["name"]] = row["file"]
-        if not shots and entries:
-            errors = [str(r.get("error")) for r in rows if isinstance(r, dict) and r.get("error")]
-            raise LookError(f"the gallery shoot took no shot: {tail('; '.join(errors)) or 'no answer'}")
-        return shots
-
-    def shoot_once(self, spec: dict, out: Path) -> list:
-        (out / "spec.json").write_text(json.dumps(spec))
-        try:
-            done = subprocess.run([self.bun(), str(HERE / "ui-preview-shoot.mjs"), str(out / "spec.json"), str(out)],
-                                  cwd=self.web_tree / "webviews", capture_output=True, text=True, timeout=SHOOT_SECONDS)
-        except subprocess.TimeoutExpired:
-            raise LookError(f"the gallery shoot ran past {SHOOT_SECONDS} s") from None
-        rows = []
-        for line in done.stdout.splitlines():
-            with _suppress():
-                rows.append(json.loads(line))
-        if not rows and done.returncode != 0:
-            raise LookError(f"the gallery shoot exited {done.returncode}: {tail(done.stderr or done.stdout)}")
-        return rows
-
-    def shoot_resident(self, spec: dict) -> list:
-        """One spec line to `ui-preview-shoot.mjs --serve` (started on first use, cwd the web tree's webviews/), one
-        answer line back: {"shots": [{name, file} | {name, error}]}."""
-        if self.shooter is None or self.shooter.poll() is not None:
-            self.shooter_lines = queue.Queue()
-            with open(self.state / "shooter.log", "ab") as logf:
-                self.shooter = subprocess.Popen([self.bun(), str(HERE / "ui-preview-shoot.mjs"), "--serve"],
-                                                cwd=self.web_tree / "webviews", stdin=subprocess.PIPE,
-                                                stdout=subprocess.PIPE, stderr=logf, text=True, start_new_session=True)
-            lines, stdout = self.shooter_lines, self.shooter.stdout
-
-            def pump() -> None:
-                for line in stdout:
-                    lines.put(line)
-                lines.put(None)
-
-            threading.Thread(target=pump, name="shooter-out", daemon=True).start()
-        try:
-            self.shooter.stdin.write(json.dumps(spec) + "\n")
-            self.shooter.stdin.flush()
-        except (OSError, ValueError) as err:
-            raise LookError(f"could not hand it the spec: {err}") from None
-        deadline = time.monotonic() + SHOOT_SECONDS
-        while True:
-            try:
-                line = self.shooter_lines.get(timeout=max(0.1, deadline - time.monotonic()))
-            except queue.Empty:
-                raise LookError(f"no answer in {SHOOT_SECONDS} s") from None
-            if line is None:
-                raise LookError(f"it exited {self.shooter.wait()} (see {self.state / 'shooter.log'})")
-            with _suppress():
-                answer = json.loads(line)
-                if isinstance(answer, dict) and isinstance(answer.get("shots"), list):
-                    return answer["shots"]
+        for g in list(self.galleries):
+            g.stop()
 
     def stop_shooter(self) -> None:
-        if self.shooter is not None and self.shooter.poll() is None:
-            with _suppress():
-                self.shooter.stdin.close()
-            with _suppress():
-                self.shooter.wait(10)
-            if self.shooter.poll() is None:
-                with _suppress():
-                    os.killpg(self.shooter.pid, signal.SIGTERM)
-        if self.shooter is not None and self.shooter.stdout is not None:
-            with _suppress():
-                self.shooter.stdout.close()
-        self.shooter = None
+        for g in list(self.galleries):
+            g.stop_shooter()
 
-    def web_side(self, sha: str, entries: list[str]) -> dict:
+    def web_side(self, sha: str, entries: list[str], gallery: "Gallery | None" = None) -> dict:
         cache = self.state / "shots" / "web" / sha
         have = {s: cache / f for s, f in self._cached(cache).items() if s in entries}
         want = [e for e in entries if e not in have]
         if want:
-            self.checkout_web(sha)
-            if self.web_install():
-                self.stop_gallery()
-                self.stop_shooter()
-            self.start_gallery()
-            # vite's watcher sees the checkout; a page loaded after it settles takes the new modules.
-            time.sleep(0.4)
-            fresh = cache.with_name(f".{sha}.{os.getpid()}.{threading.get_ident()}")
-            held = self.entry_ids()
-            absent = {e: sha for e in want if e not in held}
-            shots = self.shoot_gallery(want, fresh, absent)
+            g = gallery or self.gallery_for(sha)
+            with g.lock:
+                g.checkout(sha)
+                if g.install():
+                    g.stop()
+                    g.stop_shooter()
+                g.start()
+                # vite's watcher sees the checkout; a page loaded after it settles takes the new modules.
+                time.sleep(0.4)
+                fresh = cache.with_name(f".{sha}.{os.getpid()}.{threading.get_ident()}")
+                held = g.entry_ids()
+                absent = {e: sha for e in want if e not in held}
+                shots = g.shoot(want, fresh, absent)
             merged = {**self._cached(cache), **shots}
             cache.mkdir(parents=True, exist_ok=True)
             for name, rel in shots.items():
@@ -680,6 +848,35 @@ class Worker:
             have.update({s: cache / merged[s] for s in want if s in merged})
         return have
 
+    def web_sides(self, head: str, base: str, entries: list[str], g_head: "Gallery", stages: Stages) -> tuple:
+        """Both sides' shots. Sides on one gallery config shoot one after the other on one vite; sides on two configs
+        shoot at once, each on its own warm vite (a vite.config.ts push restarted one vite twice: 105 s)."""
+        g_base = g_head if self.gallery_key(base) in (None, g_head.key) else self.gallery_for(base, avoid=(g_head,))
+        if g_base is g_head:
+            with stages("web_after"):
+                after = self.web_side(head, entries, g_head)
+            with stages("web_before"):
+                before = self.web_side(base, entries, g_base)
+            return before, after
+        got: dict = {}
+
+        def side(name: str, sha: str, g: "Gallery") -> None:
+            try:
+                with stages(name):
+                    got[name] = self.web_side(sha, entries, g)
+            except LookError as err:
+                got[name] = err
+
+        other = threading.Thread(target=side, args=("web_before", base, g_base), name=f"before-{base[:8]}",
+                                 daemon=True)
+        other.start()
+        side("web_after", head, g_head)
+        other.join()
+        for name in ("web_after", "web_before"):
+            if isinstance(got.get(name), LookError):
+                raise got[name]
+        return got["web_before"], got["web_after"]
+
     # Warm-up: the clone, both trees at the base tip, the shell's .build, node_modules, the gallery and the shooter's
     # chromium, with one entry shot at the tip (vite has compiled the gallery; the shot is the next push's before).
     def warm(self, web: bool = True, swift: bool = True) -> dict:
@@ -688,10 +885,10 @@ class Worker:
             self.ensure_clone()
             ref = f"refs/remotes/origin/{BASE_BRANCH}"
             with self.fetch_lock:
-                git(self.clone, "fetch", "-q", "--filter=blob:none", "--no-tags", "--no-write-fetch-head", "origin",
-                    f"+refs/heads/{BASE_BRANCH}:{ref}", timeout=FETCH_SECONDS)
+                self.fetch_branches(BASE_BRANCH)
             tip = git(self.clone, "rev-parse", ref)
         errors = []
+        prune_transforms(self.state / "vite-transforms")
         if swift:
             try:
                 with stages("swift"):
@@ -701,15 +898,32 @@ class Worker:
                 errors.append(f"swift: {err}")
         if web:
             try:
-                with stages("web"):
-                    self.checkout_web(tip)
-                    self.web_install()
-                    self.start_gallery()
+                g = self.web
+                with stages("web"), g.lock:
+                    g.checkout(tip)
+                    g.install()
+                    g.start()
                 with stages("web_preshoot"):
-                    # A change to the gallery itself touches every entry: the first one ranked is a real entry.
-                    entries = self.web_scenes(["webviews/src/gallery/warm"])[:1]
+                    # A change to the gallery itself touches every entry: the first one ranked is a real entry. Plus
+                    # one entry of each big family (PRESHOOT_FAMILIES): vite and the transform cache hold its modules
+                    # (agent-pane's App.tsx is ~33 s of React Compiler cold), so a push's first agent-pane look is warm.
+                    entries = g.scenes(["webviews/src/gallery/warm"])[:1]
+                    held = sorted(g.entry_ids())
+                    for family in PRESHOOT_FAMILIES:
+                        pick = next((e for e in held if e.startswith(family)), None)
+                        if pick and not any(e.startswith(family) for e in entries):
+                            entries.append(pick)
                     if entries:
-                        self.web_side(tip, entries)
+                        self.web_side(tip, entries, g)
+                with stages("web_spare"):
+                    # The spare galleries' trees and node_modules at the tip: a push that changes the gallery config
+                    # checks one out and starts its vite (deps cache seeded), with no worktree add or cold install.
+                    while len(self.galleries) < GALLERIES:
+                        spare = self.gallery_for(tip, avoid=tuple(self.galleries))
+                        with spare.lock:
+                            spare.checkout(tip)
+                            spare.install()
+                            spare.seed_deps()
             except LookError as err:
                 errors.append(f"web: {err}")
         return {"tip": tip, "stages": stages.seconds, "errors": errors}
@@ -776,10 +990,16 @@ class Worker:
             raise LookError(why)
         with stages("fetch"):
             self.ensure_clone()
-            self.fetch(head, base)
+            self.fetch(head, base, branches=(req.get("branch"),))
             if not self.on_branch_tip_or_landed(head, req.get("branch")):
                 raise LookError(f"{head[:12]} is neither {req.get('branch')}'s tip on {CMUX_REPO} nor on "
                                 f"{BASE_BRANCH}: no look at a commit that is not the repo's own")
+            if planned["web"] and not self.has_gallery(head):
+                planned = {**planned, "web": False, "no_gallery": True}
+                receipt["plan"] = planned
+                if not planned["swift"]:
+                    raise LookError(f"no scene shows these files: {head[:12]} has no {GALLERY_RANKER} "
+                                    f"(a branch off main, not {BASE_BRANCH})")
         pairs: list[tuple[str, str, Path | None, Path | None]] = []  # (kind, scene, before, after)
         errors = []
         if planned["needs_build"]:
@@ -800,25 +1020,23 @@ class Worker:
         if planned["web"]:
             try:
                 began = time.monotonic()
-                with self.lock:  # the one web tree and gallery: one look's checkouts and shots at a time
-                    stages.seconds["web_wait"] = round(time.monotonic() - began, 3)
-                    with stages("web_plan"):
-                        self.checkout_web(head)
-                        if self.web_install():
-                            self.stop_gallery()
-                            self.stop_shooter()
+                g = self.gallery_for(head)
+                with stages("web_plan"):
+                    with g.lock:  # the head's gallery: its checkout and touched.ts, then each side under its own lock
+                        stages.seconds["web_wait"] = round(time.monotonic() - began, 3)
+                        g.checkout(head)
+                        if g.install():
+                            g.stop()
+                            g.stop_shooter()
                         web_files = [f for f in req["ui_files"] if f.startswith(WEB_PREFIXES)]
-                        entries = self.web_scenes(web_files)
-                    receipt["web_entries"] = entries
-                    if entries:
-                        # Head first: its tree is checked out already; the base is often cached (the last push's head).
-                        with stages("web_after"):
-                            after = self.web_side(head, entries)
-                        with stages("web_before"):
-                            before = self.web_side(base, entries)
-                        pairs += [("web", e, before.get(e), after.get(e)) for e in entries]
-                    else:
-                        errors.append("web: touched.ts names no gallery entry for these files")
+                        entries = g.scenes(web_files)
+                receipt["web_entries"] = entries
+                if entries:
+                    # Head first: its tree is checked out already; the base is often cached (the last push's head).
+                    before, after = self.web_sides(head, base, entries, g, stages)
+                    pairs += [("web", e, before.get(e), after.get(e)) for e in entries]
+                else:
+                    errors.append("web: touched.ts names no gallery entry for these files")
             except LookError as err:
                 errors.append(f"web: {err}")
         with stages("publish"):
@@ -913,9 +1131,15 @@ class Worker:
         """--publish-receipts once over the file as it is now (the publisher's thread; never a look's)."""
         argv = [a.replace("{file}", str(self.receipts_path)).replace("{host}", self.host)
                 for a in shlex.split(self.publish_template or "")]
-        if argv:
-            with _suppress():
-                subprocess.run(argv, capture_output=True, timeout=SEND_SECONDS)
+        if not argv:
+            return
+        try:
+            done = subprocess.run(argv, capture_output=True, text=True, timeout=SEND_SECONDS)
+        except (OSError, subprocess.SubprocessError) as err:
+            log(f"publish: {err}")
+            return
+        if done.returncode != 0:  # a refused publish was silent for 12 h (PUBLISH_MAX): say it each time
+            log(f"publish exited {done.returncode}: {tail(done.stderr or done.stdout)}")
 
 
 class Publisher:
@@ -965,6 +1189,31 @@ class Publisher:
         return True
 
 
+def prune_transforms(folder: Path, cap_mb: int = TRANSFORM_CACHE_MB) -> int:
+    """The shared transform cache under CAP_MB: the oldest entries go first, down to three quarters of it (each push
+    adds the modules it changed). The number removed."""
+    if not folder.is_dir():
+        return 0
+    rows = []
+    for dirpath, _, filenames in os.walk(folder):
+        for name in filenames:
+            with _suppress():
+                st = (Path(dirpath) / name).stat()
+                rows.append((st.st_mtime, st.st_size, Path(dirpath) / name))
+    total = sum(r[1] for r in rows)
+    if total <= cap_mb << 20:
+        return 0
+    removed = 0
+    for _, size, path in sorted(rows):
+        if total <= (cap_mb << 20) * 3 // 4:
+            break
+        with _suppress():
+            path.unlink()
+            total -= size
+            removed += 1
+    return removed
+
+
 def needs_build_reason(planned: dict) -> str:
     files = planned["needs_build"]
     more = f" and {len(files) - 3} more" if len(files) > 3 else ""
@@ -1011,7 +1260,7 @@ def make_handler(worker: Worker, jobs: "queue.Queue"):
             path = self.path.split("?", 1)[0]
             if path == "/health":
                 return self.reply(200, {"ok": True, "host": worker.host, "queued": jobs.qsize(),
-                                        "gallery": worker.gallery_up()})
+                                        "gallery": worker.web.up()})
             if path == "/receipts":
                 try:
                     return self.reply(200, worker.receipts_path.read_bytes())
@@ -1049,13 +1298,22 @@ def tailnet_address() -> str | None:
 
 FOLLOW_WAIT_S = 20  # the broker's long-poll bound (UI_PREVIEW_WAIT_MAX_S)
 FOLLOW_RETRY_S = 10  # after a failed call
+# A request pushed longer than this before the worker started is the previous lease holder's (replayed): the lease's
+# ttl_s 60 and probe_s 10 (leo-workspace machines/role-leases.json ui-preview-web), role_lease's STOP_S 15 and
+# RESTART_S 5.
+TAKEOVER_S = 90
 
 
 def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None) -> dict:
-    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (status 200), or LookError."""
+    """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (status 200), or LookError. With a
+    REPO the JSON goes on stdin (`lane-gh call TOOL REPO -`): one argv string holds at most 128 KiB on Linux
+    (MAX_ARG_STRLEN), and the census copy state_put carries runs to PUBLISH_MAX, so in argv every publish of a
+    receipts file past 128 KiB failed with E2BIG and the host's census copy stood still for hours. A tool with no
+    repo (ui_preview_requests) takes its few bytes in argv: lane-gh reads stdin only in the REPO form."""
+    body = json.dumps(args)
+    argv = ["lane-gh", "call", tool, repo, "-"] if repo else ["lane-gh", "call", tool, body]
     try:
-        done = subprocess.run(["lane-gh", "call", tool, *([repo] if repo else []), json.dumps(args)],
-                              capture_output=True, text=True, timeout=timeout)
+        done = subprocess.run(argv, input=body if repo else None, capture_output=True, text=True, timeout=timeout)
     except (subprocess.TimeoutExpired, OSError) as err:
         raise LookError(f"lane-gh call {tool}: {err}") from None
     if done.returncode != 0:
@@ -1104,9 +1362,27 @@ def drain(worker: "Worker", jobs: "queue.Queue", once: bool = False) -> None:
             return
 
 
+def replayed(worker: "Worker", req: dict) -> bool:
+    """Whether REQ was pushed while another worker held the role: more than TAKEOVER_S before this one started.
+
+    The role runs on two hosts under a lease (leo-workspace tools/role_lease.py) and DIR/follow-seq is each host's
+    own, so the host that takes the lease over resumes from the seq it held when it last led and the broker answers
+    every request pushed since: 2026-11-27 the second host took over at 01:18:28 and posted ten pushes the first had
+    already handled, one of them 1,000 s after its push, and NOW keeps the later posted_at of a key, so a replay
+    also turns a covered 25 s post into a 1,000 s one. A request pushed more than TAKEOVER_S before this worker
+    started was its predecessor's to post, which had longer than the whole 60 s goal to do it; within TAKEOVER_S it
+    may have been in flight when the predecessor stopped (the lease's TTL plus its probe, role_lease's stop and
+    restart), so it is taken. A replayed request gets no receipt here: the poster's receipt, or the trigger's
+    posted_at null one, stands."""
+    pushed = parse_ts(req.get("pushed_at"))
+    since = getattr(worker, "started_at", None)
+    return pushed is not None and since is not None and (since - pushed).total_seconds() > TAKEOVER_S
+
+
 def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=lane_gh_call) -> int:
     """One long-poll of the broker's push trigger: queues each request this worker takes and returns the seq to ask
-    after next. AFTER None (a first start): the broker's newest, taking nothing (no backlog)."""
+    after next. AFTER None (a first start): the broker's newest, taking nothing (no backlog). A request pushed
+    before this worker took the role over is its predecessor's (replayed)."""
     answer = call("ui_preview_requests", {"after": after or 0, "wait": 0 if after is None else FOLLOW_WAIT_S},
                   FOLLOW_WAIT_S + 60)
     newest = answer.get("seq") if isinstance(answer.get("seq"), int) else 0
@@ -1120,6 +1396,10 @@ def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=l
             req = check_request(raw)
         except LookError as err:
             log(f"follow: request {seq} not taken: {err}")
+            continue
+        if replayed(worker, req):
+            log(f"follow: request {seq} {req['head_sha'][:12]} pushed {req.get('pushed_at')}, before this worker "
+                f"took the role: its predecessor's, not posted again")
             continue
         planned = plan(req["ui_files"])
         if not worker.swift_on and not planned["web"] and not skip_reason(planned):
@@ -1220,11 +1500,59 @@ def command_submit(args) -> int:
     return 0
 
 
+def publish_doc(doc: dict, now: dt.datetime | None = None, limit: int = PUBLISH_MAX) -> str:
+    """DOC (the local receipts file) as the census copy: the receipts pushed in the last PUBLISH_WINDOW_H hours, each
+    with PUBLISH_FIELDS (at most PUBLISH_FILES ui_files) and its scenes' before and after (relative to the row's
+    look_base, when every shot shares one), compact, newest kept and oldest dropped until it is at most
+    LIMIT bytes. Raises ValueError for a doc that is not ui-preview/v1."""
+    if not isinstance(doc, dict) or doc.get("schema") != SCHEMA_RECEIPT or not isinstance(doc.get("receipts"), list):
+        raise ValueError("the receipts file is not a ui-preview/v1 document")
+    cutoff = (now or dt.datetime.now(dt.timezone.utc)) - dt.timedelta(hours=PUBLISH_WINDOW_H)
+    rows = []
+    for r in doc["receipts"]:
+        pushed = parse_ts(r.get("pushed_at")) if isinstance(r, dict) else None
+        if pushed is None or pushed < cutoff:
+            continue
+        row = {k: r[k] for k in PUBLISH_FIELDS if r.get(k) is not None}
+        if isinstance(row.get("error"), str):
+            row["error"] = row["error"][:200]
+        files = row.get("ui_files")
+        if isinstance(files, list) and len(files) > PUBLISH_FILES:  # a whole-tree push named 17 KB of paths
+            row["ui_files"], row["ui_files_n"] = files[:PUBLISH_FILES], len(files)
+        scenes = [{k: s[k] for k in ("scene", "kind", "before", "after") if s.get(k)}
+                  for s in r.get("scenes") or [] if isinstance(s, dict)]
+        # Every shot's URL is the worker's http://HOST:PORT/looks/LOOK/ and a short tail: the base once, as look_base.
+        bases = {m[1] for s in scenes for k in ("before", "after")
+                 if isinstance(s.get(k), str) and (m := re.match(r"^(.*/looks/[0-9a-f]{32}/)(.+)$", s[k]))}
+        if len(bases) == 1:
+            row["look_base"] = base = bases.pop()
+            for s in scenes:
+                for k in ("before", "after"):
+                    if isinstance(s.get(k), str) and s[k].startswith(base):
+                        s[k] = s[k][len(base):]
+        if scenes:
+            row["scenes"] = scenes
+        rows.append((pushed, row))
+    rows.sort(key=lambda pr: pr[0])
+    kept = [row for _, row in rows]
+    head = {"schema": SCHEMA_RECEIPT, "host": doc.get("host"), "at": doc.get("at") or utc_now()}
+
+    def encode(receipts: list) -> str:
+        return json.dumps({**head, "receipts": receipts}, separators=(",", ":")) + "\n"
+
+    text = encode(kept)
+    while len(text.encode()) > limit and kept:
+        over = len(text.encode()) - limit
+        drop = max(1, over * len(kept) // max(1, len(text.encode())))
+        kept = kept[drop:]
+        text = encode(kept)
+    return text
+
+
 def command_publish(args) -> int:
     """FILE as ui-preview/HOST.json on cmuxterm-hq's reconciler-state/now-census (the broker's state_put)."""
     try:
-        text = Path(args.file).read_text()
-        json.loads(text)
+        text = publish_doc(json.loads(Path(args.file).read_text()))
         lane_gh_call("state_put", {"name": "now-census", "files": {f"ui-preview/{args.host}.json": text}},
                      SEND_SECONDS, repo="manaflow-ai/cmuxterm-hq")
     except (OSError, ValueError, LookError) as err:

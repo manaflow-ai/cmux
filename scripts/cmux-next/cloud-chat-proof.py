@@ -155,12 +155,13 @@ def claude_chat(agent: str) -> bool:
 
 
 # A Claude chat's `--login` only: Codex never takes it (`none` would leave it signed out; its login is the Mac's broker).
-# `cmux cloud start-chat` has no --login any more (run 45643863592: unexpected argument "--login"); none is passed.
-START_LOGIN = ()
+# The Rust `cmux cloud start-chat` has no --login (run 45643863592: unexpected argument "--login"): the start-chat
+# --help probe below drops it for that CLI, and an older app's CLI that still lists it gets it.
+START_LOGIN = ("--login", args.login) if args.login and claude_chat(args.agent) else ()
 # --grant-claude-login: the launched app's own cmux.json (0600), removed with its folder when the run ends. It holds
 # the consent a Release build's claude chat on the account's own machine waits for (CloudLoginCopyConsentSetting:
 # only the file can say yes; `settings set` asks a person on screen, which CI has not). Never the shared
-# ~/.config/cmux/cmux-next.json a person's other apps read.
+# ~/.config/cmux-next/cmux-next.json a person's other apps read.
 CLAUDE_LOGIN_SETTING = ("cloud", "useMyClaudeLoginOnMyCloudMachines")
 CONFIG_DIR = None
 CONFIG_FILE = None
@@ -656,9 +657,18 @@ def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240) -> di
         if satisfied or time.monotonic() >= deadline:
             break
         time.sleep(min(5, max(0, deadline - time.monotonic())))
-    safe = {key: value.get(key) for key in ("pid", "signed_in", "backend", "cloud_environment")
+    safe = {key: value.get(key) for key in ("pid", "signed_in", "backend", "cloud_environment", "loaded", "signedIn", "team")
             if key in value}
-    record(name, 0 if satisfied else (code or 1), "", "" if satisfied else err,
+    account = value.get("account")
+    if isinstance(account, dict):  # list-machines' sign-in (a shipped app): whether, and for a team, never the ids
+        safe["account"] = {"signed_in": account.get("signed_in"), "team": account.get("team_id") is not None}
+    if value.get("last_error"):
+        safe["last_error"] = clean(str(value["last_error"]), 500)
+    why = err
+    if not satisfied and code == 0 and not (err or "").strip():
+        # The command answered but never satisfied the wait: say what it last saw, or the step reads as a bare exit 1.
+        why = "last answer: " + json.dumps(safe, sort_keys=True)
+    record(name, 0 if satisfied else (code or 1), "", "" if satisfied else why,
            elapsed_ms=round((time.monotonic() - started) * 1000), **safe)
     if not satisfied:
         finish(f"fail: {name}")
@@ -676,6 +686,10 @@ launch = [open_tool, "-W", "-g", "-n"]
 # and the app then strips the CMUX_NEXT_* state-root knobs (LaunchIdentity.inheritedKeys), the socket one included.
 # `open` also hands the app this process's environment, so the launcher runs on launch_env(ENV) (app_launch_env.py).
 launch.extend(["--env", f"CMUX_NEXT_SOCKET_PATH={SOCKET_PATH}"])
+# A NIGHTLY or release holds one copy per user (SingleInstanceGuard: a flock on its Application Support
+# instance.lock); a second launch hands off to the copy already running on the Mac and exits before it binds
+# this socket, so `app identify` never reached it (kinds run 45821171663, job 139987363954). Opt out, as a test run.
+launch.extend(["--env", "CMUX_NEXT_ALLOW_SECOND_INSTANCE=1"])
 if CONFIG_FILE:
     # Its own cmux.json, as the socket: LaunchServices passes the app only what --env names.
     launch.extend(["--env", f"CMUX_NEXT_CONFIG_FILE={CONFIG_FILE}"])

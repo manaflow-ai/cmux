@@ -156,3 +156,50 @@ struct BrowserExternalAppConsentTests {
         return (BrowserExternalApps(defaults: defaults, ownSchemes: ["cmux-nightly"]), { defaults.removePersistentDomain(forName: suite) })
     }
 }
+
+/// A sign-in that returns to an app by redirect or script (vscode://, an app's own scheme) on a Mac
+/// with no app for it was silent in both engines: the flow just stopped (ask-2d244f2b2e, Leo: "this is
+/// fixable. I feel like there is similar thing maybe with probably logins and redirects and popups").
+@MainActor
+struct BrowserExternalAppNoAppTests {
+    @Test func aPageSentToASchemeNoAppOpensIsToldOnceAClickStaysSilent() throws {
+        let suite = "BrowserExternalAppNoAppTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let apps = BrowserExternalApps(defaults: defaults, ownSchemes: [], appFor: { _ in nil })
+        var clock = Date(timeIntervalSince1970: 1_000)
+        apps.now = { clock }
+        var asked: [(BrowserPromptKind, String)] = []
+        let back = try #require(URL(string: "vscode://auth?code=1"))
+        let page = URL(string: "https://login.example.test/cb")
+
+        // A click on a link no app opens does nothing, as in Chrome (external-schemes-live.py).
+        apps.open(back, from: page, engine: .cef, userGesture: true) { kind, site, _ in asked.append((kind, site)) }
+        #expect(asked.isEmpty)
+
+        // A redirect or script return tells the person, in either engine.
+        apps.open(back, from: page, engine: .cef, userGesture: false) { kind, site, _ in asked.append((kind, site)) }
+        #expect(asked.count == 1)
+        #expect(asked.first?.0 == .noAppForScheme(scheme: "vscode"))
+        #expect(asked.first?.1 == "https://login.example.test")
+
+        // A page retrying in a loop is not a stack of notices; a later try is told again.
+        apps.open(back, from: page, engine: .webkit, userGesture: false) { kind, site, _ in asked.append((kind, site)) }
+        #expect(asked.count == 1)
+        clock += 6
+        apps.open(back, from: page, engine: .webkit, userGesture: false) { kind, site, _ in asked.append((kind, site)) }
+        #expect(asked.count == 2)
+        #expect(BrowserPrompt(kind: .noAppForScheme(scheme: "vscode"), origin: "", completion: { _ in }).dismissalResponse == .cancel)
+    }
+
+    @Test func aSchemeWithAnAppStillAsksToOpenIt() throws {
+        let suite = "BrowserExternalAppNoAppTests-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let apps = BrowserExternalApps(defaults: defaults, ownSchemes: [],
+                                       appFor: { _ in URL(fileURLWithPath: "/Applications/Visual Studio Code.app") })
+        var asked: [BrowserPromptKind] = []
+        apps.open(try #require(URL(string: "vscode://auth?code=1")), from: nil, engine: .cef, userGesture: false) { kind, _, _ in asked.append(kind) }
+        #expect(asked == [.openExternalApp(app: "Visual Studio Code", scheme: "vscode")])
+    }
+}

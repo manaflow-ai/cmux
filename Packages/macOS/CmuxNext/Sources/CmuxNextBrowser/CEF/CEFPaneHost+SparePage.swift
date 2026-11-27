@@ -20,6 +20,36 @@ extension CEFPaneHost {
         #endif
     }
 
+    /// The first page to join the cmux pages' window takes its placeholder's browser as its own
+    /// (`adoptablePlaceholder`): no `tab_add`, so no new Chromium browser is made on the page's open. That
+    /// call held the main thread 2.1 s and 4.6 s in Leo's NIGHTLY at 2-4 % CPU, blocked on page-ins in
+    /// Chromium's new-browser setup (cmuxterm-hq#27488), as the spare page's did (`CEFSpareWindow.stallBudget`).
+    /// The browser was made with no URL when the window was (no history entry before the page's own,
+    /// as a spare page), and is the window's only and active tab; it thaws, is registered as `tab`'s, and
+    /// loads the tab's address as its first navigation. The placeholder tab closes without closing it.
+    /// Nil: no such placeholder, or `tab` restores history (the caller makes its browser as before).
+    func adoptPlaceholder(_ tab: CEFTab) -> Int32? {
+        guard adoptablePlaceholder, !isSpare, !holdsOwnTab, let blank = placeholder, blank !== tab, !blank.isClosed,
+              let browser = blank.browserID, tab.pendingRestore == nil, tab.browserID == nil,
+              let shim = runtime.shim, shim.tabWindowID(browser) != 0 else { return nil }
+        adoptablePlaceholder = false
+        placeholder = nil
+        // An agent-driven tab's address loads in `attach`, after its guard is set (`takeInitialURLString`).
+        let url = tab.takeInitialURLString()
+        blank.handBrowserOver()
+        // Frozen through DevTools as soon as it existed (`CEFTab.freezeNeverShownPage`), thawed the same way.
+        CEFPageFreeze.devTools.thaw(browser, runtime: runtime)
+        // Chromium's active tab already (the window's only one): its activation is this host's own.
+        lastActivated = browser
+        runtime.register(tab, browser: browser)
+        // No browser left, so this only leaves the host (`CEFTab.close`).
+        blank.close()
+        if !url.isEmpty { shim.loadURL(browser, url) }
+        // Never inside Chromium's creation stack (this may run inside OnAfterCreated, `windowCreated`).
+        endOfTurn { [weak self] in self?.adoptParkedTabs() }
+        return browser
+    }
+
     /// `tab` takes the spare page when one is ready and the tab may (`CEFSpareWindow.takePage`):
     /// the page moves into this window unless it is in it already (a pane that took the spare
     /// window), becomes Chromium's active tab when `activates` (as `tab_add` with activate does), is

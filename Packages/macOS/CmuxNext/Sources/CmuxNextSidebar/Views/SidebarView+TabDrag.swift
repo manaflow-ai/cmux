@@ -40,7 +40,7 @@ extension SidebarViewComponents {
     /// - Parameter slotDwell: how long the pointer rests between two rows before that slot opens
     ///   a new-workspace gap; before that the row under the pointer takes the tab.
     public func tabDragUpdate(screenPoint: CGPoint, sourceMachine: MachineID?,
-                              slotDwell: CFTimeInterval = 0) -> SidebarTabDropHit? {
+                              slotDwell: CFTimeInterval = 0, wholeGroup: Bool = false) -> SidebarTabDropHit? {
         guard let window, model.presentation != .hidden, !isHiddenOrHasHiddenAncestor else { return nil }
         let windowPoint = window.convertPoint(fromScreen: screenPoint)
         let local = convert(windowPoint, from: nil)
@@ -65,7 +65,7 @@ extension SidebarViewComponents {
         }
         guard let nearest = nearestListPoint(windowPoint),
               let (drop, rect) = list.externalDragMoved(windowPoint: nearest, sourceMachine: sourceMachine,
-                                                        slotDwell: slotDwell) else {
+                                                        slotDwell: slotDwell, wholeGroup: wholeGroup) else {
             return nil
         }
         showDropOutline(list.convert(rect, to: nil), refused: false)

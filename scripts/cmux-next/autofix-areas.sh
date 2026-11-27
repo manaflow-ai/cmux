@@ -28,8 +28,9 @@ area graph 'Packages/|scripts/cmux-next/ci-target-graph\.py'
 area capabilities 'Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint\.swift|Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/DaemonCapabilityExportTests\.swift|plans/cmux-next/daemon-capabilities\.json|scripts/cmux-next/check-daemon-capabilities-fresh\.py|scripts/cmux-next/tests/daemon-capabilities-fresh\.test\.sh'
 # The strings generator reads xcstrings catalogs under Packages and webviews/src, and the settings schema.
 area strings 'Packages/|webviews/src/|webviews/scripts/pages/|schemas/settings/'
-# The SDK generator reads the SDK schema and its own emitters.
-area sdk 'cmux-tui/spec/|cmux-tui/bindings/codegen/'
+# SDK bindings and the daemon ABI surface share spec inputs. The ABI checker also follows its
+# implementation and build inputs; rules, fixtures and the baseline all live under spec/.
+area sdk 'cmux-tui/spec/|cmux-tui/bindings/codegen/|cmux-tui/crates/cmux-api-compat/|cmux-tui/(Cargo\.(toml|lock)|rust-toolchain\.toml)$'
 # The action exports (regenerated on a Mac: regenerate-action-exports.sh) read
 # CmuxNextActions, the tests that write them, and for links.json the URL schemes
 # of CmuxNextCloud's CloudConfiguration. CmuxNextActions reads the Rust catalog
@@ -40,7 +41,7 @@ area actions 'Packages/macOS/CmuxNext/Package\.swift#CCmuxAppFFI|Packages/macOS/
 # The settings exports (regenerated on Linux: regenerate-settings-exports-linux.sh, or a Mac) read
 # CmuxNextSettings and the two export tests. Their source stamp is derived
 # (defaults_guard.py source-stamp), never committed.
-area settings 'schemas/settings/(source|generator)/|schemas/settings/retired-keys\.json|Packages/macOS/CmuxNext/Sources/CmuxNextSettings/|Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/(SettingsSchemaExportTests|ManagedPreferencesManifestTests)\.swift|schemas/settings/settings-schema\.json|docs/mdm/|scripts/cmux-next/regenerate-settings-exports(-linux)?\.sh|scripts/cmux-next/export-settings-linux\.sh|scripts/cmux-next/linux-exports/|scripts/ci/defaults_guard\.py'
+area settings 'schemas/settings/(source|generator)/|schemas/settings/retired-keys\.json|Packages/macOS/CmuxNext/Sources/CmuxNextSettings(Export)?/|Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/(SettingsSchemaExportTests|ManagedPreferencesManifestTests)\.swift|schemas/settings/settings-schema\.json|docs/mdm/|scripts/cmux-next/regenerate-settings-exports(-linux)?\.sh|scripts/cmux-next/export-settings-linux\.sh|scripts/cmux-next/linux-exports/|scripts/ci/defaults_guard\.py'
 # The docs shortcuts read the catalog export and the action string catalogs.
 area shortcuts 'plans/cmux-next/action-surfaces\.json|Packages/macOS/CmuxNext/Sources/CmuxNextActions/|web/scripts/export-docs-shortcuts\.ts|web/scripts/export-next-docs\.ts'
 # The app-host generated files read the operation catalogs, the action export and the apps' fragments;
@@ -56,6 +57,10 @@ area fmt 'cmux-tui/|Native/OptChat/'
 # Every tracked Cargo.lock against its manifests (cargo-locks.py): any Cargo.toml or Cargo.lock anywhere, since a
 # manifest reaches other workspaces' locks through path dependencies (eb4f3eb1d94).
 area locks '(.*/)?Cargo\.(toml|lock)$'
+# The acpmux protocol IR and ABI surface (base-autofix.sh --acpmux-ir): everything the IR is made of lives in the
+# acpmux crate, plus schemars in the lockfile (cmux-tui-spec.yml acpmux-protocol-ir); the surface check is
+# cmux-api-compat's.
+area acpmuxir 'cmux-tui/crates/(acpmux|cmux-api-compat)/|cmux-tui/Cargo\.lock$'
 # cargo clippy --fix: the cmux-tui Rust a pull request changes, and on the base what changed since the
 # last successful run (base-autofix-repair.sh, with the crates it can affect: cargo_affected.py).
 area clippy 'cmux-tui/.*\.rs$'

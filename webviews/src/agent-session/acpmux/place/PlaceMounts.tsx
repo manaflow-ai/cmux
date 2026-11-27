@@ -1,4 +1,6 @@
 import { useMemo } from "react";
+import { useExperimentSwitch } from "../../../experiments/switches";
+import { CLOUD_TOGGLE_SWITCH } from "../hybrid/hybridModel";
 import { MoveProgress, type MoveProgressLook } from "./MoveProgress";
 import { PlaceControl, type PlaceControlLook } from "./PlaceControl";
 import { placeActions, type PlaceClaims } from "./usePlace";
@@ -22,9 +24,10 @@ export function PlaceChip({
   claims?: () => PlaceClaims;
   look?: PlaceControlLook;
 }) {
+  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
   const { place } = useHeaderState();
   const actions = useMemo(() => (session ? placeActions(session, say, claims) : undefined), [session, say, claims]);
-  if (!place || !actions) return null;
+  if (!on || !place || !actions) return null;
   return <PlaceControl place={place} look={look} onMode={actions.setMode} />;
 }
 
@@ -43,7 +46,8 @@ export function MoveDock({
 }) {
   const { place } = useHeaderState();
   const actions = useMemo(() => (session ? placeActions(session, say, claims) : undefined), [session, say, claims]);
+  const on = useExperimentSwitch(CLOUD_TOGGLE_SWITCH);
   const move = place?.move;
-  if (!move || !actions || (move.session && session && move.session !== session)) return null;
+  if (!on || !move || !actions || (move.session && session && move.session !== session)) return null;
   return <MoveProgress move={move} look={look} onCancel={actions.cancel} onRetry={actions.retry} />;
 }

@@ -47,11 +47,28 @@ pub fn write_include(path: &Path, text: &str) -> std::io::Result<()> {
     std::fs::rename(&part, path)
 }
 
-/// Removes the include if it is ours (its header), so git goes direct again.
+/// Removes the include if it is ours (its header), so git goes direct again, and the base
+/// file beside it, so release and archive downloads go direct too.
 pub fn remove_include(path: &Path) {
     if std::fs::read_to_string(path).is_ok_and(|t| t.starts_with(HEADER)) {
         let _ = std::fs::remove_file(path);
     }
+    let base = base_path(path);
+    if std::fs::read_to_string(&base).is_ok_and(|t| t.starts_with("http://127.0.0.1:")) {
+        let _ = std::fs::remove_file(base);
+    }
+}
+
+/// The file beside the include that names the proxy's base URL while it listens
+/// (`cmux_transport_rewrite::BASE_FILE` beside [`RUN_INCLUDE`]): release asset and archive
+/// downloads read it to try the cache first.
+pub fn base_path(include: &Path) -> std::path::PathBuf {
+    include.with_file_name("base")
+}
+
+/// `http://127.0.0.1:PORT`, the base file's text.
+pub fn base_text(port: u16) -> String {
+    format!("http://127.0.0.1:{port}\n")
 }
 
 #[cfg(test)]
@@ -81,5 +98,20 @@ mod tests {
         std::fs::write(&theirs, "[user]\n").unwrap();
         remove_include(&theirs);
         assert!(theirs.exists());
+    }
+
+    #[test]
+    fn base_file_sits_where_downloads_read_it_and_goes_with_the_include() {
+        assert_eq!(base_path(Path::new(RUN_INCLUDE)), Path::new(cmux_transport_rewrite::BASE_FILE));
+        let dir = tempfile::tempdir().unwrap();
+        let include = dir.path().join("gitconfig");
+        write_include(&include, &include_text(7, "x")).unwrap();
+        write_include(&base_path(&include), &base_text(7)).unwrap();
+        assert_eq!(
+            cmux_transport_rewrite::read_base(&base_path(&include)).as_deref(),
+            Some("http://127.0.0.1:7")
+        );
+        remove_include(&include);
+        assert!(!include.exists() && !base_path(&include).exists());
     }
 }
