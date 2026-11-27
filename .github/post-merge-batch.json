@@ -81,6 +81,8 @@
         "skills/cmux-customization/templates/clock-weather/main.js",
         "skills/cmux-customization/templates/my-prs/cmux-app.json",
         "skills/cmux-customization/templates/my-prs/main.js",
+        "skills/cmux-extension-author/**",
+        "schemas/motion-scale/motion-scale.json",
         "web/public/tui/install-static.sh",
         "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl",
         "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl",
@@ -151,6 +153,7 @@
         "scripts/ci/affected-jobs.json",
         "scripts/ci/cmux_next_route.py",
         "scripts/ci/fast_tier_cargo_route.py",
+        "scripts/ci/fleet_fast_tier_result.py",
         ".github/actions/setup-cmux-tui-rust/**",
         ".github/workflows/cmux-next-fast-tier-batch.yml"
       ],
@@ -458,6 +461,8 @@
         "skills/cmux-customization/templates/clock-weather/main.js",
         "skills/cmux-customization/templates/my-prs/cmux-app.json",
         "skills/cmux-customization/templates/my-prs/main.js",
+        "skills/cmux-extension-author/**",
+        "schemas/motion-scale/motion-scale.json",
         "skills/*/SKILL.md",
         "webviews/src/agent-session/acpmux/rows/parity/parity.changes.jsonl",
         "webviews/src/agent-session/acpmux/rows/parity/r1-reply-1.changes.jsonl",
@@ -477,6 +482,7 @@
         "schemas/motion-scale/motion-scale.json",
         "schemas/type-scale/type-scale.json",
         "schemas/design-scale/scene-scale.json",
+        "schemas/sidebar-item-info/vectors.json",
         "schemas/sidebar-drag-geometry/vectors.json",
         "backend/catalog/cloud-relay-operations.json"
       ],
@@ -494,7 +500,8 @@
         "router-replay": "crate-graph router replay",
         "inventory": "inventory",
         "api-compat": "api-compat",
-        "acpmux-protocol-ir": "acpmux protocol IR is current"
+        "acpmux-protocol-ir": "acpmux protocol IR is current",
+        "remote-web-wasm": "cmux remote web wasm"
       }
     }
   }

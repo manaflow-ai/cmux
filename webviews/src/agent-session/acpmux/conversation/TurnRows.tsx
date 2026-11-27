@@ -2,7 +2,7 @@
 // footer under an answer. Markup and metrics from reference prototype (messages.tsx,
 // TurnMessage.tsx); each component takes the pane's row and draws one transcript entry.
 import { FindReveal, isRevealRow } from "./chatFind";
-import { useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { useContext, useMemo, useState, type ReactNode } from "react";
 import type { AcpmuxRow } from "../model";
 import { RETRY_HOLD_MS, useAnswerHold } from "../answerHold";
 import { ErrorDetails } from "./ErrorDetails";
@@ -35,10 +35,10 @@ import {
   isEmptyFooter,
   isStopped,
   offersRetry,
-  turnTimeKey,
   workedCallsText,
   workedLabel,
   workedMessagesText,
+  turnTimeKey,
   formatDuration,
   FOLD_COUNTS_SWITCH,
   workedCountsText,
@@ -51,7 +51,7 @@ import { turnCopyText } from "./turnCopy";
 import { workedLine } from "./workedLine.experiment";
 import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, type WorkedPart } from "./workedOutcome";
 import { TimedLabel } from "./TurnTokens";
-import { AlertCircle, Close, Retry } from "./icons";
+import { AlertCircle, Retry, Close } from "./icons";
 import { DisclosureChevron } from "./DisclosureChevron";
 import {
   ForkButton,
@@ -643,7 +643,9 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             ? "cv-turn-actions cv-turn-actions--failed"
             : isEmptyFooter(row.resumable ? { ...row, resumable: undefined } : row)
               ? "cv-turn-actions cv-turn-actions--empty"
-              : "cv-turn-actions"
+              : waiting
+                ? "cv-turn-actions cv-turn-actions--waiting"
+                : "cv-turn-actions"
         }
       >
         <MessageFooterRow className="cv-turn-footer-row">
@@ -769,7 +771,6 @@ function TurnFailure({
   retryNote?: RetryNote;
 }) {
   const t = useT();
-  const actionsRef = useRef<HTMLSpanElement>(null);
   const { access } = useContext(TurnActionsContext);
   const sends = useContext(FailedSendsContext);
   // One click sends one /compact: the button stays disabled until that send settles.
@@ -868,15 +869,13 @@ function TurnFailure({
         {arm !== "note" && <AlertCircle size={arm === "card" ? 16 : 14} className="cv-turn-error__icon" />}
         <span className="text-fg">{sentence}</span>
       </span>
-      <span className="cv-turn-error__actions" ref={actionsRef}>
+      <span className="cv-turn-error__actions">
         {trustFix && (
           <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={trustFix}>
             {t("trust.trustFolder")}
           </button>
         )}
-        {teamAccountKey && (
-          <CloudSignIn signIn={teamAccountKey} rowId={retryRowId} prompt={prompt} keyOnly actionsRef={actionsRef} />
-        )}
+        {teamAccountKey && <CloudSignIn signIn={teamAccountKey} rowId={retryRowId} prompt={prompt} keyOnly />}
         {accessButtons}
         {switchFirst && switchButton}
         {otherAccountHere && (
@@ -892,7 +891,6 @@ function TurnFailure({
             keyOnly={otherAccountKeyOnly}
             another
             gateway={offersGateway(message)}
-            actionsRef={actionsRef}
           />
         )}
         {compactFirst && (
@@ -915,7 +913,6 @@ function TurnFailure({
             prompt={prompt}
             keyOnly={teamMachine}
             gateway={offersGateway(message)}
-            actionsRef={actionsRef}
           />
         )}
         {signInFirst && (
@@ -924,9 +921,7 @@ function TurnFailure({
             {t("turn.signInAgain")}
           </button>
         )}
-        {localKey && (
-          <CloudSignIn signIn={localKey} rowId={retryRowId} prompt={prompt} keyOnly actionsRef={actionsRef} />
-        )}
+        {localKey && <CloudSignIn signIn={localKey} rowId={retryRowId} prompt={prompt} keyOnly />}
         {offersRetry && (
           <button
             type="button"

@@ -65,7 +65,7 @@
   margin-left: auto;
   font: inherit;
   font-weight: 500;
-  padding: 2px 10px;
+  padding: var(--grid-half-step) 10px;
   border-radius: 6px;
   border: 1px solid var(--border, rgba(127, 127, 127, 0.35));
   background: var(--surface-raised, transparent);
@@ -96,7 +96,7 @@
   align-items: flex-start;
   flex-wrap: wrap;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--surface-card-radius);
   border: 1px solid var(--border, rgba(127, 127, 127, 0.25));
   background: var(--surface-subtle, rgba(127, 127, 127, 0.06));
 }
@@ -108,7 +108,7 @@
 .autosize-row[data-look="card"] .autosize-row-body {
   flex: 1 1 200px;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--grid-half-step);
 }
 
 .autosize-row[data-look="card"] .autosize-row-why::before,

@@ -132,15 +132,17 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// "remove the second line"). The computer stays in the row's machine mark,
     /// its hover card and its accessibility label; the description in its hover
     /// card; an expanded row (`init(expanded:...)`) keeps its own meta line.
-    init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil, ages: AgeTextCache) {
-        self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: ages)
+    init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil, ages: AgeTextCache,
+         relative: Bool = false) {
+        self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: ages, relative: relative)
     }
 
     public init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date = Date(), machine: String? = nil) {
-        self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: AgeTextCache())
+        self.init(ws, preferences: preferences, now: now, machine: machine, ageCache: AgeTextCache(), relative: false)
     }
 
-    private init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date, machine: String?, ageCache ages: AgeTextCache) {
+    private init(_ ws: SidebarWorkspace, preferences: WorkspaceRowPreferences, now: Date, machine: String?, ageCache ages: AgeTextCache,
+                 relative: Bool) {
         if let layout = preferences.layouts.layout(for: ws.rowKind, agent: ws.kindBrand) {
             self.init(ws, layout: layout, now: now)
             return
@@ -173,7 +175,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             status: status
         )
         trailingStatus = trailing
-        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.rowAge.map { Self.ageText($0, now: now, ages: ages) }
+        badgeTime = set.secondLine.contains(.lastActivity) ? nil : ws.rowAge.map { Self.ageText($0, now: now, ages: ages, relative: relative) }
     }
 
     /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex
@@ -190,7 +192,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     }
 
     init(expanded ws: SidebarWorkspace, now: Date, machine: String?, showsNotification: Bool, showsPullRequest: Bool,
-         ages: AgeTextCache) {
+         ages: AgeTextCache, relative: Bool = false) {
         let place = [Self.nonEmpty(ws.directory), Self.nonEmpty(ws.branch)].compactMap { $0 }
         let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), showsPullRequest ? Self.nonEmpty(ws.pullRequest) : nil].compactMap { $0 }
         self.init(
@@ -205,13 +207,27 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             showsWorking: ws.agentWorking
         )
         expanded = true
-        time = ws.rowAge.map { Self.ageText($0, now: now, ages: ages) }
+        time = ws.rowAge.map { Self.ageText($0, now: now, ages: ages, relative: relative) }
         self.meta = meta.isEmpty ? nil : meta.joined(separator: Self.separator)
     }
 
     /// The age of a change, short: a time today, else days (`3d`), weeks
     /// (`3w`) or months (`5mo`), as T3 Code and Codex label chats.
-    static func ageText(_ date: Date, now: Date, calendar: Calendar = .current, ages: AgeTextCache = AgeTextCache()) -> String {
+    /// `relative` (`sidebar.relativeTimestamps`): a change under a day old reads as its age from
+    /// `now` (`1m` at least, `5m`, `2h`) instead of its time.
+    static func ageText(_ date: Date, now: Date, calendar: Calendar = .current, ages: AgeTextCache = AgeTextCache(),
+                        relative: Bool = false) -> String {
+        if relative, case let elapsed = now.timeIntervalSince(date), elapsed < 86_400 {
+            // Whole minutes, at least one (a change this minute reads `1m`, never `0m`), then whole hours.
+            let minutes = max(1, Int(elapsed / 60))
+            let shown = minutes < 60 ? minutes : minutes / 60 * 60
+            return ages.label(elapsedMinutes: shown, locale: .current) {
+                let formatter = DateComponentsFormatter()
+                formatter.unitsStyle = .abbreviated
+                formatter.allowedUnits = shown < 60 ? [.minute] : [.hour]
+                return formatter.string(from: TimeInterval(shown) * 60) ?? ""
+            }
+        }
         let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
         let minute = Int(date.timeIntervalSince1970 / 60)
         return ages.label(days: days <= 0 ? nil : days, minute: minute, locale: .current, timeZone: calendar.timeZone) {

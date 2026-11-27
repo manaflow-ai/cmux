@@ -154,11 +154,14 @@ const checked = <T>(guard: (value: unknown) => value is T, value: unknown): T | 
 /** Idempotency records live for a day, as clients retry within minutes to hours. */
 export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 /**
- * A pending claim whose request died is released after this long. It exceeds
- * the longest create or fork (snapshot, create and grow, 120 s upstream timeout
- * each), so a live request never loses its claim to a retry.
+ * A pending claim whose request died (isolate recycled, connection cut, deploy)
+ * is released this long after its last heartbeat, so a same-key resend can take
+ * it over instead of getting "still running" for the old 10 minutes. A live
+ * request renews it every IDEMPOTENCY_HEARTBEAT_MS (and on each `advance`), so
+ * it never loses its claim however long the create or fork runs.
  */
-export const IDEMPOTENCY_LEASE_MS = 10 * 60 * 1000;
+export const IDEMPOTENCY_LEASE_MS = 90 * 1000;
+export const IDEMPOTENCY_HEARTBEAT_MS = 20 * 1000;
 /** An ordinary reservation expires after this long; an uncertain allocation retains its slot. */
 export const RESERVATION_TTL_MS = 5 * 60 * 1000;
 /**
@@ -461,6 +464,17 @@ export class TenantLedger {
         expiresMs: progress.phase === "done" || progress.phase === "snapshotDone" ? Math.max(record.expiresMs, nowMs + IDEMPOTENCY_TTL_MS) : record.expiresMs,
         leaseUntilMs: progress.phase === "done" || progress.phase === "snapshotDone" ? nowMs : nowMs + IDEMPOTENCY_LEASE_MS,
       });
+    });
+  }
+
+  /** Heartbeat of the request holding `key`: extends a live, unfinished claim. A lapsed claim is not revived. */
+  async renew(key: string, nowMs: number): Promise<void> {
+    await this.storage.transaction(async (storage) => {
+      const storageKey = `idem:${key}`;
+      const record = readRecord(await storage.get(storageKey));
+      if (record === undefined || record.leaseUntilMs <= nowMs) return;
+      if (record.progress.phase === "done" || record.progress.phase === "snapshotDone" || record.progress.phase === "cancelled") return;
+      await putRecord(storage, storageKey, { ...record, leaseUntilMs: nowMs + IDEMPOTENCY_LEASE_MS });
     });
   }
 

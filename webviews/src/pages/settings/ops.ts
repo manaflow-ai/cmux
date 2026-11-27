@@ -1002,7 +1002,7 @@ export type HarnessRow = {
   update?: { command: string; elevated: boolean } | null;
   /** The update owner runs this channel (npm, Bun or native); without it Update is not offered. */
   ownerUpdate?: boolean;
-  /** acpmux runs its update on its own when a check finds it outdated (off by default). */
+  /** acpmux runs its update on its own when a check finds it outdated (on unless turned off). */
   autoUpdate?: boolean;
   /** What auto-update last did for it. */
   lastAutoUpdate?: { ok: boolean; detail: string } | null;

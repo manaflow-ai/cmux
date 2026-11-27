@@ -73,6 +73,8 @@ on:
       - "schemas/layout-motion/contract.json"
       # The transcript look the transcript imports (src/agent-session/acpmux/conversation/transcriptLook.ts).
       - "schemas/transcript-look/transcript-look.json"
+      # The composer status peek pin the agent pane imports (src/agent-session/acpmux/peekPin.ts).
+      - "schemas/composer-status/peek-pin.json"
       # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
       - "examples/gallery/gallery.json"
       - "examples/looks/**"
@@ -177,6 +179,11 @@ jobs:
         if: ${{ !inputs.pr && !inputs.ref && format('{0}', vars.NEXT_WEB_BUNDLE_SPARSE) != '0' }}
         run: |
           set -euo pipefail
+          # checkout's non-cone setup writes core.sparseCheckout in .git/config. A reused runner can
+          # still have config.worktree disabling it (job 140405412467: "no sparse-checkout to add to").
+          # Let git initialize the effective worktree settings using checkout's existing patterns.
+          patterns="$(cat "$(git rev-parse --git-path info/sparse-checkout)")"
+          printf '%s\n' "$patterns" | git sparse-checkout set --no-cone --no-sparse-index --stdin
           # Done when a pass names the inputs the pass before it did (a newly added file can import more) and
           # every one is in the worktree.
           before=""
@@ -476,6 +483,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /.github/actions/setup-cmux-tui-rust/
+            /.github/actions/runner-cargo-home/
             /cmux-tui/
             /scripts/cmux-next/
             /.gitmodules

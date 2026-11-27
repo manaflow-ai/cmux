@@ -278,6 +278,8 @@ type Publish = super::supervisor::StreamPublish;
 struct FakeRouter {
     calls: Mutex<Vec<RoutedCall>>,
     publish: Mutex<Option<Publish>>,
+    /// The cmux settings a setting-backed App Store entry reads and writes, by dotted key.
+    settings: Mutex<std::collections::HashMap<String, Value>>,
 }
 
 impl OpRouter for Arc<FakeRouter> {
@@ -304,6 +306,15 @@ impl OpRouter for Arc<FakeRouter> {
 
     fn owns(&self, op: &str) -> bool {
         !super::provider::FAMILIES.contains(&super::provider::family_of(op))
+    }
+
+    fn setting_get(&self, key: &str) -> Option<Value> {
+        self.settings.lock().unwrap().get(key).cloned()
+    }
+
+    fn setting_set(&self, key: &str, value: Value) -> Result<(), super::supervisor::ApiError> {
+        self.settings.lock().unwrap().insert(key.to_string(), value);
+        Ok(())
     }
 }
 
@@ -1332,6 +1343,73 @@ fn native_pane_apps_install_and_list_but_never_spawn_a_host() {
         f.events.try_iter().all(|e| e["event"] != "apps-host"),
         "a native-pane app never starts a host"
     );
+}
+
+/// The App Store's Auto cleanup (`first-party-apps/worktree-cleanup`, the shipped manifest): a
+/// first-party entry whose enabled switch is the cmux setting `worktrees.autoCleanup`, which
+/// acpmux reads before each automatic pass. It lists on by default (acpmux's default), the
+/// person's switch writes the setting, an agent's is refused, and an edit of the setting made
+/// elsewhere shows in the store; a switch that leaves the install record as it was still tells
+/// every page to read the entry again.
+#[test]
+fn the_auto_cleanup_entry_switches_its_cmux_setting() {
+    const ID: &str = "cmux/worktree-cleanup";
+    const KEY: &str = "worktrees.autoCleanup";
+    let root = temp_dir();
+    let app = root.0.join("bundled/worktree-cleanup");
+    std::fs::create_dir_all(&app).unwrap();
+    let shipped = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../first-party-apps/worktree-cleanup/cmux-app.v2.json");
+    std::fs::copy(shipped, app.join("cmux-app.v2.json")).unwrap();
+    let f = fixture_with(&[ID], Duration::from_secs(60), root);
+    let row = |f: &Fixture| {
+        let list =
+            f.supervisor.store_call(CLIENT, "apps.catalog.list", json!({}), Origin::User).unwrap();
+        list["listings"].as_array().unwrap().iter().find(|l| l["app"] == ID).cloned().unwrap()
+    };
+    let installed = |f: &Fixture| {
+        let list = f
+            .supervisor
+            .store_call(CLIENT, "apps.installed.list", json!({}), Origin::User)
+            .unwrap();
+        list["apps"].as_array().unwrap().iter().find(|a| a["app"] == ID).cloned().unwrap()
+    };
+    let set = |f: &Fixture, key: &str, on: bool, origin: Origin| {
+        f.supervisor.store_call(
+            CLIENT,
+            "apps.set",
+            json!({ "app": ID, "enabled": on, "idempotency_key": key }),
+            origin,
+        )
+    };
+    let first = row(&f);
+    assert_eq!(first["name"], "Auto cleanup");
+    assert_eq!(first["hide_only"], json!(true));
+    assert_eq!(first["install"]["enabled"], json!(true), "on by default, as acpmux reads it");
+
+    let refused = set(&f, "k0", false, Origin::Script).unwrap_err();
+    assert_eq!(refused.code, "apps.origin", "an agent never turns cleanup off");
+    assert!(f.router.settings.lock().unwrap().get(KEY).is_none());
+
+    let answer = set(&f, "k1", false, Origin::User).unwrap();
+    assert_eq!(answer["app"]["state"]["enabled"], json!(false));
+    assert_eq!(f.router.settings.lock().unwrap().get(KEY), Some(&json!(false)));
+    assert_eq!(row(&f)["install"]["enabled"], json!(false));
+    assert_eq!(installed(&f)["state"]["enabled"], json!(false));
+
+    // `cmux-next.json` edited by hand (or the Settings page): the store follows the setting.
+    f.router.settings.lock().unwrap().insert(KEY.into(), json!(true));
+    assert_eq!(row(&f)["install"]["enabled"], json!(true));
+    assert_eq!(installed(&f)["state"]["enabled"], json!(true));
+
+    // Off again: the install record already says off, so only the entry's own event refreshes
+    // the page.
+    while f.events.try_recv().is_ok() {}
+    set(&f, "k2", false, Origin::User).unwrap();
+    assert_eq!(f.router.settings.lock().unwrap().get(KEY), Some(&json!(false)));
+    f.wait("the entry's apps-changed", |e| {
+        e["event"] == "apps-changed" && e["app"] == ID && e["transaction"] == "k2"
+    });
 }
 
 #[test]
