@@ -24,6 +24,7 @@ import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartCompos
 import { composerFooterFacts } from "../agent-session/acpmux/composerFooterFacts.experiment";
 import { composerMachineAtRest } from "../agent-session/acpmux/composerMachineAtRest.experiment";
 import { cloudStartJustGo } from "../agent-session/acpmux/cloudStartJustGo.experiment";
+import { sendDrawsFirst } from "../agent-session/acpmux/sendDrawsFirst.experiment";
 import { waitSpinnerDelay } from "../agent-session/acpmux/waitSpinnerDelay.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
@@ -262,6 +263,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerFooterFacts,
   composerMachineAtRest,
   cloudStartJustGo,
+  sendDrawsFirst,
   waitSpinnerDelay,
   cmuxLinkLook,
   sentPasteJoin,
