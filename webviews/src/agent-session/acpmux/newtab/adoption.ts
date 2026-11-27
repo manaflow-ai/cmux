@@ -114,8 +114,8 @@ export function injectedNewTabContext(): NewTabHost | undefined {
 /// field, empty list) at first render and the rows fill in after. Calls `onContext` once with the
 /// context; `applied` turns true so the handshake keeps what the page did since (a left page stays
 /// left). A page that rendered first with the injected context (`injectedNewTabContext`) does
-/// not ask. `onSettled` runs once the host answered either way (or refused): the page then knows
-/// whether it is a New Tab page.
+/// not ask. `onSettled` runs only when the host answered: the page then knows whether it is a
+/// New Tab page. A refused read leaves its identity unknown until the handshake answers or fails.
 export function useEarlyNewTabContext(
   callNative: (method: string) => Promise<unknown>,
   onContext: (host: NewTabHost) => void,
@@ -135,7 +135,8 @@ export function useEarlyNewTabContext(
         if (!cancelled) onSettled?.();
       },
       () => {
-        if (!cancelled) onSettled?.();
+        // A failed read does not identify a chat. Keep the surface hidden until ready identifies
+        // it, or reports the host error, instead of flashing chat controls in a cold New Tab page.
       },
     );
     return () => {
