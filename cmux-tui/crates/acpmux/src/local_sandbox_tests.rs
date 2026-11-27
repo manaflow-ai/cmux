@@ -79,6 +79,8 @@ fn the_profile_denies_credentials_writes_and_other_ports() {
         "(subpath (string-append (param \"HOME\") \"/.aws\"))",
         "(subpath (string-append (param \"HOME\") \"/.config/gh\"))",
         "(subpath (string-append (param \"AGENT_HOME\") \"/.config/gh\"))",
+        "(literal (string-append (param \"AGENT_HOME\") \"/.ssh/config\"))",
+        "(literal (string-append (param \"AGENT_HOME\") \"/.ssh/known_hosts\"))",
         "(subpath (param \"GH_CONFIG_DIR\"))",
         "(subpath (param \"XDG_GH_CONFIG_DIR\"))",
         "(deny file-link)",
@@ -222,6 +224,19 @@ fn a_folder_at_or_above_home_is_never_a_write_root() {
     let t = tempfile::tempdir().unwrap();
     let b = bound(&s(&["--add-dir", "/"]), t.path(), &env).unwrap();
     assert!(!b.folders.iter().any(|d| home.starts_with(d)), "{:?}", b.folders);
+}
+
+#[test]
+fn an_added_folder_at_or_above_agent_home_is_never_a_write_root() {
+    let Some(home) = dirs::home_dir() else { return };
+    let t = tempfile::tempdir().unwrap();
+    let agent_home = t.path().join("agent-home");
+    let cwd = t.path().join("chat");
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&agent_home).unwrap();
+    let env = BTreeMap::from([(String::from("HOME"), agent_home.display().to_string())]);
+    let b = bound(&s(&["--add-dir", agent_home.to_str().unwrap()]), &cwd, &env).unwrap();
+    assert!(!b.folders.iter().any(|d| home.starts_with(d) || agent_home.starts_with(d)));
 }
 
 #[test]

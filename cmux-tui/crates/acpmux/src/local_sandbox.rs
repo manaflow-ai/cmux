@@ -19,7 +19,8 @@
 //! Off when:
 //! - `sessions.sandbox` is false in the cmux settings file. A file that cannot be
 //!   read keeps it on (fail closed). MDM or the team policy can force it on
-//!   (`_acpmux/chat_settings` `sandboxManaged`), never off.
+//!   managed-preference source; `_acpmux/chat_settings` reports that state but is
+//!   not trusted as an enforcement input, never off.
 //! - `/usr/bin/sandbox-exec` is missing: the agent runs as before, logged once.
 //! - Claude Code's own Bash sandbox is on (its settings' `sandbox.enabled`):
 //!   macOS refuses a nested `sandbox_apply`, so every Bash call would fail; the
@@ -329,6 +330,7 @@ pub(crate) fn extra_api_port(url: &str) -> Option<u16> {
 
 static MISSING_LOGGED: AtomicBool = AtomicBool::new(false);
 static CLAUDE_OWN_LOGGED: AtomicBool = AtomicBool::new(false);
+static BOUND_SKIPPED_LOGGED: AtomicBool = AtomicBool::new(false);
 
 /// `sandbox-exec` and its arguments up to the program for a local Claude Code launch, or `None`
 /// when it runs as before (module docs). `env` is the profile's resolved env (its `HOME`,
@@ -348,7 +350,14 @@ pub(crate) fn prefix(
         }
         return None;
     }
-    let bound = bound(args, cwd, env)?;
+    let Some(bound) = bound(args, cwd, env) else {
+        if !BOUND_SKIPPED_LOGGED.swap(true, Ordering::Relaxed) {
+            tracing::warn!(
+                "local agent sandbox skipped: the chat folder contains the home directory"
+            );
+        }
+        return None;
+    };
     if claude_sandbox_on(args, &bound.cwd, env) {
         if !CLAUDE_OWN_LOGGED.swap(true, Ordering::Relaxed) {
             tracing::info!(
@@ -376,7 +385,11 @@ pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>)
         for d in std::iter::once(dir.clone()).chain(git_dirs(&dir)) {
             let d = canonical(&d);
             // An added folder that is the home or above it is left out, not the whole home.
-            if d != cwd && !home.starts_with(&d) && !folders.contains(&d) {
+            if d != cwd
+                && !home.starts_with(&d)
+                && !agent_home.starts_with(&d)
+                && !folders.contains(&d)
+            {
                 folders.push(d);
             }
         }
