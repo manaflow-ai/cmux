@@ -111,23 +111,18 @@ def delegated(selection: dict) -> list[dict]:
 
 # ---------- run ----------
 
-def step_key(step: dict, head: str, pr: int, now: float | None = None) -> str:
-    """The step's idempotency key: one per verify run, never reused by the next. A key of PR, mode and worker alone
-    made every retry read back the first attempt's step (2026-11-27 14:04Z, cmux#45927: a step refused for a full
-    source depot came back in 13 s, same step id, on each later `cmux ios verify`), so a failed proof could never be
-    retried at that PR. The head and the run's start second keep a rerun fresh."""
-    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{step['worker']}-{int(time.time() if now is None else now)}"
-
-
-def run_step(step: dict, head: str, pr: int, strict: bool) -> dict:
+def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
-           "--key", step_key(step, head, pr), "--target-worker", step["worker"],
+           "--target-worker", step["worker"],
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
            "--reason", f"cmux ios verify #{pr}"]
     if strict:
         cmd.append("--pin-strict")
     for a in step["args"]:
         cmd += ["--arg", a]
+    # Retries of this exact submission share work. A deliberate rerun after a failed step uses a new attempt.
+    identity = json.dumps([attempt, cmd], separators=(",", ":")).encode()
+    cmd += ["--key", f"ios-verify-{pr}-{hashlib.sha256(identity).hexdigest()[:32]}"]
     t0 = time.monotonic()
     p = subprocess.run(cmd, capture_output=True, text=True)
     text = p.stdout + "\n" + p.stderr
@@ -346,6 +341,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pair-e2e", choices=("auto", "always", "never"), default="auto")
     ap.add_argument("--no-merge-base", action="store_true")
     ap.add_argument("--pin-strict", action="store_true", help="never fall back off the named workers")
+    ap.add_argument("--attempt", default="1", help="use a new attempt ID to rerun an identical failed simulator step")
     ap.add_argument("--plan", action="store_true")
     ap.add_argument("--no-post", action="store_true")
     ap.add_argument("--out", help="write the record here too")
@@ -372,7 +368,7 @@ def main(argv: list[str] | None = None) -> int:
             print("not iOS-affecting: cmux/ios-fast passes without a proof", file=sys.stderr)
         return 0
     with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
-        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict) for s in steps]
+        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt) for s in steps]
         futs += [pool.submit(run_script, s) for s in selection["scripts"]]
         runs = [f.result() for f in futs]
     runs += delegated(selection)
