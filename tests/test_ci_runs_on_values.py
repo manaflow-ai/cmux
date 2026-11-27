@@ -166,6 +166,15 @@ class Wiring(unittest.TestCase):
         missing = (check.read_variables([("here", WORKFLOWS)]) | set(check.RUNNER_NAME_VARIABLES)) - set(passed)
         self.assertEqual(missing, set())
 
+    def test_no_variable_list_names_a_variable_twice(self) -> None:
+        # Both checkers refuse a repeated NAME ("a variable's value spans lines"), but they run only on the
+        # schedule, so a duplicated line merged on 2026-11-25 (70f31a8a) kept main's check red for two days.
+        for step in self.workflow()["jobs"]["check"]["steps"]:
+            for env_name, block in (step.get("env") or {}).items():
+                names = re.findall(r"^\s*([A-Za-z0-9_]+)=", block, re.M) if "\n" in block else []
+                repeated = sorted({n for n in names if names.count(n) > 1})
+                self.assertEqual(repeated, [], f"{env_name} names a variable twice")
+
     def test_the_live_check_reads_the_branches_that_run_workflows(self) -> None:
         step = next(s for s in self.workflow()["jobs"]["check"]["steps"] if s.get("id") == "runs-on-values")
         branches = step["env"]["ROUTE_BRANCHES"].split()

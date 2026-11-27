@@ -190,6 +190,11 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runs_on_values.py
 
+      # GitHub rejects a workflow whose mapping repeats a key: zero jobs, no log.
+      - name: Validate no workflow repeats a key in one mapping
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_duplicate_keys.py
+
       - name: Validate every compile job declares its warm source
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_warm_sources.py
@@ -905,6 +910,10 @@ jobs:
       - name: Validate scheduled workflows dispatch on the cmux bot App token
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cron_dispatch_token_lint.py
+
+      - name: Validate the Debug and Labs keys dispatch skips a ref without the report
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_debug_labs_keys_dispatch.py
 
       - name: Validate the nightly-next tick waits through GitHub API rate limits
         if: ${{ matrix.group == 'ci' }}
@@ -1831,6 +1840,10 @@ jobs:
       - name: Validate write-token jobs lead with a JIT label
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_write_token_jit_label.py
+
+      - name: Validate secret-bearing jobs lead with the secret JIT label
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_secret_jobs_secret_jit.py
 
       - name: Validate the CEF publish checksum check
         if: ${{ matrix.group == 'ci' }}
