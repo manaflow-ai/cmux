@@ -271,8 +271,7 @@ impl Watch {
                 continue;
             }
             let name = row["name"].as_str().unwrap_or(key).to_owned();
-            let route =
-                route_of(key, host, &dead, now_ms, HOST_GRACE_MS, deaths, self.max_deaths);
+            let route = route_of(key, host, &dead, now_ms, HOST_GRACE_MS, deaths, self.max_deaths);
             out.push(Notice {
                 key: key.into(),
                 name,
