@@ -16418,268 +16418,139 @@
         }
       }
     },
-    "onboarding.makeItYours.bundle.twoTone": {
-      "comment": "Make cmux Yours: look tile name, sidebar and tab bar in a second color.",
+    "onboarding.makeItYours.bundle.studio": {
+      "comment": "Make cmux Yours: look tile name, the Studio look (a black sidebar of threads by project, one round composer).",
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Two-Tone Studio"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "استوديو بلونين"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dvobojni studio"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tofarvet studie"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zweiton-Studio"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estudio bicolor"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Studio bicolore"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Studio bicolore"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ツートーン"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ស្ទូឌីយោពីរពណ៌"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "투톤 스튜디오"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tofarget studio"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Studio dwukolorowe"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estúdio bicolor"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Двухцветная студия"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "สตูดิโอสองโทน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "İki Tonlu Stüdyo"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Двоколірна студія"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Studio hai tông"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "双色工作室"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "雙色工作室"
-          }
-        }
+        "en": {"stringUnit": {"state": "translated", "value": "Studio"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "ستوديو"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Studio"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Studio"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Studio"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Studio"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Studio"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Studio"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "スタジオ"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ស្ទូឌីយោ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "스튜디오"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Studio"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Studio"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Studio"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Студия"}},
+        "th": {"stringUnit": {"state": "translated", "value": "สตูดิโอ"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Stüdyo"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Студія"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Studio"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "工作室"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "工作室"}}
       }
     },
-    "onboarding.makeItYours.bundle.twoTone.line": {
-      "comment": "Make cmux Yours: the Two-Tone Studio look tile's one line.",
+    "onboarding.makeItYours.bundle.studio.line": {
+      "comment": "Make cmux Yours: the Studio look tile's one line.",
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sidebar and tab bar in a second color from your theme."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "الشريط الجانبي وشريط علامات التبويب بلون ثانٍ من سمتك."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bočna traka i traka kartica u drugoj boji iz vaše teme."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sidebjælke og fanelinje i en anden farve fra dit tema."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seitenleiste und Tableiste in einer zweiten Farbe deines Themes."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Barra lateral y de pestañas en un segundo color de tu tema."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Barre latérale et barre d'onglets dans une seconde couleur de votre thème."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Barra laterale e delle schede in un secondo colore del tuo tema."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "サイドバーとタブバーをテーマの2色目で。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "របារចំហៀង និងរបារផ្ទាំងក្នុងពណ៌ទីពីរពីស្បែករបស់អ្នក។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "사이드바와 탭 막대를 테마의 두 번째 색으로."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sidefelt og fanelinje i en annen farge fra temaet ditt."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pasek boczny i pasek kart w drugim kolorze motywu."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Barra lateral e de abas numa segunda cor do seu tema."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Боковая панель и панель вкладок во втором цвете темы."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "แถบด้านข้างและแถบแท็บเป็นสีที่สองจากธีมของคุณ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kenar çubuğu ve sekme çubuğu temanızın ikinci renginde."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Бічна панель і панель вкладок у другому кольорі теми."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Thanh bên và thanh tab mang màu thứ hai từ chủ đề."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "侧边栏和标签栏使用主题的第二种颜色。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "側邊欄和標籤列使用主題的第二種顏色。"
-          }
-        }
+        "en": {"stringUnit": {"state": "translated", "value": "A black sidebar of threads by project and one round composer."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "شريط جانبي أسود للمحادثات حسب المشروع ومربع كتابة دائري واحد."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Crna bočna traka s nitima po projektu i jedno okruglo polje za pisanje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "En sort sidebjælke med tråde efter projekt og ét rundt skrivefelt."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Eine schwarze Seitenleiste mit Threads nach Projekt und ein rundes Eingabefeld."}},
+        "es": {"stringUnit": {"state": "translated", "value": "Una barra lateral negra con hilos por proyecto y un único cuadro de texto redondo."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Une barre latérale noire avec les fils par projet et une seule zone de saisie arrondie."}},
+        "it": {"stringUnit": {"state": "translated", "value": "Una barra laterale nera con i thread per progetto e un unico campo di scrittura rotondo."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "プロジェクト別のスレッドを並べた黒いサイドバーと、丸い入力欄がひとつ。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "របារចំហៀងខ្មៅនៃខ្សែសន្ទនាតាមគម្រោង និងប្រអប់សរសេរមូលមួយ។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "프로젝트별 스레드가 있는 검은 사이드바와 둥근 입력창 하나."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "En svart sidefelt med tråder etter prosjekt og ett rundt skrivefelt."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Czarny pasek boczny z wątkami według projektu i jedno okrągłe pole pisania."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Uma barra lateral preta com conversas por projeto e uma única caixa de texto redonda."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Чёрная боковая панель с ветками по проектам и одно круглое поле ввода."}},
+        "th": {"stringUnit": {"state": "translated", "value": "แถบด้านข้างสีดำที่จัดเธรดตามโปรเจกต์ และช่องพิมพ์ทรงกลมหนึ่งช่อง"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Projeye göre ileti dizileriyle siyah bir kenar çubuğu ve tek bir yuvarlak yazma kutusu."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Чорна бічна панель з гілками за проєктами й одне кругле поле введення."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Thanh bên màu đen với các luồng theo dự án và một ô soạn tròn."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "按项目排列会话的黑色侧边栏，加一个圆角输入框。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "依專案排列對話的黑色側邊欄，加一個圓角輸入框。"}}
+      }
+    },
+    "onboarding.makeItYours.bundle.codex": {
+      "comment": "Make cmux Yours: look tile name, the desktop coding agent look (chats as messages, one line per chat in the sidebar, a round composer).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Desktop Agent"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "وكيل سطح المكتب"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Desktop agent"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Desktop-agent"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Desktop-Agent"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Agente de escritorio"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Agent de bureau"}},
+        "it": {"stringUnit": {"state": "translated", "value": "Agente desktop"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "デスクトップエージェント"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ភ្នាក់ងារកុំព្យូទ័រ"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "데스크톱 에이전트"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Skrivebordsagent"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Agent desktopowy"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Agente de desktop"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Настольный агент"}},
+        "th": {"stringUnit": {"state": "translated", "value": "เอเจนต์เดสก์ท็อป"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Masaüstü Ajanı"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Настільний агент"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Tác tử máy tính"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "桌面智能体"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "桌面代理"}}
+      }
+    },
+    "onboarding.makeItYours.bundle.codex.line": {
+      "comment": "Make cmux Yours: the desktop coding agent look tile's one line.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The desktop coding agent look: one line per chat, a round composer."}},
+        "ar": {"stringUnit": {"state": "translated", "value": "مظهر وكيل البرمجة على سطح المكتب: سطر واحد لكل محادثة ومربع كتابة دائري."}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Izgled desktop agenta za kodiranje: jedan red po razgovoru, okruglo polje za pisanje."}},
+        "da": {"stringUnit": {"state": "translated", "value": "Udseendet fra desktop-kodeagenten: én linje pr. chat, et rundt skrivefelt."}},
+        "de": {"stringUnit": {"state": "translated", "value": "Der Look des Desktop-Coding-Agents: eine Zeile pro Chat, ein rundes Eingabefeld."}},
+        "es": {"stringUnit": {"state": "translated", "value": "El aspecto del agente de programación de escritorio: una línea por chat, un cuadro de texto redondo."}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Le style de l'agent de code de bureau : une ligne par discussion, une zone de saisie arrondie."}},
+        "it": {"stringUnit": {"state": "translated", "value": "L'aspetto dell'agente di programmazione desktop: una riga per chat, un campo di scrittura rotondo."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "デスクトップのコーディングエージェント風：チャットは1行ずつ、丸い入力欄。"}},
+        "km": {"stringUnit": {"state": "translated", "value": "រូបរាងភ្នាក់ងារសរសេរកូដលើកុំព្យូទ័រ៖ មួយបន្ទាត់ក្នុងមួយការជជែក និងប្រអប់សរសេរមូល។"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "데스크톱 코딩 에이전트 스타일: 채팅마다 한 줄, 둥근 입력창."}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Utseendet til skrivebordsagenten for koding: én linje per chat, et rundt skrivefelt."}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Wygląd desktopowego agenta do kodowania: jeden wiersz na czat, okrągłe pole pisania."}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "O visual do agente de programação de desktop: uma linha por conversa, uma caixa de texto redonda."}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Вид настольного агента для кода: одна строка на чат, круглое поле ввода."}},
+        "th": {"stringUnit": {"state": "translated", "value": "หน้าตาแบบเอเจนต์เขียนโค้ดบนเดสก์ท็อป: แชตละหนึ่งบรรทัด ช่องพิมพ์ทรงกลม"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Masaüstü kodlama ajanı görünümü: sohbet başına bir satır, yuvarlak bir yazma kutusu."}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Вигляд настільного агента для коду: один рядок на чат, кругле поле введення."}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Giao diện tác tử lập trình trên máy tính: mỗi cuộc trò chuyện một dòng, ô soạn tròn."}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "桌面编程智能体的样子：每个对话一行，圆角输入框。"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "桌面程式代理的樣子：每個對話一行，圓角輸入框。"}}
+      }
+    },
+    "onboarding.makeItYours.bundle.pick": {
+      "comment": "Make cmux Yours: a small badge on the one look tile we recommend (it is not preselected).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Our pick"}},
+        "ar": {"stringUnit": {"state": "translated", "value": "اختيارنا"}},
+        "bs": {"stringUnit": {"state": "translated", "value": "Naš izbor"}},
+        "da": {"stringUnit": {"state": "translated", "value": "Vores valg"}},
+        "de": {"stringUnit": {"state": "translated", "value": "Unser Tipp"}},
+        "es": {"stringUnit": {"state": "translated", "value": "Nuestra elección"}},
+        "fr": {"stringUnit": {"state": "translated", "value": "Notre choix"}},
+        "it": {"stringUnit": {"state": "translated", "value": "La nostra scelta"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "イチオシ"}},
+        "km": {"stringUnit": {"state": "translated", "value": "ជម្រើសរបស់យើង"}},
+        "ko": {"stringUnit": {"state": "translated", "value": "추천 픽"}},
+        "nb": {"stringUnit": {"state": "translated", "value": "Vårt valg"}},
+        "pl": {"stringUnit": {"state": "translated", "value": "Nasz wybór"}},
+        "pt-BR": {"stringUnit": {"state": "translated", "value": "Nossa escolha"}},
+        "ru": {"stringUnit": {"state": "translated", "value": "Наш выбор"}},
+        "th": {"stringUnit": {"state": "translated", "value": "ตัวเลือกของเรา"}},
+        "tr": {"stringUnit": {"state": "translated", "value": "Bizim seçimimiz"}},
+        "uk": {"stringUnit": {"state": "translated", "value": "Наш вибір"}},
+        "vi": {"stringUnit": {"state": "translated", "value": "Lựa chọn của chúng tôi"}},
+        "zh-Hans": {"stringUnit": {"state": "translated", "value": "我们的首选"}},
+        "zh-Hant": {"stringUnit": {"state": "translated", "value": "我們的首選"}}
       }
     },
     "onboarding.makeItYours.bundle.quietSolid": {

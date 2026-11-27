@@ -77,7 +77,7 @@ describe("intro walk: screens", () => {
     const { calls, root, done } = await mount();
     const title = () => root.querySelector(".onb-title")?.textContent;
     expect(title()).toBe(strings.t("onboarding.makeItYours.title"));
-    expect(root.querySelectorAll('input[name="look"]').length).toBe(5);
+    expect(root.querySelectorAll('input[name="look"]').length).toBe(6);
     await act(async () => key("Enter"));
     expect(title()).toBe(strings.t("onboarding.makeItYours.work.label"));
     await act(async () => key("Enter"));
@@ -102,10 +102,29 @@ describe("intro walk: screens", () => {
 
   test("a look tile is one walk op; trust and noise rows are theirs", async () => {
     const look = await mount("look");
-    await act(async () =>
-      look.root.querySelector<HTMLInputElement>('input[name="look"][value="twoToneStudio"]')!.click(),
-    );
-    expect(look.calls).toEqual([{ op: OPS.walk, params: { writes: [{ path: "appearance.twoTone", value: "auto" }] } }]);
+    await act(async () => look.root.querySelector<HTMLInputElement>('input[name="look"][value="studio"]')!.click());
+    // Studio, our pick: its composer, chat and sidebar in one op.
+    expect(look.calls).toEqual([
+      {
+        op: OPS.walk,
+        params: {
+          writes: [
+            { path: "agentPane.composerLook", value: "studio" },
+            { path: "sidebar.groupBy", value: "folder" },
+            { path: "sidebar.density", value: "comfortable" },
+            { path: "sidebar.showTimestamps", value: true },
+            { path: "appearance.twoTone", value: "auto" },
+            { path: "agentPane.emptyChatComposerPosition", value: "center" },
+            { path: "sidebar.drawnMenus", value: true },
+            { path: "sidebar.workspaceRow.directory", value: true },
+          ],
+        },
+      },
+    ]);
+    // Our pick wears the badge and is not checked until clicked.
+    const studioTile = look.root.querySelector('input[name="look"][value="studio"]')!.closest("label")!;
+    expect(studioTile.textContent).toContain(strings.t("onboarding.makeItYours.bundle.pick"));
+    expect(look.root.querySelectorAll(".onb-walk-look .onb-make-badge").length).toBe(1);
     await look.done();
     const trust = await mount("trust");
     await act(async () => trust.root.querySelector<HTMLInputElement>('input[name="permission"][value="ask"]')!.click());
@@ -144,8 +163,8 @@ describe("intro walk: writes", () => {
     });
     expect(pickedBundle(opened, dense)).toBe("denseOperator");
     expect(bundleWrites(bundle("house"), opened, dense)).toEqual([
-      { path: "tabs.newTabTemplate", value: null },
       { path: "appearance.density", value: "cozy" },
+      { path: "tabs.newTabTemplate", value: null },
       { path: "ui.animations.enabled", value: null },
       { path: "notifications.sound", value: null },
     ]);

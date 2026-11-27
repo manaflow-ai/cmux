@@ -48,7 +48,7 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     /// `agentPane.newChatsIn` (Settings > Start New Chats In).
     nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
 
-    /// Every other path the intro walk writes: the look bundles (two-tone, calm, motion), the trust row
+    /// Every other path the intro walk writes: the look bundles (two-tone, calm, motion, and the Codex and Studio app looks' composer, chat and sidebar), the trust row
     /// (the agents' permission), the noise row (banners and sound) and Tidy (archiving and settling).
     /// Read at open with the picks' paths, so Skip puts them back too.
     nonisolated static let walkPaths: [[String]] = [
@@ -56,6 +56,10 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
         ["notifications", "desktop"], ["notifications", "sound"], ["notifications", "sounds", "when"],
         ["appearance", "twoTone"], ["ui", "calm"], ["ui", "animations", "enabled"],
         ["agents", "chats", "archiveInactive"], ["workspaces", "autoArchive", "style"], ["sidebar", "settleFinished"],
+        // The Codex and Studio look tiles: the composer, the chat and the sidebar of each app look.
+        ["agentPane", "composerLook"], ["agentPane", "emptyChatComposerPosition"], ["agentPane", "display", "presentation"],
+        ["sidebar", "groupBy"], ["sidebar", "density"], ["sidebar", "showTimestamps"], ["sidebar", "drawnMenus"],
+        ["sidebar", "workspaceRow", "directory"],
     ]
 
     private let settings: @MainActor () -> SettingsController?

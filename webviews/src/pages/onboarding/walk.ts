@@ -8,6 +8,7 @@
 // No pick flips a default by itself: each row opens on what the settings hold (the shipped value on a
 // new Mac), and Tidy is off unless the person already has it.
 import type { MakeItYoursState } from "./ops";
+import type { WalkTraits } from "./walkLook";
 
 export type WalkValue = string | number | boolean | null;
 /** Settings by dotted path; null (or absent): unset, the shipped default. */
@@ -33,6 +34,14 @@ export const WALK_PATHS = {
   archive: "agents.chats.archiveInactive",
   autoArchive: "workspaces.autoArchive.style",
   settle: "sidebar.settleFinished",
+  composerLook: "agentPane.composerLook",
+  emptyComposer: "agentPane.emptyChatComposerPosition",
+  presentation: "agentPane.display.presentation",
+  groupBy: "sidebar.groupBy",
+  sidebarDensity: "sidebar.density",
+  timestamps: "sidebar.showTimestamps",
+  drawnMenus: "sidebar.drawnMenus",
+  rowDirectory: "sidebar.workspaceRow.directory",
 } as const;
 const P = WALK_PATHS;
 
@@ -52,6 +61,14 @@ const SHIPPED: WalkValues = {
   [P.archive]: "never",
   [P.autoArchive]: "manual",
   [P.settle]: false,
+  [P.composerLook]: "auto",
+  [P.emptyComposer]: "bottom",
+  [P.presentation]: "transcript",
+  [P.groupBy]: "none",
+  [P.sidebarDensity]: "compact",
+  [P.timestamps]: false,
+  [P.drawnMenus]: false,
+  [P.rowDirectory]: false,
 };
 
 /** The step's settings now, by dotted path: its own choices and the host's `walk` values. */
@@ -84,7 +101,7 @@ function diff(targets: WalkValues, current: WalkValues): WalkWrite[] {
 
 // MARK: Look bundles
 
-export type WalkBundleId = "house" | "glasshouse" | "twoToneStudio" | "quietSolid" | "denseOperator";
+export type WalkBundleId = "house" | "codex" | "glasshouse" | "studio" | "quietSolid" | "denseOperator";
 
 export interface WalkBundleDef {
   id: WalkBundleId;
@@ -93,15 +110,33 @@ export interface WalkBundleDef {
   lineKey: string;
   /** What the one write sets; every other bundle path goes back to its opening value. */
   sets: WalkValues;
-  /** How its miniature draws (walkArms.tsx `Miniature`). */
-  traits: { glass?: boolean; twoTone?: boolean; solid?: boolean; dense?: boolean };
+  /** How its miniature draws (walkLook.tsx `Miniature`). */
+  traits: WalkTraits;
+  /** The one look we root for: its tile wears an "Our pick" badge. It is not preselected. */
+  pick?: true;
 }
 
 const K = "onboarding.makeItYours.bundle.";
 
-/** The five look tiles, House (what the person has) first. */
+/** The six look tiles, House (what the person has) first. Codex and Studio are the app looks: each
+ * sets the settings of its whole look in examples/looks (codex/profile, studio) that ship in the app,
+ * without the theme files and add-ons a full install brings. Studio is our pick. */
 export const LOOK_BUNDLES: readonly WalkBundleDef[] = [
   { id: "house", nameKey: `${K}house`, lineKey: `${K}house.line`, sets: {}, traits: {} },
+  {
+    id: "codex",
+    nameKey: `${K}codex`,
+    lineKey: `${K}codex.line`,
+    sets: {
+      [P.presentation]: "messages",
+      [P.composerLook]: "studio",
+      [P.groupBy]: "folder",
+      [P.sidebarDensity]: "comfortable",
+      [P.timestamps]: true,
+      [P.density]: "comfortable",
+    },
+    traits: { messages: true, round: true },
+  },
   {
     id: "glasshouse",
     nameKey: `${K}glasshouse`,
@@ -110,11 +145,22 @@ export const LOOK_BUNDLES: readonly WalkBundleDef[] = [
     traits: { glass: true },
   },
   {
-    id: "twoToneStudio",
-    nameKey: `${K}twoTone`,
-    lineKey: `${K}twoTone.line`,
-    sets: { [P.twoTone]: "auto", [P.background]: null },
-    traits: { twoTone: true },
+    id: "studio",
+    nameKey: `${K}studio`,
+    lineKey: `${K}studio.line`,
+    sets: {
+      [P.twoTone]: "auto",
+      [P.background]: null,
+      [P.composerLook]: "studio",
+      [P.emptyComposer]: "center",
+      [P.groupBy]: "folder",
+      [P.sidebarDensity]: "comfortable",
+      [P.timestamps]: true,
+      [P.drawnMenus]: true,
+      [P.rowDirectory]: true,
+    },
+    traits: { twoTone: true, round: true, centered: true },
+    pick: true,
   },
   {
     id: "quietSolid",
