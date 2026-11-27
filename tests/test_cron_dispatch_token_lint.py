@@ -122,6 +122,27 @@ class LintTests(unittest.TestCase):
         code, _ = self.check({".github/workflows/a.yml": workflow("workflow_dispatch: {}", steps)})
         self.assertEqual(code, 0)
 
+    def test_dispatch_in_a_module_the_named_script_imports_fails(self):
+        # nightly-next-feed-watch.yml's resume step: nightly_next_unsigned_resume.py dispatches through
+        # nightly_next_feed_watch.py's GitHub client, and ran on the job token until run 45961586372 read 403.
+        steps = """
+      - name: Resume
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/resume.py
+"""
+        files = {
+            ".github/workflows/a.yml": workflow("schedule:\n  - cron: '0 4 * * *'", steps),
+            "scripts/ci/resume.py": "from client import GitHub\nGitHub().dispatch('nightly.yml')\n",
+            "scripts/ci/client.py": "def dispatch(w):\n    call('POST', f'/actions/workflows/{w}/dispatches')\n",
+        }
+        code, out = self.check(files)
+        self.assertEqual(code, 1)
+        self.assertIn("a.yml: start: Resume", out)
+        files["scripts/ci/client.py"] = "def read():\n    call('GET', '/actions/runs')\n"
+        code, _ = self.check(files)
+        self.assertEqual(code, 0)
+
     def test_repository_is_clean(self):
         out = io.StringIO()
         with redirect_stdout(out):

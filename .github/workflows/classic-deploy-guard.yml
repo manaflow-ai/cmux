@@ -29,6 +29,16 @@ on:
         description: "who calls: `docs` (docs-channels.yml) only checks; the push run cancels"
         required: true
         type: string
+    secrets:
+      CMUX_BOT_APP_KEY:
+        description: "the cmux bot App key: the guard's reads go out on the App's own hour, not the job token's shared pool"
+        required: false
+      VERCEL_TOKEN:
+        description: "only the push run's cancel step uses it; the docs caller checks and never cancels"
+        required: false
+      VERCEL_ORG_ID:
+        description: "as VERCEL_TOKEN"
+        required: false
   workflow_dispatch:
     inputs:
       sha:
@@ -45,7 +55,7 @@ env:
 jobs:
   guard:
     name: classic-deploy-guard
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 10
     permissions:
       actions: read # the last green push run: the baseline every later commit is judged from
@@ -63,10 +73,28 @@ jobs:
             scripts/ci/classic-auto-deploy.json
           sparse-checkout-cone-mode: false
 
+      # The job token shares the repository's per-hour installation pool with every other workflow; spent, the
+      # baseline read ended "HTTP 403: API rate limit exceeded for installation" and the guard refused a deploy it
+      # never judged (run 45910223426, 2026-11-26, red on main for hours). The cmux bot App's token has its own
+      # hour; the job token stays the fallback when it cannot be minted (the cmux#57719 fix, whose detector
+      # scripts/ci/cron_dispatch_token_lint.py covers dispatches; this step only reads).
+      - name: Mint the cmux bot App token
+        id: app-token
+        if: ${{ vars.CMUX_BOT_APP_ID != '' }}
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+          permission-pull-requests: read
+
       - name: Judge the commits this push lands
         id: check
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           REPOSITORY: ${{ github.repository }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event_name == 'workflow_dispatch' && inputs.sha || github.event.after }}

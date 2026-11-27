@@ -87,7 +87,7 @@ jobs:
       fail-fast: false
       matrix:
         environment: [Sandbox, Production]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 15
     environment: billing-nightly
     permissions:
@@ -155,7 +155,7 @@ jobs:
   apple-api:
     name: apple-api
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 10
     environment: billing-nightly
     permissions:
@@ -224,7 +224,7 @@ jobs:
   apple-post-release:
     name: apple-post-release
     if: github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.post_release_check
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 50
     environment: billing-nightly
     permissions:
@@ -324,7 +324,7 @@ jobs:
     name: alert
     needs: [suite, apple-delivery, apple-api, apple-post-release, storekit]
     if: ${{ always() && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/main' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 5
     environment: billing-nightly
     permissions:
