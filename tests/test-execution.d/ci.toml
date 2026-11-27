@@ -91,6 +91,10 @@ lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23; lifted 2026-11-18). Checks scripts/ci/build_class.py's blaze/app/no-compile classes against the real Cargo manifests and cmux.xcodeproj; run python3 tests/test_ci_build_class.py yourself after changing it or cmux_next_route.py's app_ffi_inputs or scheme_phase_rust_inputs (under a second, no build)."
 
 [[test]]
+path = "tests/test_ci_bun_cache_warm.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_cache_restore_receipt.py"
 lane = "linux-guard"
 
@@ -130,6 +134,11 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_classify_failures.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_clippy_keep_going.py"
+lane = "manual"
+reason = "A detector, not a gate, on purpose: no workflow step runs it, so a pull request that adds a seventh multi-crate clippy gate without --keep-going is not made red for it (a new guard is Leo's call, not a lane's). Run python3 tests/test_ci_clippy_keep_going.py yourself after changing a cargo clippy command in .github/workflows or scripts/ci/cmux-tui-rust-check.sh (under 1 s, no build)."
 
 [[test]]
 path = "tests/test_ci_cloud_journey_prod_preclaim_login.py"
@@ -712,6 +721,11 @@ path = "tests/test_ci_piece_swap.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pool_checkout_reuse_sparse.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). A workflow guard no workflow runs; run python3 tests/test_ci_pool_checkout_reuse_sparse.py yourself after changing a 'Pool mirror: Checkout' step's reuse or sparse lines."
+
+[[test]]
 path = "tests/test_ci_pool_make_room.py"
 lane = "manual"
 reason = "Checks that scripts/ci/pool-make-room.sh runs the pool start hook's beside-a-job prune in line with the step's need (fake hook), does nothing with room or off the pool, never fails the step, and that the darwin cross leg of cmux-tui-build-package.yml runs it before the R2 restore and the build; run python3 tests/test_ci_pool_make_room.py yourself after changing those (about 1 s, no build)."
@@ -734,6 +748,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_pr_guards_list_files_from_git.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_media_lint.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1192,6 +1210,10 @@ path = "tests/test_ci_ui_proof_verdict.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_unix_only_on_windows.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_upload_artifact_retention.py"
 lane = "linux-guard"
 
@@ -1309,8 +1331,4 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_xcodebuild_noninteractive_helper.py"
-lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_unix_only_on_windows.py"
 lane = "linux-guard"
