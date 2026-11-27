@@ -781,8 +781,22 @@ class Probe:
         }
 
 
+def another_red(name: str, steps: dict[str, frozenset] | None, steps_of, run_id: int) -> bool:
+    """Whether an earlier run's red of job name is a different red from this run's: both runs' failing steps for the
+    job are known and share none. Run 46058976708 (11-27) failed web-typecheck on `Install dependencies` (a runner's
+    bun install) while the batch before it had failed it on `Typecheck` (tests/vm-image-pin-cmux-tui.test.ts): the
+    two read as one stuck red, so the bisect chased the install step for seven probes and four confirm runs
+    (46070818999..46070828334) to "a flake, quarantined", and the typecheck red behind it was a known red, never
+    bisected. A different red is no verdict for this one: new_reds and stuck_reds look past it."""
+    if steps is None or steps_of is None:
+        return False
+    mine, theirs = red_step_names(steps, name), red_step_names(steps_of(run_id), name)
+    return bool(mine and theirs and not mine & theirs)
+
+
 def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of,
-             suites: dict[str, "Suite"] | None = None) -> tuple[list[tuple[str, str, str]], list[str]]:
+             suites: dict[str, "Suite"] | None = None, steps: dict[str, frozenset] | None = None,
+             steps_of=None) -> tuple[list[tuple[str, str, str]], list[str]]:
     """Red jobs of this batch run that were green on the newest earlier batch run where they
     finished: (job name, suite, good sha). Also the notes for the reds that are not new.
     jobs_of(run id) gives that run's verdicts, or (verdicts, judged): a red on a run whose judge
@@ -809,6 +823,9 @@ def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], j
             # A red on a run whose judge never finished was never bisected: look past it.
             if before and before[1] == "failure" and not judged:
                 continue
+            # A red on other steps than this one's (another_red) is no verdict on this red: look past it.
+            if before and before[1] == "failure" and another_red(name, steps, steps_of, run["id"]):
+                continue
             if before and before[1] in ("success", "failure"):
                 last = (run, before[1])
                 break
@@ -826,7 +843,8 @@ def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], j
 
 
 def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of,
-               suites: dict[str, "Suite"], chain_start=None) -> list[tuple[str, str, str, str]]:
+               suites: dict[str, "Suite"], chain_start=None, steps: dict[str, frozenset] | None = None,
+               steps_of=None) -> list[tuple[str, str, str, str]]:
     """The reds new_reds calls known that get a bisect anyway: (job name, suite, good sha, bad sha).
 
     A job red on this batch run and on the newest earlier judged batch run where it finished has a last green batch
@@ -854,7 +872,7 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
             if not before or before[1] not in ("success", "failure"):
                 continue
             if before[1] == "failure":
-                if judged:
+                if judged and not another_red(name, steps, steps_of, run["id"]):
                     first = run
                 continue
             green = run
@@ -1239,8 +1257,9 @@ def cmd_judge(args: argparse.Namespace) -> int:
         reds_dir = Path(args.reds_dir) if getattr(args, "reds_dir", "") else None
         # Only runs older than this one, as a probe's judge reads them (before its origin), so both agree.
         runs = list_runs(args.repo, args.branch, before=int(args.run_id or 0), batches=LOOKBACK_BATCHES)
-        found, notes = new_reds(args.sha, verdicts, runs, jobs_of, suites)
-        stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites, chain_start=stuck_chain_start)
+        found, notes = new_reds(args.sha, verdicts, runs, jobs_of, suites, steps_of(args.run_id), steps_of)
+        stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites, chain_start=stuck_chain_start,
+                           steps=steps_of(args.run_id), steps_of=steps_of)
         stuck_names = {name for name, *_ in stuck}
         notes = [n for n in notes if not any(n.startswith(f"`{name}` was already red") for name in stuck_names)]
         for note in notes:
@@ -1290,14 +1309,17 @@ def cmd_judge(args: argparse.Namespace) -> int:
             # 45931127675: 24 runs for any probe, 9 for its web-typecheck job, 2 for cmux-rd-host), and the
             # installation's rate limit ended the web-typecheck chain at its culprit (probe 45897849727, 11-26 21:37Z).
             origin_verdicts = {name: v for name, v in jobs_of(origin["id"])[0].items() if name == probe.job}
-            found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)
+            found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites,
+                                steps_of(origin["id"]), steps_of)
             if not probe.step:  # a chain begun before the step travelled: the origin's red names it
                 probe.step = STEP_SEP.join(sorted(red_step_names(steps_of(origin["id"]), probe.job)))
             # The same chain_start as the batch judge: without it every judged probe of the job since its first red
             # counted as a finished bisect, so a chain two steps in was refused as "not a new red" (probe run
             # 45971486391, 11-27 09:10Z: web / Web tests (1/4) at 27712e0b, the culprit step the batch had dispatched).
             found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites,
-                                                                                  chain_start=stuck_chain_start)]
+                                                                                  chain_start=stuck_chain_start,
+                                                                                  steps=steps_of(origin["id"]),
+                                                                                  steps_of=steps_of)]
     except RuntimeError as err:
         # GitHub would not answer (a rate limit spent past the wait budget, a lasting 5xx). That says nothing
         # about the probe's inputs, yet refusing here ended the bisect, and the next batch began the same one
