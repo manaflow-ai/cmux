@@ -50810,6 +50810,12 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field surface decoded successfully")
 		}
 	})
+	t.Run("PhoneLinkOfferResult.Offered", func(t *testing.T) {
+		var decoded PhoneLinkOfferResult
+		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
+			t.Fatal("missing required field offered decoded successfully")
+		}
+	})
 	t.Run("PingResult.Ok", func(t *testing.T) {
 		var decoded PingResult
 		if err := json.Unmarshal([]byte("{\"protocol\":1,\"version\":\"value\"}"), &decoded); err == nil {
@@ -55940,6 +55946,18 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 			t.Fatal("missing required field title decoded successfully")
 		}
 	})
+	t.Run("OfferLinkToPhoneRequest.TerminalID", func(t *testing.T) {
+		var decoded OfferLinkToPhoneRequest
+		if err := json.Unmarshal([]byte("{\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("OfferLinkToPhoneRequest.URL", func(t *testing.T) {
+		var decoded OfferLinkToPhoneRequest
+		if err := json.Unmarshal([]byte("{\"terminal_id\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field url decoded successfully")
+		}
+	})
 	t.Run("PairingResponseRequest.Approve", func(t *testing.T) {
 		var decoded PairingResponseRequest
 		if err := json.Unmarshal([]byte("{\"request\":1}"), &decoded); err == nil {
@@ -57984,6 +58002,18 @@ func TestGeneratedRequiredFieldsRejectOmission(t *testing.T) {
 		var decoded PersonalChangedEvent
 		if err := json.Unmarshal([]byte("{}"), &decoded); err == nil {
 			t.Fatal("missing required field personal_revision decoded successfully")
+		}
+	})
+	t.Run("PhoneOpenLinkEvent.TerminalID", func(t *testing.T) {
+		var decoded PhoneOpenLinkEvent
+		if err := json.Unmarshal([]byte("{\"event\":\"phone-open-link\",\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field terminal_id decoded successfully")
+		}
+	})
+	t.Run("PhoneOpenLinkEvent.URL", func(t *testing.T) {
+		var decoded PhoneOpenLinkEvent
+		if err := json.Unmarshal([]byte("{\"event\":\"phone-open-link\",\"terminal_id\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("missing required field url decoded successfully")
 		}
 	})
 	t.Run("ProgramStatusChangedEvent.ProgramStatus", func(t *testing.T) {
@@ -60561,6 +60591,12 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 		var decoded PaneSurfaceResult
 		if err := json.Unmarshal([]byte("{\"surface\":null}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field surface accepted null")
+		}
+	})
+	t.Run("PhoneLinkOfferResult.Offered", func(t *testing.T) {
+		var decoded PhoneLinkOfferResult
+		if err := json.Unmarshal([]byte("{\"offered\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field offered accepted null")
 		}
 	})
 	t.Run("PingResult.Ok", func(t *testing.T) {
@@ -65087,6 +65123,18 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 			t.Fatal("required non-nullable field title accepted null")
 		}
 	})
+	t.Run("OfferLinkToPhoneRequest.TerminalID", func(t *testing.T) {
+		var decoded OfferLinkToPhoneRequest
+		if err := json.Unmarshal([]byte("{\"terminal_id\":null,\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_id accepted null")
+		}
+	})
+	t.Run("OfferLinkToPhoneRequest.URL", func(t *testing.T) {
+		var decoded OfferLinkToPhoneRequest
+		if err := json.Unmarshal([]byte("{\"terminal_id\":\"value\",\"url\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field url accepted null")
+		}
+	})
 	t.Run("PairingResponseRequest.Approve", func(t *testing.T) {
 		var decoded PairingResponseRequest
 		if err := json.Unmarshal([]byte("{\"approve\":null,\"request\":1}"), &decoded); err == nil {
@@ -66903,6 +66951,18 @@ func TestGeneratedRequiredNonnullableFieldsRejectNull(t *testing.T) {
 		var decoded PersonalChangedEvent
 		if err := json.Unmarshal([]byte("{\"personal_revision\":null}"), &decoded); err == nil {
 			t.Fatal("required non-nullable field personal_revision accepted null")
+		}
+	})
+	t.Run("PhoneOpenLinkEvent.TerminalID", func(t *testing.T) {
+		var decoded PhoneOpenLinkEvent
+		if err := json.Unmarshal([]byte("{\"event\":\"phone-open-link\",\"terminal_id\":null,\"url\":\"value\"}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field terminal_id accepted null")
+		}
+	})
+	t.Run("PhoneOpenLinkEvent.URL", func(t *testing.T) {
+		var decoded PhoneOpenLinkEvent
+		if err := json.Unmarshal([]byte("{\"event\":\"phone-open-link\",\"terminal_id\":\"value\",\"url\":null}"), &decoded); err == nil {
+			t.Fatal("required non-nullable field url accepted null")
 		}
 	})
 	t.Run("ProgramStatusChangedEvent.Surface", func(t *testing.T) {
@@ -69922,8 +69982,8 @@ const (
 	generatedOptionalNullableFieldCount    = 1365
 	generatedRequiredNullableFieldCount    = 178
 	generatedOptionalNonnullableFieldCount = 427
-	generatedRequiredFieldCount            = 1657
-	generatedRequiredNonnullableFieldCount = 1479
+	generatedRequiredFieldCount            = 1662
+	generatedRequiredNonnullableFieldCount = 1484
 	generatedConstrainedFieldCount         = 139
 	generatedEncodedConstrainedFieldCount  = 139
 )

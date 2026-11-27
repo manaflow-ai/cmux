@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "17edbe5a622c1d052bf1c4a1b66dc607234b77a41d4ccc87db8cb5ebf6736e5d" as const;
+export const SDK_IR_SHA256 = "eacbdb081ca129fd0a1d92dbb49f3fc1445a56a232c52a75e21e512cf03388b4" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2433,6 +2433,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": []
   },
+  "offer-link-to-phone": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Unix connection of this Mac's own app only (never a remote device). HTTP(S) only. Sends one phone-open-link control event to the phone that drives the terminal when its last key into it came from that phone within two minutes, a connection of that phone that declared phone-open-link-v1 is attached to it, and the address is public; otherwise offered is false and nothing happens. No resource or journal mutation; the URL is never logged."
+    ]
+  },
   "page-credential": {
     "authority": "local-admin",
     "since": 12,
@@ -4579,6 +4589,14 @@ export const EVENT_METADATA = {
     "capability": "profiles-v1",
     "streams": [
       "subscribe"
+    ],
+    "emission": "emitted"
+  },
+  "phone-open-link": {
+    "since": 12,
+    "capability": null,
+    "streams": [
+      "control"
     ],
     "emission": "emitted"
   },
@@ -9989,6 +10007,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "PhoneLinkOfferResult": {
+    "additional_properties": false,
+    "fields": {
+      "offered": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
         }
       }
     },
@@ -27644,6 +27676,34 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "NotifyResult"
     }
   },
+  "offer-link-to-phone": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "terminal_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "url": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "PhoneLinkOfferResult"
+    }
+  },
   "page-credential": {
     "request": {
       "additional_properties": false,
@@ -36020,6 +36080,36 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "phone-open-link": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "phone-open-link"
+        }
+      },
+      "terminal_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "url": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

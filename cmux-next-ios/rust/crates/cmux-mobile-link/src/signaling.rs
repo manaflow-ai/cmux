@@ -195,9 +195,10 @@ pub struct SignalEnvelope {
     /// sender. Clients never set it (the backend overwrites it).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub from_user_id: Option<String>,
-    /// Stamped by the backend on forwarded `wg-*` signals (API 0.17.0): this
-    /// device's own ticket for the session's WebSocket relay, which a relay
-    /// join presents (PROTOCOL.md "WebSocket relay"). Clients never set it.
+    /// This device's own ticket for the session's WebSocket relay, if a backend
+    /// stamps one on forwarded `wg-*` signals; a relay join then presents it. The
+    /// production backend stamps none: a join is admitted by its Bearer token and
+    /// the session its hub bound (PROTOCOL.md "WebSocket relay"). Clients never set it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relay_ticket: Option<String>,
 }
@@ -427,6 +428,10 @@ struct Shared {
     link_stat_sent: Mutex<Option<std::time::Instant>>,
     /// An older Worker refused `link_stat`: none is sent on this socket again.
     link_stat_refused: std::sync::atomic::AtomicBool,
+    /// Whether a `wg-relay` for an unknown session opens one (relay first on this
+    /// side): the phone's early cue to join the relay (PROTOCOL.md "Early join"). Else
+    /// it is dropped, as a Mac before relay first drops it.
+    early_relay_cue: std::sync::atomic::AtomicBool,
     /// A socket to a Mac's local hub (`local_hub.rs`), not the Worker: its
     /// sessions never move onto a Worker socket, nor a Worker's onto it.
     local: std::sync::atomic::AtomicBool,
@@ -649,6 +654,7 @@ impl SignalingClient {
             pings_unanswered: std::sync::atomic::AtomicU32::new(0),
             link_stat_sent: Mutex::new(None),
             link_stat_refused: std::sync::atomic::AtomicBool::new(false),
+            early_relay_cue: std::sync::atomic::AtomicBool::new(false),
             local: std::sync::atomic::AtomicBool::new(false),
             hub_version: std::sync::atomic::AtomicU32::new(0),
         });
@@ -912,6 +918,14 @@ impl SignalingClient {
         self.shared.out.push_signal(Signal::Text(text))
     }
 
+    /// Let a `wg-relay` that arrives for an unknown session open it (default off: it is
+    /// dropped). The answer then joins the relay at once, with the Bearer token (and a
+    /// relay ticket only if the service stamped one), and waits for the `wg-init`
+    /// ([`crate::dial::answer`]).
+    pub fn accept_early_relay_cue(&self, accept: bool) {
+        self.shared.early_relay_cue.store(accept, std::sync::atomic::Ordering::Relaxed);
+    }
+
     /// Whether this socket still sends `link_stat`: false once an older Worker refused one.
     pub fn sends_link_stats(&self) -> bool {
         !self.shared.link_stat_refused.load(std::sync::atomic::Ordering::Relaxed)
@@ -1021,10 +1035,14 @@ impl Shared {
                     }
                     return;
                 }
-                if !matches!(
-                    envelope.payload,
-                    SignalPayload::WebrtcOffer { .. } | SignalPayload::WgInit { .. }
-                ) {
+                let early_cue = matches!(envelope.payload, SignalPayload::WgRelay { .. })
+                    && self.early_relay_cue.load(std::sync::atomic::Ordering::Relaxed);
+                if !early_cue
+                    && !matches!(
+                        envelope.payload,
+                        SignalPayload::WebrtcOffer { .. } | SignalPayload::WgInit { .. }
+                    )
+                {
                     tracing::debug!(
                         session = envelope.session_id,
                         "dropping a signal for an unknown session"
@@ -1203,6 +1221,7 @@ mod tests {
             pings_unanswered: std::sync::atomic::AtomicU32::new(0),
             link_stat_sent: Mutex::new(None),
             link_stat_refused: std::sync::atomic::AtomicBool::new(false),
+            early_relay_cue: std::sync::atomic::AtomicBool::new(false),
         };
         (shared, rx)
     }

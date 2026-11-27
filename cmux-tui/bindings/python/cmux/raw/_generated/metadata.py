@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '17edbe5a622c1d052bf1c4a1b66dc607234b77a41d4ccc87db8cb5ebf6736e5d'
+IR_SHA256 = 'eacbdb081ca129fd0a1d92dbb49f3fc1445a56a232c52a75e21e512cf03388b4'
 
 
 @dataclass(frozen=True)
@@ -2603,6 +2603,18 @@ COMMANDS = {
             'title': CommandFieldMetadata(None, None),
         },
     ),
+    'offer-link-to-phone': CommandMetadata(
+        'offer-link-to-phone',
+        'local-admin',
+        12,
+        None,
+        ('local-admin',),
+        None,
+        {
+            'terminal_id': CommandFieldMetadata(None, None),
+            'url': CommandFieldMetadata(None, None),
+        },
+    ),
     'page-credential': CommandMetadata(
         'page-credential',
         'local-admin',
@@ -4325,6 +4337,7 @@ EVENTS = {
     'pane-closed': EventMetadata('pane-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'participant-avatar-changed': EventMetadata('participant-avatar-changed', 12, 'participant-avatars-v1', ('subscribe',), 'emitted'),
     'personal-changed': EventMetadata('personal-changed', 12, 'profiles-v1', ('subscribe',), 'emitted'),
+    'phone-open-link': EventMetadata('phone-open-link', 12, None, ('control',), 'emitted'),
     'program-status-changed': EventMetadata('program-status-changed', 12, None, ('subscribe',), 'emitted'),
     'render-delta': EventMetadata('render-delta', 7, None, ('attach-render',), 'emitted'),
     'render-state': EventMetadata('render-state', 7, None, ('attach-render',), 'emitted'),

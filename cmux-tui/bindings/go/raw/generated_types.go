@@ -8554,6 +8554,30 @@ func (value *PaneSurfaceResult) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type PhoneLinkOfferResult struct {
+	Offered bool `json:"offered"`
+}
+
+func (value *PhoneLinkOfferResult) UnmarshalJSON(data []byte) error {
+	if !isJSONObject(data) {
+		return fmt.Errorf("decode PhoneLinkOfferResult: expected object")
+	}
+	var fields struct {
+		Offered *bool `json:"offered"`
+	}
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return fmt.Errorf("decode PhoneLinkOfferResult: %w", err)
+	}
+	type wire PhoneLinkOfferResult
+	var decoded wire
+	if fields.Offered == nil {
+		return fmt.Errorf("decode PhoneLinkOfferResult: required field offered is missing or null")
+	}
+	decoded.Offered = *fields.Offered
+	*value = PhoneLinkOfferResult(decoded)
+	return nil
+}
+
 type PingResult struct {
 	BuildCommit   Presence[string] `json:"-"`
 	GhosttyCommit Presence[string] `json:"-"`
