@@ -1527,6 +1527,7 @@ def _evaluate_branch_expression(template: str, context: dict[str, object]) -> st
 
     def evaluate(match: re.Match[str]) -> str:
         python = match.group(1).replace("needs.tree-preflight.outputs.key", "github.key")
+        python = python.replace("needs.tree-owner-wait.outputs.takeover", "github.takeover")
         python = re.sub(r"\bgithub(?:\.[A-Za-z_]+)+", lookup, python)
         python = python.replace("&&", " and ").replace("||", " or ")
         python = re.sub(r"!(?!=)", " not ", python)
@@ -1587,6 +1588,33 @@ def test_branch_push_build_cancels_only_its_own_branch_older_build() -> None:
             assert not render(daemon["group"], event_name, ref).startswith("cmux-tui-daemon-ref-"), (event_name, ref)
     assert "concurrency" not in jobs["publish"] or jobs["publish"]["concurrency"]["cancel-in-progress"] == "false"
     assert document["concurrency"]["cancel-in-progress"] == "false"
+
+    # FEAT_BUILD_COALESCED: a feat-cmux-next push's first attempt (not a takeover) shares one build group that
+    # nothing cancels, so GitHub keeps one running and one pending and a newer push replaces the pending one.
+    # A re-run, a takeover, a dispatch and every other trunk ref keep the per-run group.
+    def feat(template: str, event_name: str = "push", ref: str = "refs/heads/feat-cmux-next", attempt: int = 1,
+             takeover: str = "", run_id: str = "7") -> str:
+        return _evaluate_branch_expression(
+            template, {"github": {"event_name": event_name, "ref": ref, "run_id": run_id, "key": "k" * 12,
+                                "run_attempt": attempt, "takeover": takeover, "repository": "manaflow-ai/cmux"}}
+        )
+
+    for name, prefix in (("build", "cmux-tui-build-"), ("build-linux", "cmux-tui-build-linux-")):
+        group = jobs[name]["concurrency"]["group"]
+        assert feat(group) == prefix + "feat-push", name
+        assert feat(group, run_id="8") == feat(group), name
+        assert feat(jobs[name]["concurrency"]["cancel-in-progress"]) == "False", name
+        assert feat(group, attempt=2) == prefix + "k" * 12 + "-7", name
+        assert feat(group, takeover="true") == prefix + "k" * 12 + "-7", name
+        assert feat(group, event_name="workflow_dispatch") == prefix + "k" * 12 + "-7", name
+        for ref in kept:
+            if ref != "refs/heads/feat-cmux-next":
+                assert feat(group, ref=ref) == prefix + "k" * 12 + "-7", (name, ref)
+    # A replaced pending feat-cmux-next build plans no macOS fallback once the branch has moved.
+    assert feat(plan_env := next(s for s in jobs["darwin-fallback-plan"]["steps"]
+                                 if s.get("id") == "plan")["env"]["BRANCH_PUSH"]) == "1"
+    assert feat(plan_env, attempt=2) == "" and feat(plan_env, takeover="true") == ""
+    assert "tree-owner-wait" in jobs["darwin-fallback-plan"]["needs"]
     # A build a newer push cancelled plans no macOS fallback once the branch has moved;
     # a timeout's cancel (FALLBACK_AFTER_TIMEOUT) and a failed head read still plan one.
     plan = next(s for s in jobs["darwin-fallback-plan"]["steps"] if s.get("id") == "plan")
