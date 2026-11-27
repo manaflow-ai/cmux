@@ -36,12 +36,22 @@ fn port_arg(map: &Map<String, Value>) -> Result<u16, CloudError> {
         .ok_or_else(|| CloudError::invalid("port is required (1 to 65535)"))
 }
 
+fn scheme_arg(map: &Map<String, Value>) -> Result<&str, CloudError> {
+    let scheme = args::text(map, "scheme", 16)?.unwrap_or("http");
+    match scheme {
+        "http" | "https" => Ok(scheme),
+        _ => Err(CloudError::invalid("scheme must be http or https")),
+    }
+}
+
 fn record(machine: &str, port: u16, forward: &Forward) -> Value {
     json!({
         "machine": machine,
         "port": port,
         "host": "127.0.0.1",
         "localPort": forward.local_port,
+        "scheme": &forward.scheme,
+        "url": format!("{}://127.0.0.1:{}/", forward.scheme, forward.local_port),
         "generation": forward.generation,
         "state": if forward.down.is_some() { "down" } else { "up" },
         "reason": forward.down,
@@ -71,13 +81,14 @@ pub(crate) fn run<C: ControlPlane>(
             Ok(json!({ "forwards": forwards }))
         }
         FORWARD => {
-            let map = args::object(raw, &["machine", "port"])?;
+            let map = args::object(raw, &["machine", "port", "scheme"])?;
             let machine = args::id(map, "machine")?.to_owned();
             let port = port_arg(map)?;
+            let scheme = scheme_arg(map)?;
             let carrier = link(server, &machine, origin, key)?;
             let (edge, links) = server.edge_parts();
             let at = (machine.clone(), port);
-            let forward = ensure(edge, links, &carrier, Slot::Forward(&at), port)?;
+            let forward = ensure(edge, links, &carrier, Slot::Forward(&at), port, scheme)?;
             Ok(record(&machine, port, forward))
         }
         CLOSE => {
@@ -123,6 +134,7 @@ fn ensure<'e>(
     carrier: &Carrier,
     slot: Slot<'_>,
     port: u16,
+    scheme: &str,
 ) -> Result<&'e Forward, CloudError> {
     edge.reconcile(links);
     let current = match &slot {
@@ -164,6 +176,7 @@ fn ensure<'e>(
         let forward = Forward {
             local_port: listener.local_addr().port(),
             listener: Some(listener),
+            scheme: scheme.to_owned(),
             generation: carrier.generation,
             down: None,
             proxy_credential,
@@ -208,7 +221,7 @@ fn browser_open<C: ControlPlane>(
     let carrier = link(server, &machine, origin, key)?;
     let incarnation = server.incarnation();
     let (edge, links) = server.edge_parts();
-    let route = ensure(edge, links, &carrier, Slot::Proxy(&machine), port)?;
+    let route = ensure(edge, links, &carrier, Slot::Proxy(&machine), port, "http")?;
     let password = route
         .proxy_credential
         .as_deref()
