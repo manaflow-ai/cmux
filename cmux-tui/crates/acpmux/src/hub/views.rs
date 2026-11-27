@@ -1306,7 +1306,7 @@ impl Hub {
             // The protocol surfaces this build serves (`capabilities.rs`).
             "capabilities": crate::capabilities::ids(),
             // Chats out of memory as compact rows now, and evictions and rehydrations since the
-            // start (`evict.rs`; all 0 while `ACPMUX_EVICT_IDLE_SECS` is unset).
+            // start (`evict.rs`; all 0 while `ACPMUX_EVICT_IDLE_SECS` is 0).
             "evicted": evicted,
             // The closed rows `_acpmux/sessions` lists with no filter, counted with no row built
             // (`Hub::closed_listed`): `acpmux ls` counts them on its hidden line while it reads
