@@ -29,6 +29,15 @@ extension CEFTab: BrowserContentVisibilityReporting {
         return Self.frame(window.frame, isPlacedAt: owner.convertToScreen(host.hostView.convert(host.hostView.bounds, to: nil)))
     }
 
+    /// Whether the keys typed in `window`, the key window, reach this tab's page: `window` is its page window
+    /// (``isPageWindow(_:)``). The key router offers such a page its own Find first (`KeyRouter.pageHasKeys`).
+    ///
+    /// - Parameter window: The window a key-down goes to.
+    /// - Returns: Whether this tab's page has that window's keyboard.
+    public func pageHasKeyboard(in window: NSWindow) -> Bool {
+        isPageWindow(window)
+    }
+
     /// Chromium's page window over this tab's content view (``isPageWindow(_:)``), if it shows one.
     var pageWindow: NSWindow? { container.window?.childWindows?.first(where: isPageWindow) }
 
