@@ -73,13 +73,12 @@ extension LayoutRootView {
     /// after the last change, never in a motion's frames. Hidden work only: the wait delays nothing the person sees.
     /// A call during a layout motion (a divider drag asks once per moved pane per frame) only replaces the waiting work:
     /// nothing can run before the layout is still, so the delay counts from the motion's landing (`runStillWork`), and
-    /// the motion's frames arm and cancel no timer. A window's live resize is no layout motion and holds no timer: AppKit
-    /// can still report the resize in `viewDidEndLiveResize`, its only call at the end, so nothing there could arm it. A
-    /// call during one arms the timer at once, and `whenStill` holds the work until the resize ends.
+    /// the motion's frames arm and cancel no timer. A window's live resize holds it the same way, and its end arms it
+    /// (`viewDidEndLiveResize`) even while AppKit still reports the resize there: the timer then fires after the end.
     public func whenSettled(_ key: String, after delay: Duration, on queue: FrameBatchQueue, _ work: @escaping @MainActor () -> Void) {
         let previous = settlingWork[key]
         let timer = previous?.timer ?? DemandTimer(owner: key)
-        guard !isInLayoutMotion else {
+        guard isStill else {
             if previous?.armed == true { timer.cancel() }
             settlingWork[key] = SettlingWork(timer: timer, delay: delay, queue: queue, work: work, armed: false)
             return
@@ -105,9 +104,9 @@ extension LayoutRootView {
 
     private var isStill: Bool { !isInLayoutMotion && window?.inLiveResize != true }
 
-    /// Queues the waiting ``whenStill(_:on:_:)`` work when the layout is still, and starts the settles a motion held once
-    /// no motion moves the layout (a window's live resize still under way holds their work in `whenStill`, not their
-    /// count).
+    /// Queues the waiting ``whenStill(_:on:_:)`` work when the layout is still, and starts the settles a motion or a
+    /// window's live resize held once no layout motion moves the layout. The window can still report its resize in
+    /// `viewDidEndLiveResize`; a settle armed there fires after the end, and `whenStill` still holds work until then.
     func runStillWork() {
         if !isInLayoutMotion { armWaitingSettles() }
         guard isStill, !stillWork.isEmpty else { return }
