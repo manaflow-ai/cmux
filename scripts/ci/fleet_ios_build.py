@@ -23,6 +23,7 @@ Usage: fleet_ios_build.py --what ffi|sim-products|kit-products --out DIR [--time
 import argparse
 import json
 import os
+import re
 import sys
 import tarfile
 import tempfile
@@ -48,6 +49,27 @@ CALL_TIMEOUT = 30
 # signature): every submit failed in 0 s that way (2026-11-26, run 45898219170), so name the client.
 USER_AGENT = "cmux-ci-fleet-ios-build"
 POLL_START, POLL_MAX = 5, 20
+# A failed build's answer names its compiler errors (`errors`: file, line, col, message; at most 20), the file a path
+# in this checkout. Each becomes a GitHub error annotation on that line, so a job that no longer builds on a Mac still
+# shows what broke: run 45923302765 showed only "the build failed: build" for WorkspaceGroupTests.swift:476's error.
+ERROR_FILE = re.compile(r"^(?:cmux-next-ios|Packages)/[A-Za-z0-9_./+-]+$")
+MAX_ERRORS = 20
+
+
+def annotation(err):
+    """The `::error` workflow command for one answered error, or None for one that is not a checkout path and line."""
+    if not isinstance(err, dict):
+        return None
+    path, line, col, msg = err.get("file"), err.get("line"), err.get("col"), err.get("message")
+    if not (isinstance(path, str) and ERROR_FILE.match(path) and ".." not in path.split("/")):
+        return None
+    if not (isinstance(line, int) and line > 0 and isinstance(msg, str) and msg.strip()):
+        return None
+    def prop(v):
+        return str(v).replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A").replace(":", "%3A").replace(",", "%2C")
+    data = msg.strip()[:300].replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+    where = f"file={prop(path)},line={line}" + (f",col={col}" if isinstance(col, int) and col > 0 else "")
+    return f"::error {where},title=build fleet::{data}"
 
 
 def log(msg):
@@ -152,7 +174,12 @@ def run(what, out, timeout, queue_timeout, token, opener=urllib.request.urlopen,
         wait = min(wait * 2, POLL_MAX)
     verdict = ans["verdict"]
     if verdict == "fail":
-        log(f"job {job}: the build failed: {ans.get('reason') or 'build'}")
+        errors = ans.get("errors") if isinstance(ans.get("errors"), list) else []
+        lines = [a for a in map(annotation, errors[:MAX_ERRORS]) if a]
+        log(f"job {job}: the build failed: {ans.get('reason') or 'build'}"
+            + (f" ({len(lines)} compiler error{'s' if len(lines) != 1 else ''} below)" if lines else ""))
+        for a in lines:
+            print(a, flush=True)
         return 1
     if verdict != "pass" or not ans.get("get_url"):
         log(f"job {job}: verdict {verdict} with no output")
