@@ -328,7 +328,7 @@ final class AgentTabStore {
     /// `labs.previewFeatures` and `agentPane.editedFiles.*`, pushed to every page like the shortcuts.
     private let pageSettings = AgentPanePageSettings()
     /// The one Read aloud voice every chat page speaks through, and Stop Reading Aloud stops.
-    let readAloud = AgentPaneReadAloud()
+    lazy var readAloud = AgentPaneReadAloud(registry: paneShared.voiceRegistry)
     /// The Cloud machines each page's environment picker lists (`cloudMachine.*`); the app's peer approver for every host and page.
     let cloudMachines = AgentPaneCloudMachines()
     /// The iPhone host's Remote Control switch, which every page's Session Info shows (set by the wiring).

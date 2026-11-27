@@ -273,6 +273,7 @@ pub mod upload_frames;
 mod vault;
 mod view;
 mod vm_host;
+mod voice;
 pub(crate) mod wait;
 #[cfg(test)]
 #[cfg(unix)]

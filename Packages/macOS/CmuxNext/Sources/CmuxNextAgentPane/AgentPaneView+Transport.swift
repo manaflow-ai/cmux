@@ -120,12 +120,14 @@ extension AgentPaneView {
             self?.refreshOtherInstallNotice()
         }
         model.onQuestionKeySessionChange = { [weak self] in
+            self?.voice.cancel()
             self?.refreshQuestionKeyBinding()
             self?.refreshOtherInstallNotice()
             self?.shownPushes.onSessionChange?() // the new chat's owed work (AgentPaneOwedWork)
         }
         model.transport.deliver = { [weak self] event, done in
             guard let self else { return done() }
+            self.voice.receive(event)
             if let pageEvents = self.pageEvents {
                 if event.connection == self.model.transport.current {
                     pageEvents.transportDidOpen(event.connection)

@@ -318,10 +318,6 @@ extension AgentPaneDictation {
         }
     }
 
-    static var openSettingsTitle: String {
-        String(localized: "agentPane.dictation.openSettings", defaultValue: "Open System Settings", bundle: .localizedModule)
-    }
-
     static func failureMessage(_ failure: DictationFailure) -> String {
         switch failure {
         case .onDeviceRecognitionUnavailable:
@@ -331,6 +327,7 @@ extension AgentPaneDictation {
             String(localized: "agentPane.dictation.modelDownloadFailed", defaultValue: "The speech model could not be downloaded. Try again when you are online.", bundle: .localizedModule)
         case .audioCaptureFailed:
             String(localized: "agentPane.dictation.noMicrophone", defaultValue: "No microphone is available.", bundle: .localizedModule)
+        case .providerFailed(let code, let detail): providerFailureMessage(code: code, detail: detail)
         case .microphoneAccessDenied, .speechRecognitionAccessDenied, .transcriptionFailed:
             String(localized: "agentPane.dictation.failed", defaultValue: "Dictation stopped unexpectedly.", bundle: .localizedModule)
         }

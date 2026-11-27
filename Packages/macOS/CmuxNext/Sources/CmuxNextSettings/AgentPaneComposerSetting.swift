@@ -26,6 +26,12 @@ import CmuxNextDesign
 /// the person bound the app to one other than its default; empty (the default) uses the app's.
 /// Leo, 2026-11-07: "you can optionally have it be like, oh, you use Claude's thing, or ChatGPT's
 /// thing ... Or, like, maybe you can map the button to that thing, perhaps?"
+/// `dictationEngine`: what turns speech into text when the source is `cmux`, `onDevice` (Apple's
+/// on-device engine, as before; the default) or a provider the person brings with their own key
+/// (`openai`, `groq`, `localServer`, `whisperCpp`, `custom`), which acpmux's `_acpmux/voice/*` runs;
+/// `dictationEngineURL` and `dictationEngineModel` override its base URL and model (empty: its own).
+/// Leo, 2026-11-22: "people should be able to add their own api keys/whatever and toggle that voice
+/// mode and whatever to link up to their provider of choice".
 /// `spellChecking`: opt-in system spell checking for web and native composers. It is off by default.
 /// `composerVimKeys`: opt-in modal vim keys in the web composer (Esc for normal mode; i, a, I, A, o, h, j, k, l,
 /// w, b, e, 0, $, x, dd, u). It is off by default and never steals a key when off
@@ -65,8 +71,12 @@ import CmuxNextDesign
 public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
     public var showContextUsage = Self.showContextUsageDefault
     public var composerRing = Self.composerRingDefault
+    public var voiceButton = Self.voiceButtonDefault
     public var showDictation = Self.showDictationDefault
     public var dictationSource = Self.dictationSourceDefault
+    public var dictationEngine = Self.dictationEngineDefault
+    public var dictationEngineURL = Self.dictationEngineURLDefault
+    public var dictationEngineModel = Self.dictationEngineModelDefault
     public var dictationShortcut = Self.dictationShortcutDefault
     public var spellChecking = Self.spellCheckingDefault
     public var composerVimKeys = Self.composerVimKeysDefault
@@ -99,6 +109,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
         [
             "showContextUsage": .bool(showContextUsage),
             "composerRing": .string(composerRing.rawValue),
+            "voiceButton": .bool(voiceButton),
             "showDictation": .bool(showDictation),
             "dictationSource": .string(dictationSource.rawValue),
             "dictationShortcut": .string(dictationShortcut),
@@ -146,6 +157,26 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
                     continue
                 }
                 setting.dictationSource = source
+                continue
+            }
+            if descriptor.path == dictationEnginePath {
+                guard descriptor.accepts(value), let engine = value.stringValue.flatMap(AgentPaneDictationEngine.init(rawValue:)) else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                setting.dictationEngine = engine
+                continue
+            }
+            if descriptor.path == dictationEngineURLPath || descriptor.path == dictationEngineModelPath {
+                guard descriptor.accepts(value), let text = value.stringValue else {
+                    diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: descriptor.id, message: OmnibarSettingsSchema.expectation(descriptor)))
+                    continue
+                }
+                if descriptor.path == dictationEngineURLPath {
+                    setting.dictationEngineURL = text
+                } else {
+                    setting.dictationEngineModel = text
+                }
                 continue
             }
             if descriptor.path == dictationShortcutPath {
@@ -222,6 +253,7 @@ public nonisolated struct AgentPaneComposerSetting: Sendable, Hashable {
                 continue
             }
             if descriptor.path == showContextUsagePath { setting.showContextUsage = flag }
+            if descriptor.path == voiceButtonPath { setting.voiceButton = flag }
             if descriptor.path == showDictationPath { setting.showDictation = flag }
             if descriptor.path == spellCheckingPath { setting.spellChecking = flag }
             if descriptor.path == composerVimKeysPath { setting.composerVimKeys = flag }

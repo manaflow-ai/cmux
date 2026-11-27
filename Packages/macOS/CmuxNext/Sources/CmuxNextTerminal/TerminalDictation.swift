@@ -16,10 +16,10 @@ public final class TerminalDictation {
 
     public init(
         claims: DictationMicrophoneClaims = .shared,
-        makeSession: @escaping () -> DictationSession = { TerminalDictation.defaultSession() }
+        makeSession: (() -> DictationSession)? = nil
     ) {
         self.claims = claims
-        self.makeSession = makeSession
+        self.makeSession = makeSession ?? { TerminalDictation.defaultSession(claims) }
     }
 
     public var isActive: Bool { session?.phase.isStartable == false }
@@ -96,10 +96,11 @@ public final class TerminalDictation {
         targetPaste = nil
     }
 
-    public static func defaultSession() -> DictationSession {
+    /// The person's engine (`agentPane.dictationEngine`) on the shared microphone `claims`.
+    public static func defaultSession(_ claims: DictationMicrophoneClaims) -> DictationSession {
         #if DEBUG
         if let recorded = DictationSession.recorded() { return recorded }
         #endif
-        return DictationSession()
+        return claims.session()
     }
 }

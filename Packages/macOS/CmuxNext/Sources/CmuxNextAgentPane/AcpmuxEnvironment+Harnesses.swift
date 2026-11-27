@@ -132,6 +132,16 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     case claudeTokenCode = "_acpmux/connections/claude_token.code"
     /// `{attempt}`: ends a setup-token run.
     case claudeTokenCancel = "_acpmux/connections/claude_token.cancel"
+    /// The person's dictation provider (`agentPane.dictationEngine`, crate cmux-voice): `{}` answers
+    /// `{engine, label, kind, wire, key, url, model, keyAccount, keyService, hasKey, providers}`.
+    case voiceState = "_acpmux/voice/state"
+    /// `{audio}` (a WAV's base64), and `language` (BCP 47): `{text}` or `{error: {code, detail}}`.
+    /// File paths are rejected; the native recorder sends only its own verified recording's bytes.
+    case voiceTranscribe = "_acpmux/voice/transcribe"
+    /// `{}`: the cheapest call proving the endpoint and key, no audio; `{ok}` or `{ok: false, error}`.
+    case voiceCheck = "_acpmux/voice/check"
+    /// Native-owned relay state and one event; pure Rust transition, no microphone or network I/O.
+    case voiceRelay = "_acpmux/voice/relay"
 
     /// Doctor starts the harness and sends one prompt; a registry refresh fetches over HTTPS; a
     /// health check runs each harness's `--version` and may ask npm and Homebrew for the newest.
@@ -155,6 +165,9 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
         case .claudeTokenBegin: .seconds(35)
         // The daemon holds a wait up to 25 s.
         case .chatgptWait, .claudeTokenWait: .seconds(35)
+        case .voiceState, .voiceRelay: .seconds(10)
+        // The daemon allows the provider 60 s for the whole request (10 s to connect).
+        case .voiceTranscribe, .voiceCheck: .seconds(65)
         // The daemon's own limit for one read is 15 s, after a wait for a free read.
         case .accountUsage: .seconds(40)
         // A start waits for the CLI's link (acpmux `agent_login::URL_WAIT`, 20 s); a logout runs the CLI.

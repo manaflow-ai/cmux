@@ -18,9 +18,9 @@ import {
   captureThemes,
   changeLabel,
   tracksAppearance,
-  UNTRACKED_KEYS,
   withLinked,
   type AppearanceArea,
+  UNTRACKED_KEYS,
   durableLabel,
 } from "./appearanceUndo";
 import {
@@ -74,8 +74,6 @@ import {
   type CloudEnvironmentsState,
   type LibraryListing,
   type LibraryRun,
-  type LooksRun,
-  type Standup,
   type SharesState,
   type TailnetState,
   type DevicesRun,
@@ -122,17 +120,21 @@ import {
   type AccountsRunReply,
   type DoctorReport,
   type DoctorRun,
-  type ArchivedRun,
-  type ArchivedState,
-  type ConnectionsRun,
-  type ConnectionsState,
+  type DictationAnswer,
+  type DictationRun,
+  type Checklist,
+  type ChecklistFact,
   type TailnetVMReply,
   type AutocloudAction,
   type AutocloudAnswer,
   type AutocloudState,
-  type Checklist,
-  type ChecklistFact,
+  type ConnectionsRun,
+  type ConnectionsState,
+  type ArchivedRun,
+  type ArchivedState,
   type PreviousBuild,
+  type Standup,
+  type LooksRun,
   type CreatedToken,
   type DeveloperTokensRun,
   type DeveloperTokensState,
@@ -1081,6 +1083,12 @@ export class SettingsStore {
     const reply = await this.request("cmux.settings.models.run", run);
     await this.refreshModels();
     return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
+  }
+
+  /** One dictation engine gesture (the Agent Chat dictation rows' key card): the state after it, or the
+   * check's result; the host's refusal (no daemon, no gesture) as it came. */
+  async runDictation<R extends DictationRun>(run: R): Promise<Reply<DictationAnswer<R>>> {
+    return (await this.request("cmux.settings.dictation.run", run)) as Reply<DictationAnswer<R>>;
   }
 
   /** One Harnesses gesture (Settings > Agents), then a fresh read of the part. */

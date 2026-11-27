@@ -341,6 +341,10 @@ export const ROW_LEVELS: {
     "agentPane.display.modelChipIcon": "more",
     "agentPane.display.queueing": "more",
     "agentPane.dictationSource": "more",
+    // The engine's rows stay with the source they apply to, and its key card follows them.
+    "agentPane.dictationEngine": "more",
+    "agentPane.dictationEngineURL": "more",
+    "agentPane.dictationEngineModel": "more",
     "agentPane.dictationShortcut": "more",
     "agentPane.attachmentView": "more",
     "agentPane.scrollToBottomOnSend": "more",

@@ -11,6 +11,7 @@ import os
 public actor OnDeviceDictationTranscriber: SpeechTranscribing {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "dictation")
     private let levelMeter: DictationAudioLevelMeter?
+    private let voiceProcessing: Bool
     private let authorizer: any DictationAuthorizing
     private var active: (any SpeechTranscribing)?
     private var isFinishing = false
@@ -22,18 +23,20 @@ public actor OnDeviceDictationTranscriber: SpeechTranscribing {
     public init(levelMeter: DictationAudioLevelMeter?, recordedInput url: URL) {
         self.levelMeter = levelMeter
         self.authorizer = RecordedInputAuthorizer()
+        self.voiceProcessing = false
         self.recordedInput = url
     }
     #endif
 
-    public init(levelMeter: DictationAudioLevelMeter?, authorizer: any DictationAuthorizing = SystemDictationAuthorizer()) {
+    public init(levelMeter: DictationAudioLevelMeter?, authorizer: any DictationAuthorizing = SystemDictationAuthorizer(), voiceProcessing: Bool = false) {
         self.levelMeter = levelMeter
         self.authorizer = authorizer
+        self.voiceProcessing = voiceProcessing
     }
 
     public func transcribe(locale: Locale) async throws -> AsyncThrowingStream<DictationTranscriptionEvent, any Error> {
         if #available(macOS 26, *), !Self.forcesRecognizerEngine {
-            let analyzer = SpeechAnalyzerDictationTranscriber(levelMeter: levelMeter)
+            let analyzer = SpeechAnalyzerDictationTranscriber(levelMeter: levelMeter, voiceProcessing: voiceProcessing)
             #if DEBUG || CMUX_BENCH_HOOKS
             if let recordedInput { await analyzer.hear(recordedInput) }
             #endif
@@ -58,7 +61,7 @@ public actor OnDeviceDictationTranscriber: SpeechTranscribing {
         #endif
         try await authorizeSpeechRecognition()
         guard !isFinishing else { throw CancellationError() }
-        let fallback = SFSpeechDictationTranscriber(levelMeter: levelMeter)
+        let fallback = SFSpeechDictationTranscriber(levelMeter: levelMeter, voiceProcessing: voiceProcessing)
         active = fallback
         Self.logger.info("dictation engine: SFSpeechRecognizer")
         return try await fallback.transcribe(locale: locale)

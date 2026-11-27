@@ -80,6 +80,7 @@ export type DictationSource = (typeof DICTATION_SOURCES)[number];
 export type ComposerSettings = {
   showContextUsage: boolean;
   showDictation: boolean;
+  voiceButton: boolean;
   dictationSource: DictationSource;
   dictationShortcut: string;
   spellChecking: boolean;
@@ -106,6 +107,7 @@ export type ComposerSettings = {
 export const DEFAULT_COMPOSER: ComposerSettings = {
   showContextUsage: true,
   showDictation: true,
+  voiceButton: false,
   dictationSource: "cmux",
   dictationShortcut: "",
   spellChecking: false,
@@ -132,6 +134,7 @@ const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
 type ComposerFlag =
   | "showContextUsage"
   | "showDictation"
+  | "voiceButton"
   | "spellChecking"
   | "composerVimKeys"
   | "reasoningSlider"
@@ -154,6 +157,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
   return {
     showContextUsage: flag("showContextUsage"),
     showDictation: flag("showDictation"),
+    voiceButton: flag("voiceButton"),
     dictationSource: DICTATION_SOURCES.includes(raw.dictationSource as DictationSource)
       ? (raw.dictationSource as DictationSource)
       : "cmux",

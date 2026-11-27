@@ -132,6 +132,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .painted(_, _, true, _): "painted(copy)"
         case .painted(let fromKeptTail, let settled, _, _):
             settled ? (fromKeptTail ? "painted(settled,keptTail)" : "painted(settled)") : fromKeptTail ? "painted(keptTail)" : "painted"
+        case .voice: "voice"
         case .dictation: "dictation"
         case .dictationHandoff: "dictationHandoff"
         case .dictationSources: "dictationSources"

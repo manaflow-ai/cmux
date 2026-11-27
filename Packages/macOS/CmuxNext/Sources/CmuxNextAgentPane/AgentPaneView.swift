@@ -48,6 +48,8 @@ public final class AgentPaneView: NSView {
     }
     private let navigation = AgentPaneNavigation()
     let dictation: AgentPaneDictation
+    let voiceRegistry: AgentPaneVoiceRegistry
+    lazy var voice = AgentPaneVoiceRelay(view: self, registry: voiceRegistry)
     /// Where the Dictation key and Edit ▸ Start Dictation go from this pane (AgentPaneView+DictationKey).
     var dictationKey = AgentPaneDictationKey()
     /// Shown when the page's web content kept ending (``AgentPageCrashRetry`` gave up retrying).
@@ -241,7 +243,9 @@ public final class AgentPaneView: NSView {
                  pageHost: Bool = false, testRoot: Bool = false, chromium: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
                  panelProvider: (any PageProvider)? = nil,
                  openPanel: MadeAheadOpenPanel? = nil, terminations: AgentPageTerminations? = nil,
-                 eventSources: EventSourceProcesses = EventSourceProcesses(), flickerLog: AgentPageFlickerLog? = nil) {
+                 eventSources: EventSourceProcesses = EventSourceProcesses(), flickerLog: AgentPageFlickerLog? = nil,
+                 voiceRegistry: AgentPaneVoiceRegistry = AgentPaneVoiceRegistry()) {
+        self.voiceRegistry = voiceRegistry
         self.terminations = terminations ?? Self.processGroups.terminations
         self.flickerLog = flickerLog
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
@@ -385,6 +389,7 @@ public final class AgentPaneView: NSView {
             guard let self, self.renderRate == .adaptive else { return }
             self.rendersAtFullRate = full
         }
+        model.onVoice = { [weak self] command in self?.voice.handle(command) }
         model.onDictation = { [weak self] command in self?.dictation.handle(command) }
         // A long recording is an upload of the chat: in its folder on this Mac (it goes with the chat),
         // else at the top; the App's launch sweep removes either after 30 days.
@@ -618,6 +623,8 @@ public final class AgentPaneView: NSView {
         applySessionInfo()
         reduceMotionObserver = nil
         reduceMotionOverrideObserver = nil
+        model.onVoice = nil
+        voice.cancel()
         dictation.close()
         model.readAloud?.stop(owner: model)
         // A Cloud start's question in this pane can no longer be answered: its start goes on without one.
@@ -660,6 +667,7 @@ public final class AgentPaneView: NSView {
     /// Another tab took the pane: stop listening, keep the words.
     public override func viewDidHide() {
         super.viewDidHide()
+        voice.cancel()
         dictation.handle(.stop)
         dismissProjectPalette()
         popupHostStorage?.dismiss()
@@ -698,6 +706,7 @@ public final class AgentPaneView: NSView {
         super.viewDidMoveToWindow()
         // Its tab or window closed, or it moved out of sight: stop listening, keep the words.
         if window == nil {
+            voice.cancel()
             dictation.handle(.stop)
             dismissProjectPalette()
             popupHostStorage?.dismiss()

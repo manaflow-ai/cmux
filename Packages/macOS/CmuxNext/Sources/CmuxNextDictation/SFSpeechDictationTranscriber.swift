@@ -48,9 +48,8 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     private let requestBox = RequestBox()
     private var recognizer: SFSpeechRecognizer?
     private var recognitionTask: SFSpeechRecognitionTask?
-    private var audioEngine: AVAudioEngine?
+    private let tap: DictationInputTap
     private var continuation: AsyncThrowingStream<DictationTranscriptionEvent, any Error>.Continuation?
-    private var configurationChangeTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
     private var isFinishing = false
     private var consecutiveErrorCycles = 0
@@ -68,7 +67,8 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
     /// Creates an engine for one session.
     ///
     /// - Parameter levelMeter: Receives input levels for the dictation meter.
-    public init(levelMeter: DictationAudioLevelMeter? = nil) {
+    public init(levelMeter: DictationAudioLevelMeter? = nil, voiceProcessing: Bool = false) {
+        tap = DictationInputTap(voiceProcessing: voiceProcessing)
         retryClock = ContinuousClock()
         retryDelay = .milliseconds(100)
         self.levelMeter = levelMeter
@@ -76,6 +76,7 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
 
     /// Creates an engine with caller-supplied retry timing.
     init(retryClock: any Clock<Duration>, retryDelay: Duration) {
+        tap = DictationInputTap()
         self.retryClock = retryClock
         self.retryDelay = retryDelay
         levelMeter = nil
@@ -106,7 +107,6 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
             throw DictationFailure.audioCaptureFailed(error.localizedDescription)
         }
         beginRecognitionCycle()
-        observeConfigurationChanges()
         return stream
     }
 
@@ -127,59 +127,30 @@ public actor SFSpeechDictationTranscriber: SpeechTranscribing {
         }
     }
 
+    /// Opens the microphone (``DictationInputTap``, which reopens it when the input device or
+    /// its format changes); buffers go straight to the current recognition request.
     private func startAudioEngine() throws {
-        let engine = AVAudioEngine()
-        let inputNode = engine.inputNode
-        let format = inputNode.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw DictationFailure.audioCaptureFailed("no audio input device")
-        }
         let box = requestBox
         let meter = levelMeter
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
-            meter?.record(buffer)
-            box.append(buffer)
-        }
-        engine.prepare()
-        try engine.start()
-        audioEngine = engine
+        try tap.start(
+            onBuffer: { buffer in
+                meter?.record(buffer)
+                box.append(buffer)
+            },
+            onFailure: { [weak self] failure in
+                await self?.captureLost(failure)
+            }
+        )
     }
 
     private func stopAudioEngine() {
-        configurationChangeTask?.cancel()
-        configurationChangeTask = nil
-        guard let engine = audioEngine else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        audioEngine = nil
+        tap.stop()
     }
 
-    /// Restarts the tap when the input device or its format changes
-    /// (device unplugged, default input switched) instead of crashing on a
-    /// stale-format tap.
-    private func observeConfigurationChanges() {
-        configurationChangeTask = Task { [weak self] in
-            let changes = NotificationCenter.default.notifications(
-                named: .AVAudioEngineConfigurationChange
-            )
-            for await _ in changes {
-                guard let self else { return }
-                await self.handleConfigurationChange()
-            }
-        }
-    }
-
-    private func handleConfigurationChange() {
-        guard !isFinishing, audioEngine != nil else { return }
-        guard let engine = audioEngine else { return }
-        engine.inputNode.removeTap(onBus: 0)
-        engine.stop()
-        audioEngine = nil
-        do {
-            try startAudioEngine()
-        } catch {
-            failStream(.audioCaptureFailed(error.localizedDescription))
-        }
+    /// The input went away and could not be reopened.
+    private func captureLost(_ failure: DictationFailure) {
+        guard !isFinishing else { return }
+        failStream(failure)
     }
 
     private func beginRecognitionCycle() {

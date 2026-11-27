@@ -849,6 +849,10 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "voice.toggle": self = .voice(.toggle)
+        case "voice.cancel": self = .voice(.cancel)
+        case "voice.skip": self = .voice(.skip)
+        case "voice.restart": self = .voice(.restart)
         case "dictation.toggle": self = .dictation(.toggle)
         case "dictation.handoff": self = .dictationHandoff
         case "dictation.sources": self = .dictationSources

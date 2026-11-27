@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "Voice mode uses the person's microphone and speaks replies; only the person opts this feature in."
+}

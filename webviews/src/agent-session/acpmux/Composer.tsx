@@ -9,14 +9,14 @@ import { chatPlace } from "./chatMachine";
 import React, {
   useCallback,
   useEffect,
+  useId,
   useImperativeHandle,
+  useInsertionEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useSyncExternalStore,
-  useInsertionEffect,
-  useId,
 } from "react";
 import type { ExtraFolderControl } from "./extraFolders";
 import { createPortal, flushSync } from "react-dom";
@@ -31,10 +31,10 @@ import {
   MAX_IMAGE_BYTES,
   placeInline,
   withoutInlineTokens,
-  inlineTokenSpans,
   type ComposerAttachment,
   type DroppedKind,
   type KnownPaths,
+  inlineTokenSpans,
 } from "./attachments";
 import { useReleasedPicks } from "./designSelection";
 import type { SendGesture } from "./heldPrompt";
@@ -47,7 +47,7 @@ import type { UploadProgressReport, UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { chatProcessesHere } from "./processTerminal";
 import type { Project } from "./ProjectChooser";
-import { ComposerContext, ComposerBranch } from "./ComposerContext";
+import { ComposerBranch, ComposerContext } from "./ComposerContext";
 import type { CloudMachine } from "./cloudMachines";
 import { chatHasFirstSend, showsLocationRow, stripSlot, type StripSlot } from "./locationRow";
 import { createUnsentDraftThrottle, type UnsentDraftThrottle } from "./unsentDraftThrottle";
@@ -180,6 +180,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
 import { cloudStartComposerLook } from "./cloudStartComposer.experiment";
 import { composerShellLook } from "./composer/shellLook.experiment";
+import { VoiceStatus } from "./VoiceControls";
 import { composerFooterControls } from "./composer/footerControls.experiment";
 import { composerEmptyHeight } from "./composer/emptyHeight.experiment";
 // The composer look climbs' arms (composer/*.experiment.ts): gallery-only; the default arms add nothing.
@@ -3892,6 +3893,7 @@ function ComposerFrame({
               onResumeQueue={resumeQueue}
               pauseReason={pauseReason}
             />
+            <VoiceStatus />
           </PromptFocusProvider>
         }
         // The context ring sits left of the model chip (composerLocation.css; Lucas 2026-11-11).

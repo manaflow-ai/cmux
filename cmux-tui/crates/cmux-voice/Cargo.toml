@@ -1,0 +1,22 @@
+[package]
+name = "cmux-voice"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "Dictation providers a person brings: the catalog, endpoint rules and the batch transcription wires"
+
+[lints]
+workspace = true
+
+[dependencies]
+base64.workspace = true
+cmux-egress.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

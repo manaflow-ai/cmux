@@ -1,6 +1,7 @@
 // The agent pane on the shared page host (`cmux-page://cmux.agent/`, CmuxNextAgentPane
 // AgentPageProvider): the old `agentSession` methods become `cmux.agent.*` pane-protocol calls, and
 // the scripts the old host evaluated become events of the stream `cmux.agent.host.events`.
+import { setVoiceState } from "./voice";
 import { deliverHandoffFailure } from "./dictation";
 import type { PageClient } from "../../pages/shared/pageClient";
 import { receiveTransportEvent, type TransportEvent } from "./bridgeSocket";
@@ -143,6 +144,8 @@ export function applyHostEvent(event: HostEvent, view: string | null = null): vo
     case "nowPlaying":
       // Direct, like recentlyClosed: a push before the New Tab screen mounts is kept.
       return setNowPlaying(event.value);
+    case "voice":
+      return setVoiceState(event.value);
     case "readAloud":
       // The app's voice (conversation/readAloud.ts): which message it reads, on every change.
       return setReadAloudState(event.value);
