@@ -2929,6 +2929,12 @@ async fn dispatch_request_with_identity(
             let reply = cmux_tailnet_front::PlacementReply::from(&applied);
             serde_json::to_value(reply).map_err(|e| RpcError::internal(e.to_string()))
         }
+        // `listCounts`: only what `acpmux ls --json` reads (`Hub::list_counts`), without the full
+        // status's budgeted host, disk and agent reads. A daemon before it sends the full status,
+        // which holds the same fields.
+        method::MUX_STATUS if params.get(crate::rpc::LIST_COUNTS) == Some(&Value::Bool(true)) => {
+            Ok(hub.list_counts())
+        }
         method::MUX_STATUS => Ok(hub.status().await),
         // The felt-latency histograms (`cmux-felt`): names and numbers only, but this machine's
         // own clients only, like the perf watch beside it.
@@ -4466,8 +4472,12 @@ async fn dispatch_request_with_identity(
                 (Some(side), Origin::Local, crate::sender_harness::SocketPeer::Pid(asker)) => {
                     let side = std::path::PathBuf::from(side);
                     let home = crate::config::home();
+                    let conns = params
+                        .get(crate::daemon::listener_handover::PARAM_CONNS)
+                        .and_then(Value::as_bool)
+                        == Some(true);
                     match tokio::task::spawn_blocking(move || {
-                        crate::daemon::listener_handover::hand(&home, &side, asker)
+                        crate::daemon::listener_handover::hand(&home, &side, asker, conns)
                     })
                     .await
                     {

@@ -395,7 +395,8 @@ struct ExecArgs {
     /// The values of `env_names`, read from the environment before the request (not a flag)
     #[arg(skip)]
     env_values: Vec<(String, String)>,
-    /// The command; several words are joined with spaces (put them after `--`)
+    /// The command (put it after `--`): one word is a shell line as written; several keep their
+    /// argv, each shell-quoted, so `-- sh -c 'cat > f'` runs as typed
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     command: Vec<String>,
 }
@@ -1205,7 +1206,7 @@ async fn dispatch(
                 .map(|(name, value)| (name, Value::String(value)))
                 .collect();
             let body: types::ExecRequest = request_body(json!({
-                "command": args.command.join(" "),
+                "command": run::command_line(&args.command),
                 "timeoutMs": args.timeout_ms,
                 "env": (!env.is_empty()).then_some(env),
             }))?;
