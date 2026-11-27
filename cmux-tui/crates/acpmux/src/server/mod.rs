@@ -183,7 +183,8 @@ mod pending;
 #[path = "person_prove_tests.rs"]
 mod person_prove_tests;
 mod place;
-mod place_set;
+mod place_pending;
+pub(crate) mod place_set;
 mod plan_build;
 mod processes;
 mod project_new;
@@ -283,6 +284,7 @@ mod workflow_activity;
 mod workflow_runs;
 mod worktrees;
 mod ws_peek;
+pub use ws_peek::Replayed as WsReplayed;
 mod ws_read_ahead;
 mod ws_shutdown;
 pub(crate) use ws_shutdown::DRAIN_BUDGET as WS_DRAIN_BUDGET;
@@ -1576,6 +1578,26 @@ const WS_HANDSHAKE_CONCURRENCY: usize = 64;
 /// past tungstenite's 16 MiB frame default, which ended the read with no log line and reset the
 /// socket mid-send ("The agent connection was interrupted", 2026-10-20).
 pub const WS_MAX_MESSAGE_BYTES: usize = 64 << 20;
+
+/// Accept a WebSocket upgrade on `stream` as this listener does (`serve_ws_until`): the request
+/// head alone goes to the handshake, and a first frame the client wrote behind it (the peer
+/// dialer's early `initialize`, `Peer::early_initialize`) is read after the 101. A peer stood up
+/// for a test with `tokio_tungstenite::accept_async` refused that frame as "junk after client
+/// request" whenever it arrived in the same read as the head, so which test failed changed from
+/// run to run. No token or origin check: it is for peers in tests and tools that check their own.
+pub async fn accept_ws(
+    mut stream: tokio::net::TcpStream,
+) -> Result<tokio_tungstenite::WebSocketStream<WsReplayed>, tokio_tungstenite::tungstenite::Error> {
+    let peer = stream.peer_addr()?;
+    let read = match ws_peek::request(&mut stream, peer).await {
+        ws_peek::Request::Head { read, .. } => read,
+        ws_peek::Request::TooLarge | ws_peek::Request::Gone => {
+            return Err(tokio_tungstenite::tungstenite::Error::ConnectionClosed);
+        }
+    };
+    tokio_tungstenite::accept_async_with_config(WsReplayed::new(read, stream), Some(ws_config()))
+        .await
+}
 
 /// The listener's and the peer client's WebSocket limits (`WS_MAX_MESSAGE_BYTES`).
 pub fn ws_config() -> tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
