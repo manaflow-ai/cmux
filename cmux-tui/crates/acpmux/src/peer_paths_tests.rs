@@ -411,3 +411,28 @@ fn relay_first_a_link_moving_to_direct_dials_direct_first_and_alone() {
     assert_eq!(paths.dial_order(3_100)[0], Via::Hub);
     assert_eq!(paths.dial_together(3_100), 2);
 }
+
+/// huge-blue, 2026-11-27: `linkStats` showed 518 failed ssh attempts against 352 opened, but most
+/// "failed" rows were live links that ended (an 11 s stall of huge-blue's own dropped every link
+/// at once, and each redial opened within 1.5 s). A connection that had answered and then ended
+/// reads as `ended`; a dial that never answered stays `failed`.
+#[test]
+fn a_link_that_ended_is_not_counted_as_a_failed_dial() {
+    let mut paths = Paths::new(&[Via::Ssh, Via::Link]);
+    paths.failed(Via::Link, 10);
+    paths.pong(Via::Ssh, 40 * MS, 100);
+    paths.failed(Via::Ssh, 5_000);
+    let view = paths.stats().view(5_000);
+    let outcomes: Vec<_> = view["attempts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| {
+            (a["transport"].as_str().unwrap().to_owned(), a["outcome"].as_str().unwrap().to_owned())
+        })
+        .collect();
+    assert_eq!(
+        outcomes,
+        [("link".to_owned(), "failed".to_owned()), ("ssh".to_owned(), "ended".to_owned())]
+    );
+}
