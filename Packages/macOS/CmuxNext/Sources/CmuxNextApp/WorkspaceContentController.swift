@@ -439,6 +439,13 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         return false
     }
 
+    /// The frame-timing log's `surface` and blank signal (`TransitionFrameLog`): the shown content's kind and whether it presented.
+    func transitionSurface(for pane: LayoutPaneID) -> (kind: String, presented: Bool)? {
+        guard let content = panes[pane]?.currentContent else { return nil }
+        if case .terminal(let entry) = content { return ("terminal", entry.session.showsContent) }
+        return (PaneController.kind(of: content), PaneController.pageVisibility(of: content)?.isVisible ?? true)
+    }
+
     func releaseContentView(_ view: NSView, for pane: LayoutPaneID) {
         (panes.removeValue(forKey: pane) ?? retiredPanes.removeValue(forKey: pane))?.teardown()
         services.paneMounts.changed()

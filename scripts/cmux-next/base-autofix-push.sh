@@ -89,7 +89,7 @@ output_areas() {
     case "$path" in
       Packages/macOS/CmuxNext/ci-target-graph.json) echo graph ;;
       */generated/strings.json) echo strings; echo webviews ;;
-      cmux-tui/bindings/*) echo sdk ;;
+      cmux-tui/bindings/* | cmux-tui/spec/api-compat.surface.json) echo sdk ;;
       # The exports read the actions area only; what is built from them follows them (built_from).
       plans/cmux-next/action-surfaces.json | plans/cmux-next/action-catalog.json | plans/cmux-next/actions.md | plans/cmux-next/links.json) echo actions ;;
       plans/cmux-next/daemon-capabilities.json) echo capabilities ;;
