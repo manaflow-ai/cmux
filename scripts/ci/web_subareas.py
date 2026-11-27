@@ -12,7 +12,13 @@ from pathlib import Path
 import re
 import subprocess
 import sys
-import tomllib
+
+try:  # Python 3.11+. `cmux app try` loads this router through hot-verify.py on the Mac's own python3, and macOS
+    # ships 3.9: a top-level import broke every try there (team-dev-build-swap, hq#30355's row). Without it the
+    # Cargo manifests go unread and acpmux_build_crates answers None, the same as an unreadable manifest.
+    import tomllib
+except ModuleNotFoundError:
+    tomllib = None
 
 
 @dataclass(frozen=True)
@@ -310,6 +316,8 @@ def acpmux_build_crates(root: str) -> frozenset[str] | None:
     (then every cmux-tui/ path routes the lane)."""
     tui = Path(root) / "cmux-tui"
     crates = (tui / "crates").resolve()
+    if tomllib is None:
+        return None
     try:
         workspace_deps = tomllib.loads((tui / "Cargo.toml").read_text(encoding="utf-8")).get("workspace", {}).get(
             "dependencies", {})

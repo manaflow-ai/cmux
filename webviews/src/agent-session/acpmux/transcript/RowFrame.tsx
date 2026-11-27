@@ -16,6 +16,7 @@ import { type AcpmuxRow, type StatusEdge, rowFrameKey, isLineRow, SINCE_DIVIDER 
 import { acpmuxPerf } from "../perf";
 import { useLiveToolRow } from "../liveToolOutput";
 import { useLiveThoughtRow } from "../liveThought";
+import { useLiveLineRow } from "../liveCallLine";
 import { noteMounted, noteUnmounted } from "../flickerLog";
 import { useT, type Translate } from "../i18n";
 import { type ReferenceScope, ReferenceScopeContext } from "../conversation/bareReferences";
@@ -54,8 +55,9 @@ export const RowContent = React.memo(
     useLayoutEffect(() => {
       if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
     });
-    // What moved on without the pane (a running command's output, a thought): this row alone draws it.
-    const row = useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools);
+    // What moved on without the pane (a running command's output, a thought, the live line's call):
+    // this row alone draws it.
+    const row = useLiveLineRow(useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools), liveTools);
     return (
       <RowBoundary row={row}>
         <Component {...props} row={row} />
@@ -162,6 +164,7 @@ export const RowFrame = React.memo(function RowFrame({
   gapBelow,
   offscreen,
   placedHeight,
+  shelved,
   children,
 }: {
   row: AcpmuxRow;
@@ -175,6 +178,9 @@ export const RowFrame = React.memo(function RowFrame({
   /// The row's height as the transcript places it (measured, or the estimate): a skipped row's box
   /// is this high. Read at its first mount only, with `offscreen`.
   placedHeight: number;
+  /// The placed height of a row shelved far above a followed view (conversation/shelvedRows.ts): it
+  /// keeps that height and skips its contents. 0 draws it.
+  shelved: number;
   /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
   joinsPrevious: boolean;
   /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
@@ -454,6 +460,7 @@ export const RowFrame = React.memo(function RowFrame({
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
       // The unread line's row takes no height and draws its mark over the gap under it
       // (conversation/unread.css), so it reads the gap's length.
+      data-shelved={shelved > 0 ? "true" : undefined}
       style={
         row.kind === SINCE_DIVIDER
           ? ({
@@ -461,7 +468,9 @@ export const RowFrame = React.memo(function RowFrame({
               marginTop: placedTop - integralTop,
               "--cv-since-gap": `${gapBelow}px`,
             } as React.CSSProperties)
-          : { top: integralTop, marginTop: placedTop - integralTop }
+          : shelved > 0
+            ? { top: integralTop, marginTop: placedTop - integralTop, height: shelved, contentVisibility: "hidden" }
+            : { top: integralTop, marginTop: placedTop - integralTop }
       }
       onFocus={() => onFocus(row.id)}
     >
