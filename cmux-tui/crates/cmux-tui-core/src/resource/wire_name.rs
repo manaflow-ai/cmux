@@ -330,6 +330,8 @@ impl ResourceOperation {
             Self::CloudOwnerGithubComplete => "cloud.owner.github_complete",
             Self::CloudOwnerGithubList => "cloud.owner.github_list",
             Self::CloudOwnerGithubCloneToken => "cloud.owner.github_clone_token",
+            Self::CloudOwnerSlack => "cloud.owner.slack",
+            Self::CloudOwnerSlackAwake => "cloud.owner.slack_awake",
             Self::CloudOwnerTurnCheckpoint => "cloud.owner.turn_checkpoint",
             Self::CloudOwnerTurnRewind => "cloud.owner.turn_rewind",
             Self::CloudOwnerTurns => "cloud.owner.turns",
