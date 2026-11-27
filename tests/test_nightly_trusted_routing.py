@@ -110,11 +110,10 @@ OWNED_SECRET_JOBS = {
     'build-sign-notarize-nightly': "signing keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
     'recover-nightly-next-notarization': "signing keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
     'generate-nightly-deltas': "Sparkle keys; the signer's label alone (test_nightly_sign_runner.py SECRET_JOBS)",
-    'publish-nightly': "release and feed credentials in the push run; the signer's label",
-    'keep-published-dsyms': "release credentials, short; the signer's label",
+    'publish-nightly': 'release and feed credentials; isolated one-job Linux VM',
+    'keep-published-dsyms': 'release credentials; isolated one-job Linux VM',
     'nightly-next-pkg': "the .pkg's Installer identity (RFD 0134 cut 2, #54859); the signer's label, after publish",
-    'visual-gate-nightly': "the GhosttyKit cache's R2 read keys; the GUI Mac route-visual-gate-nightly picks",
-    'republish-nightly-deltas': "the signer's label on nightly-next, the JIT nightly label for classic and RC (NIGHTLY_NEXT_ONLY_OWNED)",
+    'republish-nightly-deltas': 'upload-only release credentials; isolated one-job Linux VM on every track',
 }
 # Parser anchors: a regression in holds_secret that empties the derived sets would empty the checks with them.
 SECRET_ANCHORS = {'decide', 'build-sign-notarize-nightly', 'publish-nightly', 'publish-nightly-next-github'}
@@ -1124,9 +1123,11 @@ class CredentialedControls(unittest.TestCase):
                 self.assertTrue(runs_on_text(DOC['jobs'][job], job).endswith(f"|| '{NIGHTLY_SLOT}' }}}}"))
 
     def test_portable_publishers_install_gh_before_wrappers(self):
+        # Inspect the actual steps: nightly_expand inlines ensure-gh.sh in DOC.
+        raw = workflow_jobs.document(WORKFLOW_FILE.read_text())
         for name in ('publish-nightly', 'keep-published-dsyms', 'republish-nightly-deltas'):
             with self.subTest(job=name):
-                steps = DOC['jobs'][name]['steps']
+                steps = raw['jobs'][name]['steps']
                 setup = next(i for i, step in enumerate(steps)
                              if 'nightly-steps/ensure-gh.sh' in step.get('run', ''))
                 wrappers = [i for i, step in enumerate(steps)
