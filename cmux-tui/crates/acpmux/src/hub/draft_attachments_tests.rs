@@ -157,6 +157,12 @@ fn a_failed_manifest_commit_keeps_the_previous_payloads_readable() {
     std::fs::remove_dir(&tmp).unwrap();
     write(&folder, &changed).unwrap();
     assert_eq!(read(&folder).unwrap(), changed, "the retry commits the staged replacement");
+
+    let manifest = saved(&folder).unwrap().unwrap();
+    let selected = selected_file_name(&manifest, "img-1", "data").unwrap();
+    std::fs::remove_file(folder.join(selected)).unwrap();
+    write(&folder, &changed).unwrap();
+    assert_eq!(read(&folder).unwrap(), changed, "a full resend repairs a missing version");
 }
 
 #[tokio::test]
@@ -169,7 +175,7 @@ async fn a_write_that_reaches_the_folder_after_a_move_starts_is_refused() {
     let lock = turn(&folder);
     let guard = lock.lock().unwrap();
     let mut write = Box::pin(hub.set_draft_attachments(&s, chips()));
-    tokio::task::yield_now().await;
+    assert!(futures::poll!(&mut write).is_pending());
     *s.moving.lock().unwrap() = Some("moving-now".into());
     drop(guard);
     assert!(write.await.is_err(), "a queued write cannot cross the move freeze");

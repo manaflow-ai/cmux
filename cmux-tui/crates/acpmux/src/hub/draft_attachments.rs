@@ -69,10 +69,8 @@ fn version_key(id: &str, field: &str) -> String {
     format!("{id}\0{field}")
 }
 
-fn version_file_name(id: &str, field: &str, contents: &[u8]) -> String {
-    let digest = Sha256::digest(contents);
-    let hex: String = digest.iter().take(16).map(|b| format!("{b:02x}")).collect();
-    format!("{}.{hex}", file_name(id, field))
+fn content_version(contents: &[u8]) -> String {
+    Sha256::digest(contents).iter().take(16).map(|b| format!("{b:02x}")).collect()
 }
 
 fn selected_file_name(saved: &Saved, id: &str, field: &str) -> std::io::Result<String> {
@@ -181,55 +179,28 @@ pub(crate) fn write(folder: &Path, chips: &[Value]) -> std::io::Result<Vec<Strin
         let id = chip.get("id").and_then(Value::as_str).unwrap_or_default().to_owned();
         let mut held = Vec::new();
         for field in CONTENTS {
+            let carried =
+                before.held.get(&id).is_some_and(|fields| fields.iter().any(|held| held == field));
+            let carried_name =
+                carried.then(|| selected_file_name(&before, &id, field)).transpose()?;
             match chip.as_object_mut().and_then(|o| o.remove(field)) {
                 Some(Value::String(contents)) => {
-                    let key = version_key(&id, field);
-                    let previous_name = before
-                        .held
-                        .get(&id)
-                        .is_some_and(|fields| fields.iter().any(|held| held == field))
-                        .then(|| selected_file_name(&before, &id, field))
-                        .transpose()?;
-                    let (name, version) = if let Some(previous_name) = previous_name {
-                        let previous = folder.join(&previous_name);
-                        match std::fs::read(&previous) {
-                            Ok(existing) if existing == contents.as_bytes() => {
-                                (previous_name, before.versions.get(&key).cloned())
-                            }
-                            Ok(_) => {
-                                let name = version_file_name(&id, field, contents.as_bytes());
-                                let version = name.rsplit('.').next().unwrap().to_owned();
-                                (name, Some(version))
-                            }
-                            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                                let name = version_file_name(&id, field, contents.as_bytes());
-                                let version = name.rsplit('.').next().unwrap().to_owned();
-                                (name, Some(version))
-                            }
-                            Err(e) => return Err(e),
-                        }
-                    } else {
-                        (file_name(&id, field), None)
-                    };
-                    if !before
-                        .held
-                        .get(&id)
-                        .is_some_and(|fields| fields.iter().any(|held| held == field))
-                        || before.versions.get(&key) != version.as_ref()
+                    let mut name = file_name(&id, field);
+                    if before.held.get(&id).is_some_and(|fields| fields.iter().any(|f| f == field))
                     {
-                        crate::home_fs::write_json_private(
-                            &folder.join(&name),
-                            contents.as_bytes(),
-                        )?;
+                        // Replacing a held field must leave its published bytes readable until
+                        // the manifest commits. Rewriting an identical version also repairs a
+                        // missing payload when the client explicitly resends its contents.
+                        let version = content_version(contents.as_bytes());
+                        name = format!("{name}.{version}");
+                        saved.versions.insert(version_key(&id, field), version);
                     }
-                    if let Some(version) = version {
-                        saved.versions.insert(key, version);
-                    }
+                    crate::home_fs::write_json_private(&folder.join(name), contents.as_bytes())?;
                     held.push(field.to_owned());
                 }
                 // Sent without it: the file kept before stays, if there is one.
-                None if before.held.get(&id).is_some_and(|f| f.iter().any(|f| f == field))
-                    && folder.join(selected_file_name(&before, &id, field)?).is_file() =>
+                None if carried
+                    && carried_name.as_ref().is_some_and(|name| folder.join(name).is_file()) =>
                 {
                     if let Some(version) = before.versions.get(&version_key(&id, field)) {
                         saved.versions.insert(version_key(&id, field), version.clone());
