@@ -228,6 +228,38 @@ env:
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
+  # Full-ci base merge carry (scripts/ci/head_tier.py, full_carry): a full-ci or ready-to-land label on a head that
+  # is only a base merge onto a head whose full run passed carries that run, so plan and every workspace skip and the
+  # summary passes. Its tier is "none" only then; any lookup error, an overlap with the change's own files, a merge with its
+  # own edits, or no full run at the parent leaves it empty and everything runs. vars.CI_FULL_CI_BASE_MERGE_CARRY ==
+  # '0' turns it off.
+  full-carry:
+    name: full-ci base merge carry
+    if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    continue-on-error: true
+    permissions:
+      actions: read
+      contents: read
+      statuses: read
+    outputs:
+      tier: ${{ steps.carry.outputs.tier }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: scripts/ci
+      - name: Full-ci base merge carry
+        id: carry
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          CI_FULL_CI_BASE_MERGE_CARRY: ${{ vars.CI_FULL_CI_BASE_MERGE_CARRY || '1' }}
+          GH_TOKEN: ${{ github.token }}
+        run: if [ -f scripts/ci/head_tier.py ]; then python3 -I scripts/ci/head_tier.py; fi
+
   # A local test receipt (scripts/ci/ci_receipt.py): a change tested locally counts as a CI pass, and the job is
   # skipped. Only for a same-repository pull request whose body names
   # one (`CI-Receipt: rust-workspaces <Fast checks run URL>`), so every other run spends no runner and no API call
@@ -276,7 +308,7 @@ jobs:
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       # The merge commit and its parents only: no blobs, one small file in the work tree.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -288,7 +320,7 @@ jobs:
             /.gitmodules
 
       - name: Check out the trusted receipt verifier
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: .receipt-verifier
@@ -334,7 +366,7 @@ jobs:
     outputs:
       hit: ${{ steps.reads.outputs.hit }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -349,7 +381,7 @@ jobs:
 
   plan:
     name: plan (changed Cargo workspaces)
-    needs: [receipt, reads]
+    needs: [receipt, reads, full-carry]
     # Skipped before it takes a runner when a valid local test receipt covers the change, unless audited.
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci or a workspace reads a file it changes (reads above);
@@ -357,7 +389,7 @@ jobs:
     # when CI_LAND_FULL_PER_PR is off: next_autoland requires `rust workspaces / <root>` on a head that changes a
     # run workspace's Rust, so skipping it there held every Rust pull request. plan is affected-only, so a landing
     # head that changes no Cargo workspace still pays nothing past plan.
-    if: ${{ ((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))) && (((!cancelled() && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true')) && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) || needs.reads.outputs.hit == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (needs.full-carry.outputs.tier != 'none' && (((github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))) && (((!cancelled() && (needs.receipt.result != 'success' || needs.receipt.outputs.valid != 'true' || needs.receipt.outputs.audit == 'true')) && ((github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')) || needs.reads.outputs.hit == 'true' || (github.event_name == 'pull_request' && github.event.pull_request.draft != true && contains(github.event.pull_request.labels.*.name, 'ready-to-land'))))))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     # Room for the lock check's serial network pass and retries on a cold, busy runner (cmux#41586).
     timeout-minutes: 20
@@ -397,7 +429,7 @@ jobs:
 
       - name: Checkout
         if: ${{ github.event_name != 'pull_request' || !startsWith(runner.name, 'cmux-runner-pool-') }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -588,7 +620,7 @@ jobs:
           echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ inputs.sha || '' }}
@@ -649,7 +681,7 @@ jobs:
   # (cancelled, abandoned) is no verdict, never a pass and never this change's red (scripts/ci/needs_verdict.py).
   summary:
     name: rust workspaces
-    needs: [receipt, reads, plan, workspace]
+    needs: [receipt, reads, plan, workspace, full-carry]
     # Tier A of the merged pull request replay (scripts/ci/affected-jobs.json pull_request_skip): a pull request
     # into feat-cmux-next skips it unless labeled full-ci; the feat-cmux-next post-merge batch runs it. The head
     # handed to land runs it, as plan and workspace above do.
@@ -665,7 +697,16 @@ jobs:
           RECEIPT_AUDIT: ${{ needs.receipt.outputs.audit }}
           RECEIPT_RUN: ${{ needs.receipt.outputs.run_url }}
           RECEIPT_PRODUCER: ${{ needs.receipt.outputs.producer }}
+          FULL_CARRY: ${{ needs.full-carry.outputs.tier }}
         run: |
+          # A full-ci base merge carry (the full-carry job) skipped plan on a head whose parent's full run passed.
+          if [[ "$FULL_CARRY" == none ]]; then
+            line="rust workspaces: full-ci base merge carry, the parent head's full run passed (scripts/ci/head_tier.py full_carry); plan and every workspace skipped"
+            echo "$line"
+            echo "::notice title=Full-ci carry::$line"
+            [[ -z "${GITHUB_STEP_SUMMARY:-}" ]] || echo "$line" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           # A receipt skip says so in the log, a notice and the step summary, so neither a reader nor land-judge
           # takes it for a plain skip (work nobody judged). its manual test test_ci_receipt.py runs this step.
           if [[ "$RECEIPT_VALID" == true && "$RECEIPT_AUDIT" != true ]]; then
