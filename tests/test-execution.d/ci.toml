@@ -743,6 +743,10 @@ path = "tests/test_ci_production_secrets_protected_env.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_proof_record.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_protocol_skew_check.py"
 lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_protocol_skew_check.py"
@@ -1109,6 +1113,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_traced_inputs.py"
 
 [[test]]
+path = "tests/test_ci_transcript_replay_report.py"
+lane = "manual"
+reason = "Unit tests of scripts/ci/transcript_replay_report.py, the per-kind summary transcript-replay-perf-report.yml writes. Run python3 tests/test_ci_transcript_replay_report.py after changing the script (seconds, no build)."
+
+[[test]]
 path = "tests/test_ci_tree_result.py"
 lane = "linux-guard"
 
@@ -1118,6 +1127,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_tui_routes_avoid_nightly_label.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_ui_proof_verdict.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1193,6 +1206,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_run_sources.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_git_fetch_bounds.py"
 lane = "linux-guard"
 
 [[test]]
