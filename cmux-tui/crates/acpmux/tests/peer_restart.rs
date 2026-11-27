@@ -54,6 +54,11 @@ async fn close_1012_reports_restarting_retries_immediately_then_resumes_failure_
     // retries.
     let failed_at = Instant::now();
     drop(retry);
+    // The dial sent `initialize` early, so a handshake reset reads as an old listener that
+    // refused it, and `open_url` redials once without it (`peer_carriers.rs`): reset that
+    // fallback too, so the attempt ends as the ordinary failure this test measures.
+    let (fallback, _) = timeout(Duration::from_secs(2), listener.accept()).await.unwrap().unwrap();
+    drop(fallback);
     timeout(Duration::from_secs(5), notices.recv()).await.unwrap().unwrap();
     let summary = peer.summary();
     assert_eq!(
