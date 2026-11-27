@@ -554,6 +554,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// the app sends every write of the file there (plans/cmux-next/settings-react.md section 1).
     /// v2: the `set_exact` edit and the `file` check; an older owner cannot take the app's writes.
     case settingsEdit = "settings-edit-v2"
+    /// The durable settings history behind the Settings page's Undo, Redo and Reset card
+    /// (SettingsFileClient.historyCapability; daemon: cmux-tui-core mux/settings.rs).
+    case settingsHistory = "settings-history-v1"
     /// `put-blob`/`get-blob`: the owner's icon asset store, and `image:`/`svg:`
     /// icon values naming a stored asset on workspace, screen, room and profile icons.
     case iconAssets = "icon-assets-v1"
@@ -692,7 +695,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .workspaceGroupIcon, .workspaceGroupPin, .screenGroupIcon, .tabGroupIcon, .sessionIcon,
              .localAttachments, .linkPreview, .chiefInspect, .terminalPendingSequence, .terminalCommandHistory,
              .sidebarLayout, .sidebarDoc, .placementShift, .paletteUsage, .browserDevices, .browserFit,
-             .browserFitWidth, .keybindings, .settingsEdit, .iconAssets, .projectList, .tabSplitRespawn, .tabSplitKeepFocus,
+             .browserFitWidth, .keybindings, .settingsEdit, .settingsHistory, .iconAssets, .projectList, .tabSplitRespawn, .tabSplitKeepFocus,
              .workspaceCreateFocus, .attachIdentity, .creationReceipts, .creationAttemptKeys,
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
              .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
