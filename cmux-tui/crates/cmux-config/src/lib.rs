@@ -25,7 +25,6 @@
 
 pub mod app_ops;
 pub mod backdrop_placement;
-pub mod backdrop_switch;
 pub mod cache;
 pub mod diagnostics;
 pub mod domains;
