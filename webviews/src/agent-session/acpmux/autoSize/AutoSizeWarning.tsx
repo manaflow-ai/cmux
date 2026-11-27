@@ -1,47 +1,53 @@
 import { Notice } from "../../../ui/Notice";
 import type { AutoSizeWarning } from "./autoSizeWarningModel";
 
+/**
+ * How the row draws (RFD 0144 piece 8). `card`: an inline notice card. `line`: one quiet line in
+ * the transcript, no card. `dismissible`: the card with an ×. None of them asks anything: Rust has
+ * already sized the run VM (or kept the run here) and the row only says what it did (Leo, on the
+ * RFD 0133 three-button warning: "we simply ... do it").
+ */
+export type AutoSizeNoticeLook = "card" | "line" | "dismissible";
+
 export type AutoSizeWarningLabels = {
   title: string;
-  resizeNow: string;
-  runOnBuildMachine: string;
-  carryOn: string;
+  dismiss: string;
 };
 
 export type AutoSizeWarningProps = {
   warning: AutoSizeWarning;
   labels: AutoSizeWarningLabels;
-  onResizeNow(): void;
-  onRunOnBuildMachine(): void;
-  onCarryOn(): void;
+  look?: AutoSizeNoticeLook;
+  onDismiss?(): void;
 };
 
 /**
- * The presentation boundary for the known-heavy precheck. Rust decides when this row exists and
- * supplies its complete explanation. The host owns each action, so the gallery and the eventual
- * chat integration exercise the same callbacks.
+ * The known-heavy precheck's notice row. Rust decides when it exists and writes its whole sentence
+ * (`heavy_precheck::notice`); the row has no buttons, because nothing waits on the person.
  */
-export function AutoSizeWarning({
-  warning,
-  labels,
-  onResizeNow,
-  onRunOnBuildMachine,
-  onCarryOn,
-}: AutoSizeWarningProps) {
+export function AutoSizeWarning({ warning, labels, look = "card", onDismiss }: AutoSizeWarningProps) {
   return (
-    <div className="acpmux-autosize-warning" data-command={warning.command} data-project={warning.project}>
-      <Notice
-        id="autosize-warning"
-        kind="warning"
-        placement="inline"
-        title={labels.title}
-        message={warning.text}
-        actions={[
-          { id: "resize-now", label: labels.resizeNow, primary: true, onSelect: onResizeNow },
-          { id: "run-on-build-machine", label: labels.runOnBuildMachine, onSelect: onRunOnBuildMachine },
-          { id: "carry-on", label: labels.carryOn, onSelect: onCarryOn },
-        ]}
-      />
+    <div
+      className="acpmux-autosize-warning"
+      data-look={look}
+      data-command={warning.command}
+      data-project={warning.project}
+    >
+      {look === "line" ? (
+        <p className="acpmux-autosize-line" role="status">
+          <span className="acpmux-autosize-line-mark" aria-hidden="true" />
+          {warning.text}
+        </p>
+      ) : (
+        <Notice
+          id="autosize-notice"
+          kind="toast"
+          placement="inline"
+          title={labels.title}
+          message={warning.text}
+          {...(look === "dismissible" && onDismiss ? { onDismiss, dismissLabel: labels.dismiss } : {})}
+        />
+      )}
     </div>
   );
 }
