@@ -155,11 +155,13 @@ def claude_chat(agent: str) -> bool:
 
 
 # A Claude chat's `--login` only: Codex never takes it (`none` would leave it signed out; its login is the Mac's broker).
+# The Rust `cmux cloud start-chat` has no --login (run 45643863592: unexpected argument "--login"): the start-chat
+# --help probe below drops it for that CLI, and an older app's CLI that still lists it gets it.
 START_LOGIN = ("--login", args.login) if args.login and claude_chat(args.agent) else ()
 # --grant-claude-login: the launched app's own cmux.json (0600), removed with its folder when the run ends. It holds
 # the consent a Release build's claude chat on the account's own machine waits for (CloudLoginCopyConsentSetting:
 # only the file can say yes; `settings set` asks a person on screen, which CI has not). Never the shared
-# ~/.config/cmux/cmux-next.json a person's other apps read.
+# ~/.config/cmux-next/cmux-next.json a person's other apps read.
 CLAUDE_LOGIN_SETTING = ("cloud", "useMyClaudeLoginOnMyCloudMachines")
 CONFIG_DIR = None
 CONFIG_FILE = None
@@ -655,9 +657,18 @@ def wait_for(name: str, words: tuple[str, ...], ready, timeout: int = 240) -> di
         if satisfied or time.monotonic() >= deadline:
             break
         time.sleep(min(5, max(0, deadline - time.monotonic())))
-    safe = {key: value.get(key) for key in ("pid", "signed_in", "backend", "cloud_environment")
+    safe = {key: value.get(key) for key in ("pid", "signed_in", "backend", "cloud_environment", "loaded", "signedIn", "team")
             if key in value}
-    record(name, 0 if satisfied else (code or 1), "", "" if satisfied else err,
+    account = value.get("account")
+    if isinstance(account, dict):  # list-machines' sign-in (a shipped app): whether, and for a team, never the ids
+        safe["account"] = {"signed_in": account.get("signed_in"), "team": account.get("team_id") is not None}
+    if value.get("last_error"):
+        safe["last_error"] = clean(str(value["last_error"]), 500)
+    why = err
+    if not satisfied and code == 0 and not (err or "").strip():
+        # The command answered but never satisfied the wait: say what it last saw, or the step reads as a bare exit 1.
+        why = "last answer: " + json.dumps(safe, sort_keys=True)
+    record(name, 0 if satisfied else (code or 1), "", "" if satisfied else why,
            elapsed_ms=round((time.monotonic() - started) * 1000), **safe)
     if not satisfied:
         finish(f"fail: {name}")
@@ -675,6 +686,10 @@ launch = [open_tool, "-W", "-g", "-n"]
 # and the app then strips the CMUX_NEXT_* state-root knobs (LaunchIdentity.inheritedKeys), the socket one included.
 # `open` also hands the app this process's environment, so the launcher runs on launch_env(ENV) (app_launch_env.py).
 launch.extend(["--env", f"CMUX_NEXT_SOCKET_PATH={SOCKET_PATH}"])
+# A NIGHTLY or release holds one copy per user (SingleInstanceGuard: a flock on its Application Support
+# instance.lock); a second launch hands off to the copy already running on the Mac and exits before it binds
+# this socket, so `app identify` never reached it (kinds run 45821171663, job 139987363954). Opt out, as a test run.
+launch.extend(["--env", "CMUX_NEXT_ALLOW_SECOND_INSTANCE=1"])
 if CONFIG_FILE:
     # Its own cmux.json, as the socket: LaunchServices passes the app only what --env names.
     launch.extend(["--env", f"CMUX_NEXT_CONFIG_FILE={CONFIG_FILE}"])
@@ -736,8 +751,11 @@ if SHIPPED_APP:
     # A shipped build refuses `cmux app call` (app.call_debug_only), so its sign-in is read the way a person sees
     # it: `cloud list-machines` answers `loaded: true` only for a signed-in Cloud account. A shipped NIGHTLY talks
     # to production by construction (its bundle id, checked by the workflow), so its origin is the expected one.
-    wait_for("selected backend active and signed in", ("cloud", "list-machines", "--json"),
-             lambda value: value.get("loaded") is True)
+    # Its `account` ({signed_in, user_id, team_id}: CloudHandlers.listAccount, the app's own sign-in) names the
+    # user and team the login cache below is scoped to, as `auth.status` does on a dev build.
+    listing = wait_for("selected backend active and signed in", ("cloud", "list-machines", "--json"),
+                       lambda value: value.get("loaded") is True)
+    actual = listing.get("account") if isinstance(listing.get("account"), dict) else {}
     evidence["api_origin"] = args.expected_api_origin if args.cloud_backend == "prod" else None
 else:
     actual = wait_for("selected backend active and signed in", ("app", "call", "auth.status", "--json"),
@@ -932,7 +950,7 @@ if args.cache_claude_login:
     # The entries the start reads for this account (CloudCredentialLogin.loadAny): its team's, then its personal one.
     entries = claude_login_cache.names(actual)
     if not entries:
-        record("cache claude login", 1, "", "auth.status names no user")
+        record("cache claude login", 1, "", "the sign-in (list-machines account or auth.status) names no user")
         finish("fail: cache claude login")
     for entry in entries:
         CACHED_LOGINS.append(entry)

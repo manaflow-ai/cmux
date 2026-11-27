@@ -2,7 +2,7 @@ import CmuxAuthRuntime
 #if canImport(CryptoKit)
 import CryptoKit
 #else
-import Crypto
+@preconcurrency import Crypto // swift-crypto marks its key types Sendable only on Apple platforms
 #endif
 import Foundation
 #if canImport(Security)

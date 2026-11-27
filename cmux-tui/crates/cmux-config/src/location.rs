@@ -186,6 +186,23 @@ pub fn keybindings_path(config_path: &Path) -> PathBuf {
 
 const KEYBINDINGS_FILE: &str = "keybindings.json";
 
+/// cmux NEXT's own cache folder: `~/Library/Caches/cmux-next` on macOS (where `~/.cache/cmux`
+/// and `Caches/cmux` are cmux Classic's), else `${XDG_CACHE_HOME:-~/.cache}/cmux`. None without
+/// an absolute `HOME`.
+pub fn cache_dir() -> Option<PathBuf> {
+    cache_dir_from(cfg!(target_os = "macos"), |name| std::env::var_os(name))
+}
+
+/// [`cache_dir`] for `macos` and the environment `env` (tests).
+pub fn cache_dir_from(macos: bool, env: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
+    let absolute = |name: &str| env(name).map(PathBuf::from).filter(|path| path.is_absolute());
+    let home = absolute("HOME")?;
+    if macos {
+        return Some(home.join("Library").join("Caches").join("cmux-next"));
+    }
+    Some(absolute("XDG_CACHE_HOME").unwrap_or_else(|| home.join(".cache")).join(LEGACY_DIR))
+}
+
 /// The cold-start cache file under the daemon's state directory.
 pub fn cache_path(state_dir: &Path) -> PathBuf {
     state_dir.join("settings").join("effective.json")

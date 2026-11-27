@@ -4,7 +4,7 @@
 # and the shipped fat-LTO legs (both musl targets and aarch64-apple-darwin built on Linux),
 # each on its own disk, so thin and fat objects never mix.
 #
-# usage: scripts/ci/machine-channel-warm-target.sh restore|record|probe DISK TRIPLE
+# usage: scripts/ci/machine-channel-warm-target.sh restore|record|probe|release DISK TRIPLE
 #        scripts/ci/machine-channel-warm-target.sh pool-dir TRIPLE
 #
 # Why: the legs restored a Swatinem/rust-cache entry, which holds dependency
@@ -46,8 +46,13 @@
 # crates recompiled after an exact R2 hit). Pool hosts are shared and have run out of disk
 # (jobs 139596782005, 45713322066), so a pool tree is bounded tighter: record prunes it to
 # MACHINE_CHANNEL_WARM_POOL_MAX_BYTES (48 GiB; the fat darwin tree is about 39 GB), and
-# restore and record remove it outright when the filesystem has less than
+# restore and release remove it outright when the filesystem has less than
 # MACHINE_CHANNEL_WARM_POOL_MIN_FREE_BYTES (40 GiB) free: a cold build, never a full disk.
+# release runs last in the job ("Release the pool warm target"), never in record: the steps
+# after record read cmux-tui/target through the link (the workspace delta's pack, the R2
+# dependency save), and record's removal left them a dangling link, so the darwin leg saved
+# neither (job 140189679068, 2026-11-26: "pool tree removed after record", then "cargo delta:
+# no cmux-tui/target ...; nothing packed" and "r2-cache: cmux-tui/target does not exist").
 # On a pool tree's first job the workflow's R2 restore has filled cmux-tui/target; restore
 # moves it into the empty tree instead of refusing, so the tree starts from R2 (kept only
 # when MACHINE_CHANNEL_WARM_SEED_EXACT=true says the restore was an exact, same-stamp hit).
@@ -69,8 +74,8 @@ if [[ "${1:-}" == pool-dir ]] && (($# == 2)); then
   printf '%s/%s/%s\n' "$(pool_root)" "$RUNNER_NAME" "$2"
   exit 0
 fi
-if (($# != 3)) || [[ "$1" != restore && "$1" != record && "$1" != probe ]]; then
-  echo "usage: $0 restore|record|probe DISK TRIPLE | pool-dir TRIPLE" >&2
+if (($# != 3)) || [[ "$1" != restore && "$1" != record && "$1" != probe && "$1" != release ]]; then
+  echo "usage: $0 restore|record|probe|release DISK TRIPLE | pool-dir TRIPLE" >&2
   exit 2
 fi
 command=$1 disk=$2 triple=$3
@@ -216,9 +221,15 @@ record() {
   [[ -z "$toolchain" ]] || printf '%s' "$toolchain" > "$toolchain_record"
   git -C "$repo" rev-parse HEAD > "$source_record"
   echo "warm target: recorded $(du -sxh "$target" | cut -f1) of build output for $(cat "$source_record")"
+}
+
+# Last in the job, after every step that reads cmux-tui/target: a pool tree on a host short of
+# disk goes, with the link that now points at nothing.
+release() {
+  pool_disk || return 0
   if ! pool_room; then
-    # The link now points at nothing; later steps that read cmux-tui/target ran before this one.
-    echo "warm target: pool tree removed after record (host short of disk)"
+    [[ "$(readlink "$link" 2>/dev/null || true)" != "$target" ]] || rm -f "$link"
+    echo "warm target: pool tree removed at the end of the job (host short of disk)"
   fi
 }
 
