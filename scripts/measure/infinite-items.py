@@ -417,6 +417,16 @@ class Run:
         env["ACPMUX_AGENT_HOLDER"] = "1" if self.args.agent_holder == "on" else "0"
         if self.args.evict_idle_secs is not None:
             env["ACPMUX_EVICT_IDLE_SECS"] = str(self.args.evict_idle_secs)
+        # Lazy start under test (cmux-tui mux/terminal_respawn/lazy.rs, CMUX_TUI_LAZY_START, off by default),
+        # never the caller's: with it on, a plain shell created in a workspace no client shows, and a lost one
+        # restored there, gets no shell or terminal host until its first need.
+        env.pop("CMUX_TUI_LAZY_START", None)
+        if self.args.lazy_start == "on":
+            env["CMUX_TUI_LAZY_START"] = "1"
+        # The caller's cap never leaks into an arm that did not ask for one.
+        env.pop("ACPMUX_RESIDENT_CAP", None)
+        if self.args.resident_cap:
+            env["ACPMUX_RESIDENT_CAP"] = str(self.args.resident_cap)
         return env
 
     def start(self):
@@ -641,7 +651,19 @@ class Run:
         took.sort()
         out = {"n": len(took), "p50": round(took[len(took) // 2], 2), "p95": round(took[int(len(took) * 0.95) - 1 if len(took) > 1 else 0], 2),
                "max": round(took[-1], 2)}
-        print(f"INFINITE-OPEN {self.count} evict={self.args.evict_idle_secs} {json.dumps(out)}", flush=True)
+        # The daemon's own timing of each chat it made again (`_acpmux/status` evicted.rehydrate*): the
+        # rehydrate alone, without the attach's records and the socket.
+        try:
+            c = Acp(self.acp_sock, timeout=60)
+            ev = c.call("_acpmux/status", {}).get("evicted", {})
+            c.close()
+            out["rehydrate"] = {"n": ev.get("rehydrateSamples"), "p50_ms": round(ev.get("rehydrateP50Us", 0) / 1000, 3),
+                                "p99_ms": round(ev.get("rehydrateP99Us", 0) / 1000, 3),
+                                "evicted_now": ev.get("now"), "evictions": ev.get("evictions")}
+        except (OSError, RuntimeError, ValueError) as exc:
+            self.error("status", exc)
+        print(f"INFINITE-OPEN {self.count} evict={self.args.evict_idle_secs} cap={self.args.resident_cap} "
+              f"{json.dumps(out)}", flush=True)
         return out
 
     @staticmethod
@@ -678,7 +700,7 @@ class Run:
     def report_freed(self):
         """--free-idle-seconds: how many of the run's terminal tabs the daemon's freeing timer parked (dead tabs
         that start again on show), logged after each settle; no request parks anything here."""
-        if not self.args.free_idle_seconds or not self.workspaces:
+        if not (self.args.free_idle_seconds or self.args.lazy_start == "on") or not self.workspaces:
             return
         tui = Tui(self.tui_sock, timeout=300)
         try:
@@ -688,7 +710,8 @@ class Run:
                     for tab in pane.get("tabs", []) if tab.get("kind", "pty") == "pty"]
             freed = sum(1 for tab in tabs if tab.get("dead"))
             self.parked = freed
-            log(f"N={self.count} freeing timer: {freed} of {len(tabs)} terminal tabs parked")
+            what = "freeing timer" if self.args.free_idle_seconds else "lazy start"
+            log(f"N={self.count} {what}: {freed} of {len(tabs)} terminal tabs parked")
         except (OSError, RuntimeError, ValueError) as exc:
             self.error("list-workspaces", exc)
         finally:
@@ -975,6 +998,9 @@ def main():
                    help="cmux-tui --terminal-reap-grace-seconds (the app's owner: 30)")
     p.add_argument("--evict-idle-secs", type=int, default=None,
                    help="ACPMUX_EVICT_IDLE_SECS: evict chats idle this long to a compact row (off when unset)")
+    p.add_argument("--resident-cap", type=int, default=0,
+                   help="ACPMUX_RESIDENT_CAP: keep at most this many chats in memory, the least recently used "
+                        "evicted past it (off when 0)")
     p.add_argument("--open-probe", type=int, default=0,
                    help="after the last day, time opening (attach) this many idle chats; prints INFINITE-OPEN")
     p.add_argument("--settle", type=float, default=5)
@@ -998,6 +1024,10 @@ def main():
                    help="start cmux-tui with --freeing-idle-seconds N: the daemon's own freeing timer parks every "
                         "terminal idle at its prompt with no client for N seconds (workspaces.freeing.*, off by "
                         "default), with no park-tabs request; 0 (default) leaves it off")
+    p.add_argument("--lazy-start", choices=("off", "on"), default="off",
+                   help="CMUX_TUI_LAZY_START for cmux-tui: on, a never-shown plain shell (new-workspace, new-tab, "
+                        "create-terminal in a workspace no client shows) gets no shell or host until its first need "
+                        "(show, input, attach); off (default) is the product default")
     p.add_argument("--dhat-mark-days", default="",
                    help="days after whose sample a dhat-heap cmux-tui ends a heap window (comma list; heap_profile.rs)")
     p.add_argument("--out")
@@ -1014,7 +1044,7 @@ def main():
     print(f"INFINITE-MACHINE host={platform.node()} platform={platform.platform()} cpus={os.cpu_count()} "
           f"counts={args.counts} days={args.days} terminal_host_model={args.terminal_host_model} agent_holder={args.agent_holder} "
           f"browser_tabs={int(args.browser_tabs)} park_idle={int(args.park_idle)} "
-          f"free_idle_seconds={args.free_idle_seconds}", flush=True)
+          f"free_idle_seconds={args.free_idle_seconds} lazy_start={args.lazy_start}", flush=True)
     results = []
     for count in (int(c) for c in args.counts.split(",")):
         try:

@@ -418,20 +418,13 @@ pub(super) fn browser_words(open: &Open, url: &str) -> Vec<String> {
     words
 }
 
-/// `CMUX_VIDEO_VIEW_DIR`, else `~/Library/Caches/cmux/video-view` on macOS and
-/// `$XDG_CACHE_HOME/cmux/video-view` (`~/.cache`) elsewhere.
+/// `CMUX_VIDEO_VIEW_DIR`, else `video-view` in cmux NEXT's own caches ([`cmux_config::cache_dir`]:
+/// `~/Library/Caches/cmux-next` on macOS, never cmux Classic's `Caches/cmux`).
 fn cache_root() -> Option<PathBuf> {
-    let env = |key: &str| std::env::var_os(key).filter(|value| !value.is_empty());
-    if let Some(dir) = env("CMUX_VIDEO_VIEW_DIR") {
+    if let Some(dir) = std::env::var_os("CMUX_VIDEO_VIEW_DIR").filter(|value| !value.is_empty()) {
         return Some(PathBuf::from(dir));
     }
-    let home = env("HOME").map(PathBuf::from);
-    let cache = if cfg!(target_os = "macos") {
-        home?.join("Library/Caches")
-    } else {
-        env("XDG_CACHE_HOME").map(PathBuf::from).or_else(|| home.map(|home| home.join(".cache")))?
-    };
-    Some(cache.join("cmux/video-view"))
+    Some(cmux_config::cache_dir()?.join("video-view"))
 }
 
 #[derive(Debug)]

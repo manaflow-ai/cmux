@@ -28,6 +28,8 @@ public final class WebDevOverrideWatcher {
     /// Counts ``reloadPages(live:hosting:pages:served:watcher:)`` calls, so an engine move a later reload
     /// superseded does not finish.
     private var reloadGeneration = 0
+    /// The pages in sight still waiting for a background change (``WebDevOverride/background``).
+    let deferred = WebSwapDeferred()
     /// Reloads each Chromium page at its safe point, under a picture of itself.
     let pageReload = PageGracefulReload()
     /// Reloads the served views each at its own safe point (``reloadPages(live:hosting:pages:served:watcher:)``).
@@ -115,7 +117,7 @@ public final class WebDevOverrideWatcher {
             Self.log.notice("web-dev.json changed (\(change, privacy: .public)); pages load from the same place, nothing reloaded")
             return
         }
-        Self.reloadPages(why: "web-dev.json: \(change)")
+        Self.reloadPages(why: "web-dev.json: \(change)", background: value.background)
     }
 
     private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "web-dev")
@@ -132,28 +134,43 @@ public final class WebDevOverrideWatcher {
     ///   - served: The WebKit views the scheme handlers served.
     ///   - watcher: The watcher whose reload count supersedes earlier engine moves (tests pass their own).
     ///   - why: What changed, for the log line that counts the views reloaded.
-    /// - Returns: The work still running for pages that change engine or reload in Chromium, nil for none (tests wait on it).
+    ///   - background: The change came on its own (``WebDevOverride/background``): a page in sight
+    ///     never swaps under the eye; it takes the change once it is out of sight (``WebSwapDeferred``).
+    ///     An asked change swaps every page at once, in place (``PageWebView/swapReload()``).
+    ///   - deferred: Where pages in sight wait for a background change (nil: the watcher's own; tests pass their own).
+    /// - Returns: The work still running for pages that change engine or swap in place, nil for none (tests wait on it).
     @discardableResult
     static func reloadPages(live: Bool = WebDevOverride.current.isActive,
                             hosting: (any PageChromiumHosting)? = PageWebView.chromiumHosting,
                             pages: [PageWebView]? = nil,
                             served: WebBundleServedViews = .shared,
                             watcher: WebDevOverrideWatcher = .shared,
-                            why: String = "web source changed") -> Task<Void, Never>? {
+                            why: String = "web source changed",
+                            background: Bool = false,
+                            deferred: WebSwapDeferred? = nil) -> Task<Void, Never>? {
+        let deferred = deferred ?? watcher.deferred
         watcher.reloadGeneration &+= 1
         let chromiumLive = live && (hosting?.setLivePages(true) ?? false)
         if !live { _ = hosting?.setLivePages(false) }
-        // Each served view reloads at its own safe point under a picture of itself, keeping the
-        // composer's draft and keyboard (``WebBundleGracefulReload``), not all of them blank at once.
-        let shown = served.shown
-        watcher.gracefulReload.reload(shown, to: WebBundleOverlay.shared.activeTree, served: served)
-        let webKit = shown.count
         let pages = pages ?? PageRegistry.pages()
+        // A background change waits out a page in sight (WebSwapGate's sight half, as a web update does).
+        let holds = { (page: PageWebView) in background && deferred.inSight(page) }
+        let shown = served.shown
+        let held = shown.compactMap { view in pages.first { $0.webKitView === view }.flatMap { holds($0) ? $0 : nil } }
+        let heldViews = Set(held.map { ObjectIdentifier($0.webKitView) })
+        // Each served view swaps at its own safe point (``WebBundleGracefulReload``), in place with no
+        // visible reload (``WebBundleServedViews/reload(_:to:)``), not all of them blank at once.
+        watcher.gracefulReload.reload(shown.filter { !heldViews.contains(ObjectIdentifier($0)) },
+                                      to: WebBundleOverlay.shared.activeTree, served: served)
+        for page in held {
+            deferred.hold(page) { page in served.reload([page.webKitView], to: WebBundleOverlay.shared.activeTree) }
+        }
+        let webKit = shown.count - held.count
         // The counts of what follows: pages that move to WebKit, or Chromium pages that reload.
         let moves = live && !chromiumLive && hosting != nil
         let moving = moves ? pages.filter(\.isOnChromium).count : 0
-        let chromium = !moves && (chromiumLive || watcher.chromiumServedLive) ? pages.filter { $0.chromiumPage != nil }.count : 0
-        log.notice("\(why, privacy: .public): reloading \(webKit) WebKit views, \(chromium) Chromium pages, moving \(moving) to WebKit")
+        let reloading = !moves && (chromiumLive || watcher.chromiumServedLive) ? pages.filter { $0.chromiumPage != nil }.count : 0
+        log.notice("\(why, privacy: .public): reloading \(webKit) WebKit views, \(reloading) Chromium pages, moving \(moving) to WebKit, \(held.count) held in sight")
         defer { watcher.chromiumServedLive = chromiumLive }
         // The loop is on and this Chromium cannot serve it: its open pages show only their bundled
         // files, so each one the engine policy now puts on WebKit reopens there at once, at its route
@@ -174,7 +191,12 @@ public final class WebDevOverrideWatcher {
         // Chromium pages reload when they serve the loop now or did until now, each at its safe point
         // under a picture of itself (``PageGracefulReload``), as the WebKit views do.
         guard chromiumLive || watcher.chromiumServedLive else { return nil }
-        return watcher.pageReload.reload(pages.filter { $0.chromiumPage != nil })
+        let chromium = pages.filter { $0.chromiumPage != nil }
+        for page in chromium where holds(page) {
+            // task-owner: one swap when the page leaves sight; it ends with its restored frame or cover limit
+            deferred.hold(page) { page in Task { await page.swapReload() } }
+        }
+        return watcher.pageReload.reload(chromium.filter { !holds($0) })
     }
 
     /// Follows the overlay's `manifest.json`, which an install writes after its files.
