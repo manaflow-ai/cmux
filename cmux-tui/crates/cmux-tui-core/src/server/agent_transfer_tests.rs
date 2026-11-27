@@ -1269,6 +1269,70 @@ fn persistent_mux(fake: &FakeAcpmux, home: &Home) -> Arc<Mux> {
     mux
 }
 
+#[test]
+fn transferred_shares_stay_private_after_restart_and_replay_keeps_a_revoke() {
+    let fake = FakeAcpmux::start("xshare-restart");
+    let home = Home::new("share-restart");
+    let source = transfer_mux(&fake, "share-source", &home, false);
+    let surface = agent_tab(&source, Some(SESSION));
+    let mut owner = Client::connect(&source, "share-source");
+    let created = owner.request(json!({"cmd":"agent-session-share-create", "surface":surface}));
+    let share_id = ok_data(&created)["share_id"].clone();
+    let payload = super::export_transferred_chat_shares(&source, SESSION).unwrap();
+
+    let target = persistent_mux(&fake, &home);
+    super::stage_transferred_chat_shares(&target, "receive-shared", SESSION, payload).unwrap();
+    let pending_path =
+        target.session_state_directory().unwrap().join("agent-session-shares-incoming.json");
+    let pending = std::fs::read(&pending_path).unwrap();
+    assert!(super::export_transferred_chat_shares(&target, SESSION).is_none());
+    drop(target);
+
+    let target = persistent_mux(&fake, &home);
+    assert!(super::export_transferred_chat_shares(&target, SESSION).is_none());
+    super::finish_transferred_chat_shares(&target, "receive-shared", true).unwrap();
+    let installed = super::export_transferred_chat_shares(&target, SESSION).unwrap();
+    assert_eq!(installed.as_array().unwrap().len(), 1);
+    assert_eq!(installed[0]["share_id"], share_id);
+    let mut target_owner = Client::connect(&target, "share-target");
+    ok_data(
+        &target_owner.request(json!({"cmd":"agent-session-share-revoke", "share_id":share_id})),
+    );
+    drop(target_owner);
+    drop(target);
+
+    // A crash after the registry write but before deleting the pending receipt can replay it.
+    // The owner's later revoke must win over that old incoming copy.
+    std::fs::write(&pending_path, pending).unwrap();
+    let target = persistent_mux(&fake, &home);
+    super::finish_transferred_chat_shares(&target, "receive-shared", true).unwrap();
+    assert!(super::export_transferred_chat_shares(&target, SESSION).is_none());
+    let mut target_owner = Client::connect(&target, "share-target-replayed");
+    let listed = target_owner.request(json!({"cmd":"agent-session-share-list"}));
+    assert_eq!(ok_data(&listed)["shares"][0]["state"], "revoked");
+}
+
+#[test]
+fn aborting_a_restarted_share_receive_never_installs_its_grants() {
+    let fake = FakeAcpmux::start("xshare-abort");
+    let home = Home::new("share-abort");
+    let source = transfer_mux(&fake, "share-abort-source", &home, false);
+    let surface = agent_tab(&source, Some(SESSION));
+    let mut owner = Client::connect(&source, "share-abort-source");
+    ok_data(&owner.request(json!({"cmd":"agent-session-share-create", "surface":surface})));
+    let payload = super::export_transferred_chat_shares(&source, SESSION).unwrap();
+    let target = persistent_mux(&fake, &home);
+    super::stage_transferred_chat_shares(&target, "aborted-share", SESSION, payload).unwrap();
+    drop(target);
+    let target = persistent_mux(&fake, &home);
+    super::finish_transferred_chat_shares(&target, "aborted-share", false).unwrap();
+    drop(target);
+    let target = persistent_mux(&fake, &home);
+    super::finish_transferred_chat_shares(&target, "aborted-share", true).unwrap();
+    assert!(super::export_transferred_chat_shares(&target, SESSION).is_none());
+    assert!(super::export_transferred_chat_shares(&source, SESSION).is_some());
+}
+
 fn now_ms() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64
 }
