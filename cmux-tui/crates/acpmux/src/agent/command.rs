@@ -501,11 +501,12 @@ fn build_harness_command(
     // have been applied. The settings and API route must be the ones the child receives.
     // Do this before stdio, process-group and CwdPin setup so no spawn hooks are lost.
     if claude_session && !remote_environment {
-        let final_env = command_env(&cmd).into_iter().collect();
+        let final_env = command_env(&cmd);
+        let final_env_map = final_env.iter().cloned().collect();
         let final_args: Vec<String> =
             cmd.as_std().get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
         if let Some((sandbox_program, sandbox_args)) =
-            crate::local_sandbox::prefix(&final_args, cwd, &final_env)
+            crate::local_sandbox::prefix(&final_args, cwd, &final_env_map)
         {
             cmd = wrap_local_sandbox_command(
                 cmd,
