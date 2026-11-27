@@ -48,7 +48,8 @@
         "acpmux-sim": {
           "name": "acpmux simulation (seeds)",
           "crates": ["cmux-tui/crates/acpmux"],
-          "features": ["sim"]
+          "features": ["sim"],
+          "inputs": [".github/actions/cache-restore/"]
         },
         "carrier-sim": {
           "name": "carrier simulation (seeds)",
@@ -79,11 +80,12 @@
           "compile_only": true,
           "crates": [
             "cmux-tui/crates/cmux-tui-core", "cmux-tui/crates/cmux-tui", "cmux-tui/crates/acpmux",
-            "cmux-tui/crates/cmux-host", "cmux-tui/crates/cmux-browser-host"
+            "cmux-tui/crates/cmux-host", "cmux-tui/crates/cmux-browser-host",
+            "cmux-tui/crates/cmux-tui-platform", "cmux-tui/bindings/rust", "cmux-tui/bindings/rust-daemon-client"
           ],
           "inputs": [
             "ghostty-next", "scripts/install-zig-ci.sh", ".github/actions/ghostty-zig-packages/",
-            "scripts/cmux-next/cargo-locks.py"
+            "scripts/cmux-next/cargo-locks.py", "scripts/ci/cargo-test-wine.sh", "scripts/ci/cargo-test-selected.sh"
           ]
         }
       }
@@ -118,6 +120,8 @@
           ],
           "features": ["tailnet", "hub-carrier"],
           "inputs": [
+            "scripts/ci/cmux-next-steps/daemon-test-give-the-generated-files-verdict.sh",
+            "scripts/ci/cmux-next-steps/daemon-test-replay-the-seed-s-input-times.sh",
             "scripts/ci/job_input_fingerprint.py",
             "scripts/ci/job_reuse.py",
             "scripts/ci/github_fetch_auth.py",

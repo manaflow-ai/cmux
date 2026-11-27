@@ -183,6 +183,12 @@ public final class TerminalProjectingSession: TerminalSession {
         inner.reportPaint(samples)
     }
     public func discardHeldInput() { inner.discardHeldInput() }
+    public func beginAttachmentSubmission(onExpire: @escaping @MainActor () -> Void) -> UUID {
+        inner.beginAttachmentSubmission(onExpire: onExpire)
+    }
+    @discardableResult public func endAttachmentSubmission(_ id: UUID) -> Bool {
+        inner.endAttachmentSubmission(id)
+    }
 
     public func noteReaderRowsFromEnd(_ rows: Int) {
         projection.setReaderRowsFromEnd(rows: UInt32(clamping: max(0, rows)))
