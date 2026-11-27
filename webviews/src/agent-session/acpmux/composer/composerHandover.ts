@@ -15,6 +15,7 @@
 //   Tab's text stood.
 // No new element draws: the same card and field move.
 import { MOTION_EASE_OUT, MOTION_SPRING } from "../../../motion/scale.generated";
+import { declareMove } from "../../../layout/motionContract";
 import { motionMode, springEasing } from "../../../ui/motion/motionMode";
 
 type Place = { left: number; top: number; width: number; height: number };
@@ -78,14 +79,18 @@ export function glideComposerFromHeld(form: HTMLElement | null): void {
     easing: mode === "full" ? springEasing(MOTION_SPRING, MOTION_EASE_OUT, form.ownerDocument) : MOTION_EASE_OUT,
   };
   const dy = from.card.top - card.top;
-  if (Math.abs(dy) >= 1) form.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], timing);
+  const glides: Animation[] = [];
+  if (Math.abs(dy) >= 1)
+    glides.push(form.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], timing));
   // The card opens from New Tab's height to its own.
   const hidden = card.height - from.card.height;
   if (cardElement && hidden >= 1) {
     const radius = getComputedStyle(cardElement).borderBottomLeftRadius || "0px";
-    cardElement.animate(
-      [{ clipPath: `inset(0 0 ${hidden}px 0 round ${radius})` }, { clipPath: `inset(0 0 0 0 round ${radius})` }],
-      timing,
+    glides.push(
+      cardElement.animate(
+        [{ clipPath: `inset(0 0 ${hidden}px 0 round ${radius})` }, { clipPath: `inset(0 0 0 0 round ${radius})` }],
+        timing,
+      ),
     );
   }
   // The field slides from where New Tab's text stood inside its card.
@@ -93,6 +98,15 @@ export function glideComposerFromHeld(form: HTMLElement | null): void {
     const fx = from.field.left - field.left;
     const fy = from.field.top - from.card.top - (field.top - card.top);
     if (Math.abs(fx) >= 1 || Math.abs(fy) >= 1)
-      fieldElement.animate([{ transform: `translate(${fx}px, ${fy}px)` }, { transform: "none" }], timing);
+      glides.push(fieldElement.animate([{ transform: `translate(${fx}px, ${fy}px)` }, { transform: "none" }], timing));
   }
+  // The glide is a script animation, and the layout-motion judge reads keyframe CSS animations only, so
+  // without a declaration every frame of it read as an undeclared composer move (composer-send-one-motion:
+  // the bar and its glass, 2 per state; hq#13423). It is declared as what it is, the composer entering
+  // (schemas/layout-motion/contract.json `enter` on the composer surface), on the form, for exactly as
+  // long as the glide plays: it ends when every part finishes or is cancelled. A composer move outside
+  // the glide is still judged.
+  if (glides.length === 0) return;
+  const undeclare = declareMove({ event: "enter", scope: "targets", targets: [form], by: "composer handover glide" });
+  void Promise.allSettled(glides.map((glide) => glide.finished)).then(undeclare);
 }

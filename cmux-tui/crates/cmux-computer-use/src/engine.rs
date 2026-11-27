@@ -887,6 +887,7 @@ impl Engine {
                 }
                 self.authorize(&config, ctx, Access::Discover, None, false)?;
                 let which = need(args, "permission")?;
+                self.wait_for_person(&config, ctx, None)?;
                 self.desktop.request_permission(which).map_err(|e| ToolOutput::desktop(&e))?;
                 Ok((ToolOutput::ok(json!({"requested": which})), None))
             }
@@ -1091,6 +1092,7 @@ impl Engine {
                 let primary = identities.first().cloned().unwrap_or_else(|| id.to_string());
                 let app = TargetApp { id: primary, name: id.to_string() };
                 self.authorize(&config, ctx, Access::Act, Some(&app), false)?;
+                self.wait_for_person(&config, ctx, None)?;
                 let launch = match identities.as_slice() {
                     [only] if by_identity => only.as_str(),
                     _ => id,
@@ -1292,22 +1294,53 @@ impl Engine {
             || window.focused
             || self.desktop.is_frontmost_app(window)
             || (pointer && pointer_in(window));
-        if config.pause_on_takeover && could_collide && !self.takeover.wait_idle(Duration::ZERO) {
+        if could_collide {
+            self.wait_for_person(config, ctx, Some(center(&window.frame)))?;
+        }
+        Ok(app)
+    }
+
+    /// With `pause_on_takeover`, waits up to [`TAKEOVER_WAIT`] for the
+    /// person to stop using the mouse and keyboard (the agent cursor shows
+    /// Paused meanwhile, at `at`), else refuses `person_in_control`. For
+    /// input that meets theirs ([`Self::act_on`]) and for calls that bring
+    /// an app to the front on their own whatever the delivery: `launch_app`
+    /// (most apps activate when they finish launching) and
+    /// `request_permission` (the OS prompt or System Settings opens in
+    /// front). Either one while the person types sends their next keys to
+    /// the app that came forward, which the focus guard can only undo
+    /// afterwards (Leo, 2026-11-22: agents kept interrupting his input and
+    /// foregrounding apps).
+    fn wait_for_person(
+        &self,
+        config: &PolicyConfig,
+        ctx: &CallContext,
+        at: Option<Point>,
+    ) -> Result<(), ToolOutput> {
+        if !config.pause_on_takeover {
+            return Ok(());
+        }
+        if !self.takeover.wait_idle(Duration::ZERO) {
             // The person is using the mouse or keyboard right now: show that the
             // agent waits for them before it waits.
             self.cursor.show(CursorEvent::Paused {
                 session: ctx.session.clone(),
                 label: ctx.label.clone(),
-                at: Some(center(&window.frame)),
+                at,
             });
         }
-        if config.pause_on_takeover && could_collide && !self.takeover.wait_idle(TAKEOVER_WAIT) {
+        if !self.takeover.wait_idle(TAKEOVER_WAIT) {
+            // retry-prompt-ok: a wait on the person, already waited out for
+            // TAKEOVER_WAIT inside this call; the agent's next call is the only way on.
             return Err(ToolOutput::error(
                 "person_in_control",
-                "The person is using the mouse or keyboard; the agent paused and will not act until they stop. Try again shortly.",
+                format!(
+                    "The person kept using the mouse or keyboard for the {} s this call waited, so nothing was done. Make the call again once they stop, or ask them to step away.",
+                    TAKEOVER_WAIT.as_secs()
+                ),
             ));
         }
-        Ok(app)
+        Ok(())
     }
 
     fn geometry_for(&self, ctx: &CallContext, window: &Window) -> Geometry {

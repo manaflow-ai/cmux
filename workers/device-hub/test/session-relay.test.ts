@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { platformUserIdFor } from "../src/machine";
-import { ANCHOR_RELAY_TTL_MS, PLAN_UNREAD } from "../src/userDo";
-import { BASE, Device, STACK_PROJECT, billingPlans, mockOutbound, platformMachines, rawCall, signIn, worker } from "./helpers";
+import { ANCHOR_RELAY_TTL_MS, PLAN_UNREAD, RELAY_UNMINTED } from "../src/userDo";
+import { BASE, Device, STACK_PROJECT, billingPlans, localTurn, mockOutbound, platformMachines, rawCall, signIn, worker } from "./helpers";
 
 // A session's viewer and host are one account, so the viewer's billing answer covers the host
 // end too: a paid account's joined machine (a machine session, no Stack token) and a Mac whose
@@ -55,6 +55,14 @@ async function decidedByHost(host: Device, viewer: Device) {
   const vt = await viewer.user!.next((f) => f.type === "session.ticket" && f.sessionId === sid);
   const ht = await host.user!.next((f) => f.type === "session.ticket" && f.sessionId === sid);
   return { sid, vt, ht };
+}
+
+/** The viewer asks for a share its stored permission allows: approved at once with its own session (a billing read). */
+async function viewedOnce(host: Device, viewer: Device) {
+  const res = await viewer.call("POST", "/v1/sessions", { hostId: host.id, scope: "view" });
+  expect(res.json.session?.state, JSON.stringify(res.json)).toBe("approved");
+  const sid = res.json.session.id as string;
+  return viewer.user!.next((f) => f.type === "session.ticket" && f.sessionId === sid);
 }
 
 describe("a session's relay follows its viewer's billing answer", () => {
@@ -182,5 +190,63 @@ describe("a session's relay follows its viewer's billing answer", () => {
     const host = await machineHost(account);
     // No viewer has asked billing for any session: /me reads the machine session's own answer.
     expect((await host.call("GET", "/v1/me")).json.plan).toBe("free");
+  });
+
+  it("paid, but no relay could be minted: both ends are told why, not a silent empty list", async () => {
+    const account = await person("pro");
+    const host = await machineHost(account);
+    const viewer = await Device.create(account, "Laptop", "macos");
+    await viewer.register();
+    await viewer.connect();
+    localTurn.fail = true;
+    const errors = vi.spyOn(console, "error");
+    try {
+      const d = await decidedByHost(host, viewer);
+      expect([d.vt.ice, d.ht.ice]).toEqual([[], []]);
+      expect([d.vt.relay, d.ht.relay]).toEqual(["paid", "paid"]);
+      expect([d.vt.relayNote, d.ht.relayNote]).toEqual([RELAY_UNMINTED, RELAY_UNMINTED]);
+      const ice = (await host.call("POST", `/v1/sessions/${d.sid}/ice`)).json;
+      expect([ice.ice, ice.relay, ice.relayNote]).toEqual([[], "paid", RELAY_UNMINTED]);
+      expect(errors.mock.calls.some((a) => String(a[0]).includes(`relay mint empty for paid session ${d.sid}`))).toBe(true);
+      // The mint answers again: the note goes.
+      localTurn.fail = false;
+      const back = (await viewer.call("POST", `/v1/sessions/${d.sid}/ice`)).json;
+      expect([back.ice, back.relay, back.relayNote]).toEqual([TURN, "paid", undefined]);
+    } finally {
+      localTurn.fail = false;
+      errors.mockRestore();
+    }
+  });
+
+  it("a machine pushing its screen to a paid person's Mac gets the relay from the account's newest read", async () => {
+    const account = await person("pro");
+    const host = await machineHost(account);
+    const viewer = await Device.create(account, "Laptop", "macos");
+    await viewer.register();
+    await viewer.connect();
+    // The person's app read billing once (an earlier share); the push itself has no Stack token.
+    const first = await viewedOnce(host, viewer);
+    expect(first.ice).toEqual(TURN);
+    const res = await host.call("POST", "/v1/sessions", { hostId: host.id, viewerId: viewer.id, scope: "view" });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const sid = res.json.session.id as string;
+    const vt = await viewer.user!.next((f) => f.type === "session.ticket" && f.sessionId === sid);
+    const ht = await host.user!.next((f) => f.type === "session.ticket" && f.sessionId === sid);
+    expect([vt.ice, ht.ice]).toEqual([TURN, TURN]);
+    expect([vt.relay, vt.relayNote]).toEqual(["paid", undefined]);
+  });
+
+  it("a machine's push to a free person's Mac still gets none", async () => {
+    const account = await person("free");
+    const host = await machineHost(account);
+    const viewer = await Device.create(account, "Laptop", "macos");
+    await viewer.register();
+    await viewer.connect();
+    expect((await viewedOnce(host, viewer)).ice).toEqual([]);
+    const res = await host.call("POST", "/v1/sessions", { hostId: host.id, viewerId: viewer.id, scope: "view" });
+    expect(res.status, JSON.stringify(res.json)).toBe(200);
+    const sid = res.json.session.id as string;
+    const ht = await host.user!.next((f) => f.type === "session.ticket" && f.sessionId === sid);
+    expect([ht.ice, ht.relay]).toEqual([[], "free"]);
   });
 });

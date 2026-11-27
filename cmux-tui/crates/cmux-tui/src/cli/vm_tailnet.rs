@@ -628,13 +628,12 @@ pub(super) fn run(
             let result = with_guest(&vm_id, env, |guest| join(guest, &checked, timeout));
             match result {
                 Ok(node) => {
+                    let dns_name =
+                        node.get("dnsName").and_then(Value::as_str).unwrap_or_default().to_owned();
                     let mut record = read_record(env);
-                    record.insert(
-                        vm_id.clone(),
-                        node.get("dnsName").and_then(Value::as_str).unwrap_or_default().to_owned(),
-                    );
+                    record.insert(vm_id.clone(), dns_name.clone());
                     write_record(env, &record);
-                    let node = with_kept(node, auto_keep(&vm_id, None, env, &record[&vm_id]));
+                    let node = with_kept(node, auto_keep(&vm_id, None, env, &dns_name));
                     if json_output {
                         println!("{}", json!({"ok": true, "vm": vm_id, "node": node}));
                     } else {
@@ -1060,12 +1059,15 @@ fn keep_unless_other(
 
 /// The node's facts with whether the vault kept it, and why not as a note.
 fn with_kept(mut node: Value, kept: Result<bool, String>) -> Value {
-    node["keptInVault"] = json!(matches!(kept, Ok(true)));
+    let Some(facts) = node.as_object_mut() else { return node };
+    facts.insert("keptInVault".to_owned(), json!(matches!(kept, Ok(true))));
     if let Err(why) = kept {
-        let note = format!("not kept in your vault: {why}");
-        match node.get_mut("notes").and_then(Value::as_array_mut) {
-            Some(notes) => notes.push(json!(note)),
-            None => node["notes"] = json!([note]),
+        let note = json!(format!("not kept in your vault: {why}"));
+        match facts.get_mut("notes").and_then(Value::as_array_mut) {
+            Some(notes) => notes.push(note),
+            None => {
+                facts.insert("notes".to_owned(), json!([note]));
+            }
         }
     }
     node

@@ -114,8 +114,12 @@ impl Hub {
     /// The tap that logs one session's wire traffic (and the agent host
     /// entry each record logs, `hostSeq`).
     pub(super) fn session_tap(self: &Arc<Self>, session: &Arc<Session>) -> crate::agent::Tap {
-        let tap_session = session.clone();
-        let tap_hub = self.clone();
+        // Weak: the tap lives in the session's agent (`ChildAgent::tap`), which the session and
+        // the hub hold, so a strong one is a cycle that keeps a dropped hub, its audit thread and
+        // its sessions alive for ever (each simulated daemon crash leaked one, ~13 MB, until the
+        // known-gap sweep ran its runner out of memory).
+        let tap_session = Arc::downgrade(session);
+        let tap_hub = Arc::downgrade(self);
         // The epoch its reports count in (`FloorState::report_epoch`).
         let report_epoch = session.floor.report_epoch.load(Ordering::SeqCst);
         // A `message_start` was logged and its first delta was not yet.
@@ -131,6 +135,11 @@ impl Hub {
         // host's last lines yet when its exit entry comes through.
         let last_stderr = std::sync::Mutex::new(super::exit_reason::ExitLine::default());
         Arc::new(move |dir: Direction, msg: &Message, host_seq: Option<u64>| -> bool {
+            let (Some(tap_hub), Some(tap_session)) = (tap_hub.upgrade(), tap_session.upgrade())
+            else {
+                // Its hub or chat is gone: nothing is left to log it to.
+                return false;
+            };
             // The replay of a session this chat's `session/fork` made is the fork's, never this
             // chat's (`fork_replay.rs`): kept nowhere, it counts as logged, so a host drops it.
             if matches!(dir, Direction::In) && super::fork_replay::of_the_fork(&tap_session, msg) {
@@ -265,6 +274,9 @@ impl Hub {
                         // whole list of the tasks that still run.
                         if !muted && let Some(line) = params.as_ref() {
                             match method.as_str() {
+                                "claude.command_lifecycle" => {
+                                    tap_hub.command_lifecycle(&tap_session, line)
+                                }
                                 "claude.system.task_notification" => {
                                     tap_hub.subagent_task_notified(&tap_session, line)
                                 }
@@ -579,6 +591,11 @@ impl Hub {
                 None
             };
             let (rec, logged) = tap_hub.append_logged(&tap_session, d, &kind, value, host_seq);
+            // A compaction summary the log took: its turns' outline follows, off this path
+            // (`hub/compaction_outline.rs`).
+            if logged && d == "in" && kind == "compaction_summary" {
+                tap_hub.outline_compaction(&tap_session, rec.seq);
+            }
             // Only a logged update's sections count as logged: a retried write is compared with
             // what the log holds.
             if logged && let Some(repeats) = repeats {

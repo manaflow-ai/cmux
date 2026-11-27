@@ -34,6 +34,9 @@ pub(crate) struct HubHealth {
     asked: BTreeMap<String, u64>,
     /// The machines whose ask is still out.
     out: BTreeSet<String>,
+    /// When each machine's newest ask failed (ms), cleared by an answer: a reading older than
+    /// it is not believed (`placement/reach.rs`, `healthFailedAt`).
+    failed: BTreeMap<String, u64>,
     /// Until when a placement wants fresh readings (ms).
     interest_until: u64,
 }
@@ -63,19 +66,31 @@ impl HubHealth {
         due
     }
 
-    /// `host`'s ask ended at `now`: with its reading, or with none (kept as it was).
+    /// `host`'s ask ended at `now`: with its reading, or with none (the reading kept as it was,
+    /// and the failure's time kept, so placement passes the host over until one answers).
     pub(crate) fn answered(&mut self, host: &str, reading: Option<Value>, now: u64) {
         self.out.remove(host);
-        if let Some(v) = reading
-            && (self.readings.contains_key(host) || self.readings.len() < MAX_HOSTS)
-        {
+        let Some(v) = reading else {
+            if self.failed.contains_key(host) || self.failed.len() < MAX_HOSTS {
+                self.failed.insert(host.to_owned(), now);
+            }
+            return;
+        };
+        self.failed.remove(host);
+        if self.readings.contains_key(host) || self.readings.len() < MAX_HOSTS {
             self.readings.insert(host.to_owned(), (now, v));
         }
+    }
+
+    /// When `host`'s newest ask failed, if it did and none answered since.
+    pub(crate) fn failed_at(&self, host: &str) -> Option<u64> {
+        self.failed.get(host).copied()
     }
 
     /// Only the machines `listed` names are kept.
     pub(crate) fn retain(&mut self, listed: &BTreeSet<String>) {
         self.readings.retain(|h, _| listed.contains(h));
+        self.failed.retain(|h, _| listed.contains(h));
         self.asked.retain(|h, _| listed.contains(h) || self.out.contains(h));
     }
 
@@ -93,67 +108,20 @@ impl HubHealth {
     }
 }
 
-impl Hub {
-    /// The machines only the hub lists (`mesh_book_hosts`), by name.
-    pub(crate) fn hub_only_hosts(&self) -> Vec<String> {
-        self.mesh_book_hosts()
-            .iter()
-            .filter_map(|row| row.get("name").and_then(Value::as_str).map(str::to_owned))
-            .collect()
+/// One address-book snapshot. Fresh pushes suppress pulls but still belong to the cache.
+#[derive(Default)]
+pub(crate) struct HealthHosts {
+    pub(crate) listed: BTreeSet<String>,
+    pub(crate) pull: Vec<String>,
+}
+
+impl HealthHosts {
+    pub(crate) fn due(&self, cache: &mut HubHealth, now: u64) -> Vec<String> {
+        cache.retain(&self.listed);
+        cache.due(&self.pull, now)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn hosts(names: &[&str]) -> Vec<String> {
-        names.iter().map(|s| (*s).to_owned()).collect()
-    }
-
-    #[test]
-    fn a_machine_is_asked_at_most_once_a_minute_and_never_twice_at_once() {
-        let mut h = HubHealth::default();
-        assert_eq!(h.due(&hosts(&["a", "b"]), 1_000), hosts(&["a", "b"]));
-        // Out: not asked again, even past a minute.
-        assert!(h.due(&hosts(&["a"]), 1_000 + EVERY_MS).is_empty());
-        h.answered("a", Some(json!({"cpus": 4})), 2_000);
-        assert!(h.due(&hosts(&["a"]), 2_000).is_empty(), "asked within the minute");
-        assert_eq!(h.due(&hosts(&["a"]), 1_000 + EVERY_MS), hosts(&["a"]));
-        assert_eq!(h.reading("a"), Some((2_000, json!({"cpus": 4}))));
-        // No answer keeps the last reading.
-        h.answered("a", None, 3_000);
-        assert_eq!(h.reading("a"), Some((2_000, json!({"cpus": 4}))));
-    }
-
-    #[test]
-    fn no_more_than_in_flight_asks_are_out() {
-        let mut h = HubHealth::default();
-        let many: Vec<String> = (0..20).map(|i| format!("h{i}")).collect();
-        assert_eq!(h.due(&many, 0).len(), IN_FLIGHT);
-        assert!(h.due(&many, 0).is_empty());
-        h.answered("h0", None, 1);
-        assert_eq!(h.due(&many, 1), hosts(&["h8"]));
-    }
-
-    #[test]
-    fn interest_lasts_fifteen_minutes_after_the_last_placement() {
-        let mut h = HubHealth::default();
-        assert!(!h.wanted(0));
-        assert!(!h.interested(0), "no loop ran before");
-        assert!(h.wanted(INTEREST_MS - 1));
-        assert!(h.interested(10), "the loop still runs");
-        assert!(!h.wanted(10 + INTEREST_MS));
-    }
-
-    #[test]
-    fn a_machine_the_book_no_longer_lists_is_dropped() {
-        let mut h = HubHealth::default();
-        h.due(&hosts(&["a", "b"]), 0);
-        h.answered("a", Some(json!({})), 1);
-        h.answered("b", Some(json!({})), 1);
-        h.retain(&["a".to_owned()].into_iter().collect());
-        assert!(h.reading("b").is_none());
-        assert!(h.reading("a").is_some());
-    }
-}
+#[path = "hub_health_tests.rs"]
+mod tests;

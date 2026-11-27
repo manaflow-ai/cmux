@@ -105,7 +105,7 @@ impl Remote for ServiceEnv<'_> {
 
 /// Waits up to 20 s for a daemon to answer, then prints its
 /// `--json daemon status` (or the last reply, from none).
-const AWAIT_DAEMON: &str = r#"i=0; while :; do s=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); case "$s" in *'"pid":'*) break;; esac; [ "$i" -ge 20 ] && break; i=$((i+1)); sleep 1; done; printf '%s\n' "$s""#;
+const AWAIT_DAEMON: &str = r#"i=0; while :; do s=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); case "$s" in *'"pid":'*) break;; esac; [ "$i" -ge 30 ] && break; i=$((i+1)); sleep 1; done; printf '%s\n' "$s""#;
 
 /// Separates the parts of [`probe_script`]'s output, on a line of its own
 /// (after an empty one: a part need not end its last line).
@@ -171,6 +171,20 @@ if [ -z "$acpmux_app" ] && [ ! -e "$HOME/Library/LaunchAgents/com.acpmux.daemon.
 [ -z "$acpmux_app" ] || echo "ACPMUX_APP_MANAGED=$acpmux_app"
 "#;
 
+/// Starts [`APP_HELD_CHECK`]'s line, then the cmux app's acpmux the LaunchAgent runs.
+const APP_HELD: &str = "ACPMUX_APP_HELD=";
+/// The `reason` of a `current` update on such a Mac.
+const APP_HELD_REASON: &str = "appHeld";
+
+/// Shell that prints [`APP_HELD`] on a Mac whose own `com.acpmux.daemon` LaunchAgent runs a cmux
+/// app's bundled acpmux that is there (`daemon service install` from the app, or the app's
+/// takeover of the join's daemon: `daemon_service.rs` `launchd_program`). That daemon updates
+/// with the app: a restart here would start the app's build again and fail the pushed-build
+/// check, then roll back. `~/.local/bin/acpmux`, the job's fallback, is still updated.
+const APP_HELD_CHECK: &str = r#"acpmux_held=$(sed -n 's|.*<string>\([^<]*\.app/Contents/Resources/bin/acpmux\)</string>.*|\1|p' "$HOME/Library/LaunchAgents/com.acpmux.daemon.plist" 2>/dev/null | head -n 1 | sed 's/&lt;/</g; s/&gt;/>/g; s/&amp;/\&/g')
+if [ -n "$acpmux_held" ] && [ -x "$acpmux_held" ]; then echo "ACPMUX_APP_HELD=$acpmux_held"; fi
+"#;
+
 /// Starts [`probe_script`]'s `uname -sm` line, so a login banner is not read as one.
 const UNAME: &str = "ACPMUX_UNAME=";
 
@@ -187,7 +201,7 @@ fn probe_script(if_idle: bool, now: bool) -> String {
         ":"
     };
     format!(
-        "echo \"{UNAME}$(uname -sm)\"\nacpmux_nw={}\n{}if acpmux_window; then echo \"{WINDOW}$acpmux_why\"; fi\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}\n{APP_MANAGED_CHECK}echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{}{}",
+        "echo \"{UNAME}$(uname -sm)\"\nacpmux_nw={}\n{}if acpmux_window; then echo \"{WINDOW}$acpmux_why\"; fi\n{}[ -z \"$acpmux_cloud\" ] || echo {CLOUD_VM}\n{APP_MANAGED_CHECK}{APP_HELD_CHECK}echo; echo {PROBE_SPLIT}\ns=$(~/.local/bin/acpmux --json daemon status 2>/dev/null); printf '%s\\n' \"$s\"; echo; echo {PROBE_SPLIT}\n{ls}\necho; echo {PROBE_SPLIT}\n{}{}",
         u8::from(now),
         restart_window_check(),
         cloud_vm_check(),
@@ -279,6 +293,8 @@ struct Probe {
     cloud_vm: bool,
     /// Why the cmux app owns the host's acpmux ([`APP_MANAGED_CHECK`]).
     app_managed: Option<String>,
+    /// The cmux app's acpmux the LaunchAgent runs ([`APP_HELD_CHECK`]).
+    app_held: Option<String>,
     /// The running daemon's build; None when none answers.
     build: Option<String>,
     /// Its own sessions that run a turn or wait on a permission (asked
@@ -335,13 +351,35 @@ impl Probe {
             .first()
             .and_then(|p| p.lines().find_map(|l| l.strip_prefix(WINDOW)))
             .map(str::to_owned);
-        Some(Probe { uname, cloud_vm, app_managed, build, busy, refused, window })
+        let app_held = parts
+            .first()
+            .and_then(|p| p.lines().find_map(|l| l.strip_prefix(APP_HELD)))
+            .map(str::to_owned);
+        Some(Probe { uname, cloud_vm, app_managed, app_held, build, busy, refused, window })
     }
 }
 
 /// The build of the daemon that answered a `--json daemon status` (a live
 /// one's reply carries its `pid`; a stopped one's only `"running": false`);
 /// None when none answered or the reply is not JSON.
+/// Why a restarted daemon's status (`abiRange`, `protocol/range.rs`) shares no wire ABI with
+/// the build running this update, or None: the health check's N-1 rule. The new daemon must
+/// still serve the build it replaced (whose clients, the app's and the peers', are that old),
+/// so a build that does not is rolled back like one that does not answer. A daemon from before
+/// the field is not judged by it.
+pub(crate) fn abi_gap(status: &str) -> Option<String> {
+    let v: Value = serde_json::from_str(status.trim()).ok()?;
+    let range = v.get("abiRange")?;
+    let field = |k: &str| range.get(k).and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok());
+    let (min, max) = (field("min")?, field("max")?);
+    let theirs = crate::protocol::range::AbiRange { min: min.min(max), max };
+    let ours = crate::protocol::range::AbiRange::ours();
+    if ours.common(theirs).is_some() {
+        return None;
+    }
+    Some(crate::protocol::range::incompatible(ours, theirs, "the restarted daemon").0)
+}
+
 fn answering_build(status: &str) -> Option<String> {
     let v: Value = serde_json::from_str(status.trim()).ok()?;
     v.get("pid").filter(|p| !p.is_null())?;
@@ -637,6 +675,7 @@ impl PeerUpdate {
             Outcome::Current if self.reason.as_deref() == Some(NEWER_INSTALLED) => {
                 format!("kept: {error}")
             }
+            Outcome::Current if self.reason.as_deref() == Some(APP_HELD_REASON) => error.to_owned(),
             Outcome::Current => format!("current ({})", self.build.as_deref().unwrap_or("?")),
             Outcome::Busy if self.reason.as_deref() == Some(RESTART_WINDOW) => {
                 format!("left alone: {error}")
@@ -880,6 +919,19 @@ fn update_peer(remote: &dyn Remote, opts: &UpdateOptions) -> PeerUpdate {
             why.push_str(&format!("; putting the previous one back failed: {e}"));
         }
         return up.end(Outcome::Failed, "pushMismatch", why);
+    }
+    // The LaunchAgent runs the cmux app's acpmux: the daemon updates with the app, so it is
+    // not restarted (that would start the app's build again and fail the pushed-build check,
+    // then roll back). The pushed binary stays as the job's fallback. `current`, so the app's
+    // peer update and fleet tooling read it as kept, not failed. Only while a daemon answers: a
+    // job booted out (its plist and the app still there) takes the restart below, which reports
+    // what it finds instead of a kept daemon that is not running.
+    if let Some(held) = &probe.app_held
+        && probe.build.is_some()
+    {
+        let why =
+            format!("this Mac's daemon runs the cmux app's acpmux {held}; it updates with the app");
+        return up.end(Outcome::Current, APP_HELD_REASON, why);
     }
     // A turn may have started while the binary was copied: read the
     // sessions again right before the restart, and put the binary back
@@ -1154,7 +1206,7 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
         Err(e) => return failed(migrating, false, lock_lost_or(&e, "noAnswer"), e.to_string()),
     };
     let Some(build) = answering_build(&status) else {
-        let why = "the daemon did not answer within 20 s of its restart".to_owned();
+        let why = "the daemon did not answer within 30 s of its restart".to_owned();
         return failed(migrating, false, "noAnswer", why);
     };
     if let Some(want) = want
@@ -1162,6 +1214,9 @@ fn restart_checked(remote: &dyn Remote, script: &str, want: Option<&str>) -> Res
     {
         let why = format!("the restarted daemon runs build {build}, not the pushed {want}");
         return failed(migrating, false, "buildMismatch", why);
+    }
+    if let Some(why) = abi_gap(&status) {
+        return failed(migrating, false, "abiIncompatible", why);
     }
     let auto_update_off = take_auto_update_off(&out.stdout).1;
     let in_place = out.stdout.lines().find_map(|l| l.strip_prefix(IN_PLACE)).map(str::to_owned);
@@ -1202,7 +1257,9 @@ fn cut(mut text: String, max: usize) -> String {
 ///
 /// - `outcome`: `updated`, `current` (already that commit; or, reason
 ///   `newerInstalled`, the host's install step kept its binary of a newer
-///   commit, unless `--allow-downgrade`), `busy`
+///   commit, unless `--allow-downgrade`; or, reason `appHeld`, the Mac's
+///   `com.acpmux.daemon` runs a cmux app's acpmux that updates with the app: the
+///   pushed binary is installed as its fallback and the daemon is not restarted), `busy`
 ///   (`--if-idle`), `held` (`host hold`: not reached at all),
 ///   `needsBinary` (`--binary-dir` lacks `acpmux-<target>`, or without it
 ///   this binary is for another target),

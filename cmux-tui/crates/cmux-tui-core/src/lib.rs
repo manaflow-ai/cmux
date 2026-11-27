@@ -8,6 +8,10 @@
 //! [`MuxEvent`]s and read surface state; they never own terminal state
 //! themselves, which is what makes the backend attachable.
 
+// `cmux_tui_core::` paths resolve here too: server/identify_reply.rs compiles a
+// file written for the cmux-tui binary crate into this one.
+extern crate self as cmux_tui_core;
+
 mod agent_hook_question;
 mod agent_hooks;
 pub mod agent_launch;
@@ -20,6 +24,7 @@ pub mod packed_catalogs;
 pub mod route_table;
 /// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
 pub use cmux_tui_util::backoff;
+pub use cmux_tui_util::retry;
 mod browser;
 pub mod browser_host;
 mod browser_host_history;
@@ -63,6 +68,7 @@ pub mod history_search;
 pub(crate) mod language_packs;
 #[cfg(unix)]
 pub mod projection;
+#[cfg(unix)]
 pub mod projection_ns;
 /// Tools few people use (`bin/cmux-mobile-host`), downloaded on first use.
 #[cfg(unix)]
@@ -110,6 +116,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+mod restore_progress;
 pub mod safe_mode_flag;
 mod scripts;
 mod serial_lanes;
