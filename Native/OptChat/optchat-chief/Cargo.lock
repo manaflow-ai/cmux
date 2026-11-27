@@ -360,6 +360,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-upstream-error"
+version = "0.1.0"
+
+[[package]]
 name = "color_quant"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1102,6 +1106,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server-core",
  "cmux-unix-socket",
+ "cmux-upstream-error",
  "image",
  "libc",
  "optchat-chief",
@@ -1130,6 +1135,7 @@ name = "optchat-host"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "cmux-upstream-error",
  "libc",
  "optchat-core",
  "rusqlite",
