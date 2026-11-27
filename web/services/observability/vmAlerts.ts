@@ -135,15 +135,7 @@ export async function runVmAlertChecks(options: {
 
   triggeredAlerts.push(...tlsRuleCapacity.alerts);
 
-  const triggeredKeys = new Set(triggeredAlerts.map((alert) => alert.key));
-  for (const key of [
-    "vm-create-failure-spike",
-    "vm-stuck-provisioning",
-    "vm-expired-unrevoked-leases",
-    ...(unhealthy.canClear ? ["vm-health-stale"] : []),
-  ]) {
-    if (!triggeredKeys.has(key)) await clearAlertState(alertStateStore, key, now);
-  }
+  await clearResolvedAlertStates(alertStateStore, triggeredAlerts, unhealthy.canClear, now);
 
   for (const alert of triggeredAlerts) {
     const claim = await claimAlertDelivery(alertStateStore, alert, now);
@@ -407,6 +399,23 @@ async function listExpiredUnrevokedLeases(
     ))
     .limit(VM_ALERT_SAMPLE_LIMIT);
   return { count: Number(countRow?.total ?? 0), samples };
+}
+
+async function clearResolvedAlertStates(
+  store: VmAlertStateStore,
+  triggeredAlerts: readonly AlertInput[],
+  canClearHealth: boolean,
+  now: Date,
+): Promise<void> {
+  const triggeredKeys = new Set(triggeredAlerts.map((alert) => alert.key));
+  for (const key of [
+    "vm-create-failure-spike",
+    "vm-stuck-provisioning",
+    "vm-expired-unrevoked-leases",
+    ...(canClearHealth ? ["vm-health-stale"] : []),
+  ]) {
+    if (!triggeredKeys.has(key)) await clearAlertState(store, key, now);
+  }
 }
 
 async function listUnhealthyVms(
