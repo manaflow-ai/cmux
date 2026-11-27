@@ -37,13 +37,54 @@ pub const ARG: &str = "tools-mcp";
 pub const SERVER_META: &str = "cmux/server";
 
 /// The servers it serves, each with its own command word.
-pub const SERVERS: [(&str, &str); 5] = [
+pub const SERVERS: [(&str, &str); 8] = [
     (crate::secret_mcp::SERVER_NAME, "secret-mcp"),
     (crate::offer_mcp::SERVER_NAME, "offer-mcp"),
     (crate::subsession_mcp::SERVER_NAME, "subsession-mcp"),
     (crate::forum_mcp::SERVER_NAME, "forum-mcp"),
     (crate::acpmux_mcp_names::SERVER_NAME, "acpmux-mcp"),
+    // cmux Computer Use (`computer_use/served.rs`): in the gateway, no stdio bridge per chat.
+    (crate::computer_use::mcp::SERVER_NAME, crate::computer_use::mcp::COMMAND),
+    // cmux's hosted MCP (`hosted_mcp.rs`), on by default on a Mac: a bridge of its own per chat
+    // there, not a process.
+    (crate::hosted_mcp::SERVER_NAME, crate::hosted_mcp::COMMAND),
+    // Cloud repository tools on a Cloud machine (`cloud_repo_mcp.rs`).
+    (crate::cloud_repo_mcp::SERVER_NAME, crate::cloud_repo_mcp::COMMAND),
 ];
+
+static MCP_CLIENT: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+
+/// Keep the `clientInfo` of this MCP server's `initialize`: one client per server process
+/// (moved from `sender_harness.rs`, which reads it as [`mcp_client`]).
+pub fn note_mcp_client(params: &Value) {
+    if let Some(info) = params.get("clientInfo").filter(|i| i.is_object()) {
+        let _ = MCP_CLIENT.set(info.clone());
+    }
+}
+
+/// The `clientInfo` [`note_mcp_client`] kept, if any.
+pub fn mcp_client() -> Option<&'static Value> {
+    MCP_CLIENT.get()
+}
+
+/// A server env key: `1` when the harness already has the server's instructions in its system
+/// prompt (a Claude Code chat acpmux starts, `agent_tools::AgentTools::instructions_in_prompt`).
+/// `initialize` then gives none, so the chat never reads them twice: Claude Code puts MCP
+/// instructions after its last cached system block, so each new chat wrote them to the prompt
+/// cache again, while the appended system prompt is the prefix every chat shares.
+pub const INSTRUCTIONS_IN_PROMPT_ENV: &str = "ACPMUX_MCP_INSTRUCTIONS_IN_PROMPT";
+
+/// The instructions server `name` of [`SERVERS`] gives at `initialize` with the env
+/// [`crate::tool_env`] reads (the acpmux server's depend on its tool allowlist), whatever
+/// [`INSTRUCTIONS_IN_PROMPT_ENV`] says. None for a server without any, or not one of these.
+pub(crate) fn instructions_of(name: &str) -> Option<String> {
+    match name {
+        crate::offer_mcp::SERVER_NAME => Some(crate::offer_mcp::INSTRUCTIONS.to_owned()),
+        crate::subsession_mcp::SERVER_NAME => Some(crate::subsession_mcp::instructions()),
+        crate::acpmux_mcp_names::SERVER_NAME => crate::acpmux_mcp::env_instructions(),
+        _ => None,
+    }
+}
 
 /// Whether server `name` run as `args` is one of [`SERVERS`] as acpmux runs it: its own
 /// command word last.
@@ -54,6 +95,14 @@ pub fn owns(name: &str, args: &[String]) -> bool {
 pub(crate) type CallFuture = Pin<Box<dyn Future<Output = Value> + Send>>;
 /// A server's `tools/call`: `call(session, params)`.
 pub(crate) type Call = Arc<dyn Fn(String, Value) -> CallFuture + Send + Sync>;
+/// A server's own reading of `initialize`'s params: the instructions it answers with.
+pub(crate) type OnInitialize = Arc<dyn Fn(&Value) -> Option<String> + Send + Sync>;
+/// A server's `tools/list` when it depends on what `initialize` said.
+pub(crate) type List = Arc<dyn Fn() -> Value + Send + Sync>;
+pub(crate) type HandleFuture = Pin<Box<dyn Future<Output = Option<Value>> + Send>>;
+/// A server that answers every request itself (a bridge to a remote MCP server: its tools are
+/// the remote's): the JSON-RPC reply to the message, without [`SERVER_META`] in its params.
+pub(crate) type Handle = Arc<dyn Fn(Value) -> HandleFuture + Send + Sync>;
 
 /// One server a process answers for.
 pub(crate) struct Served {
@@ -64,6 +113,13 @@ pub(crate) struct Served {
     /// The MCP `instructions` it gives at `initialize`.
     pub instructions: Option<String>,
     pub call: Call,
+    /// Reads `initialize` itself (Computer Use: its client's name); its answer replaces
+    /// `instructions`.
+    pub on_initialize: Option<OnInitialize>,
+    /// Its `tools/list` instead of `tools`.
+    pub list: Option<List>,
+    /// Answers `initialize`, `tools/list` and `tools/call` itself, instead of the fields above.
+    pub handle: Option<Handle>,
 }
 
 /// `call` as a [`Call`]. It is only ever called to make its future, under a lock, so it need
@@ -126,12 +182,15 @@ impl Daemon {
 }
 
 /// The makers of [`SERVERS`], in its order.
-pub(crate) const MAKERS: [fn(&Arc<Daemon>) -> Result<Served>; 5] = [
+pub(crate) const MAKERS: [fn(&Arc<Daemon>) -> Result<Served>; 8] = [
     crate::secret_mcp::served,
     crate::offer_mcp::served,
     crate::subsession_mcp::served,
     crate::forum_mcp::served,
     crate::acpmux_mcp::served,
+    crate::computer_use::served::served,
+    crate::hosted_mcp::served,
+    crate::cloud_repo_mcp::served,
 ];
 
 /// Every server of [`SERVERS`] whose session the env ([`crate::tool_env`]) names, on `daemon`.
@@ -162,6 +221,9 @@ where
 {
     let session =
         crate::tool_env::var(session_env).ok_or_else(|| anyhow!("{session_env} is not set"))?;
+    // Already in the harness's system prompt: said once ([`INSTRUCTIONS_IN_PROMPT_ENV`]).
+    let instructions = instructions
+        .filter(|_| crate::tool_env::var(INSTRUCTIONS_IN_PROMPT_ENV).as_deref() != Some("1"));
     let daemon = daemon.clone();
     let call = boxed(move |session, params| {
         let (daemon, call) = (daemon.clone(), call.clone());
@@ -172,7 +234,16 @@ where
             }
         }
     });
-    Ok(Served { name, session, tools, instructions, call })
+    Ok(Served {
+        name,
+        session,
+        tools,
+        instructions,
+        call,
+        on_initialize: None,
+        list: None,
+        handle: None,
+    })
 }
 
 /// The one server `served` makes, on stdin and stdout with a daemon connection of its own.
@@ -232,7 +303,7 @@ pub(crate) async fn serve(servers: Vec<Served>) -> Result<()> {
             && message.get("method").and_then(Value::as_str) == Some("initialize")
         {
             // One client per server process (the daemon's gateway notes none).
-            crate::sender_harness::note_mcp_client(message.get("params").unwrap_or(&Value::Null));
+            note_mcp_client(message.get("params").unwrap_or(&Value::Null));
         }
         match answer(&servers, &message) {
             Answer::None => {}
@@ -253,6 +324,8 @@ pub(crate) async fn serve(servers: Vec<Served>) -> Result<()> {
     drop(tx);
     // Every task stops at the cancellation (`spawn_until_cancelled`): none is left to report.
     let _ = tasks.close(std::time::Duration::ZERO).await;
+    // Its chat's Computer Use session ends with it, as the stdio bridge's did.
+    crate::computer_use::served::end_all();
     ended
 }
 
@@ -286,6 +359,17 @@ pub(crate) fn answer(servers: &[Served], message: &Value) -> Answer {
         Ok(served) => served,
         Err(text) => return error(-32602, text),
     };
+    if let Some(handle) = &served.handle {
+        let mut message = message.clone();
+        message.set("params", params);
+        let reply = handle(message);
+        return Answer::Call(Box::pin(async move {
+            reply.await.unwrap_or_else(|| {
+                let text = "the server sent no answer";
+                json!({"jsonrpc": "2.0", "id": id, "error": {"code": -32603, "message": text}})
+            })
+        }));
+    }
     match verb {
         "initialize" => {
             let mut reply = json!({
@@ -293,12 +377,19 @@ pub(crate) fn answer(servers: &[Served], message: &Value) -> Answer {
                 "capabilities": {"tools": {}},
                 "serverInfo": {"name": served.name, "version": env!("CARGO_PKG_VERSION")},
             });
-            if let Some(text) = &served.instructions {
+            let instructions = match &served.on_initialize {
+                Some(read) => read(&params),
+                None => served.instructions.clone(),
+            };
+            if let Some(text) = &instructions {
                 reply.set("instructions", json!(text));
             }
             Answer::Now(response(&id, reply))
         }
-        "tools/list" => Answer::Now(response(&id, json!({"tools": served.tools}))),
+        "tools/list" => {
+            let tools = served.list.as_ref().map_or_else(|| served.tools.clone(), |list| list());
+            Answer::Now(response(&id, json!({"tools": tools})))
+        }
         _ => {
             // An argument under another name than the schema's (`session` for `name`) is
             // read as the schema's, and the result says so (`mcp_args.rs`).
@@ -318,45 +409,5 @@ fn response(id: &Value, result: Value) -> Value {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn server(name: &'static str) -> Served {
-        Served {
-            name,
-            session: "s".into(),
-            tools: json!([]),
-            instructions: None,
-            call: boxed(|_, _| async { json!({}) }),
-        }
-    }
-
-    #[test]
-    fn a_request_names_its_server_and_the_call_keeps_the_rest_of_its_meta() {
-        let servers = [server("cmux-forum"), server("acpmux")];
-        let mut params =
-            json!({"name": "ls", "_meta": {SERVER_META: "acpmux", "claudecode/toolUseId": "t1"}});
-        assert_eq!(pick(&servers, &mut params).unwrap().name, "acpmux");
-        assert_eq!(params, json!({"name": "ls", "_meta": {"claudecode/toolUseId": "t1"}}));
-        // Only the selector in `_meta`: the call sees no `_meta`, as before.
-        let mut params = json!({"name": "rules", "_meta": {SERVER_META: "cmux-forum"}});
-        assert_eq!(pick(&servers, &mut params).unwrap().name, "cmux-forum");
-        assert_eq!(params, json!({"name": "rules"}));
-        // Several servers and none named, or one it does not serve: refused, never guessed.
-        assert!(pick(&servers, &mut json!({"name": "ls"})).is_err());
-        assert!(pick(&servers, &mut json!({"_meta": {SERVER_META: "cmux-secrets"}})).is_err());
-        // A process of one server needs no name.
-        let one = [server("cmux-forum")];
-        assert_eq!(pick(&one, &mut json!({})).unwrap().name, "cmux-forum");
-    }
-
-    #[test]
-    fn it_owns_only_acpmux_s_own_server_commands() {
-        let args = |words: &[&str]| words.iter().map(|w| w.to_string()).collect::<Vec<_>>();
-        assert!(owns("cmux-forum", &args(&["forum-mcp"])));
-        assert!(owns("acpmux", &args(&["acp", "acpmux-mcp"])));
-        assert!(!owns("cmux-forum", &args(&["acpmux-mcp"])));
-        assert!(!owns("cmux-repo", &args(&["repo-mcp"])));
-        assert!(!owns("cmux-cua", &args(&["cua-mcp"])));
-    }
-}
+#[path = "tools_mcp_tests.rs"]
+mod tests;

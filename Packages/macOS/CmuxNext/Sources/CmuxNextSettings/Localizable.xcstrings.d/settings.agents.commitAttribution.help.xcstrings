@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.agents.commitAttribution.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove leaves Claude Code’s co-author line and footer off commits and pull requests. Codex has no such setting."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«إزالة» يحذف سطر المؤلف المشارك والتذييل من التزامات Claude Code وطلبات الدمج. لا يملك Codex إعدادًا كهذا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ukloni izostavlja Claude Codeov red koautora i podnožje iz commita i pull requestova. Codex nema takvu postavku."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fjern udelader Claude Codes medforfatterlinje og sidefod i commits og pull requests. Codex har ingen sådan indstilling."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "„Entfernen“ lässt die Co-Autor-Zeile und Fußzeile von Claude Code in Commits und Pull Requests weg. Codex hat keine solche Einstellung."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Quitar» omite la línea de coautor y el pie de Claude Code en commits y pull requests. Codex no tiene este ajuste."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "« Retirer » omet la ligne de coauteur et le pied de Claude Code dans les commits et pull requests. Codex n’a pas ce réglage."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Rimuovi» omette la riga di coautore e il piè di pagina di Claude Code da commit e pull request. Codex non ha questa impostazione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「削除」はコミットとプルリクエストから Claude Code の共同作成者行とフッターを省きます。Codex にはこの設定はありません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«លុប» ទុកបន្ទាត់សហអ្នកនិពន្ធ និងបាតកថា Claude Code ចេញពី commit និង pull request។ Codex គ្មានការកំណត់បែបនេះទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "제거를 고르면 커밋과 풀 리퀘스트에 Claude Code의 공동 작성자 줄과 꼬리말이 붙지 않습니다. Codex에는 이 설정이 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Fjern utelater Claude Codes medforfatterlinje og bunntekst i commits og pull requests. Codex har ingen slik innstilling."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Usuń pomija wiersz współautora i stopkę Claude Code w commitach i pull requestach. Codex nie ma takiego ustawienia."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Remover deixa a linha de coautor e o rodapé do Claude Code fora de commits e pull requests. O Codex não tem essa configuração."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Убрать» не добавляет строку соавтора и подпись Claude Code в коммиты и pull request. У Codex такой настройки нет."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«ลบ» ไม่ใส่บรรทัดผู้เขียนร่วมและท้ายข้อความของ Claude Code ในคอมมิตและ pull request ส่วน Codex ไม่มีการตั้งค่านี้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kaldır, Claude Code’un ortak yazar satırını ve alt bilgisini commit ve pull request’lerden çıkarır. Codex’te böyle bir ayar yok."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Прибрати» не додає рядок співавтора і підпис Claude Code до комітів і pull request. У Codex такого налаштування немає."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Xóa bỏ dòng đồng tác giả và phần chân của Claude Code khỏi commit và pull request. Codex không có cài đặt này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“移除”会让提交和拉取请求不带 Claude Code 的合著者行和页脚。Codex 没有此设置。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「移除」會讓提交和拉取請求不帶 Claude Code 的共同作者行和頁尾。Codex 沒有此設定。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

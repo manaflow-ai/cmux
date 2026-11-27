@@ -79,17 +79,17 @@ struct WebSwapGateTests {
     }
 
     @Test func aCheckIsBookedItsIntervalAfterTheLastOne() {
-        // In the front a minute after the last; behind other apps two minutes after it.
+        // A minute after the last, in the front and behind other apps alike.
         #expect(WebUpdater.delay(after: 20, interval: .seconds(60)) == .seconds(40))
-        #expect(WebUpdater.delay(after: 20, interval: WebUpdater.defaultBackgroundInterval) == .seconds(100))
+        #expect(WebUpdater.delay(after: 20, interval: WebUpdater.defaultBackgroundInterval) == .seconds(40))
         // Overdue: now, never a negative wait.
         #expect(WebUpdater.delay(after: 900, interval: .seconds(600)) == .zero)
     }
 
-    @Test func aBackgroundedAppChecksOftenEnoughToSwapAMergeWithinFiveMinutes() {
-        // Merge to signed pointer takes about two minutes; the background check must leave room
-        // for the download and the grace before the swap.
-        #expect(WebUpdater.defaultBackgroundInterval == .seconds(120))
+    @Test func aBackgroundedAppReadsThePointerEveryMinuteLikeAFrontOne() {
+        // A published update is picked up within about a minute whether cmux is in the front or
+        // behind other apps (Leo, 2026-11-22: "this should've been fast").
+        #expect(WebUpdater.defaultBackgroundInterval == .seconds(60))
     }
 }
 

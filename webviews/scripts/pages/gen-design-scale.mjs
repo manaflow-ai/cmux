@@ -7,6 +7,9 @@
 //   text-body, bg-hover, shadow-elevation-2 and duration-quick resolve to our tokens;
 // - src/ui/designTokens.generated.ts: the same list for the gallery's token sheet.
 //
+// The design-scale block also carries tier 2, the roles (schemas/design-roles: --role-*), each field
+// an expression over tier 1 written as calc() over the --ds-* variables.
+//
 // The last two are build output, ignored by git like the pages' strings tables: every run of
 // gen-strings.mjs (install, the webview and bundle builds, the gallery) writes them, and
 // test/preload.ts writes them before any test reads them.
@@ -21,6 +24,7 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.
 const SOURCE = "schemas/design-scale/design-scale.json";
 const TYPE_SOURCE = "schemas/type-scale/type-scale.json";
 const MOTION_SOURCE = "schemas/motion-scale/motion-scale.json";
+const ROLES_SOURCE = "schemas/design-roles/design-roles.json";
 export const CSS_FILE = "webviews/src/pages/shared/desktop.css";
 export const THEME_FILE = "webviews/src/ui/theme.generated.css";
 export const TS_FILE = "webviews/src/ui/designTokens.generated.ts";
@@ -71,6 +75,18 @@ function load() {
     "the content surface is near-solid, never opaque, and no denser in dark",
   );
   assert(data.glassUnderlay.value > 0 && data.glassUnderlay.value <= 50, "the see-through underlay stays light");
+  {
+    // A menu covers the same share of the text under it in light and dark (design/glass-system.md,
+    // rule 6): the dark underlay makes up for the menu's clearer dark tint, and no more.
+    const menu = data.glass.find((level) => level.name === "menu");
+    const cover = (tint, underlay) => tint + ((100 - tint) * underlay) / 100;
+    const light = cover(menu.tint, data.glassUnderlay.value);
+    const dark = cover(menu.darkTint ?? menu.tint, data.glassUnderlay.darkValue);
+    assert(
+      data.glassUnderlay.darkValue >= data.glassUnderlay.value && Math.abs(dark - light) < 1 && dark < 90,
+      `the menu covers the same share of the text under it in dark (${dark.toFixed(1)}%) as in light (${light.toFixed(1)}%), never opaque`,
+    );
+  }
   assert(
     data.glassInk.secondary >= 50 &&
       data.glassInk.darkSecondary >= data.glassInk.secondary &&
@@ -83,6 +99,14 @@ function load() {
       data.glassInk.darkStatus >= 40 &&
       data.glassInk.darkStatus <= data.glassInk.status,
     "a status word on glass keeps most of its hue, and no more hue in dark (dark glass passes more of a white page)",
+  );
+  assert(
+    data.glassInk.chipStatus > 0 && data.glassInk.chipStatus <= data.glassInk.darkStatus,
+    "a status word in a tooltip keeps less hue than on other glass (the host fits the tooltip's tint to the text at 4.5:1)",
+  );
+  assert(
+    data.glassInk.keycap > data.glassInk.darkSecondary && data.glassInk.keycap < 100,
+    "a tooltip's shortcut hint sits between the secondary ink and the text",
   );
   const levels = data.glass.filter((level) => level.kind === "level").map((level) => level.name);
   assert(
@@ -121,7 +145,161 @@ function load() {
         );
   for (const color of data.colors)
     assert(color.var.startsWith("--cmux-") && !color.var.includes("#"), `colour ${color.name} names a host variable`);
-  return { data, type: read(TYPE_SOURCE), motion: read(MOTION_SOURCE) };
+  const type = read(TYPE_SOURCE);
+  return { data, type, motion: read(MOTION_SOURCE), roles: loadRoles(data, type) };
+}
+
+// Tier 2 (schemas/design-roles): each role's fields, `like` another role's with its own on top
+// (null drops one), each an expression over tier 1 resolved twice: to pixels at the default scale,
+// for the asserts and the token sheet, and to CSS over the --ds-* variables, so whatever moves a
+// tier-1 variable (Settings' page density, the host's button corner) moves the role with it.
+const ROLE_FIELDS = ["height", "inset", "minHeight", "radius"];
+const kebab = (name) => name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+const roleVar = (role, field) => `--role-${role}-${kebab(field)}`;
+
+function loadRoles(data, type) {
+  const source = read(ROLES_SOURCE).roles;
+  const byName = new Map();
+  for (const role of source) {
+    assert(!byName.has(role.name), `role ${role.name} is named once`);
+    const parent = role.like === undefined ? {} : byName.get(role.like)?.fields;
+    assert(parent, `role ${role.name} is like ${role.like}, a role above it`);
+    const fields = { ...parent };
+    for (const field of ROLE_FIELDS) if (field in role) fields[field] = role[field];
+    for (const field of Object.keys(fields)) if (fields[field] === null) delete fields[field];
+    byName.set(role.name, { name: role.name, for: role.for, like: role.like, fields });
+  }
+  const tier1 = (ref) => {
+    const [group, name, part] = ref.split(".");
+    const found = (list, key = "name") => list.find((entry) => String(entry[key]) === name);
+    if (group === "space" && found(data.spacing.steps))
+      return { css: `var(--ds-space-${name})`, px: found(data.spacing.steps).px };
+    if (group === "control" && found(data.controls))
+      return { css: `var(--ds-control-${name})`, px: found(data.controls).px };
+    if (group === "radius") {
+      const radius = found([...data.radii, ...data.namedRadii]);
+      // A radius the host sets (radius.control) resolves to its fallback.
+      const px = radius?.px ?? Number(radius?.var?.match(/,\s*([\d.]+)px\)$/)?.[1] ?? Number.NaN);
+      if (radius && Number.isFinite(px)) return { css: `var(--ds-radius-${name})`, px };
+    }
+    if (group === "text" && part === "lineHeight" && found(type.steps))
+      return { css: `var(--text-${name}--line-height)`, px: found(type.steps).lineHeight };
+    return null;
+  };
+  const resolved = new Map();
+  const resolve = (roleName, field, stack = []) => {
+    const key = `${roleName}.${field}`;
+    if (resolved.has(key)) return resolved.get(key);
+    assert(!stack.includes(key), `role field ${key} refers to itself through ${stack.join(", ")}`);
+    const role = byName.get(roleName);
+    const text = role?.fields[field];
+    assert(typeof text === "string", `role ${roleName} has no ${field}`);
+    const ref = (name) => {
+      const [head, tail] = name.split(".");
+      const owner = head === "self" ? roleName : head;
+      if (byName.has(owner) && ROLE_FIELDS.includes(tail) && name.split(".").length === 2) {
+        resolve(owner, tail, [...stack, key]);
+        return { css: `var(${roleVar(owner, tail)})`, px: resolved.get(`${owner}.${tail}`).px, length: true };
+      }
+      const value = tier1(name);
+      assert(value, `role ${key} names ${name}, which is neither a role field nor a tier-1 step`);
+      return { ...value, length: true };
+    };
+    const value = parseRoleExpression(text, ref, key);
+    assert(value.length, `role ${key} is a length`);
+    const css = /^(var|min|max|round)\(/.test(value.css) && value.top ? value.css : `calc(${value.css})`;
+    resolved.set(key, { css, px: value.px });
+    return resolved.get(key);
+  };
+  const roles = [...byName.values()].map((role) => ({
+    ...role,
+    values: Object.keys(role.fields)
+      .sort((a, b) => ROLE_FIELDS.indexOf(a) - ROLE_FIELDS.indexOf(b))
+      .map((field) => ({ field, variable: roleVar(role.name, field), ...resolve(role.name, field) })),
+  }));
+  for (const role of roles) {
+    const value = (field) => role.values.find((entry) => entry.field === field)?.px;
+    for (const field of ["radius", "inset"])
+      if (value(field) !== undefined)
+        assert(Number.isInteger(value(field) / 4), `role ${role.name}'s ${field} is on the 4 grid`);
+    if (value("radius") !== undefined && value("minHeight") !== undefined)
+      assert(
+        value("radius") * 2 < value("minHeight"),
+        `role ${role.name} is never a capsule: its corner is under half its shortest height`,
+      );
+  }
+  return roles;
+}
+
+// A role expression: numbers, tier-1 and role names, + - * /, parentheses, min(), max() and floor4().
+function parseRoleExpression(text, ref, where) {
+  const tokens = text.match(/\d+(?:\.\d+)?|[A-Za-z_][\w.]*|[-+*/(),]|\S/g) ?? [];
+  let at = 0;
+  const peek = () => tokens[at];
+  const take = (want) => {
+    const token = tokens[at++];
+    assert(want === undefined || token === want, `role ${where}: expected ${want} in "${text}"`);
+    return token;
+  };
+  // Each value: its CSS (bare, valid inside calc() or a math function), its pixels, and whether it is
+  // a length (a bare number scales one) or a single term (needs no parentheses as an operand).
+  const binary = (a, op, b) => {
+    if (op === "+" || op === "-") assert(a.length && b.length, `role ${where}: ${op} joins two lengths in "${text}"`);
+    if (op === "*") assert(!(a.length && b.length), `role ${where}: * scales a length by a number`);
+    if (op === "/") assert(!b.length, `role ${where}: / divides by a number`);
+    const wrap = (v) => (v.single ? v.css : `(${v.css})`);
+    const px = { "+": a.px + b.px, "-": a.px - b.px, "*": a.px * b.px, "/": a.px / b.px }[op];
+    return { css: `${wrap(a)} ${op} ${wrap(b)}`, px, length: a.length || b.length, single: false };
+  };
+  const factor = () => {
+    const token = take();
+    if (token === "(") {
+      const inner = sum();
+      take(")");
+      return { ...inner, css: `(${inner.css})`, single: true };
+    }
+    if (/^\d/.test(token)) return { css: token, px: Number(token), length: false, single: true };
+    if (["min", "max", "floor4"].includes(token)) {
+      take("(");
+      const args = [sum()];
+      while (peek() === ",") {
+        take(",");
+        args.push(sum());
+      }
+      take(")");
+      assert(
+        args.every((arg) => arg.length),
+        `role ${where}: ${token}() takes lengths`,
+      );
+      if (token === "floor4") {
+        assert(args.length === 1, `role ${where}: floor4() takes one length`);
+        return {
+          css: `round(down, ${args[0].css}, 4px)`,
+          px: Math.floor(args[0].px / 4) * 4,
+          length: true,
+          single: true,
+          top: true,
+        };
+      }
+      const px = Math[token](...args.map((arg) => arg.px));
+      return { css: `${token}(${args.map((arg) => arg.css).join(", ")})`, px, length: true, single: true, top: true };
+    }
+    assert(/^[A-Za-z_]/.test(token ?? ""), `role ${where}: unexpected "${token}" in "${text}"`);
+    return { ...ref(token), single: true, top: true };
+  };
+  const product = () => {
+    let value = factor();
+    while (peek() === "*" || peek() === "/") value = binary(value, take(), factor());
+    return value;
+  };
+  const sum = () => {
+    let value = product();
+    while (peek() === "+" || peek() === "-") value = binary(value, take(), product());
+    return value;
+  };
+  const value = sum();
+  assert(at === tokens.length, `role ${where}: trailing "${tokens.slice(at).join(" ")}" in "${text}"`);
+  return value;
 }
 
 const px = (value) => `${value}px`;
@@ -163,7 +341,17 @@ const colorValue = (color) =>
   `var(${color.var}, ${color.app ? `var(${color.app}, ${color.fallback})` : color.fallback})`;
 const shadow = (entry, mode) => `${entry.geometry} color-mix(in srgb, black ${entry[mode]}%, transparent)`;
 
-function cssBlock(data) {
+function rolesBlock(roles) {
+  const out = [`/* roles (tier 2), from ${ROLES_SOURCE}: a component reads these, not --ds-* */`, ":root {"];
+  for (const role of roles) {
+    out.push(`  /* ${role.name}${role.like ? ` (like ${role.like})` : ""}: ${role.for} */`);
+    for (const value of role.values) out.push(`  ${value.variable}: ${value.css}; /* ${value.px}px */`);
+  }
+  out.push("}");
+  return out;
+}
+
+function cssBlock(data, roles) {
   const out = [BEGIN, ":root {"];
   for (const step of data.spacing.steps) out.push(`  --ds-space-${step.name}: ${px(step.px)};`);
   for (const size of data.spacing.layout) out.push(`  --ds-space-${size}: ${px(size)}; /* layout gap */`);
@@ -193,6 +381,8 @@ function cssBlock(data) {
   out.push(`  /* glass ink: ${data.glassInk.for} */`);
   out.push(`  --ds-glass-ink-secondary: ${data.glassInk.secondary}%;`);
   out.push(`  --ds-glass-ink-status: ${data.glassInk.status}%;`);
+  out.push(`  --ds-glass-ink-chip-status: ${data.glassInk.chipStatus}%;`);
+  out.push(`  --ds-glass-ink-keycap: ${data.glassInk.keycap}%;`);
   out.push(`  /* glass underlay: ${data.glassUnderlay.for} */`);
   out.push(`  --ds-glass-underlay: ${data.glassUnderlay.value}%;`);
   out.push(`  /* glass material: ${data.glassMaterial.for} */`);
@@ -248,6 +438,7 @@ function cssBlock(data) {
     `    --ds-glass-content-tint: ${data.glassContent.darkTint}%;`,
     `    --ds-glass-ink-secondary: ${data.glassInk.darkSecondary}%;`,
     `    --ds-glass-ink-status: ${data.glassInk.darkStatus}%;`,
+    `    --ds-glass-underlay: ${data.glassUnderlay.darkValue}%;`,
   ];
   out.push("@media (prefers-color-scheme: dark) {", '  :root:not([data-theme="light"]) {', ...dark, "  }", "}");
   out.push(':root[data-theme="dark"] {', ...dark.map((line) => line.slice(2)), "}");
@@ -263,15 +454,17 @@ function cssBlock(data) {
     "  }",
     "}",
   );
-  out.push(":root[data-reduce-transparency] {", ...still, "}", END);
+  // The host's Reduce Transparency, and Liquid Glass off (appearance.liquidGlass, data-glass="off").
+  out.push(':root:is([data-reduce-transparency], [data-glass="off"]) {', ...still, "}");
+  out.push(...rolesBlock(roles), END);
   return out.join("\n");
 }
 
-function css(current, data) {
+function css(current, data, roles) {
   const start = current.indexOf(BEGIN);
   const end = current.indexOf(END);
   assert(start >= 0 && end > start, `${CSS_FILE} has no design-scale block`);
-  return current.slice(0, start) + cssBlock(data) + current.slice(end + END.length);
+  return current.slice(0, start) + cssBlock(data, roles) + current.slice(end + END.length);
 }
 
 function theme(data, type, motion) {
@@ -288,7 +481,8 @@ function theme(data, type, motion) {
   for (const control of data.controls)
     out.push(`  --spacing-control-${control.name}: var(--ds-control-${control.name});`);
   for (const icon of data.icons) out.push(`  --spacing-icon-${icon.name}: var(--ds-icon-${icon.name});`);
-  for (const radius of [...data.radii, ...data.namedRadii])
+  // A radius marked `"tailwind": false` (full) leaves Tailwind's own utility of that name as it is.
+  for (const radius of [...data.radii, ...data.namedRadii].filter((entry) => entry.tailwind !== false))
     out.push(`  --radius-${radius.name}: var(--ds-radius-${radius.name});`);
   for (const step of [...type.steps.map((entry) => entry.name), ...TYPE_ALIASES]) {
     out.push(
@@ -308,7 +502,7 @@ function theme(data, type, motion) {
   return `${out.join("\n")}\n`;
 }
 
-function ts(data, type, motion) {
+function ts(data, type, motion, roles) {
   const rows = (list) => list.map((row) => `  ${JSON.stringify(row)},`).join("\n");
   const sections = [
     [
@@ -389,6 +583,19 @@ function ts(data, type, motion) {
       })),
     ],
     [
+      "ROLES",
+      "Roles (tier 2, schemas/design-roles): each field's variable and its pixels at the default scale.",
+      roles.flatMap((role) =>
+        role.values.map((value) => ({
+          role: role.name,
+          field: value.field,
+          variable: value.variable,
+          px: value.px,
+          for: role.for,
+        })),
+      ),
+    ],
+    [
       "MOTION",
       "The motion scale (schemas/motion-scale).",
       motion.steps.map((s) => ({ name: s.name, variable: `--cmux-motion-${s.name}`, ms: s.ms, for: s.for })),
@@ -398,7 +605,7 @@ function ts(data, type, motion) {
     .map(([name, doc, list]) => `/** ${doc} */\nexport const ${name} = [\n${rows(list)}\n] as const;`)
     .join("\n\n");
   return (
-    `// GENERATED by webviews/scripts/pages/gen-design-scale.mjs from ${SOURCE},\n// ${TYPE_SOURCE} and ${MOTION_SOURCE}. Do not edit; edit the JSON.\n\n${body}\n\n` +
+    `// GENERATED by webviews/scripts/pages/gen-design-scale.mjs from ${SOURCE},\n// ${TYPE_SOURCE}, ${MOTION_SOURCE} and ${ROLES_SOURCE}. Do not edit; edit the JSON.\n\n${body}\n\n` +
     '/** The one ease-out every arrival uses (the Tailwind ease). */\nexport const EASE_STANDARD = "var(--cmux-ease-out)";\n'
   );
 }
@@ -406,10 +613,10 @@ function ts(data, type, motion) {
 /** Writes the three copies. With `check`, writes the two build outputs only and returns true when
  * desktop.css's block (the copy in git) differs from the schemas. */
 export function writeDesignScale({ check = false, log = console.log } = {}) {
-  const { data, type, motion } = load();
+  const { data, type, motion, roles } = load();
   const cssPath = path.join(repo, CSS_FILE);
   const current = fs.readFileSync(cssPath, "utf8");
-  const wanted = css(current, data);
+  const wanted = css(current, data, roles);
   let drifted = false;
   if (wanted !== current) {
     if (check) {
@@ -422,7 +629,7 @@ export function writeDesignScale({ check = false, log = console.log } = {}) {
   }
   for (const [file, text] of [
     [THEME_FILE, theme(data, type, motion)],
-    [TS_FILE, ts(data, type, motion)],
+    [TS_FILE, ts(data, type, motion, roles)],
   ]) {
     const full = path.join(repo, file);
     if (fs.existsSync(full) && fs.readFileSync(full, "utf8") === text) continue;

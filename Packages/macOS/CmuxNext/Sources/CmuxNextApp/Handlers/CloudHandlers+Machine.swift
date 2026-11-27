@@ -80,6 +80,7 @@ extension CloudHandlers {
         bind("cloudExec", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             let command = try rules.text("command", invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             // A CLI or agent run gets the command's exit code and output: it runs through the
             // Cloud API's exec and opens no tab (the CLI cannot read a tab on the machine's
             // daemon); a machine without API exec refuses it. A person's run types it into a new tab.
@@ -121,16 +122,19 @@ extension CloudHandlers {
         bind("cloudFileWrite", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
             let contents = try rules.text("contents", invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             runTracked("write Cloud file", context) {
                 try await cloud.machineAPI.writeFile(session.machineID, path: path, data: Data(contents.utf8))
             }
         }
         bind("cloudFileMkdir", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             runTracked("create Cloud directory", context) { try await cloud.machineAPI.makeDirectory(session.machineID, path: path) }
         }
         bind("cloudFileRemove", registry, reason: reason) { invocation in
             let session = try machine(invocation, context), path = try filePath(invocation)
+            if let held = cloud.computerControl.heldRefusal(invocation, machine: session.machineID) { throw ActionFailure(message: held) }
             runTracked("remove Cloud file", context) { try await cloud.machineAPI.removeFile(session.machineID, path: path) }
         }
         bind("cloudFileStat", registry, reason: reason) { invocation in
@@ -191,16 +195,18 @@ extension CloudHandlers {
                 return deletionPending(session.machineID)
             }
         }
+        // The run waits for the server (the catalog's `waits_for_result`), and one that outlasts
+        // ``machineAnswerWait`` answers `pending` while the pause or resume goes on.
         bind("cloudPauseMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            result("pause machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID)) {
+            result("pause machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID, ["status": .string("pausing")])) {
                 try await cloud.pauseMachine(session.machineID)
                 return machineFields(session.machineID, ["status": .string("paused")])
             }
         }
         bind("cloudResumeMachine", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
-            result("resume machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID)) {
+            result("resume machine", context, pendingAfter: machineAnswerWait, pending: machineFields(session.machineID, ["status": .string("starting")])) {
                 try await cloud.resumeMachine(session.machineID)
                 return machineFields(session.machineID, ["status": .string("running")])
             }
@@ -520,7 +526,7 @@ extension CloudHandlers {
 
     /// A sealed delivery's failure as its fixed code: the machine's refusal (`bad-name`, `replay`, `busy`)
     /// or the step that failed. Never a value or a machine's own text.
-    static func sealedReason(_ answer: CloudAPIClient.SealedDelivery) -> String {
+    static func sealedReason(_ answer: CloudDaemon.SealedDelivery) -> String {
         switch answer {
         case .wrote: "unexpected"
         case .failed(let code, let refusal, _): refusal ?? code
@@ -550,7 +556,7 @@ extension CloudHandlers {
         CloudHandlerRules().machineFields(machineID, extra)
     }
 
-    /// How long a CLI or agent fork, restore, resize or kill waits for the
+    /// How long a CLI or agent fork, restore, resize, kill, pause or resume waits for the
     /// server before it answers `pending`: inside `action.run`'s 40 s result
     /// deadline. The work finishes either way.
     static let machineAnswerWait: Duration = .seconds(30)

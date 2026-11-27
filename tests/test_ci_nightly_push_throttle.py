@@ -466,12 +466,14 @@ def test_next_decide_checks_out_only_its_executable_dependencies() -> None:
         assert checkout["with"]["persist-credentials"] is False
         assert steps.index(checkout) < next(i for i, step in enumerate(steps) if step.get("id") == "decide")
 
-    # Execute from precisely the declared files, without the full checkout on
-    # sys.path. Import-time dependencies must work even when no job is placed.
+    # Execute from precisely the declared files, without the full checkout on sys.path.
     paths = sparse["with"]["sparse-checkout"].split()
-    # The pickers read the declared runner set (.github/runners.json, #30173) as data.
-    assert all(path.startswith("/scripts/ci/") and path.endswith(".py")
-               or path == "/.github/runners.json" for path in paths)
+    # /.gitmodules: actions/checkout's submodule foreach reads it (test_sparse_checkout_keeps_gitmodules.py).
+    # The shadow app-input digest step runs decide-shadow-app-input-digest.sh, which bounds
+    # scripts/ci/app_input_digest.py (stdlib only) through scripts/ci/timeout.sh.
+    assert paths == ["/scripts/ci/nightly-publication-marker.py", "/scripts/ci/app_input_digest.py",
+                     "/scripts/ci/nightly-steps/decide-shadow-app-input-digest.sh", "/scripts/ci/timeout.sh",
+                     "/.gitmodules"]
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         for path in paths:
@@ -485,11 +487,6 @@ def test_next_decide_checks_out_only_its_executable_dependencies() -> None:
             capture_output=True, check=True,
         )
         assert marker.stdout.strip() == HEAD_SHA
-        placement = subprocess.run(
-            [sys.executable, "scripts/ci/portable_job_placement.py"],
-            cwd=root, env={"JOBS": ""}, text=True, capture_output=True, check=True,
-        )
-        assert "portable placement:" in placement.stdout
 
 
 def test_a_failing_classifier_builds() -> None:

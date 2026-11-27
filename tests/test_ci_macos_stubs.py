@@ -170,6 +170,23 @@ class WeakenTests(unittest.TestCase):
             weaken.weaken(data)
 
 
+class CommittedStubs(unittest.TestCase):
+    """The stubs under scripts/ci/macos-stubs as the Linux link reads them."""
+
+    def test_every_version_fits_the_packed_mach_o_form(self) -> None:
+        # A dylib version packs as X.Y.Z in 16.8.8 bits: ld64.lld refuses the whole stub
+        # ("malformed file") when Y or Z is over 255, and every symbol in it goes undefined.
+        for path in sorted((ROOT / "scripts/ci/macos-stubs").glob("*.tbd")):
+            text = path.read_text()
+            for key in ("current-version", "compatibility-version"):
+                with self.subTest(stub=path.name, key=key):
+                    value = re.search(rf"^{key}:\s*(\S+)$", text, re.M).group(1)
+                    parts = [int(part) for part in value.split(".")]
+                    self.assertLessEqual(len(parts), 3, value)
+                    self.assertLessEqual(parts[0], 0xFFFF, value)
+                    self.assertTrue(all(part <= 0xFF for part in parts[1:]), value)
+
+
 # Imports a dependency in cmux-tui/Cargo.lock adds to the cross-linked daemons, as soon as any code calls into it.
 # The stubs come from Mac-built binaries, so a call added later (acpmux ps's chrono::Local, #49166) fails the Linux
 # link ("undefined symbol: CFTimeZoneCopySystem") before a regenerate; listing them here catches it in this test.
@@ -190,6 +207,63 @@ class LockedCrateImportTests(unittest.TestCase):
             held = set(re.findall(r"'(_[A-Za-z0-9_$]+)'", stub))
             missing += [f"{framework}.tbd lacks {symbol} ({crate})" for symbol in symbols if symbol not in held]
         self.assertEqual(missing, [])
+
+
+# cmux-tui's own `#[link(name = "X", kind = "framework")] extern` blocks: every name declared there must be in
+# X.tbd when we stub X. The stubs come from older Mac-built binaries, so a new declaration (kSecGuestAttributePid in
+# cmux-rd-host's webrtc_child.rs, #51585) failed every Linux cross link of cmux-tui from 2026-11-23 21:04Z
+# ("ld64.lld: undefined symbol: kSecGuestAttributePid", cmux-tui artifacts run 45285325164), and each tree took
+# the macOS fallback build instead: 2 h from landing to a published tree, the nightly waiting on it. A framework
+# with no stub file is not ours to judge here (stubs-check reads what the Mac binaries link).
+FRAMEWORK_EXTERN = re.compile(
+    r'#\[link\(name\s*=\s*"([A-Za-z]+)",\s*kind\s*=\s*"framework"\)\]\s*(?:unsafe\s+)?extern\s+"C"\s*\{')
+EXTERN_ITEM = re.compile(r"\b(?:static(?:\s+mut)?|fn)\s+([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def framework_externs(text: str) -> list[tuple[str, list[str]]]:
+    out = []
+    for match in FRAMEWORK_EXTERN.finditer(text):
+        depth, end = 1, match.end()
+        while depth and end < len(text):
+            depth += {"{": 1, "}": -1}.get(text[end], 0)
+            end += 1
+        out.append((match.group(1), EXTERN_ITEM.findall(text[match.end():end - 1])))
+    return out
+
+
+class SourceExternTests(unittest.TestCase):
+    def test_an_extern_block_names_one_framework_and_each_item(self) -> None:
+        text = ('#[link(name = "Security", kind = "framework")]\nunsafe extern "C" {\n'
+                "    static kSecGuestAttributePid: CFTypeRef;\n    fn SecCodeCopySelf(flags: u32) -> i32;\n}\n")
+        self.assertEqual(framework_externs(text), [("Security", ["kSecGuestAttributePid", "SecCodeCopySelf"])])
+
+    def test_every_framework_name_cmux_tui_declares_is_in_its_stub(self) -> None:
+        stubs, missing = ROOT / "scripts" / "ci" / "macos-stubs", []
+        for path in sorted((ROOT / "cmux-tui").glob("**/*.rs")):
+            if "target" in path.relative_to(ROOT).parts:
+                continue
+            for framework, names in framework_externs(path.read_text(errors="replace")):
+                stub = stubs / f"{framework}.tbd"
+                if not stub.is_file():
+                    continue
+                held = set(re.findall(r"'(_[A-Za-z0-9_$]+)'", stub.read_text()))
+                missing += [f"{path.relative_to(ROOT)}: {framework}.tbd lacks _{name}"
+                            for name in names if f"_{name}" not in held]
+        self.assertEqual(missing, [])
+
+
+class MergeStubs(unittest.TestCase):
+    def test_merge_adds_the_newer_symbols_and_stubs(self) -> None:
+        with tempfile.TemporaryDirectory() as old_dir, tempfile.TemporaryDirectory() as new_dir:
+            old, new = Path(old_dir), Path(new_dir)
+            lib = {"current": "61901.120.67", "compat": "1.0.0"}
+            (old / "Security.tbd").write_text(stubs.render(SEC, {**lib, "symbols": {"_SecA"}}))
+            (new / "Security.tbd").write_text(stubs.render(SEC, {**lib, "symbols": {"_SecA", "_kSecGuestAttributePid"}}))
+            (new / "IOKit.tbd").write_text(stubs.render("/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit", {**lib, "symbols": {"_IOA"}}))
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(stubs.cmd_merge(old, new), 0)
+            self.assertEqual(stubs.read_stub(old / "Security.tbd")[1], {"_SecA", "_kSecGuestAttributePid"})
+            self.assertEqual(stubs.read_stub(old / "IOKit.tbd")[1], {"_IOA"})
 
 
 if __name__ == "__main__":

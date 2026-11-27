@@ -21,6 +21,8 @@
 //   followed view did not paint it (conversation/replyPainted.ts): `why` and the row's height `h`.
 // - `focus-lost`: a text input lost the keyboard with no key or click in the last half second
 //   (focusLossWatch.ts): `cause`, `what`, `to`; the app also writes it to its focus log.
+// - `layout-undeclared`: in a dev build, a box moved on no event the layout-motion contract declares for
+//   its surface (layout/motionAudit.ts): `surface`, `px` (its largest change) and `during` (what was open).
 // - `first-load`: how a chat page loaded shown, judged frame by frame as the first-load bench judges
 //   it (firstLoadWatch.ts): `copy` (a drawn copy showed first), `first` and `settled` (ms from
 //   navigation), `shifts` (frames that moved the composer or the bottom row), `blank`, `why`.
@@ -439,4 +441,10 @@ function install(win: Window, pageHostSend: FlickerSend | undefined): void {
   win.addEventListener("pagehide", () => flicker.flush());
   // A text input that loses the keyboard with no key or click: the app's focus log (focusLossWatch.ts).
   watchFocusLoss(win, (fields) => flicker.record("focus-lost", fields));
+}
+
+/// A layout move the layout-motion contract does not declare (layout/motionAudit.ts, dev builds): the surface,
+/// how far the box went (`px`, its largest change) and the events open then. No chat text, no row id.
+export function noteUndeclaredMove(surface: string, px: number, during: string): void {
+  log?.record("layout-undeclared", { surface, px, during });
 }

@@ -62,6 +62,23 @@ fn computer_use_worker_serves_agents_and_exits_when_stdin_closes() {
     let status = line(&mut answers);
     assert_eq!(status["result"]["body"]["machine"], "e2e", "{status}");
     assert_eq!(status["result"]["body"]["platform"]["os"], "fake");
+    assert_eq!(status["result"]["body"]["worker"]["pid"], worker.id(), "{status}");
+
+    // list_displays is metadata: no ask even in approvedApps, and its id is
+    // the one a display screenshot takes.
+    writeln!(
+        agent,
+        "{}",
+        json!({"id": 10, "method": "tools/call", "name": "list_displays", "session": "s",
+        "call_id": "d-1", "arguments": {}})
+    )
+    .unwrap();
+    let displays = line(&mut answers);
+    assert_eq!(displays["result"]["is_error"], false, "{displays}");
+    let list = displays["result"]["body"]["displays"].as_array().unwrap().clone();
+    assert_eq!(list.len(), 1, "{displays}");
+    assert_eq!(list[0]["main"], true);
+    assert_eq!(list[0]["frame"]["width"], 1000.0);
 
     // Approved apps: the first use asks the host; "always" is saved.
     writeln!(

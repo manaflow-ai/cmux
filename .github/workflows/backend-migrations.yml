@@ -42,7 +42,7 @@ concurrency:
   # run. A newer head cancels the older head's run (its plan only reads; its gate, which runs on a
   # cancel, goes red on the superseded head). An apply-label run has a group of its own that never
   # cancels: a cancel could stop it between applying a migration and recording it.
-  group: backend-migrations-${{ github.event.pull_request.number || github.event.merge_group.head_sha }}${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name) && format('-label-{0}', github.run_id) || github.event.action == 'labeled' && github.event.label.name == 'backend:apply-migrations' && '-apply' || '' }}
+  group: backend-migrations-${{ github.event.pull_request.number || github.event.merge_group.head_sha }}${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && format('-edit-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["backend:apply-migrations","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'backend:apply-migrations') && format('-label-{0}', github.run_id) || github.event.action == 'labeled' && github.event.label.name == 'backend:apply-migrations' && '-apply' || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request_target' && !(github.event.action == 'labeled' && github.event.label.name == 'backend:apply-migrations') }}
 
 env:
@@ -51,7 +51,7 @@ env:
 
 jobs:
   plan:
-    if: ${{ (github.event_name != 'pull_request_target' || github.event.action == 'labeled' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (!(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next')) && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name)) }}
+    if: ${{ (github.event_name != 'pull_request_target' || github.event.action == 'labeled' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (!(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next')) && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["backend:apply-migrations","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'backend:apply-migrations')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
     # Recent runs: 20s median, 51s max (GitHub API reads and a SQL lint).
     timeout-minutes: 10
@@ -90,11 +90,21 @@ jobs:
           fi
       - name: Checkout base (trusted tooling)
         if: steps.same-tree.outputs.same != 'true'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           path: trusted
           persist-credentials: false
+          # Only what this job reads: the backend bun workspace (its members outside backend/ too) and the
+          # cache key's second lockfile. A full checkout of the repo took most of this job's time on every
+          # pull request push (3,100 plans a day, 2026-11-19), nearly all of which stop at the tree compare.
+          sparse-checkout: |
+            backend/
+            clients/ts/
+            workers/cmux-vm/sdk/
+            scripts/cmux-next/release/bun.lock
+            .gitmodules
+          sparse-checkout-cone-mode: false
       - name: Changed files and head migrations
         id: files
         if: steps.same-tree.outputs.same != 'true'
@@ -176,7 +186,7 @@ jobs:
         if: steps.files.outputs.migrations == 'true'
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       # Restore only: this workflow runs with the base's secrets, so it never saves a cache.
       # backend.yml's test job saves this key from the same base lockfiles.
       - name: Restore the Bun package cache (backend.yml's test job saves it)
@@ -203,12 +213,7 @@ jobs:
     needs: plan
     # Only the act of labeling applies (never a later push with the label still present), and
     # the label is removed first, so every apply follows a fresh label on the current head.
-    if: >-
-      ${{ (github.event_name != 'pull_request_target' || github.event.action == 'labeled' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (
-      needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target' &&
-      github.event.action == 'labeled' && github.event.label.name == 'backend:apply-migrations' &&
-      github.event.pull_request.head.repo.full_name == github.repository
-      ) }}
+    if: ${{ (github.event_name != 'pull_request_target' || github.event.action == 'labeled' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && ( needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target' && github.event.action == 'labeled' && github.event.label.name == 'backend:apply-migrations' && github.event.pull_request.head.repo.full_name == github.repository ) && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["backend:apply-migrations","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'backend:apply-migrations')) }}
     permissions:
       contents: read
       pull-requests: write
@@ -223,7 +228,7 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: gh api -X DELETE "repos/$REPO/issues/$PR/labels/backend:apply-migrations" || true
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted
@@ -235,7 +240,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (backend.yml's test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -253,14 +258,14 @@ jobs:
           bun migrate.ts --env staging --dir "$RUNNER_TEMP/head-migrations" --verify
 
   apply-production:
-    if: ${{ (github.event_name != 'pull_request_target' || github.event.action == 'labeled' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
+    if: ${{ (github.event_name != 'pull_request_target' || github.event.action == 'labeled' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["backend:apply-migrations","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'backend:apply-migrations')) }}
     needs: apply-staging
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted tokens; CI_TRUSTED_RUNNER picks the Blacksmith size
     # Real migrations: generous so a slow apply is never cut off mid-migration.
     timeout-minutes: 30
     environment: cmux-next-production
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted
@@ -272,7 +277,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (backend.yml's test job saves it)
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -297,9 +302,9 @@ jobs:
     # A plan that succeeded with no migration change starts no gate VM: the skipped gate keeps its
     # name and reads as success, as on main (#48999; #49237 merged the test without this change).
     # A failed or cancelled plan still runs the gate, which fails.
-    name: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && 'backend migrations metadata edit (ignored)' || github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name) && 'backend migrations label (ignored)' || 'backend migrations applied' }}
+    name: ${{ github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next' && 'backend migrations metadata edit (ignored)' || github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["backend:apply-migrations","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'backend:apply-migrations') && 'backend migrations label (ignored)' || 'backend migrations applied' }}
     needs: [plan, apply-production]
-    if: ${{ (github.event_name != 'pull_request_target' || github.event.action == 'labeled' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') && (always() && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') && !(needs.plan.result == 'success' && needs.plan.outputs.migrations != 'true')) && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["backend:apply-migrations","full-ci"]'), github.event.label.name)) }}
+    if: ${{ (github.event_name != 'pull_request_target' || github.event.action == 'labeled' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (always() && !(github.event_name == 'pull_request_target' && github.event.action == 'edited' && !github.event.changes.base && github.event.pull_request.base.ref == 'feat-cmux-next') && !(needs.plan.result == 'success' && needs.plan.outputs.migrations != 'true')) && !(github.event_name == 'pull_request_target' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["backend:apply-migrations","full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled' && github.event.label.name != 'backend:apply-migrations')) }}
     # merge_group runs this file from the queue commit (PR content), so it never gets an
     # environment or secrets (the environments allow only main and feat-cmux-next); the queue
     # only admits PRs whose pull_request_target gate passed. Fork PRs never get secrets here.
@@ -336,7 +341,7 @@ jobs:
       - name: No migration changes, or merge queue (verified at PR time)
         if: needs.plan.outputs.migrations != 'true' || github.event_name == 'merge_group'
         run: echo "nothing to verify here (no migration changes, or a merge group of PRs whose gate passed)"
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         with:
           ref: ${{ github.event.pull_request.base.sha }}
@@ -351,7 +356,7 @@ jobs:
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         with:
           bun-version: "1.4.4"
-          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') }}
+          no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (backend.yml's test job saves it)
         if: needs.plan.outputs.migrations == 'true' && github.event_name == 'pull_request_target'
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5

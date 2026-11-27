@@ -3,8 +3,9 @@
 
 The gate's reviewer-path legs export every screenshot the walk attaches
 (`xcresulttool export attachments`) into screens/<family>/ and upload them in
-review-gate-path-<lane>-<family>. This script pairs this run's stills with the
-same family's stills from the newest feat-cmux-next push run, by attachment
+ios-gate-stills-<lane>-<family> (runs before that kept them in
+review-gate-path-<lane>-<family>, which the report's verdict downloads). This script pairs this run's stills with the
+same family's stills from the newest feat-cmux-next run that kept some, by attachment
 name, and writes one markdown section: changed, new and removed screens, each
 with the pull request's `Visual-change: <screen or *>: <why>` justification or
 "unjustified". It warns and never fails: a missing baseline, a push run, a
@@ -26,6 +27,7 @@ import re
 import struct
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -52,8 +54,14 @@ CHANGED_RATIO = 0.01
 WORKFLOW_FILE = "ios-review-gate.yml"
 BASE_BRANCH = "feat-cmux-next"
 MENTION = "@azooz2003-bit"
-# Runs read when looking for a baseline: artifacts keep 3 days.
-RUNS_TO_SCAN = 15
+# Stills artifacts of one name read when looking for a baseline (every branch's, newest first;
+# artifacts keep 3 days). A pull request's own runs are most of them.
+ARTIFACTS_TO_SCAN = 100
+# A stills artifact smaller than this holds only the walk's status file, no screens: the
+# smallest with screens seen is the iPhone's, about 25 MB.
+MIN_STILLS_BYTES = 64 << 10
+# Artifacts tried per family when one downloads with no screens in it.
+DOWNLOADS_PER_FAMILY = 3
 # Pixel comparison stops this many seconds in; the rest compare by bytes. A pure
 # Python decode of a 1179x2556 still takes about 1.2 s (no Pillow on the runner).
 TIME_BUDGET_S = 330
@@ -419,11 +427,50 @@ def _request(url: str, token: str) -> urllib.request.Request:
     return request
 
 
+API_RETRIES = 2
+API_RETRY_CAP_S = 20.0
+
+
+def _refusal(error: urllib.error.HTTPError) -> str:
+    """GitHub's own words for a refused call: a 403 is a rate limit, a missing scope or a blocked token."""
+    try:
+        message = json.loads(error.read().decode("utf-8", "replace")).get("message") or ""
+    except Exception:  # noqa: BLE001 - the body is only a hint
+        message = ""
+    return f"HTTP Error {error.code}: {error.reason}" + (f" ({message[:160]})" if message else "")
+
+
+def _retry_wait(error: urllib.error.HTTPError) -> float | None:
+    """Seconds to wait before one more try of a rate-limited or flaky listing, or None when a retry cannot help."""
+    headers = error.headers or {}
+    if error.code in (403, 429):
+        retry_after = headers.get("retry-after")
+        if retry_after and retry_after.isdigit():
+            return min(float(retry_after), API_RETRY_CAP_S)
+        if headers.get("x-ratelimit-remaining") == "0" and (headers.get("x-ratelimit-reset") or "").isdigit():
+            return min(max(float(headers["x-ratelimit-reset"]) - time.time(), 1.0), API_RETRY_CAP_S)
+        return 5.0  # a secondary limit often names no wait; a missing scope costs two short retries
+    return 2.0 if error.code >= 500 else None
+
+
 def _api(url: str, token: str, deadline: "deadline_http.Deadline") -> bytes:
-    """A JSON listing. Every call ends by DEADLINE as a whole (deadline_http), shared by all listings."""
-    _, body, _ = deadline_http.request(_request(url, token), deadline=deadline, max_bytes=64 << 20,
-                                       raise_errors=True)
-    return body
+    """A JSON listing. Every call ends by DEADLINE as a whole (deadline_http), shared by all listings.
+
+    A refusal is retried up to API_RETRIES times when it is a rate limit or a server error, and its
+    reason is kept: the first live runs lost the baseline to a bare "HTTP Error 403: Forbidden" in 8 of 28 runs."""
+    for attempt in range(API_RETRIES + 1):
+        try:
+            _, body, _ = deadline_http.request(_request(url, token), deadline=deadline, max_bytes=64 << 20,
+                                               raise_errors=True)
+            return body
+        except urllib.error.HTTPError as error:
+            wait = _retry_wait(error)
+            reason = _refusal(error)
+            if wait is None or attempt == API_RETRIES:
+                raise RuntimeError(reason) from error
+            deadline.left(f"retrying after {reason}")
+            time.sleep(wait)
+    raise AssertionError("unreachable")
 
 
 def _download(url: str, token: str, deadline: "deadline_http.Deadline", path: Path) -> Path:
@@ -457,61 +504,88 @@ def _extract_family(archive_path: Path, family: str, dest: Path) -> Path | None:
     return out if wrote else None
 
 
+def stills_artifact_names(lane: str, family: str) -> list[str]:
+    """A run's stills artifact, newest name first: ios-gate-stills-* since the stills
+    left review-gate-path-*, which runs before that still hold."""
+    return [f"ios-gate-stills-{lane}-{family}", f"review-gate-path-{lane}-{family}"]
+
+
+def _stills_candidates(repo: str, name: str, token: str, listings: "deadline_http.Deadline", api: str,
+                       exclude_run: str) -> list[dict]:
+    """NAME's artifacts that a feat-cmux-next run of this repository kept with screens in them, newest first.
+
+    One listing by name for every run (GET /actions/artifacts?name=): the scan of up to 15
+    runs' artifacts it replaces spent 16 calls of the token's shared hourly quota and lost the baseline
+    to "API rate limit exceeded for installation". A walk that failed or was cancelled before its
+    export still uploads its status file: an artifact that small holds no screens and is skipped
+    without a download (run 45257341586's, picked as the baseline of every pull request for an hour)."""
+    query = urllib.parse.urlencode({"name": name, "per_page": ARTIFACTS_TO_SCAN})
+    listing = json.loads(_api(f"{api}/repos/{repo}/actions/artifacts?{query}", token, listings))
+    kept = []
+    for artifact in listing.get("artifacts") or []:
+        run = artifact.get("workflow_run") or {}
+        if artifact.get("name") != name or artifact.get("expired"):
+            continue
+        if run.get("head_branch") != BASE_BRANCH or str(run.get("id")) == str(exclude_run):
+            continue
+        if run.get("head_repository_id") != run.get("repository_id"):
+            continue  # a fork's branch that is also named feat-cmux-next
+        if int(artifact.get("size_in_bytes") or 0) < MIN_STILLS_BYTES:
+            continue
+        kept.append(artifact)
+    kept.sort(key=lambda a: str(a.get("created_at") or ""), reverse=True)
+    return kept
+
+
 def fetch_baselines(repo: str, lane: str, families: list[str], dest: Path, token: str,
                     exclude_run: str, api: str = "https://api.github.com") -> dict[str, Baseline]:
-    """Each family's stills from the newest feat-cmux-next push run of this workflow that kept them.
+    """Each family's stills from the newest feat-cmux-next run of this workflow that kept screens.
 
-    A run that concluded success wins; when none of the newest RUNS_TO_SCAN did and kept the
-    artifact, the newest completed run that kept it is used and named as such.
+    The smallest family downloads first: the iPad's stills are about 9 times the iPhone's, and
+    downloading them first spent the budget both shared. A download that holds no screens
+    falls through to the next older artifact while the budget lasts.
     """
     result = {family: Baseline(family, None) for family in families}
     listings = deadline_http.Deadline(LISTING_BUDGET_S)
-    query = urllib.parse.urlencode({"branch": BASE_BRANCH, "event": "push", "status": "completed",
-                                    "per_page": RUNS_TO_SCAN})
-    try:
-        runs = json.loads(_api(f"{api}/repos/{repo}/actions/workflows/{WORKFLOW_FILE}/runs?{query}", token, listings))
-    except Exception as error:  # noqa: BLE001 - warn only
-        for baseline in result.values():
-            baseline.problem = f"listing {BASE_BRANCH} push runs failed: {error}"
-        return result
-    candidates: dict[str, list[tuple[dict, dict]]] = {family: [] for family in families}
-    for run in runs.get("workflow_runs") or []:
-        if str(run.get("id")) == str(exclude_run):
-            continue
-        try:
-            url = f"{api}/repos/{repo}/actions/runs/{run['id']}/artifacts?per_page=100"
-            listing = json.loads(_api(url, token, listings))
-        except Exception:  # noqa: BLE001 - skip that run
-            continue
-        names = {a.get("name"): a for a in listing.get("artifacts") or [] if not a.get("expired")}
-        for family in families:
-            artifact = names.get(f"review-gate-path-{lane}-{family}")
-            if artifact:
-                candidates[family].append((run, artifact))
-        if all(any(r.get("conclusion") == "success" for r, _ in candidates[f]) for f in families):
-            break
-    downloads = deadline_http.Deadline(DOWNLOAD_BUDGET_S)
+    candidates: dict[str, list[dict]] = {}
     for family in families:
-        options = candidates[family]
-        if not options:
-            result[family].problem = (f"no {BASE_BRANCH} push run of {WORKFLOW_FILE} among the newest "
-                                      f"{RUNS_TO_SCAN} kept review-gate-path-{lane}-{family} (artifacts keep 3 days)")
-            continue
-        run, artifact = next(((r, a) for r, a in options if r.get("conclusion") == "success"), options[0])
-        baseline = result[family]
-        baseline.run_id = run.get("id")
-        baseline.run_url = run.get("html_url") or ""
-        baseline.sha = (run.get("head_sha") or "")[:8]
-        baseline.conclusion = run.get("conclusion") or ""
         try:
-            archive = _download(f"{api}/repos/{repo}/actions/artifacts/{artifact['id']}/zip", token, downloads,
-                                dest / f"{family}.zip")
-            baseline.directory = _extract_family(archive, family, dest / family)
-            archive.unlink()
-            if baseline.directory is None:
-                baseline.problem = f"run {baseline.run_id}'s artifact has no screens/{family}"
+            for name in stills_artifact_names(lane, family):
+                candidates[family] = _stills_candidates(repo, name, token, listings, api, exclude_run)
+                if candidates[family]:
+                    break
         except Exception as error:  # noqa: BLE001 - warn only
-            baseline.problem = f"downloading run {baseline.run_id}'s artifact failed: {error}"
+            result[family].problem = f"listing {BASE_BRANCH}'s stills artifacts failed: {error}"
+            candidates[family] = []
+            continue
+        if not candidates[family]:
+            result[family].problem = (f"no {BASE_BRANCH} run of {WORKFLOW_FILE} kept "
+                                      f"{stills_artifact_names(lane, family)[0]} with screens in it (artifacts keep 3 days)")
+    downloads = deadline_http.Deadline(DOWNLOAD_BUDGET_S)
+    order = sorted((f for f in families if candidates.get(f)),
+                   key=lambda f: int(candidates[f][0].get("size_in_bytes") or 0))
+    for family in order:
+        baseline = result[family]
+        for artifact in candidates[family][:DOWNLOADS_PER_FAMILY]:
+            run = artifact.get("workflow_run") or {}
+            baseline.run_id = run.get("id")
+            baseline.run_url = f"https://github.com/{repo}/actions/runs/{run.get('id')}"
+            baseline.sha = (run.get("head_sha") or "")[:8]
+            started = time.monotonic()
+            try:
+                archive = _download(f"{api}/repos/{repo}/actions/artifacts/{artifact['id']}/zip", token, downloads,
+                                    dest / f"{family}.zip")
+                baseline.directory = _extract_family(archive, family, dest / family)
+                archive.unlink()
+            except Exception as error:  # noqa: BLE001 - warn only
+                size_mb = int(artifact.get("size_in_bytes") or 0) / 1e6
+                baseline.problem = (f"downloading run {baseline.run_id}'s artifact ({size_mb:.0f} MB) failed after "
+                                    f"{time.monotonic() - started:.0f} s: {error}")
+                break
+            if baseline.directory is not None:
+                baseline.problem = ""
+                break
+            baseline.problem = f"run {baseline.run_id}'s artifact has no screens/{family}"
     return result
 
 
@@ -530,8 +604,8 @@ def render(rows: list[Row], unchanged: dict[str, int], largest_same: float, base
         elif baseline.directory is None:
             out.append(f"- {family}: no baseline, {baseline.problem or 'none given'}; not compared")
         elif baseline.run_id:
-            state = "" if baseline.conclusion == "success" else f", a run that concluded {baseline.conclusion}"
-            out.append(f"- {family}: baseline push run [{baseline.run_id}]({baseline.run_url}) at "
+            state = "" if baseline.conclusion in ("", "success") else f", a run that concluded {baseline.conclusion}"
+            out.append(f"- {family}: baseline {BASE_BRANCH} run [{baseline.run_id}]({baseline.run_url}) at "
                        f"`{baseline.sha}`{state}; {unchanged.get(family, 0)} screens unchanged")
         else:
             out.append(f"- {family}: baseline {baseline.directory.name}; {unchanged.get(family, 0)} screens unchanged")
@@ -584,10 +658,10 @@ def pr_body(event_path: str | None) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--head-root", type=Path, required=True, help="this run's downloaded review-gate-* artifacts")
+    parser.add_argument("--head-root", type=Path, required=True, help="this run's downloaded ios-gate-stills-* artifacts")
     parser.add_argument("--family", action="append", required=True)
     parser.add_argument("--baseline-root", type=Path, help="screens/<family> of the baseline, already on disk")
-    parser.add_argument("--fetch-baseline", action="store_true", help="download the newest feat-cmux-next push run's")
+    parser.add_argument("--fetch-baseline", action="store_true", help="download the newest feat-cmux-next run's")
     parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--lane", default="appstore")
     parser.add_argument("--work", type=Path, default=Path("screen-baseline"))
@@ -627,6 +701,16 @@ def main(argv: list[str] | None = None) -> int:
                 continue
             family_rows, same, largest = compare_family(family, head_dirs[family], baselines[family].directory, lines,
                                                         started + TIME_BUDGET_S)
+            resized = [row for row in family_rows if row.kind == "changed" and row.note.startswith("size ")]
+            if resized and same == 0 and len(resized) == sum(row.kind == "changed" for row in family_rows):
+                # Every pair differs in size: a baseline from before the walk's stills changed
+                # scale (the iPad's are halved before upload), not a change of this pull request.
+                run_id = baselines[family].run_id
+                whose = f"run {run_id}'s" if run_id else "the baseline's"
+                baselines[family].directory = None
+                baselines[family].problem = (f"{whose} stills are at another scale ({resized[0].note[5:]}), "
+                                             "from before the stills' scale changed")
+                continue
             rows += family_rows
             unchanged[family] = same
             largest_same = max(largest_same, largest)

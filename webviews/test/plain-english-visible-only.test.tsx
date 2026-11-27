@@ -9,6 +9,7 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import type { PlainEnglishFile } from "../src/diff-viewer/PlainEnglishView";
 import type { HunkRef, SummaryFileDiff } from "../src/diff-viewer/hunkSummaries";
+import { rowRenders } from "./support/commitRenders";
 import { settleReact } from "./support/domTeardown";
 import { mountedRowRenders } from "./support/mountedRowRenders";
 import { installVirtualSizes } from "./support/virtualSizes";
@@ -130,10 +131,13 @@ async function measure(fileCount: number) {
   const { asks, wanted, view } = await mount(fileCount);
   const mounted = { rows: rows(), nodes: view.querySelectorAll("*").length };
 
-  renders.mark();
+  // Counted from React's commits (support/commitRenders.ts): a row's HunkSentence redraws from its
+  // store subscription with the props it had, which a props count does not see.
+  const commits = rowRenders();
+  commits.begin(host, ".plain-english-hunk");
   await act(async () => asks[0]!.answer("Renames old to new."));
   await settle();
-  const sentence = renders.since();
+  const sentence = commits.end();
   expect(host.querySelectorAll('.plain-english-row[data-state="ready"]').length).toBe(1);
 
   const rects = { calls: 0 };
@@ -177,9 +181,8 @@ test("1,000 and 10,000 hunks mount the same rows, and one event draws only the r
   expect(Math.abs(large.scroll.rows - small.scroll.rows)).toBeLessThanOrEqual(small.scroll.rows * 0.1);
 
   for (const run of [small, large]) {
-    // Rule 2: a sentence arriving draws no other row (its own redraws from the store, with the
-    // props it had, which the count does not see).
-    expect(run.sentence).toBeLessThanOrEqual(1);
+    // Rule 2: a sentence arriving draws its own row once, and no other mounted row.
+    expect(run.sentence).toEqual({ rerendered: 1, wasted: 0, added: 0, maxRenders: 1 });
     // One row's scroll draws only the rows it brings in; the mounted ones keep their place.
     expect(run.scroll.renders).toBeLessThanOrEqual(2);
   }

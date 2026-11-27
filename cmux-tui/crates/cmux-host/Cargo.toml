@@ -16,6 +16,10 @@ path = "src/main.rs"
 
 [dependencies]
 cmux-cloud-environment.workspace = true
+# The machine's git cache (`git_cache.rs`, `cmux host git-cache`).
+cmux-git-cache.workspace = true
+# The machine.toml idle window (`machine_config::idle`), reported with the activity.
+cmux-cloud-start-core.workspace = true
 # The gate's and the updater's flocks (unlock before close).
 cmux-file-lock.workspace = true
 cmux-supervise-core.workspace = true

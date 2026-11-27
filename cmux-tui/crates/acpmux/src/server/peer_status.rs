@@ -105,6 +105,11 @@ pub(crate) async fn host_health_with(
         "pressure",
         PRESSURE_KEYS.iter().filter_map(|k| Some((*k, pressure.get(*k)?.clone()))).collect(),
     );
+    // Whether this machine's owner enrolled it in AutoCloud, whose work it takes, and whether it
+    // takes any now (owner away, inside its hours): the placer's enrolled tier (`place_mode`).
+    // What `_acpmux/autocloud_enroll` saved wins over the settings key (`Enrollment::resolve`).
+    let saved = hub.config.read().await.auto_cloud_enroll.clone();
+    v.set("autoCloud", json!(crate::autocloud_enroll::report_now(saved.as_ref())));
     // What the machine health loop found wrong and could not fix
     // (`machine_health.rs`); none on a machine without the loop.
     if let Some(problems) = super::machine_health::problems().await {
@@ -182,7 +187,17 @@ pub(super) async fn peer_status(
 async fn peer_row(hub: &Hub, listed: &Value) -> Value {
     let name = listed["name"].as_str().unwrap_or_default().to_owned();
     let mut row = json!({"name": name, "self": false, "reachable": false});
-    for key in ["state", "via", "lastSeen", "downSince", "remoteBuild", "outdated", "sessions"] {
+    for key in [
+        "state",
+        "via",
+        "lastSeen",
+        "downSince",
+        "remoteBuild",
+        "outdated",
+        "sessions",
+        "group",
+        "liveSessions",
+    ] {
         if let Some(v) = listed.get(key).filter(|v| !v.is_null()) {
             row[key] = v.clone();
         }
@@ -214,7 +229,15 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
             if let Some(problems) = health.get("problems") {
                 row.set("problems", super::machine_health::sanitize(problems));
             }
-            row.set("outdated", json!(health["build"].as_str() != Some(crate::hub::build())));
+            row.set(
+                "outdated",
+                json!(
+                    health
+                        .get("build")
+                        .and_then(Value::as_str)
+                        .is_none_or(|b| crate::build_info::lags(b, crate::hub::build()))
+                ),
+            );
         }
         // It answered, so it is up: an older build without this method.
         Ok(Err(e)) => {
@@ -241,7 +264,7 @@ async fn peer_row(hub: &Hub, listed: &Value) -> Value {
 
 /// Free and total bytes of the disk that holds `path`.
 #[cfg(unix)]
-fn disk(path: &std::path::Path) -> Option<(u64, u64)> {
+pub(crate) fn disk(path: &std::path::Path) -> Option<(u64, u64)> {
     use std::os::unix::ffi::OsStrExt;
     let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
     let mut s: libc::statvfs = unsafe { std::mem::zeroed() };
@@ -254,7 +277,7 @@ fn disk(path: &std::path::Path) -> Option<(u64, u64)> {
 }
 
 #[cfg(not(unix))]
-fn disk(_: &std::path::Path) -> Option<(u64, u64)> {
+pub(crate) fn disk(_: &std::path::Path) -> Option<(u64, u64)> {
     None
 }
 

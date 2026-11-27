@@ -35,19 +35,16 @@ chief-usage
 chief-views
 cloud
 cloud-progress
-coderouter
 debug-settings
 feed
 files
+forum
 github
 group-editor
 history
 home-channels
-home-messages
 icon-picker
 keybindings
-machines
-mobile-pairing
 onboarding
 passwords
 server-cards
@@ -58,6 +55,7 @@ stats
 glass-parity
 task-manager
 tasks
+terminal-history
 "
 # The browser chrome's pages (CmuxNextPages BrowserChromeWebHost).
 PAGES="$PAGES site-settings site-data certificate"
@@ -67,10 +65,12 @@ PAGES="$PAGES cookie-import"
 PAGES="$PAGES sidebar-chats"
 # Pages whose string table ships as one script per locale (locales/<locale>.js), loaded before the
 # app: only English and the active locale are parsed at open (R82 first-open speed).
-SPLIT_STRINGS="settings home-channels"
+SPLIT_STRINGS="settings home-channels onboarding"
 # Pages that also carry a subset of the agent pane's table (generated/pane-strings.json, for the
 # pane rows they reuse): it ships the same way, as pane-locales/<locale>.js into __cmuxPaneStrings.
 SPLIT_PANE_STRINGS="home-channels"
+# Pages kept unpacked (pack-pages.mjs --keep): the first window's, and onboarding (a first launch's).
+UNPACKED_PAGES="home-channels,sidebar-chats,setup-card,onboarding"
 command -v bun >/dev/null 2>&1 || { echo "error: bun is required to build the pages" >&2; exit 1; }
 "$ROOT/scripts/check-webviews-bun-version.sh"
 
@@ -86,10 +86,25 @@ bun scripts/pages/gen-strings.mjs
 
 # No CSP meta: the scheme handler sends each page's policy as a header (PageCSP, strict unless a
 # first-party page widens it). A meta policy would also apply and could only narrow it.
-if [ -n "${CMUX_ARTIFACT_RUNTIME_METAFILE:-}" ]; then
-  CMUX_ARTIFACT_RUNTIME_METAFILE="$CMUX_ARTIFACT_RUNTIME_METAFILE" bun scripts/pages/bundle.mjs "$WORK" $PAGES
-else
+if [ -n "${CMUX_ARTIFACT_RUNTIME_METAFILE:-}" ]; then export CMUX_ARTIFACT_RUNTIME_METAFILE; fi
+# A listed page with no source is a stale list, not a page fault: fail every build here, before
+# ci-oops isolation below would drop it on a pull request build and let the PR go green while the
+# strict builds (main, the Linux pool rewarm) fail (#59661 deleted machines; #60348 took it off).
+missing=""
+for page in $PAGES; do [ -f "$ROOT/webviews/src/pages/$page/main.tsx" ] || missing="$missing $page"; done
+if [ -n "$missing" ]; then
+  echo "error: build-pages-web.sh lists pages with no webviews/src/pages/<page>/main.tsx:$missing; take them off PAGES" >&2
+  exit 1
+fi
+# ci-oops fault isolation (scripts/ci/oops/isolate.py): on a pull request build only, a page that
+# optional-units.json lists and that alone fails to bundle is left out and the rest is bundled again;
+# the job prints a CI_OOPS line for its follow-up. Every other build runs the bundler as it is.
+python3 "$ROOT/scripts/ci/oops/isolate.py" run --kind webview-page --dropped-out "$WORK/oops-dropped" -- \
   bun scripts/pages/bundle.mjs "$WORK" $PAGES
+if [ -s "$WORK/oops-dropped" ]; then
+  kept=""
+  for page in $PAGES; do grep -qxF "$page" "$WORK/oops-dropped" || kept="$kept $page"; done
+  PAGES="$kept"
 fi
 [ -s "$WORK/__shared/page-base.css" ] || { echo "error: pages builder did not emit __shared/page-base.css" >&2; exit 1; }
 if [ -n "${CMUX_PAGES_METAFILE:-}" ]; then cp "$WORK/metafile.json" "$CMUX_PAGES_METAFILE"; fi
@@ -121,14 +136,25 @@ $pane_loader" ;;
     printf 'import "./app.js";\n'
     printf '\n</script>\n</body>\n</html>\n'
   } | perl -pe 's/[ \t]+$//' > "$WORK/$page/index.html"
-
+done
+# The pages the first window never shows are stored raw-deflated and inflated in memory when a page
+# asks for them (scripts/pages/pack-pages.mjs, CmuxNextPages PagePackedFile.swift; CMUX-570). Home,
+# what the first window shows with it (its messages, the sidebar's chats, the setup card) and the
+# first-run onboarding stay as they are, with every chunk they can load.
+bun scripts/pages/pack-pages.mjs "$WORK" "$WORK/metafile.json" --keep "$UNPACKED_PAGES" $PAGES
+for page in $PAGES; do
   out="$OUT_ROOT/$page/index.html"
   if [ "$MODE" = "--check" ]; then
     :
   else
     mkdir -p "$OUT_ROOT/$page"
     cp "$WORK/$page/index.html" "$out"
-    cp "$WORK/$page/app.js" "$OUT_ROOT/$page/app.js"
+    # A packed page's entry is __shared/page-<page>.js; a rebuild must not leave an older app.js.
+    if [ -f "$WORK/$page/app.js" ]; then
+      cp "$WORK/$page/app.js" "$OUT_ROOT/$page/app.js"
+    else
+      rm -f "$OUT_ROOT/$page/app.js"
+    fi
     for dir in locales pane-locales; do
       if [ -d "$WORK/$page/$dir" ]; then
         rm -rf "${OUT_ROOT:?}/$page/$dir"
@@ -147,6 +173,9 @@ if [ "$MODE" != "--check" ]; then
   rm -rf "$OUT_ROOT/__shared"
   cp -R "$WORK/__shared" "$OUT_ROOT/"
   cp "$ROOT/webviews/src/web-abi.json" "$OUT_ROOT/web-abi.json"
+  # A tree with pages left out says so: build-web-bundles.sh never stamps it or installs it (--from) into a strict build.
+  rm -f "$OUT_ROOT/__oops-dropped"
+  if [ -s "$WORK/oops-dropped" ]; then cp "$WORK/oops-dropped" "$OUT_ROOT/__oops-dropped"; fi
 fi
 [ "$MODE" = "--check" ] && echo "page bundles build"
 exit 0

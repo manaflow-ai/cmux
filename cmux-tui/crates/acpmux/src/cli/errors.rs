@@ -4,7 +4,7 @@
 //! such session, 5 every permission in the turn was denied or the host
 //! refused a new session (`admission_refused`), 6 `session stop --if-idle`
 //! refused: the session is not idle (`busy`) or its revision moved
-//! (`revision_moved`, `hub/stop_if_idle.rs`), 130 interrupted. `code`
+//! (`revision_moved`, `hub/stop_if_idle.rs`), 75 busy (temporary resource exhaustion), 130 interrupted. `code`
 //! is the small stable set orchestrators branch on; `detail` is free text
 //! for diagnostics, or the daemon's own `reason` for a refusal that carries one (then `data` holds the daemon's error data, such
 //! as `cwd_missing` with the missing `cwd`).
@@ -21,6 +21,11 @@ pub enum Code {
     PermissionDenied = 5,
     /// A conditional stop refused (`hub/stop_if_idle.rs`): nothing was stopped.
     NotIdle = 6,
+    /// The target refused a send at once (`send_async.rs`): its folder's trust, a bad prompt, a
+    /// paused or full agent pair. Nothing was delivered.
+    Refused = 7,
+    /// Temporary resource exhaustion (EX_TEMPFAIL).
+    Busy = 75,
     /// Reserved: a SIGINT ends the process with the shell's own 130.
     #[allow(dead_code)]
     Interrupted = 130,
@@ -35,6 +40,8 @@ impl Code {
             Code::NoSession => "no_session",
             Code::PermissionDenied => "permission_denied",
             Code::NotIdle => "not_idle",
+            Code::Refused => "refused",
+            Code::Busy => "busy",
             Code::Interrupted => "interrupted",
         }
     }
@@ -216,6 +223,8 @@ pub fn classify(e: &anyhow::Error) -> AppError {
         // when no host qualifies (`hub/admission.rs`).
         let code = if reason == crate::hub::admission::REASON {
             Code::PermissionDenied
+        } else if daemon.is_some_and(|d| d.0.code == crate::rpc::BUSY_CODE) {
+            Code::Busy
         } else if daemon.is_some_and(|d| d.0.code == crate::hub::stop_if_idle::NOT_IDLE_CODE) {
             Code::NotIdle
         } else if daemon.is_some_and(|d| d.0.code == -32602) {
@@ -247,6 +256,35 @@ pub fn classify(e: &anyhow::Error) -> AppError {
     app
 }
 
+/// What a typed error in an error's chain says about the daemon.
+#[derive(Debug, PartialEq, Eq)]
+enum TypedKind {
+    /// The socket refused the connection or is missing: positive evidence the daemon is gone.
+    Unreachable,
+    /// A bound ran out (`io::ErrorKind::TimedOut`, a tokio `Elapsed`): slow, not dead.
+    Timeout,
+}
+
+/// The kind a typed cause anywhere in the chain gives, first cause wins. Untyped errors give
+/// `None` and fall back to the message text in `classify_message`.
+fn typed_kind(e: &anyhow::Error) -> Option<TypedKind> {
+    for cause in e.chain() {
+        if cause.is::<tokio::time::error::Elapsed>() {
+            return Some(TypedKind::Timeout);
+        }
+        if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+            match io.kind() {
+                std::io::ErrorKind::TimedOut => return Some(TypedKind::Timeout),
+                std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::NotFound => {
+                    return Some(TypedKind::Unreachable);
+                }
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
 /// The exit code and detail an error's message gives.
 fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     let lower = msg.to_lowercase();
@@ -257,6 +295,17 @@ fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
             data["panic"] = panic.clone();
         }
         return AppError::new(Code::Runtime, "daemon_closed", msg).retryable().with_data(data);
+    }
+    // RFD 0050 rule 2: the class comes from the typed error where it began, not its words.
+    // A refused or missing socket is the only proof the daemon is gone; a timeout is slow.
+    match typed_kind(e) {
+        Some(TypedKind::Unreachable) => {
+            return AppError::new(Code::Runtime, "daemon_unreachable", msg);
+        }
+        Some(TypedKind::Timeout) => {
+            return AppError::new(Code::Timeout, "timeout", msg).retryable();
+        }
+        None => {}
     }
     if lower.contains("no session matches")
         || lower.contains("unknown session")
@@ -274,7 +323,9 @@ fn classify_message(e: &anyhow::Error, msg: String) -> AppError {
     {
         return AppError::new(Code::Usage, "usage", msg);
     }
-    if lower.contains("timed out") || lower.contains("timeout") {
+    // A step that ran past its bound (`ls`'s "read step stalled after 15s") is a timeout to
+    // retry, not a daemon that is gone.
+    if lower.contains("timed out") || lower.contains("timeout") || lower.contains("stalled after") {
         return AppError::new(Code::Timeout, "timeout", msg);
     }
     let detail = if lower.contains("connection refused") || lower.contains("daemon") {
@@ -313,176 +364,9 @@ pub fn exit_with(e: &anyhow::Error, json_out: bool) -> ! {
 }
 
 #[cfg(test)]
-mod typed_error_tests {
-    use super::*;
-    use crate::rpc::RpcError;
-    use serde_json::json;
+#[path = "errors_typed_kind_tests.rs"]
+mod typed_kind_tests;
 
-    fn daemon(e: RpcError) -> anyhow::Error {
-        anyhow::Error::from(crate::client::DaemonError(e))
-    }
-
-    /// A typed error prints its sentence and, on the next line, what to do; the JSON envelope
-    /// carries the kind and the recovery beside the daemon's data.
-    #[test]
-    fn a_typed_error_prints_the_sentence_and_the_action() {
-        let e = daemon(RpcError::internal("No space left on device (os error 28)").with_data(json!({
-            "errorKind": "disk.full",
-            "recovery": "The disk is full. Free space on the disk that holds /h: 0.1 GB free of 252 GB.",
-            "details": {"path": "/h", "freeBytes": 100_000_000u64, "totalBytes": 252_000_000_000u64},
-        })));
-        let app = classify(&e);
-        assert_eq!(app.detail, "disk.full");
-        assert_eq!(
-            app.text(),
-            "acpmux: runtime: No space left on device (os error 28)\n  The disk is full. Free space on the disk that holds /h: 0.1 GB free of 252 GB."
-        );
-        let env = app.envelope();
-        assert_eq!(env["error"]["errorKind"], "disk.full");
-        assert!(env["error"]["recovery"].as_str().unwrap().starts_with("The disk is full."));
-        assert_eq!(env["error"]["data"]["details"]["path"], "/h");
-    }
-
-    /// A refusal with a reason keeps that reason as its detail and still prints the action.
-    #[test]
-    fn a_peer_refusal_keeps_its_reason_and_prints_the_action() {
-        let mut e = RpcError::internal("peer_unreachable: b (reconnecting, last seen 40s ago: connect timed out)")
-            .with_data(json!({"reason": "peer_unreachable", "retryable": true, "peer": "b", "lastSeen": 1_000u64}));
-        crate::recovery::annotate(&mut e, None);
-        let app = classify(&daemon(e));
-        assert_eq!(app.detail, "peer_unreachable");
-        assert!(app.retryable);
-        let text = app.text();
-        assert!(text.contains("\n  Check that b is on and online in `tailscale status`; `acpmux machine doctor b` checks the link"), "{text}");
-        assert_eq!(app.envelope()["error"]["errorKind"], "peer.unreachable");
-        assert_eq!(
-            app.envelope()["error"]["data"]["details"]["lastSeenAt"],
-            "1970-01-01T00:00:01.000Z"
-        );
-    }
-
-    /// A refused `session stop --if-idle` exits 6 with the daemon's reason as its detail, and
-    /// the envelope keeps the revision the caller reads again.
-    #[test]
-    fn a_refused_conditional_stop_exits_6_with_its_reason() {
-        use crate::hub::stop_if_idle::{BUSY, NOT_IDLE_CODE, REVISION_MOVED};
-        for (reason, busy_with) in [(BUSY, json!("turn")), (REVISION_MOVED, json!(null))] {
-            let e = RpcError::new(NOT_IDLE_CODE, "session is not idle: not stopped").with_data(
-                json!({"reason": reason, "busyWith": busy_with, "revision": 41u64, "sessionId": "s", "retryable": true}),
-            );
-            let app = classify(&daemon(e));
-            assert_eq!(app.code, Code::NotIdle);
-            assert_eq!(app.exit_status(), 6);
-            assert_eq!(app.detail, reason);
-            assert!(app.retryable);
-            let env = app.envelope();
-            assert_eq!(env["error"]["code"], "not_idle");
-            assert_eq!(env["error"]["data"]["revision"], 41);
-        }
-    }
-
-    /// The daemon refusing work while it shuts down says it is restarting.
-    #[test]
-    fn a_shutting_down_daemon_says_it_is_restarting() {
-        let mut e = RpcError::internal(crate::hub::SHUTTING_DOWN);
-        crate::recovery::annotate(&mut e, None);
-        let app = classify(&daemon(e));
-        assert_eq!(app.detail, "daemon.restarting");
-        assert!(app.text().contains("\n  The daemon is restarting."), "{}", app.text());
-    }
-
-    /// A kind adds detail and never changes the exit code: a timeout still exits 3 and an
-    /// unknown session 4 when the daemon typed the error.
-    #[test]
-    fn a_typed_error_keeps_its_exit_code() {
-        let typed = |message: &str| {
-            daemon(RpcError::internal(message).with_data(json!({
-                "errorKind": "agent.exited",
-                "recovery": "The agent stopped in the middle of the turn.",
-                "details": {},
-            })))
-        };
-        let app = classify(&typed("request timed out"));
-        assert_eq!(app.code as i32, 3, "{:?}", app.envelope());
-        assert_eq!(app.detail, "agent.exited");
-        assert_eq!(app.recovery(), Some("The agent stopped in the middle of the turn."));
-        let app = classify(&typed("unknown session s-1"));
-        assert_eq!(app.code as i32, 4, "{:?}", app.envelope());
-        assert_eq!(app.envelope()["error"]["errorKind"], "agent.exited");
-    }
-
-    /// The names the daemon said a key nearly matched reach the message and the envelope;
-    /// the refusal stays no_session (exit 4), so the send relay still takes it.
-    #[test]
-    fn a_no_session_refusal_names_the_close_matches() {
-        let refused = daemon(crate::session_name::not_found("mac-ci", &["a/mac-ci-3".into()]));
-        let app = AppError::no_session_from("mac-ci", &refused);
-        assert_eq!((app.code, app.detail.as_str()), (Code::NoSession, "no_session"));
-        assert!(app.message.contains("close matches: a/mac-ci-3"), "{}", app.message);
-        assert_eq!(app.envelope()["error"]["data"]["candidates"], json!(["a/mac-ci-3"]));
-        let classified = classify(&refused);
-        assert_eq!(classified.code, Code::NoSession);
-        assert_eq!(classified.envelope()["error"]["data"]["candidates"], json!(["a/mac-ci-3"]));
-        let plain = AppError::no_session_from(
-            "x",
-            &daemon(RpcError::not_found("no session matches \"x\"")),
-        );
-        assert_eq!(plain.message, AppError::no_session("x").message);
-        assert!(crate::cli::send_relay::no_such_session(&app.into()));
-    }
-
-    /// A send to a Claude Code chat by its id prints how to reach it (`hub/no_session.rs`
-    /// `unregistered_chat`) in place of close names, and keeps it in `--json`.
-    #[test]
-    fn a_send_refusal_for_a_chat_id_names_the_register_step() {
-        let chat = json!({"state": "unknown", "register": "claude-code-6e0bad7d",
-            "text": "if 6e0bad7d is a Claude Code chat acpmux did not start, it has no acpmux address until it registers"});
-        let refused = daemon(RpcError::invalid_params("no session: h/6e0bad7d").with_data(json!({
-            "reason": "no_session", "host": "h", "name": "6e0bad7d",
-            "candidates": ["lane"], "unregisteredChat": chat})));
-        let app = AppError::no_session_from("h/6e0bad7d", &refused);
-        assert_eq!(app.code, Code::NoSession);
-        assert!(
-            app.message.starts_with("no session 6e0bad7d on h; if 6e0bad7d is a Claude Code chat"),
-            "{}",
-            app.message
-        );
-        assert_eq!(
-            app.envelope()["error"]["data"]["unregisteredChat"]["register"],
-            "claude-code-6e0bad7d"
-        );
-    }
-
-    /// A send's refusal names the machine and the closest names there (`hub/no_session.rs`).
-    #[test]
-    fn a_send_refusal_names_the_host_and_the_closest_names() {
-        let refused =
-            daemon(RpcError::invalid_params("no session: h/proc-title").with_data(json!({
-            "reason": "no_session", "host": "h", "name": "proc-title",
-            "candidates": ["feed-lane", "lane"]})));
-        let app = AppError::no_session_from("h/proc-title", &refused);
-        assert_eq!((app.code, app.detail.as_str()), (Code::NoSession, "no_session"));
-        assert_eq!(app.message, "no session proc-title on h; did you mean: feed-lane, lane");
-        // `--json` keeps the refusal's whole shape.
-        assert_eq!(
-            app.envelope()["error"]["data"],
-            json!({"reason": "no_session", "session": "h/proc-title", "host": "h",
-                   "name": "proc-title", "candidates": ["feed-lane", "lane"]})
-        );
-        let none = daemon(RpcError::invalid_params("no session: h/x").with_data(json!({
-            "reason": "no_session", "host": "h", "name": "x", "candidates": []})));
-        assert_eq!(
-            AppError::no_session_from("h/x", &none).message,
-            "no session x on h; run `acpmux ls` for its sessions"
-        );
-    }
-
-    /// An error with nothing to add prints as before.
-    #[test]
-    fn an_untyped_error_prints_as_before() {
-        let mut e = RpcError::internal("something odd");
-        crate::recovery::annotate(&mut e, None);
-        assert!(e.data.is_none());
-        assert_eq!(classify(&daemon(e)).text(), "acpmux: runtime: something odd");
-    }
-}
+#[cfg(test)]
+#[path = "errors_typed_error_tests.rs"]
+mod typed_error_tests;

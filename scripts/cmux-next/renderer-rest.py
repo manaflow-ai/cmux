@@ -270,11 +270,11 @@ def run_launch(bm, index: int, args) -> dict:
         rest_point = read_point("end-rest", True)
         for page in pages:
             devtools(page["browser"], "HeapProfiler.collectGarbage", timeout=60)
-        time.sleep(args.after_s)  # test script: let the renderers return what the collection freed
+        time.sleep(args.after_s)  # sleep-ok: the --after-s measurement window: memory returned within that time after the GC is the reading
         gc_point = read_point("after-gc", True)
         for page in pages:
             devtools(page["browser"], "Memory.simulatePressureNotification", {"level": "critical"})
-        time.sleep(args.after_s)  # test script: the same after the purge
+        time.sleep(args.after_s)  # sleep-ok: the same --after-s measurement window after the purge
         purge_point = read_point("after-purge", True)
         for page in pages:
             usage = devtools(page["browser"], "Runtime.getHeapUsage")

@@ -34,7 +34,7 @@ pub(super) enum OperationOwner {
     PaletteRank,
     /// `chat.*` (resource_router/chats.rs): acpmux's chats as the daemon keeps them.
     Chat,
-    /// `theme.scheme.*` (resource_router/theme_scheme.rs): stateless converters.
+    /// `theme.scheme.*` and `theme.slots.resolve` (resource_router/theme_scheme.rs): stateless.
     ThemeScheme,
     /// `browser_import.read` (resource_router/browser_import.rs): stateless.
     BrowserImport,
@@ -159,11 +159,17 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitWorktreeApply
         | ResourceOperation::GitWorktreeRemove
         | ResourceOperation::GitWorktreeSetup
+        | ResourceOperation::GitWorktreeSetupRun
+        | ResourceOperation::ProjectActionsList
         | ResourceOperation::GitStatus
         | ResourceOperation::DiffCommentsList
         | ResourceOperation::DiffCommentsSave
         | ResourceOperation::DiffCommentsDelete
-        | ResourceOperation::DiffCommentsSend => OperationOwner::Git,
+        | ResourceOperation::DiffCommentsSend
+        | ResourceOperation::DiffCommentsThread
+        | ResourceOperation::GitReviewStart
+        | ResourceOperation::GitReviewComment
+        | ResourceOperation::GitReviewPost => OperationOwner::Git,
         ResourceOperation::HistoryEntriesList
         | ResourceOperation::HistoryEntriesRemove
         | ResourceOperation::HistorySiteRemove
@@ -198,7 +204,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChatPin => OperationOwner::Chat,
         ResourceOperation::ThemeSchemeConvert
         | ResourceOperation::ThemeSchemeExport
-        | ResourceOperation::ThemeSchemeFromImage => OperationOwner::ThemeScheme,
+        | ResourceOperation::ThemeSchemeFromImage
+        | ResourceOperation::ThemeSlotsResolve => OperationOwner::ThemeScheme,
         ResourceOperation::BrowserImportRead => OperationOwner::BrowserImport,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
@@ -341,6 +348,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChiefEngineGet
         | ResourceOperation::ChiefEngineSet
         | ResourceOperation::ChiefStop
+        | ResourceOperation::ChiefAutomationList
+        | ResourceOperation::ChiefAutomationUpdate
         | ResourceOperation::ChiefContinue
         | ResourceOperation::ChiefRetry
         | ResourceOperation::ChiefProfileList
@@ -395,6 +404,12 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudOwnerGithubApp
         | ResourceOperation::CloudOwnerGithubRepos
         | ResourceOperation::CloudOwnerGithubConnect
+        | ResourceOperation::CloudOwnerOp
+        | ResourceOperation::CloudOwnerGithubComplete
+        | ResourceOperation::CloudOwnerGithubList
+        | ResourceOperation::CloudOwnerGithubCloneToken
+        | ResourceOperation::CloudOwnerSlack
+        | ResourceOperation::CloudOwnerSlackAwake
         | ResourceOperation::CloudOwnerTurnCheckpoint
         | ResourceOperation::CloudOwnerTurnRewind
         | ResourceOperation::CloudOwnerTurns
@@ -404,6 +419,10 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::CloudMachineIo
         | ResourceOperation::CloudMachineChatAccess
         | ResourceOperation::CloudMachineShareChat
+        | ResourceOperation::CloudMachineChiefStart
+        | ResourceOperation::CloudMachineChiefResize
+        | ResourceOperation::CloudMachineSetupDesktop
+        | ResourceOperation::CloudMachineFork
         // The app's language packs (server/language_packs_op.rs): a download on a worker thread.
         | ResourceOperation::LanguagePacksEnsure
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
@@ -415,6 +434,10 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SettingsReset
         | ResourceOperation::SettingsResetAll
         | ResourceOperation::SettingsEdit
+        | ResourceOperation::SettingsHistory
+        | ResourceOperation::SettingsUndo
+        | ResourceOperation::SettingsRestore
+        | ResourceOperation::SettingsResetGroup
         | ResourceOperation::KeybindingsGet
         | ResourceOperation::KeybindingsSet
         | ResourceOperation::KeybindingsRemove

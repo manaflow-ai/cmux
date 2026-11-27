@@ -7,7 +7,6 @@ Official cmux apps built on the app platform with only the public app API (the g
 | `search/` | `cmux/search` | finds workspaces, tabs, terminal text, browser pages, notes, inbox items and files, and opens the result |
 | `inbox/` | `cmux/inbox` | one triage list of notifications, waiting agents and connected-service work items |
 | `notes/` | `cmux/notes` | markdown notes, global and per workspace, readable by agents |
-| `coderouter/` | `cmux/coderouter` | CodeRouter status, accounts, keys, usage and first-run onboarding |
 | `usage/` | `cmux/usage` | usage and pace of every router account per provider, in the menu bar, a pane and the sidebar |
 | `diffs/` | `cmux/diffs` | `cmux.diff.renderer/1`: working tree, refs, agent proposals and run diffs, with per-hunk decisions and comments |
 | `codemirror/` | `cmux/codemirror` | `cmux.editor/1` on CodeMirror 6 in a web pane |

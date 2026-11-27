@@ -11,6 +11,7 @@
 // (SubagentDoneLine.tsx, each of its looks). The running tray's lines name their task whole and keep
 // their own title tooltip (SubagentTray.tsx `agentTooltip`).
 import { cloneElement, type ReactElement, type ReactNode } from "react";
+import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { Tooltip } from "../../../ui/Tooltip";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
@@ -70,12 +71,14 @@ export function SubagentPreviewCard({
   const progress = useAgentProgress(agent);
   // The session's clock as the card opens (it mounts on open): it shows for seconds, so it never ticks.
   const now = useNow(false);
+  // A retry waits out the shared bound before the card says so (retryState.ts ``retryWords``).
+  const connectionQuiet = useConnectionQuietKeys();
   const title = name ?? subagentTaskLabel(t, agent);
   const status = subagentStatus(agent, waiting, now);
   const own = subagentDisplayName(t, agent);
   const kind = agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined;
   const state = [
-    subagentStateText(t, agent, waiting, now),
+    subagentStateText(t, agent, waiting, connectionQuiet, now),
     formatDuration(elapsed(agent, now)),
     // Its own name, when its chip names it by its task.
     own !== title ? own : undefined,

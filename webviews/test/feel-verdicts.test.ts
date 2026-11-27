@@ -90,6 +90,34 @@ describe("follow", () => {
     expect(report.maxError).toBe(0);
   });
 
+  test("a snap-along edge resting on a line within its detent is on the hand; one between lines is not", () => {
+    // Lines every 28 px from 296 up; the rim settles on one when 1:1 is within 5 px of it.
+    const detents = { at: [296, 268, 240, 212], within: 5 };
+    const snap = (ask: number) => detents.at.find((at) => Math.abs(at - ask) <= 5) ?? ask;
+    const hand = up(300, 60, 30);
+    const snapping = follow(
+      dragTrace(300, hand, (y) => snap(y - 4)),
+      { box: "tray", edge: "top", detents },
+    );
+    expect(snapping.maxError).toBe(0);
+    expect(snapping.jumps).toEqual([]);
+    expect(snapping.releaseLanded).toBe(true);
+    // Stuck 12 px short of the hand, far from any line: off the hand however detented.
+    const stuck = follow(
+      dragTrace(300, hand, (y, i) => (i >= 15 ? y + 8 : y - 4)),
+      { box: "tray", edge: "top", detents },
+    );
+    expect(stuck.maxError).toBeGreaterThanOrEqual(7);
+  });
+
+  test("a release that lands on a line reads as landed", () => {
+    const trace = dragTrace(300, up(300, 50, 25), (y) => y - 4);
+    for (const frame of trace.frames.slice(-3)) frame.boxes.tray = box(240);
+    const report = follow(trace, { box: "tray", edge: "top", detents: { at: [268, 240], within: 5 } });
+    expect(report.releaseLanded).toBe(true);
+    expect(report.releaseMove).toBe(6);
+  });
+
   test("a move after the release is read", () => {
     const trace = dragTrace(300, up(300, 60, 30), (y) => y - 4);
     for (const frame of trace.frames.slice(-3)) frame.boxes.tray = box(frame.boxes.tray!.y + 14);

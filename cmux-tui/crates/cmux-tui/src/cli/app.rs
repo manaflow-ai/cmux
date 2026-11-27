@@ -17,6 +17,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
@@ -37,7 +38,9 @@ mod call;
 mod chat_perf;
 mod classic;
 mod events;
+mod fallback_socket;
 mod group_create;
+mod health;
 mod join;
 mod keybinding;
 mod launch_times;
@@ -47,6 +50,7 @@ mod open;
 mod open_link;
 mod page;
 mod published;
+mod record;
 mod renderers;
 mod right;
 mod run;
@@ -56,7 +60,11 @@ mod space;
 mod try_cmd;
 mod version;
 pub(super) mod wait;
+mod web_cas;
 mod web_pieces;
+pub(super) use try_cmd::cu_upgrade;
+pub(crate) use try_cmd::spawn_daemon_updates;
+pub(super) use web_cas::USAGE as WEB_CAS_USAGE;
 pub(super) use web_pieces::USAGE as WEB_PIECES_USAGE;
 
 /// Scopes that belong to the app, whatever follows.
@@ -85,7 +93,7 @@ pub(super) const APP_SCOPES: &[&str] = &[
 /// Control-plane requests answer within the app's own 2 s deadline. A run
 /// that waits for its work may wait for a terminal to start (6 s) or for a
 /// network action the app bounds itself (`ActionDescriptor.resultDeadline`,
-/// 40 s, Connect to CodeRouter), so the CLI gives the app longer than that.
+/// 40 s), so the CLI gives the app longer than that.
 pub(super) const READ_TIMEOUT: Duration = Duration::from_secs(5);
 /// The app method `cmux app remote-views` reads; the app registers it in every
 /// build (RemoteViewTabsControl.releaseMethods, whose test reads this line).
@@ -93,6 +101,9 @@ pub(super) const REMOTE_VIEWS_METHOD: &str = "remote_view.state";
 /// The app method `cmux app mac-screens` reads; the app registers it in every
 /// build (MacScreenPages.releaseMethods, whose test reads this line).
 pub(super) const MAC_SCREENS_METHOD: &str = "mac_screen.state";
+/// The app method `cmux app clicks` reads; the app registers it in every build
+/// (ClickTrace.controlMethod, whose test reads this line).
+pub(super) const CLICKS_METHOD: &str = "input.clicks";
 pub(super) const WAITING_RUN_TIMEOUT: Duration = Duration::from_secs(45);
 /// The app methods `cmux app machines` and `cmux app join-line` send; the app
 /// registers both in every build (AppControl+Remote.swift). A list read or a
@@ -221,9 +232,15 @@ pub(super) enum AppCommand {
     Published(cmux_apps::cli::Parsed),
     /// `cmux app launch-times`: the app's recorded launches, read from its file (app/launch_times.rs).
     LaunchTimes(launch_times::Command),
+    /// `cmux window record` / `cmux pane record`: a clip from the app's own screenshots (app/record.rs).
+    Record(record::Request),
+    /// `cmux app health`: chat, model picker and terminal checks (cli/app/health.rs).
+    Health(health::Command),
     /// `cmux app web-pieces check|status`: what each web piece of a web update serves, from the
     /// signed switch file (app/web_pieces.rs).
     WebPieces(web_pieces::Command),
+    /// `cmux app web-cas fetch`: a web update by cas/1 Range GETs (app/web_cas.rs).
+    WebCas(web_cas::Command),
 }
 
 /// Whether `args` (after the global options) is the classic `cmux identify`,
@@ -324,18 +341,26 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
         ("keybinding", _) => keybinding::parse(rest)?,
         ("app", Some("call")) => call::parse(rest)?,
         ("app", Some("try")) => AppCommand::Try(try_cmd::parse(rest.get(1..).unwrap_or_default())?),
+        ("app", Some(verb @ ("versions" | "use"))) => {
+            AppCommand::Nightly(nightly::parse_app(verb, rest.get(1..).unwrap_or_default())?)
+        }
         ("app", Some("share")) => {
             AppCommand::Share(try_cmd::parse_share(rest.get(1..).unwrap_or_default())?)
         }
         ("app", _) if published::owns(rest) => {
             AppCommand::Published(published::parse(rest).map_err(UsageError::new)?)
         }
+        ("app", Some(verb @ ("versions" | "use"))) => {
+            AppCommand::Nightly(nightly::parse_app(verb, rest.get(1..).unwrap_or_default())?)
+        }
         ("app", Some("ping")) => call("system.ping", json!({})),
         ("app", Some("identify")) => call("system.identify", json!({})),
         ("app", Some("capabilities")) => call("system.capabilities", json!({})),
         ("app", Some("renderers")) => renderers::parse(rest)?,
         ("app", Some("launch-times")) => launch_times::parse(rest)?,
+        ("app", Some("health")) => health::parse(rest)?,
         ("app", Some("web-pieces")) => web_pieces::parse(rest)?,
+        ("app", Some("web-cas")) => web_cas::parse(rest)?,
         ("app", Some("chat")) if rest.get(1).is_some_and(|verb| verb == "perf") => {
             chat_perf::parse(rest)?
         }
@@ -362,6 +387,17 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 params.insert("tab".into(), json!(tab));
             }
             call(MAC_SCREENS_METHOD, Value::Object(params))
+        }
+        // Where the person's last presses went (`input.clicks`, every build): per press
+        // the window it reached, whether the overlay or a divider catcher took or
+        // forwarded it, each page focus grant it led to, and the key window after.
+        ("app", Some("clicks")) => {
+            let options = Options::parse(rest.get(1..).unwrap_or_default(), &["limit"], &[])?;
+            let mut params = Map::new();
+            if let Some(limit) = options.value("limit") {
+                params.insert("limit".into(), json!(parse_limit(limit, "app clicks")?));
+            }
+            call(CLICKS_METHOD, Value::Object(params))
         }
         // The Machines section's machines (`machine.list`, every build): this Mac,
         // Cloud, SSH, server and hub-joined machines with their link state. It reads
@@ -400,6 +436,7 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
                 pick: None,
             }
         }
+        ("window", Some("record")) => record::parse(record::Noun::Window, rest)?,
         ("window", Some("list")) => AppCommand::Call {
             method: "snapshot.get",
             params: json!({}),
@@ -608,7 +645,7 @@ pub(super) fn action_origin() -> &'static str {
 
 /// An action argument's name from its flag: the catalog names arguments in
 /// camelCase (`--keep-sessions` is `keepSessions`).
-pub(super) fn argument_name(flag: &str) -> String {
+pub(in crate::cli) fn argument_name(flag: &str) -> String {
     let mut name = String::with_capacity(flag.len());
     let mut upper = false;
     for character in flag.chars() {
@@ -687,7 +724,12 @@ pub(super) fn run_action(
             return Err(UsageError::new(messages.unexpected_argument.replace("{value}", flag)));
         };
         match name {
-            "wait" | "no-wait" | "interactive" => {
+            "wait" | "no-wait" | "interactive" | "join-only" => {
+                if name == "join-only" {
+                    params.insert("join_only".into(), json!(true));
+                    index += 1;
+                    continue;
+                }
                 let key = if name == "interactive" { "interactive" } else { "wait" };
                 params.insert(key.into(), json!(name != "no-wait"));
                 index += 1;
@@ -774,6 +816,15 @@ pub(super) fn run_action(
             "yes" if super::action_hint::action_takes_argument(action, "confirm") => {
                 arguments.insert("confirm".into(), value);
             }
+            // `--contents-file FILE` (`cloud file-write`): the text read here, so it never sits in
+            // this process's argv where `ps` shows it (`cmux migrate` carries files this way).
+            "contents-file" if super::action_hint::action_takes_argument(action, "contents") => {
+                let path = caller_path(value);
+                let path = path.as_str().unwrap_or_default();
+                let text = std::fs::read_to_string(path)
+                    .map_err(|error| UsageError::new(format!("--contents-file {path}: {error}")))?;
+                arguments.insert("contents".into(), json!(text));
+            }
             _ => {
                 let key = argument_name(&name);
                 // A file or folder of the caller's working directory, for an app that runs elsewhere.
@@ -847,6 +898,20 @@ pub(super) fn new_window_spelling(name: &str, args: &[String]) -> Option<(String
     Some((format!("{noun} move-to-new-window"), rest))
 }
 
+/// `cmux pane record …` (`pane` is not an app scope: its other verbs are app actions or the mux's):
+/// the recording, or `None` for any other words.
+pub(super) fn run_pane_record(global: &GlobalArgs, args: &[String]) -> Option<i32> {
+    if args.first().map(String::as_str) != Some("pane")
+        || args.get(1).map(String::as_str) != Some("record")
+    {
+        return None;
+    }
+    Some(match record::parse(record::Noun::Pane, args.get(1..).unwrap_or_default()) {
+        Ok(command) => run(global, command),
+        Err(error) => failure("usage.invalid", &error.0, global.output, 2),
+    })
+}
+
 /// Runs `<noun> <verb…> [--flags]` as the app action with that CLI name.
 /// `None` when no app answers or the app has no CLI action by that name, so
 /// the caller reports its own usage error. One connection, one `action.run`.
@@ -897,13 +962,17 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
         AppCommand::Live(command) => {
             let command =
                 live::routed(command, global.socket.as_deref(), global.session.as_deref());
-            return Ran::Done(live::run(&command));
+            return Ran::Done(live::run(global, &command));
         }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, command)),
         AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, command)),
+        // Its own connections, one per capture in flight.
+        AppCommand::Record(request) => return Ran::Done(record::run(global, request.clone())),
+        AppCommand::Health(command) => return Ran::Done(health::run(global, command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, command)),
+        AppCommand::WebCas(command) => return Ran::Done(web_cas::run(global, command)),
         _ => {}
     }
     let mut stream = match connect_command(global) {
@@ -1041,6 +1110,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::ChatPerf { params, seconds } => {
             return Ran::Done(chat_perf::run(global, stream, params, seconds));
         }
+        AppCommand::Record(request) => return Ran::Done(record::run(global, request)),
         AppCommand::Settings(command) => return Ran::Done(command.run(global)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
@@ -1048,13 +1118,15 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Live(command) => {
             let command =
                 live::routed(&command, global.socket.as_deref(), global.session.as_deref());
-            return Ran::Done(live::run(&command));
+            return Ran::Done(live::run(global, &command));
         }
         AppCommand::Try(command) => return Ran::Done(try_cmd::run(global, &command)),
         AppCommand::Share(command) => return Ran::Done(try_cmd::run_share(global, &command)),
         AppCommand::Published(parsed) => return Ran::Done(published::run(global, &parsed)),
         AppCommand::LaunchTimes(command) => return Ran::Done(launch_times::run(global, &command)),
+        AppCommand::Health(command) => return Ran::Done(health::run(global, &command)),
         AppCommand::WebPieces(command) => return Ran::Done(web_pieces::run(global, &command)),
+        AppCommand::WebCas(command) => return Ran::Done(web_cas::run(global, &command)),
         AppCommand::Open { requests, stop_on_failure } => {
             let mut status = 0;
             for request in requests {
@@ -1121,6 +1193,12 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     {
         eprintln!("{note}");
     }
+    // `tab new-mac-screen` answers with the tab it opened: the Screen Sharing tabs before the run,
+    // so the new one is the one that was not there (mac_screen_view).
+    let mac_screens_before = super::mac_screen_view::opens_tab(method, &params)
+        .then(|| super::mac_screen_view::request_state(stream, None).ok())
+        .flatten()
+        .map(|state| super::mac_screen_view::keys(&state));
     let response = match wait::request(global, stream, method, &params, timeout)
         .and_then(|response| join_change(global, stream, method, &params, timeout, response))
     {
@@ -1141,6 +1219,14 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                 None => None,
             }
             .unwrap_or(result);
+            let mut value = value;
+            if let Some(before) = &mac_screens_before
+                && let Ok(after) = super::mac_screen_view::request_state(stream, None)
+            {
+                let device = params.pointer("/args/device").and_then(Value::as_str);
+                let row = super::mac_screen_view::opened_row(before, &after, device);
+                super::mac_screen_view::with_opened(&mut value, row);
+            }
             warn_unstable_handles(method, &value, global.output);
             open_created(global, stream, &params, &value);
             if global.output == OutputMode::Human
@@ -1317,7 +1403,7 @@ fn busy_retry_delay(error: &Value) -> Duration {
 }
 
 /// The app control socket of a command the app serves (`cmux identify`,
-/// `cmux app …`, `cmux window list`, action verbs, `cmux coderouter …`).
+/// `cmux app …`, `cmux window list`, action verbs).
 ///
 /// This is the one owner of the explicit-socket rule for the app (cx-siev):
 /// a socket the caller names is the only socket tried, never a default
@@ -1365,8 +1451,11 @@ pub(super) fn socket_path(global: &GlobalArgs) -> Result<PathBuf, String> {
     let identity = AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref());
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_default();
     let Some(flag) = explicit_daemon_route(global) else {
+        // No app around this CLI and none in its environment (an ssh shell, a `cmux` copied onto
+        // `PATH`): the one cmux NIGHTLY that answers, when exactly one does.
         return identity
             .map(|identity| identity.control_socket(&home))
+            .or_else(|| fallback_socket::nightly(&home))
             .ok_or_else(|| messages.no_app.to_owned());
     };
     let no_app = || messages.explicit_no_app.replace("{flag}", flag);
@@ -1500,9 +1589,9 @@ pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value>
     if let Some(session) = set("CMUX_AGENT_SESSION") {
         let mut caller = json!({ "agent_session": session });
         if home_chat {
-            caller["home_chat"] = json!(true);
+            caller.set("home_chat", json!(true));
         } else if let Some(workspace) = set("CMUX_WORKSPACE_ID") {
-            caller["workspace"] = json!(workspace);
+            caller.set("workspace", json!(workspace));
         }
         return Some(caller);
     }
@@ -1543,7 +1632,8 @@ fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
 
 /// An app from before `caller` refuses it as an unknown param (its
 /// `browser.open_split` takes no unknown params): the request is sent again
-/// without it, so a newer CLI still opens the tab there.
+/// without it, so a newer CLI still opens the tab there. (Newer daemons ignore an unknown
+/// param instead of refusing it; this fallback stays for the older builds that refuse.)
 fn refused_caller(response: &Result<Value, Value>) -> bool {
     let Err(error) = response else { return false };
     error_code(error) == Some("invalid_params")

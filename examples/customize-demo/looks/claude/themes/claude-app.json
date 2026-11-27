@@ -6,7 +6,7 @@
   "description": "Warm near-black paper, a darker sidebar, the clay accent, round corners, no borders.",
 
   "appearance.theme": "Builtin Dark",
-  "colors": { "background": "#1f1e1c", "foreground": "#ececea", "selection": "#3a3936", "cursor": "#d97757", "accent": "#d97757" },
+  "colors": { "background": "#1f1e1c", "foreground": "#ececea", "selection": "#767572", "cursor": "#d97757", "accent": "#d97757" },
   "appearance.appTheme": "followTerminal",
   "appearance.accent": "theme",
 

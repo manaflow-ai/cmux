@@ -221,7 +221,7 @@ class TheReportSeesEveryRunnerVariable(unittest.TestCase):
         self.assertEqual(
             missing,
             set(),
-            f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name} and ci-repo-variables.yml when it "
+            f"add to CMUX_CI_RUNNER_VARIABLES in {HEALTH_REPORT_WORKFLOW.name} when it "
             "is a runs-on label, or to NON_LABEL_RUNNER_VARIABLES here when it is not a label",
         )
 
@@ -441,7 +441,7 @@ class TrustedPoolVariable(unittest.TestCase):
         self.assertTrue(drifted_runner_variables({"MACOS_RUNNER_26_LARGE": "glaeda-trusted-std-xcode-26.6"}))
 
     def test_the_reports_check_it(self) -> None:
-        for workflow in ("ci-health-report.yml", "ci-repo-variables.yml"):
+        for workflow in ("ci-health-report.yml",):
             text = (ROOT / ".github" / "workflows" / workflow).read_text(encoding="utf-8")
             self.assertIn("CI_SEED_TRUSTED_POOL=${{ vars.CI_SEED_TRUSTED_POOL }}", text, workflow)
             self.assertIn("CI_NIGHTLY_TRUSTED_RUNNER=${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}", text, workflow)

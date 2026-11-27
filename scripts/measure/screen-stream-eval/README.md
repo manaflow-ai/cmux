@@ -22,8 +22,9 @@ port in Hello, so downstream media and upstream feedback both traverse shaping.
 these are path diagnostics, not a matched wire-bandwidth comparison with another target.
 
 `.github/workflows/screen-stream-eval.yml` runs it every day at the feat-cmux-next tip, started by
-main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch). It
-uploads `results.json`, `summary.md`, and `probe.json` (schema `cmux.screen-share-fast/1`) that the
+main's `screen-stream-eval-dispatch.yml` (scheduled workflows run only from the default branch), with
+the targets `rd,webrtc,iphone-sim` (`iphone-sim` last: it builds the app, and a target that fails or
+is cut short leaves the earlier ones' results in `results.json`). It uploads `results.json`, `summary.md`, and `probe.json` (schema `cmux.screen-share-fast/1`) that the
 screen-share-fast goal reads. The summary shows each number's change against the last daily
 run (the last successful one that dispatcher started).
 
@@ -130,6 +131,9 @@ Today's targets:
   `data:` URL. The target is host and viewer at once, so it has window rows only: no latency and no
   host. Its cost is a floor, because the app also copies each frame into the helper's ring, rounds
   the corners, evaluates JavaScript and decodes the PNG in the webview.
+- `rd-ladder`: `rd` with the resolution ladder (`--resolution-ladder 1 --max-qp 40`) and a viewer that
+  sends `video.scaled`, as the Mac viewer pane does; `rd-ladder-1000` pins it at 1000 kbps, where it
+  steps down. `rd.sh` takes a variant's flags from `EVAL_RD_HOST_FLAGS` and `EVAL_RD_BENCH_FLAGS`.
 - `rd-window`: the same window alone as a cmux.rd/1 stream at the same 360 px rung (`cmux-rd host
   --display window:ID --max-width 360 --max-fps 6`), with `cmux-rd bench` as the viewer.
   `rd-window-30` runs it at 30 fps. Both have window rows only.
@@ -171,7 +175,7 @@ Today's targets:
   connections ([Apple's macOS 26 guide](https://support.apple.com/en-us/guide/mac-help/mh14066/26/mac/26)).
   Select Standard during connection setup on the dedicated viewer. Apple
   targets require a second Mac and explicit `targets=`; the daily loopback
-  defaults remain `rd,webrtc`.
+  targets remain `rd,webrtc,iphone-sim`.
   Each view launches its own Screen Sharing.app instance (`open -g -n`, never
   activated), binds its pid and window, quits only that pid when the view ends
   (success, failure or signal), and a watchdog ends a view that hangs; a
@@ -332,6 +336,9 @@ Quality uses a bounded 128x64 luma ROI, matched by timestamp and exact encoded a
 A source PNG and last viewer image with equal dimensions do not establish frame identity.
 Five source samples at most are recorded per host session, and quality is not extrapolated to
 other scene phases. `evidence.tar.gz` retains raw decode/timing records and matched ROI samples.
+With the resolution ladder on, the host logs each frame's encoded picture size, and
+`min_bits_per_pixel` and `median_bits_per_pixel` are encoded access-unit bits over that picture's pixels, across
+emitted frames in the window; they stay null unless every emitted frame carries a size.
 These observations remain under `extra.repeats[].window_netem_metrics` in the target summary.
 There is no unqualified first-repeat or partial-repeat aggregate.
 Each target also leaves its raw files under
@@ -443,6 +450,52 @@ is decoded, not when it is presented on the viewer's screen. Real networks are G
 Trust: the run token, rd's stream token and the WebRTC pairing link cross the LAN in plain HTTP.
 The agent runs only the fixed view verbs, with checked arguments, from its own checkout. A measure
 Mac's LAN is the boundary, as its console is (below).
+
+### Stage table on two Macs
+
+`stage-table=LEGS` (for example `stage-table=wired,wifi-away`) runs the stage ledger
+(`cmux-tui/crates/cmux-rd-host/scripts/screen-share-vs.py run --legs LEGS --apple-viewer --app-viewer APP --app-host-app APP`) in place of
+the targets, as the same two pinned halves, so any machine that submits fleet steps (a lane VM) runs it:
+
+```
+cmux-ci run --class exclusive --measurement --label measure --label gui-session-v1 --script scripts/measure/screen-stream-eval.sh \
+  --ref SHA --pair KEY --target-worker HOST_MAC --pin-strict --arg=lan=HOST_IP --arg=peer-token=$token \
+  --arg=stage-table=wired,wifi-away --artifact artifacts/screen-stream-eval/evidence.tar.gz --timeout 7200
+cmux-ci run ... --pair KEY --target-worker VIEWER_MAC --pin-strict --vnc-login HOST_MAC --arg=viewer-of=HOST_IP \
+  --arg=peer-token=$token --arg=stage-table=wired,wifi-away --artifact artifacts/screen-stream-eval/evidence.tar.gz
+```
+
+Both halves take the grant check and launcher first (the rig on the host, `cmux-rd observe` and Screen
+Sharing.app on the viewer). The host half (`stage-table.sh host`) serves `screen-share-vs.py peer-serve`
+on HOST_IP:4181; the viewer half builds the tools at its commit and runs the ledger with itself as
+`--local-mac` and the host `--via peer`: each host command is one HTTP POST with the run token. The
+server takes the first private-address client that holds the token and that one only, runs what it
+posts as the step's user, and ends at the viewer's `/done` or after 2 hours. Apple's presented Total
+logs in with the login the worker writes for a `--vnc-login` step (`CMUX_CI_VNC_LOGIN_FILE`), or,
+with no `--vnc-login` (a controller with no fleet login source refuses it), with the fleet password
+in the viewer's login keychain (`manaflow-fleet-login`, never the sudo item; `fleet-sudo --login-keychain VIEWER_MAC`
+stores), copied to a 0600 file in the step's output for the run and removed after it. The
+ledger, its log and the printed table are `stage-table/` in evidence.tar.gz.
+
+cmux's Present and Total cells need a visible pane, so each half also builds a DEV cmux NEXT app at the
+step's commit (`scripts/reload.sh --tag stagetable`, the build `chat-open.sh` does; logs
+`app-build-host.log`, `app-build-viewer.log`). The viewer half passes its app as `--app-viewer` and the
+host half's as `--app-host-app`. The host app is started as a direct child of the step, so it shares the
+launcher's Screen Recording grant, signs in to the device hub, turns sharing on, and approves the viewer's
+session; it tells the viewer half its path through the peer server (a file under `/tmp` named by the run
+token's hash). Both apps sign in with `CMUX_STAGE_TABLE_AUTH_FILE`, else the Mac's
+`~/rd-hub-rig/private/creds.env` (the Mac Screen rig's agent test-account file), else
+`~/.secrets/cmuxterm-dev.env` (the CI dev account the pair e2e signs in with). With none of those files,
+a half sent with `cmux-ci run --sign-in agent` signs its app in from the step's own agent session
+(`CMUX_CI_SIGNIN_FILE`): `stage-signin.py` writes the session's refresh token into the app's own token
+store before launch, as `scripts/ci/cmux_next_pair_e2e.py` does, and the store is removed when the step
+ends. Send both halves with `--sign-in agent` (the viewer half without `--vnc-login`: a step takes one, and
+it reads the fleet login from its keychain); only a submitter that holds the agent account can send it.
+Without a file or a session on either Mac, or when a build or sign-in fails, the run keeps Apple's leg and the cmux rows end at decode, and
+a `SCREEN-STREAM-EVAL-STAGE ... no app viewer` line says why. A shaped leg
+(`wifi-away`) needs `sudo -n` on the host for mac-holds.sh; without it that leg fails and the table
+holds the rest. Trust as above, except that this server runs any command it is handed, so the token
+is the boundary inside the LAN.
 
 ### Held-and-burst link profiles
 

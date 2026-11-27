@@ -5,8 +5,8 @@ The workflow holds the repo's dev stack account and the team's Claude subscripti
 user and opens ssh to it, so these hold for good: manual dispatch only; feat-cmux-next only; top-level
 `permissions: contents: read` and nothing else; the three secrets reach exactly one step, through `env`;
 no Anthropic API key at all, and the Claude login never goes to the vault (only to the user's ssh stdin);
-no `set -x`; the platform origin is development's; the runner is an ephemeral Blacksmith macOS VM read
-from RUNNER_POOLS (never a runner variable that can name a persistent Mac); the channel must contain the
+no `set -x`; the platform origin is development's; the runner is an ephemeral Blacksmith macOS VM named
+as a literal label (never a runner variable or a RUNNER_POOLS pool, which can name a persistent Mac); the channel must contain the
 vault's merge before any secret is in reach; the user, its keychain and its ssh key are made before the
 secrets and removed under `always()`; the evidence check and upload run under `always()`, the upload only
 when the check found the evidence clean; nothing else is uploaded.
@@ -28,7 +28,7 @@ import workflow_jobs  # noqa: E402
 WORKFLOW = ROOT / ".github/workflows/machine-vault-e2e.yml"
 SCRIPT = ROOT / "scripts/cmux-next/machine-vault-e2e.ts"
 DEV = "https://cmux-platform-development.debussy.workers.dev"
-RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}"
+RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}"
 RUN_STEP = "Vault, join, agent and cleanup"
 VAULT_MERGE = "4cfaaa8d3891d43b3e237c70b0dbf701feb92de2"
 MACHINE_ADD_MERGE = "657906ec79ebd3704cdf6be709e3a206be438754"
@@ -151,7 +151,7 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
         job = load()["jobs"]["e2e"]
         cells = workflow_jobs.runs_on_cells(job)
         self.assertEqual(cells, [RUNS_ON])
-        self.assertNotRegex("\n".join(cells), r"vars\.(?!RUNNER_POOLS)")
+        self.assertNotRegex("\n".join(cells), r"vars\.")
         self.assertIn("timeout-minutes", job)
 
     def test_channel_must_carry_the_vault_before_secrets(self) -> None:

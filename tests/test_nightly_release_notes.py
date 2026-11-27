@@ -368,6 +368,22 @@ class AppcastTests(unittest.TestCase):
                     self.assertEqual(items[0].find("enclosure").attrib, old_items[0].find("enclosure").attrib)
                     self.assertEqual(ET.tostring(items[1]), ET.tostring(old_items[1]))
 
+    def test_the_item_names_its_span_and_its_pull_requests(self):
+        """The feed item says which PRs it carries (Leo 2026-11-26: "do we display which prs go into which
+        nightly"): the commit it starts after and the PR numbers, newest first, beside its sourceCommit."""
+        cmux = "https://cmux.com/xml-namespaces/cmux"
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            self.write_feeds(directory)
+            for _ in range(2):  # a rerun replaces the elements, never adds a second copy
+                NOTES.update_appcasts(directory, "102", "Fresh notes", feeds=APPCASTS,
+                                      since=BASE, pull_requests=[705, 701])
+            for name in APPCASTS:
+                items = ET.parse(directory / name).getroot().findall("channel/item")
+                self.assertEqual([e.text for e in items[0].iter(f"{{{cmux}}}sinceCommit")], [BASE])
+                self.assertEqual([e.text for e in items[0].iter(f"{{{cmux}}}pullRequests")], ["705 701"])
+                self.assertEqual(list(items[1].iter(f"{{{cmux}}}pullRequests")), [])
+
     def test_the_arm64_only_track_updates_its_one_feed(self):
         """nightly-next publishes only the arm64 variant: one feed, and a missing one still fails."""
         with tempfile.TemporaryDirectory() as temporary:

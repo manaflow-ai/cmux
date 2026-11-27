@@ -11,6 +11,8 @@ public struct MacScreenHomeActions {
     public var openDeviceInNewTab: (String, SessionScope?) -> Void = { _, _ in }
     /// Sign In under Your Devices while this Mac is signed out of cmux.
     public var signIn: () -> Void = {}
+    /// What that Sign In signs in to ("Signs in to cmux.com"), the line under it.
+    public var signInBackend: String?
     /// Start the same guided Share This Mac action used by the sidebar and Devices.
     public var shareThisMac: () -> Void = {}
 
@@ -56,6 +58,12 @@ final class MacScreenHomeView: MacScreenThemedView {
         self.systemShortcuts = systemShortcuts
         self.devices = devices
         super.init(frame: .zero)
+        // A plain NSView is not an accessibility element, so its identifier never reached the AX tree (the
+        // feature-flows probe's `macScreen.home` read found nothing, 2026-11-22 09:50Z). A labelled group keeps its
+        // children reachable and names the page for VoiceOver.
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(L.t("macScreen.home.title", "Screen Sharing"))
         setAccessibilityIdentifier("macScreen.home")
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
@@ -179,7 +187,9 @@ final class MacScreenHomeView: MacScreenThemedView {
         if snapshot.sharing?.showFirstUse == true {
             MacScreenStack.addFullWidth(firstUseGuide(), to: column)
         }
-        if let list = snapshot.devices { MacScreenStack.addFullWidth(yourDevices(list, look: snapshot.devicesLook), to: column) }
+        if let list = snapshot.devices {
+            MacScreenStack.addFullWidth(yourDevices(list, look: snapshot.devicesLook, placement: snapshot.setupPlacement), to: column)
+        }
         if let sharing = snapshot.sharing { MacScreenStack.addFullWidth(sharingSection(sharing, look: snapshot.sharingLook), to: column) }
         if let keyboard = snapshot.keyboard { MacScreenStack.addFullWidth(keyboardSection(keyboard), to: column) }
         paint(column)

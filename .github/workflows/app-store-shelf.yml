@@ -6,25 +6,16 @@
 # Discover listing as the person with the page's own Install params, and fails when one shows nothing
 # after install (no pane, no web page, no native page, no placed widget tile). It runs on every change
 # that can put a package on the shelf or change what an install does, so a broken app never merges and
-# never reaches a nightly. The tests: cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs
+# never reaches a nightly: nightly.yml's check-nightly-app-store-shelf runs the same script
+# (scripts/ci/app-store-shelf-check.sh) on every NEXT nightly's build commit, and its final publication gate
+# publishes nothing unless it passed. The tests: cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs
 # (every_shipped_store_listing_installs_and_has_something_to_open and its red twin
 # a_command_only_store_listing_has_nothing_to_open_after_install).
 name: App Store shelf
 
+# A pull request into feat-cmux-next runs the shelf check as ci/steps.toml's app-store-shelf step in
+# pr-pipeline.yml's linux job; this workflow keeps the feat-cmux-next push and dispatch runs.
 on:
-  pull_request:
-    branches: [feat-cmux-next]
-    paths:
-      - ".github/workflows/app-store-shelf.yml"
-      - "first-party-apps/**"
-      - "samples/apps/**"
-      - "scripts/cmux-next/sync-app-runtime.sh"
-      - "scripts/cmux-next/store-package-sign.py"
-      - "cmux-tui/crates/cmux-tui-core/src/apps/**"
-      - "cmux-tui/crates/cmux-app-host/**"
-      - "cmux-tui/crates/cmux-app-manifest/**"
-      - "cmux-tui/crates/cmux-layout-reducer/src/sidebar_bridge*"
-      - "cmux-tui/crates/cmux-tui/tests/cli/apps_store.rs"
   push:
     branches: [feat-cmux-next]
     paths:
@@ -33,6 +24,7 @@ on:
       - "samples/apps/**"
       - "scripts/cmux-next/sync-app-runtime.sh"
       - "scripts/cmux-next/store-package-sign.py"
+      - "scripts/ci/app-store-shelf-check.sh"
       - "cmux-tui/crates/cmux-tui-core/src/apps/**"
       - "cmux-tui/crates/cmux-app-host/**"
       - "cmux-tui/crates/cmux-app-manifest/**"
@@ -44,27 +36,33 @@ permissions:
   contents: read
 
 concurrency:
-  group: app-store-shelf-${{ github.event.pull_request.number || github.ref }}
+  group: app-store-shelf-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   shelf:
+    if: ${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     name: App Store shelf (every listing installs and shows something)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
       CMUX_GHOSTTY_SRC: ""
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
 
       - name: Install Linux build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then
+            echo "clang libclang-dev pkg-config: already installed"
+          else
+            sudo apt-get update
+            sudo apt-get install -y clang libclang-dev pkg-config
+          fi
 
       - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
         run: bash scripts/ci/init-submodule.sh ghostty-next
@@ -76,14 +74,4 @@ jobs:
         uses: ./.github/actions/setup-cmux-tui-rust
 
       - name: Every Discover listing installs and shows something
-        working-directory: cmux-tui
-        run: |
-          set -o pipefail
-          cargo test --locked -p cmux-tui --test cli -- \
-            every_shipped_store_listing_installs_and_has_something_to_open \
-            a_command_only_store_listing_has_nothing_to_open_after_install \
-            a_first_party_store_app_built_into_the_store_folder_is_listed_not_installed \
-            --test-threads=1 2>&1 | tee "$RUNNER_TEMP/shelf.log"
-          # A filter that matches nothing passes with 0 tests: that judged nothing.
-          grep -Eq 'test result: ok\. 3 passed' "$RUNNER_TEMP/shelf.log" || {
-            echo "::error title=App Store shelf::expected the 3 shelf tests to run and pass"; exit 1; }
+        run: bash scripts/ci/app-store-shelf-check.sh

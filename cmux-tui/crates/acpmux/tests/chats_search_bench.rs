@@ -36,6 +36,7 @@ const HERMETIC: daemon_env::Process =
     daemon_env::Process::deny().keep(&["CHAT_SEARCH_BENCH_CHATS", "CHAT_SEARCH_BENCH_MIB"]);
 
 use acpmux::chats::ChatSources;
+use acpmux::chats::text::{CHAT_BYTES, TOTAL_BYTES};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};
@@ -148,9 +149,12 @@ fn phrase(n: usize) -> String {
 struct Chat {
     key: String,
     planted: Option<String>,
+    /// The prompt and answer text the index holds of it: its newest messages up to [`CHAT_BYTES`].
+    text: usize,
 }
 
-/// One chat's store, `bytes` long, with `planted` in an answer halfway through.
+/// One chat's store, `bytes` long, with `planted` in an answer halfway through; its key and the
+/// prompt and answer text the index holds of it (each message and its newline, up to [`CHAT_BYTES`]).
 fn write_chat(
     h: &Path,
     n: usize,
@@ -158,8 +162,9 @@ fn write_chat(
     planted: Option<&str>,
     rng: &mut Rng,
     words: &[String],
-) -> String {
+) -> (String, usize) {
     let codex = n % 100 >= 54;
+    let mut text = 0_usize;
     let id = format!("{:08x}-0000-4000-8000-{:012x}", n, n);
     let project = h.join(format!("work/p{}", n % 40));
     let path = if codex {
@@ -194,11 +199,12 @@ fn write_chat(
     for turn in 0..turns {
         let prompt = sentence(rng, words, PROMPT_WORDS);
         let mut answer = sentence(rng, words, ANSWER_WORDS);
-        if turn == turns / 2 {
-            if let Some(planted) = planted {
-                answer = format!("{answer} {planted} {}", sentence(rng, words, 20));
-            }
+        if turn == turns / 2
+            && let Some(planted) = planted
+        {
+            answer = format!("{answer} {planted} {}", sentence(rng, words, 20));
         }
+        text += prompt.len() + 1 + answer.len() + 1;
         let lines = if codex {
             vec![
                 json!({"type": "event_msg", "timestamp": at(turn), "payload": {"type": "user_message", "message": prompt}}),
@@ -233,7 +239,8 @@ fn write_chat(
     let last = NOV_1_2026_S + 60 * minute(turns - 1) as u64;
     let file = out.into_inner().expect("store");
     file.set_modified(UNIX_EPOCH + Duration::from_secs(last)).expect("mtime");
-    if codex { format!("codex:{id}") } else { format!("claude-code:{id}") }
+    let key = if codex { format!("codex:{id}") } else { format!("claude-code:{id}") };
+    (key, text.min(CHAT_BYTES))
 }
 
 fn fixture(h: &Path, chats: usize, scale: f64) -> Vec<Chat> {
@@ -246,8 +253,9 @@ fn fixture(h: &Path, chats: usize, scale: f64) -> Vec<Chat> {
         .map(|n| {
             let bytes = (MEDIAN_BYTES * (SIGMA * rng.normal()).exp()).min(MAX_BYTES) * scale;
             let planted = planted_at.iter().position(|&at| at == n).map(phrase);
-            let key = write_chat(h, n, bytes as usize, planted.as_deref(), &mut rng, &words);
-            Chat { key, planted }
+            let (key, text) =
+                write_chat(h, n, bytes as usize, planted.as_deref(), &mut rng, &words);
+            Chat { key, planted, text }
         })
         .collect()
 }
@@ -447,6 +455,24 @@ async fn the_chats_page_finds_a_chat_by_what_was_said_within_150_ms_a_keystroke(
     );
     let planted: Vec<(&str, &str)> =
         fixture.iter().filter_map(|c| c.planted.as_deref().map(|p| (p, c.key.as_str()))).collect();
+    // Recall: the index holds chats newest first up to TOTAL_BYTES, and the fixture lists them
+    // newest first, so the oldest planted chat is held when the text up to it fits.
+    let oldest_at = fixture.iter().rposition(|c| c.planted.is_some()).expect("planted chats");
+    let through_oldest: usize = fixture[..=oldest_at].iter().map(|c| c.text).sum();
+    let all_text: usize = fixture.iter().map(|c| c.text).sum();
+    let mib = |b: usize| b as f64 / (1024.0 * 1024.0);
+    println!(
+        "held: {:.1} MiB of text through the oldest planted chat (chat {oldest_at}), {:.1} MiB in all, \
+         the index holds {:.0} MiB ({})",
+        mib(through_oldest),
+        mib(all_text),
+        mib(TOTAL_BYTES),
+        if through_oldest <= TOTAL_BYTES {
+            "every planted chat fits"
+        } else {
+            "the oldest planted chat does NOT fit"
+        }
+    );
 
     // The fill: from the daemon's start until the window's message no longer says `filling`; the
     // oldest planted chat must show by then.
@@ -495,6 +521,13 @@ async fn the_chats_page_finds_a_chat_by_what_was_said_within_150_ms_a_keystroke(
     let (phrase, key) = planted[planted.len() / 2];
     let (t, hit) = type_into_scan(&mut conn, phrase, key).await;
     row("chat_search.scan_keystroke", t, usize::from(hit), 1);
+
+    // After the rows, so a miss is still a number on the board (10,000 ms a key) and also a red part.
+    assert_eq!(
+        found,
+        planted.len(),
+        "a planted chat's phrase did not find it: the index let it go"
+    );
 }
 
 fn walk_bytes(dir: &Path) -> u64 {

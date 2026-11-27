@@ -331,16 +331,28 @@ Detached startup is deferred until cmux has explicit supervisor ownership,
 readiness, log, PID/state, crash, and stop contracts.
 The owner binds its local socket before it restores its session (registry,
 terminal host adoption). While it restores, the socket accepts connections
-and holds them unanswered; when the restore ends, every held connection is
-served by the normal protocol handler. `identify` then reports
-`lifecycle_ready: false` until the owner finishes startup. `daemon stop` waits
+and answers an `identify` with `restore_progress: true` at once:
+`lifecycle_ready: false`, empty `registry_id` and `generation`, and
+`restore`: `phase` (`registry_open`, `schema`,
+`migrations`, `integrity`, `snapshot`, `agent_roster`, `mux_build`,
+`browsers`, `host_adoption`, `reconcile`, `finish`), `done` and `total` (null
+when the phase does not count; `agent_roster` counts journal rows),
+`elapsed_ms` and `last_advance_ms` (when the restore last moved, in ms since it
+began: a restore that hangs keeps it while `elapsed_ms` grows). A
+`server-stats` with `restore_progress: true` fails with `server.restoring`
+and the same `restore` in `error_details`. A connection's first other
+request (an `identify` without the flag included) is held unanswered; when the restore ends,
+every held connection is served by the normal protocol handler, from that
+request on. `identify` then reports `lifecycle_ready: false` until the owner
+finishes startup. `server ensure --restore-progress` adds the owner's
+`restore` to its progress lines when the owner reports one. `daemon stop` waits
 for a restoring owner, through both phases, and then stops it: up to
 `--restore-wait-seconds` (1 to 3600, default 120, the bound `server ensure`
 gives a restore). While it waits it prints a progress line on stderr after the
 first second and then every 5 s (with `--json`, one JSON object per line:
-`progress: "restoring"`, `session`, `phase` (`restoring`: the owner holds the
-connection unanswered; `starting`: it restored and reports
-`lifecycle_ready: false`), `pid` when known, `waited_ms`, `message`). Past the
+`progress: "restoring"`, `session`, `phase` (`restoring`: the owner restores
+its session (it reports its `restore`, or an older owner holds the connection
+unanswered); `starting`: it restored and reports `lifecycle_ready: false`), `pid` when known, `waited_ms`, `message`). Past the
 bound it fails with `server.stop_restoring` (exit 3, retryable; `details`:
 `reason`, `phase`, `pid`, `waited_ms`, and `retry`, the stop command with a
 longer wait, also named in the message) and leaves the owner running. Other
@@ -881,9 +893,14 @@ git worktree create [TARGET] [--name <name>] [--base <revision>]
 git worktree apply [TARGET]
 git worktree remove [TARGET] [--discard]
 git worktree setup [TARGET] [--since <offset>]
+git review start [TARGET] <pull-request-url>
+git review comment [TARGET] --file <path> --line <n> [--start-line <n>] [--side new|old] --message <text>
 git comments list [--root <path>]
 git comments save [--root <path>] --comment <json-object>
 git comments delete [--root <path>] <comment-id>... [--versions-json <json-object>]
+git comments send [--root <path>] <comment-id>... --threads --acp-session <id> [--text <note>]
+git comments reply [--root <path>] <comment-id> --text <answer> [--author agent|reviewer]
+git comments resolve [--root <path>] <comment-id> [--reopen]
 notify [--title <text>] [--subtitle <text>] [--body <text>] [--clear] [--surface <term_id|current>] [--workspace <ws_id|current>]
 conversation list                                             (cmux-tui only)
 conversation <conv_id> get [--tail <0..500>]
@@ -1274,6 +1291,31 @@ uncommitted changes are untouched. The result is the worktree's `root`,
 worktree the first attempt made. A failing post-checkout hook does not undo
 the worktree, so it is reported as made.
 
+`git review start <url>` (`git.review.start`, capability `git-review-v1`)
+checks a GitHub pull request out for review, only on this machine. `gh pr view`
+reads the pull request and `git fetch` brings its head and base branch from the
+remote of TARGET's repository that is `OWNER/REPO` on github.com, both in the
+user's environment. The worktree is `git worktree create`'s, named
+`review-<number>`, at the head, and the merge-base with the base branch is
+recorded as its `cmuxBase`, so the diff viewer's branch scope shows exactly the
+pull request's change. The result is the worktree's `root`, `branch`, `head`,
+`base` (the merge-base), the pull request's `url`, `repo`, `number` and
+`title`, and `diff`, the git command that prints its diff. A worktree an
+earlier review made on the same head is reused with its drafts (`reused`). It
+refuses with `no_remote`, `gh_unavailable`, `gh_failed`, `fetch_failed`,
+`pull_request_moved` or `git_failed`.
+
+`git review comment` (`git.review.comment`), run in such a worktree, saves one
+draft review comment on lines `--start-line` to `--line` of `--file`, on the
+pull request's version (`--side new`, default) or the base's (`--side old`).
+The diff viewer shows it with its other comments. The lines must lie in one
+hunk of the pull request's diff as GitHub shows it (three lines of context);
+otherwise it refuses with `not_in_diff`, whose `extra.new_lines` or
+`extra.old_lines` lists the lines that side shows. `not_a_review` names a
+worktree `review start` did not make. Nothing here posts: the person posts the
+drafts as one review from the diff viewer (`git.review.post`, which is not a
+`cmux` verb or an MCP tool).
+
 `git worktree apply` (`git.worktree.apply`, capability `git-worktree-apply-v1`),
 run in a worktree whose branch `git worktree create` recorded a base for, brings
 its work back to the main checkout, in the user's environment and only on this
@@ -1346,6 +1388,15 @@ object, kept as given; its `id` names a saved comment to replace) and the
 session host sets `createdAt` and `updatedAt`. `delete` names the ids to
 remove (at most 500); `--versions-json` maps an id to the `updatedAt` read, and
 a comment edited since is kept. Unknown ids are ignored.
+
+`git comments send --threads` (`diff.comments.send` with `threads`, capability
+`diff-comments-threads-v1`) hands the named comments to the acpmux session
+`--acp-session` as review threads: one prompt the session host writes from
+what each thread holds that the agent has not read (a new comment, reviewer
+replies, a resolve), `--text` an optional note at its top. Nothing is
+removed. The agent answers each thread with `git comments reply <id> --text`
+(author `agent` by default) and closes one with `git comments resolve <id>`
+(`--reopen` undoes it); both are `diff.comments.thread`.
 
 ## Waiting for one event
 

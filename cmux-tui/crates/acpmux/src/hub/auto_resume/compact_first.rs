@@ -19,6 +19,10 @@
 //! compaction that fails (its turn failed, or the harness reported a `compaction` that `failed`)
 //! records `auto_resume_exhausted` and nothing more: a chat compacting cannot help is never asked
 //! again. A continuation that outgrows the window again is exhausted the same way (one attempt).
+//!
+//! While context surgery is on (`surgery.rs`), step 1 tries it first: when masking old tool output
+//! takes the chat under the compaction line it applies, no `/compact` turn runs, and step 2 goes
+//! at once; anything else sends `/compact` as above.
 
 use super::{Control, CutTurn, Hub, Mark, PendingGuard, PromptOptions, Session, SessionStatus};
 use super::{TurnInfo, Wake};
@@ -75,7 +79,7 @@ fn compaction_failed(hub: &Hub, session: &Session, turn: &str) -> bool {
 
 impl Hub {
     /// Whether `session`'s harness can compact its chat: Claude Code, which takes `/compact`.
-    pub(super) async fn can_compact(&self, session: &Session) -> bool {
+    pub(in crate::hub) async fn can_compact(&self, session: &Session) -> bool {
         let harness = session.meta().harness;
         let config = self.config.read().await;
         config
@@ -173,6 +177,7 @@ impl Hub {
                         trust_gate: step.trust_gate,
                         error: &step.error,
                         not_before: None,
+                        slash: None,
                     };
                     hub.auto_resume(&session, cut, step.attempt).await;
                 });
@@ -199,15 +204,34 @@ impl Hub {
         if session.replaced.load(std::sync::atomic::Ordering::SeqCst) || self.shutting_down() {
             return;
         }
+        // Surgery first (`surgery.rs`, RFD 0149): masking old tool output with no model call that
+        // takes the chat under the compaction line stands in for the `/compact` turn, and the
+        // continuation goes straight away. `/compact` when it says no or fails (counted in
+        // `harnessMagic.surgery.fallbacks`). It refuses a chat mid-turn and takes the turn's lock.
+        if self.can_compact(session).await
+            && self
+                .surgery_before_compact(
+                    session,
+                    super::super::rate_hold::COMPACT_BEFORE_TOKENS,
+                    "auto_resume",
+                )
+                .await
+        {
+            self.auto_resume(session, cut, attempt).await;
+            return;
+        }
         let (root, cut_turn) = (cut.prompt_id, cut.turn_id);
         let skipped = |why: &str| json!({"promptId": root, "attempt": attempt, "turnId": cut_turn, "skipped": why});
         // A rate limit's compaction runs ahead of what the hold queued (`rate_hold.rs`).
         let held_by_rate = Self::rate_held(session)
             && super::super::turn_errors::resume_cause(cut.error, cut.error) == Some("rate_limit");
-        if let Err(why) = self.fire_pending(session, cut_turn) {
-            self.append_retry(session, "auto_resume_skipped", skipped(why));
-            return;
-        }
+        let fired_gen = match self.fire_pending(session, cut_turn) {
+            Ok(fired_gen) => fired_gen,
+            Err(why) => {
+                self.append_retry(session, "auto_resume_skipped", skipped(why));
+                return;
+            }
+        };
         let why = if session.status() == SessionStatus::Closed || session.moving().is_some() {
             Some("closed")
         } else if !super::still_cut_by(session, cut_turn, held_by_rate) {
@@ -218,7 +242,7 @@ impl Hub {
             None
         };
         if let Some(why) = why {
-            self.clear_fired(session, cut_turn);
+            self.clear_fired(session, cut_turn, fired_gen);
             self.append_retry(session, "auto_resume_skipped", skipped(why));
             return;
         }
@@ -252,12 +276,20 @@ impl Hub {
             trust_gate: cut.trust_gate,
             provenance: Some(provenance),
             after_turn: Some(cut_turn.to_owned()),
+            fired: Some(fired_gen),
             ..PromptOptions::default()
         };
         let blocks = vec![json!({"type": "text", "text": "/compact"})];
         let result = self.prompt_with(session, blocks, "acpmux", false, opts).await;
         let accepted = accepted.load(std::sync::atomic::Ordering::SeqCst);
-        self.finish_compaction(session, cut_turn, &prompt_id, result, accepted, skipped);
+        self.finish_compaction(
+            session,
+            (cut_turn, fired_gen),
+            &prompt_id,
+            result,
+            accepted,
+            skipped,
+        );
     }
 
     /// The compaction's prompt answered. Its turn's end settled what follows
@@ -265,13 +297,13 @@ impl Hub {
     fn finish_compaction(
         &self,
         session: &Session,
-        cut_turn: &str,
+        (cut_turn, fired_gen): (&str, u64),
         prompt_id: &str,
         result: Result<Value, RpcError>,
         accepted: bool,
         skipped: impl Fn(&str) -> Value,
     ) {
-        self.clear_fired(session, cut_turn);
+        self.clear_fired(session, cut_turn, fired_gen);
         {
             let mut step = session.auto_resume.compacting.lock().unwrap_or_else(|e| e.into_inner());
             if step.as_ref().is_some_and(|s| s.prompt_id == prompt_id) {

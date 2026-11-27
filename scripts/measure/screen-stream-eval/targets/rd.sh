@@ -63,6 +63,12 @@ host_start() {
   host_flags=()
   [[ -n "${EVAL_BIND:-}" ]] && host_flags=(--single-tenant-overlay 1)
   [[ "${EVAL_RD_INPUT_FRAME_NOW:-0}" == 1 ]] && host_flags+=(--input-frame-now 1)
+  [[ "${EVAL_RD_LTR:-0}" == 1 ]] && host_flags+=(--ltr 1)
+  # A variant target's own host flags (rd-ladder.sh), space-separated.
+  if [[ -n "${EVAL_RD_HOST_FLAGS:-}" ]]; then
+    read -ra extra <<<"$EVAL_RD_HOST_FLAGS"
+    host_flags+=("${extra[@]}")
+  fi
   : >"$EVAL_STATE/timing.jsonl"
   rm -f "$EVAL_STATE/timing.offset"
   mkdir -p "$EVAL_STATE/quality"
@@ -123,6 +129,11 @@ bench() {
   if [[ -n "${EVAL_NETEM_RTT_MS:-}" ]]; then
     bench_port=$netem_port
     eval_flags+=(--eval-netem-relay 1)
+  fi
+  # A variant target's own viewer flags (rd-ladder.sh), space-separated.
+  if [[ -n "${EVAL_RD_BENCH_FLAGS:-}" ]]; then
+    read -ra extra <<<"$EVAL_RD_BENCH_FLAGS"
+    eval_flags+=("${extra[@]}")
   fi
   CMUX_RD_EVAL_QUALITY="$EVAL_STATE/quality" "$rd" bench ${eval_flags[@]+"${eval_flags[@]}"} --addr "${EVAL_PEER:-127.0.0.1}:$bench_port" --user owner --token-fd 3 "$@" 3< <(cat "$EVAL_STATE/token")
 }

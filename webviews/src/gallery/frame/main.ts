@@ -3,7 +3,7 @@
 // language and the theme are in place before the page's own modules load, as the app has them
 // before a page's first script runs.
 import { installGalleryClock } from "../clock";
-import { overPicture, readEnv, widthPx } from "../env";
+import { overPicture, readEnv, widthPx, SHELL_DEFAULT_BACKGROUND } from "../env";
 import { readTunes } from "../../experiments/tunable";
 import { readOptions } from "../options";
 import type { GalleryEntry } from "../format";
@@ -29,6 +29,7 @@ import entryIndex from "virtual:cmux-gallery/entry-index";
 import { isSubpixelLayoutShift, resolveTarget, type LoadReport, type Shift } from "../play";
 import { startBoxTracker } from "../shift";
 import { collectInvariants, type Violation } from "../invariants";
+import { installScrollingMarks } from "../../scrollers";
 
 installGalleryClock();
 // A fixture's lasting states (disconnected, offline) show at once, not after the pages' grace.
@@ -127,10 +128,14 @@ const tokens = themeTokens(theme, accent);
 // The background axis: over a picture the page is see-through, as over the user's in the app.
 // In the app, see-through follows the app's own window (its page background is clear over a backdrop).
 // A variant that only means something over a picture (a pinned line over a wallpaper) names one, or one per scheme;
-// the env's own picture wins when the controls set one.
+// the env's own picture wins when the controls set one other than the shell's default painting (env.ts
+// SHELL_DEFAULT_BACKGROUND), which every shell link names.
 const asked = entry.variants[variantName]!.background;
 const variantBackground = typeof asked === "object" ? asked[scheme] : asked;
-const stageEnv = variantBackground && !overPicture(env) ? { ...env, background: variantBackground } : env;
+const stageEnv =
+  variantBackground && (!overPicture(env) || env.background === SHELL_DEFAULT_BACKGROUND)
+    ? { ...env, background: variantBackground }
+    : env;
 const seeThrough = appHosted ? appHostSeeThrough() : overPicture(stageEnv);
 
 // The app's web view answers these from its window and the system settings itself.
@@ -218,6 +223,11 @@ const context: StageContext = {
   options: optionValues,
 };
 
+// The pages mark each scroller a wheel or scroll moves (pages/shared/pageHealth.ts), which shows a
+// shown scroller's thumb only while it scrolls (Leo 2026-11-22: "the thumb only appears when it's
+// relevant"); the stage does the same, or no gallery thumb could ever show.
+installScrollingMarks(document);
+
 if (stageRoot) {
   stageRoot.textContent = "";
   stageRoot.className = "";
@@ -292,6 +302,8 @@ function finishLoad(): void {
     boxShift: boxes.score,
     boxMoves: boxes.moves,
     boxFollow: boxes.follow,
+    // The load declares nothing: a box that drew twice in one place and then moves is undeclared.
+    ...(boxes.motion ? { undeclared: boxes.motion.undeclared, undeclaredMoves: boxes.motion.moves } : {}),
   };
 }
 
@@ -358,8 +370,10 @@ function markReadyWhenStill(): void {
 
 async function mount(): Promise<void> {
   // A font study pairing (`fontStudy`) applies to every page host, the chat and Settings alike; its
-  // faces load before the page mounts, so the first frame draws in them.
-  if (env.fontStudy) await import("../fontStudy/apply").then((study) => study.applyFontStudy(env.fontStudy));
+  // faces load before the page mounts, so the first frame draws in them. The URL's wins over the
+  // variant's own (`fontStudy` in format.ts).
+  const fontStudy = env.fontStudy || entry.variants[variantName]!.fontStudy;
+  if (fontStudy) await import("../fontStudy/apply").then((study) => study.applyFontStudy(fontStudy));
   switch (entry.host) {
     case "agent-pane":
       return (await import("./agentPane")).mountAgentPane(entry.variants[variantName]!, context);
@@ -371,8 +385,6 @@ async function mount(): Promise<void> {
       return (await import("./pages")).mountAppsPage(entry.variants[variantName]!, context);
     case "cloud-page":
       return (await import("./pages")).mountCloudPage(entry.variants[variantName]!, context);
-    case "coderouter-page":
-      return (await import("./pages")).mountCodeRouterPage(entry.variants[variantName]!, context);
     case "changelog-page":
       return (await import("./pages")).mountChangelogPage(entry.variants[variantName]!, context);
     case "icon-picker-page":

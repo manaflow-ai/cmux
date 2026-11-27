@@ -40,34 +40,61 @@ pub const AUTO_FEATURE: &str = "registerAuto";
 /// The chats `acpmux register` registered, kept by the daemon alone (`bridge-registered.json` in
 /// its home, owner-only): the tag shows it, but a client can set tags (`_acpmux/tag`), so the tag
 /// alone never makes a chat deliverable. Read once, at the first use.
-static REGISTERED: std::sync::LazyLock<std::sync::Mutex<Option<HashSet<String>>>> =
+///
+/// This lock guards memory only, never a disk read or write (RFD 0124 R6): [`is_registered`] is
+/// asked under the hub's sessions lock (`renewed_name`), so a write held here on a stalled or
+/// full disk held every `ls` behind it.
+static REGISTERED: std::sync::LazyLock<crate::worker_lock::Mutex<Option<HashSet<String>>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Held across the file's write, so writes go one at a time, each with the set as of its start:
+/// a later write never loses to an older set.
+static WRITING: std::sync::LazyLock<crate::worker_lock::Mutex<()>> =
     std::sync::LazyLock::new(Default::default);
 
 fn registered_file() -> PathBuf {
     crate::config::home().join("bridge-registered.json")
 }
 
+fn read_registered_file() -> HashSet<String> {
+    crate::qos::off_worker(|| std::fs::read(registered_file()))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
+        .map(|ids| ids.into_iter().collect())
+        .unwrap_or_default()
+}
+
 fn with_registered<T>(f: impl FnOnce(&mut HashSet<String>) -> T) -> T {
+    let loaded = {
+        let kept = REGISTERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        kept.is_some()
+    };
+    // The first use reads the file with no lock held; a racing first use reads it too, and the
+    // first to land keeps its copy.
+    let read = (!loaded).then(read_registered_file);
     let mut kept = REGISTERED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let set = kept.get_or_insert_with(|| {
-        std::fs::read(registered_file())
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Vec<String>>(&b).ok())
-            .map(|ids| ids.into_iter().collect())
-            .unwrap_or_default()
-    });
+    let set = kept.get_or_insert_with(|| read.unwrap_or_default());
     f(set)
 }
 
-/// Keeps chat `id` registered, across a daemon restart. The file is written while the record's
-/// lock is held, so two registrations at once never write an older set over a newer one.
+/// Reads the registered set now, at the daemon's start, so no request is the first use that
+/// reads the file.
+pub(crate) fn load_registered() {
+    with_registered(|_| ());
+}
+
+/// Keeps chat `id` registered, across a daemon restart. The set is changed in memory, then
+/// written with only [`WRITING`] held, off the runtime's workers: a stalled disk holds this
+/// registration alone, never a reader of the set.
 fn mark_registered(id: &str) -> anyhow::Result<()> {
-    with_registered(|set| -> anyhow::Result<()> {
-        set.insert(id.to_owned());
+    with_registered(|set| set.insert(id.to_owned()));
+    let _one = WRITING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let bytes = with_registered(|set| {
         let mut ids: Vec<&String> = set.iter().collect();
         ids.sort();
-        crate::agent_tools::write_private(&registered_file(), &serde_json::to_vec(&ids)?)
-    })
+        serde_json::to_vec(&ids)
+    })?;
+    crate::qos::off_worker(|| crate::agent_tools::write_private(&registered_file(), &bytes))
 }
 
 /// Marks chat `id` registered for this process only (tests, which must not write the home).
@@ -204,16 +231,28 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         let homes = self.harness_homes();
         let socket = req.socket.clone();
+        let renew = req.renew;
         let found = tokio::task::spawn_blocking(move || {
             // Only the caller's own processes: never past this daemon, which a desktop shell may
             // have started.
-            let ancestry = below_daemon(crate::sender_harness::ancestors(peer_pid));
+            let ancestry = crate::sender_harness::ancestors(peer_pid);
+            if renew && ancestry.is_empty() {
+                // Its reply deadline may have passed before this worker ran. Leave the token
+                // and the proof cache alone so the next hook can prove the session immediately.
+                return Ok(None);
+            }
             let live = crate::claude_peers::live(&homes.claude);
-            nearest_claude(&ancestry, &live, socket.as_deref()).map(Found::Claude)
+            nearest_claude(&below_daemon(ancestry), &live, socket.as_deref())
+                .map(|peer| Some(Found::Claude(peer)))
+                .ok_or_else(not_found)
         })
         .await
-        .map_err(|e| RpcError::internal(e.to_string()))?
-        .ok_or_else(not_found)?;
+        .map_err(|e| RpcError::internal(e.to_string()))??;
+        let Some(found) = found else {
+            return Ok(
+                json!({"renewed": null, "reason": "renewal caller unavailable", "retryable": true}),
+            );
+        };
         // A registered Claude Code chat is delivered only with its session's own token (never the
         // undocumented peer key), so a shell that has none registers nothing.
         if req.token.is_none() || req.socket.is_none() {
@@ -231,7 +270,13 @@ impl Hub {
         let claude_home = self.harness_homes().claude;
         let inbox = req.socket.clone().unwrap_or_default();
         let token = req.token.clone().unwrap_or_default();
-        let (started, launched_for) = prove_claude(claimed, &claude_home, &inbox).await?;
+        let Some((started, launched_for)) =
+            prove_claude(claimed, &claude_home, &inbox, renew).await?
+        else {
+            return Ok(
+                json!({"renewed": null, "reason": "renewal inbox unavailable", "retryable": true}),
+            );
+        };
         // A chat registered before its Claude Code restarted takes the new process's token with
         // no code when the kernel's record of that process's launch names its conversation
         // (`--resume ID`): the code already went once, and the takeover rule below holds it to
@@ -282,47 +327,35 @@ impl Hub {
         static REGISTERING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
         let _one_at_a_time = REGISTERING.lock().await;
         let stores = super::adoption::store_families(&*self.config.read().await);
-        let shown = {
+        let (shown, holder) = {
             let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
             let shown = super::adoption::adopted_in(&sessions, &stores, family, &agent_session_id);
-            let taken = sessions.values().any(|s| {
-                s.read_meta(|m| m.name == name) && shown.as_ref().is_none_or(|own| own.id != s.id)
-            });
-            if taken {
-                return Err(RpcError::invalid_params(format!(
-                    "session name {name:?} is taken: pick another, or rename that session first"
-                ))
-                .with_data(json!({"reason": "register.name_taken"})));
-            }
-            shown
+            let holder = sessions
+                .values()
+                .find(|s| {
+                    s.read_meta(|m| m.name == name)
+                        && shown.as_ref().is_none_or(|own| own.id != s.id)
+                })
+                .cloned();
+            (shown, holder)
         };
         // A registered chat is taken over only by a process the kernel says was started for its
         // conversation (`--resume ID` in its launch arguments, which no file rewrites; a desktop
         // session's restart has it), and never while the process it is registered to still runs:
         // the registry's session id is anyone's to write.
-        if let Some(s) = shown.as_ref().filter(|s| is_registered(s)) {
-            let kept = crate::claude_peers::kept_token(&crate::config::home(), &s.id);
-            let same =
-                kept.as_ref().is_some_and(|k| k.pid == claimed.pid && k.started == Some(started));
-            if !same {
-                let recorded_live = kept.as_ref().is_some_and(|k| {
-                    k.started.is_some()
-                        && crate::claude_peers::started_at(&claude_home, k.pid) == k.started
-                });
-                if recorded_live {
-                    return Err(unproven(format!(
-                        "chat {:?} is registered to process {}, which still runs",
-                        s.meta().name,
-                        kept.as_ref().map_or(0, |k| k.pid)
-                    )));
-                }
-                if launched_for.as_deref() != Some(agent_session_id.as_str()) {
-                    return Err(unproven(format!(
-                        "chat {:?} is registered to another process; only a session started with `--resume {agent_session_id}` takes it over",
-                        s.meta().name
-                    )));
-                }
-            }
+        self.validate_registered_claim(
+            shown.as_ref(),
+            claimed,
+            started,
+            launched_for.as_deref(),
+            &agent_session_id,
+            &crate::config::home(),
+            &claude_home,
+        )?;
+        // Validate the claimant before mutating the incumbent. A failed takeover must leave a
+        // dead holder's address intact so its next registration can retry cleanly.
+        if let Some(holder) = holder {
+            self.yield_name_of_gone(&holder, &name, &crate::config::home(), &claude_home).await?;
         }
         let session = match shown {
             Some(s) => {
@@ -362,12 +395,15 @@ impl Hub {
             if let Some(map) = tags.as_object_mut() {
                 map.insert(REGISTERED_TAG.to_owned(), json!("true"));
             }
-            mark_registered(&session.id)
-                .map_err(|e| RpcError::internal(format!("could not keep the registration: {e}")))?;
+            mark_registered(&session.id).map_err(|e| {
+                crate::recovery::write_error("could not keep the registration", e, None)
+            })?;
             // A stale or contested registration this one replaces no longer holds
             // (`bridge.rs` `note_unreached`).
             let unreachable = [super::bridge::UNREACHABLE_TAG.to_owned()];
             self.set_tags(&session, tags.as_object(), &unreachable, None);
+            // Its row reads disconnected once this process exits (`app_exit.rs`).
+            self.follow_app(&session, pid);
             let home = crate::config::home();
             match (&found, req.token, req.socket) {
                 (Found::Claude(peer), Some(token), Some(socket)) => {
@@ -377,12 +413,17 @@ impl Hub {
                         token,
                         started: Some(started),
                     };
-                    crate::claude_peers::save_token(&home, &session.id, &kept).map_err(|e| {
-                        RpcError::internal(format!("could not keep the token: {e}"))
+                    crate::qos::off_worker(|| {
+                        crate::claude_peers::save_token(&home, &session.id, &kept)
+                    })
+                    .map_err(|e| {
+                        crate::recovery::write_error("could not keep the token", e, None)
                     })?;
                     token_kept = true;
                 }
-                _ => crate::claude_peers::forget_token(&home, &session.id),
+                _ => crate::qos::off_worker(|| {
+                    crate::claude_peers::forget_token(&home, &session.id);
+                }),
             }
         }
         self.append(
@@ -406,6 +447,87 @@ impl Hub {
         Ok(out)
     }
 
+    /// Validates a takeover before the incumbent's address is changed. A failed claimant must
+    /// leave a gone holder untouched so its own session can retry registration.
+    fn validate_registered_claim(
+        &self,
+        shown: Option<&Arc<Session>>,
+        claimed: &crate::claude_peers::Peer,
+        started: u64,
+        launched_for: Option<&str>,
+        agent_session_id: &str,
+        home: &std::path::Path,
+        claude_home: &std::path::Path,
+    ) -> Result<(), RpcError> {
+        let Some(s) = shown.filter(|s| is_registered(s)) else { return Ok(()) };
+        // Files: off the runtime's workers (RFD 0124 R6).
+        let kept = crate::qos::off_worker(|| crate::claude_peers::kept_token(home, &s.id));
+        let same =
+            kept.as_ref().is_some_and(|k| k.pid == claimed.pid && k.started == Some(started));
+        if same {
+            return Ok(());
+        }
+        let recorded_live = kept.as_ref().is_some_and(|k| {
+            k.started.is_some()
+                && crate::qos::off_worker(|| crate::claude_peers::started_at(claude_home, k.pid))
+                    == k.started
+        });
+        if recorded_live {
+            return Err(unproven(format!(
+                "chat {:?} is registered to process {}, which still runs",
+                s.meta().name,
+                kept.as_ref().map_or(0, |k| k.pid)
+            )));
+        }
+        if launched_for != Some(agent_session_id) {
+            return Err(unproven(format!(
+                "chat {:?} is registered to another process; only a session started with `--resume {agent_session_id}` takes it over",
+                s.meta().name
+            )));
+        }
+        Ok(())
+    }
+
+    /// Frees `name` from `holder`, the chat that has it, when [`registered_chat_gone`]: renamed
+    /// `NAME-gone-<short>`, so `acpmux register NAME` from the conversation's new process takes
+    /// it. Any other holder keeps it: `register.name_taken`.
+    async fn yield_name_of_gone(
+        &self,
+        holder: &Arc<Session>,
+        name: &str,
+        home: &std::path::Path,
+        claude_home: &std::path::Path,
+    ) -> Result<(), RpcError> {
+        let registered = is_registered(holder);
+        let (home, claude_home, id) = (home.to_owned(), claude_home.to_owned(), holder.id.clone());
+        // Files: off the runtime's workers (RFD 0124 R6).
+        let gone = crate::qos::off_worker(move || {
+            let kept = crate::claude_peers::kept_token(&home, &id);
+            // Its registry entry's start, or the kept start while that process still runs with
+            // no entry: a live Claude Code never yields its name.
+            let started_now = kept.as_ref().and_then(|k| {
+                crate::claude_peers::started_at(&claude_home, k.pid).or_else(|| {
+                    crate::adopt_live::registered_runs(k.pid, k.started)
+                        .then_some(k.started)
+                        .flatten()
+                })
+            });
+            registered_chat_gone(registered, kept.as_ref(), started_now)
+        });
+        if !gone {
+            return Err(RpcError::invalid_params(format!(
+                "session name {name:?} is taken: pick another, or rename that session first"
+            ))
+            .with_data(json!({"reason": "register.name_taken"})));
+        }
+        let short: String = holder.id.chars().filter(char::is_ascii_alphanumeric).take(8).collect();
+        // Leave room in an 80-byte address for the timestamp prefix and a collision suffix.
+        let prefix = name.get(..name.floor_char_boundary(55)).unwrap_or(name);
+        let renamed = self.unique_name(&format!("{prefix}-gone-{short}"));
+        tracing::info!(session = %holder.id, %name, %renamed, "a gone registered chat yields its name");
+        self.rename_as(holder, renamed, super::task_names::Naming::Address).await
+    }
+
     /// The name of the registered chat that shows `claimed`'s conversation, when `claimed` was
     /// launched for that conversation (`launched_for`, from the kernel's record of its launch):
     /// such a chat takes the new process's token with no code ([`renewable`]).
@@ -425,6 +547,17 @@ impl Hub {
 /// Why `--renew` did nothing: the session is not a registered chat restarted for its own
 /// conversation. Its first registration is `acpmux register NAME`, or its first `acpmux send`.
 pub const NOT_RENEWABLE: &str = "register.not_renewable";
+
+/// Whether a chat holding a name is a registered chat whose Claude Code process is gone: its
+/// kept token names a process start (`startedAt`) that no live registry entry under that pid has
+/// now. A chat with no such record is never taken as gone.
+fn registered_chat_gone(
+    registered: bool,
+    kept: Option<&crate::claude_peers::ChildToken>,
+    started_now: Option<u64>,
+) -> bool {
+    registered && kept.is_some_and(|k| k.started.is_some() && k.started != started_now)
+}
 
 /// Whether a chat (`registered` or not) renews to a process launched for `launched_for`, the
 /// conversation `session_id` names: only a registered chat, and only for a launch that named its
@@ -478,18 +611,24 @@ static PENDING: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<u
 /// The proof a registry entry's process gives before anything it says is taken: Claude Code by
 /// its signature, the listener on `inbox` (this user's), the only live claimant of its
 /// conversation, and, when the kernel's record of its launch names a conversation, that one. Its
-/// proven `startedAt`, and the conversation its launch named.
+/// proven `startedAt`, and the conversation its launch named. A renewal with no inbox
+/// observation can retry immediately. An observed mismatch is always refused.
 async fn prove_claude(
     claimed: &crate::claude_peers::Peer,
     claude_home: &std::path::Path,
     inbox: &std::path::Path,
-) -> Result<(u64, Option<String>), RpcError> {
-    if !crate::claude_peers::inbox_is(inbox, claimed.pid).await {
-        return Err(unproven(format!(
-            "the inbox {} is not process {}'s",
-            inbox.display(),
-            claimed.pid
-        )));
+    renew: bool,
+) -> Result<Option<(u64, Option<String>)>, RpcError> {
+    match crate::claude_peers::inbox_proof(inbox, claimed.pid).await {
+        Ok(true) => {}
+        Err(_) if renew => return Ok(None),
+        _ => {
+            return Err(unproven(format!(
+                "the inbox {} is not process {}'s",
+                inbox.display(),
+                claimed.pid
+            )));
+        }
     }
     let (peer, home) = (claimed.clone(), claude_home.to_path_buf());
     tokio::task::spawn_blocking(move || {
@@ -509,7 +648,7 @@ async fn prove_claude(
         }
         let started = crate::claude_peers::started_at(&home, peer.pid)
             .ok_or_else(|| format!("process {} has no live registry entry", peer.pid))?;
-        Ok((started, launched_for))
+        Ok(Some((started, launched_for)))
     })
     .await
     .map_err(|e| RpcError::internal(e.to_string()))?
@@ -542,7 +681,7 @@ async fn send_code(
     PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(claimed.pid, pending);
     let uuid = uuid::Uuid::now_v7().to_string();
     let from = crate::claude_peers::from_address("register");
-    crate::claude_peers::deliver(claude_home, claimed, &text, &uuid, &from, Some(token))
+    crate::claude_peers::deliver(claude_home, claimed, text.as_str(), &uuid, &from, Some(token))
         .await
         .map_err(|e| unproven(format!("could not deliver the code: {e}")))?;
     Ok(json!({"pending": true, "name": name, "pid": claimed.pid}))
@@ -594,6 +733,10 @@ fn not_found() -> RpcError {
 }
 
 #[cfg(test)]
+#[path = "register_name_tests.rs"]
+mod name_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::claude_peers::Peer;
@@ -624,6 +767,150 @@ mod tests {
         assert_eq!(nearest_claude(&ancestry, &live, Some(other)), None);
         // Not under any listed session: nothing.
         assert_eq!(nearest_claude(&[50, 45, 1], &live, None), None);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn renew_hook_retries_an_unavailable_inbox_but_rejects_the_wrong_owner() {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("inbox.sock");
+        let claimed = peer(0, socket.to_str().unwrap());
+        assert_eq!(prove_claude(&claimed, dir.path(), &socket, true).await.unwrap(), None);
+        assert!(prove_claude(&claimed, dir.path(), &socket, false).await.is_err());
+
+        // Once it answers, this process owns the socket. The wrong PID is a hard failure.
+        let _listener = tokio::net::UnixListener::bind(&socket).unwrap();
+        assert!(!crate::claude_peers::inbox_proof(&socket, claimed.pid).await.unwrap());
+        assert!(prove_claude(&claimed, dir.path(), &socket, true).await.is_err());
+        let link = dir.path().join("link.sock");
+        std::os::unix::fs::symlink(&socket, &link).unwrap();
+        let owner = peer(std::process::id(), link.to_str().unwrap());
+        assert!(!crate::claude_peers::inbox_proof(&link, owner.pid).await.unwrap());
+        assert!(prove_claude(&owner, dir.path(), &link, true).await.is_err());
+    }
+
+    /// A hub with one chat named `name`, registered, its token kept in `home` for this test's
+    /// own process, started at `started`.
+    async fn holder(home: &std::path::Path, name: &str, started: u64) -> (Arc<Hub>, Arc<Session>) {
+        use crate::config::{Config, StoreMode};
+        let mut config = Config::default();
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, std::path::Path::new("/unused")).unwrap();
+        let hub = Hub::new(config, store);
+        let id = uuid::Uuid::now_v7().to_string();
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": name,
+            "harness": "claude", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let session = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+        mark_registered_for_test(&session.id);
+        let kept = crate::claude_peers::ChildToken {
+            pid: std::process::id(),
+            socket: home.join("inbox.sock"),
+            token: "t".into(),
+            started: Some(started),
+        };
+        crate::claude_peers::save_token(home, &session.id, &kept).unwrap();
+        (hub, session)
+    }
+
+    /// Leo, 2026-11-25: `acpmux register NAME` takes a name held by a registered chat whose
+    /// Claude process is gone, renaming the dead holder `NAME-gone-<short>`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_gone_registered_holder_yields_its_name() {
+        let (home, claude_home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (hub, held) = holder(home.path(), "mango-reg", 1_000).await;
+        // No live registry entry has that process start: it is gone.
+        hub.yield_name_of_gone(&held, "mango-reg", home.path(), claude_home.path()).await.unwrap();
+        let renamed = held.meta().name;
+        assert!(renamed.starts_with("mango-reg-gone-"), "{renamed}");
+        assert_eq!(renamed.len(), "mango-reg-gone-".len() + 8, "{renamed}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_live_registered_holder_still_refuses_with_name_taken() {
+        let (home, claude_home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        // Its process (this test's own) runs, with the start its token names.
+        let me = std::process::id();
+        let started = crate::adopt_live::pid_start_ms(me).expect("this process's start");
+        let (hub, held) = holder(home.path(), "mango-live", started).await;
+        let registry = crate::claude_peers::registry(claude_home.path());
+        std::fs::create_dir_all(&registry).unwrap();
+        let entry = json!({"pid": me, "sessionId": "sid-live", "startedAt": started});
+        std::fs::write(registry.join(format!("{me}.json")), entry.to_string()).unwrap();
+        assert_eq!(crate::claude_peers::started_at(claude_home.path(), me), Some(started));
+        let e = hub
+            .yield_name_of_gone(&held, "mango-live", home.path(), claude_home.path())
+            .await
+            .unwrap_err();
+        assert_eq!(e.data.as_ref().unwrap()["reason"], "register.name_taken", "{}", e.message);
+        assert_eq!(held.meta().name, "mango-live");
+        // Its process runs with no registry entry at all: still taken.
+        std::fs::remove_file(registry.join(format!("{me}.json"))).unwrap();
+        let e = hub
+            .yield_name_of_gone(&held, "mango-live", home.path(), claude_home.path())
+            .await
+            .unwrap_err();
+        assert_eq!(e.data.as_ref().unwrap()["reason"], "register.name_taken", "{}", e.message);
+        // Nor does a chat that was never registered yield, gone or not.
+        assert!(!registered_chat_gone(false, None, None));
+        let kept = crate::claude_peers::ChildToken {
+            pid: me,
+            socket: home.path().join("inbox.sock"),
+            token: "t".into(),
+            started: Some(2_000),
+        };
+        assert!(!registered_chat_gone(false, Some(&kept), None));
+        assert!(registered_chat_gone(true, Some(&kept), None));
+        assert!(!registered_chat_gone(true, Some(&kept), Some(2_000)));
+        // A token with no recorded start proves nothing either way: the name stays.
+        let unknown = crate::claude_peers::ChildToken { started: None, ..kept };
+        assert!(!registered_chat_gone(true, Some(&unknown), None));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_failed_takeover_leaves_a_gone_incumbents_address_unchanged() {
+        let (home, claude_home) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+        let (hub, incumbent) = holder(home.path(), "mango-retry", 1_000).await;
+        let id = uuid::Uuid::now_v7().to_string();
+        let meta: crate::store::SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": "claimant",
+            "harness": "claude", "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 1
+        }))
+        .unwrap();
+        hub.store.save(&meta).unwrap();
+        let shown = hub.make_session(meta);
+        hub.sessions.lock().unwrap().insert(shown.id.clone(), shown.clone());
+        mark_registered_for_test(&shown.id);
+        crate::claude_peers::save_token(
+            home.path(),
+            &shown.id,
+            &crate::claude_peers::ChildToken {
+                pid: std::process::id(),
+                socket: home.path().join("claimant.sock"),
+                token: "t".into(),
+                started: Some(1_000),
+            },
+        )
+        .unwrap();
+
+        let claimed = peer(99, "/s/99.sock");
+        let error = hub
+            .validate_registered_claim(
+                Some(&shown),
+                &claimed,
+                2_000,
+                None,
+                &claimed.session_id,
+                home.path(),
+                claude_home.path(),
+            )
+            .unwrap_err();
+        assert_eq!(error.data.as_ref().unwrap()["reason"], "register.unproven");
+        assert_eq!(incumbent.meta().name, "mango-retry");
     }
 
     #[test]

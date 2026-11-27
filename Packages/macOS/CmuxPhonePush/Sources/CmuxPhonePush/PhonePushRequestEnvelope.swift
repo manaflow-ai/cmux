@@ -4,6 +4,15 @@ public import Foundation
 /// A credential-free durable representation of one logical source event.
 public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
     CustomStringConvertible, CustomDebugStringConvertible {
+    // String(localized:defaultValue:) is Apple only; elsewhere (the Linux package tests) the same main-bundle
+    // lookup goes through Bundle, as CmuxMobileSupport's L10n does.
+    private static var hiddenBody: String {
+        #if canImport(Darwin)
+        String(localized: "push.hidden.body", defaultValue: "New terminal activity")
+        #else
+        Bundle.main.localizedString(forKey: "push.hidden.body", value: "New terminal activity", table: nil)
+        #endif
+    }
     private static let maximumTitleUTF16Units = 120
     private static let maximumSubtitleUTF16Units = 120
     private static let maximumBodyUTF16Units = 500
@@ -93,10 +102,7 @@ public struct PhonePushRequestEnvelope: Codable, Equatable, Sendable,
                     maximumUTF16Units: Self.maximumSubtitleUTF16Units
                 )
             object["body"] = payload.hideContent
-                ? String(
-                    localized: "push.hidden.body",
-                    defaultValue: "New terminal activity"
-                )
+                ? Self.hiddenBody
                 : Self.boundedText(
                     payload.body,
                     maximumUTF16Units: Self.maximumBodyUTF16Units

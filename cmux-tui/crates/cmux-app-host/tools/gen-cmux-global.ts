@@ -43,7 +43,8 @@ const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attac
 // team.audit.list and team.members.remove (cx-3bi.4): the audit chain and member removal are a person's session only.
 // agent.message.list/mark/release/send/unsend (#16430): no app access to agent messages until the agent-inbox lane designs a scoped
 // grant. An app that sends to an agent is a prompt-injection path; an app that reads them sees the agent's context.
-// settings.set/reset/reset_all/edit (cx-9ce.10): the settings file is the person's; an app may read settings only.
+// settings.set/reset/reset_all/edit/undo/restore/reset_group (cx-9ce.10): the settings file is the person's; an app may
+// read settings (and settings.history, which lists changed keys, never values) only.
 // layout.bulk (cx-gzh.5) closes tabs, panes, screens and workspaces, like every .close op.
 // workspace.open_url (cx-ebm.59.3) navigates the person's browser tabs; Home and the person's tools only.
 // conductor_import.plan/record read Conductor's database and worktrees and keep the import ledger: the app's
@@ -55,24 +56,34 @@ const EXECUTE = /(^terminal\.input\.(write|keys|mouse)$|\.run$|^terminal\.(attac
 // language_packs.ensure downloads the app's languages into its own cache by path: the app itself only.
 // palette.rank ranks rows for a cmux page's own palette (the Channels page); apps have `cmux.palette`, the
 // app palette, so the op family would collide with it.
-const NEVER = /(^settings\.(set|reset|reset_all|edit)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^browser_import\.|^language_packs\.|^classic_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$|^diff\.comments\.send$)/
+const NEVER = /(^settings\.(set|reset|reset_all|edit|undo|restore|reset_group)$|^layout\.bulk$|^keybindings\.(set|remove|reset)$|\.close$|\.shutdown$|^session\.(open|reload_config|creation\.resolve)$|\.renderer_grant\.|\.history\.clear$|^workspace\.agent_(folder|start)\.|^workspace\.open_url$|^conductor_import\.|^browser_import\.|^language_packs\.|^classic_import\.|^palette\.rank$|^team_vm\.retired\.export$|^team\.(audit\.list|members\.remove)$|^agent\.message\.(list|mark|release|send|unsend)$|^diff\.comments\.send$)/
 
 /** The daemon's Cloud API calls carry the person's own access token in their params; the app's own Cloud code only. */
 const CLOUD_API_CALLS = [
   "cloud.machine.chat_access",
   "cloud.machine.io",
   "cloud.machine.share_chat",
+  "cloud.machine.chief_start",
+  "cloud.machine.chief_resize",
+  "cloud.machine.setup_desktop",
+  "cloud.machine.fork",
   "cloud.owner.acpmux_keyed_start",
   "cloud.owner.acpmux_person_holds",
   "cloud.owner.fork_run",
   "cloud.owner.github_app",
   "cloud.owner.github_connect",
+  "cloud.owner.github_complete",
+  "cloud.owner.github_list",
+  "cloud.owner.github_clone_token",
   "cloud.owner.github_repos",
   "cloud.owner.handoff_begin_turn",
   "cloud.owner.handoff_open",
   "cloud.owner.handoff_wait",
   "cloud.owner.handoffs",
   "cloud.owner.harness_login_copy",
+  "cloud.owner.slack",
+  "cloud.owner.slack_awake",
+  "cloud.owner.op",
   "cloud.owner.turn_checkpoint",
   "cloud.owner.turn_rewind",
   "cloud.owner.turns",
@@ -291,7 +302,8 @@ export function loadEvents(scopes: Record<string, { scope: string; class: string
   const out: Record<string, { docs: string; reads: string; scope: string }> = {}
   for (const name of Object.keys(file.events).sort()) {
     const { docs, reads, readsParams, scope } = file.events[name]!
-    const family = name.match(/^([a-z][a-z0-9_]*)\.changed$/)?.[1]
+    // A family may be dotted (`app.storage.changed`, the app's own storage).
+    const family = name.match(/^([a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*)\.changed$/)?.[1]
     if (!family) throw new Error(`events.json: ${name} is not <family>.changed`)
     const known = scopes[reads]
     if (!known) throw new Error(`events.json: ${name} reads ${reads}, which apps cannot call`)
@@ -309,7 +321,8 @@ export function loadEvents(scopes: Record<string, { scope: string; class: string
 export function generate(): Record<string, string> {
   const { ops, types, generics, actions } = loadCatalog()
   const names = Object.keys(ops).sort()
-  const scopes: Record<string, { scope: string; class: string }> = {}
+  // `alsoScopes`: other grants that allow the op too (`storage:synced` serves app.storage.* from the synced replica).
+  const scopes: Record<string, { scope: string; class: string; alsoScopes?: string[] }> = {}
   const never: string[] = []
   for (const name of names) {
     const s = scopeFor(name, ops[name]!)
@@ -317,18 +330,30 @@ export function generate(): Record<string, string> {
     else never.push(name)
   }
   // Host-provided ops that are not in the catalogs yet.
-  const hostOps: Record<string, { scope: string; class: string }> = {
+  const hostOps: Record<string, { scope: string; class: string; alsoScopes?: string[] }> = {
     "action.run": { scope: "actions:run", class: "mutation" },
     "action.list": { scope: "actions:run", class: "read" },
-    "app.storage.get": { scope: "storage:local", class: "read" },
-    "app.storage.set": { scope: "storage:local", class: "mutation" },
-    "app.storage.delete": { scope: "storage:local", class: "mutation" },
-    "app.storage.keys": { scope: "storage:local", class: "read" },
+    "app.storage.get": { scope: "storage:local", class: "read", alsoScopes: ["storage:synced"] },
+    "app.storage.set": { scope: "storage:local", class: "mutation", alsoScopes: ["storage:synced"] },
+    "app.storage.delete": { scope: "storage:local", class: "mutation", alsoScopes: ["storage:synced"] },
+    "app.storage.keys": { scope: "storage:local", class: "read", alsoScopes: ["storage:synced"] },
     "net.fetch": { scope: "net:<host>", class: "runtime" },
     "clipboard.write": { scope: "clipboard:write", class: "mutation" },
     // A notice in the app's own toast presenter, one slot per app (ToastAppOps in CmuxNextApps). Local and
     // non-network, so no grant: scope `none` is always held.
     "toast.show": { scope: "none", class: "mutation" },
+    // A pane's open arguments and result (cmux.pane/1, cmux-tui-core apps/pane_flow.rs): only the caller's own
+    // app's pane, so no grant. The tab itself opens through action.run app.open, which needs a gesture.
+    "app.pane.open": { scope: "none", class: "runtime" },
+    "app.pane.close": { scope: "none", class: "runtime" },
+    // A view's kept state (ctx.keep, cmux-tui-core apps/view_state.rs): only the caller's own mounts, in memory.
+    "app.view.state": { scope: "none", class: "runtime" },
+    // Extension signal sources (cmux.signal.source/1, cmux-tui-core apps/signal_sources.rs). Scope `none` here:
+    // the daemon decides each call per source (only the declaring app publishes; a reader needs the source's
+    // `<app namespace>:read` scope).
+    "signal.publish": { scope: "none", class: "mutation" },
+    "signal.read": { scope: "none", class: "read" },
+    "signal.sources.list": { scope: "none", class: "read" },
     "integration.request": { scope: "integration:<provider>", class: "runtime" },
     // Mac-side app ops (AppHostCapabilities in CmuxNextApp, served over the provider channel).
     "coderouter.status": { scope: "coderouter:read", class: "read" },
@@ -346,6 +371,11 @@ export function generate(): Record<string, string> {
     "page.read": { scope: "page:read", class: "read" },
     "page.hints": { scope: "page:write", class: "mutation" },
     "page.follow": { scope: "page:write", class: "mutation" },
+    // What plays in cmux, from the Now Playing card's sources (cmux's player, a browser tab, another
+    // app while sidebar.nowPlaying.otherApps is on), answered by the Mac app (MediaAppOps). media.control
+    // runs only on a tap (PLAYBACK_OPS in cmux-app-manifest capabilities.rs).
+    "media.get": { scope: "media:read", class: "read" },
+    "media.control": { scope: "media:control", class: "mutation" },
     // The person's system calendar on the Mac (CalendarAppOps in CmuxNextApps, EventKit), apart from the
     // Cloud's Google `calendar.*` family: events
     // never prompts; request_access shows the system prompt, so it needs a gesture.
@@ -412,7 +442,12 @@ interface CmuxFetchResponse { status: number; ok: boolean; headers: Record<strin
 // App action ids are not enumerated here: the registry changes daily. List them at runtime with cmux.actions.list().
 type CmuxActionId = string
 
-interface CmuxAppContext { readonly [key: string]: unknown }
+/** A view's mount context (a section, a pane, a widget). \`keep(name, initial)\` is a signal ([read, write]) whose value cmux keeps with the mount: a hot reload (\`cmux ext dev\`), a host restart or a Reload renders it again; closing the view forgets it. \`state\` is every kept value this mount got back (at most 64 KiB as JSON; values must be JSON). */
+interface CmuxAppContext { readonly [key: string]: unknown; readonly state: Readonly<Record<string, unknown>>; keep<T>(name: string, initial: T): [() => T, (next: T | ((prev: T) => T)) => void] }
+/** What \`cmux.app.openPane\` resolves with: the pane's \`ctx.close(result)\` value, or \`dismissed\` when the person closed the pane first or a newer open replaced this one. */
+interface CmuxPaneResult<T = unknown> { result: T | null; dismissed: boolean }
+/** A \`cmux.pane/1\` mount's context: \`args\` are the open's arguments (\`cmux.app.openPane\`), null when the person opened the pane themselves. \`close(result)\` answers the opener (the tab stays open: closing it is the person's); \`onOpen(fn)\` runs after the render with the arguments of an open; \`onClose(fn)\` runs when this mount ends (the tab closed, a newer open, a reload). */
+interface CmuxPaneContext extends CmuxAppContext { readonly args: Record<string, unknown> | null; close(result?: unknown): Promise<{ closed: boolean }>; onOpen(fn: (args: Record<string, unknown>) => void): void; onClose(fn: () => void): void }
 
 /** One block of a page's main text (\`page.read\`): a heading has \`level\` (1-6), an image \`src\` and its alt text. */
 interface CmuxPageBlock { kind: "heading" | "paragraph" | "list_item" | "quote" | "code" | "image"; text: string; level?: number; src?: string }
@@ -446,7 +481,7 @@ ${render(root, "  ")}
   timer: { after(ms: number, fn: () => void): number; every(ms: number, fn: () => void): number; clear(id: number): void }
   /** Time zones. The sandbox has no Intl and \`toLocaleString\` ignores \`timeZone\`: \`zone(name, at?)\` gives an IANA zone's offset (minutes east of UTC) and short name at \`at\` (epoch ms, default now). An unknown name throws CmuxError \`zone.unknown\`. Local time is \`new Date(utcMs + offsetMinutes * 60000)\` read with the getUTC* methods. */
   time: { zone(name: string, at?: number): { zone: string; offsetMinutes: number; abbreviation: string } }
-  app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext }
+  app: { readonly id: string; readonly version: string; readonly apiVersion: string; readonly locale: string; settings: { (): Record<string, unknown>; set(values: Record<string, unknown>): Promise<unknown> }; context(): CmuxAppContext; openPane<T = unknown>(args?: Record<string, unknown>, options?: CmuxCallOptions): Promise<CmuxPaneResult<T>> }
   /** The current user-gesture token, else null. On a command's ctx.cmux: the invocation's token while the command runs. On the global: the event token, only inside a user event handler before its first await; pass it as options.gesture later. */
   gesture(): string | null
   /** The app's string for key in the user's locale, else fallback; {name} placeholders. */
@@ -463,6 +498,13 @@ ${render(root, "  ")}
     hints: CmuxOp<{ tab?: string; action: "show" | "clear" }, { tab: string; hints: CmuxPageHint[] }>
     /** \`page.follow\` (mutation, scope \`page:write\`, needs a gesture): clicks the element of a shown hint, or with \`new_split\` opens its link in a new browser split (the built-in \`F\`), then clears the hints. \`followed\` is false when the label is not shown (any more), or \`new_split\` names a hint with no link. */
     follow: CmuxOp<{ tab?: string; label: string; new_split?: boolean }, { tab: string; followed: boolean; href: string | null }>
+  }
+  /** What plays in cmux, answered by the cmux app: the track the Now Playing card shows. To follow it live, \`cmux.watch("media.now_playing")\`. */
+  media: {
+    /** \`media.get\` (read, scope \`media:read\`): what plays now, or \`{track: null}\` while nothing does. */
+    get: CmuxOp<Record<string, never>, CmuxSignalMap["media.now_playing"]["value"]>
+    /** \`media.control\` (mutation, scope \`media:control\`, needs a gesture): play or pause, skip, or seek to \`seconds\` in. Throws CmuxError \`media.nothing_playing\` while nothing plays. */
+    control: CmuxOp<{ command: "play_pause" | "previous" | "next" } | { command: "seek"; seconds: number }, null>
   }
   /** The person's system calendar, read by the cmux app on the Mac (EventKit). Not the Cloud's Google \`calendar.*\` ops. */
   system_calendar: {
@@ -560,7 +602,7 @@ interface CmuxView {
   fontDesign(v: Bindable<"default" | "rounded" | "serif" | "monospaced">): this
   color(v: Bindable<string | null>): this; secondary(): this; lineLimit(v: Bindable<number>): this; truncation(v: Bindable<"head" | "middle" | "tail">): this
   strikethrough(v?: Bindable<boolean>): this; marquee(delaySeconds?: number): this; fade(width: Bindable<number>): this
-  transition(v: "opacity" | "slide" | "scale" | "move"): this; contentTransition(v: "numericText" | "opacity"): this; animation(v?: "smooth" | "snappy" | "none"): this
+  contentTransition(v: "numericText" | "opacity"): this
   padding(v?: Bindable<number | Record<string, number>>): this; paddingHorizontal(v: Bindable<number>): this; paddingVertical(v: Bindable<number>): this
   frame(v: Bindable<Record<string, number | string>>): this; layoutPriority(v: Bindable<number>): this; fixedSize(axis?: "both" | "horizontal" | "vertical"): this
   background(v: Bindable<CmuxFill | null>): this; hoverBackground(v: Bindable<string | null>): this; glass(level?: Bindable<"chrome" | "popover" | "menu" | "chip" | null>): this; cornerRadius(v: Bindable<number>): this
@@ -575,9 +617,75 @@ interface CmuxView {
   position(v: Bindable<{ x?: number; y?: number; unit?: "points" | "fraction" }>): this
   cursor(v: "pointer" | "default"): this; help(v: Bindable<string>): this
   fixed(): this; destructive(): this; disabled(v?: Bindable<boolean>): this; onTap(fn: () => unknown): this; contextMenu(items: CmuxView[] | (() => CmuxView[])): this
+  /** Animate this node's own prop changes from the value on screen: \`smooth\` (the default), \`snappy\` and \`none\` (the motion scale's steps) its opacity, colors, rotation and strikethrough; a motion token, spring or timed curve every animatable prop (opacity, rotation, scale, offset, blur, trim, frame size, colors, glow, ProgressView value). */
+  animation(v?: Bindable<CmuxMotion | null>): this
+  /** Scale about the node's center (1 = identity). */
+  scale(v: Bindable<number>): this
+  /** Move the drawing by points without changing layout. */
+  offset(v: Bindable<CmuxOffset>): this
+  /** Gaussian blur radius in points. */
+  blur(v: Bindable<number>): this
+  /** A colored, zero-offset shadow around the node's shape; \`null\` removes it. */
+  glow(v: Bindable<CmuxGlow | null>): this
+  /** A linear gradient fill (shapes) or background (stacks, panels): angle 0 = left to right, 90 (default) = top to bottom. */
+  gradient(v: Bindable<CmuxLinearGradient | null>): this
+  /** Draw only this fraction of a stroked Circle, Capsule, Rectangle or RoundedRectangle outline (a circle starts at 12 o'clock, clockwise). */
+  trim(v: Bindable<CmuxTrim | null>): this
+  /** A host-run effect that repeats forever with no JS; \`null\` stops it. Stops under Reduce Motion. */
+  loop(v: Bindable<CmuxLoop | null>): this
+  /** How the node enters when a render adds it (not on the first scene) and leaves when one removes it (kept on screen until its exit ends): opacity, slide (up from below), scale (from 90 %), move (from the leading edge), pop (from 60 %, past full size); \`{kind, motion}\` times it with a motion token, spring or timed curve. */
+  transition(v: Bindable<CmuxTransition | CmuxTimedTransition | null>): this
+  /** Clip the node's content (children, a sliding transition, a glow) to its frame and corner radius. */
+  clipped(v?: Bindable<boolean>): this
   /** How an Icon's layers take color, as SF Symbols draw them: monochrome (the default), hierarchical, palette (1 to 3 colors, in layer order) or multicolor (the symbol's own colors, the tint where it has none). */
   symbolRendering(mode: "monochrome" | "hierarchical" | "palette" | "multicolor", colors?: readonly string[]): this
 }
+/** \`smooth\`, \`snappy\`, \`none\`: the motion scale's standard and micro steps, or none; \`move\`, \`appear\`, \`disappear\`, \`fade\`: the design-token springs and fade; \`bouncy\` = spring 0.45 s / 0.6. Times in seconds, clamped to [0.05, 10]; damping to [0.3, 1]. */
+type CmuxMotion =
+  | "smooth" | "snappy" | "none"
+  | "move" | "appear" | "disappear" | "fade" | "bouncy"
+  | { spring: { response: number; dampingFraction: number } }
+  | { duration: number; curve?: "easeOut" | "easeInOut" | "linear" }
+type CmuxOffset = { x?: number; y?: number }
+type CmuxGlow = { color: string; radius: number; opacity?: number }
+/** The \`gradient\` modifier: angle 0 = left to right, 90 (default) = top to bottom. */
+type CmuxLinearGradient = { colors: string[]; angle?: number }
+type CmuxTrim = { from?: number; to: number }
+type CmuxLoopEffect = "pulse" | "breathe" | "spin" | "float" | "wiggle" | "bounce" | "shimmer"
+/** \`period\` in seconds; \`amount\` scales the effect's default amplitude. */
+type CmuxLoop = { effect: CmuxLoopEffect; period?: number; amount?: number }
+type CmuxTransition = "opacity" | "slide" | "scale" | "move" | "pop"
+/** A transition on its own timing: \`motion\` times the move and the fade, in and out (the bare kind keeps the renderer's springs). */
+type CmuxTimedTransition = { kind: CmuxTransition; motion?: CmuxMotion | null }
+type CmuxParticlePreset = "confetti" | "sparkles" | "rain" | "snow" | "embers" | "stars"
+/** \`rate\` multiplies a continuous preset's emission (default 1); each increase of \`burst\` fires one burst. */
+/** A choreography curve: the Motion curves, a spring, or a cubic Bezier. A frame's \`ease\` shapes the segment that ends at it. */
+type CmuxChoreographyEase = "linear" | "easeIn" | "easeOut" | "easeInOut" | "smooth" | "snappy" | { spring: { response: number; dampingFraction?: number } } | { bezier: [number, number, number, number] }
+/** \`[x, y, scale]\`: points from the glyph's centre (+y down), scale 0 to 4 over \`particle.size\`. */
+type CmuxChoreographyDot = [number, number, number]
+type CmuxChoreographyFrame = { at: number; dots?: CmuxChoreographyDot[]; formation?: string; ease?: CmuxChoreographyEase }
+type CmuxChoreographyPhase = {
+  duration: number
+  ease?: CmuxChoreographyEase
+  frames?: CmuxChoreographyFrame[]
+  sites?: [number, number][]
+  spawn?: { every: number; order: number[]; life: number }
+  lifeFrames?: { at: number; pos: "centre" | "site" | "between"; offset?: [number, number]; s: number; ease?: CmuxChoreographyEase }[]
+}
+/** The acpmux tool kinds and session states a choreography's \`triggers\` may name (\`cycle\` plays for any other kind). */
+type CmuxChoreographyTrigger = "read" | "edit" | "delete" | "move" | "search" | "execute" | "think" | "fetch" | "switch_mode" | "other" | "sendMessage" | "turnStart" | "thinking" | "idle" | "cursor" | "cycle"
+/** A \`cmux.particles/1\` document (ABI.md "Particles choreography"). The host refuses unknown keys and anything past a limit (16 dots, 32 phases, 64 frames, 50 ms to 30 s, scale 0 to 4, 32 KiB). */
+type CmuxParticleChoreography = {
+  $schema: "cmux.particles/1"
+  particle: { shape?: "circle" | "square"; size: number; color?: string; max?: number }
+  phases: Record<string, CmuxChoreographyPhase>
+  formations?: Record<string, CmuxChoreographyDot[]>
+  triggers?: Partial<Record<CmuxChoreographyTrigger, string[] | { intro?: string[]; loop: string[] }>>
+}
+/** \`rate\` multiplies a continuous preset's emission (default 1); each increase of \`burst\` fires one burst. With \`choreography\` the node plays that glyph instead: \`trigger\` picks the phases by acpmux kind (read when a phase ends), \`phase\` loops one phase, \`size\` (points) and \`colors[0]\` override the document's particle. */
+type CmuxParticlesProps = { preset?: Bindable<CmuxParticlePreset>; colors?: Bindable<string[] | null>; rate?: Bindable<number>; burst?: Bindable<number>; choreography?: Bindable<CmuxParticleChoreography | null>; trigger?: Bindable<CmuxChoreographyTrigger | string | null>; phase?: Bindable<string | null>; size?: Bindable<number> }
+/** A particle field (confetti, sparkles, rain, snow, embers, stars) that fills its frame and takes no input, or a choreographed glyph of dots (\`choreography\`) centred in it; first in a ZStack, it draws behind its siblings. Host-run; stops off screen and under Reduce Motion. */
+declare function Particles(props: CmuxParticlesProps): CmuxView
 type CmuxChildren = Array<CmuxView | (() => unknown) | null | undefined | false>
 interface CmuxListSpec<T> { items: () => readonly T[] | null | undefined; key: (item: T, index: number) => string | number; onMove?: (id: string, index: number, extra: { side?: string; block?: boolean }) => unknown; onDragChange?: (state: unknown) => unknown; spacing?: number }
 declare function VStack(propsOrChildren?: Record<string, unknown> | CmuxChildren, children?: CmuxChildren): CmuxView

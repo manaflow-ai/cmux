@@ -209,9 +209,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkChromiumSync.swift": {
   "JSON / property-list encode": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserDownloadHistory.swift": {
-  "JSON / property-list encode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/BrowserHost/AppBrowserHost.swift": {
   "JSON / property-list encode": 1
  },
@@ -354,10 +351,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/HostPressure/HostPressureService.swift": {
   "JSON / property-list decode": 2
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/NewTabChoiceMemory.swift": {
-  "JSON / property-list decode": 1,
-  "JSON / property-list encode": 1
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/HandoffNotices.swift": {
   "JSON / property-list decode": 1,
   "line split of a whole input": 1
@@ -384,9 +377,6 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsPageProvider+Backdrop.swift": {
   "synchronous file write or file-system change": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsPageProvider.swift": {
-  "directory walk": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsSharedLinks.swift": {
   "JSON / property-list encode": 2
@@ -517,10 +507,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextChiefPetWiring/ChiefPetNotice+Daemon.swift": {
   "line split of a whole input": 1
  },
- "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/CloudCLICall.swift": {
-  "JSON / property-list decode": 2,
-  "JSON / property-list encode": 3
- },
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloud/Hands/HandsEngine.swift": {
   "JSON / property-list decode": 2,
   "JSON / property-list encode": 2,
@@ -536,9 +522,6 @@
  "Packages/macOS/CmuxNext/Sources/CmuxNextCloudUI/CloudEnvironmentsSettings.swift": {
   "JSON / property-list decode": 1,
   "JSON / property-list encode": 1
- },
- "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/AgentPaneGitLink.swift": {
-  "JSON / property-list decode": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/CatalogRequestHandlers.swift": {
   "JSON / property-list encode": 2
@@ -727,6 +710,9 @@
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalPasteboard+Image.swift": {
   "synchronous file write or file-system change": 3
+ },
+ "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/TerminalSession+CommentAnchor.swift": {
+  "line split of a whole input": 1
  },
  "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Launch/AppCopyGuide.swift": {
   "process launch": 1

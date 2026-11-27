@@ -87,7 +87,7 @@ fn cmux_setup_harness_auth_claude_check_failure_retains_profile_login_and_respec
     let world = World::new("hclaude");
     let agent = world.bin.join("claude");
     World::executable(&agent, "#!/bin/sh\necho 1.0.0\n");
-    let profiles = world.home.join(".config/cmux/harnesses");
+    let profiles = world.home.join(".config").join(cmux_config::NEXT_DIR).join("harnesses");
     std::fs::create_dir_all(&profiles).unwrap();
     std::fs::write(
         profiles.join("work-claude.toml"),
@@ -132,7 +132,7 @@ fn cmux_setup_harness_auth_expired_credential_is_signed_out_with_login() {
     World::executable(&agent, "#!/bin/sh\necho 1.0.0\n");
     let check = world.bin.join("expired-check");
     World::executable(&check, "#!/bin/sh\necho 'OAuth token has expired'\nexit 1\n");
-    let profiles = world.home.join(".config/cmux/harnesses");
+    let profiles = world.home.join(".config").join(cmux_config::NEXT_DIR).join("harnesses");
     std::fs::create_dir_all(&profiles).unwrap();
     std::fs::write(
         profiles.join("work-claude.toml"),
