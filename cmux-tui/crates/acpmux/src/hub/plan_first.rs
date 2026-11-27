@@ -63,7 +63,7 @@ pub(crate) fn enabled_by(doc: Option<&Value>, env: Option<&str>) -> bool {
         return false;
     }
     doc.and_then(|d| crate::user_settings::value(d, SETTING_ENABLED))
-        .and_then(Value::as_bool)
+        .and_then(|v| v.as_bool())
         .unwrap_or(false)
 }
 
@@ -83,7 +83,7 @@ pub(crate) fn enabled() -> bool {
 pub(crate) fn reply_window_in(doc: Option<&Value>) -> Duration {
     let secs = doc
         .and_then(|d| crate::user_settings::value(d, SETTING_REPLY))
-        .and_then(Value::as_u64)
+        .and_then(|v| v.as_u64())
         .map_or(REPLY_DEFAULT_SECS, |s| s.clamp(REPLY_RANGE.0, REPLY_RANGE.1));
     Duration::from_secs(secs)
 }
