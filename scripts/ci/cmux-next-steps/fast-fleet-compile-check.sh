@@ -23,7 +23,7 @@ if [[ -z "$GATEWAY" ]]; then
     left=$((end - SECONDS))
     (( left > 1 )) || break
     wait=$(( left > 60 ? left - 30 : left / 2 )); wait=$(( wait < 1800 ? wait : 1800 ))
-    code="$(timeout "$left" curl -sS -o "$reply" -w '%{http_code}' --connect-timeout 10 \
+    code="$(bash scripts/ci/timeout.sh "$left" curl -sS -o "$reply" -w '%{http_code}' --connect-timeout 10 \
       --max-time "$left" "$RESULTS/$REF?repo=${REPO/\//%2F}&wait=$wait")" || true
     case "${code:=000}" in
       200) reads=$((reads + 1)) ok_at=$SECONDS last=""
@@ -45,7 +45,7 @@ if [[ -z "$GATEWAY" ]]; then
   if [[ "$state" == superseded || "$state" != pass && "$state" != fail && "${STALE_PUSH_GATE:-1}" != 0 ]]; then
     head=""
     if [[ "${SUPERSEDED_GATE:-1}" != 0 ]]; then
-      head="$(timeout 30 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
+      head="$(bash scripts/ci/timeout.sh 30 git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
         "${GITHUB_SERVER_URL:-https://github.com}/$REPO.git" "${GITHUB_REF:-refs/heads/feat-cmux-next}" 2>/dev/null |
         awk 'NR==1{print $1}')" || head=""
     fi
