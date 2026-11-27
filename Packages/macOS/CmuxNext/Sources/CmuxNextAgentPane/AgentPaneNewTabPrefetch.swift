@@ -6,6 +6,20 @@ import CmuxNextWakeups
 /// geometry and ownership checks; this target owns the frame scheduling and cancellation.
 @MainActor
 public final class AgentPaneNewTabPrefetch {
+    enum Step: Equatable {
+        case render(CGSize)
+        case restore
+        case finished
+    }
+
+    /// Pure lifecycle decision kept beside the renderer so cancellation and stale-context paths
+    /// cannot accidentally render another split size or leave the spare fitted there.
+    static func step(index: Int, plan: [CGSize], valid: Bool, timedOut: Bool = false) -> Step {
+        guard valid, !timedOut else { return .restore }
+        guard index < plan.count else { return .finished }
+        return .render(plan[index])
+    }
+
     private var token: UUID?
     private let deadline = DemandTimer(owner: "NewTabSparePool.prefetch")
 
@@ -50,7 +64,7 @@ public final class AgentPaneNewTabPrefetch {
                 invalidated()
                 return
             }
-            guard index < plan.count else {
+            guard case let .render(size) = Self.step(index: index, plan: plan, valid: true) else {
                 self.cancel()
                 finished()
                 return
@@ -60,7 +74,7 @@ public final class AgentPaneNewTabPrefetch {
                 guard let self, let view, self.token == current, view.superview === parking else { return }
                 view.redraw.rememberFrame(of: view, appearance: appearance) { render(index + 1) }
             }
-            parking.fit(to: plan[index])
+            parking.fit(to: size)
         }
         render(0)
     }
