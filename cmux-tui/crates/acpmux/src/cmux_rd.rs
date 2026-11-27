@@ -34,9 +34,9 @@ pub struct Pin {
 /// The release this build installs (`.github/workflows/cmux-rd-release.yml`): an x86_64
 /// Linux build only.
 pub const PIN: Pin = Pin {
-    version: "0.2.7",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.7/cmux-rd-0.2.7-x86_64-unknown-linux-gnu.tar.gz",
-    sha256: "92961c9ebd6b1e7370a6dc1687a3ea864da9c133720daaf51a117aad2f45553d",
+    version: "0.2.9",
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-rd-v0.2.9/cmux-rd-0.2.9-x86_64-unknown-linux-gnu.tar.gz",
+    sha256: "09e4120d8428b2e7ce626e14dbbbb74e29f0a36c2ce5b4080c958fca4496305e",
 };
 
 /// The one architecture [`PIN`] has a build for.
