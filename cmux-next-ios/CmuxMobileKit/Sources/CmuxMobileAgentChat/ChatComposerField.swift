@@ -19,14 +19,16 @@ struct ChatComposerField: UIViewRepresentable {
     /// A copied image or file pasted into the field (edit menu Paste or
     /// Command-V): the composer attaches it.
     var onPasteAttachments: (() -> Void)?
+    /// The attachment strip's height above the field inside the card (0:
+    /// none): the field gives it that much of the cap.
+    var stripReserve: CGFloat = 0
+    /// Where the screen reads the field's strip overlap (`ComposerFieldRef`).
+    var fieldRef: ComposerFieldRef?
     /// The draft gained or lost a line (typed, or set from outside): the bottom stack's next
     /// height change moves on `ComposerLineMotion`, not the stack's slower spring.
     var onLineChange: (() -> Void)?
-    /// Points of the card over the field taken by the attachment strip: the field gives them up
-    /// (`ComposerReturnTextView.shareCard`), so attaching never makes the card taller than its tallest.
-    var reservedTop: CGFloat = 0
 
-    static let maxLines = ComposerFieldHeight.defaultMaxLines
+    static var maxLines: Int { ComposerHeightCap.lines }
     static let accessibilityIdentifier = "chat.composer.field"
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.chatFaceHidden) private var faceHidden
@@ -68,6 +70,8 @@ struct ChatComposerField: UIViewRepresentable {
     private func update(_ view: ChatComposerTextView, context: Context) {
         context.coordinator.parent = self
         markReadyIfShown()
+        fieldRef?.view = view
+        view.stripReserve = stripReserve
         view.onPasteAttachments = onPasteAttachments == nil ? nil : { [weak coordinator = context.coordinator] in
             coordinator?.parent.onPasteAttachments?()
         }
@@ -82,7 +86,6 @@ struct ChatComposerField: UIViewRepresentable {
             if view.lineCountChangePending { onLineChange?() }
             view.invalidateIntrinsicContentSize()
         }
-        view.shareCard(reserved: reservedTop, baseMaxLines: Self.maxLines)
         if view.placeholder != placeholder { view.placeholder = placeholder }
         // Focus follows the binding both ways; the change waits for the
         // current update (a responder change inside it re-enters SwiftUI), and
@@ -105,10 +108,7 @@ struct ChatComposerField: UIViewRepresentable {
     /// on a terminal's chat face parked out of sight (`chatFaceHidden`); a face swap updates it.
     private func markReadyIfShown() {
         guard !faceHidden else { return }
-        LaunchMarks.shared.markNextFrame("chat_composer_ready")
-        #if DEBUG
-        OpenMarks.shared?.noteNextFrame("chat_composer_ready")
-        #endif
+        ChatReadyMark.take()
     }
 
     /// A field torn down while focused (the permission bar replaced it) leaves no focus behind.
@@ -158,6 +158,36 @@ struct ChatComposerField: UIViewRepresentable {
         func textViewDidBeginEditing(_ textView: UITextView) { if !parent.isFocused { parent.isFocused = true } }
         func textViewDidEndEditing(_ textView: UITextView) { if parent.isFocused { parent.isFocused = false } }
     }
+}
+
+/// `chat_composer_ready`: the first frame showing the chat's answer control, the composer or the
+/// permission bar or sudo card that takes its place. A chat whose kept history is in its first frame
+/// (#57970) and waits on the person opens on its permission bar and never builds a composer; marked
+/// at the composer only, that open never took the mark (LaunchTTIUITests' chat flow on `ws-s0`).
+enum ChatReadyMark {
+    static func take() {
+        LaunchMarks.shared.markNextFrame("chat_composer_ready")
+        #if DEBUG
+        OpenMarks.shared?.noteNextFrame("chat_composer_ready")
+        #endif
+    }
+}
+
+/// Takes ``ChatReadyMark`` for a control in the composer's place, once it shows (not on a chat
+/// face parked behind its terminal).
+private struct ChatReadyMarkOnShow: ViewModifier {
+    @Environment(\.chatFaceHidden) private var faceHidden
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { if !faceHidden { ChatReadyMark.take() } }
+            .onChange(of: faceHidden) { _, hidden in if !hidden { ChatReadyMark.take() } }
+    }
+}
+
+extension View {
+    /// See ``ChatReadyMarkOnShow``.
+    func chatReadyMarkOnShow() -> some View { modifier(ChatReadyMarkOnShow()) }
 }
 
 /// The chat field: takes a focus asked for before it had a window once it gets one.

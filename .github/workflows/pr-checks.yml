@@ -7,8 +7,8 @@ name: PR checks
 # request: a failed or timed-out step is a warning annotation, and the job's name ends "(advisory)", which
 # landing tools read as never a pull request's own red. On a push it also runs the description lints (capture,
 # design spec, Performance table, cloud backend), which were pr-body-checks.yml's own job on every push (973 jobs
-# in the 24 h to 2026-11-21T12Z); pr-body-checks.yml now runs them only on a description edit or a media-tour or
-# perf label, which this workflow does not take. A docs-only push (the `paths:` below) gets no lints: none of them
+# in the 24 h to 2026-11-21T12Z); pr-body-checks.yml now runs them only on a media-tour or
+# perf label, which this workflow does not take (a description edit re-lints at the next push). A docs-only push (the `paths:` below) gets no lints: none of them
 # judges a docs-only change.
 #
 # CI v2 step 6, "advisory steps leave the PR's machines" (cmuxterm-hq docs/design/ci-v2.md). They were six
@@ -66,6 +66,7 @@ on:
       - "docs/ci/node-product-cache-maintenance.md"
       - "plans/cmux-next/actions.md"
       - "docs/mdm/managed-preferences.md"
+      - "cmux-tui/crates/cmux-app-host/generated/REFERENCE.md"
       - "docs/ci/health-report.md"
       - "docs/privacy.md"
       - "docs/network-requirements.md"
@@ -80,6 +81,7 @@ on:
       - "cmux-tui/crates/cmux-extension-sdk/README.md"
       - "cmux-tui/vendor/terminput-crossterm/README.md"
       - "mux/packages/brain/conformance/README.md"
+      - "Native/OptChat/chief-kernel/src/turn_checks.md"
     # docs-only paths: END
   # docs-only-fallback.yml calls this in a pull request's own context when the docs-only `paths:` above could
   # have skipped it wrongly (over 300 changed files, or a full-ci/dev-build label): scripts/ci/docs_only_paths.py.
@@ -276,7 +278,7 @@ jobs:
         id: checkout
         if: steps.pick.outputs.steps != ''
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           fetch-depth: 1
@@ -300,6 +302,7 @@ jobs:
             scripts/ci/pr_perf_section_check.py
             scripts/ci/pr_cloud_backend_check.py
             .github/cloud-backend-paths.json
+            .gitmodules
           sparse-checkout-cone-mode: false
 
       # The paths the description lints read, from the event's merge commit and its first parent (the base),
