@@ -90,7 +90,7 @@ jobs:
           repo="$RUNNER_TEMP/cmux.git"
           git init --quiet --bare "$repo"
           started=$SECONDS
-          git -C "$repo" -c protocol.version=2 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 \
+          git -C "$repo" -c protocol.version=2 -c http.lowSpeedLimit=1 -c http.lowSpeedTime=60 \
             fetch --quiet --no-tags "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" \
             +refs/heads/main:refs/heads/main \
             +refs/heads/feat-cmux-next:refs/heads/feat-cmux-next \
@@ -119,7 +119,7 @@ jobs:
 
       # The local cache-save action and the r2-cache.sh it runs.
       - name: Checkout the cache tooling
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |

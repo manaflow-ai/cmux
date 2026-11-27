@@ -273,6 +273,12 @@ pub const RELAY_READY: &str = "ready";
 /// (no plain UDP and no TURN allocation); the peer joins too, without
 /// waiting for its own paths to fail.
 pub const RELAY_NOW: &str = "now";
+/// `relay`: this side joins the relay as its dial starts, beside the direct
+/// race (the phone when its tunnel starts, the Mac on the phone's offer), and
+/// sends its first handshake through it too; when both sides said so, the
+/// relay is up the moment direct UDP and TURN turn out not to work, rather
+/// than 3 s later. An older peer reads it as [`RELAY_READY`].
+pub const RELAY_FIRST: &str = "first";
 
 /// The WireGuard protocol version this side speaks (`version` in `wg-init`
 /// and `wg-resp`, PROTOCOL.md):
@@ -502,6 +508,14 @@ async fn open_socket(
 ) -> Result<Socket, SignalingError> {
     // Through the egress gate (docs/privacy.md) before any dial, proxy or direct.
     let request = cmux_egress::ws::checked(request, "cmux_mobile_link::signaling").map_err(connect_error)?;
+    if let Some(captured) = crate::egress::capture_stream(&request).await {
+        let (tcp, connector) = captured.map_err(|error| SignalingError::Connect(error.to_string()))?;
+        let (socket, _) =
+            tokio_tungstenite::client_async_tls_with_config(request, tcp, None, Some(connector))
+                .await
+                .map_err(connect_error)?;
+        return Ok(socket);
+    }
     let uri = request.uri().clone();
     let secure = uri.scheme_str() == Some("wss");
     let host = uri.host().ok_or_else(|| SignalingError::BadUrl(uri.to_string()))?;

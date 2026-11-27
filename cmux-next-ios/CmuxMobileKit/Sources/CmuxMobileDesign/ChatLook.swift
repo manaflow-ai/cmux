@@ -36,10 +36,8 @@ public struct CmuxMobileChatLook: Equatable {
     /// The flat color of the chat's ground (the band under the status bar, the composer's fade).
     public var groundColor: UIColor { background.uiColor }
 
-    /// The look the chat draws now: none for now, so the chat is the stock one on the stock ground
-    /// (2026-11-25, "for now just make every background black"; the options were PR #53342).
-    /// ``CmuxMobileMacTheme/chatLook`` still carries the Mac's look for when it returns.
-    public static var current: CmuxMobileChatLook? { nil }
+    /// The look the chat draws now (``CmuxMobileMacTheme/chatLook``); nil: the stock chat.
+    public static var current: CmuxMobileChatLook? { CmuxMobileMacTheme.shared.chatLook }
 }
 
 extension UIColor {
@@ -67,13 +65,39 @@ extension Color {
     }
 }
 
-/// The ground behind the agent chat: the stock background, black in dark and white in light
-/// (``CmuxMobileChatLook/current`` is nil for now).
+/// The ground behind the agent chat: the Mac's picture under its theme color at the window's tint,
+/// or the theme color alone; the stock background while there is no chat look.
 public struct CmuxMobileChatBackdrop: View {
-    public init(macTheme: CmuxMobileMacTheme = .shared) {}
+    private let macTheme: CmuxMobileMacTheme
+
+    public init(macTheme: CmuxMobileMacTheme = .shared) {
+        self.macTheme = macTheme
+    }
 
     public var body: some View {
-        Color.cmuxMobileBackground
+        if let look = macTheme.chatLook {
+            let ground = Color(uiColor: look.background.uiColor)
+            if let picture = look.picture {
+                GeometryReader { proxy in
+                    Image(uiImage: picture)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
+                        .overlay(ground.opacity(look.backgroundOpacity))
+                }
+                .ignoresSafeArea()
+                .accessibilityHidden(true)
+                .accessibilityIdentifier("agentChat.macBackdrop")
+            } else {
+                ground
+                    .ignoresSafeArea()
+                    .accessibilityIdentifier("agentChat.macBackdrop")
+            }
+        } else {
+            Color.cmuxMobileBackground
+                .ignoresSafeArea()
+        }
     }
 }
 

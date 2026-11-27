@@ -52,6 +52,7 @@ use cmux_remote::service::{EndpointRole, ServiceMultiplexer};
 use cmux_remote::services::DaemonServices;
 use cmux_remote::session::SessionLimits;
 use cmux_remote::ssh_bootstrap::{BootstrapError, SshBootstrapConfig, SshBootstrapper};
+use cmux_remote::ssh_control::SSH_MASTER_AUTH_TIMEOUT;
 use cmux_remote_protocol::{LanePolicy, SessionId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -765,6 +766,9 @@ fn start_client_runtime_with(
     options.reconnect.validate()?;
     let startup_timeout = options.startup_timeout;
     let recovering = keep_waiting.is_some();
+    // SSH authentication (a password typed at the prompt) does not count
+    // against the startup budget (issue 38157).
+    let auth_clock = options.ssh.connection_share.auth_clock();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (finished_tx, finished_rx) = watch::channel(false);
     let (ready_tx, ready_rx) = mpsc::sync_channel(1);
@@ -779,10 +783,13 @@ fn start_client_runtime_with(
             result
         })
         .context("could not start remote client thread")?;
-    let deadline = keep_waiting.is_none().then(|| std::time::Instant::now() + startup_timeout);
+    let started = std::time::Instant::now();
+    let deadline = keep_waiting.is_none().then(|| started + startup_timeout);
     let ready = loop {
+        let now = std::time::Instant::now();
+        let excluded = auth_clock.as_ref().map_or(Duration::ZERO, |clock| clock.excluded(now));
         let left = deadline.map_or(STARTUP_SIGNAL_POLL, |deadline| {
-            deadline.saturating_duration_since(std::time::Instant::now())
+            (deadline + excluded).saturating_duration_since(now)
         });
         match ready_rx.recv_timeout(left.min(STARTUP_SIGNAL_POLL)) {
             Ok(Ok(ready)) => break ready,
@@ -1384,7 +1391,16 @@ async fn bootstrap_initial_ssh_route(
     config.auto_install = options.auto_install;
     config.timeout = options.attempt_timeout;
     config.required_capabilities = ssh.required_remote_capabilities();
+    config.connection_share = ssh.connection_share.clone();
     let bootstrap = SshBootstrapper::new(config)?;
+    // Authenticate once, before the attempt budget starts: a person may be
+    // typing a password, and every later step reuses this connection.
+    tokio::select! {
+        result = bootstrap.connect() => result?,
+        () = wait_for_shutdown_request(shutdown.clone()) => {
+            return Err(anyhow!("SSH bootstrap interrupted"));
+        }
+    }
     tokio::select! {
         result = tokio::time::timeout(options.attempt_timeout, async {
             if upgrade {
@@ -1402,6 +1418,21 @@ async fn bootstrap_initial_ssh_route(
         }
         () = wait_for_shutdown_request(shutdown) => Err(anyhow!("SSH bootstrap interrupted")),
     }
+}
+
+/// Opens (or reuses) the route's shared SSH connection: the same target the
+/// bootstrap and the carrier links use, so they all ride on it.
+async fn open_shared_ssh_connection(endpoint: &Url, ssh: &SshProviderConfig) -> anyhow::Result<()> {
+    let (destination, port) = ssh_bootstrap_destination(endpoint)?;
+    ssh.connection_share
+        .client_arguments(&cmux_remote::ssh_control::SshTarget {
+            ssh_binary: ssh.ssh_binary.clone(),
+            destination,
+            port,
+            extra_args: ssh.extra_args.clone(),
+        })
+        .await?;
+    Ok(())
 }
 
 fn ssh_bootstrap_failure_is_retryable(error: &anyhow::Error) -> bool {
@@ -1658,9 +1689,41 @@ impl ReconnectGroupSource for RuntimeReconnectGroups {
         )
         .unwrap_or(u32::MAX);
         let ssh_bootstraps = u32::try_from(self.unprepared_ssh_probe_count()).unwrap_or(u32::MAX);
-        reconnect_attempt_timeout.saturating_mul(provider_attempts).saturating_add(
-            self.options.ssh_bootstrap.attempt_timeout.saturating_mul(ssh_bootstraps),
-        )
+        // Each SSH route may open its shared connection, which may prompt.
+        let ssh_authentications = if self.options.ssh.connection_share.auth_clock().is_some() {
+            u32::try_from(
+                self.options
+                    .routes
+                    .iter()
+                    .filter(|candidate| {
+                        candidate.endpoint.scheme() == "ssh" && candidate.supports_client_auth(auth)
+                    })
+                    .count(),
+            )
+            .unwrap_or(u32::MAX)
+        } else {
+            0
+        };
+        reconnect_attempt_timeout
+            .saturating_mul(provider_attempts)
+            .saturating_add(
+                self.options.ssh_bootstrap.attempt_timeout.saturating_mul(ssh_bootstraps),
+            )
+            .saturating_add(SSH_MASTER_AUTH_TIMEOUT.saturating_mul(ssh_authentications))
+    }
+
+    /// Every route this client can authenticate on but the link's own. Without the route race
+    /// (`CMUX_REMOTE_ROUTE_RACE=0`, or a grant that is single-use) a redial is not raced either.
+    fn alternates(&self) -> Option<usize> {
+        self.race?;
+        let auth = followup_auth_kind(&self.options.auth);
+        let routes = self
+            .options
+            .routes
+            .iter()
+            .filter(|candidate| candidate.supports_client_auth(auth))
+            .count();
+        Some(routes.saturating_sub(1))
     }
 
     async fn next_group(&self) -> Result<Arc<dyn LinkGroup>, ProviderError> {
@@ -1822,10 +1885,20 @@ pub(crate) async fn next_reconnect_route_skipping<T: Send>(
     auth: AuthKind,
     attempt: &impl ReconnectRouteAttempt<T>,
 ) -> Result<T, ProviderError> {
-    let Some(start) = next.fetch_add(1, Ordering::Relaxed).checked_rem(routes.len()) else {
+    // A raced pass moves `next` only when it ends: a redial that asks for the next route and
+    // is dropped by a network change a moment later (`ClientConnection::race_redial`) asks
+    // again and must get the same route, not the one after it. A pass that tries its routes
+    // one at a time still moves on before it starts, so one dropped on a hung route does not
+    // start on that route again.
+    let from = if race.is_some() {
+        next.load(Ordering::Relaxed)
+    } else {
+        next.fetch_add(1, Ordering::Relaxed)
+    };
+    let Some(start) = from.checked_rem(routes.len()) else {
         return Err(ProviderError::Configuration("no reconnect routes configured".into()));
     };
-    let (index, group) = route_race::select_reconnect_routes_skipping(
+    let selected = route_race::select_reconnect_routes_skipping(
         routes,
         start,
         skip,
@@ -1835,9 +1908,19 @@ pub(crate) async fn next_reconnect_route_skipping<T: Send>(
         auth,
         attempt,
     )
-    .await?;
-    next.store(index.saturating_add(1), Ordering::Relaxed);
-    Ok(group)
+    .await;
+    match selected {
+        Ok((index, group)) => {
+            next.store(index.saturating_add(1), Ordering::Relaxed);
+            Ok(group)
+        }
+        Err(error) => {
+            if race.is_some() {
+                next.store(start.saturating_add(1), Ordering::Relaxed);
+            }
+            Err(error)
+        }
+    }
 }
 
 struct RuntimeReconnectRouteAttempt<'a> {
@@ -1871,6 +1954,21 @@ impl ReconnectRouteAttempt<Arc<dyn LinkGroup>> for RuntimeReconnectRouteAttempt<
                 ))
             })?;
             self.prepared_ssh[index].store(true, Ordering::Release);
+        }
+        if endpoint.scheme() == "ssh" {
+            // A master lost with the network authenticates again here, out of
+            // the attempt budget: a person may be typing a password, and a
+            // 15 s cut would kill ssh and prompt again each attempt.
+            tokio::select! {
+                result = open_shared_ssh_connection(&endpoint, &self.options.ssh) => {
+                    result.map_err(|error| ProviderError::Transport(format!(
+                        "SSH connection failed for reconnect route {display_endpoint}: {error:#}"
+                    )))?;
+                }
+                () = wait_for_shutdown_request(self.shutdown.clone()) => {
+                    return Err(ProviderError::Transport("SSH reconnect interrupted".into()));
+                }
+            }
         }
         tokio::time::timeout(
             self.options.reconnect.attempt_timeout,
