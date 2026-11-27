@@ -985,6 +985,7 @@ updates.showFeatureTips
 updates.showWhatsNew
 updates.web
 updates.whatsNewInstall
+window.settingsPresentation
 window.titlebar
 window.titlebarButtons
 window.trafficLightClearance
