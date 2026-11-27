@@ -2,7 +2,7 @@
 import { Effect, Either, Option, Redacted, Schema } from "effect";
 import { UpstreamId } from "../lib/ids.ts";
 import { logTimedEvent, timedPhase, type TimedPhases } from "../lib/timing.ts";
-import type { CreateAdmissionClient } from "../limits/create-admission.ts";
+import { PROVIDER_CREATE_BUDGET_MS, type CreateAdmissionClient } from "../limits/create-admission.ts";
 import { upstreamIdOf } from "../proofs/tenant-owns-resource.ts";
 import { vmImageEvidenceOf } from "../proofs/vm-image.ts";
 import { initialNetworkBody } from "./initial-network.ts";
@@ -85,9 +85,10 @@ const providerTimings = (answer: unknown): { readonly providerTotalMs?: number; 
  * budget, or no slot came within it) fails the create before anything is sent. A queue that cannot be reached does
  * not stop creates: the create is sent as it was before the queue existed, and the line says so.
  */
-const admitSend = (admission: CreateAdmissionClient | undefined, holder: string, phases: TimedPhases | undefined): Effect.Effect<Effect.Effect<void>, UpstreamError> => {
+const admitSend = (admission: CreateAdmissionClient | undefined, holder: string, phases: TimedPhases | undefined, background: boolean): Effect.Effect<Effect.Effect<void>, UpstreamError> => {
   if (admission === undefined) return Effect.succeed(Effect.void);
-  return timedPhase(phases, "admitWaitMs", Effect.tryPromise(() => admission.admit(holder))).pipe(
+  if (background && phases !== undefined) phases["admitBackground"] = true;
+  return timedPhase(phases, "admitWaitMs", Effect.tryPromise(() => admission.admit(holder, background))).pipe(
     Effect.matchEffect({
       onFailure: () => logTimedEvent("vm_create_admission_unavailable", { vmId: holder }).pipe(Effect.as(Effect.void)),
       onSuccess: (outcome) => {
@@ -107,8 +108,8 @@ const admitSend = (admission: CreateAdmissionClient | undefined, holder: string,
   );
 };
 
-/** How long a create's provider call may run, its background polls included: under the 300 s a caller's create waits. */
-const CREATE_BUDGET_MS = 240_000;
+/** How long a create's provider call may run, its background polls included; its queue slot's lease derives from it. */
+const CREATE_BUDGET_MS = PROVIDER_CREATE_BUDGET_MS;
 
 export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: SizeRequest | undefined) => string | null): UpstreamClientService["createVm"] => {
   const http = makeUpstreamHttp(config);
@@ -262,7 +263,7 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
       if (Either.isLeft(imageVerdict)) return yield* Effect.fail(imageVerdict.left);
       // A provider create slot (limits/create-admission.ts) is taken before the send begins, so a refusal sent
       // nothing and the same key's retry starts clean, like a failed image read above.
-      const release = yield* admitSend(config.createAdmission, spec.cmuxId, phases);
+      const release = yield* admitSend(config.createAdmission, spec.cmuxId, phases, spec.background === true);
       const token = yield* journal.beginSend().pipe(Effect.onError(() => release));
       // Staging, 2026-11-27 05:51-06:01Z: in a burst of creates the provider held POST /v5/vms past the 120 s cut, 13
       // creates failed at createMs 120000 with no VM yet under the slug to recover, and the caller's retries ran a

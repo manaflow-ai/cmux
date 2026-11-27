@@ -309,6 +309,27 @@ pub fn sweep_stale_partial_writes(root: &Path) -> (u64, u64) {
     total
 }
 
+/// How a watched fetch ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Fetched {
+    Done,
+    /// It failed or timed out with the disk above the floor.
+    Failed,
+    /// The disk floor refused or stopped it.
+    NoRoom,
+}
+
+/// After a fetch that did not finish: whether the floor ended it, read before its partial pack is
+/// cleared, then the partial writes cleared. Read after the clear, the space the stopped pack held
+/// is free again and the floor's stop read as room: `fill_later` then started the same whole
+/// download on the next miss, every ~15 min, for good (fs-agent-lane-24, 2026-11-27: a 12 GiB
+/// `tmp_pack` of manaflow-ai/cmux written, stopped at the floor and cleared, again and again).
+fn after_stop(dir: &Path, has_room: impl Fn(&Path) -> bool) -> Fetched {
+    let room = has_room(dir);
+    clear_partial_writes(dir);
+    if room { Fetched::Failed } else { Fetched::NoRoom }
+}
+
 /// How long a mirror the floor stopped waits before another fill is tried: the disk seldom
 /// frees itself, and each try downloads again what the last one cleared.
 const NO_ROOM_RETRY: Duration = Duration::from_secs(6 * 60 * 60);
@@ -487,25 +508,36 @@ impl Mirrors {
     }
 
     async fn fetch(
-        mut cmd: Command,
+        cmd: Command,
         dir: &Path,
         url: &str,
         authorization: Option<&[u8]>,
         what: &str,
         limit: Duration,
     ) -> bool {
+        Self::fetch_outcome(cmd, dir, url, authorization, what, limit).await == Fetched::Done
+    }
+
+    /// `fetch`, saying whether the disk floor ended it (`Fetched::NoRoom`).
+    async fn fetch_outcome(
+        mut cmd: Command,
+        dir: &Path,
+        url: &str,
+        authorization: Option<&[u8]>,
+        what: &str,
+        limit: Duration,
+    ) -> Fetched {
         with_auth(&mut cmd, authorization);
         cmd.arg("-C").arg(dir).args(["fetch", "--quiet", "--no-write-fetch-head", "--prune"]);
         cmd.arg(url).args(REFSPECS);
         if !crate::room::has_room(dir) {
             eprintln!("git-cache: {what}: not started: {}", crate::room::why_not(dir));
-            return false;
+            return Fetched::NoRoom;
         }
-        let ok = status_ok_watched(cmd, what, limit, Some(floor_watch(dir))).await;
-        if !ok {
-            clear_partial_writes(dir);
+        if status_ok_watched(cmd, what, limit, Some(floor_watch(dir))).await {
+            return Fetched::Done;
         }
-        ok
+        after_stop(dir, crate::room::has_room)
     }
 
     /// Makes the mirror hold `wants` without a whole download in the clone's way: from the
@@ -689,7 +721,7 @@ impl Mirrors {
         let http = self.http.clone();
         self.scope.spawn_until_cancelled("fill mirror", async move {
             let mut refused = false;
-            let ok = {
+            let (ok, stopped_by_floor) = {
                 let _held = lock.lock().await;
                 let (n, bytes) = clear_partial_writes_older(&dir, STALE_PARTIAL);
                 if n > 0 {
@@ -719,9 +751,8 @@ impl Mirrors {
                     );
                     refused = true;
                 }
-                let ok = !refused
-                    && Self::init(&dir).await
-                    && Self::fetch(
+                let fetched = if !refused && Self::init(&dir).await {
+                    Self::fetch_outcome(
                         low_priority_git(),
                         &dir,
                         &upstream_url,
@@ -729,7 +760,11 @@ impl Mirrors {
                         "fill",
                         FILL_TIMEOUT,
                     )
-                    .await;
+                    .await
+                } else {
+                    Fetched::Failed
+                };
+                let ok = fetched == Fetched::Done;
                 if ok {
                     let _ = std::fs::write(dir.join(FILLED), b"");
                     Self::drop_kept_refs(&dir).await;
@@ -737,7 +772,7 @@ impl Mirrors {
                         Self::bitmap_later(&scope, dir.clone());
                     }
                 }
-                ok
+                (ok, fetched == Fetched::NoRoom)
             };
             eprintln!(
                 "git-cache: fill {} {} in {:.1} s",
@@ -746,12 +781,14 @@ impl Mirrors {
                     "done"
                 } else if refused {
                     "refused by the floor"
+                } else if stopped_by_floor {
+                    "stopped by the floor (next try in 6 h)"
                 } else {
                     "stopped (resumes on the next miss)"
                 },
                 now.elapsed().as_secs_f64()
             );
-            let no_room = refused || (!ok && !crate::room::has_room(&dir));
+            let no_room = refused || stopped_by_floor;
             let mut fills = fills.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(f) = fills.get_mut(&dir) {
                 f.running = false;
@@ -924,6 +961,20 @@ mod tests {
         assert_eq!(got.err().as_deref(), Some("under the floor"));
         tokio::time::sleep(Duration::from_secs(5)).await;
         assert!(!late.exists(), "a child of the stopped process wrote after the stop");
+    }
+
+    #[test]
+    fn a_fetch_the_floor_stopped_reads_no_room_though_clearing_its_pack_frees_the_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let pack = dir.path().join("objects/pack");
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::write(pack.join("tmp_pack_X1"), b"x").unwrap();
+        // The disk is under the floor while the stopped pack is there and above it once cleared.
+        let room = |d: &Path| !d.join("objects/pack/tmp_pack_X1").exists();
+        assert_eq!(after_stop(dir.path(), room), Fetched::NoRoom);
+        assert!(!pack.join("tmp_pack_X1").exists());
+        // A failure with room to spare is a plain failure: the next miss may try again soon.
+        assert_eq!(after_stop(dir.path(), room), Fetched::Failed);
     }
 
     #[tokio::test]
