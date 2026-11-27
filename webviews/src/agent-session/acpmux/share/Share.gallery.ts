@@ -46,6 +46,50 @@ const drivePerson: ChatShare = {
   ],
 };
 const viewing = [ANA, SAM, MEI, JORDAN];
+// Stress: invites nobody opened yet beside people in the chat now, a long address, and a list
+// past the four rows the band shows before it scrolls.
+const pending: ChatShare = {
+  ...people,
+  shareId: "invite-2",
+  guests: [{ guestId: "g3", name: "Ana Ruiz", account: "ana@example.com", role: "talk", joined: true }],
+  invitees: [
+    { account: "ana@example.com", role: "talk", state: "invited", joined: true },
+    { account: "@sam", role: "view", state: "invited", joined: false },
+    {
+      account: "alexandria.montgomery-fitzgerald@engineering.verylongcompanyname.example.com",
+      role: "view",
+      state: "invited",
+      joined: false,
+    },
+  ],
+};
+const crowd: ChatShare = {
+  ...people,
+  shareId: "invite-3",
+  guests: [
+    { guestId: "c1", name: "Ana", account: "ana@example.com", role: "talk", joined: true },
+    { guestId: "c2", name: "Mei", account: "mei@example.com", role: "view", joined: false },
+  ],
+  invitees: [
+    "ana@example.com",
+    "mei@example.com",
+    "@sam",
+    "@jordan",
+    "riley@example.com",
+    "@priya",
+    "noah.williams@example.com",
+    "@kenji",
+    "lucia@example.com",
+    "@omar",
+    "@zoe",
+    "ivan@example.com",
+  ].map((account, index) => ({
+    account,
+    role: index % 3 === 0 ? "talk" : "view",
+    state: "invited",
+    joined: index === 0,
+  })),
+};
 
 export default componentEntry<ShareDemoProps>({
   id: "agent-pane.share",
@@ -60,6 +104,7 @@ export default componentEntry<ShareDemoProps>({
   load: () => import("./ShareDemo").then((module) => module.ShareDemo),
   styles: () => import("./Share.gallery.css"),
   height: 560,
+  widths: { narrow: 280, normal: 480, wide: 800 },
   variants: {
     unshared: {
       note: "An unshared chat: nothing new in the header (no Share button, no faces).",
@@ -132,6 +177,31 @@ export default componentEntry<ShareDemoProps>({
     "look-outline": {
       note: "Compared, not shipped: hairline-outlined field, selects and buttons with no fill at rest.",
       props: { viewing, shares: [people, link], open: true, look: "outline" },
+    },
+    "dialog-pending": {
+      note: 'Invited, not opened yet: each invite nobody has opened says "Hasn\'t opened it yet" under the address; someone in the chat now says that instead. A long address ellipsizes and never pushes the role or Remove out.',
+      props: { viewing, shares: [pending], open: true },
+    },
+    "dialog-many": {
+      note: "Twelve people: the band keeps four rows and scrolls, so the dialog is one size however many are invited.",
+      props: { viewing, shares: [crowd, link], open: true },
+    },
+    "dialog-long-title": {
+      note: "A long chat title ellipsizes on one line.",
+      props: {
+        viewing: [],
+        shares: [pending],
+        open: true,
+        chat: "Investigate why the nightly uploader retries forever when the bucket region changes mid-run",
+      },
+    },
+    "dialog-offline": {
+      note: "The share server does not answer: the error line says so in plain words, where it always has room, so nothing moves.",
+      props: { viewing: [], shares: [], open: true, fail: "share.room_unreachable" },
+    },
+    "dialog-still-reading": {
+      note: 'The daemon does not answer the dialog\'s read: no "Try again", it reads again on its own on the shared backoff (autoRetry.ts) and, once that has lasted (at once here), says only "Still reading who has access…" as the quiet status line. A failed share change (an invite, a role, a link) still says "That didn\'t finish. Try again.": that is a write the person chooses.',
+      props: { viewing: [], shares: [people], open: true, unread: true },
     },
     toast: {
       note: "After Copy link with Anyone with the link: the toast and Manage links.",

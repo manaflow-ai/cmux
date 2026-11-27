@@ -45,6 +45,9 @@ export interface SharePerson {
   role: ShareRole;
   /** A device of theirs has the chat open now. */
   joined: boolean;
+  /** They have opened the chat at least once (a guest record with their account, gone or not):
+   * false is an invite still pending, which the row says. Missing (an older host): not shown. */
+  opened?: boolean;
 }
 
 export interface ShareView {
@@ -68,10 +71,14 @@ export function shareView(shares: readonly ChatShare[]): ShareView {
   for (const share of open) {
     for (const invitee of share.invitees) {
       if (invitee.state !== "invited") continue;
-      const joined = share.guests.some((guest) => guest.joined && guest.account === invitee.account);
+      const theirs = share.guests.filter((guest) => guest.account === invitee.account);
+      const joined = theirs.some((guest) => guest.joined);
+      const opened = theirs.length > 0;
       const known = people.get(invitee.account);
-      if (known) known.joined ||= joined;
-      else people.set(invitee.account, { account: invitee.account, role: invitee.role, joined });
+      if (known) {
+        known.joined ||= joined;
+        known.opened ||= opened;
+      } else people.set(invitee.account, { account: invitee.account, role: invitee.role, joined, opened });
     }
   }
   // Every live view-role share is a bearer link, whatever invite records it also holds: Restricted
@@ -157,6 +164,24 @@ export function shareClient(sessionId: string, host: ShareCall = nativeShareCall
 }
 
 export type ShareClient = ReturnType<typeof shareClient>;
+
+/** An account as the daemon compares it (agent_session_shares.rs `normal_account`): trimmed, lowercased. */
+export function normalAccount(text: string): string {
+  return text.trim().toLowerCase();
+}
+
+/** What Invite does with `account`: someone already with access keeps one row, so the same role
+ * again only says so (`already`) and another role changes theirs (`role`; the daemon refuses a
+ * second invite with another role, `share.invited`); anyone else is invited. */
+export function inviteStep(
+  view: ShareView,
+  account: string,
+  role: ShareRole,
+): { kind: "invite" } | { kind: "already" | "role"; account: string } {
+  const known = view.people.find((person) => person.account === normalAccount(account));
+  if (!known) return { kind: "invite" };
+  return { kind: known.role === role ? "already" : "role", account: known.account };
+}
 
 /** Whether `text` reads as an account the daemon takes: an email address or a cmux `@handle`. */
 export function isAccount(text: string): boolean {

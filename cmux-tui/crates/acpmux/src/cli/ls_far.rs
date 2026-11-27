@@ -201,7 +201,7 @@ fn claim_refresh(cache: &Path) -> Option<RelayLease> {
     let mark = cache.with_file_name(REFRESH_MARK);
     let lock_path = cache.with_file_name(REFRESH_LOCK);
     let now = crate::store::now_ms();
-    let Ok(mut file) = std::fs::OpenOptions::new()
+    let Ok(mut file) = crate::home_fs::OpenOptions::new()
         .create(true)
         .truncate(false)
         .read(true)
@@ -504,7 +504,7 @@ pub(crate) fn read_cache(path: &Path, now: u64) -> Option<(u64, Vec<Value>)> {
 /// Whether a detached refresh started within the relay's own deadline is still marked.
 fn refreshing(cache: &Path, now: u64) -> bool {
     let lock_path = cache.with_file_name(REFRESH_LOCK);
-    if let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(lock_path) {
+    if let Ok(file) = crate::home_fs::OpenOptions::new().read(true).write(true).open(lock_path) {
         return match file.try_lock() {
             Ok(()) => {
                 let _ = file.unlock();
