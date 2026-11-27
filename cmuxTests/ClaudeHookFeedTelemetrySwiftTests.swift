@@ -201,7 +201,7 @@ struct ClaudeHookFeedTelemetrySwiftTests {
         )
         let toolInput = try #require(event["tool_input"] as? [String: Any], "event=\(event)")
         #expect(toolInput["subagent_type"] as? String == "Explore", "event=\(event)")
-        #expect(event["tool_use_id"] as? String == "toolu_spawn_1", "event=\(event)")
+        #expect(event["spawn_tool_use_id"] as? String == "toolu_spawn_1", "event=\(event)")
     }
 
     /// A stopped subagent is only reported by the task notification in the

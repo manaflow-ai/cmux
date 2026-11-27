@@ -40,7 +40,7 @@ extension AgentChatSessionRegistry {
                 id: event.requestId ?? UUID().uuidString,
                 label: taskLabel(from: event.toolInputJSON),
                 agentType: isClaude ? spawnInput(event.toolInputJSON)?.subagentType : nil,
-                toolUseID: isClaude ? event.feedToolUseID : nil,
+                toolUseID: isClaude ? event.feedSpawnToolUseID : nil,
                 at: event.receivedAt
             )
         // Claude's PostToolUse arrives when a background spawn detaches. The

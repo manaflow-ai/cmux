@@ -47,9 +47,9 @@ extension WorkstreamEvent {
         return value
     }
 
-    /// The agent's own id for the tool call behind this event.
-    var feedToolUseID: String? {
-        guard let value = feedExtraFields?["tool_use_id"] as? String,
+    /// The agent's own id for the spawn tool call that opened a subagent.
+    var feedSpawnToolUseID: String? {
+        guard let value = feedExtraFields?["spawn_tool_use_id"] as? String,
               !value.isEmpty else { return nil }
         return value
     }

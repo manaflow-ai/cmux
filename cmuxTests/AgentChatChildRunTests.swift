@@ -43,7 +43,7 @@ struct AgentChatChildRunTests {
         var extra: [String: Any] = [:]
         if let agentID { extra["agent_id"] = agentID }
         if let agentType { extra["agent_type"] = agentType }
-        if let toolUseID { extra["tool_use_id"] = toolUseID }
+        if let toolUseID { extra["spawn_tool_use_id"] = toolUseID }
         if !finishedTaskIDs.isEmpty { extra["finished_task_ids"] = finishedTaskIDs }
         let extraJSON = extra.isEmpty ? nil : String(
             decoding: (try? JSONSerialization.data(withJSONObject: extra)) ?? Data(), as: UTF8.self

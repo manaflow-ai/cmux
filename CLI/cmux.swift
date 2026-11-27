@@ -42417,9 +42417,9 @@ export default {
         if source == "claude" {
             // Lets the app tie a spawned subagent's later task notification
             // to the child this spawn opened.
-            if hookEventName == "PreToolUse",
+            if hookEventName == "PreToolUse", toolName == "Agent" || toolName == "Task",
                let toolUseID = firstString(in: fallbackObject, keys: ["tool_use_id", "toolUseId"]) {
-                event["tool_use_id"] = toolUseID
+                event["spawn_tool_use_id"] = toolUseID
             }
             if hookEventName == "UserPromptSubmit",
                let finished = parsedInput.object?["finished_task_ids"] as? [String], !finished.isEmpty {
