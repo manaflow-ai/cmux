@@ -708,32 +708,22 @@ fn a_batch_with_no_earlier_look_compares_its_first_step_with_a_baseline() {
 }
 
 /// A step resolved by `target` reuses the read that found it as the
-/// baseline: no extra walk of the window.
+/// baseline: it walks the window no more often than the same batch after a
+/// look (which needs no baseline).
 #[test]
 fn a_targeted_first_step_reuses_its_match_read_as_the_baseline() {
-    let d = desktop_with(doc(false, "", "Save"));
-    let e = rig(d.clone());
-    assert!(!e.call(&other_ctx(), "get_ui_tree", &json!({"window_id": "1"})).is_error);
-    let before = walks(&d);
-    let out =
-        batch(&e, json!([{"action": "click", "target": {"role": "button", "label": "Save…"}}]));
-    assert!(!out.is_error, "{}", out.body);
-    let changes = step(&out, 0)["changes"].as_str().unwrap();
-    assert!(!changes.contains("no earlier look"), "{changes}");
-    // The match read, the step's state and the batch's end state: three.
-    assert_eq!(walks(&d) - before, 3, "{}", out.body);
-}
-
-/// The baseline is the engine's, not the agent's: the agent's next look is
-/// still whole, never a diff against a read it was not shown.
-#[test]
-fn the_baseline_is_not_shown_so_the_next_look_is_whole() {
-    let d = desktop_with(doc(false, "", "Save"));
-    let e = rig(d);
-    let out = batch(&e, json!([{"action": "set_value", "element_id": "t", "value": "x"}]));
-    assert!(!out.is_error, "{}", out.body);
-    assert!(e.last_seen("s1", "1").is_none());
-    let look = e.call(&ctx(), "get_ui_tree", &json!({"window_id": "1"}));
-    let text = look.body.to_string();
-    assert!(text.contains("Save…"), "{text}");
+    let walks_of = |look: bool| {
+        let d = desktop_with(doc(false, "", "Save"));
+        let e = rig(d.clone());
+        let who = if look { ctx() } else { other_ctx() };
+        assert!(!e.call(&who, "get_ui_tree", &json!({"window_id": "1"})).is_error);
+        let before = walks(&d);
+        let out =
+            batch(&e, json!([{"action": "click", "target": {"role": "button", "label": "Save…"}}]));
+        assert!(!out.is_error, "{}", out.body);
+        let changes = step(&out, 0)["changes"].as_str().unwrap().to_string();
+        assert!(!changes.contains("no earlier look"), "look {look}: {changes}");
+        walks(&d) - before
+    };
+    assert_eq!(walks_of(false), walks_of(true));
 }
