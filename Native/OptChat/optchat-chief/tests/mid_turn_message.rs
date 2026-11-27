@@ -42,7 +42,7 @@ fn running(h: &mut Harness, text: &str) {
     h.connect();
     h.say("user_local", text);
     while h.agents.inner.lock().unwrap().prompts.is_empty() {
-        h.step();
+        h.poll_step();
     }
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     while h

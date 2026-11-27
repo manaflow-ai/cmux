@@ -5,7 +5,7 @@
 // spacing and quiet row as a started chat, and the folder and computer are the location strip's chips
 // (ComposerContext.tsx) a few px over the card, as the New Tab draws them. The card keeps its own
 // four corners and whole rim. For a chat in the workspace's private folder the folder chip's menu
-// offers Add folder…, the host's workspace folder sheet; no sentence stands over the card, and no
+// offers Add project…, which leads to the host's workspace folder sheet; no sentence stands over the card, and no
 // note line sits under the menu's actions.
 // `started` and `started-codex` are chats after their first send, to set beside; the `alt-*`
 // variants are the strip's Debug styles (agentPane.debug.topStripStyle) over the same component.
@@ -91,31 +91,30 @@ export default agentPaneEntry({
     },
     project: {
       note: "A new chat in a project on this Mac: the folder chip names it, the branch at the strip's end.",
-      ready: { newSession: true, cwd: CWD },
       snapshot: fresh({ cwd: CWD, branch: "main" }),
     },
     remote: {
       note: "A new chat on another machine: its computer chip in that machine's color; no private folder there.",
-      ready: { newSession: true, cwd: "/home/dev/src/relay" },
       snapshot: fresh(
         { cwd: "/home/dev/src/relay", peer: "studio-mac", host: "studio-mac" },
         { peers: ["studio-mac"], peerKinds: { "studio-mac": "ssh" } },
       ),
     },
     "folder-menu": {
-      note: "Play: open the folder chip: Add folder… heads the actions fixed under its folders, and nothing sits under them.",
+      note: "Add project… is the only pinned action below the folders.",
       ready: PRIVATE,
       snapshot: fresh(),
       play: openFolderMenu,
     },
     "choose-folder": {
-      note: "Play: the folder chip's Add folder… opens the host's workspace folder sheet, as the old sentence's link did.",
+      note: "From Add project…, Folder on this Mac opens the workspace folder sheet.",
       ready: PRIVATE,
       snapshot: fresh(),
       native: { "workspace.chooseFolder": { cwd: CWD } },
       play: async (ctx) => {
         await openFolderMenu(ctx);
-        await ctx.click({ selector: '.acpmux-location-menu [data-choose=""]' });
+        await ctx.click({ role: "option", name: "Add project…" });
+        await ctx.click({ role: "option", name: /^Folder on this Mac/ });
         await ctx.waitFor(() => LOG(ctx).some(({ method }) => method === "workspace.chooseFolder"));
       },
     },

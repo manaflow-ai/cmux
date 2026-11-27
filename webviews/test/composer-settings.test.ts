@@ -15,14 +15,14 @@ test("machine load warnings are on by default and accept an explicit off value",
   expect(readComposerSettings({ showMachineLoadWarnings: "false" }).showMachineLoadWarnings).toBe(true);
 });
 
-test("attachments show inline by default; strip and both are the other views", () => {
-  expect(DEFAULT_COMPOSER.attachmentView).toBe("inline");
-  expect(readComposerSettings({}).attachmentView).toBe("inline");
+test("attachments show in the tray by default; inline is chosen, both reads as the tray", () => {
+  expect(DEFAULT_COMPOSER.attachmentView).toBe("strip");
+  expect(readComposerSettings({}).attachmentView).toBe("strip");
   expect(readComposerSettings({ attachmentView: "strip" }).attachmentView).toBe("strip");
   expect(readComposerSettings({ attachmentView: "inline" }).attachmentView).toBe("inline");
-  expect(readComposerSettings({ attachmentView: "both" }).attachmentView).toBe("both");
+  expect(readComposerSettings({ attachmentView: "both" }).attachmentView).toBe("strip");
   for (const bad of ["Strip", "Both", "row", 1, true, null]) {
-    expect(readComposerSettings({ attachmentView: bad }).attachmentView).toBe("inline");
+    expect(readComposerSettings({ attachmentView: bad }).attachmentView).toBe("strip");
   }
 });
 
@@ -30,12 +30,12 @@ test("switching the attachment view round-trips and keeps the other settings", (
   // The host's push after each Settings change: the whole value with only attachmentView changed.
   let settings = readComposerSettings({ ...DEFAULT_COMPOSER, showDictation: false, spellChecking: true });
   const seen: string[] = [];
-  for (const view of ["strip", "inline", "both", "inline"] as const) {
+  for (const view of ["strip", "inline", "strip", "inline"] as const) {
     settings = readComposerSettings({ ...settings, attachmentView: view });
     seen.push(settings.attachmentView);
     expect(settings).toEqual({ ...DEFAULT_COMPOSER, showDictation: false, spellChecking: true, attachmentView: view });
   }
-  expect(seen).toEqual(["strip", "inline", "both", "inline"]);
+  expect(seen).toEqual(["strip", "inline", "strip", "inline"]);
 });
 
 test("the page's attachment view choice applies at once and asks the host to keep it", async () => {
@@ -43,9 +43,9 @@ test("the page's attachment view choice applies at once and asks the host to kee
   const writes: string[] = [];
   settings.registerAttachmentViewHost((view) => writes.push(view));
   try {
-    settings.setAttachmentView("strip");
     settings.setAttachmentView("inline");
-    expect(writes).toEqual(["strip", "inline"]);
+    settings.setAttachmentView("strip");
+    expect(writes).toEqual(["inline", "strip"]);
   } finally {
     settings.registerAttachmentViewHost(undefined);
     settings.setComposerSettings(DEFAULT_COMPOSER);
@@ -133,4 +133,11 @@ test("an empty chat's composer sits at the bottom by default; center only when t
   expect(readComposerSettings({ emptyChatComposerPosition: "center" }).emptyChatComposerPosition).toBe("center");
   for (const bad of ["Center", "middle", true])
     expect(readComposerSettings({ emptyChatComposerPosition: bad }).emptyChatComposerPosition).toBe("bottom");
+});
+
+test("composer vim keys are opt-in and off by default", () => {
+  expect(DEFAULT_COMPOSER.composerVimKeys).toBe(false);
+  expect(readComposerSettings({}).composerVimKeys).toBe(false);
+  expect(readComposerSettings({ composerVimKeys: true }).composerVimKeys).toBe(true);
+  expect(readComposerSettings({ composerVimKeys: "true" }).composerVimKeys).toBe(false);
 });

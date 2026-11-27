@@ -43,6 +43,7 @@ use super::conn_auth::ConnAuth;
 use super::{Conn, Origin};
 use crate::computer_use::client::{Caller, Outcome, SocketDaemon};
 use crate::hub::Hub;
+use crate::machine_record::Requester;
 use crate::rpc::{RpcError, method};
 
 /// How long `computer_use_machines` waits for each peer's state.
@@ -88,6 +89,13 @@ pub(super) fn admit(origin: Origin, auth: ConnAuth, device: Option<&DeviceRecord
         }
         _ => Admission::Refused("this connection proved no machine of the person's"),
     }
+}
+
+/// Whose machine a call admitted to run here comes from, for the Control gate: the person's own
+/// acpmux daemon (its peer token, `ConnAuth::peer_daemon`) is their own machine; a paired
+/// client credential may be anyone the person gave it to, so it is not.
+pub(super) fn requester(auth: ConnAuth) -> Requester {
+    if auth.peer_daemon() { Requester::OwnMachine } else { Requester::Other }
 }
 
 /// A device name as the person sees it, without control characters.
@@ -163,7 +171,7 @@ pub(super) fn parse(params: &Value) -> Result<CallParams, RpcError> {
     })
 }
 
-fn device_record(hub: &Hub, id: Option<&str>) -> Option<DeviceRecord> {
+pub(super) fn device_record(hub: &Hub, id: Option<&str>) -> Option<DeviceRecord> {
     let id = id?;
     let list = hub.pairing.list();
     let device = list.get("devices").and_then(Value::as_array)?.iter().find(|d| d["id"] == id)?;
@@ -187,6 +195,31 @@ fn link_error(e: RpcError) -> RpcError {
     RpcError::new(e.code, message).with_data(data)
 }
 
+/// What the far machine's session key starts with: the caller's chat id alone is a key an older
+/// far daemon resolves as that chat, which it mirrors from this one, and forwards the call back
+/// here as the chat's request, with the tool `name` dropped (`peer_forward.rs`; the call failed
+/// as `unknown Computer Use tool ""`). No chat id or name starts with it, so no daemon reads it
+/// as one. The far machine keeps it inside its own `remote:<machine>:` session (`run_here`).
+pub(super) const ONWARD_SESSION_PREFIX: &str = "cu:";
+
+/// The call as sent on to the machine it names: no `machine`, and the session key under
+/// [`ONWARD_SESSION_PREFIX`].
+pub(super) fn onward(call: &CallParams) -> Value {
+    let session = if call.session.starts_with(ONWARD_SESSION_PREFIX) {
+        call.session.clone()
+    } else {
+        format!("{ONWARD_SESSION_PREFIX}{}", call.session)
+    };
+    json!({
+        "name": call.name,
+        "arguments": call.arguments,
+        "session": session,
+        "label": call.label,
+        "call_id": call.call_id,
+        "tag": call.tag,
+    })
+}
+
 /// `_acpmux/computer_use_call`.
 pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
     let device = device_record(hub, conn.device.as_deref());
@@ -194,23 +227,15 @@ pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
     match admit(conn.origin, conn.auth, device.as_ref()) {
         Admission::Refused(why) => Err(refused("computer_use_remote_denied", why)),
         Admission::Forward => {
+            let onward = onward(&call);
             let Some(machine) = call.machine else {
                 return Err(refused(
                     "invalid_arguments",
                     "name a machine; this machine's own calls go to its worker directly",
                 ));
             };
-            let onward = json!({
-                "name": call.name,
-                "arguments": call.arguments,
-                "session": call.session,
-                "label": call.label,
-                "call_id": call.call_id,
-                "tag": call.tag,
-            });
             if let Some(peer) = hub.peer_by_name(&machine) {
-                return peer
-                    .request(method::MUX_COMPUTER_USE_CALL, onward)
+                return super::peer_targeted::request(&peer, method::MUX_COMPUTER_USE_CALL, onward)
                     .await
                     .map_err(link_error);
             }
@@ -241,7 +266,7 @@ pub(super) async fn call(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<
                     "a call runs on one machine only",
                 ));
             }
-            run_here(call, machine).await
+            run_here(call, machine, requester(conn.auth)).await
         }
     }
 }
@@ -255,18 +280,30 @@ pub(crate) async fn run_from(machine: &str, params: &Value) -> Result<Value, Rpc
     if call.machine.is_some() {
         return Err(refused("computer_use_remote_denied", "a call runs on one machine only"));
     }
-    run_here(call, machine_label(machine)).await
+    // The hub carrier proved a machine of the person's own account.
+    run_here(call, machine_label(machine), Requester::OwnMachine).await
 }
 
 /// Run `call` here for `machine`, which the transport proved is one the person let drive this
 /// daemon. The origin the worker sees is built here, never taken from the request.
-async fn run_here(call: CallParams, machine: String) -> Result<Value, RpcError> {
-    // A machine joined to a team runs another machine's call only with
-    // its person's control consent there.
-    if crate::cli::cloud_join::require_joined_consent("control").is_err() {
+async fn run_here(
+    call: CallParams,
+    machine: String,
+    requester: Requester,
+) -> Result<Value, RpcError> {
+    // A joined machine runs the person's own machine's call unless its person turned Control
+    // off here (joining is the consent); anyone else's needs Control granted.
+    if crate::machine_record::require_joined_consent_from("control", requester).is_err() {
         return Err(refused(
             "computer_use_consent_required",
-            "this machine needs its person's control consent before another machine may use it",
+            match requester {
+                Requester::OwnMachine => {
+                    "Control is turned off on this machine; its person turns it on in Settings > Devices or with `acpmux host consent grant --control`"
+                }
+                Requester::Other => {
+                    "this machine needs its person's control consent before another machine may use it"
+                }
+            },
         ));
     }
     let origin = json!({"kind": "remote", "machine": machine, "same_account": true});

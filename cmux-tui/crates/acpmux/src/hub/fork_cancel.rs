@@ -39,8 +39,14 @@ impl Hub {
         let (_, harness_env) = self.harness_env(&meta).await;
         // Read before the kill purges the fork's meta from the store.
         let store_env = self.btw_store_env(&meta, &harness_env).await;
-        self.kill_held(fork, true, using.downgrade()).await?;
-        // Its chat's input, if its agent never got to ask for the fork (`fork_own_process.rs`).
+        self.kill_held(
+            fork,
+            true,
+            using.downgrade(),
+            crate::close_why::CloseWhy::by("app", "fork cancelled before use"),
+        )
+        .await?;
+        // Release the parent input if the fork never started.
         fork.release_agent_fork_hold();
         // Its agent may have reported its own session id while it started (Claude's
         // `--fork-session`): read after the kill, which ended that start.

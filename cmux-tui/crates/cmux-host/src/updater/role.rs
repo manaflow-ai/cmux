@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 
 use super::carrier::{CARRIER_MAX_HOLD, CarrierHold, CarrierLook};
 use super::channel::{self, CHANNEL_MAX_BYTES, CHANNEL_URL, CMUX_TUI, CMUX_TUI_HOOK};
+use super::credential_wake::{self, WakeTries};
 use super::gate::{Gate, HoldKind, Honor, Refused};
 use super::resolve::{
     GuardStep, Resolved, guard_rollback_waits, resolve_with, timeout_rollback_waits,
@@ -61,6 +62,41 @@ const JITTER: Duration = Duration::from_millis(3_750);
 pub(super) fn next_look(outcome: &Outcome, draw: u64) -> Duration {
     let base = if matches!(outcome, Outcome::Busy(_)) { BUSY_RETRY } else { INTERVAL };
     base + Duration::from_millis(draw % (JITTER.as_millis() as u64 + 1))
+}
+
+/// Between looks on a machine nobody uses: no agent turn runs or waits and no
+/// carrier session is attached ([`busy_sessions`] answered empty). Leo,
+/// 2026-11-27: "we defo dont wanna waste the freestyle vms TOO much". Each
+/// [`INTERVAL`] look is a GET of the channel, outbound traffic, and the
+/// provider pauses a VM only after `idleTimeoutSeconds` (300 s) with none, so
+/// the 15 s look alone kept every idle machine that the platform did not pause
+/// itself running for days (staging, 2026-11-27: 77 running VMs showed
+/// traffic in the last 2 minutes, 23 of one team's 24 older than a day). This
+/// is longer than any provider idle timeout, so an idle machine goes quiet
+/// and pauses. A wake (`Resumed`), a bind (`Bound`) or a channel change sends
+/// [`Msg::Check`] and the worker looks at once, so a machine someone comes back
+/// to still takes a merged fix within seconds, and a busy machine keeps the
+/// 15 s look.
+pub(super) const IDLE_INTERVAL: Duration = Duration::from_secs(30 * 60);
+
+/// Whether a look that ended in `outcome` read (or tried to read) the channel
+/// over the network: only those keep a VM awake.
+pub(super) fn read_channel_look(outcome: &Outcome) -> bool {
+    matches!(
+        outcome,
+        Outcome::Current(_) | Outcome::Older | Outcome::RolledBackBefore | Outcome::Failed(_)
+    )
+}
+
+/// [`next_look`] for a machine the look after `outcome` found `idle`:
+/// [`IDLE_INTERVAL`] (plus [`JITTER`]) after a look that read the channel, so
+/// its GETs stop holding the VM awake; otherwise [`next_look`].
+pub(super) fn next_look_when(outcome: &Outcome, idle: bool, draw: u64) -> Duration {
+    if idle && read_channel_look(outcome) {
+        IDLE_INTERVAL + Duration::from_millis(draw % (JITTER.as_millis() as u64 + 1))
+    } else {
+        next_look(outcome, draw)
+    }
 }
 
 /// A fresh random draw for [`next_look`] (std's per-process random hash keys).
@@ -545,6 +581,44 @@ fn past_deadline() -> bool {
     DEADLINE.with(Cell::get).is_some_and(|at| Instant::now() >= at)
 }
 
+thread_local! {
+    /// The deadline every `systemctl` and `systemd-run` this thread runs ends by
+    /// ([`commands_within`]); none outside it but each command's own 60 s.
+    static COMMANDS_BY: Cell<Option<Instant>> = const { Cell::new(None) };
+}
+
+/// The longest any one `systemctl` or `systemd-run` may take.
+const COMMAND_LIMIT: Duration = Duration::from_secs(60);
+
+/// Runs `f` with every `systemctl` and `systemd-run` it runs ([`systemctl`],
+/// [`arm_guard`], [`restart_others`]) killed at `deadline`, and none started
+/// past it: the restore's step holds the restart gate's flock, which a bind
+/// waits on, at most until `deadline` ([`super::first_ready::RESTORE_BOUND`]).
+pub(super) fn commands_within<T>(deadline: Instant, f: impl FnOnce() -> T) -> T {
+    let before = COMMANDS_BY.with(|d| d.replace(Some(deadline)));
+    let out = f();
+    COMMANDS_BY.with(|d| d.set(before));
+    out
+}
+
+/// The `timeout` argument for the next command, at most [`COMMAND_LIMIT`] and
+/// at most what is left before [`commands_within`]'s deadline (in whole
+/// milliseconds rounded up, never `0`, which is no timeout at all); `None` past
+/// that deadline: the command does not run.
+pub(super) fn command_timeout() -> Option<String> {
+    command_timeout_at(COMMANDS_BY.with(Cell::get), Instant::now())
+}
+
+pub(super) fn command_timeout_at(by: Option<Instant>, now: Instant) -> Option<String> {
+    let left = match by {
+        Some(by) if now >= by => return None,
+        Some(by) => (by - now).min(COMMAND_LIMIT),
+        None => COMMAND_LIMIT,
+    };
+    let ms = left.as_nanos().div_ceil(1_000_000).max(1);
+    Some(format!("{}.{:03}", ms / 1000, ms % 1000))
+}
+
 fn stopped() -> bool {
     let by = match WORKER_GENERATION.with(Cell::get) {
         Some(generation) => Caller::Worker { generation },
@@ -639,6 +713,7 @@ impl Role for UpdaterRole {
                 u64::MAX
             }
         };
+        LIVE_GENERATION.store(generation, Ordering::SeqCst);
         let thread = std::thread::Builder::new()
             .name("cmux-host-updater".to_owned())
             .spawn(move || {
@@ -719,20 +794,139 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
     }
     loop {
         // A check during the hold waits it out (a Check message only wakes it
-        // to look again).
+        // to look again), but on a machine never bound to Cloud, where the
+        // hold guards no link yet ([`adopt_before_bind`]).
         hold_after_restore(paths);
         if let Some(left) = held_for(paths) {
-            if !wait_watching(paths, rx, left) {
+            let wait = adopt_before_bind(paths).map_or(left, |next| next.min(left));
+            if !wait_watching(paths, rx, wait) {
                 return;
             }
             continue;
         }
         let (outcome, _) = check(paths, Honor::All);
-        let next = next_look(&outcome, jitter_draw());
+        // Local looks only (acpmux and the session host's admin channel): an
+        // idle machine stops reading the channel until a wake or a bind.
+        let idle = read_channel_look(&outcome)
+            && matches!(busy_sessions(paths), Ok(busy) if busy.is_empty());
+        let next = next_look_when(&outcome, idle, jitter_draw());
         if !wait_watching(paths, rx, next) {
             return;
         }
     }
+}
+
+/// The worker generation the role started last ([`UpdaterRole::start`]); `u64::MAX` while no
+/// worker ever started in this process.
+static LIVE_GENERATION: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// `realtime - boottime` and the pause count when [`adopt_before_bind`] last decided the
+/// channel's build (current, or flipped to it): a restore since moves the first by the stopped
+/// time ([`restored_between`]) on a provider whose boot clock stops, and the pause watch counts
+/// it on one whose boot clock runs through.
+static STEPPED_AT: Mutex<Option<(i128, u64)>> = Mutex::new(None);
+
+/// The Cloud role's first bind runs the step before the first bind itself, unless it already
+/// ran since this machine's last restore. A machine restored from the image's snapshot gets
+/// its bind token and its supervisor `Resumed` in the same moments, and the worker only looks
+/// after the `Resumed` reaches it: when the bind went first, its connect hold refused the step
+/// ("the restart gate: connect hold, 299 s left") and the new machine served the image's build
+/// through its first five minutes (development read-back, 2026-11-26: most guests). Here the
+/// step comes first; a flip queues the service's restart, the gate then refuses the bind, and
+/// the restarted service binds on the channel's build. It runs as the live worker's
+/// generation, so a stopped updater flips nothing ([`stopped`]), and ends by
+/// [`super::first_ready::RESTORE_BOUND`].
+pub(crate) fn before_first_bind(paths: &Paths) {
+    let generation = LIVE_GENERATION.load(Ordering::SeqCst);
+    if generation == u64::MAX {
+        return;
+    }
+    let stepped = *STEPPED_AT.lock().unwrap_or_else(|e| e.into_inner());
+    let (offset, boot) = (crate::linux::realtime_minus_boottime_ns(), crate::linux::boottime_ns());
+    if stepped_since_restore(stepped, offset, crate::agent::PAUSES.seen(), boot) {
+        return;
+    }
+    let before = WORKER_GENERATION.with(|g| g.replace(Some(generation)));
+    let _ = adopt_before_bind(paths);
+    WORKER_GENERATION.with(|g| g.set(before));
+}
+
+/// Whether the step decided the channel's build (`stepped`, [`STEPPED_AT`]) with no stop of
+/// this machine since: `realtime - boottime` is `offset` now, the pause watch as `seen` at boot
+/// time `boot`. A watch still waking may not have counted the stop yet.
+pub(super) fn stepped_since_restore(
+    stepped: Option<(i128, u64)>,
+    offset: i128,
+    seen: PauseSeen,
+    boot: i128,
+) -> bool {
+    !seen.waking(boot)
+        && stepped
+            .is_some_and(|(at, seq)| seq == seen.pauses && !restored_between(Some(at), offset))
+}
+
+/// The channel's build at once on a machine never bound to Cloud that a
+/// resume hold holds: a new machine is a restore of the image's memory
+/// snapshot, whose `cmux host run` goes on (so `first_ready::run` never
+/// sees it) and whose restore starts that hold ([`hold_after_restore`],
+/// [`hold_if_paused`]). The hold guards a person's first link, and none can
+/// come before the bind, which the step's gate run orders after the flip
+/// ([`super::first_ready::after_restore`]). When to look again, or None
+/// when the machine is bound (or the step is not its to take): it waits the
+/// hold out.
+fn adopt_before_bind(paths: &Paths) -> Option<Duration> {
+    if !paths.is_system_root() || super::first_ready::not_before_bind(paths).is_some() {
+        return None;
+    }
+    let target = channel::local_target()?;
+    // A stopped worker touches nothing more ([`stopped`]).
+    if stopped() {
+        return None;
+    }
+    let started = Instant::now();
+    let deadline = started + super::first_ready::RESTORE_BOUND;
+    // Every GET and every systemctl and systemd-run in the step ends by the
+    // deadline, so the gate's flock, which a bind waits on, is held that long
+    // at most.
+    let first = within(deadline, || {
+        commands_within(deadline, || {
+            super::first_ready::after_restore(
+                paths,
+                target,
+                deadline,
+                &mut super::first_ready::Machine,
+                // As [`check`]'s flip: the commit section from the last
+                // [`stopped`] look through the flip and the queued restarts,
+                // so once a stop returns this worker flips and restarts nothing.
+                || {
+                    let commit = Committing::enter();
+                    if stopped() { Err("the updater stopped".to_owned()) } else { Ok(commit) }
+                },
+                || {
+                    let _ = systemctl(&["restart", "--no-block", HOST_UNIT]);
+                },
+            )
+        })
+    });
+    use super::first_ready::First;
+    if matches!(first, First::Current(_) | First::Flipped(_)) {
+        *STEPPED_AT.lock().unwrap_or_else(|e| e.into_inner()) =
+            Some((crate::linux::realtime_minus_boottime_ns(), crate::agent::PAUSES.pause_seq()));
+    }
+    let outcome = match first {
+        First::NotFirst(_) => return None,
+        First::Current(commit) => Outcome::Current(commit),
+        First::Flipped(commit) => {
+            log(&format!(
+                "before the first bind: updated in {} ms; restarting the service",
+                started.elapsed().as_millis()
+            ));
+            Outcome::Updating(commit)
+        }
+        First::OnImage(why) => Outcome::Failed(why),
+    };
+    save_outcome(paths, &outcome, "before the first bind: ");
+    Some(next_look(&outcome, jitter_draw()))
 }
 
 /// What one check did.
@@ -889,7 +1083,7 @@ fn check_inner(
         return Outcome::Failed("an update is waiting for its health check".to_owned());
     }
     let Some(target) = channel::local_target() else {
-        return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
+        return Outcome::Off(format!("no build for {}", channel::local_platform()));
     };
     let payload = match read_channel() {
         Ok(payload) => payload,
@@ -933,7 +1127,7 @@ fn check_inner(
     // carrier sessions' last look is inside the gate ([`flip_in_gate`]).
     let last = match off_reason(paths) {
         Some(why) => Some(Outcome::Off(why)),
-        None => match acpmux_busy_sessions() {
+        None => match acpmux_busy_before_flip() {
             Ok(busy) if busy.is_empty() => None,
             Ok(busy) => Some(Outcome::Busy(busy)),
             Err(e) => Some(Outcome::Busy(vec![e])),
@@ -1016,7 +1210,7 @@ pub fn adopt(paths: &Paths) -> Outcome {
         return Outcome::Failed("an update is waiting for its health check".to_owned());
     }
     let Some(target) = channel::local_target() else {
-        return Outcome::Off(format!("no build for {}", std::env::consts::ARCH));
+        return Outcome::Off(format!("no build for {}", channel::local_platform()));
     };
     let payload = match read_channel() {
         Ok(payload) => payload,
@@ -1667,13 +1861,18 @@ pub(super) fn output_within(mut cmd: Command, limit: Duration) -> Result<Vec<u8>
 /// which the caller counts as busy, unless acpmux answered. Empty only when
 /// it answered that no daemon runs and its unit is down (or absent).
 fn acpmux_busy_sessions() -> Result<Vec<String>, String> {
+    Ok(acpmux_look()?.0)
+}
+
+/// [`acpmux_busy_sessions`] with the list it read (`acpmux --json ls`; None when no daemon runs).
+fn acpmux_look() -> Result<(Vec<String>, Option<String>), String> {
     let (_, status) = acpmux(&["--json", "daemon", "status"]).ok_or("acpmux did not run")?;
     match super::daemon_running(&status) {
         None => return Err("acpmux daemon status is unreadable".to_owned()),
         Some(false) => {
             return match user_unit_state(ACPMUX_UNIT).as_deref() {
-                Some("inactive" | "failed") => Ok(Vec::new()),
-                _ if !Path::new(ACPMUX_UNIT_FILE).exists() => Ok(Vec::new()),
+                Some("inactive" | "failed") => Ok((Vec::new(), None)),
+                _ if !Path::new(ACPMUX_UNIT_FILE).exists() => Ok((Vec::new(), None)),
                 state => Err(format!("no acpmux daemon answered, its unit is {state:?}")),
             };
         }
@@ -1683,7 +1882,38 @@ fn acpmux_busy_sessions() -> Result<Vec<String>, String> {
     if !ok {
         return Err("acpmux ls failed".to_owned());
     }
-    super::busy_sessions_in(&ls).ok_or_else(|| "acpmux ls is unreadable".to_owned())
+    let busy = super::busy_sessions_in(&ls).ok_or_else(|| "acpmux ls is unreadable".to_owned())?;
+    Ok((busy, Some(ls)))
+}
+
+/// What the wakes keep between looks ([`super::credential_wake`]).
+static CREDENTIAL_WAKES: Mutex<WakeTries> = Mutex::new(WakeTries::new());
+
+/// How long one look may keep starting wakes. The guard is armed by then
+/// ([`GUARD_AFTER_SECS`]), and each wake starts an agent (seconds; `acpmux` gives it 20 s). A
+/// session not reached in time holds the look and is woken at the next, with its tries intact.
+const WAKES_WITHIN: Duration = Duration::from_secs(90);
+
+/// The last look before a flip: [`acpmux_busy_sessions`], and with none busy, the wake of every
+/// chat whose launch credential only acpmux's memory holds, so the restart does not lose it
+/// ([`WakeTries::before_flip`]). A wake that failed or was not reached holds the update like a
+/// busy session. No wake starts once the updater is told to stop (a park waits only
+/// `ROLE_STOP_GRACE` for this thread).
+fn acpmux_busy_before_flip() -> Result<Vec<String>, String> {
+    let began = Instant::now();
+    CREDENTIAL_WAKES.lock().unwrap_or_else(|e| e.into_inner()).before_flip(
+        acpmux_look,
+        |id| {
+            if stopped() || began.elapsed() >= WAKES_WITHIN {
+                return credential_wake::Woke::NotReached;
+            }
+            match acpmux(&["--json", "session", "wake", id]) {
+                Some((ok, reply)) => credential_wake::woke(ok, &reply),
+                None => credential_wake::Woke::Failed,
+            }
+        },
+        log,
+    )
 }
 
 /// `systemctl --user is-active UNIT` in the work user's manager: its word.
@@ -1872,8 +2102,12 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) -> Optio
 }
 
 fn systemctl(args: &[&str]) -> bool {
+    let Some(limit) = command_timeout() else {
+        log(&format!("systemctl {} not run: past the bound", args.join(" ")));
+        return false;
+    };
     Command::new("timeout")
-        .arg("60")
+        .arg(limit)
         .arg("systemctl")
         .args(args)
         .stdin(Stdio::null())
@@ -1883,11 +2117,16 @@ fn systemctl(args: &[&str]) -> bool {
         .is_ok_and(|s| s.success())
 }
 
-/// `systemctl --user …` in the work user's manager, at most 60 s.
+/// `systemctl --user …` in the work user's manager, at most 60 s ([`command_timeout`]).
 fn user_systemctl(args: &[&str]) -> bool {
     let Some(user) = crate::linux::spawn::lookup_user(WORK_USER) else { return false };
+    let Some(limit) = command_timeout() else {
+        log(&format!("systemctl --user {} not run: past the bound", args.join(" ")));
+        return false;
+    };
     Command::new("timeout")
-        .args(["60", "runuser", "-u", WORK_USER, "--", "env"])
+        .arg(limit)
+        .args(["runuser", "-u", WORK_USER, "--", "env"])
         .arg(format!("XDG_RUNTIME_DIR=/run/user/{}", user.uid))
         .args(["systemctl", "--user"])
         .args(args)
@@ -1914,7 +2153,12 @@ fn arm_guard_with(pending: &Pending, program: &Path) -> Result<(), String> {
         &format!("{GUARD_UNIT}.service"),
         &format!("{GUARD_UNIT}.timer"),
     ]);
-    let status = Command::new("systemd-run")
+    // Bounded as every systemctl is ([`command_timeout`]): systemd-run waits on
+    // the manager, which a loaded boot keeps busy.
+    let limit = command_timeout().ok_or("systemd-run not run: past the bound")?;
+    let status = Command::new("timeout")
+        .arg(limit)
+        .arg("systemd-run")
         .arg(format!("--unit={GUARD_UNIT}"))
         .arg(format!("--on-active={GUARD_AFTER_SECS}"))
         // --collect: the units go once they ran or stopped, failed or not, so
@@ -2032,10 +2276,14 @@ pub(super) fn restart_others(_old: &Path) {
     }
 }
 
-/// `systemctl …`'s standard output, at most 60 s; `None` when it fails.
+/// `systemctl …`'s standard output, at most 60 s ([`command_timeout`]); `None` when it fails.
 fn systemctl_stdout(args: &[&str]) -> Option<String> {
+    let Some(limit) = command_timeout() else {
+        log(&format!("systemctl {} not run: past the bound", args.join(" ")));
+        return None;
+    };
     let output = Command::new("timeout")
-        .arg("60")
+        .arg(limit)
         .arg("systemctl")
         .args(args)
         .stdin(Stdio::null())

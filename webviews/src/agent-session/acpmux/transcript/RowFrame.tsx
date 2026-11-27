@@ -1,13 +1,26 @@
-import React, { useLayoutEffect, useRef, useState, useEffectEvent, useCallback } from "react";
+import React, {
+  useLayoutEffect,
+  useRef,
+  useState,
+  useEffectEvent,
+  useCallback,
+  Component as ReactComponent,
+  type ErrorInfo,
+} from "react";
 import { LOAD_FADE_CLASS } from "../../shared/loadFade";
+import { sendPopEnabled } from "../chatDisplay";
 import { holdEntranceForFirstFrame } from "../conversation/entranceClock";
 import { markRecapEntrance } from "../conversation/turnEndFold";
+import { NEXT_STEP } from "../conversation/turns";
 import { type AcpmuxRow, type StatusEdge, rowFrameKey, isLineRow, SINCE_DIVIDER } from "../model";
 import { acpmuxPerf } from "../perf";
 import { useLiveToolRow } from "../liveToolOutput";
+import { useLiveThoughtRow } from "../liveThought";
+import { useLiveLineRow } from "../liveCallLine";
 import { noteMounted, noteUnmounted } from "../flickerLog";
 import { useT, type Translate } from "../i18n";
 import { type ReferenceScope, ReferenceScopeContext } from "../conversation/bareReferences";
+import { DisclosureRow } from "../conversation/transcriptDisclosureModel";
 import { rovingTabStopProps } from "../../../ui/listRowKeyboard";
 import { playSendMorph } from "../conversation/sendMorph";
 import { type RowProps, type OpenDiff } from "../rows/rowProps";
@@ -15,6 +28,7 @@ import { sameReferenceScope, sameRowFrame } from "../virtualTranscriptModel";
 import { isRunPart } from "../conversation/runPartId";
 import { type QueueDrawn } from "./drawnHeight";
 import { OlderRowFade } from "./OlderRowFade";
+import { OFFSCREEN_ROW_CLASS, onceRendered } from "../conversation/offscreenRows";
 
 /// What a row's content draws from (the registry component's props, and the component).
 /// `liveTools`: the pane's live transcript, whose rows draw a running command's newer output ahead
@@ -41,9 +55,14 @@ export const RowContent = React.memo(
     useLayoutEffect(() => {
       if (acpmuxPerf.enabled) acpmuxPerf.render(`content:${props.row.id}`);
     });
-    // A running command's output that moved on without the pane: this row alone draws it.
-    const row = useLiveToolRow(props.row, liveTools);
-    return <Component {...props} row={row} />;
+    // What moved on without the pane (a running command's output, a thought, the live line's call):
+    // this row alone draws it.
+    const row = useLiveLineRow(useLiveThoughtRow(useLiveToolRow(props.row, liveTools), liveTools), liveTools);
+    return (
+      <RowBoundary row={row}>
+        <Component {...props} row={row} />
+      </RowBoundary>
+    );
   },
   (previous, next) => {
     const keys = Object.keys(next) as (keyof RowContentProps)[];
@@ -52,9 +71,61 @@ export const RowContent = React.memo(
   },
 );
 
+/// One row's own error boundary. A row that throws while drawing (a tool card, a diff, a plan) draws
+/// as one note line in its frame, and every other row keeps drawing; before, only a reply's markdown
+/// had a boundary (conversation/MessageBoundary.tsx), so any other row's throw reached PaneBoundary
+/// and the whole pane read "could not be drawn", and its reload painted the same rows again from the
+/// saved snapshot (Leo, 2026-11-22: "the agent pane just blanked out entirely"). The row's next
+/// version (or another row in its frame) tries its renderer again.
+type RowBoundaryState = { id: string; version: number; failed: boolean };
+export class RowBoundary extends ReactComponent<{ row: AcpmuxRow; children?: React.ReactNode }, RowBoundaryState> {
+  state: RowBoundaryState = { id: this.props.row.id, version: this.props.row.version, failed: false };
+
+  static getDerivedStateFromProps(
+    props: { row: AcpmuxRow },
+    state: RowBoundaryState,
+  ): Partial<RowBoundaryState> | null {
+    const { id, version } = props.row;
+    return id === state.id && version === state.version ? null : { id, version, failed: false };
+  }
+
+  static getDerivedStateFromError(): Partial<RowBoundaryState> {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: unknown, info: ErrorInfo) {
+    // Logged as the pane logs its own failure (PaneBoundary), with the row it was.
+    console.error("agent pane row failed to draw", {
+      row: this.props.row.id,
+      kind: this.props.row.kind,
+      version: this.props.row.version,
+      message: error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+      ...(error instanceof Error && error.stack ? { stack: error.stack } : {}),
+      ...(info.componentStack ? { componentStack: info.componentStack } : {}),
+    });
+  }
+
+  render() {
+    return this.state.failed ? <UnrenderedRow /> : this.props.children;
+  }
+}
+
+/// A failed row's one line, in the unrendered message's note style (conversation.css `.cv-unrendered`).
+/// One line of fixed text, so the frame's measured height holds while the row stays failed.
+function UnrenderedRow() {
+  const t = useT();
+  return (
+    <div className="cv-unrendered cv-unrendered--row" role="note" data-row-failed="true">
+      <p className="cv-unrendered__note">{t("row.renderFailed")}</p>
+    </div>
+  );
+}
+
 /// One transcript row. It reports its drawn height before the frame paints whenever it mounts or
 /// its content, width or expansion changes; the transcript's ResizeObserver reports later changes
-/// (a font that loads, a custom renderer that grows).
+/// (a font that loads, a custom renderer that grows). A row kind fills the frame's slots (`lead`,
+/// `body`, `meta`, `actions`) through RowSlots (conversation/RowSlots.tsx), which places them, its
+/// actions in the fixed end slot; a prompt's footer does so far (UserBubble.tsx).
 export const RowFrame = React.memo(function RowFrame({
   row,
   kind,
@@ -78,6 +149,7 @@ export const RowFrame = React.memo(function RowFrame({
   queueDrawn,
   sendThinking,
   enter,
+  enterUnseen,
   onEntered,
   loadFade,
   onLoadFaded,
@@ -90,6 +162,9 @@ export const RowFrame = React.memo(function RowFrame({
   onRowKeyDown,
   referenceScope,
   gapBelow,
+  offscreen,
+  placedHeight,
+  shelved,
   children,
 }: {
   row: AcpmuxRow;
@@ -97,6 +172,15 @@ export const RowFrame = React.memo(function RowFrame({
   /// The placed gap under the row (grid.md 5.5: the stack owns it, the row has no padding): the row's
   /// gap target spans it, so a drag from between two rows starts a selection.
   gapBelow: number;
+  /// Whether the row mounts away from the view (conversation/offscreenRows.ts): read at its first
+  /// mount only, so a row never changes whether its contents may be skipped.
+  offscreen: boolean;
+  /// The row's height as the transcript places it (measured, or the estimate): a skipped row's box
+  /// is this high. Read at its first mount only, with `offscreen`.
+  placedHeight: number;
+  /// The placed height of a row shelved far above a followed view (conversation/shelvedRows.ts): it
+  /// keeps that height and skips its contents. 0 draws it.
+  shelved: number;
   /// A step row (tool calls, thoughts, a background task's end) after another: no gap above it.
   joinsPrevious: boolean;
   /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
@@ -140,6 +224,9 @@ export const RowFrame = React.memo(function RowFrame({
   sendThinking: boolean;
   /// The row arrived live: it enters with the shared motion on this, its first mount.
   enter: boolean;
+  /// The row arrived out of view (rowFrames `entersUnseen`): it draws in place, with no entrance, and
+  /// its arrival is still consumed. Read on the first mount only.
+  enterUnseen?: boolean;
   onEntered: (id: string) => void;
   /// The row arrived while the chat loaded and mounts now, its first time: it fades in once.
   loadFade: boolean;
@@ -166,7 +253,8 @@ export const RowFrame = React.memo(function RowFrame({
   if (acpmuxPerf.enabled) acpmuxPerf.render(`row:${row.id}`);
   const t = useT();
   const ref = useRef<HTMLElement>(null);
-  const [entering] = useState(enter);
+  const [arrived] = useState(enter);
+  const [entering] = useState(enter && enterUnseen !== true);
   // Prompts and replies get the message-specific entrance. Tool/status rows keep the existing
   // generic rise, while the row's reserved height and absolute placement stay unchanged.
   // Hidden user rows render no content and keep the empty-row geometry. Notice rows are user-kind
@@ -178,6 +266,38 @@ export const RowFrame = React.memo(function RowFrame({
       (row.kind === "user" && row.incoming?.kind !== "hidden" && row.incoming?.kind !== "notice"));
   const [olderFade] = useState(older);
   const [loadFading] = useState(loadFade);
+  // The height a skipped row is placed at, from its first mount; once it renders the browser keeps
+  // its rendered height instead (`auto`), which the row's observer has measured by then.
+  const [skipHeight] = useState(() => (offscreen ? `auto ${placedHeight}px` : undefined));
+  const observerRef = useRef(observer);
+  useLayoutEffect(() => {
+    observerRef.current = observer;
+  });
+  // A row mounted away from the view is marked in its mount's commit, before the page styles or lays
+  // it out, by the row's own DOM writes rather than its rendered class and style: a later render then
+  // never puts the mark back once it is dropped. (A render that changes the row's class list before
+  // then clears it early; the row is then laid out and measured like any other.)
+  // Once the page renders it (still a window or more from the view), the row draws like any other:
+  // the paint containment content-visibility brings snaps its contents to whole pixels, a pixel off
+  // the subpixel place (`marginTop`) an unmarked row draws its text at. The drop is the row's own DOM
+  // write, no render. Observed afresh, the row reports its rendered height in the next frame even
+  // when its observer saw it render first, while it still counted as skipped (drawnHeightOf).
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!skipHeight || !node) return undefined;
+    node.classList.add(OFFSCREEN_ROW_CLASS);
+    node.style.containIntrinsicHeight = skipHeight;
+    return onceRendered(node, () => {
+      node.classList.remove(OFFSCREEN_ROW_CLASS);
+      node.style.containIntrinsicHeight = "";
+      const rows = observerRef.current;
+      if (rows) {
+        rows.unobserve(node);
+        rows.observe(node);
+      }
+    });
+    // `skipHeight` is state from the frame's first mount: this runs on that mount only.
+  }, [skipHeight]);
   // A prompt sent from the latest row: what the composer drew of it moves into this row's bubble and
   // previews, as its entrance (conversation/sendMorph.ts). Its first mount only, before it paints.
   const morphOnMount = useEffectEvent(() => {
@@ -193,7 +313,12 @@ export const RowFrame = React.memo(function RowFrame({
   // repositories (sameRowFrame compares it so): a new object would redraw its content's chips.
   const [scope, setScope] = useState(referenceScope);
   if (scope !== referenceScope && !sameReferenceScope(scope, referenceScope)) setScope(referenceScope);
-  const content = <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>;
+  // The row a disclosure inside it is drawn in: its toggle's transition anchors on it (useDisclosure.ts).
+  const content = (
+    <DisclosureRow.Provider value={row.id}>
+      <ReferenceScopeContext.Provider value={scope ?? null}>{children}</ReferenceScopeContext.Provider>
+    </DisclosureRow.Provider>
+  );
   useLayoutEffect(() => {
     if (acpmuxPerf.enabled) acpmuxPerf.render(`frame:${row.id}`);
   });
@@ -218,15 +343,21 @@ export const RowFrame = React.memo(function RowFrame({
   useLayoutEffect(() => fadeInOnMount(), []);
   // Only the first mount enters.
   const enterOnMount = useEffectEvent(() => {
-    if (entering) onEntered(rowFrameKey(row));
+    if (arrived) onEntered(rowFrameKey(row));
   });
   useLayoutEffect(() => enterOnMount(), []);
   // A generic row's entrance starts on the frame that first draws it, not at this commit: WebKit
   // starts its clock here, and a busy main thread drew the row only after its fade had ended, whole
-  // at once (conversation/entranceClock.ts). Messages keep their own send clock.
+  // at once (conversation/entranceClock.ts). A sent prompt's pop (conversation.css SEND-POP, when
+  // Pop In Sent Prompts is on) waits for its first frame the same way; other messages keep their own send clock.
   const holdEntranceOnMount = useEffectEvent(() => {
-    if (!entering || messageEntering || !ref.current) return undefined;
-    markRecapEntrance(ref.current);
+    if (!entering || !ref.current) return undefined;
+    if (messageEntering)
+      return row.kind === "user" && sendPopEnabled()
+        ? holdEntranceForFirstFrame(ref.current, undefined, true)
+        : undefined;
+    // Only the recap card has an entrance to mark: no other entering row reads the DOM for it.
+    if (row.kind === NEXT_STEP) markRecapEntrance(ref.current);
     return holdEntranceForFirstFrame(ref.current);
   });
   useLayoutEffect(() => holdEntranceOnMount(), []);
@@ -329,6 +460,7 @@ export const RowFrame = React.memo(function RowFrame({
       // its subpixel remainder separate so animated row heights remain adjacent in long chats.
       // The unread line's row takes no height and draws its mark over the gap under it
       // (conversation/unread.css), so it reads the gap's length.
+      data-shelved={shelved > 0 ? "true" : undefined}
       style={
         row.kind === SINCE_DIVIDER
           ? ({
@@ -336,7 +468,9 @@ export const RowFrame = React.memo(function RowFrame({
               marginTop: placedTop - integralTop,
               "--cv-since-gap": `${gapBelow}px`,
             } as React.CSSProperties)
-          : { top: integralTop, marginTop: placedTop - integralTop }
+          : shelved > 0
+            ? { top: integralTop, marginTop: placedTop - integralTop, height: shelved, contentVisibility: "hidden" }
+            : { top: integralTop, marginTop: placedTop - integralTop }
       }
       onFocus={() => onFocus(row.id)}
     >

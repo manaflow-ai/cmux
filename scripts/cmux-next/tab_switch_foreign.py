@@ -17,10 +17,17 @@ Not an own window: the app's pid, the marker's pid, and the system's furniture t
 window server's cursor and menu bar, the Dock, the recorder's cursor overlay). The notification banner is another
 process's window (NotificationCenter), so it counts.
 
-Only a window in front of the app covers it. The list is front to back, so `ForeignLog.add` keeps the foreign windows
-listed before the app's first own window: the desktop (Finder, WindowManager) and a dialog the app is in front of are
-behind it. On a CI mini (macOS 27, 2026-11-18) every round of a run was left out over those, a stale accessibility prompt
-behind the app among them. A sample without an own window keeps every foreign window.
+A window covers the app only when it can hide the app's pixels (`covers`): it is in front of the app's window (the
+list is front to back, so a higher layer, or the same layer earlier in the list), it intersects a measured rect, it is
+visible (alpha), and it is not a full-display overlay. The 2026-11-17 run on a 1920x1080 worker excluded every round
+for windows that cover nothing: the desktop layer (WindowManager, layer -2147483624, below every app), the notification
+overlay (layer 21, full display, transparent unless a banner shows) and a computer-use helper's overlay (layer 0, full
+display). A full-display overlay could count only with nonzero alpha and a backing store that shows something; the
+window list (no grant) gives store type, sharing state and on-screen, but none of them says whether the overlay drew a
+pixel, so a full-display overlay never excludes a round on its own; nor does a HOST_OWNERS window spanning the
+whole app window (macOS 27's Notification Center keeps one at layer 21 on a display it may not fill exactly). A
+banner is its own window and still counts. Every
+foreign window seen in an excluded round stays in its record with its verdict and the fields behind it.
 """
 from __future__ import annotations
 
@@ -55,72 +62,128 @@ def overlap(a, b):
     return w * h if w > 0 and h > 0 else 0.0
 
 
-def is_foreign(win, own_pids, ignored=IGNORED_OWNERS):
-    """Whether `win` ({"owner", "pid", "alpha", "bounds"}) is a window of some other process that could cover pixels."""
-    if win.get("pid") in own_pids:
-        return False
-    owner = str(win.get("owner") or "")
-    if any(owner == name for name in ignored):
-        return False
-    if (win.get("alpha") if win.get("alpha") is not None else 1.0) < MIN_ALPHA:
-        return False
-    bounds = win.get("bounds") or ()
-    return len(bounds) == 4 and bounds[2] >= MIN_POINTS and bounds[3] >= MIN_POINTS
+def alpha_of(win):
+    """A window's alpha (1.0 when the list leaves it out)."""
+    return win.get("alpha") if win.get("alpha") is not None else 1.0
 
 
-def in_front(windows, own_pids):
-    """The windows listed before the first of `own_pids`' (the list is front to back); all of them when none is own."""
-    for i, win in enumerate(windows):
-        if win.get("pid") in own_pids:
-            return windows[:i]
-    return windows
+def is_overlay(bounds, display):
+    """Whether `bounds` [x, y, w, h] (points) cover the whole display [x, y, w, h], to a point: a full-display overlay,
+    not a window someone placed over the app. False when the display is unknown."""
+    if not display or len(display) != 4 or not bounds or len(bounds) != 4:
+        return False
+    dx, dy, dw, dh = display
+    x, y, w, h = bounds
+    return x <= dx + 1 and y <= dy + 1 and x + w >= dx + dw - 1 and y + h >= dy + dh - 1
 
 
 def is_host(win, window, hosts=HOST_OWNERS):
     """Whether `win` is a system host window spanning the whole app window [x, y, w, h] (see HOST_OWNERS)."""
-    if str(win.get("owner") or "") not in hosts:
+    if not window or len(window) != 4 or str(win.get("owner") or "") not in hosts:
         return False
     x, y, w, h = win.get("bounds") or (0, 0, 0, 0)
     return x <= window[0] and y <= window[1] and x + w >= window[0] + window[2] and y + h >= window[1] + window[3]
 
 
-def foreign_over(windows, own_pids, rects, window, scale):
-    """The foreign windows among `windows` that intersect any of `rects` (None entries skipped): one
-    {"owner", "pid", "layer", "bounds"} each, in the list's order."""
-    wanted = [r for r in rects if r]
-    found = []
-    for win in windows:
-        if not is_foreign(win, own_pids):
+def app_place(windows, own_pids, window):
+    """(index, layer) of the app's window in `windows` (front to back): the own window whose bounds match `window`
+    [x, y, w, h] to two points, else the largest own window that is not a hairline. None when no own window is listed;
+    then every foreign window counts as in front (the strict reading)."""
+    best = None
+    for index, win in enumerate(windows):
+        bounds = win.get("bounds") or ()
+        if win.get("pid") not in own_pids or len(bounds) != 4:
             continue
-        box = rect_of_bounds(win["bounds"], window, scale)
-        if any(overlap(box, r) > 0 for r in wanted):
-            found.append({k: win.get(k) for k in ("owner", "pid", "layer", "bounds")})
-    return found
+        if window and len(window) == 4 and all(abs(a - b) <= 2 for a, b in zip(bounds, window)):
+            return index, win.get("layer") or 0
+        area = bounds[2] * bounds[3]
+        if bounds[2] >= MIN_POINTS and bounds[3] >= MIN_POINTS and (best is None or area > best[0]):
+            best = (area, index, win.get("layer") or 0)
+    return (best[1], best[2]) if best else None
+
+
+def judge_window(win, index, place, display, window=None):
+    """One foreign window's fields plus its verdicts that need no rect: "above" (in front of the app's window: a higher
+    layer, or the same layer earlier in the front-to-back list), "overlay" (covers the whole display) and "visible"
+    (alpha at least MIN_ALPHA)."""
+    fields = ("owner", "pid", "layer", "alpha", "bounds", "number", "onscreen", "store", "sharing")
+    out = {k: win.get(k) for k in fields}
+    layer = win.get("layer") or 0
+    if place is None:
+        out["above"] = True
+    else:
+        app_index, app_layer = place
+        out["above"] = layer > app_layer or (layer == app_layer and index < app_index)
+    out["overlay"] = is_overlay(win.get("bounds"), display) or is_host(win, window)
+    out["visible"] = alpha_of(win) >= MIN_ALPHA
+    return out
+
+
+def judged(windows, own_pids, window, display, ignored=IGNORED_OWNERS):
+    """The foreign windows of one sample (`windows` front to back, own windows included), each through judge_window."""
+    place = app_place(windows, own_pids, window)
+    return [judge_window(win, index, place, display, window) for index, win in enumerate(windows)
+            if win.get("pid") not in own_pids and str(win.get("owner") or "") not in ignored]
+
+
+def covers(item, rects, window, scale):
+    """Whether one judged window can hide the app's pixels in `rects` (None entries skipped): in front, visible, not a
+    hairline, not a full-display overlay (module note) and intersecting a rect. Sets item["intersects"] and
+    item["covers"], so the round's record says why."""
+    bounds = item.get("bounds") or ()
+    sized = len(bounds) == 4 and bounds[2] >= MIN_POINTS and bounds[3] >= MIN_POINTS
+    box = rect_of_bounds(bounds, window, scale) if sized else None
+    item["intersects"] = bool(box) and any(overlap(box, r) > 0 for r in rects if r)
+    item["covers"] = bool(item["above"] and item["visible"] and not item["overlay"] and item["intersects"])
+    return item["covers"]
+
+
+def foreign_over(windows, own_pids, rects, window, scale, display=None):
+    """The windows among `windows` (one sample, front to back) that can hide the app's pixels in any of `rects`: one
+    judged record each (judge_window, covers), in the list's order."""
+    return [item for item in judged(windows, own_pids, window, display) if covers(item, rects, window, scale)]
 
 
 class ForeignLog:
-    """Timed samples of the on-screen windows. `add(t, windows)` keeps only the foreign ones (a clean sample is an empty
-    list), `between(t0, t1, rects)` the foreign windows over the rects in any sample of that span (seconds, one clock)."""
+    """Timed samples of the on-screen windows. `add(t, windows)` keeps the foreign ones, judged against the app's window
+    in that sample (a sample with none is an empty list); `seen(t0, t1, rects)` every foreign window of that span with
+    its verdict, `between(t0, t1, rects)` only those that covered the rects (seconds, one clock)."""
 
-    def __init__(self, own_pids, window, scale):
-        self.own_pids, self.window, self.scale = set(own_pids), window, scale
-        self.samples = []  # (t, [window])
+    def __init__(self, own_pids, window, scale, display=None):
+        self.own_pids, self.window, self.scale, self.display = set(own_pids), window, scale, display
+        self.samples = []  # (t, [foreign window above the app])
+        self._all_samples = []  # (t, [judged window]); retained for diagnostics in seen()
         self.lock = threading.Lock()
 
     def add(self, t, windows):
-        kept = [w for w in in_front(windows, self.own_pids) if is_foreign(w, self.own_pids)
-                and not is_host(w, self.window)]
+        all_windows = judged(windows, self.own_pids, self.window, self.display)
+        # Keep operational samples limited to candidates above the app. Windows behind it remain
+        # in _all_samples so diagnostics can explain why they were ignored.
+        kept = [item for item in all_windows if item["above"] and not item["overlay"] and item["visible"]]
         with self.lock:
             self.samples.append((t, kept))
+            self._all_samples.append((t, all_windows))
+
+    def seen(self, t0, t1, rects):
+        """Every foreign window of the span, one per (owner, pid, bounds); a covering sample's verdict wins."""
+        with self.lock:
+            span = [windows for t, windows in self._all_samples if t0 <= t <= t1 and windows]
+        out = {}
+        for windows in span:
+            for item in windows:
+                item = dict(item)
+                covers(item, rects, self.window, self.scale)
+                key = (item["owner"], item["pid"], tuple(item.get("bounds") or ()))
+                if key not in out or (item["covers"] and not out[key]["covers"]):
+                    out[key] = item
+        return list(out.values())
 
     def between(self, t0, t1, rects):
-        with self.lock:
-            span = [windows for t, windows in self.samples if t0 <= t <= t1 and windows]
-        seen = {}
-        for windows in span:
-            for win in foreign_over(windows, self.own_pids, rects, self.window, self.scale):
-                seen.setdefault((win["owner"], win["pid"]), win)
-        return list(seen.values())
+        found = {}
+        for item in self.seen(t0, t1, rects):
+            if item["covers"]:
+                found.setdefault((item["owner"], item["pid"]), item)
+        return list(found.values())
 
     def count(self):
         with self.lock:
@@ -174,8 +237,8 @@ def by_owner(rows):
 class Watch:
     """`tab-switch-tools windows INTERVAL_MS`: a sample of the on-screen windows every interval, read on a thread."""
 
-    def __init__(self, tools, own_pids, window, scale, interval_ms=150):
-        self.log = ForeignLog(own_pids, window, scale)
+    def __init__(self, tools, own_pids, window, scale, interval_ms=150, display=None):
+        self.log = ForeignLog(own_pids, window, scale, display)
         self.process = subprocess.Popen([tools, "windows", str(interval_ms)], stdout=subprocess.PIPE,
                                         stderr=subprocess.DEVNULL, text=True, bufsize=1, start_new_session=True)
         self.thread = threading.Thread(target=self.read, daemon=True)

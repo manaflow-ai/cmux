@@ -1,5 +1,7 @@
+public import CMUXAuthCore
 public import CmuxNextDaemon
 public import Foundation
+import CmuxNextCompat
 
 /// One stdin-JSON call of the bundled `cmux` (`cmux cloud <subcommand>`, cmux-tui `cli/cloud_*.rs`):
 /// the request goes on the child's stdin (a credential never goes in argv), the answer is its last
@@ -45,10 +47,9 @@ public struct CloudCLICall: Sendable {
             case let .success(found): credential = found
             case let .failure(error): return Self.unreachable(String(describing: error))
             }
-            // The request is parsed and re-encoded inside the envelope, so its bytes can never add a field of their own.
-            let parsed = (try? JSONSerialization.jsonObject(with: request, options: .fragmentsAllowed)) ?? NSNull()
-            let envelope: [String: Any] = ["api": api, "credential": credential.map { $0 as Any } ?? NSNull(), "request": parsed]
-            guard let stdin = try? JSONSerialization.data(withJSONObject: envelope) else { return Self.unreachable("the request is not JSON") }
+            guard let stdin = await Self.relayEnvelope(api: api, credential: credential, request: request) else {
+                return Self.unreachable("the request is not JSON")
+            }
             do {
                 return try await run(["cloud", "automation-relay"], stdin: stdin, timeout: .seconds(25))
             } catch {
@@ -57,21 +58,69 @@ public struct CloudCLICall: Sendable {
         }
     }
 
+    /// `cmux cloud apps-relay` as the signed-in person of `auth`: the app's `cloud.apps`, what `cmux app
+    /// ls` and `cmux app versions` call off a Cloud machine (RFD 0003). The forward takes `{op: "list"}` or
+    /// `{op: "get", slug}` as JSON bytes and answers `{ok: true, value}` or `{ok: false, error}`; the
+    /// rules (two reads, nothing else) are cmux-tui's `cmux_apps::account`. The token is read per call,
+    /// never stored, and goes on stdin.
+    @MainActor
+    public func appsRelay(signedIn auth: CloudAuth) -> @Sendable (Data) async -> Data {
+        let api = auth.configuration.relayAPIBaseURL().absoluteString
+        let session: @Sendable () async -> Result<(String, String?)?, any Error> = { @MainActor [weak auth] in
+            guard let auth, auth.isSignedIn else { return .success(nil) }
+            do { return .success((try await auth.tokens().access, auth.teamID)) } catch { return .failure(error) }
+        }
+        return { [self] request in
+            let found: (String, String?)?
+            switch await session() {
+            case let .success(value): found = value
+            case let .failure(error): return Self.unreachable(String(describing: error))
+            }
+            guard let stdin = await Self.relayEnvelope(api: api, credential: found?.0, team: found?.1, request: request) else {
+                return Self.unreachable("the request is not JSON")
+            }
+            do {
+                return try await run(["cloud", "apps-relay"], stdin: stdin, timeout: .seconds(25))
+            } catch {
+                return Self.unreachable(String(describing: error))
+            }
+        }
+    }
+
+    /// The automation relay's stdin: the caller's request (any size) parsed and re-encoded inside the
+    /// envelope, so its bytes can never add a field of their own. Off the main actor.
+    /// `team`, when set, scopes the call to that team (the apps relay's `team` field).
+    @concurrent private static func relayEnvelope(api: String, credential: String?, team: String? = nil, request: Data) async -> Data? {
+        let parsed = (try? JSONSerialization.jsonObject(with: request, options: .fragmentsAllowed)) ?? NSNull()
+        var envelope: [String: Any] = ["api": api, "credential": credential.map { $0 as Any } ?? NSNull(), "request": parsed]
+        if let team { envelope["team"] = team }
+        return try? JSONSerialization.data(withJSONObject: envelope)
+    }
+
+    /// One `cmux cloud api` answer line (the child's whole last stdout line), decoded off the main actor.
+    @concurrent private static func answer<Answer: Decodable & Sendable>(_ type: Answer.Type, from line: Data) async -> Answer? {
+        try? JSONDecoder().decode(type, from: line)
+    }
+
     /// `cmux cloud api` (cmux-tui `cli/cloud_api.rs`, the cmux-cloud-api crate behind the daemon's
     /// `cloud.<call>` ops) on this Mac's daemon at `socket`, as the signed-in person of `auth` on the platform origin, worker auth. The
     /// answer line as is: `{"ok": true, "body": B}` or `{"ok": false, "error": {"kind", "code", "message", …}}`.
-    /// The token is read per call and goes on stdin, never in argv.
+    /// The token is read per call and goes on stdin, never in argv. `tail`: bytes the call takes after the request's
+    /// first newline (`cloud_api.rs`'s secret tail, never in argv or the request JSON).
     @MainActor
     func cloudAPI(_ call: String, args: [String: any Sendable], signedIn auth: CloudAuth, socket: String,
-                  timeout: Duration = .seconds(60)) async -> Data {
+                  timeout: Duration = .seconds(60), tail: Data? = nil) async -> Data {
         let failed = { (kind: String, message: String) in
+            // main-actor-ok: a two-key failure object with a kind and one message.
             (try? JSONSerialization.data(withJSONObject: ["ok": false, "error": ["kind": kind, "message": message]])) ?? Data()
         }
         guard auth.isSignedIn, let credential = try? await auth.tokens().access else { return failed("not_signed_in", "") }
         var request: [String: Any] = ["call": call, "api": auth.configuration.relayAPIBaseURL().absoluteString, "auth": "worker",
                                       "credential": credential, "args": args]
         if let team = auth.teamID { request["team"] = team }
-        guard let stdin = try? JSONSerialization.data(withJSONObject: request) else { return failed("transport", "the request is not JSON") }
+        // main-actor-ok: a call name, the API origin, one token and the caller's few scalar args (ids, names); the tail is appended as bytes.
+        guard var stdin = try? JSONSerialization.data(withJSONObject: request) else { return failed("transport", "the request is not JSON") }
+        if let tail { stdin.append(0x0A); stdin.append(tail) }
         do {
             return try await run(["--socket", socket, "cloud", "api"], stdin: stdin, timeout: timeout)
         } catch {
@@ -88,13 +137,13 @@ public struct CloudCLICall: Sendable {
     public func shareChatWithMe(machine: String, signedIn auth: CloudAuth, socket: String?) async -> (code: String, message: String)? {
         guard let user = auth.platformUserID else { return ("not_signed_in", "") }
         guard let socket else { return ("transport", "") }
-        struct Answer: Decodable {
-            struct Failure: Decodable { var kind: String?; var code: String?; var message: String? }
+        struct Answer: Decodable, Sendable {
+            struct Failure: Decodable, Sendable { var kind: String?; var code: String?; var message: String? }
             var ok: Bool
             var error: Failure?
         }
         let line = await cloudAPI("machine.share_chat", args: ["machine": machine, "user": user, "me": true], signedIn: auth, socket: socket)
-        guard let answer = try? JSONDecoder().decode(Answer.self, from: line) else { return ("transport", "") }
+        guard let answer = await Self.answer(Answer.self, from: line) else { return ("transport", "") }
         return answer.ok ? nil : (answer.error?.code ?? answer.error?.kind ?? "transport", answer.error?.message ?? "")
     }
 
@@ -102,22 +151,26 @@ public struct CloudCLICall: Sendable {
     /// `machine.chief_start` on this Mac's daemon at `socket` makes the machine sized for a Chief, pairs it, places the
     /// Chief on it, keeps it from idle-pausing and starts its host. `key` names this one start: the same key again
     /// finishes a half-done start and never makes a second machine. The Chief's main conversation, or the refusal
-    /// code (`chief.host_missing`, `chief.pair_failed`, …) or failure kind, and its message.
+    /// code (`chief.host_missing`, `chief.pair_failed`, …) or failure kind, and its message. `turnEnv`: the owner's Claude
+    /// connection's env, sent as the call's stdin tail (`{"env": …}`); the Rust start picks the Claude variable from it and
+    /// leaves it on the machine for the Chief's turns (cmux-cloud-api `chief_turn.rs`). Nil: the start as before.
     @MainActor
     public func startChiefOnMachine(key: String, name: String, signedIn auth: CloudAuth,
-                                    socket: String?) async -> Result<String, CloudCallRefusal> {
+                                    socket: String?, turnEnv: [String: String]? = nil) async -> Result<String, CloudCallRefusal> {
         guard let socket else { return .failure(CloudCallRefusal(code: "transport", message: "")) }
-        struct Answer: Decodable {
-            struct Body: Decodable { var conversation: String? }
-            struct Failure: Decodable { var kind: String?; var code: String?; var message: String? }
+        struct Answer: Decodable, Sendable {
+            struct Body: Decodable, Sendable { var conversation: String? }
+            struct Failure: Decodable, Sendable { var kind: String?; var code: String?; var message: String? }
             var ok: Bool
             var body: Body?
             var error: Failure?
         }
         // The Rust call bounds itself (machine boot, pairing, the host); this outlasts it.
+        // main-actor-ok: the owner's Claude connection env, a few variables.
+        let tail = turnEnv.flatMap { try? JSONSerialization.data(withJSONObject: ["env": $0]) }
         let line = await cloudAPI("machine.chief_start", args: ["key": key, "name": name], signedIn: auth, socket: socket,
-                                  timeout: .seconds(1_560))
-        guard let answer = try? JSONDecoder().decode(Answer.self, from: line) else {
+                                  timeout: .seconds(1_560), tail: tail)
+        guard let answer = await Self.answer(Answer.self, from: line) else {
             return .failure(CloudCallRefusal(code: "transport", message: ""))
         }
         if answer.ok, let conversation = answer.body?.conversation { return .success(conversation) }
@@ -212,4 +265,160 @@ public struct CloudCLICall: Sendable {
 public nonisolated struct CloudCallRefusal: Error, Hashable, Sendable {
     public var code: String
     public var message: String
+}
+
+/// The cmux daemon's Cloud calls (cmux-tui `cloud.<call>`) through the bundled cmux's `cmux cloud api` (cmux-tui
+/// `cli/cloud_api.rs`). This only forwards: one JSON request on the child's stdin (the credential never goes in
+/// argv). One answer line back, `{"ok": true, "body": B}` or `{"ok": false, "error": E}`, where `E.kind` names a
+/// ``CloudAPIError`` case one for one.
+public struct CloudDaemon: Sendable {
+    public typealias Tokens = @Sendable () async throws -> (access: String, refresh: String)
+    public typealias TeamID = @Sendable () async -> String?
+
+    public let baseURL: URL
+    var tokens: Tokens
+    private(set) var teamID: TeamID
+    let appVersion: String
+    /// A tagged dev build's cloud data space (``CloudConfiguration/buildSpace``); a misconfigured dev build's calls throw.
+    let buildSpace: CMUXBuildSpaceState
+    /// A Worker machines daemon's install token, for the call that takes an install, not a session (``listNetworks()``).
+    var installToken: (@Sendable () async throws -> String)?
+    /// The sign-in client sends its Stack team with every call (``pinningTeam(_:)`` fixes it); a Worker client keeps its cmux team.
+    let sendsStackSession: Bool
+    /// The bundled cmux that runs `cmux cloud api` and `cmux carrier secrets`; nil: no cmux is available.
+    var machineIO: CloudMachineIO?
+    /// The `cmux cloud api` child's run (request on stdin, stdout back); nil: ``machineIO``'s. A test passes its own.
+    var daemonCall: (@Sendable (_ input: Data, _ timeout: Duration) async throws -> Data)?
+    /// The account a sandboxed Run's create is sent under (``runningAs(_:)``); nil: no create is sent.
+    private(set) var runAccount: RunAccount?
+
+    init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, appVersion: String, sendsStackSession: Bool,
+         buildSpace: CMUXBuildSpaceState = .nightly) {
+        self.baseURL = baseURL
+        self.tokens = tokens
+        self.teamID = teamID
+        self.appVersion = appVersion
+        self.sendsStackSession = sendsStackSession
+        self.buildSpace = buildSpace
+    }
+
+    /// The sign-in daemon: classic Cloud's origin (``CloudConfiguration/apiBaseURL``) with the Stack session and
+    /// team, for sandboxed Runs only; a machine call on it answers 501 at once and runs nothing.
+    public init(configuration: CloudConfiguration, tokens: @escaping Tokens, teamID: @escaping TeamID, appVersion: String = "cmux-next") {
+        self.init(baseURL: configuration.apiBaseURL, tokens: tokens, teamID: teamID, appVersion: appVersion, sendsStackSession: true,
+                  buildSpace: configuration.buildSpace)
+    }
+
+    /// The team calls go to now.
+    public func currentTeam() async -> String? { await teamID() }
+
+    /// The daemon as one owner credential with no Stack session (the feed's `cloud.owner.op`: the person's session
+    /// or this Mac's install token). `run` stands in for the `cmux cloud api` child (a test's); nil: `machineIO`'s.
+    public static func owner(baseURL: URL, credential: @escaping @Sendable () async throws -> String,
+                             teamID: @escaping TeamID, machineIO: CloudMachineIO?,
+                             run: (@Sendable (_ input: Data, _ timeout: Duration) async throws -> Data)? = nil) -> CloudDaemon {
+        var daemon = CloudDaemon(baseURL: baseURL, tokens: { (try await credential(), "") }, teamID: teamID,
+                                 appVersion: "cmux-next", sendsStackSession: false)
+        daemon.machineIO = machineIO
+        daemon.daemonCall = run
+        return daemon
+    }
+
+    /// This daemon with its team fixed to `team`: every request of a create and its retries goes to the same team
+    /// whatever the app switches to meanwhile. A Worker client keeps its cmux team: `team` is the app's (Stack) team id.
+    public func pinningTeam(_ team: String?) -> CloudDaemon {
+        guard sendsStackSession else { return self }
+        var copy = self
+        copy.teamID = { team }
+        return copy
+    }
+
+    // MARK: Runs
+
+    /// A Sandboxed send's client: the daemon's Runs under `account`, in `account`'s own Stack team.
+    public func sending(as account: RunAccount) -> CloudDaemon {
+        pinningTeam(account.team).runningAs(account)
+    }
+
+    /// This client with the account the person is sending a Run under, read as they send it
+    /// (``CloudAuth/runAccount``). Every sandboxed Run's create needs one: without it none is sent.
+    public func runningAs(_ account: RunAccount?) -> CloudDaemon {
+        var copy = self
+        copy.runAccount = account
+        return copy
+    }
+
+    func sandboxSnapshot(task: String, agent: String?, timeoutMs: Int, key: String, incognito: Bool, deadline: ContinuousClock.Instant,
+                                 now: @Sendable () -> ContinuousClock.Instant, follow: (@Sendable (String) async throws -> Data)?) async throws -> Data {
+        // The create and its retry go with one account's credentials, read once.
+        let credentials: (access: String, refresh: String)
+        do { credentials = try await tokens() } catch { throw CloudAPIError.notSignedIn }
+        var pinned = self
+        pinned.tokens = { credentials }
+        let create = { try await pinned.createSandboxRun(task: task, agent: agent, timeoutMs: timeoutMs, idempotencyKey: key,
+                                                                   incognito: incognito) }
+        let createdData: Data
+        do {
+            createdData = try await create()
+        } catch CloudAPIError.transport, CloudAPIError.timedOut {
+            // The first create may have made the Run: whatever the retry says, the outcome stays
+            // uncertain (`timedOut`, never a refusal the caller could take as "nothing runs").
+            do { createdData = try await create() } catch { throw CloudAPIError.timedOut("cloud.runs") }
+        }
+        let created = try JSONSerialization.jsonObject(with: createdData) as? [String: Any]
+        guard let id = created?["id"] as? String, !id.isEmpty else { throw CloudAPIError.decoding("cloud.runs: no run id") }
+        if let follow { return try await follow(id) }
+        while now() < deadline {
+            let data: Data
+            do {
+                data = try await waitRun(id, timeoutMs: 10_000)
+            } catch { // The Run exists: losing sight of it is "no receipt in time", never a refusal to retry past.
+                throw CloudAPIError.timedOut("cloud.runs/\(id)")
+            }
+            // A 200 that is no Run snapshot (an array, an error body) won't turn into one: stop now.
+            guard let snapshot = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  snapshot["run"] is [String: Any] else { throw CloudAPIError.timedOut("cloud.runs/\(id)") }
+            if snapshot["receipt"] is [String: Any] { return data }
+            try Task.checkCancellation()
+        }
+        throw CloudAPIError.timedOut("cloud.runs/\(id)")
+    }
+
+    // MARK: Transport
+
+    /// `cloud.<call>` with `args`: answers its body as JSON, or throws its failure as a ``CloudAPIError``.
+    /// No bundled cmux is `transport` ("cmux is not available"); there is no HTTP fallback. `timeout` bounds the
+    /// child (a child past it is killed: `timedOut`, since the call may have run).
+    /// `auth` is the credential's kind as cmux-cloud-api reads it: `owner` (the Stack session) or `worker`
+    /// (this Mac's install token). A misconfigured dev build refuses before anything runs.
+    public func daemon(_ call: String, _ args: [String: any Sendable], timeout: Duration, auth: String = "owner") async throws -> Data {
+        try buildSpace.check()
+        let run: @Sendable (Data, Duration) async throws -> Data
+        if let daemonCall {
+            run = daemonCall
+        } else if let machineIO {
+            run = { input, timeout in try await machineIO.cloudAPI(input, timeout: timeout) }
+        } else {
+            throw CloudAPIError.transport("cmux is not available")
+        }
+        let access: String
+        do { access = try await tokens().access } catch { throw CloudAPIError.notSignedIn }
+        var request: [String: any Sendable] = ["call": call, "api": baseURL.absoluteString, "auth": auth, "credential": access,
+                                               "app_version": appVersion, "args": args]
+        if let team = await teamID() { request["team"] = team }
+        let output: Data
+        do {
+            output = try await run(try JSONSerialization.data(withJSONObject: request), timeout)
+        } catch let noAnswer as CloudMachineIO.NoAnswer {
+            // Never started: nothing ran. Started and then killed or crashed: the call may have run.
+            if noAnswer.dispatched { throw CloudAPIError.timedOut("cloud.\(call)") }
+            throw CloudAPIError.transport("cmux is not available")
+        }
+        guard let line = output.split(separator: UInt8(ascii: "\n")).last(where: { !$0.isEmpty }),
+              let object = (try? JSONSerialization.jsonObject(with: Data(line))) as? [String: Any] else {
+            throw CloudAPIError.transport("cmux did not answer cloud.\(call)")
+        }
+        guard object["ok"] as? Bool == true else { throw Self.daemonFailure(object["error"] as? [String: Any] ?? [:], call: call, baseURL: baseURL) }
+        return try JSONSerialization.data(withJSONObject: object["body"] ?? NSNull(), options: .fragmentsAllowed)
+    }
 }

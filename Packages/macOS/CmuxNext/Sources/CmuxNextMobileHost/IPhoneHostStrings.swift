@@ -37,6 +37,12 @@ enum IPhoneHostStrings {
     static var unavailable: String {
         String(localized: "iphone.status.unavailable", defaultValue: "iPhone connections are not available in this build.", table: "IPhone", bundle: .localizedModule)
     }
+    /// The service says another account owns this Mac's device id, and registering a new one did not help.
+    static var deviceIDTaken: String {
+        String(localized: "iphone.status.deviceIDTaken",
+               defaultValue: "Another account claimed this Mac's iPhone link. Toggle iPhone connections to retry.",
+               table: "IPhone", bundle: .localizedModule)
+    }
     /// A refused Keychain read of this Mac's iPhone key: the host waits and tries again.
     static var keychainLocked: String {
         String(localized: "iphone.status.keychainLocked", defaultValue: "Waiting for the login keychain to unlock. iPhones connect once it does.",
@@ -54,7 +60,7 @@ enum IPhoneHostStrings {
     static var howTitle: String { String(localized: "iphone.how.title", defaultValue: "How to Connect", table: "IPhone", bundle: .localizedModule) }
     static var how: String {
         String(localized: "iphone.how.body",
-               defaultValue: "Install cmux on your iPhone and sign in with the same account as this Mac. This Mac then appears under Workspaces.",
+               defaultValue: "Install cmux on your iPhone and sign in with this Mac's account; this Mac appears under Workspaces. It's in beta on TestFlight.",
                table: "IPhone", bundle: .localizedModule)
     }
     static var phonesTitle: String { String(localized: "iphone.phones.title", defaultValue: "Phones", table: "IPhone", bundle: .localizedModule) }
@@ -146,6 +152,7 @@ enum IPhoneHostStrings {
         case "relay": String(localized: "iphone.path.relay", defaultValue: "Relayed", table: "IPhone", bundle: .localizedModule)
         case "turn": String(localized: "iphone.path.turn", defaultValue: "Relayed (TURN)", table: "IPhone", bundle: .localizedModule)
         case "turn-tls": String(localized: "iphone.path.turnTls", defaultValue: "Relayed (TURN over TLS)", table: "IPhone", bundle: .localizedModule)
+        case "https-relay": String(localized: "iphone.path.httpsRelay", defaultValue: "Relayed (cmux over HTTPS)", table: "IPhone", bundle: .localizedModule)
         case "none": String(localized: "iphone.path.none", defaultValue: "No path", table: "IPhone", bundle: .localizedModule)
         default: wire
         }

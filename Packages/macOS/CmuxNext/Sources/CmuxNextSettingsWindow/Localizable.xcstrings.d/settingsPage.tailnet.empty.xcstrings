@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.tailnet.empty" : {
+      "comment" : "Settings > Tailscale Cloud machine join.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn on tailnet joins above to add Cloud machines."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "فعّل الانضمام إلى tailnet أعلاه لإضافة أجهزة Cloud."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uključi pridruživanja tailnetu iznad da dodaš Cloud mašine."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slå tailnet-tilslutning til ovenfor for at tilføje Cloud-maskiner."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Schalte oben Tailnet-Beitritte ein, um Cloud-Maschinen hinzuzufügen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activa las uniones a la tailnet arriba para añadir máquinas Cloud."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Activez les adhésions au tailnet ci-dessus pour ajouter des machines Cloud."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Attiva gli accessi alla tailnet sopra per aggiungere macchine Cloud."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "上で tailnet への参加をオンにすると Cloud マシンを追加できます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "បើកការចូលរួម tailnet ខាងលើ ដើម្បីបន្ថែមម៉ាស៊ីន Cloud។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud 머신을 추가하려면 위에서 tailnet 참가를 켜세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slå på tailnet-tilkobling ovenfor for å legge til Cloud-maskiner."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Włącz dołączanie do tailnetu powyżej, aby dodać maszyny Cloud."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ative as entradas na tailnet acima para adicionar máquinas Cloud."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Включите присоединение к tailnet выше, чтобы добавить машины Cloud."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "เปิดการเข้าร่วม tailnet ด้านบนเพื่อเพิ่มเครื่อง Cloud"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloud makineleri eklemek için yukarıdan tailnet katılımlarını açın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Увімкніть приєднання до tailnet вище, щоб додати машини Cloud."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bật tham gia tailnet ở trên để thêm máy Cloud."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在上方打开 tailnet 加入，即可添加 Cloud 机器。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在上方開啟 tailnet 加入，即可新增 Cloud 機器。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
