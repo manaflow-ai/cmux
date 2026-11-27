@@ -28,6 +28,9 @@ STEP = "Request nightly-next promotion on main"
 
 # One script in every commit; what each commit does comes from $BEHAVIOR/<sha>.
 FAKE_REQUEST = """#!/usr/bin/env bash
+# The tick refuses a commit whose script has no web bundle check (#60513);
+# these fakes stand for a current script, so they carry its definition line.
+web_bundles_green() { return 0; }
 sha="$2"
 case "$(cat "$BEHAVIOR/$sha" 2>/dev/null)" in
   hang) sleep 60 ;;
