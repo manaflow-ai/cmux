@@ -141,11 +141,30 @@ export const CHAT_START_SIZE = Object.freeze({ cpu: 2, memory_mb: 4096, disk_mb:
 /** The "default machine size" step: after the create, cloud.machine.get reads back the chat start size. */
 export const DEFAULT_SIZE_STEP = "default machine size";
 
+type SizeRead = { cpu?: unknown; memory_mb?: unknown; disk_mb?: unknown } | null | undefined;
+const sizeText = (size: SizeRead) => `${size?.cpu ?? "?"}/${size?.memory_mb ?? "?"}/${size?.disk_mb ?? "?"}`;
 /** Null when the size cloud.machine.get recorded is CHAT_START_SIZE on every axis; else what it read. */
-export function defaultSizeProblem(size: { cpu?: unknown; memory_mb?: unknown; disk_mb?: unknown } | null | undefined): string | null {
-  const read = `${size?.cpu ?? "?"}/${size?.memory_mb ?? "?"}/${size?.disk_mb ?? "?"}`;
-  const want = `${CHAT_START_SIZE.cpu}/${CHAT_START_SIZE.memory_mb}/${CHAT_START_SIZE.disk_mb}`;
+export function defaultSizeProblem(size: SizeRead): string | null {
+  const read = sizeText(size);
+  const want = sizeText(CHAT_START_SIZE);
   return read === want ? null : `cloud.machine.get size ${read}, not the default ${want} (cpu/memory_mb/disk_mb)`;
+}
+/**
+ * The default size step's verdict: the size the machine first ran at (the "running (status)" read, before any agent
+ * work) must be CHAT_START_SIZE; a larger size read later on every axis is CloudDO's autosize growing it on its first
+ * turn (cmux-platform CloudDO.pressCloudGrow: a pegged 2-vCPU machine grows to md within seconds), not a create or
+ * spare claim at the wrong size. Run 45874897164 (2026-11-26 18:20Z): claimed spare at 2/4096/20480 when it ran
+ * (18:19:36), `cloud machine autosize` outcome grow reason cpu_pegged (18:19:50), read 4/8192/32768 at 18:20:09.
+ */
+export function defaultSizeVerdict(atRun: SizeRead, now: SizeRead): { problem: string | null; detail: string } {
+  const first = defaultSizeProblem(atRun);
+  if (first) return { problem: `${first.replace("cloud.machine.get size", "size when it first ran")}${sizeText(now) === sizeText(atRun) ? "" : `; now ${sizeText(now)}`}`, detail: "" };
+  if (sizeText(now) === sizeText(atRun)) return { problem: null, detail: `size ${sizeText(now)}` };
+  const n = (v: unknown) => (typeof v === "number" ? v : -1);
+  const grew = n(now?.cpu) >= n(atRun?.cpu) && n(now?.memory_mb) >= n(atRun?.memory_mb) && n(now?.disk_mb) >= n(atRun?.disk_mb);
+  return grew
+    ? { problem: null, detail: `size ${sizeText(atRun)} when it first ran, grown since to ${sizeText(now)} (autosize)` }
+    : { problem: `cloud.machine.get size ${sizeText(now)}, not the ${sizeText(atRun)} it first ran at, and no grow (cpu/memory_mb/disk_mb)`, detail: "" };
 }
 /**
  * The "cold create" cell's size: the catalog's md (4 vCPU / 8 GiB / 32 GiB). The Scaler makes spares at the chat start
@@ -5641,9 +5660,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           api.read("cloud.machine.get", { machine: created.id }),
           new Promise<never>((_, reject) => setTimeout(() => reject(new Error("cloud.machine.get: no answer in 30 s")), 30_000).unref?.()),
         ]);
-        const why = defaultSizeProblem(m?.size);
-        if (why) throw new Error(why);
-        return { value: null, detail: `${created.id} size ${m.size.cpu}/${m.size.memory_mb}/${m.size.disk_mb}` };
+        const { problem, detail } = defaultSizeVerdict(bound?.size, m?.size);
+        if (problem) throw new Error(problem);
+        return { value: null, detail: `${created.id} ${detail}` };
       }).catch(() => undefined);
       await J.step("first exec", async () => {
         // The machine's real size, measured on it (cpu, memory and root disk), beside what the platform recorded (the

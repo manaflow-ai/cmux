@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CHAT_START_SIZE, COLD_CREATE_SIZE, COLD_CREATE_STEP, createWithRoom, DEFAULT_SIZE_STEP, defaultSizeProblem, sizeReadingProblem, JOURNEY_ONLY_STEPS, publicError, publicMachineFacts, spareFields, spareNotice } from "./cloud-journey";
+import { CHAT_START_SIZE, COLD_CREATE_SIZE, COLD_CREATE_STEP, createWithRoom, DEFAULT_SIZE_STEP, defaultSizeProblem, defaultSizeVerdict, sizeReadingProblem, JOURNEY_ONLY_STEPS, publicError, publicMachineFacts, spareFields, spareNotice } from "./cloud-journey";
 import { runJourney } from "./cloud-journey-fake";
 
 const journeyOnly = (name: string) => (JOURNEY_ONLY_STEPS as readonly string[]).includes(name);
@@ -44,6 +44,22 @@ describe("a new machine at the default size is recorded at 2 vCPU / 4096 MB / 20
     const step = steps.find((s) => s.step === DEFAULT_SIZE_STEP);
     expect(step?.status).toBe("fail");
     expect(step?.detail).toContain("4/16384/65536");
+  });
+
+  test("a machine autosize grew on its first turn passes, naming both sizes (run 45874897164)", () => {
+    const { steps } = runJourney({ spare: "report", exec: "ok", grownSize: { cpu: 4, memory_mb: 8192, disk_mb: 32768 } });
+    const step = steps.find((s) => s.step === DEFAULT_SIZE_STEP);
+    expect(step?.status).toBe("pass");
+    expect(step?.detail).toContain("2/4096/20480 when it first ran, grown since to 4/8192/32768");
+  });
+
+  test("the verdict: wrong at first run fails; a shrink or a mixed change fails", () => {
+    const def = { cpu: 2, memory_mb: 4096, disk_mb: 20480 };
+    const md = { cpu: 4, memory_mb: 8192, disk_mb: 32768 };
+    expect(defaultSizeVerdict(md, md).problem).toContain("size when it first ran 4/8192/32768");
+    expect(defaultSizeVerdict(def, def).problem).toBeNull();
+    expect(defaultSizeVerdict(def, { cpu: 4, memory_mb: 2048, disk_mb: 20480 }).problem).toContain("no grow");
+    expect(defaultSizeVerdict(undefined, md).problem).toContain("?/?/?");
   });
 });
 
