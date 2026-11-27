@@ -9,6 +9,7 @@ differ by arch and are stable; the Swift job runs check-release-compile.sh with 
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -95,6 +96,32 @@ class Route(unittest.TestCase):
             path = pattern.replace("*", "Example")
             self.assertTrue(npb.route([path])["swift"], path)
             self.assertTrue(pr_router.matches_filter(config, [path]) and pr_router.affects(config, [path]), path)
+
+
+class Record(unittest.TestCase):
+    """A detached compile's green verdict saves the key the compile job looks up (#62619 stopped saving it)."""
+
+    def test_recorder_saves_the_lookup_key_on_a_green_verdict(self) -> None:
+        record = (ROOT / ".github/workflows/nightly-pr-build-record.yml").read_text()
+        compile_job = (ROOT / npb.WORKFLOW).read_text()
+        self.assertIn("check_run:", record)
+        self.assertIn("conclusion == 'success'", record)
+        self.assertIn("CI_NIGHTLY_PR_BUILD_RECORD", record)
+        # Same cache path and key function as the compile job's lookup and its wait-mode save.
+        self.assertIn("path: ${{ runner.temp }}/nightly-pr-build-pass", record)
+        self.assertIn("nightly_pr_build.py keys", record)
+        self.assertIn("nightly_pr_build.py keys", compile_job)
+        name = re.search(r"REPORT_CHECK: (.*)", compile_job).group(1).replace("${{ matrix.arch }}", "ARCH")
+        self.assertTrue(name.startswith("nightly app compile ") and name.endswith(" fleet verdict (advisory)"))
+        self.assertIn("startsWith(github.event.check_run.name, 'nightly app compile ')", record)
+        self.assertIn("' fleet verdict (advisory)'", record)
+
+    def test_recorder_key_matches_the_compile_job_key(self) -> None:
+        key = npb.keys("HEAD")["arm64"]
+        self.assertTrue(key.startswith("nightly-pr-build-arm64-"))
+        self.assertEqual(key, json.loads(subprocess.check_output(
+            [sys.executable, str(ROOT / "scripts/ci/nightly_pr_build.py"), "keys", "--rev", "HEAD"],
+            text=True, cwd=ROOT).split("keys=", 1)[1])["arm64"])
 
 
 class Keys(unittest.TestCase):

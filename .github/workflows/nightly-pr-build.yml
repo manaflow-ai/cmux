@@ -158,6 +158,10 @@ jobs:
           fi
           if [[ "$DETACH" != 0 && "$usage" == *--detach* ]]; then
             detach=(--report-check "$REPORT_CHECK" --detach)
+          elif [[ "$DETACH" != 0 ]]; then
+            # This runner's cmux-ci cannot detach, so the job holds the runner for the whole fleet wait.
+            # Name the runner and client so the stale installs can be counted and updated.
+            echo "::warning title=nightly app compile::cmux-ci on runner $RUNNER_NAME has no --detach ($("$client" --version 2>&1 | head -1)); this job waits on the fleet"
           fi
           "$client" run --class isolated --script scripts/cmux-next/check-release-compile.sh --ref "$SHA" \
             --repo "$GITHUB_REPOSITORY" --arg=--archs --arg="$ARCH" --arg=--nightly \
