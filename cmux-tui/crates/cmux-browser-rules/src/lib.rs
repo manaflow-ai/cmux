@@ -24,8 +24,8 @@ pub mod address;
 pub mod calculator;
 pub mod links;
 pub mod ops;
-pub mod tab_state;
 pub mod profiles;
+pub mod tab_state;
 
 #[cfg(test)]
 mod address_tests;
@@ -34,6 +34,6 @@ mod calculator_tests;
 #[cfg(test)]
 mod links_tests;
 #[cfg(test)]
-mod tab_state_tests;
-#[cfg(test)]
 mod profiles_tests;
+#[cfg(test)]
+mod tab_state_tests;

@@ -47,11 +47,11 @@ use crate::links::{
     self, CefDisposition, ClickMapping, ClickRecord, Gesture, LinkContext, LinkPlacement,
     Modifiers, WebKitLinkClick, WindowCandidate, WindowDecision, WindowRequest,
 };
-use crate::tab_state::{self, NavigationEvent, TabState, TabStateMachine};
 use crate::profiles::{
     self, BrowserProfileId, CleanupClaims, OffTheRecordProfiles, ProfileBook, ProfileBookError,
     ProfileProxy, ProfileRecord,
 };
+use crate::tab_state::{self, NavigationEvent, TabState, TabStateMachine};
 use crate::{address, calculator};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
