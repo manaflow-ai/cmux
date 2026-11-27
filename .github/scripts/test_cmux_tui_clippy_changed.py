@@ -86,6 +86,8 @@ if sys.argv[1:] == ["--flags"]:
     sys.exit(0)
 with open(os.environ["RATCHET_LOG"], "a") as log:
     log.write(" ".join(sys.argv[1:]) + "\\n")
+if "--untouched-is-base" in sys.argv:
+    sys.exit(int(os.environ.get("RATCHET_UNTOUCHED_RC", os.environ.get("RATCHET_RC", "0"))))
 sys.exit(int(os.environ.get("RATCHET_RC", "0")))
 """
 LINT = ["--all-targets", "--message-format=json", "--", "--cap-lints", "warn"]
@@ -298,6 +300,36 @@ class ClippyChangedTests(unittest.TestCase):
         self.assertIn(f"last changed on the base by {self.base[:7]}", result.stdout)
         self.assertIn("likely a base red", result.stdout)
 
+    def test_base_compile_red_allows_an_independent_panic_verdict(self) -> None:
+        # An unchanged test can fail compilation while changed production code introduces a panic.
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        mark = self.tmp / "base-red"
+        result = self.run_check("--base", self.base, fail="pkg-a", env_extra={
+            "FAIL_FILE": "crates/a/tests/journey.rs", "CMUX_CLIPPY_BASE_RED_FILE": str(mark)})
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(mark.read_text(), "base red\n")
+        panic = self.run_check("--base", self.base, "--panic-ratchet", str(self.tmp / "panic.jsonl"),
+                               env_extra={"RATCHET_RC": "1"})
+        self.assertEqual(panic.returncode, 1, panic.stdout + panic.stderr)
+        self.assertIn("the panic ratchet is red", panic.stdout)
+        self.assertTrue(self.ratchet_calls())
+
+    def test_own_compile_error_does_not_mark_a_base_red(self) -> None:
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        mark = self.tmp / "own-red"
+        result = self.run_check("--base", self.base, fail="pkg-a", env_extra={
+            "FAIL_FILE": "crates/a/src/lib.rs", "CMUX_CLIPPY_BASE_RED_FILE": str(mark)})
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(mark.exists())
+
+    def test_unattributed_cargo_failure_does_not_mark_a_base_red(self) -> None:
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        mark = self.tmp / "unknown-red"
+        result = self.run_check("--base", self.base, env_extra={
+            "CLIPPY_JSON": "build-script", "CMUX_CLIPPY_BASE_RED_FILE": str(mark)})
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(mark.exists())
+
     def test_a_red_file_the_change_touches_is_not_called_a_base_red(self) -> None:
         self.change("cmux-tui/crates/a/src/lib.rs", "pub fn a2() {}\n")
         result = self.run_check("--base", self.base, fail="pkg-a", env_extra={"FAIL_FILE": "crates/a/src/lib.rs"})
@@ -495,7 +527,26 @@ class ClippyChangedTests(unittest.TestCase):
         base_out = out.with_name(out.name + ".base")
         self.assertIn('"build-finished"', base_out.read_text())
         strict = self.judged(out)
-        self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--base-clippy-json", str(base_out)]])
+        self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--untouched-is-base", "--diff-base", self.base],
+                                                [*strict, "--base-clippy-json", str(base_out)]])
+
+    def test_compare_base_skips_the_base_lint_when_every_count_over_is_in_untouched_files(self) -> None:
+        # Run 45929462416: HEAD was over the baseline only in 20 crates the change never touched (the base's
+        # drift), and the base lint that excused them took ~5 min. The ratchet judges that without it.
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        head = self.git("rev-parse", "HEAD").strip()
+        heads = self.tmp / "heads.log"
+        out = self.tmp / "out" / "panic-clippy.jsonl"
+        result = self.run_check("--base", self.base, "--panic-ratchet", str(out), "--compare-base",
+                                env_extra={"HEAD_LOG": str(heads), "RATCHET_RC": "1", "RATCHET_UNTOUCHED_RC": "0"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lint = ["clippy", "--locked", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", "--lib", "--bins", *PANIC]
+        self.assertEqual(self.calls(), [lint])
+        self.assertEqual(heads.read_text().split(), [head])
+        self.assertFalse(out.with_name(out.name + ".base").exists())
+        strict = self.judged(out)
+        self.assertEqual(self.ratchet_calls(), [strict, [*strict, "--untouched-is-base", "--diff-base", self.base]])
+        self.assertIn("files this change does not touch, so the base", result.stdout)
 
     def test_compare_base_returns_to_head_when_the_base_lint_cannot_start(self) -> None:
         self.change("cmux-tui/crates/a/src/lib.rs")

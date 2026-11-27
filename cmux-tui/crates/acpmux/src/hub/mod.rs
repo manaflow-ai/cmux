@@ -463,7 +463,7 @@ mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
 pub(crate) mod turn_cap;
-mod turn_cost;
+pub(crate) mod turn_cost;
 pub(crate) mod turn_frames;
 mod turn_git;
 mod turn_retry;
@@ -3521,9 +3521,9 @@ impl Hub {
             meta.composer_draft = draft.clone();
             meta.updated_at = now_ms();
         }
-        // It dates the chat with no record: told before the next list read, and placed again in
-        // the list's order (`list_order.rs`).
-        self.events.row_changed(session);
+        // It dates the chat with no record: told now, so a peer following this list hears it
+        // (`row_changed_told`), and placed again in the list's order (`list_order.rs`).
+        self.events.row_changed_told(session);
         self.chat_activity_cache.note(
             &session.id,
             "composer_draft",
