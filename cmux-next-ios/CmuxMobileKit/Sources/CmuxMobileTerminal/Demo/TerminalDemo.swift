@@ -475,6 +475,7 @@ final class TerminalDemoDriver {
         let bytes = session.bytesFromPhone, fetches = session.historyFetches, sends = session.sends
         let scrolls = session.appScrolls
         session.paintSamples = []
+        var readerOpened = controller.tuiReader.isOpen
         mark("tuipan-\(variant) ready isTUI=\(model.isTUI)")
         model.demoNote = "tuipan-\(variant) ready isTUI=\(model.isTUI)"
         // Until the pans are over: 4 s with no finger after the first (the
@@ -482,12 +483,13 @@ final class TerminalDemoDriver {
         let deadline = Date().addingTimeInterval(45)
         while Date() < deadline {
             await wait(0.25)
+            readerOpened = readerOpened || controller.tuiReader.isOpen
             if let lastUp = meter.lastTouchUp, meter.touchesDown == 0, CACurrentMediaTime() - lastUp > 4 { break }
         }
         meter.stop()
         let result = meter.summary + meter.smoothness(rowHeight: controller.debugRowHeight) + " bytes=\(session.bytesFromPhone - bytes) sends=\(session.sends - sends)"
             + " appScrolls=\(session.appScrolls - scrolls) fetches=\(session.historyFetches - fetches) touches=\(meter.touches) isTUI=\(model.isTUI)"
-            + " reader=\(controller.tuiReader.isOpen ? \"open\" : \"closed\")"
+            + " readerOpened=\(readerOpened ? 1 : 0) reader=\(controller.tuiReader.isOpen ? "open" : "closed")"
             + Self.paintNote(session.paintSamples)
         model.demoNote = "tuipan-\(variant) done " + result
         mark(model.demoNote)

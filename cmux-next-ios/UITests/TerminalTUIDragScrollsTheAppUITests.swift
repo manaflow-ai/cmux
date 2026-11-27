@@ -44,6 +44,7 @@ final class TerminalTUIDragScrollsTheAppUITests: XCTestCase {
         XCTAssertTrue(demo.contains("isTUI=true"), "the fixture is the full-screen app: \(demo)")
         XCTAssertGreaterThan(values["bytes"] ?? 0, 0, "the drag sent wheel bytes to the PTY: \(demo)")
         XCTAssertGreaterThan(values["appScrolls"] ?? 0, 0, "the full-screen app consumed the wheel: \(demo)")
+        XCTAssertEqual(values["readerOpened"] ?? -1, 0, "the phone-side TUI reader never opened: \(demo)")
         XCTAssertTrue(demo.contains("reader=closed"), "the phone-side TUI reader stayed closed: \(demo)")
     }
 
