@@ -206,4 +206,35 @@ grep -q "^fixed: deleted $mk/fields/kept" "$tmp/out" || fail "a deleted fields m
 grep -q '^# note' "$pin/$mk/fields/landed" || fail "a fields marker keeps its note"
 grep -q "^fixed: took /focuses out of $mk/fields/landed" "$tmp/out" || fail "a settled pointer must be reported"
 [[ "$(cat "$pin/$mk/fields/plan")" == /surfacePlan/palette ]] || fail "a /surfacePlan/ pointer stays for a person"
+# --acpmux-ir blesses the acpmux protocol IR and ABI surface with acpmux's own protocol tests (#56240 and #57905
+# each registered a method on 11-26 and left both stale on feat-cmux-next). A stand-in cargo plays the test: it
+# writes both files, and fails like protocol_abi_breaks_have_rules when ABI_BREAK says a break has no rule; then
+# both files are put back and the break is left to a person.
+ir="$tmp/ir"; spec=cmux-tui/crates/acpmux/spec
+mkdir -p "$ir/$spec" "$tmp/cargobin"
+printf '[package]\nname = "acpmux"\n' > "$ir/cmux-tui/crates/acpmux/Cargo.toml"
+echo old > "$ir/$spec/acpmux-protocol.json"; echo old > "$ir/$spec/acpmux-abi.surface.json"
+cat > "$tmp/cargobin/cargo" <<'SH'
+#!/bin/sh
+printf '%s\n' "$PWD $ACPMUX_PROTOCOL_BLESS $*" > "$CARGO_ARGS"
+echo new > crates/acpmux/spec/acpmux-protocol.json
+if [ -n "$ABI_BREAK" ]; then
+  echo "thread 'protocol::tests::protocol_abi_breaks_have_rules' panicked at crates/acpmux/src/protocol/tests.rs:266:5:"
+  exit 101
+fi
+echo new > crates/acpmux/spec/acpmux-abi.surface.json
+SH
+chmod +x "$tmp/cargobin/cargo"
+git -C "$ir" init -q && git -C "$ir" add -A && git -C "$ir" -c user.name=t -c user.email=t@t commit -qm fixture
+CARGO_ARGS="$tmp/cargo-args" PATH="$tmp/cargobin:$PATH" bash "$FIX" --no-fmt "$ir" > "$tmp/out" 2>&1 || fail "the fixer must succeed without --acpmux-ir"
+[[ ! -e "$tmp/cargo-args" ]] || fail "the IR must be blessed only with --acpmux-ir"
+ABI_BREAK=1 CARGO_ARGS="$tmp/cargo-args" PATH="$tmp/cargobin:$PATH" bash "$FIX" --no-fmt --acpmux-ir "$ir" > "$tmp/out" 2>&1 || fail "the fixer must succeed when the bless fails"
+[[ -z "$(git -C "$ir" status --porcelain)" ]] || fail "an uncovered ABI break must leave both files as they were"
+grep -q '^left: acpmux protocol tests fail with ACPMUX_PROTOCOL_BLESS=1 .*panicked at' "$tmp/out" || fail "an uncovered ABI break must be reported"
+CARGO_ARGS="$tmp/cargo-args" PATH="$tmp/cargobin:$PATH" bash "$FIX" --no-fmt --acpmux-ir "$ir" > "$tmp/out" 2>&1 || fail "the fixer must succeed blessing the IR"
+grep -qx "$ir/cmux-tui 1 test --locked -p acpmux --lib -- protocol::" "$tmp/cargo-args" || fail "the bless must be acpmux's protocol tests in cmux-tui: $(cat "$tmp/cargo-args")"
+for f in acpmux-protocol.json acpmux-abi.surface.json; do
+  [[ "$(cat "$ir/$spec/$f")" == new ]] || fail "$f must be blessed"
+  grep -q "^fixed: blessed $spec/$f" "$tmp/out" || fail "a blessed $f must be reported"
+done
 echo "base autofix: ok"
