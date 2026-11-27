@@ -23,6 +23,14 @@ struct AgentPaneShareOpTests {
         }
         if case .shareOp(.uninvite(account: "@leo"), session: nil) = request(["op": "uninvite", "account": "@leo"]) {} else { Issue.record("uninvite") }
         if case .shareOp(.revoke(shareId: "s1"), session: nil) = request(["op": "revoke", "shareId": "s1"]) {} else { Issue.record("revoke") }
+        if case .shareOp(.approve(account: "a@b.co", role: "talk"), session: nil) = request(["op": "approve", "account": "a@b.co", "role": "talk"]) {} else {
+            Issue.record("approve")
+        }
+        // Approving grants the least unless the owner picks more.
+        if case .shareOp(.approve(account: "@leo", role: "view"), session: nil) = request(["op": "approve", "account": "@leo"]) {} else { Issue.record("approve default") }
+        if case .shareOp(.decline(account: "@leo"), session: nil) = request(["op": "decline", "account": "@leo"]) {} else { Issue.record("decline") }
+        #expect(AgentPaneShareOp.approve(account: "@leo", role: "view").needsGesture, "approving shows the chat to someone new")
+        #expect(!AgentPaneShareOp.decline(account: "@leo").needsGesture)
     }
 
     @Test func unknownOpsAndBadFieldsAreRefused() {
@@ -30,7 +38,8 @@ struct AgentPaneShareOpTests {
             [:], ["op": "delete"], ["op": 7], ["op": "link", "role": "admin"], ["op": "link", "role": "drive"], ["op": "link", "role": 1],
             ["op": "invite", "account": "a@b.co"], ["op": "invite", "account": "", "role": "view"],
             ["op": "invite", "account": String(repeating: "a", count: 400), "role": "view"],
-            ["op": "uninvite"], ["op": "revoke"], ["op": "revoke", "shareId": "  "],
+            ["op": "uninvite"], ["op": "approve"], ["op": "approve", "account": "@leo", "role": "admin"], ["op": "decline"], ["op": "revoke"], ["op": "revoke", "shareId": "  "],
+            ["op": "approve", "account": "@leo", "role": "drive"], ["op": "approve", "account": "@leo", "role": 1],
             ["op": "state", "session": ""], ["op": "state", "session": 7], ["op": "state", "session": String(repeating: "s", count: 300)],
         ]
         for params in refused {

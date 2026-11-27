@@ -63,6 +63,10 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
             ),
             ("Read the facts from stdin", "acpmux session route --facts -"),
             (
+                "Name it: this machine's hub fills its host's state and its copy of the chat",
+                "acpmux session route vm-a/review-27 --facts fleet-facts.json --show-facts",
+            ),
+            (
                 "Ask what to do with a dead session: restart, move or a successor",
                 "acpmux session route --facts /tmp/review-27-death.json",
             ),

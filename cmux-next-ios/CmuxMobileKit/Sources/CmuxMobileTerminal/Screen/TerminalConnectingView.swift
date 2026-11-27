@@ -170,29 +170,40 @@ enum TerminalLoadWatch {
 
 /// The connecting cover past ``TerminalLoadWatch/bound``: what is going on and Retry, centered
 /// on the page, in place of the skeleton.
-struct TerminalLoadStalledPanel: View {
+public struct TerminalLoadStalledPanel: View {
     let state: TerminalConnectionState
+    /// The link's own status line for the Mac (``TerminalModel/linkStatus``): a network that
+    /// blocks the link says so there, and that is the reason shown, over the generic words.
+    let linkStatus: String?
     let retry: @MainActor () async -> Void
 
+    public init(state: TerminalConnectionState, linkStatus: String? = nil, retry: @escaping @MainActor () async -> Void) {
+        self.state = state
+        self.linkStatus = linkStatus
+        self.retry = retry
+    }
+
     /// Keep failure copy with the action that resolves it; an ongoing attach has no notice.
-    static func notice(_ state: TerminalConnectionState) -> (title: String, detail: String)? {
+    static func notice(_ state: TerminalConnectionState, linkStatus: String? = nil) -> (title: String, detail: String)? {
+        // "Offline" alone repeats the title: the generic reason stays.
+        let status = linkStatus.flatMap { $0.isEmpty || $0 == "Offline" ? nil : $0 }
         switch state {
         case .failed:
-            return ("Can't reach this terminal", "Check that the Mac is on and cmux is open.")
+            return ("Can't reach this terminal", status ?? "Check that the Mac is on and cmux is open.")
         case .offline:
-            return (state.quietLine ?? "Your Mac is offline", "The terminal opens when it is back.")
+            return (state.quietLine ?? "Your Mac is offline", status ?? "The terminal opens when it is back.")
         case .attached, .connecting, .reattaching:
             return nil
         }
     }
 
-    var body: some View {
+    public var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "terminal")
                 .font(.system(size: 28, weight: .regular))
                 .foregroundStyle(Color.white.opacity(0.6))
                 .accessibilityHidden(true)
-            if let notice = Self.notice(state) {
+            if let notice = Self.notice(state, linkStatus: linkStatus) {
                 Text(verbatim: notice.title)
                     .font(.headline)
                     .foregroundStyle(Color.white)
