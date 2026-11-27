@@ -3,7 +3,7 @@
 //! A daemon follows its owner app (`owner_exit.rs`) and stops 2 s after the app is gone when
 //! nothing keeps it. An update quits the app and opens the new one: the bundle swap, the launch and
 //! the window restore take longer than 2 s, so the daemon of idle chats stopped in between and the
-//! new app's chats came up on "The agent service stopped" (Leo, after every update). The quit that
+//! new app's chats came up on "The agent service stopped" after every update. The quit that
 //! knows a relaunch follows (the app's update quit, `tools/nightly-update`, `acpmux daemon
 //! expect-relaunch`) writes this marker first; while it holds, the owner's exit waits up to the
 //! marker's deadline instead of 2 s, and the relaunched app is adopted as the owner when it connects

@@ -328,7 +328,7 @@ extension AcpmuxEnvironment {
     /// Before an update's quit: the relaunched app is expected, so the daemon serves on through
     /// the gap instead of stopping 2 s after this app is gone, and follows the new app once it
     /// connects (acpmux `daemon/owner_relaunch.rs`: `owner-relaunch.json` in the acpmux home, as
-    /// `acpmux daemon expect-relaunch` writes it). Leo: after every update "agent services stop".
+    /// `acpmux daemon expect-relaunch` writes it). Without it every update stopped the daemon.
     /// Atomic; a failure only logs: the daemon then stops as on a quit and the app starts it again.
     public func expectRelaunch(within seconds: Int = 60, reason: String = "an app update") {
         let untilMs = Int((Date().timeIntervalSince1970 + Double(min(max(seconds, 1), 300))) * 1000)

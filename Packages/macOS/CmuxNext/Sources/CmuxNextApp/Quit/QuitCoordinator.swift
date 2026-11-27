@@ -183,14 +183,15 @@ final class QuitCoordinator {
         // Sparkle installs a staged update as the app exits unless `updates.installOnQuit` is off
         // (then cancelled now), once the rollback keep ends (bounded); its relaunch is a hand-off.
         await services.updater.prepareForQuitAfterKeep()
-        // A keep quit ends within `keepQuitLimit` from here, whatever any step below does (slow
-        // quit, 2026-10-20). An End quit arms its deadline once its sessions ended (they show failures).
-        if !choice.ends { deadline.arm(after: QuitDeadline.keepQuitLimit); if services.updater.relaunchingForUpdate { QuitAgents.environment(services)?.expectRelaunch() } }
-        // From here the quit is decided: an end before AppKit's reply (a
-        // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
-        // a quit the user asked for, not a crash.
-        // Awaited (bounded, 500 ms) so `quitting` is on disk before the quit
-        // can end the process; the write itself runs off the main thread.
+        // A keep quit ends within `keepQuitLimit` from here, whatever any step below does (slow quit,
+        // 2026-10-20); an End quit arms it once its sessions ended. An update's relaunch is expected.
+        if !choice.ends {
+            deadline.arm(after: QuitDeadline.keepQuitLimit)
+            if services.updater.relaunchingForUpdate { QuitAgents.environment(services)?.expectRelaunch() }
+        }
+        // From here the quit is decided: an end before AppKit's reply (a SIGKILL after a bounded wait,
+        // a slow Chromium shutdown) is still a quit the user asked for, not a crash. Awaited (bounded,
+        // 500 ms) so `quitting` is on disk before the quit can end the process; written off main.
         await services.crashRecovery.quitBegan()
         DebugTimings.markLaunch("quit.marked")
         await quitSteps(choice).run(ends: choice.ends)

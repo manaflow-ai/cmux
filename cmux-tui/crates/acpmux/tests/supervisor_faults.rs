@@ -523,7 +523,7 @@ fn exits_within(child: &mut Child, within: Duration) -> Option<std::process::Exi
     None
 }
 
-/// Leo, after every app update: "The agent service stopped. [Retry]". The update quits the app
+/// After every app update the chats showed "The agent service stopped. [Retry]". The update quits the app
 /// and opens the new one; the daemon of idle chats followed the old app's pid and stopped 2 s
 /// after it was gone (`owner_exit::OWNER_EXIT_GRACE`), before the new app was up. With the
 /// relaunch marker (`acpmux daemon expect-relaunch`, `owner_relaunch.rs`) the daemon serves on
