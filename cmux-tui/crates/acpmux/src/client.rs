@@ -359,14 +359,26 @@ impl Client {
     }
 
     /// Take the notification stream. The first call gets the original
-    /// receiver; later calls get a fresh one and the previous holder stops
-    /// receiving, so one command can stream several turns in sequence.
+    /// receiver; a later call gets a fresh one once the previous holder has
+    /// dropped its own, so one command can stream several turns in sequence.
+    /// While an earlier receiver is still held, the call is refused (`None`,
+    /// logged): it used to replace that receiver silently, so the earlier
+    /// holder waited on a stream that no longer got anything and a test read
+    /// that as a missing event, not as two readers of one connection.
     pub async fn notifications(&self) -> Option<mpsc::Receiver<Message>> {
         if let Some(rx) = self.notifications.lock().await.take() {
             return Some(rx);
         }
+        let mut current = self.notif_tx.lock().await;
+        if !current.is_closed() {
+            tracing::error!(
+                socket = %self.socket.display(),
+                "notifications() refused: an earlier receiver of this connection is still held; drop it first"
+            );
+            return None;
+        }
         let (tx, rx) = mpsc::channel::<Message>(4096);
-        *self.notif_tx.lock().await = tx;
+        *current = tx;
         Some(rx)
     }
 
