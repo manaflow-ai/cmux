@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 import CmuxNextTestSupport
 import Testing
 import WebKit
@@ -113,6 +113,19 @@ struct AgentChatDriveInputTests {
         #expect(await input.release() == .wentIn)
         #expect(try await page.read("document.getElementById('box').matches(':hover')") as? Bool == false,
                 "release() returned before WebKit handled its move")
+    }
+
+    /// A release whose wait for WebKit's pending mouse events ran out has not gone in: WebKit may still
+    /// handle the move later, or never, so the release says `.failed` and DriveRelease keeps retrying.
+    /// One WebKit answered went in; one it can't tell about (nil: an unverified macOS) counts as sent.
+    @Test(arguments: [(Bool?.some(false), AgentChatDriveInput.ReleaseOutcome.failed), (true, .wentIn), (nil, .wentIn)])
+    func aReleaseWhoseWaitRanOutHasNotGoneIn(wait: Bool?, outcome: AgentChatDriveInput.ReleaseOutcome) async throws {
+        let page = try await Page()
+        defer { page.window.closeAfterTest() }
+        var input = AgentChatDriveInput(webView: page.webView)
+        #expect(await input.move(to: try await page.boxCenter()))
+        input.pendingMouseEvents = { _, _ in wait }
+        #expect(await input.release() == outcome)
     }
 
     /// A wheel tick under the held point is one trusted `wheel` with the tick's sign, and the box
