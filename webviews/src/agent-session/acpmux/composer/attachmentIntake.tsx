@@ -123,10 +123,27 @@ export function AttachmentStrip({
   );
   const hint = useId();
   const reorderRef = reorder.ref;
+  // Cmd-C on a focused picture chip (any of its buttons) copies it, as its menu's Copy does.
+  const [stripNode, setStripNode] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!stripNode) return;
+    const key = (event: KeyboardEvent) => {
+      if (!isCopyKey(event) || !(event.target instanceof Element)) return;
+      const slot = event.target.closest<HTMLElement>(".acpmux-attachment-slot");
+      const chip = live.current.attachments[Number(slot?.dataset.attachmentIndex ?? -1)];
+      if (!chip || !copiesAsImage(chip)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void copyAttachmentImage(chip, imageLabel(live.current.t, { name: chip.name })).catch(() => {});
+    };
+    stripNode.addEventListener("keydown", key);
+    return () => stripNode.removeEventListener("keydown", key);
+  }, [stripNode]);
   const stripRef = useCallback(
     (node: HTMLElement | null) => {
       edges(node);
       reorderRef(node);
+      setStripNode(node);
     },
     [edges, reorderRef],
   );
@@ -153,12 +170,6 @@ export function AttachmentStrip({
           // to its slot in the message (conversation/sendMorph.ts).
           ref={chipRef(attachment.id)}
           data-dragging={reorder.dragging === attachment.id || undefined}
-          // Cmd-C on a focused picture chip copies it, as its menu's Copy does.
-          onKeyDown={(event) => {
-            if (!isCopyKey(event) || !copiesAsImage(attachment)) return;
-            event.preventDefault();
-            void copyAttachmentImage(attachment, imageLabel(t, { name: attachment.name })).catch(() => {});
-          }}
         >
           <AttachmentChip
             attachment={attachment}
@@ -499,9 +510,10 @@ function AttachmentChipPreview({
   );
   // A picture's Copy (Leo, 2026-11-27: "i need to be able to copy images that i pasted"): its whole
   // image onto the pasteboard through the host (attachmentImageCopy.ts), the menu's first row.
-  const copy = copiesAsImage(attachment) && !broken
-    ? () => void copyAttachmentImage(attachment, imageLabel(t, { name: attachment.name })).catch(() => {})
-    : undefined;
+  const copy =
+    copiesAsImage(attachment) && !broken
+      ? () => void copyAttachmentImage(attachment, imageLabel(t, { name: attachment.name })).catch(() => {})
+      : undefined;
   // Its right-click menu: Copy for a picture, Open (or what a click does) where a click opens it,
   // and Remove (cx-2lm4).
   const menu = (
