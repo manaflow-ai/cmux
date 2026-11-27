@@ -12,8 +12,9 @@
 //!   home, at most [`MAX_HOSTS`] hosts, read at each placement. The cooldown matches fleet-relay's
 //!   dead-route memory: one failure keeps the host off for ten minutes, then it is tried again.
 
+use anyhow::Context;
 use serde_json::{Map, Value, json};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// A reading older than this is not believed: a direct link asks every minute and the hub
 /// refresh asks every minute while placing, so five missed asks mean the transport is gone.
@@ -123,13 +124,22 @@ impl Failures {
         serde_json::to_vec_pretty(&Value::Object(self.0.clone())).unwrap_or_default()
     }
 
-    /// Write the file.
-    pub fn save(&self) -> anyhow::Result<()> {
-        let path = Self::path();
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
-        crate::config::write_atomic(&path, &self.to_bytes())
+    /// Serialize launcher updates across processes. The lock stays on a separate file because
+    /// the atomic write replaces the data file, and with it the inode a writer would lock.
+    pub fn update<T>(dir: &Path, edit: impl FnOnce(&mut Self) -> T) -> anyhow::Result<T> {
+        crate::config::private_state_dir(dir)?;
+        let path = dir.join(FILE);
+        let lock = crate::config::private_state_rw(&path.with_extension("lock"))?;
+        let _held = cmux_file_lock::FileLock::take(lock, cmux_file_lock::Kind::Exclusive)
+            .with_context(|| format!("lock {}", path.display()))?;
+        let mut failures = match std::fs::read(&path) {
+            Ok(bytes) => Self::parse(&bytes),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Self::default(),
+            Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
+        };
+        let result = edit(&mut failures);
+        crate::config::write_atomic(&path, &failures.to_bytes())?;
+        Ok(result)
     }
 }
 
@@ -173,6 +183,28 @@ mod tests {
         assert!(f.clear("lane-a"));
         assert_eq!(f.failure("lane-a", 2_000), None);
         assert_eq!(Failures::parse(b"not json"), Failures::default());
+    }
+
+    #[test]
+    fn concurrent_launchers_keep_each_hosts_failure() {
+        const HOSTS: usize = 16;
+        let dir = tempfile::tempdir().unwrap();
+        let dir = dir.path();
+        let start = std::sync::Barrier::new(HOSTS);
+        std::thread::scope(|threads| {
+            for i in 0..HOSTS {
+                let start = &start;
+                threads.spawn(move || {
+                    start.wait();
+                    Failures::update(dir, |f| f.record(&format!("lane-{i}"), "copy failed", 1))
+                        .unwrap();
+                });
+            }
+        });
+        let stored = Failures::parse(&std::fs::read(dir.join(FILE)).unwrap());
+        for i in 0..HOSTS {
+            assert!(stored.failure(&format!("lane-{i}"), 2).is_some());
+        }
     }
 
     #[test]
