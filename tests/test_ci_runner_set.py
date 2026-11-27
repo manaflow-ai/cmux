@@ -51,6 +51,8 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'poll', 'wait-and-staple', 'poll-outer', 'staple-outer', 'poll-stapled', 'staple-stapled', 'verify-stapled', 'publish', 'generate-deltas', 'republish-deltas'}),
     'cmux-next-pr-autofix-push.yml': ('holds the PR autofix App key (contents write): the fork-routing App-key rule forbids a variable-movable runner',
      {'push'}),
+    'feature-flag-review-drift.yml': ('report holds App keys (spare issue tokens, cmux#55872): the fork-routing secret rule forbids a variable-movable runner',
+     {'report'}),
     'billing-nightly.yml': ('holds the App Store In-App Purchase key and health token: the fork-routing secret rule forbids a variable-movable runner',
      {'alert', 'apple-api', 'apple-delivery', 'apple-post-release'}),
     'ci-queue-janitor.yml': ('the queue repair job must not depend on the pools it repairs: the one-job cmux-gcp-repair-jit-x64, '
@@ -75,6 +77,8 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'upload', 'set-testflight-notes', 'assign-internal'}),
     'ios-app-review-readiness.yml': ('app-store-connect and store-declarations hold the App Store Connect API key (release environment), as ios-asc-ops.yml op does, and review-gate mints the bot App token: the fork-routing secret rule forbids a variable-movable runner',
      {'app-store-connect', 'store-declarations', 'review-gate'}),
+    'ios-asc-subscription-records.yml': ('holds the App Store Connect API key (release environment), as ios-asc-ops.yml op does: the fork-routing secret rule forbids a variable-movable runner',
+     {'records'}),
     'ios-asc-ops.yml': ('holds the App Store Connect API key (release environment): the fork-routing secret rule forbids a variable-movable runner',
      {'op'}),
     'ios-screenshots.yml': ('App Store upload with signing keys',

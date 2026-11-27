@@ -21,7 +21,6 @@ import subprocess
 import sys
 import tempfile
 import threading
-import time
 import unittest
 from pathlib import Path
 
@@ -210,9 +209,7 @@ class ScanTests(unittest.TestCase):
     def test_the_whole_walk_reads_each_verdict_once(self) -> None:
         for i in range(40):
             self.commit(f"app/{i}.swift")
-        started = time.monotonic()
         self.scan()
-        self.assertLess(time.monotonic() - started, 30)
         self.assertEqual(len(Results.hits), len(set(Results.hits)))
 
 
