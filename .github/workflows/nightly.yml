@@ -6,6 +6,7 @@ run-name: >-
       || inputs.nightly_next_unsigned_run && format('Resume nightly-next run {0} attempt {1}', inputs.nightly_next_unsigned_run, inputs.nightly_next_unsigned_attempt)
       || inputs.nightly_next_loop_retry && format('Retry nightly-next ({0} of 2)', inputs.nightly_next_loop_retry)
       || inputs.nightly_next_republish_run && format('Republish nightly-next run {0} attempt {1}', inputs.nightly_next_republish_run, inputs.nightly_next_republish_attempt)
+      || inputs.nightly_next_restore_notes && 'Restore historical nightly-next signed notes'
       || inputs.nightly_next_post_publish && 'Finish a published nightly-next build (release, deltas, notes, PR comments)'
       || '' }}
 
@@ -119,6 +120,10 @@ on:
         required: false
         default: ''
         type: string
+      nightly_next_restore_notes:
+        description: Restore a historical signed notes pair from its original artifacts (provenance JSON).
+        required: false
+        type: string
       nightly_next_post_publish:
         description: nightly-next only, sent by a loop run's dispatch-published-in (a push or nightly_next_loop_retry) once its feed and GitHub release were published. JSON {source_run, source_attempt, tail} naming that run; the build's record is read only from that run's own artifact, after the API confirms it is a nightly.yml run on nightly-next (scripts/ci/nightly_published_build.py). This run builds and signs no app; it runs the deltas, release notes, reel and PR comments, so none of them holds the push group.
         required: false
@@ -183,7 +188,7 @@ jobs:
   runner-preflight:
     permissions:
       issues: write # a failure opens or updates the nightly's failure incident (notify() in the script)
-    if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '' && inputs.nightly_next_post_publish == '')
+    if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '' && inputs.nightly_next_post_publish == '' && inputs.nightly_next_restore_notes == '')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: ${{ vars.CI_NIGHTLY_MINI != '' && 123 || 3 }}
     steps:
@@ -244,7 +249,7 @@ jobs:
       actions: read
       checks: read # Read authenticated controller receipts; no App or secret expansion.
       contents: read
-    if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '' && inputs.nightly_next_post_publish == '')
+    if: github.event_name != 'workflow_dispatch' || ((inputs.probe_mode || 'off') == 'off' && inputs.promote_nightly_next_sha == '' && inputs.nightly_next_post_publish == '' && inputs.nightly_next_restore_notes == '')
     # Routing bootstrap: nothing places it first, so it takes the nightly-only pool (glaeda's light class).
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 50
@@ -932,7 +937,7 @@ jobs:
 
   # Why: docs/ci/nightly-workflow-notes/2026-11-25-promote-nightly-next.md
   promote-nightly-next:
-    if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
+    if: github.event_name == 'workflow_dispatch' && inputs.nightly_next_restore_notes == '' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
     environment: nightly-next-promote
     # Why: docs/ci/nightly-workflow-notes/2026-11-26-promote-nightly-next-1.md
@@ -1197,7 +1202,7 @@ jobs:
       contents: write
       attestations: write
       id-token: write
-    if: github.event_name == 'workflow_dispatch' && (inputs.probe_mode || 'off') != 'off'
+    if: github.event_name == 'workflow_dispatch' && inputs.nightly_next_restore_notes == '' && (inputs.probe_mode || 'off') != 'off'
     uses: ./.github/workflows/nightly-tag-permission-probe.yml
     with:
       target_sha: ${{ inputs.probe_target_sha || github.sha }}
@@ -2149,17 +2154,16 @@ jobs:
           submodules: recursive
 
       # Why: docs/ci/nightly-workflow-notes.md#note-20, note-54
-      - &x9
-        name: Checkout build ref (warm nightly-next builder)
-        if: inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
+      - name: Checkout build ref (warm nightly-next builder)
+        if: &warm-checkout-if inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
         # Why: docs/ci/nightly-workflow-notes/2026-11-27-build-nightly-app-5.md
         timeout-minutes: 15
         env:
           BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
           WORKFLOW_SHA: ${{ github.sha }}
-          FETCH_TOKEN: ${{ steps.warm-fetch-token.outputs.token || github.token }}
-        run: |
+          FETCH_TOKEN: ${{ github.token }}
+        run: &warm-checkout-script |
           set -euo pipefail
           [[ "$BUILD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "bad build sha: $BUILD_SHA" >&2; exit 1; }
           fetch_auth=$(printf 'x-access-token:%s' "${FETCH_TOKEN:-}" | base64 | tr -d '\n')
@@ -4133,11 +4137,11 @@ jobs:
           CMUX_NEXT_CEF_RUNTIME_OUT: ${{ runner.temp }}/cef-runtime
           CMUX_NEXT_CEF_RUNTIME_BASE_URL: https://files-next.cmux.com
           # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-sign-notarize-nightly-3.md
-          CMUX_NEXT_LANGUAGE_PACKS: ${{ needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && '1' || '' }}
+          CMUX_NEXT_LANGUAGE_PACKS: ${{ needs.decide.outputs.track == 'nightly-next' && (vars.CMUX_NEXT_LANGUAGE_PACKS || '1') != '0' && '1' || '' }}
           CMUX_NEXT_LANGUAGE_PACKS_OUT: ${{ runner.temp }}/language-packs
           CMUX_NEXT_LANGUAGE_PACKS_BASE_URL: https://files-next.cmux.com/language-packs
           # Why: docs/ci/nightly-workflow-notes/2026-11-26-build-sign-notarize-nightly-4.md
-          CMUX_NEXT_TOOL_PACKS: ${{ needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && vars.CMUX_NEXT_TOOL_PACKS != '0' && '1' || '' }}
+          CMUX_NEXT_TOOL_PACKS: ${{ needs.decide.outputs.track == 'nightly-next' && (vars.CMUX_NEXT_LANGUAGE_PACKS || '1') != '0' && (vars.CMUX_NEXT_TOOL_PACKS || '1') != '0' && '1' || '' }}
           CMUX_NEXT_TOOL_PACKS_BASE_URL: https://files-next.cmux.com/tool-packs
           # sign-cef.sh reuses it when it is the same code and signer, so deltas leave Chromium out.
           CMUX_CEF_REUSE_FRAMEWORK: ${{ runner.temp }}/cef-reuse/Chromium Embedded Framework.framework
@@ -4181,7 +4185,7 @@ jobs:
       - name: Upload the language packs
         id: upload-the-language-packs
         continue-on-error: true
-        if: needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && !env.LEFT_SLOT
+        if: needs.decide.outputs.track == 'nightly-next' && (vars.CMUX_NEXT_LANGUAGE_PACKS || '1') != '0' && !env.LEFT_SLOT
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: language-packs
@@ -4193,7 +4197,7 @@ jobs:
           retention-days: 7
 
       - name: Upload the language packs (retry)
-        if: "!cancelled() && steps.upload-the-language-packs.outcome == 'failure' && (needs.decide.outputs.track == 'nightly-next' && vars.CMUX_NEXT_LANGUAGE_PACKS != '0' && !env.LEFT_SLOT)"
+        if: "!cancelled() && steps.upload-the-language-packs.outcome == 'failure' && (needs.decide.outputs.track == 'nightly-next' && (vars.CMUX_NEXT_LANGUAGE_PACKS || '1') != '0' && !env.LEFT_SLOT)"
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: language-packs
@@ -6975,10 +6979,12 @@ jobs:
         # keeps its source-tree fallback because it has no .publish-tooling checkout.
         run: bash .publish-tooling/scripts/ci/gh_budget_wait.sh --install
       - *claim-publication-mac
+      # Mint only after the claim (signing rule 7a). Only the checkout receives the read-only token.
+      # Its App quota avoids the shared unauthenticated limit hit in run 45744507889.
       # Why: docs/ci/nightly-workflow-notes/2026-11-26-nightly-next-one-mint-the-release-app-token-for-the-warm-che.md
       - name: Mint the release App token for the warm checkout
         id: warm-fetch-token
-        if: inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
+        if: *warm-checkout-if
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -6988,7 +6994,15 @@ jobs:
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: read
-      - *x9
+      - name: Checkout build ref (warm nightly-next builder)
+        if: *warm-checkout-if
+        timeout-minutes: 15
+        env:
+          BUILD_SHA: ${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          FETCH_TOKEN: ${{ steps.warm-fetch-token.outputs.token || github.token }}
+        run: *warm-checkout-script
       # Before the leave step's gh calls (tests/test_publish_app_token_workflow.py).
       # Why: docs/ci/nightly-workflow-notes/2026-11-27-nightly-next-one-3.md
       - name: Leave the push slot to a newer nightly-next push
@@ -7294,7 +7308,7 @@ jobs:
           BEHIND: ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind }}
           BEHIND_HOURS: ${{ needs.resolve-nightly-cmux-tui-client.outputs.behind_hours }}
           CEF: ${{ vars.CMUX_NEXT_CEF_ON_DEMAND == '1' }}
-          LANGUAGE_PACKS: ${{ vars.CMUX_NEXT_LANGUAGE_PACKS != '0' }}
+          LANGUAGE_PACKS: ${{ (vars.CMUX_NEXT_LANGUAGE_PACKS || '1') != '0' }}
           SOURCE_ARCHIVE: ${{ vars.CMUX_NEXT_PUBLISH_SOURCE_ARCHIVE == '1' }}
         run: bash "$PUBLISH_TOOLING/ci/nightly-steps/one-job.sh" source
       - name: Refuse stray processes before secrets (publication)
@@ -7745,7 +7759,7 @@ jobs:
   # Why: docs/ci/nightly-workflow-notes.md#note-22
   published-build:
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, publish-nightly, nightly-next-one]
-    if: "always() && (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_post_publish != '' || needs.decide.outputs.should_publish == 'true' && (needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' || needs.nightly-next-one.result == 'success' && needs.nightly-next-one.outputs.left != 'true' && needs.nightly-next-one.outputs.refused != 'true'))"
+    if: "always() && (github.event_name == 'workflow_dispatch' && inputs.nightly_next_restore_notes == '' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_post_publish != '' || needs.decide.outputs.should_publish == 'true' && (needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.refused != 'true' || needs.nightly-next-one.result == 'success' && needs.nightly-next-one.outputs.left != 'true' && needs.nightly-next-one.outputs.refused != 'true'))"
     # Why: docs/ci/nightly-workflow-notes/2026-11-26-published-build.md
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && inputs.nightly_next_loop_retry == '') && 'cmux-gcp-nightly-x64' || 'cmux-linux' }}
     # Room for gh_budget_wait.sh's wait through a rate limit: tail run 45925996466 failed its one gh read on
@@ -8038,6 +8052,34 @@ jobs:
           retention-days: 7
           overwrite: true
 
+  restore-historical-notes:
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/nightly-next' && inputs.nightly_next_restore_notes != ''
+    environment: release-next
+    runs-on: cmux-gcp-nightly-jit-x64
+    timeout-minutes: 75
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - *checkout-publication-tooling-a
+      - name: Take the nightly-next publish lease
+        id: lease
+        env: *next-publish-lease
+        run: bash .publish-tooling/scripts/ci/nightly-steps/publish-lease.sh lock
+      - name: Restore and verify the public signed pair
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ENVIRONMENT: release-next
+          AWS_ACCESS_KEY_ID: ${{ secrets.NIGHTLY_NEXT_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.NIGHTLY_NEXT_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: "https://${{ secrets.NIGHTLY_NEXT_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
+          PROVENANCE: ${{ inputs.nightly_next_restore_notes }}
+        run: |
+          printf '%s' "$PROVENANCE" > "$RUNNER_TEMP/restore-provenance.json"
+          python3 .publish-tooling/scripts/ci/nightly-notes-restore.py --provenance "$RUNNER_TEMP/restore-provenance.json"
+      - *release-the-nightly-next-publi
+
   publish-release-notes:
     # Why: docs/ci/nightly-workflow-notes/2026-11-26-publish-release-notes-1.md
     needs: [published-build, sign-release-notes, pick-nightly-sign-runner]
@@ -8206,7 +8248,7 @@ jobs:
   # Why: docs/ci/nightly-workflow-notes/2026-11-26-retry-nightly-next-1.md
   fixit-handoff:
     needs: [resolve-nightly-cmux-tui-client, check-nightly-webviews, nightly-next-one]
-    if: ${{ !cancelled() && vars.FIXIT_HANDOFF != '0' && (needs.check-nightly-webviews.outputs.fixit_nofix == 'true' || needs.nightly-next-one.outputs.fixit_nofix == 'true') }}
+    if: ${{ !cancelled() && (vars.FIXIT_HANDOFF || '1') != '0' && (needs.check-nightly-webviews.outputs.fixit_nofix == 'true' || needs.nightly-next-one.outputs.fixit_nofix == 'true') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || 'glaeda-nightly-only-m4pro' }}
     timeout-minutes: 5
     permissions:
