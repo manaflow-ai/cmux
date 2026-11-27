@@ -1705,6 +1705,7 @@ extension ChatRow {
         case .working: "working"
         case .editedFiles: "editedFiles"
         case .stopped: "stopped"
+        case .notSent: "notSent"
         case .failed: "failed"
         case .actions: "actions"
         case .nextStep: "nextStep"
@@ -1779,7 +1780,7 @@ extension ChatRow {
         case .question: return 220
         case .subagents(let ids): return 45 + CGFloat(ids.count) * 52
         case .editedFiles(let changes): return 49 + CGFloat(changes.files.count) * 44
-        case .stopped: return 18
+        case .stopped, .notSent: return 18
         case .failed: return 170
         case .actions: return 44
         case .nextStep(let ask, let answer, _): return answer == nil ? 96 + CGFloat(ask.options.count) * 50 : 64
