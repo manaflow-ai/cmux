@@ -2,11 +2,12 @@ name: CI main full suite
 
 # Pull requests run only the tests their diff reaches, and the merge queue that
 # ran the full suite before landing is off. This workflow is the full-suite
-# signal for main, run continuously and one at a time: a push to main dispatches
-# CI on main's HEAD when no full-suite run is in flight, and each run's
-# completion dispatches the next on the newest HEAD. A red result therefore
-# covers only the commits that landed during one run. The schedule is a
-# backstop for a missed event. It keeps one tracking issue open while main is
+# signal for main, run in batches and one at a time: a push to main, the
+# schedule or a run's completion dispatches CI on main's HEAD when no
+# full-suite run is in flight and the last one ended at least the batch gap
+# (main_full_suite.py DEFAULT_GAP_MINUTES, 30 min) ago. A red result covers the
+# commits that landed during one run and its gap. The every-30-minutes
+# schedule is the gap's tail and a backstop for a missed event. It keeps one tracking issue open while main is
 # red, and names the merged pull requests suspected of each new failure, on
 # the issue and on those pull requests (main_regression_attribution.py).
 #
@@ -17,8 +18,13 @@ name: CI main full suite
 on:
   push:
     branches: [main]
+  # Together every 30 min: the tail of the batch gap (main_full_suite.py DEFAULT_GAP_MINUTES), so the
+  # newest HEAD starts within 30 min of the gap passing even with no push after it. The first, three-hourly
+  # entry is also the report job's re-sync tick; the others run only the dispatch gate.
   schedule:
     - cron: "23 */3 * * *"
+    - cron: "23 1-2,4-5,7-8,10-11,13-14,16-17,19-20,22-23 * * *"
+    - cron: "53 * * * *"
   workflow_dispatch:
     inputs:
       force:
@@ -112,6 +118,7 @@ jobs:
           # dispatch below.
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           FORCE: ${{ inputs.force && 'true' || 'false' }}
+          MAIN_FULL_SUITE_GAP_MINUTES: ${{ vars.MAIN_FULL_SUITE_GAP_MINUTES }}
           COMPLETED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
@@ -158,12 +165,12 @@ jobs:
   report:
     name: Sync the main full-suite failure issue
     # workflow_run reports each dispatched CI run as it completes. The
-    # scheduled tick re-syncs from the newest green or red run, so a missed
+    # three-hourly scheduled tick (the first cron) re-syncs from the newest green or red run, so a missed
     # workflow_run event is caught within one tick. A push has nothing new to
     # report. Reports are idempotent.
-    if: ${{ (github.event_name != 'workflow_run' && github.event_name != 'push' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/ci.yml') }}
+    if: ${{ (github.event_name != 'workflow_run' && github.event_name != 'push' && (github.event_name != 'schedule' || github.event.schedule == '23 */3 * * *') && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.path == '.github/workflows/ci.yml') }}
     # The cmux-bot mint below holds an App key: LINUX_RUNNER moves this job only among Blacksmith sizes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     # Attribution reads the failed app-host shard logs of two runs (about
     # three minutes) and diffs the pull requests merged between them.
     timeout-minutes: 20

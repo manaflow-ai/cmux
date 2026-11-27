@@ -2,6 +2,21 @@
 
 import PackageDescription
 
+// Linux lacks Apple-only APIs this package uses: CmuxLinuxCompat supplies
+// stand-ins (os Logger, `Darwin.`-qualified libc, String(localized:)).
+// Apple builds never see this dependency.
+#if os(Linux)
+let packageDependencies: [Package.Dependency] = [
+    .package(path: "../../Shared/CmuxLinuxCompat"),
+]
+let targetDependencies: [Target.Dependency] = [
+    .product(name: "CmuxLinuxCompat", package: "CmuxLinuxCompat"),
+]
+#else
+let packageDependencies: [Package.Dependency] = []
+let targetDependencies: [Target.Dependency] = []
+#endif
+
 // `CmuxMobileAnalytics` is the concrete product and operational telemetry
 // infrastructure: the fire-and-forget `AnalyticsEmitter` actor, pure
 // sessionization and connection-edge throttle logic, and separate HTTP clients
@@ -22,13 +37,13 @@ let package = Package(
             targets: ["CmuxMobileAnalytics"]
         ),
     ],
-    dependencies: [
+    dependencies: packageDependencies + [
         .package(path: "../../Shared/CMUXMobileCore"),
     ],
     targets: [
         .target(
             name: "CmuxMobileAnalytics",
-            dependencies: [
+            dependencies: targetDependencies + [
                 "CMUXMobileCore",
             ],
             swiftSettings: [
@@ -39,7 +54,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxMobileAnalyticsTests",
-            dependencies: [
+            dependencies: targetDependencies + [
                 "CMUXMobileCore",
                 "CmuxMobileAnalytics",
             ],

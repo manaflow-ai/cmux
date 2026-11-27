@@ -3,7 +3,7 @@ name: CI
 # The guard watcher receives this title before dispatch jobs start. Keep a
 # compact, versioned fingerprint here so it can distinguish equivalent PR
 # coverage from a fuller manual request.
-run-name: ${{ format('v1;sha={0};ref={1};cache={2};release={3};coverage={4}', github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha, github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name, inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2', inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal', github.event_name != 'pull_request' && 'full' || ((vars.CI_PULL_REQUEST_SUITE || 'compile-only') != 'compile-only' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'full' || 'compile-only') }}
+run-name: ${{ format('v1;sha={0};ref={1};cache={2};release={3};coverage={4}{5}', github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha, github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name, inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2', inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal', github.event_name != 'pull_request' && 'full' || ((vars.CI_PULL_REQUEST_SUITE || 'compile-only') != 'compile-only' || contains(github.event.pull_request.labels.*.name, 'full-ci')) && 'full' || 'compile-only', inputs.app_compilation_cache_canary == true && ';app-cache=1' || '') }}
 
 on:
   # Run the router for every pull request. The Linux layer is cheap and the
@@ -34,6 +34,11 @@ on:
           - default
           - universal
           - arm64
+      app_compilation_cache_canary:
+        description: Enable the app-host compilation cache for one bounded main-branch canary run.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -65,7 +70,7 @@ concurrency:
 
 jobs:
   changes:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 5
     outputs:
       macos: ${{ steps.detect.outputs.macos }}
@@ -185,7 +190,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_COVERAGE_FINGERPRINT: ${{ format('v1;sha={0};ref={1};cache={2};release={3};coverage={4}', github.sha, github.ref_name, inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2', inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal', 'full') }}
+          SOURCE_COVERAGE_FINGERPRINT: ${{ format('v1;sha={0};ref={1};cache={2};release={3};coverage={4}{5}', github.sha, github.ref_name, inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2', inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal', 'full', inputs.app_compilation_cache_canary == true && ';app-cache=1' || '') }}
         run: python3 scripts/ci/manual_dispatch_guard.py --check-only
 
       - name: Record GitHub-selected source identity
@@ -723,10 +728,11 @@ jobs:
           SOURCE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
           CACHE_BACKEND: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
           RELEASE_ARCHS: ${{ inputs.release_archs != 'default' && inputs.release_archs || vars.CI_RELEASE_BUILD_ARCHS || 'universal' }}
+          APP_CACHE_CANARY_SUFFIX: ${{ inputs.app_compilation_cache_canary == true && ';app-cache=1' || '' }}
           COVERAGE_POLICY: ${{ steps.suite.outputs.full_suite == 'true' && 'full' || 'compile-only' }}
         run: |
           set -euo pipefail
-          fingerprint="v1;sha=$SOURCE_SHA;ref=$SOURCE_REF;cache=$CACHE_BACKEND;release=$RELEASE_ARCHS;coverage=$COVERAGE_POLICY"
+          fingerprint="v1;sha=$SOURCE_SHA;ref=$SOURCE_REF;cache=$CACHE_BACKEND;release=$RELEASE_ARCHS;coverage=$COVERAGE_POLICY$APP_CACHE_CANARY_SUFFIX"
           echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
 
       # The manual-dispatch guard reads this step from the completed `changes`
@@ -1139,6 +1145,7 @@ jobs:
           route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
           bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           permission-actions: read
           permission-pull-requests: read
           skip-token-revoke: true
@@ -1572,6 +1579,7 @@ jobs:
       source_parent1: ${{ needs.changes.outputs.source_parent1 }}
       cache_backend: ${{ inputs.cache_backend }}
       release_archs: ${{ inputs.release_archs }}
+      app_compilation_cache_canary: ${{ inputs.app_compilation_cache_canary == true }}
       pr_runner: ${{ needs.changes.outputs.macos_pr_runner }}
       pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
       pr_shard_runner: ${{ needs.changes.outputs.macos_pr_shard_runner }}

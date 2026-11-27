@@ -28,6 +28,9 @@ STEP = "Request nightly-next promotion on main"
 
 # One script in every commit; what each commit does comes from $BEHAVIOR/<sha>.
 FAKE_REQUEST = """#!/usr/bin/env bash
+# The tick refuses a commit whose script has no web bundle check (#60513);
+# these fakes stand for a current script, so they carry its definition line.
+web_bundles_green() { return 0; }
 sha="$2"
 case "$(cat "$BEHAVIOR/$sha" 2>/dev/null)" in
   hang) sleep 60 ;;
@@ -134,8 +137,9 @@ class RequestStepBoundsTests(unittest.TestCase):
         env = step["env"]
         walk = int(env["TICK_WALK_BUDGET_SECONDS"])
         commit = int(env["TICK_COMMIT_SECONDS"])
-        # The last commit may start just before the walk budget runs out.
-        self.assertLess(walk + commit, minutes * 60)
+        scan = int(env["TICK_SCAN_SECONDS"])
+        # The precheck scan runs first; the last commit may start just before the walk budget runs out.
+        self.assertLess(scan + walk + commit, minutes * 60)
         # A commit outlasts the step's rate-limit waits, so a promotion waiting out a limit is not cut off.
         self.assertLess(int(env["GH_BUDGET_WAIT_MAX_SECONDS"]), commit)
         self.assertGreaterEqual(int(job["timeout-minutes"]), minutes + 10)

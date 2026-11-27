@@ -189,13 +189,13 @@ jobs:
         shell: bash
         run: ./scripts/install-zig-ci.sh
 
+      # Zig's own download has no retry (a GitHub archive 504 failed cmux-tui-sdks run
+      # 45887126017): the action restores the packages, else its script seeds them with
+      # curl, deadlines and retries.
       - name: Fetch Ghostty Zig dependencies without compiling
-        working-directory: ghostty
-        shell: bash
-        run: |
-          set -euo pipefail
-          # `--fetch` hydrates the package cache and exits before a build.
-          "$CMUX_ZIG" build --fetch
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          source: ghostty
 
       - name: Set up repository-pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust

@@ -2,6 +2,9 @@
 """Contracts for the privileged manual-dispatch cancellation watcher."""
 
 from pathlib import Path
+import os
+import subprocess
+import tempfile
 import unittest
 
 import yaml
@@ -81,6 +84,62 @@ def test_non_main_dispatch_remote_daemon_uses_picked_owned_side_runner() -> None
                              workflow_ref="manaflow-ai/cmux/.github/workflows/ci.yml@refs/heads/topic")
     context["inputs"].update(pr_owned_jobs=" remote-daemon ", pr_side_runner="glaeda-side-std-xcode-26.6")
     assert evaluate(route, context) == "glaeda-side-std-xcode-26.6"
+
+
+def test_app_cache_canary_requires_explicit_trusted_main_dispatch() -> None:
+    document = yaml.safe_load(CI.read_text())
+    macos = yaml.safe_load((CI.parent / "ci-macos.yml").read_text())
+    name = "app_compilation_cache_canary"
+    for definition in (
+        trigger(document)["workflow_dispatch"]["inputs"][name],
+        trigger(macos)["workflow_call"]["inputs"][name],
+    ):
+        assert definition["type"] == "boolean"
+        assert definition["default"] is False
+    passed_input = document["jobs"]["macos"]["with"][name]
+    gate = macos["env"]["CMUX_CI_ENABLE_APP_COMPILATION_CACHE"]
+    for event in ("workflow_dispatch", "pull_request", "merge_group", "schedule", "push"):
+        for repository in ("manaflow-ai/cmux", "someone/cmux"):
+            for ref in ("refs/heads/main", "refs/heads/topic", "refs/tags/main"):
+                for requested in (None, False, True):
+                    context = github_context(event, ref=ref)
+                    context["github"]["repository"] = repository
+                    context["vars"]["CMUX_CI_ENABLE_APP_COMPILATION_CACHE"] = "1"
+                    if requested is not None:
+                        context["inputs"][name] = requested
+                    value = evaluate(passed_input, context)
+                    assert isinstance(value, bool), (event, requested, value)
+                    context["inputs"][name] = value
+                    expected = (event == "workflow_dispatch" and repository == "manaflow-ai/cmux"
+                                and ref == "refs/heads/main" and requested is True)
+                    assert evaluate(gate, context) == ("1" if expected else "0"), context
+
+
+def test_app_cache_canary_has_distinct_consistent_coverage_fingerprint() -> None:
+    document = yaml.safe_load(CI.read_text())
+    steps = document["jobs"]["changes"]["steps"]
+    guard = next(step for step in steps if "manual_dispatch_guard.py" in step.get("run", ""))
+    record = next(step for step in steps if step.get("id") == "coverage-fingerprint")
+    fingerprints = []
+    for requested in (False, True):
+        context = github_context("workflow_dispatch")
+        context["github"].update(repository="manaflow-ai/cmux", sha="abc123", ref_name="main")
+        context["inputs"].update(app_compilation_cache_canary=requested, release_archs="default")
+        context["steps"]["suite"] = {"outputs": {"full_suite": "true"}}
+        # Dispatches have no PR labels. Supply that empty projection because
+        # the shared expression evaluator does not implement object filters.
+        title_expression = document["run-name"].replace(
+            "github.event.pull_request.labels.*.name", "fromJSON('[]')")
+        title = evaluate(title_expression, context)
+        assert title == evaluate(guard["env"]["SOURCE_COVERAGE_FINGERPRINT"], context)
+        env = {key: str(evaluate(value, context)) for key, value in record["env"].items()}
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "output"
+            subprocess.run(["bash", "-c", record["run"]], check=True,
+                           env={**os.environ, **env, "GITHUB_OUTPUT": str(output)})
+            assert output.read_text().strip() == "fingerprint=" + title
+        fingerprints.append(title)
+    assert fingerprints[0] != fingerprints[1], "a normal CI run must not cover the cache canary"
 
 
 if __name__ == "__main__":

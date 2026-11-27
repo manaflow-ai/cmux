@@ -61,18 +61,16 @@ remote_git() {
 # `curl 18 Transferred a partial file`, failing compile admission. Nothing here
 # reads history: rev-parse, checkout, clean, status and apply need one commit.
 fetch_pinned_commit() {
-  local dir="$1" attempt delay="${CMUX_CUA_FETCH_RETRY_DELAY_SECONDS:-10}"
-  for attempt in 1 2 3; do
-    if remote_git -C "$dir" fetch --quiet --depth 1 origin "$CMUX_CUA_PINNED_SHA"; then
-      return 0
+  local dir="$1" attempt=1 max="${CMUX_CUA_GIT_ATTEMPTS:-3}" delay="${CMUX_CUA_FETCH_RETRY_DELAY_SECONDS:-5}"
+  while ! remote_git -C "$dir" fetch --quiet --depth 1 origin "$CMUX_CUA_PINNED_SHA"; do
+    if (( attempt >= max )); then
+      echo "error: cmux-cua fetch of $CMUX_CUA_PINNED_SHA failed after $attempt attempts" >&2
+      return 1
     fi
-    if ((attempt < 3)); then
-      echo "warning: cmux-cua fetch of $CMUX_CUA_PINNED_SHA failed (attempt $attempt of 3); retrying in $((delay * attempt))s" >&2
-      sleep "$((delay * attempt))"
-    fi
+    echo "warning: cmux-cua fetch failed (attempt $attempt of $max); retrying in $((delay * attempt))s" >&2
+    sleep "$((delay * attempt))"
+    attempt=$((attempt + 1))
   done
-  echo "error: cmux-cua fetch of $CMUX_CUA_PINNED_SHA failed 3 times from $CMUX_CUA_REPO_URL" >&2
-  return 1
 }
 
 validate_replaceable_helper_bundle() {

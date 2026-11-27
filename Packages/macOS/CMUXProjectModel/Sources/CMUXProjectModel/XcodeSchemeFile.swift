@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
 
 /// The parts of an `.xcscheme` file that ``SchemeSummary`` reports.
 struct XcodeSchemeFile {

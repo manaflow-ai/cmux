@@ -126,6 +126,33 @@ class GateTests(unittest.TestCase):
         # An unreadable timestamp still holds: better one late run than a duplicate.
         self.assertIsNotNone(MODULE.in_flight_run([run(status="queued", conclusion=None, created_at=None)], now=NOW))
 
+    def test_the_batch_gap_holds_until_the_last_run_ended_long_enough_ago(self):
+        now = datetime(2026, 9, 22, 1, 0, tzinfo=timezone.utc)
+        ended = lambda minute, **kw: run(head_sha=OTHER, updated_at=f"2026-09-22T00:{minute:02d}:00Z", **kw)
+        self.assertIn("under the 30 min batch gap", MODULE.gap_reason([ended(40)], 30, now=now))
+        self.assertIn("under the 30 min batch gap", MODULE.gap_reason([ended(40, conclusion="cancelled")], 30, now=now))
+        self.assertIsNone(MODULE.gap_reason([ended(30)], 30, now=now))
+        # The newest ending counts, not the first listed.
+        self.assertIsNotNone(MODULE.gap_reason([ended(10), ended(50)], 30, now=now))
+        self.assertIsNone(MODULE.gap_reason([ended(40)], 0, now=now))
+        self.assertIsNone(MODULE.gap_reason([], 30, now=now))
+        self.assertIsNone(MODULE.gap_reason([ended(40, event="push")], 30, now=now))
+
+    def test_gap_minutes_parse(self):
+        self.assertEqual(MODULE.parse_minutes(None), MODULE.DEFAULT_GAP_MINUTES)
+        self.assertEqual(MODULE.parse_minutes(""), MODULE.DEFAULT_GAP_MINUTES)
+        self.assertEqual(MODULE.parse_minutes("45"), 45)
+        self.assertEqual(MODULE.parse_minutes("-3"), 0)
+
+    def test_a_recent_run_holds_the_gate(self):
+        recent = {**run(head_sha=OTHER), "updated_at": "2999-01-01T00:00:00Z"}
+        with tempfile.TemporaryDirectory() as directory:
+            fake_gh(directory, f"cat <<'JSON'\n{json.dumps(recent)}\nJSON\n")
+            result, output = gate(directory)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, "dispatch=false")
+        self.assertIn("batch gap", result.stdout)
+
     def test_a_busy_main_holds_the_gate(self):
         busy = {**run(status="in_progress", conclusion=None, head_sha=OTHER), "created_at": "2999-01-01T00:00:00Z"}
         with tempfile.TemporaryDirectory() as directory:
@@ -275,6 +302,16 @@ class WorkflowWiringTests(unittest.TestCase):
     def test_push_completion_schedule_and_manual_triggers(self):
         self.assertRegex(self.text, r'(?m)^  push:\n    branches: \[main\]$')
         self.assertRegex(self.text, r'(?m)^  schedule:\n    - cron: "23 \*/3 \* \* \*"$')
+        # The batch gap's 30-minute tail: every hour at :23 and :53, the report only on the three-hourly entry.
+        crons = re.findall(r'(?m)^    - cron: "([^"]+)"$', self.text)
+        minutes = set()
+        for cron in crons:
+            minute, hours = cron.split()[:2]
+            spans = [range(24)] if hours == "*" else [range(0, 24, 3)] if hours == "*/3" else [
+                range(int(a), int(b) + 1) for a, b in (part.split("-") for part in hours.split(","))]
+            minutes |= {hour * 60 + int(minute) for span in spans for hour in span}
+        self.assertEqual(minutes, {hour * 60 + m for hour in range(24) for m in (23, 53)})
+        self.assertIn("github.event.schedule == '23 */3 * * *'", self.text)
         self.assertIn("\n  workflow_dispatch:\n", self.text)
         self.assertIn("workflows: [CI]", self.text)
 
