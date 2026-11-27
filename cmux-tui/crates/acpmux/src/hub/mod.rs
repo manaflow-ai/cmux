@@ -257,6 +257,7 @@ pub(crate) mod owner_return;
 mod page_first;
 pub(crate) mod page_replies;
 mod paging;
+pub(crate) mod prompt_previews;
 pub(crate) mod pause;
 /// Paused (acpmux continues it) or stranded (nothing will): a row's reading.
 pub(crate) mod pause_state;
@@ -1704,6 +1705,7 @@ pub struct Hub {
     /// The last few `_acpmux/events` replies, kept while their chat's log is unchanged
     /// (`page_replies.rs`).
     pub(crate) page_replies: page_replies::PageReplies,
+    pub(crate) prompt_previews: prompt_previews::PromptPreviews,
 }
 
 /// What a cached closed row was built after: every row's changes (`Events::summary_generation`),
@@ -2048,6 +2050,7 @@ impl Hub {
             workflow_index: Default::default(),
             suggestion_gate,
             page_replies: Default::default(),
+            prompt_previews: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             watched_moves: Default::default(),
             transfer_dial: StdMutex::new(None),

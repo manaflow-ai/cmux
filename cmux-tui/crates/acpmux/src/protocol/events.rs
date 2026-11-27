@@ -174,6 +174,8 @@ pub struct EventsParams {
     /// to its id and the start of its text (`Hub::prompt_index`). `limit` and `maxBytes` bound the
     /// page; `hasMore` says an older page remains, whose `beforeSeq` is the first event's seq.
     pub prompt_index: Option<bool>,
+    /// A bounded store-backed window around an oldest-first prompt index or event sequence.
+    pub prompt_preview: Option<PromptPreviewParams>,
     /// Only this subagent's own records: the updates acpmux tagged with it and those that start
     /// or change it (`EventFilter::of_subagent`). A subagent pane reads its subagent with it.
     pub subagent: Option<String>,
@@ -182,6 +184,15 @@ pub struct EventsParams {
     /// delivered, so an answer ahead of the records queued before it reads a healthy stream as
     /// stalled (`server/outbound.rs` `reply_lane`). Default false: a tool call's read goes ahead.
     pub in_order: Option<bool>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PromptPreviewParams {
+    pub index: Option<usize>,
+    pub seq: Option<u64>,
+    /// Default 2, at most 4 neighboring prompts on either side.
+    pub radius: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]

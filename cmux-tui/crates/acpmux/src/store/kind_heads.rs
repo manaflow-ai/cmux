@@ -46,6 +46,9 @@ fn keyed(line: &[u8]) -> bool {
 /// What [`Store::scan_kinds_keyed`] shows of a record before it is read whole.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct KindHead<'a> {
+    /// Sequence and direction let indexed readers select a prompt without reading its text.
+    pub seq: Option<u64>,
+    pub is_mux: bool,
     pub kind: &'a str,
     /// `msg.promptId`.
     pub prompt_id: Option<&'a str>,
@@ -90,6 +93,8 @@ impl<'a> KindHead<'a> {
             || rec.msg.get("took").is_some()
             || rec.msg.pointer("/_meta/provenance/parts").is_some();
         Self {
+            seq: Some(rec.seq),
+            is_mux: rec.dir == "mux",
             kind: &rec.kind,
             prompt_id: field("promptId"),
             turn_id: field("turnId"),
@@ -171,6 +176,7 @@ struct Head {
     /// kind that list does not hold.
     kind: Option<u16>,
     seq: Option<u64>,
+    is_mux: bool,
     place: Place,
     at: u64,
     len: u32,
@@ -185,6 +191,8 @@ struct Head {
 
 #[derive(serde::Deserialize)]
 struct LineHead<'a> {
+    #[serde(default, borrow)]
+    dir: std::borrow::Cow<'a, str>,
     #[serde(borrow)]
     kind: std::borrow::Cow<'a, str>,
     #[serde(default, borrow)]
@@ -227,6 +235,7 @@ impl Head {
         let mut head = Self {
             kind: None,
             seq: record_seq(line),
+            is_mux: false,
             place,
             at,
             len: u32::try_from(line.len()).unwrap_or(u32::MAX),
@@ -237,7 +246,8 @@ impl Head {
             names_many: false,
             named: None,
         };
-        if let Ok(LineHead { kind, msg }) = serde_json::from_slice::<LineHead<'_>>(line) {
+        if let Ok(LineHead { dir, kind, msg }) = serde_json::from_slice::<LineHead<'_>>(line) {
+            head.is_mux = dir == "mux";
             head.kind = Some(
                 INDEXED_KINDS
                     .iter()
@@ -261,6 +271,8 @@ impl Head {
 
     fn view(&self) -> KindHead<'_> {
         KindHead {
+            seq: self.seq,
+            is_mux: self.is_mux,
             kind: self.kind.and_then(|i| INDEXED_KINDS.get(usize::from(i))).copied().unwrap_or(""),
             prompt_id: self.prompt_id.as_deref(),
             turn_id: self.turn_id.as_deref(),

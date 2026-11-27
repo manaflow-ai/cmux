@@ -758,7 +758,9 @@ impl Store for ForkView {
         let shown: Vec<&str> = kinds.iter().copied().filter(|k| is_history(k)).collect();
         let mut going = true;
         if !shown.is_empty() {
-            self.scan_kinds_keyed(&r.session, &shown, keep, &mut |rec| {
+            self.scan_kinds_keyed(&r.session, &shown, &mut |head| {
+                head.seq.is_none_or(|seq| seq <= r.through_seq) && keep(head)
+            }, &mut |rec| {
                 if rec.seq > r.through_seq {
                     return false;
                 }
@@ -770,7 +772,9 @@ impl Store for ForkView {
             return Ok(());
         }
         self.inner
-            .scan_kinds_keyed(id, kinds, keep, &mut |rec| rec.seq <= r.through_seq || visit(rec))
+            .scan_kinds_keyed(id, kinds, &mut |head| {
+                head.seq.is_none_or(|seq| seq > r.through_seq) && keep(head)
+            }, &mut |rec| rec.seq <= r.through_seq || visit(rec))
     }
     fn scan_kinds_strict(
         &self,
