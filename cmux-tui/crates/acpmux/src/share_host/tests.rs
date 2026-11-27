@@ -1623,3 +1623,19 @@ fn a_watching_app_hears_each_time_the_daemon_comes_online_signed_in() {
     unsigned.update_link(|link| link.state = "online");
     assert!(unsigned.online_event().is_none());
 }
+
+#[test]
+fn a_stopped_link_offers_no_account_so_the_app_keeps_its_own_device() {
+    let home = tempfile::tempdir().unwrap();
+    let hub =
+        Hub::new("https://hub.example", Device::generate("Mac").unwrap(), Some("user-1".into()))
+            .unwrap();
+    let shared = Shared::new(home.path().to_path_buf(), hub);
+    let (signed_in, _) = ask(&shared, json!({"id": 1, "method": "device.identity"}));
+    assert_eq!(signed_in["result"]["user_id"], "user-1");
+    // The hub removed this device (socket close 4001): the link stops until the Mac joins again.
+    shared.update_link(|link| link.state = "stopped");
+    let (stopped, _) = ask(&shared, json!({"id": 2, "method": "device.identity"}));
+    assert_eq!(stopped["ok"], true);
+    assert!(stopped["result"].get("user_id").is_none());
+}
