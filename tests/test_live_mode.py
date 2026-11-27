@@ -17,6 +17,9 @@ import tempfile
 import threading
 import time
 import unittest
+
+# An applied patch asks the chat running these tests for a frame (scripts/cmux-next/live_frames.py): not here.
+os.environ.pop("ACPMUX_SESSION_ID", None)
 from pathlib import Path
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
