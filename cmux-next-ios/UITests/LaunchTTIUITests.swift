@@ -105,6 +105,16 @@ class LaunchTTIUITests: XCTestCase {
         let body = marks.sorted { $0.key < $1.key }.map { "\"\($0.key)\":\(Self.round($0.value))" }.joined(separator: ",")
         let sample = #"LAUNCHTTI {"flow":"\#(flow.rawValue)","phase":"\#(phase)","workspaces":\#(Self.workspaceCount),\#(body)}"#
         print(sample)
+        // `TEST_RUNNER_CMUX_MOBILE_LAUNCH_PROFILE=1`: the launch's main-thread profile (LaunchProfile).
+        let profile = app.staticTexts["debug.launch-profile"]
+        if Self.profiles, profile.waitForExistence(timeout: 10) {
+            let line = #"LAUNCHPROFILE {"flow":"\#(flow.rawValue)","phase":"\#(phase)","profile":\#(profile.label)}"#
+            print(line)
+            let attached = XCTAttachment(string: line)
+            attached.name = "launch-profile"
+            attached.lifetime = .keepAlways
+            add(attached)
+        }
         // Test-runner stdout is not always available through xcresulttool's
         // console export. Keep the sample even when the test succeeds.
         let attachment = XCTAttachment(string: sample)
@@ -139,6 +149,7 @@ class LaunchTTIUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
         app.launchEnvironment["CMUX_MOBILE_LAUNCH_MARKS"] = "1"
+        if profiles { app.launchEnvironment["CMUX_MOBILE_LAUNCH_PROFILE"] = "1" }
         app.launchEnvironment["CMUX_MOBILE_LIST_SCREEN"] = "workspaces"
         app.launchEnvironment["CMUX_MOBILE_LIST_COUNT"] = String(workspaceCount)
         app.launchEnvironment["CMUX_MOBILE_LIST_PASSES"] = "0"
@@ -146,6 +157,8 @@ class LaunchTTIUITests: XCTestCase {
                                 "-cmux-mobile-term-no-intro"]
         return app
     }
+
+    static let profiles = ProcessInfo.processInfo.environment["CMUX_MOBILE_LAUNCH_PROFILE"] == "1"
 
     static func round(_ value: Double) -> String { String(format: "%.1f", value) }
 }

@@ -64,6 +64,8 @@ public final class LaunchMarks {
     /// The marks taken so far, in order, in ms since the process started.
     public private(set) var marks: [(name: String, ms: Double)] = []
     private var pending: Set<String> = []
+    /// Runs after each mark is taken (DEBUG: the launch profile stops at `first_idle`).
+    public var onMark: ((String) -> Void)?
 
     /// Whether `name` has been taken in this process.
     public func has(_ name: String) -> Bool { marks.contains { $0.name == name } }
@@ -78,6 +80,7 @@ public final class LaunchMarks {
         #if DEBUG
         LaunchMarksBoard.shared?.update()
         #endif
+        onMark?(name)
     }
 
     /// Takes `name` the first time the main run loop is about to sleep, after
@@ -237,6 +240,8 @@ public final class LaunchMarksBoard {
         ProcessInfo.processInfo.environment["CMUX_MOBILE_LAUNCH_MARKS"] == "1" ? LaunchMarksBoard() : nil
 
     public private(set) var text = "{}"
+    /// The launch profile's report (`LaunchProfile`, `CMUX_MOBILE_LAUNCH_PROFILE=1`), once made.
+    public var profile = ""
 
     func update() { text = LaunchMarks.shared.json }
 }
@@ -255,6 +260,15 @@ public struct LaunchMarksProbe: View {
                 .allowsHitTesting(false)
                 .accessibilityIdentifier("debug.launch-marks")
                 .accessibilityLabel(board.text)
+            if !board.profile.isEmpty {
+                Text(verbatim: "profile")
+                    .frame(width: 4, height: 4)
+                    .clipped()
+                    .opacity(0.02)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("debug.launch-profile")
+                    .accessibilityLabel(board.profile)
+            }
         }
     }
 }
