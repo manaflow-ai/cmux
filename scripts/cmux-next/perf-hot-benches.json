@@ -225,6 +225,11 @@
       "what": "one commit of the feed client's mirror (client/mirror.rs commit: every owner event, intent and frame tick): recompute the touched ids, wake due snoozes (ledger.rs woken), keep the badge counts",
       "bench": "cd cmux-tui && cargo nextest run --release -p cmux-feed-core --test feed_churn_stress --run-ignored only --no-capture (N | p50 | p95 at 1k, 10k and 100k items with a snooze backlog; fails when the 100k p95 passes 3x the 1k p95, or a hook of the 1k/s storm passes 100 us p95)",
       "owner": "feed"
+    },
+    "transcript-scroll-frame": {
+      "what": "one display frame of a transcript scroll (webviews acpmux/VirtualTranscript.tsx scrollDrawsAt): the scroll pacer's frame works out what the offset draws (mounted rows, view, Jump to latest, soft edges) in a few layout searches and renders the transcript only when that changed",
+      "bench": "cd webviews && bun bench/transcript-scroll-frame.bench.ts [rows=3000] (frame intervals and vt.renders per frame, fling and wheel)",
+      "owner": "agent chat"
     }
   }
 }

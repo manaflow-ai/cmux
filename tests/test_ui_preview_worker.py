@@ -117,11 +117,14 @@ class FakeWorker(w.Worker):
     def ensure_clone(self):
         pass
 
-    def fetch(self, *shas):
+    def fetch(self, *shas, branches=()):
         pass
 
     def on_branch_tip_or_landed(self, head, branch):
         return head == HEAD
+
+    def has_gallery(self, sha):
+        return getattr(self, "gallery_in_tree", True)
 
     def ensure_tree(self, tree, sparse, sha):
         self.checked_out = sha
@@ -177,6 +180,24 @@ class LookTests(unittest.TestCase):
             receipt = worker.look(request(ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]))
             self.assertIn("needs an app build", receipt["error"])
             self.assertEqual(worker.shot, [])
+
+    def test_a_web_push_off_main_has_no_gallery_and_shoots_nothing(self):
+        # Branches off main carry webviews/ but no gallery: touched.ts was "Module not found" and each one a miss.
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.gallery_in_tree = False
+            receipt = worker.look(request(ui_files=["webviews/src/a.tsx"]))
+            self.assertIsNone(receipt["posted_at"])
+            self.assertTrue(receipt["error"].startswith("no scene shows these files"), receipt["error"])
+            self.assertTrue(receipt["plan"]["no_gallery"])
+            self.assertEqual(worker.shot, [])
+
+    def test_a_web_push_with_a_gallery_is_shot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            receipt = worker.look(request(ui_files=["webviews/src/a.tsx"]))
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertIn(f"web:{HEAD}", worker.shot)
 
     def test_a_web_only_worker_shoots_no_swift(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -341,7 +362,7 @@ class SpeedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
             both_fetching = threading.Barrier(2, timeout=5)
-            worker.fetch = lambda *shas: both_fetching.wait()
+            worker.fetch = lambda *shas, **kw: both_fetching.wait()
             jobs = w.queue.Queue()
             for n in "12":
                 jobs.put((request(head_sha=n * 40, branch=f"lane/{n}", ui_files=["webviews/src/a.tsx"]),
@@ -440,12 +461,48 @@ class StallTests(unittest.TestCase):
             try:
                 self.assertTrue(worker.on_branch_tip_or_landed(landed, "lane/x"))
                 self.assertEqual(asked, [], "a landed head asked GitHub")
-                # A head not under the base tip (another branch's commit): GitHub's turn (here: no origin).
+                # A head not under the base tip (another branch's commit): one fetch of the branch and the base,
+                # by tracking refspec as the lane VMs' brokered fetch takes it (here: no origin).
                 with self.assertRaises(w.LookError):
                     worker.on_branch_tip_or_landed(fork, "lane/x")
-                self.assertEqual(asked, ["ls-remote"])
+                self.assertEqual(asked, ["fetch"])
             finally:
                 w.git = real_git
+
+    def test_every_fetch_is_one_the_brokered_fetch_carries_and_a_branch_tip_passes(self):
+        """lane-1/2 (2026-11-26): the lane VMs' git fetch goes through the broker, which carries plain branch names
+        and tracking refspecs only; the worker's --filter=blob:none fetch killed every warm-up."""
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            subprocess.run(["git", "init", "-q", "-b", w.BASE_BRANCH, str(src)], check=True)
+            base = commit(src, {"a": "1"})
+            subprocess.run(["git", "-C", str(src), "checkout", "-q", "-b", "lane/x"], check=True)
+            head = commit(src, {"b": "x"})
+            subprocess.run(["git", "-C", str(src), "checkout", "-q", "-b", "other", base], check=True)
+            other = commit(src, {"c": "z"})  # on no branch the look names, never landed
+            worker = w.Worker(Path(tmp) / "state", None, None, None, host="t")
+            worker.mirror = None
+            subprocess.run(["git", "init", "-q", "--bare", str(worker.clone)], check=True)
+            subprocess.run(["git", "-C", str(worker.clone), "remote", "add", "origin", str(src)], check=True)
+            fetches = []
+            real_git = w.git
+            w.git = lambda repo, *args, **kw: (args[0] == "fetch" and fetches.append(args)) or real_git(repo, *args,
+                                                                                                         **kw)
+            try:
+                worker.fetch(head, base, branches=("lane/x",))
+                self.assertTrue(worker.has_commit(head) and worker.has_commit(base))
+                self.assertTrue(worker.on_branch_tip_or_landed(head, "lane/x"))
+                self.assertEqual(len(fetches), 1, "the branch tip was fetched again for the ancestry check")
+                subprocess.run(["git", "-C", str(worker.clone), "fetch", "-q", "origin", other], check=True)
+                self.assertFalse(worker.on_branch_tip_or_landed(other, "lane/x"))
+            finally:
+                w.git = real_git
+            for args in fetches:
+                words = [a for a in args[1:] if not a.startswith("-")]
+                self.assertEqual(words[0], "origin")
+                self.assertFalse([a for a in args if a.startswith("--filter")], args)
+                for spec in words[1:]:
+                    self.assertRegex(spec, r"^\+refs/heads/([A-Za-z0-9._][A-Za-z0-9._/-]*):refs/remotes/origin/\1$")
 
     def test_a_checkout_that_changes_the_gallery_config_restarts_the_gallery(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -627,6 +684,75 @@ class ColdSideTests(unittest.TestCase):
             self.assertEqual(w.prune_transforms(folder, cap_mb=1), 5)  # down to 3/4 MB: the 5 oldest go
             self.assertEqual(sorted(p.name for p in folder.rglob("*.json")), ["5.json", "6.json", "7.json"])
             self.assertEqual(w.prune_transforms(Path(tmp) / "absent"), 0)
+
+
+LOOK = "http://100.64.0.1:8765/looks/" + "f" * 32 + "/"
+
+
+class PublishTests(unittest.TestCase):
+    """The census copy goes through the broker's state_put, which refuses a file over 1 MiB: the local file passed it
+    on 2026-11-26 (1.4 MB) and NOW read a copy 12 h old, 3 covered of 2203 pushes."""
+
+    def receipt(self, n: int, pushed: "w.dt.datetime") -> dict:
+        at = pushed.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return {"repo": "manaflow-ai/cmux", "head_sha": f"{n:040x}", "base_sha": BASE, "branch": f"lane/x{n}",
+                "pushed_at": at, "ui_files": ["webviews/src/a.tsx"], "recipient": "lane-x", "posted_at": at,
+                "scenes": [{"scene": "agent-pane.x", "kind": "web", "before": f"{LOOK}before/web-agent-pane.x.png",
+                            "after": f"{LOOK}after/web-agent-pane.x.png", "changed": True,
+                            "before_path": "/tmp/b.png"}],
+                "plan": {"web": True, "needs_build": [], "swift": [], "nothing": []}, "look": "f" * 32,
+                "web_entries": [f"agent-pane.e{i}" for i in range(20)], "stages": {"fetch": 1.0, "web_after": 9.0},
+                "error": "x" * 2000}
+
+    def test_a_full_receipts_file_publishes_under_the_cap_newest_kept(self):
+        now = w.dt.datetime(2026, 11, 26, 23, 30, tzinfo=w.dt.timezone.utc)
+        rows = [self.receipt(n, now - w.dt.timedelta(minutes=2 * (3000 - n))) for n in range(3000)]  # 100 h of pushes
+        doc = {"schema": "ui-preview/v1", "host": "h", "at": "2026-11-26T23:30:00Z", "receipts": rows}
+        self.assertGreater(len(json.dumps(doc, indent=1)), 4 << 20)
+        text = w.publish_doc(doc, now)
+        self.assertLessEqual(len(text.encode()), w.PUBLISH_MAX)
+        out = json.loads(text)
+        self.assertEqual(out["schema"], "ui-preview/v1")
+        got = out["receipts"]
+        self.assertEqual(got[-1]["head_sha"], f"{2999:040x}", "the newest receipt is kept")
+        oldest = min(w.parse_ts(r["pushed_at"]) for r in got)
+        self.assertGreaterEqual(oldest, now - w.dt.timedelta(hours=w.PUBLISH_WINDOW_H))
+        self.assertEqual(len(got), 25 * 30, "every receipt in the window fits once its look detail is left out")
+        self.assertLess(len(text.encode()) / len(got), 700, "a busy host's day (about 1000 pushes) fits under the cap")
+        row = got[-1]
+        # What NOW's covered_seconds reads stays; the look's detail does not.
+        for key in ("repo", "head_sha", "pushed_at", "ui_files", "recipient", "posted_at"):
+            self.assertIn(key, row)
+        self.assertEqual(row["look_base"], LOOK)
+        self.assertEqual(row["scenes"], [{"scene": "agent-pane.x", "kind": "web",
+                                          "before": "before/web-agent-pane.x.png",
+                                          "after": "after/web-agent-pane.x.png"}])
+        for key in ("stages", "plan", "web_entries", "look", "base_sha"):
+            self.assertNotIn(key, row)
+        self.assertLessEqual(len(row["error"]), 200)
+        wide = dict(rows[-1], ui_files=[f"webviews/src/f{i}.tsx" for i in range(900)])
+        one = json.loads(w.publish_doc(dict(doc, receipts=[wide]), now))["receipts"][0]
+        self.assertEqual((len(one["ui_files"]), one["ui_files_n"]), (w.PUBLISH_FILES, 900))
+        small = w.publish_doc(doc, now, limit=50_000)
+        self.assertLessEqual(len(small.encode()), 50_000)
+        self.assertEqual(json.loads(small)["receipts"][-1]["head_sha"], f"{2999:040x}")
+        with self.assertRaises(ValueError):
+            w.publish_doc({"schema": "other"}, now)
+
+    def test_a_refused_publish_is_logged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            refuse = Path(tmp) / "refuse.py"
+            refuse.write_text("import sys\nsys.exit('refused: over STATE_MAX')\n")
+            worker.publish_template = f"{sys.executable} {refuse} {{file}} {{host}}"
+            lines = []
+            real = w.log
+            w.log = lines.append
+            try:
+                w.Worker.publish_now(worker)
+            finally:
+                w.log = real
+            self.assertTrue(any("publish exited 1" in x and "STATE_MAX" in x for x in lines), lines)
 
 
 if __name__ == "__main__":

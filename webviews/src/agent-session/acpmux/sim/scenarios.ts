@@ -25,6 +25,7 @@ function workTurn(b: SimBuilder, calls: number, { thoughts = true, middleText = 
 }
 
 export const SCENARIOS: Record<string, () => SimScenario> = {
+  "fork-mid-stream": () => forkMidStream(),
   // Leo, 2026-11-22: "this is also a crazy situation for the folding and whatever the steer and you think and
   // messages and situations come in and subagents come in and out", "i am still seeing flickers and flashes of
   // bullshit. sub-second in and out bullshit." A coordinator's busy turn: thoughts between quick commands,
@@ -753,6 +754,35 @@ export const SCENARIOS: Record<string, () => SimScenario> = {
     return b.turnEnd().build();
   },
 };
+
+/// The prompts and the cut-off reply a fork made mid-stream holds (fork-hammer, #50021): its records
+/// are the chat's through the cut, its running turn ended `cancelled` there, then its `forked` record.
+export const FORK_MID_STREAM = {
+  prompts: ["Remember codeword PELICAN-41.", "Write the numbers from 1 to 400 as words."],
+  partial: "one, two, three, four, five, six, seven, eight, nine, ten, eleven, twelve, thirteen",
+};
+
+/// A fork of a chat made while its reply streams (Fork Conversation on a working chat): the rows
+/// the fork draws are the turns its records hold, the cut-off reply included, and the fork is idle.
+/// The daemon's half of the invariant (those turns are the ones the fork's agent holds) is
+/// `cmux-tui/crates/acpmux/tests/hub_integration/fork_context.rs`.
+export function forkMidStream(): SimScenario {
+  const b = sim("fork-mid-stream", "A fork made while the chat's reply streamed: its copy of the turn ends cut off.");
+  const [codeword, numbers] = FORK_MID_STREAM.prompts as [string, string];
+  b.prompt(codeword).say("Noted.").turnEnd();
+  b.prompt(numbers).say(FORK_MID_STREAM.partial, { chunks: 6 });
+  // The fork's copy of the running turn ends now (acpmux hub/fork.rs), then its own history begins.
+  b.record(
+    "mux",
+    "turn_result",
+    { status: "cancelled", stopReason: "cancelled", detail: "forked" },
+    50,
+    "turn_result cut",
+  );
+  b.record("mux", "status", { status: "ready" }, 5, "status ready");
+  b.record("mux", "forked", { parentId: "sim-parent", forkSeq: 40, midTurn: true }, 5, "forked");
+  return b.build();
+}
 
 /// A monstrously long chat: `turns` turns of mixed work (prompts and incoming messages, thoughts,
 /// commands, text, a compaction every 25 turns, a background shell every 10), about 12 rows a turn,
