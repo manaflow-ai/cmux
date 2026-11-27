@@ -2536,6 +2536,11 @@ impl Hub {
         let parent_print = views::parent_print_of(&meta);
         // A fork whose agent had not started before a restart starts as the first daemon's would.
         let (fork_from, rehydrate, rehydrate_note) = fork_start::restored(&meta);
+        // memory-gate demo B (never merged): 256 KiB held per session, a synthetic per-item regression.
+        {
+            static DEMO_LEAK: std::sync::Mutex<Vec<Vec<u8>>> = std::sync::Mutex::new(Vec::new());
+            DEMO_LEAK.lock().unwrap_or_else(|e| e.into_inner()).push(vec![1u8; 256 * 1024]);
+        }
         let session = Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
