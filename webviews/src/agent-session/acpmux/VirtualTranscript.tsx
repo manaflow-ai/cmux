@@ -282,7 +282,7 @@ import { jumpToLatestWith, placeViewWith, pressUpWith } from "./transcript/jumpW
 import { indexOfRow, mountedIndexOf } from "./transcript/rowIndex";
 import { type TranscriptReferences, LIST_PROPS, sameList } from "./transcript/references";
 import { type LastEstimate, estimateFrom, nearView } from "./transcript/liveEstimate";
-import { SNAPSHOT_HOST_TAG } from "./chatSnapshot/shared";
+import { SNAPSHOT_HOST_TAG, TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE } from "./chatSnapshot/shared";
 import { useStreamAppendDeclaration } from "./devMotionAudit";
 export { RowContent } from "./transcript/RowFrame";
 export { broughtSentPrompt } from "./transcript/arrivals";
@@ -2234,6 +2234,61 @@ function TranscriptView({
     document.addEventListener("visibilitychange", clearHiddenEntrances);
     return () => document.removeEventListener("visibilitychange", clearHiddenEntrances);
   }, []);
+  // HIDDEN RELEASE: a hidden page's chat (another chat tab or workspace shows) lets go of its mounted
+  // rows and keeps everything else: the rows, their drawn heights, the layout and the scroller's
+  // offset over the spacer that holds the layout's height. A hidden chat held about 71 rows of hooks,
+  // effects, fibers and memo caches (about 4.1 MB of JS heap) and 3.7 MB of DOM and style, in the one
+  // renderer every chat page shares, so each hidden chat grew every major collection
+  // (bench/sim-ladder.bench.ts chats; cmuxterm-hq goals/sim-fidelity-flat-ladder.md). Shown again,
+  // the rows mount at the same offset in the `visibilitychange` that shows the page, inside
+  // `flushSync`, so the placement pass and the rows' measures run before its first frame paints: the
+  // view comes back where the reader left it (`anchorNow` still reads that place throughout).
+  // The release waits one task: the page's own hide work (the chat copy written on hide,
+  // chatSnapshot/live.ts) reads the rows first. A row the reader focused, or text selected in the
+  // transcript, keeps the rows mounted: letting go of them would lose that focus or selection.
+  const [rowsReleased, setRowsReleased] = useState(false);
+  const rowsReleasedRef = useRef(false);
+  useEffect(() => {
+    const node = ref.current;
+    const doc = node?.ownerDocument ?? document;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const set = (released: boolean) => {
+      rowsReleasedRef.current = released;
+      flushSync(() => setRowsReleased(released));
+    };
+    const changed = () => {
+      clearTimeout(timer);
+      timer = undefined;
+      if (doc.visibilityState !== "hidden") {
+        if (rowsReleasedRef.current) set(false);
+        return;
+      }
+      timer = setTimeout(() => {
+        timer = undefined;
+        const scroller = ref.current;
+        if (doc.visibilityState !== "hidden" || !scroller || rowsReleasedRef.current) return;
+        const active = doc.activeElement;
+        if (active && active !== scroller && scroller.contains(active)) return;
+        const selection = doc.getSelection();
+        if (selection && !selection.isCollapsed && selection.anchorNode && scroller.contains(selection.anchorNode))
+          return;
+        set(true);
+      }, 0);
+    };
+    doc.addEventListener("visibilitychange", changed);
+    return () => {
+      clearTimeout(timer);
+      doc.removeEventListener("visibilitychange", changed);
+    };
+  }, []);
+  // The released state is on the scroller too, for the chat copy's writer (chatSnapshot/live.ts): a
+  // transcript with its rows let go is not what the chat shows, so the copy written on hide stays.
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    if (rowsReleased) node.setAttribute(TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE, "");
+    else node.removeAttribute(TRANSCRIPT_ROWS_RELEASED_ATTRIBUTE);
+  }, [rowsReleased]);
   // Rows that arrive live (a reply, a tool call, a status line) enter once. The rows at the first
   // render, and many at once (a session switch, older history), are a load and do not.
   const knownRows = useRef<Set<string> | null>(null);
@@ -4412,15 +4467,17 @@ function TranscriptView({
   // before the hold puts the line back (foldAnchor.ts).
   const foldAt = Number(foldAnchor.current?.toggle.closest(".acpmux-row")?.getAttribute("aria-posinset")) - 1;
   if (foldAt >= 0 && foldAt < rows.length && !heldIndices.includes(foldAt)) heldIndices.push(foldAt);
-  const mountedRanges =
-    heldIndices.length === 0
+  // A hidden page's released transcript mounts no row (HIDDEN RELEASE above); its layout stays.
+  const mountedRanges = rowsReleased
+    ? []
+    : heldIndices.length === 0
       ? scrolledRanges
       : mergeRowRanges([...scrolledRanges, ...heldIndices.map((index) => ({ first: index, last: index + 1 }))]);
   // A viewport either side of the view is never bare spacer: a row there that is not mounted in full
   // is a stand-in at its placed box (conversation/standIns.ts). Not while a drag flows the rows (they
   // leave their placed tops) nor as another chat loads.
   const standIns =
-    flowing || sessionChanged
+    flowing || sessionChanged || rowsReleased
       ? []
       : standInRanges(
           visibleLayoutRange(layout, shownTop - height * STAND_IN_VIEWPORTS, height * (1 + 2 * STAND_IN_VIEWPORTS), 0),
