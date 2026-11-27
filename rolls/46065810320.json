@@ -1,0 +1,192 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46065810320",
+  "recorded_at": "2026-11-27T21:04:12Z",
+  "reason": "cmux-tui 0e07217139e3 changes the image's cmux-tui (pinned be5cfa23956d)",
+  "dry_run": false,
+  "cmux_tui": "0e07217139e3aee3dbc4e5564ee9198e62854cce",
+  "fixes": [
+    {
+      "sha": "0e07217139e3aee3dbc4e5564ee9198e62854cce",
+      "mergedAt": "2026-11-27T19:42:18Z",
+      "subject": "care: status reads the last pass; passes reuse a walk and facts memo (#62568)"
+    },
+    {
+      "sha": "22ac245c2c57d80774031eb88a112234bfb578ce",
+      "mergedAt": "2026-11-27T19:33:09Z",
+      "subject": "cmux-computer-use: the person's question, activity and settle types out of engine.rs (100.0 KB -> 96.0 KB) (#62133)"
+    },
+    {
+      "sha": "80af1c519574c4bfe2de18d81fcd849aa42fc20e",
+      "mergedAt": "2026-11-27T19:30:35Z",
+      "subject": "cmux-tui-core: protocol constants and Starter move below server (RFD 0174 slice 5) (#61972)"
+    },
+    {
+      "sha": "f261122f0c6e0e5d234b1ec74be649d461d18220",
+      "mergedAt": "2026-11-27T11:24:13-08:00",
+      "subject": "shell: oh-my-zsh never checks for updates in a cmux terminal"
+    },
+    {
+      "sha": "3d7c8a2efdd8d679bbedab804f97c01c16e84bc9",
+      "mergedAt": "2026-11-27T11:24:12-08:00",
+      "subject": "test(shell): oh-my-zsh must never check for updates in a cmux zsh (red)"
+    },
+    {
+      "sha": "1f2944e1b32cb7eee72fcbaed471970b9b091dd0",
+      "mergedAt": "2026-11-27T19:23:13Z",
+      "subject": "acpmux: per-task spend warnings and the per-lane fan-out cap are opt-in (#60383)"
+    },
+    {
+      "sha": "d09ce35712932d3c2f508b70ddd8561acad0f20c",
+      "mergedAt": "2026-11-27T19:21:34Z",
+      "subject": "acpmux: replace a daemon that holds its lock but never answers its socket (bug fix, 2026-11-27 sighting) (#60685)"
+    },
+    {
+      "sha": "115d4e9910fce722f4f4281262df2a15ab6411a1",
+      "mergedAt": "2026-11-27T19:14:18Z",
+      "subject": "acpmux sweep: measure pages at a fixed 150 rows, not a byte cap's count (#62181)"
+    },
+    {
+      "sha": "faa231717cec0bb7ca2693712268141c236ba735",
+      "mergedAt": "2026-11-27T19:06:34Z",
+      "subject": "acpmux: act on the supervisor decision behind ACPMUX_SUPERVISOR_ACT (RFD 0177 row 6) (#62371)"
+    },
+    {
+      "sha": "bda9e60ace6df2be902fc2757bc5eca32d18cdd4",
+      "mergedAt": "2026-11-27T19:06:17Z",
+      "subject": "acpmux: cmux-rd pin 0.2.9, the crate's release (image roll bake gate red) (#62343)"
+    },
+    {
+      "sha": "bccae414c7d5e1b5965a8fb747ab08ab1290e197",
+      "mergedAt": "2026-11-27T18:58:56Z",
+      "subject": "cmux-tui: terminal warm compaction is opt-in, as for chats (compacted after ~5 min) (#62190)"
+    },
+    {
+      "sha": "8fc13aaeef6fd454e16c5a3ac60035017ce29442",
+      "mergedAt": "2026-11-27T18:58:47Z",
+      "subject": "acpmux: a tool call's wait cap never passes to the daemon, its agents or background tasks (#61784)"
+    },
+    {
+      "sha": "b8cb371194da64f7cf5ba8d4eee5024adf941e19",
+      "mergedAt": "2026-11-27T18:56:59Z",
+      "subject": "acpmux: send direct to the target machine while the hub is down (RFD 0086) (#60532)"
+    },
+    {
+      "sha": "498aa8ca3d65000d3334682ef264fc0803f6ce90",
+      "mergedAt": "2026-11-27T18:54:51Z",
+      "subject": "screen-share-vs-pair: run the viewer's peer-serve inside the launcher app, check Local Network first (#62271)"
+    },
+    {
+      "sha": "484ae0ade6eff708b1f3e7abd30b108a1123aca6",
+      "mergedAt": "2026-11-27T18:37:32Z",
+      "subject": "cmux-host updater: carrier session reads out of role.rs (101.0 KB -> 93.6 KB) (#62150)"
+    },
+    {
+      "sha": "6b04d3d8bedacc8ef6b9435d8cde4291f9ca2cfe",
+      "mergedAt": "2026-11-27T18:33:17Z",
+      "subject": "acpmux: fix base reds (protocol registry, bg_list order, hold flags, help examples) (#54158)"
+    },
+    {
+      "sha": "9578c397bcc5edb3c49755c95ca96301d097ea06",
+      "mergedAt": "2026-11-27T18:32:32Z",
+      "subject": "acpmux: a Cloud machine's no-route wait runs once per machine, not 20 s per failed turn (#62239)"
+    },
+    {
+      "sha": "1a5486efbc3dde75b336d0e9f69c0bc976580e3f",
+      "mergedAt": "2026-11-27T18:27:07Z",
+      "subject": "acpmux tests (lib, hub_integration) green on feat-cmux-next again (#58835)"
+    },
+    {
+      "sha": "76b6395fd6fa0dcb910738e4f11490f575b54de5",
+      "mergedAt": "2026-11-27T18:27:02Z",
+      "subject": "acpmux: hold the systemd watchdog across a VM pause (daemon watchdog-hold) (#62081)"
+    },
+    {
+      "sha": "515eddd3e5b631bc574245918f49891c0ef66eec",
+      "mergedAt": "2026-11-27T18:24:29Z",
+      "subject": "launch tti: a plan that fits its step, and a PTY open that rides out a refusal (#62389)"
+    },
+    {
+      "sha": "0c62214886ef02871cbb06a42d212a176e07320c",
+      "mergedAt": "2026-11-27T18:22:39Z",
+      "subject": "acpmux: sidecar permission-stall rule (RFD 0158 §2), off by default (#59656)"
+    },
+    {
+      "sha": "caabd601f3efa3941b10f41af7edc29ed09d4662",
+      "mergedAt": "2026-11-27T18:17:25Z",
+      "subject": "cmux-host: stop the periodic ARP announce after 4 repeats so an idle VM can pause (#62015)"
+    },
+    {
+      "sha": "4b301959fc430694315622099b59face384d3a51",
+      "mergedAt": "2026-11-27T18:16:20Z",
+      "subject": "daemon-restart part: a failed run says why the daemon went away (#61699)"
+    },
+    {
+      "sha": "a89ff173715f34fb73432851617f8fd17c6f5089",
+      "mergedAt": "2026-11-27T18:15:31Z",
+      "subject": "fix(next): swift_parity base reds: profile menu strings and step-A re-pin markers (#60939)"
+    },
+    {
+      "sha": "744d397fdd9af534c09333ea0da2dee1fc8e974e",
+      "mergedAt": "2026-11-27T18:10:45Z",
+      "subject": "acpmux test fakes: read the hidden cmux block sources from one product-checked file (#62040)"
+    },
+    {
+      "sha": "8855164a3fe4183389fb61014158c254e4805169",
+      "mergedAt": "2026-11-27T18:08:08Z",
+      "subject": "acpmux: prove a web device's key on each connection (RFD 0083) (#53616)"
+    },
+    {
+      "sha": "9f8a210bf57e4e680663c5a7bb101b021a855f3d",
+      "mergedAt": "2026-11-27T18:05:37Z",
+      "subject": "netcond attach: the bound guards each send and a breach is a miss; skipped inline legs print one NETCOND-SKIP, not five errors (#62110)"
+    },
+    {
+      "sha": "8dc86eea65fdf6be5a08cfa405391f0fe0f84ae5",
+      "mergedAt": "2026-11-27T18:05:31Z",
+      "subject": "acpmux: cache fault accounting per call (RFD 0182 B6) (#60434)"
+    },
+    {
+      "sha": "9fa467ab3384f828f0c5b81511d08dba8ff26d3e",
+      "mergedAt": "2026-11-27T17:53:08Z",
+      "subject": "cmux vm resume: stop the node when the vault's lease moved meanwhile (RFD 0169) (#57977)"
+    },
+    {
+      "sha": "12d15b4932e95b2e416072762c7098be75107da3",
+      "mergedAt": "2026-11-27T17:52:02Z",
+      "subject": "seed pull: read the working copy without finding its GitHub remote (#61869)"
+    },
+    {
+      "sha": "f0f0135cc2acbdc78f40fd6fd5ce59e199d88b3b",
+      "mergedAt": "2026-11-27T17:50:07Z",
+      "subject": "cmux-rd-link: TURN over TCP and TLS when UDP is blocked (#57755)"
+    },
+    {
+      "sha": "389f93532d3f0be63c73855edc89b778aa33dd7b",
+      "mergedAt": "2026-11-27T17:49:40Z",
+      "subject": "Reuse the terminal plugin journal helper across tool calls (#60732)"
+    },
+    {
+      "sha": "c37acbff92cd4398126792f2ac3d10dbf07aea7e",
+      "mergedAt": "2026-11-27T17:45:19Z",
+      "subject": "cmux-team-messaging: RFD 0170 phase 3 document room (presence leases, access requests, revoke disconnects) (#61895)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-27T21:04:12Z",
+    "snapshot_id": "sh-2988198de4664e229528402e13b6f231",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 46065810320): 34 checks passed"
+  },
+  "promotion": {
+    "result": "failed",
+    "job": "failure",
+    "commit": "",
+    "image": "cloud-native-auto-0e072171-46065810320-1",
+    "revision": "ci-46065810320-1",
+    "at": null
+  },
+  "rolled_back": false
+}
