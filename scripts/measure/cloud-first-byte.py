@@ -1,20 +1,26 @@
 #!/usr/bin/env python3
-"""Measure Cloud chat's first response byte while Cloud Git is active.
+"""Measure an explicitly selected stream's first stdout byte during a Git operation.
 
-The default chat command is the supported headless Cloud route::
+Pass --chat-command as an unbuffered streaming command (for example curl --no-buffer
+--fail), --completion-marker as its terminal stream event, and --git-command as the
+cloud Git workload. Commands are argv strings, never evaluated by a shell. The receipt
+includes their exact spelling: do not put credentials in arguments. Use the worker's
+existing authenticated route or environment instead.
 
-    cmux chat --on vm --harness codex --prompt 'Reply with exactly: ok' --wait --json
+This measures command stdout, not model-token latency. Buffered commands such as
+cmux chat --wait --json measure completed replies and must not be used for stream
+latency. Stderr never supplies a first byte. Git must still be running at that byte,
+both commands must succeed, and the stream's completion marker must arrive.
 
-Each sample starts that command and a public ``git ls-remote`` at the same time. The
-chat's first byte is timed from its process start with a monotonic clock; the complete
-output is drained afterwards so a successful sample also proves the flow completed.
-Commands are parsed with :func:`shlex.split`, never through a shell. This keeps the
-harness safe to run on a fleet worker and makes the exact commands visible in its JSON
-receipt.
+Fleet invocation (supply the quoted argv strings and exact pushed SHA)::
 
-Output is one ``CLOUD-FIRST-BYTE`` JSON line. ``median_ms`` and ``p95_ms`` are null
-when no first byte was observed. The process exits non-zero when any sample fails or
-when the flow does not complete, so a CI receipt cannot look green with missing data.
+    cmux-ci run --class exclusive --measurement --script scripts/measure/cloud-first-byte.py \
+      --ref SHA --arg=--chat-command=STREAM --arg=--git-command=GIT \
+      --arg=--completion-marker=END --arg=--json=artifacts/cloud-first-byte.json \
+      --artifact artifacts/cloud-first-byte.json --timeout 600 --key UNIQUE
+
+A CLOUD-FIRST-BYTE JSON receipt is emitted even for launch failure or timeout. Invalid
+samples retain diagnostic timings but do not enter the successful median/p95.
 """
 from __future__ import annotations
 
@@ -23,6 +29,7 @@ import json
 import math
 import os
 import select
+import signal
 import shlex
 import socket
 import statistics
@@ -35,8 +42,6 @@ from pathlib import Path
 from typing import Sequence
 
 
-DEFAULT_CHAT = "cmux chat --on vm --harness codex --prompt 'Reply with exactly: ok' --wait --json"
-DEFAULT_GIT = "git ls-remote https://github.com/manaflow-ai/cmux.git HEAD"
 REPORT_MARK = "CLOUD-FIRST-BYTE "
 
 
@@ -63,100 +68,92 @@ def command(value: str) -> list[str]:
     return argv
 
 
-def _stop(proc: subprocess.Popen[bytes]) -> None:
-    """Stop a process this harness started, retaining a bounded cleanup path."""
-    if proc.poll() is not None:
+def _stop(proc: subprocess.Popen[bytes] | None) -> None:
+    """Reap only the private process group started for this sample."""
+    if proc is None:
         return
-    proc.terminate()
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
     try:
         proc.wait(timeout=0.5)
     except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=0.5)
+        pass
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    proc.wait(timeout=0.5)
 
 
 def run_sample(index: int, chat_argv: Sequence[str], git_argv: Sequence[str], timeout_s: float,
                completion_marker: str | None) -> Sample:
+    chat = git = None
+    first_byte_at = None
+    concurrent = False
+    count = 0
+    marker = (completion_marker or "").encode()
+    marker_ok = False
+    tail = b""
+    timed_out = False
+    error = None
     started = time.perf_counter()
-    chat = subprocess.Popen(list(chat_argv), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    git_started = time.perf_counter()
-    git = subprocess.Popen(list(git_argv), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    first_byte_at: float | None = None
-    first = b""
-    timeout_hit = False
-
+    deadline = started + timeout_s
     try:
+        # Git starts first; the measured interval starts at the chat launch.
+        git = subprocess.Popen(list(git_argv), stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, start_new_session=True)
+        started = time.perf_counter()
+        chat = subprocess.Popen(list(chat_argv), stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, start_new_session=True)
         assert chat.stdout is not None
-        deadline = started + timeout_s
-        while chat.poll() is None:
+        eof = False
+        while not eof:
             remaining = deadline - time.perf_counter()
             if remaining <= 0:
-                timeout_hit = True
-                break
+                raise subprocess.TimeoutExpired(chat_argv, timeout_s)
             readable, _, _ = select.select([chat.stdout], [], [], min(0.05, remaining))
-            if readable:
-                chunk = os.read(chat.stdout.fileno(), 4096)
-                if chunk:
-                    if first_byte_at is None:
-                        first_byte_at = time.perf_counter()
-                    first += chunk
-                else:
-                    break
-
-        # A very short command may exit between the loop condition and select().
-        # Take one non-blocking read before communicate() so its buffered first byte
-        # still receives the closest possible timestamp.
-        if not timeout_hit and first_byte_at is None and chat.poll() is not None:
-            readable, _, _ = select.select([chat.stdout], [], [], 0)
-            if readable:
-                chunk = os.read(chat.stdout.fileno(), 4096)
-                if chunk:
-                    first_byte_at = time.perf_counter()
-                    first += chunk
-
-        if timeout_hit:
-            _stop(chat)
-            _stop(git)
-            rest, _ = chat.communicate()
-            return Sample(index, None, chat.returncode, git.returncode, True, False,
-                          False, len(first) + len(rest), "timeout")
-
-        rest, _ = chat.communicate(timeout=max(0.1, deadline - time.perf_counter()))
-        output = first + rest
-        git_timed_out = False
-        try:
-            git.wait(timeout=max(0.1, deadline - time.perf_counter()))
-        except subprocess.TimeoutExpired:
-            git_timed_out = True
-            _stop(git)
-        if first_byte_at is None and output:
-            # The process exited with output that became readable only at EOF.
-            # This is still a real first byte; the timestamp is bounded at exit.
-            first_byte_at = time.perf_counter()
-
-        marker_ok = completion_marker is None or completion_marker.encode() in output
-        timeout_hit = git_timed_out
-        flow = (not timeout_hit and first_byte_at is not None and chat.returncode == 0
-                and git.returncode == 0 and marker_ok)
-        error = None
-        if timeout_hit:
-            error = "timeout"
-        elif first_byte_at is None:
-            error = "chat produced no output"
-        elif chat.returncode != 0:
+            if not readable:
+                continue
+            chunk = os.read(chat.stdout.fileno(), 65536)
+            if not chunk:
+                eof = True
+                continue
+            if first_byte_at is None:
+                first_byte_at = time.perf_counter()
+                concurrent = git.poll() is None
+            count += len(chunk)
+            # Keep only a marker-sized suffix, never an unbounded long-session transcript.
+            block = tail + chunk
+            marker_ok = marker_ok or bool(marker and marker in block)
+            tail = block[-max(0, len(marker) - 1):] if len(marker) > 1 else b""
+        chat.wait(timeout=max(0.001, deadline - time.perf_counter()))
+        git.wait(timeout=max(0.001, deadline - time.perf_counter()))
+        if chat.returncode != 0:
             error = f"chat exited {chat.returncode}"
         elif git.returncode != 0:
             error = f"git exited {git.returncode}"
+        elif first_byte_at is None:
+            error = "stream produced no stdout"
+        elif not concurrent:
+            error = "Git was not active at the first stdout byte"
         elif not marker_ok:
-            error = f"completion marker {completion_marker!r} was absent"
-        return Sample(index, round((first_byte_at - started) * 1000, 3) if first_byte_at else None,
-                      chat.returncode, git.returncode, timeout_hit, flow,
-                      git_started <= (first_byte_at or time.perf_counter()), len(output), error)
+            error = "stream completion marker was absent"
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        error = "timeout"
+    except OSError as exc:
+        error = f"command launch/read failed: {exc.strerror}"
     finally:
-        # The normal path has already reaped both children. This is for an unexpected
-        # read/communicate error, and only touches our own processes.
         _stop(chat)
         _stop(git)
+        if chat is not None and chat.stdout is not None:
+            chat.stdout.close()
+    first_ms = round((first_byte_at - started) * 1000, 3) if first_byte_at is not None else None
+    return Sample(index, first_ms, chat.returncode if chat else None,
+                  git.returncode if git else None, timed_out, error is None,
+                  concurrent, count, error)
 
 
 def percentile(values: Sequence[float], fraction: float) -> float | None:
@@ -185,13 +182,15 @@ def measure(samples: int, parallel: int, timeout_s: float, chat_argv: Sequence[s
         for future in as_completed(futures):
             rows.append(future.result())
     rows.sort(key=lambda row: row.index)
-    timings = [row.first_byte_ms for row in rows if row.first_byte_ms is not None]
+    timings = [row.first_byte_ms for row in rows if row.flow_completed and row.first_byte_ms is not None]
     errors = sum(row.error is not None for row in rows)
     timeouts = sum(row.timeout for row in rows)
-    completed = sum(row.first_byte_ms is not None for row in rows)
+    completed = sum(row.flow_completed for row in rows)
     flow_completed = len(rows) == samples and all(row.flow_completed for row in rows)
     return {
-        "schema": "cloud-first-byte/v1",
+        "schema": "cloud-first-byte/v2",
+        "measurement": "command_stdout_first_byte",
+        "timing_population": "successful_overlapping_samples",
         "samples": samples,
         "completed": completed,
         "errors": errors,
@@ -215,14 +214,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--parallel", type=int, default=1,
                         help="number of samples in flight; each starts Cloud Git with its chat")
     parser.add_argument("--timeout", type=float, default=300.0, metavar="SECONDS")
-    parser.add_argument("--chat-command", default=DEFAULT_CHAT)
-    parser.add_argument("--git-command", default=DEFAULT_GIT)
-    parser.add_argument("--completion-marker", default=None,
-                        help="optional text that must occur in each chat response")
+    parser.add_argument("--chat-command", required=True, help="unbuffered response stream; credentials must not be in argv")
+    parser.add_argument("--git-command", required=True, help="cloud Git operation that must overlap the response")
+    parser.add_argument("--completion-marker", required=True,
+                        help="terminal event that proves the stream completed")
     parser.add_argument("--json", type=Path, metavar="PATH", help="also write the complete JSON receipt")
     args = parser.parse_args(argv)
-    if args.samples <= 0 or args.parallel <= 0 or args.timeout <= 0:
+    if args.samples <= 0 or args.parallel <= 0 or not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("samples, parallel and timeout must be positive")
+    if not args.completion_marker:
+        parser.error("completion-marker must not be empty")
     if args.parallel > args.samples:
         parser.error("parallel cannot exceed samples")
     try:

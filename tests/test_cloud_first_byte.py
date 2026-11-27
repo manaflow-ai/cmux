@@ -20,7 +20,7 @@ class CloudFirstByteHarnessTest(unittest.TestCase):
     def run_harness(self, chat: str, git: str, *extra: str) -> tuple[int, dict]:
         proc = subprocess.run(
             [sys.executable, str(HARNESS), "--samples", "3", "--timeout", "2",
-             "--chat-command", chat, "--git-command", git, *extra],
+             "--chat-command", chat, "--git-command", git, "--completion-marker", "ok", *extra],
             cwd=ROOT, capture_output=True, text=True, check=False,
         )
         line = next(line for line in proc.stdout.splitlines() if line.startswith("CLOUD-FIRST-BYTE "))
@@ -28,7 +28,7 @@ class CloudFirstByteHarnessTest(unittest.TestCase):
 
     def test_records_first_byte_and_concurrent_git(self) -> None:
         chat = py_command("import sys,time; time.sleep(.02); sys.stdout.write('ok'); sys.stdout.flush()")
-        git = py_command("import time; time.sleep(.01)")
+        git = py_command("import time; time.sleep(.3)")
         code, result = self.run_harness(chat, git, "--completion-marker", "ok")
         self.assertEqual(code, 0)
         self.assertEqual(result["samples"], 3)
@@ -56,9 +56,51 @@ class CloudFirstByteHarnessTest(unittest.TestCase):
         git = py_command("import sys; sys.exit(7)")
         code, result = self.run_harness(chat, git, "--completion-marker", "ok")
         self.assertNotEqual(code, 0)
-        self.assertEqual(result["completed"], 3)
+        self.assertEqual(result["completed"], 0)
+        self.assertIsNone(result["median_ms"])
+        self.assertTrue(all(row["first_byte_ms"] is not None for row in result["rows"]))
         self.assertEqual(result["errors"], 3)
         self.assertFalse(result["flow_completed"])
+
+    def test_git_finished_before_response_is_not_overlap(self) -> None:
+        code, result = self.run_harness(py_command("import time; time.sleep(.1); print('ok')"), py_command("pass"))
+        self.assertNotEqual(code, 0)
+        self.assertFalse(result["flow_completed"])
+        self.assertFalse(any(row["git_concurrent"] for row in result["rows"]))
+        self.assertIsNone(result["p95_ms"])
+
+    def test_stderr_is_not_a_response_byte(self) -> None:
+        code, result = self.run_harness(py_command("import sys; print('ok', file=sys.stderr)"),
+                                        py_command("import time; time.sleep(.1)"))
+        self.assertNotEqual(code, 0)
+        self.assertTrue(all(row["first_byte_ms"] is None for row in result["rows"]))
+
+    def test_launch_failure_still_emits_every_sample(self) -> None:
+        code, result = self.run_harness("/nonexistent-cloud-first-byte-command", py_command("pass"))
+        self.assertNotEqual(code, 0)
+        self.assertEqual(len(result["rows"]), 3)
+        self.assertEqual(result["errors"], 3)
+
+    def test_closed_stdout_with_live_process_is_a_timeout_receipt(self) -> None:
+        code, result = self.run_harness(py_command("import os,time; os.close(1); time.sleep(5)"),
+                                        py_command("pass"), "--timeout", ".2")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(result["timeouts"], 3)
+
+    def test_timeout_after_first_byte_keeps_diagnostic_but_not_success(self) -> None:
+        code, result = self.run_harness(py_command("import time; print('partial', flush=True); time.sleep(5)"),
+                                        py_command("import time; time.sleep(5)"), "--timeout", ".2")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(result["timeouts"], 3)
+        self.assertEqual(result["completed"], 0)
+        self.assertTrue(all(row["first_byte_ms"] is not None for row in result["rows"]))
+        self.assertIsNone(result["median_ms"])
+
+    def test_marker_split_across_reads_is_recognized(self) -> None:
+        code, result = self.run_harness(py_command("import time; print('o', end='', flush=True); time.sleep(.02); print('k')"),
+                                        py_command("import time; time.sleep(.3)"))
+        self.assertEqual(code, 0)
+        self.assertEqual(result["completed"], 3)
 
 
 if __name__ == "__main__":
