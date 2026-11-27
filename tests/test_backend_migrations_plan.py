@@ -268,6 +268,26 @@ class BaseCheckout(unittest.TestCase):
         self.assertFalse((trusted / "webviews").exists(), "sparse: backend/ only")
         self.assertEqual(git(trusted, "rev-parse", "HEAD"), self.base)
 
+    def test_a_head_the_mirror_holds_needs_no_head_fetch(self):
+        # The base came from the mirror, so trusted/ borrows its objects; a head the mirror holds is read with no
+        # network instead of a 90 s fetch from github.com (the fetch that stalled on the gate VMs, run 45767986647).
+        (self.src / "backend/db/migrations/0002_more.sql").write_text("create table u (id int);\n")
+        git(self.src, "add", "-A")
+        git(self.src, "commit", "-qm", "head")
+        head = git(self.src, "rev-parse", "HEAD")
+        mirror = self.tmp / "mirror.git"
+        subprocess.run(["git", "clone", "-q", "--mirror", str(self.src), str(mirror)], check=True)
+        (mirror / "cmux-ready").write_text("")
+        code, trusted, log = self.checkout(NO_NETWORK, mirror)
+        self.assertEqual(code, 0, log)
+        trees = next(s for s in plan_steps() if s.get("id") == "trees")["run"]
+        out = self.tmp / "out"
+        env = {**os.environ, **NO_NETWORK, "BASE_SHA": self.base, "HEAD_SHA": head, "GITHUB_OUTPUT": str(out)}
+        result = subprocess.run(["bash", "-e", "-c", trees], cwd=trusted.parent, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("fetch of the head", result.stdout + result.stderr)
+        self.assertEqual(out.read_text().strip(), "same=false")
+
     def test_a_mirror_not_ready_or_without_the_commit_fetches_from_github(self):
         mirror = self.tmp / "mirror.git"
         subprocess.run(["git", "init", "-q", "--bare", str(mirror)], check=True)

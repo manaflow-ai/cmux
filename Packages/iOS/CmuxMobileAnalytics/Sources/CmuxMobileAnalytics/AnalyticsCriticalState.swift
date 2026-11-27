@@ -1,4 +1,9 @@
+#if canImport(os)
 internal import os
+#endif
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
 
 /// Synchronous state for non-async telemetry entrypoints and revocation hooks.
 final class AnalyticsCriticalState<State: Sendable>: Sendable {

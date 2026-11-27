@@ -1,4 +1,7 @@
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// Session delegate for requests routed through a cmux proxy that already
 /// carries its credential.
