@@ -167,7 +167,7 @@ struct ClaudeHookFeedTelemetrySwiftTests {
                 surfaceID: surfaceID,
                 ttyName: ttyName
             ),
-            standardInput: #"{"session_id":"claude-sent-at-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","agent_id":"subagent-7"}"#,
+            standardInput: #"{"session_id":"claude-sent-at-session","source":"startup","cwd":"\#(context.root.path)","hook_event_name":"SessionStart","agent_id":"subagent-7","agent_type":"Explore"}"#,
             timeout: 5
         )
 
@@ -181,6 +181,103 @@ struct ClaudeHookFeedTelemetrySwiftTests {
         let sentAtMs = try #require((event["_hook_sent_at_ms"] as? NSNumber)?.int64Value, "event=\(event)")
         #expect(sentAtMs >= startedAtMs, "event=\(event)")
         #expect(event["agent_id"] as? String == "subagent-7", "event=\(event)")
+        #expect(event["agent_type"] as? String == "Explore", "event=\(event)")
+    }
+
+    /// The app ties a subagent's stop and task notification to the child its
+    /// spawn opened, which needs the spawn's type and tool-use id.
+    @Test func agentSpawnFeedTelemetryCarriesSubagentTypeAndToolUseID() throws {
+        let event = try feedEvent(
+            name: "spawn",
+            subcommand: "pre-tool-use",
+            hookEventName: "PreToolUse",
+            payload: [
+                "session_id": "claude-spawn-session",
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Agent",
+                "tool_use_id": "toolu_spawn_1",
+                "tool_input": ["description": "Audit tests", "subagent_type": "Explore", "prompt": "Read every test."],
+            ]
+        )
+        let toolInput = try #require(event["tool_input"] as? [String: Any], "event=\(event)")
+        #expect(toolInput["subagent_type"] as? String == "Explore", "event=\(event)")
+        #expect(event["tool_use_id"] as? String == "toolu_spawn_1", "event=\(event)")
+    }
+
+    /// A stopped subagent is only reported by the task notification in the
+    /// parent's next prompt. The prompt text is cut to a preview on the way,
+    /// so the ids have to be read from the whole prompt first.
+    @Test func promptFeedTelemetryCarriesFinishedTaskIDs() throws {
+        let prompt = [
+            "<task-notification>",
+            "<task-id>a1656ab09850cfa84</task-id>",
+            "<tool-use-id>toolu_01HkStoppedSubagentSpawn</tool-use-id>",
+            "<output-file>/private/tmp/claude-501/-Users-someone-Developer-a-long-project-name/0f1e2d3c-4b5a-6978-8695-a4b3c2d1e0f9/tasks/a1656ab09850cfa84.output</output-file>",
+            "<status>killed</status>",
+            "<summary>Agent \"slow sleeper\" was stopped</summary>",
+            "</task-notification>",
+            "<task-notification>",
+            "<task-id>monitor-still-running</task-id>",
+            "<event>line of output</event>",
+            "</task-notification>",
+        ].joined(separator: "\n")
+        let event = try feedEvent(
+            name: "notified",
+            subcommand: "prompt-submit",
+            hookEventName: "UserPromptSubmit",
+            payload: [
+                "session_id": "claude-notified-session",
+                "hook_event_name": "UserPromptSubmit",
+                "prompt": prompt,
+            ]
+        )
+        #expect(
+            event["finished_task_ids"] as? [String] == ["toolu_01HkStoppedSubagentSpawn", "a1656ab09850cfa84"],
+            "event=\(event)"
+        )
+    }
+
+    private func feedEvent(
+        name: String,
+        subcommand: String,
+        hookEventName: String,
+        payload: [String: Any]
+    ) throws -> [String: Any] {
+        let context = try FeedTelemetryTestContext(name: name)
+        defer { _ = context }
+
+        let workspaceID = "11111111-1111-1111-1111-111111111111"
+        let surfaceID = "22222222-2222-2222-2222-222222222222"
+        let ttyName = "ttys-claude-\(name)"
+        let feedSeen = DispatchSemaphore(value: 0)
+        startServer(
+            listenerFD: context.listenerFD,
+            state: context.state,
+            workspaceID: workspaceID,
+            focusedSurfaceID: surfaceID,
+            ttyName: ttyName,
+            resolvedSurfaceID: surfaceID,
+            feedSeen: feedSeen
+        )
+        var payload = payload
+        payload["cwd"] = context.root.path
+        let input = String(decoding: try JSONSerialization.data(withJSONObject: payload), as: UTF8.self)
+        let cliPath = try BundledCLITestSupport.bundledCLIPath(for: BundledCLILinkageTests.self)
+        let result = runProcess(
+            executablePath: cliPath,
+            arguments: ["hooks", "claude", subcommand],
+            environment: context.environment(workspaceID: workspaceID, surfaceID: surfaceID, ttyName: ttyName),
+            standardInput: input,
+            timeout: 5
+        )
+
+        #expect(result.timedOut == false, Comment(rawValue: result.stderr))
+        #expect(result.status == 0, Comment(rawValue: result.stderr))
+        #expect(feedSeen.wait(timeout: .now() + 5) == .success, "Expected feed.push, saw \(context.state.commandsSnapshot())")
+        return try #require(
+            context.state.feedEventsSnapshot().last { $0["hook_event_name"] as? String == hookEventName },
+            "Expected \(hookEventName) feed telemetry, saw \(context.state.commandsSnapshot())"
+        )
     }
 }
 
