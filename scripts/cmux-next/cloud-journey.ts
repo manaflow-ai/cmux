@@ -123,7 +123,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { constants as osConstants, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -563,6 +563,13 @@ export const ownerUnreachable = (body: any): boolean => {
   const e = body?.error && typeof body.error === "object" ? body.error : body;
   return e?.code === "owner.unreachable" && e?.retryable === true;
 };
+/**
+ * A machine delete sends the same key again on either retryable answer: a cut-off provider call, or an owner reset
+ * (owner.unreachable). Retrying only the first leaked all six machines of drill run 45979891007 (staging's team
+ * object overloaded and reset, 2026-11-27): each delete answered owner.unreachable once and gave up, and the drills'
+ * long names keep a leak for LONG_JOURNEY_MS before any sweep may delete it.
+ */
+export const deleteRetryable = (body: any): boolean => opRetryable(body) || ownerUnreachable(body);
 /** How long the resume matrix's send arm waits for cmux's own idle pause: the aggressive policy's 60 s window after
  * the turn ends, the VM's next activity report, and the pause itself. */
 const AUTO_PAUSE_WAIT_MS = 300_000;
@@ -633,7 +640,7 @@ export class Api {
   }
   /**
    * A machine delete that must not leak: retried under the same key while the ops API answers it was cut off
-   * (mutation.indeterminate, retryable), for up to `budgetMs`. op() gives up after three tries in about six
+   * (mutation.indeterminate, retryable) or its owner was reset (owner.unreachable), for up to `budgetMs`. op() gives up after three tries in about six
    * seconds, which leaked a machine on a 502 storm (cmux-vm run 42485334511).
    */
   async deleteMachine(machine: string, key: string, budgetMs = DELETE_BUDGET_MS): Promise<any> {
@@ -641,7 +648,7 @@ export class Api {
     await this.fresh();
     for (let attempt = 1; ; attempt++) {
       const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, await this.headers(), 60_000, true);
-      if (opRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
+      if (deleteRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`cloud.machine.delete: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
     }
@@ -1787,17 +1794,36 @@ export function preclaimLoginMode(spare: string | null, machine: string | null =
   return spare !== null && machine === spare ? "preclaim" : "post-bind";
 }
 
-async function installPreclaimLogin(api: Api, machine: string, exec: Exec, programs: ReturnType<typeof loginPrograms>, login: string, index: number, ownerScope: string): Promise<void> {
+/** The guest check that the claude login the preclaim installed is the machine's own (agent-auth.sh); prints own-login. */
+export const OWN_LOGIN_CHECK = ". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login";
+
+/**
+ * One exec that runs the installer on a staged credential, removes the staged file whatever the installer answered,
+ * and on success runs `after` (its stdout is the exec's). Run 46010555997 spent 4552 + 761 ms on four execs in a row
+ * (preflight, installer, rm, own-login check), each a full exec round trip; the installer, rm and check need only one.
+ * The installer's own exit is the exec's when it fails, so a refusal still names itself.
+ */
+export function preclaimInstallCommand(install: string, file: string, after = ""): string {
+  const rm = `rm -f -- ${shq(file)}`;
+  return `(\n${install}\n)\nrc=$?\n${rm}\n[ "$rc" = 0 ] || exit "$rc"\n${after ? `${after}\n` : ""}`;
+}
+
+async function installPreclaimLogin(api: Api, machine: string, exec: Exec, programs: ReturnType<typeof loginPrograms>, login: string, index: number, ownerScope: string, after = ""): Promise<string> {
+  // Its own exec, before the credential is written: the login never lands on a machine not yet the owner's.
   await waitPreflight(exec, programs.preflight, ownerScope, 300_000);
   const folder = "/home/cmux/.cmux/credential-transfer";
   const file = `${folder}/${randomUUID().toUpperCase()}.json`;
+  let removed = false;
   try {
     const wrote = await api.raw("POST", `/v1/cloud/machines/${machine}/fs/write`, { path: file, dataBase64: Buffer.from(login).toString("base64"), mode: 0o644 });
     if (wrote.status < 200 || wrote.status >= 300 || wrote.body?.ok === false) throw new Error(`preclaim ${index}: credential stage refused`);
-    const installed = await exec(programs.install(file));
+    const installed = await exec(preclaimInstallCommand(programs.install(file), file, after));
+    removed = true;
     if (installed.code !== 0) throw new Error(`preclaim ${index}: credential installer refused`);
+    return installed.stdout;
   } finally {
-    await exec(`rm -f -- ${shq(file)}`).catch(() => undefined);
+    // The install exec removes the file itself; only a stage refusal or an exec that never answered leaves it here.
+    if (!removed) await exec(`rm -f -- ${shq(file)}`).catch(() => undefined);
   }
 }
 
@@ -1805,7 +1831,20 @@ async function installPreclaimLogin(api: Api, machine: string, exec: Exec, progr
  * A spare warmed for the account with the person's login copied onto it on spare.ready, as the app's SpareReady path.
  * `readyFrame` and `spareRow` time its refill to ready (preclaimRefillToReady); both null with no spare.
  */
-export type PreparedSpare = { spare: string | null; generation: unknown; leaseId: string | null; request: Record<string, unknown>; readyFrame?: unknown; spareRow?: unknown; warmReason?: string | null };
+export type PreparedSpare = { spare: string | null; generation: unknown; leaseId: string | null; request: Record<string, unknown>; readyFrame?: unknown; spareRow?: unknown; warmReason?: string | null; phases?: PreclaimPhases };
+
+/**
+ * Where one spare's preclaim time went, each phase's own ms in order (prepareSpareLogin): the warm that names the spare,
+ * its spare.ready wait, the ready warm, the row read, the login install, the guest's own-login check and the installed
+ * warm. The step's 12 s on prod (runs 45973327369, 45975681836) had no split, so no part of it could be cut.
+ */
+export type PreclaimPhases = Partial<Record<"warm" | "ready_wait" | "ready_warm" | "row" | "install" | "own_login" | "installed_warm", number>>;
+
+/** The phases as the step's detail names them: `warm 812 ms, ready_wait 6101 ms, ...` in the order they ran. */
+export function preclaimPhasesText(phases: PreclaimPhases | undefined): string {
+  const parts = Object.entries(phases ?? {}).map(([name, ms]) => `${name} ${ms} ms`);
+  return parts.length ? `; phases: ${parts.join(", ")}` : "";
+}
 
 /** A claim's bounded wait for a ready spare: how long, how many warms, and whether the bound ran out first. */
 export type SpareWait = { waited_ms: number; attempts: number; cold_after_wait: boolean; ready_by: "warm" | "claim_path" | null };
@@ -1897,26 +1936,37 @@ export async function prepareSpareLogin(a: {
   journey: Journey;
   readyBudgetMs?: number;
 }): Promise<PreparedSpare> {
+  const phases: PreclaimPhases = {};
+  let mark = Date.now();
+  const lap = (name: keyof PreclaimPhases) => { const now = Date.now(); phases[name] = now - mark; mark = now; };
   const warm = await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, a.request);
+  lap("warm");
   const spare = typeof warm.machine === "string" ? warm.machine : null;
   let copy = warm.copy && typeof warm.copy === "object" ? warm.copy as Record<string, unknown> : {};
   let leaseId = opaquePreclaimLeaseId(warm.lease_id ?? warm.leaseId ?? warm.reservation_id ?? warm.reservationId);
   let readyFrame: unknown = null, spareRow: unknown = null;
   if (spare) {
     const ready0 = await waitForSpareReady(Object.assign(Object.create(Object.getPrototypeOf(a.api)), a.api, { team: a.wireTeam ?? a.api.team }), spare, a.readyBudgetMs);
+    lap("ready_wait");
     readyFrame = ready0.frame;
     const ready = await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, ready: spare });
+    lap("ready_warm");
     leaseId ??= opaquePreclaimLeaseId(ready.lease_id ?? ready.leaseId ?? ready.reservation_id ?? ready.reservationId);
     if (!Object.keys(copy).length && ready.copy && typeof ready.copy === "object") copy = ready.copy as Record<string, unknown>;
     const exec = directExec(a.api, spare, a.journey);
     // The ready wait's own answer when it has one; a frame names no row, so read it (exec-checked, as the wait is).
     spareRow = ready0.row ?? (await waitForSpareReady(a.api, spare, 300_000, { frame: () => new Promise<never>(() => {}) })).row;
-    await installPreclaimLogin(a.api, spare, exec, a.programs, a.login, a.index, a.ownerScope);
-    const own = await exec(". /etc/cmux/agent-auth.sh >/dev/null 2>&1 && HOME=/home/cmux cmux_agent_has_own_login claude && echo own-login");
-    if (!own.stdout.includes("own-login")) throw new Error(`preclaim ${a.index}: guest receipt missing before claim`);
-    if (copy.generation) await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, installed: spare, generation: copy.generation });
+    lap("row");
+    // The own-login check rides the install's exec (preclaimInstallCommand): install covers both now.
+    const own = await installPreclaimLogin(a.api, spare, exec, a.programs, a.login, a.index, a.ownerScope, OWN_LOGIN_CHECK);
+    lap("install");
+    if (!own.includes("own-login")) throw new Error(`preclaim ${a.index}: guest receipt missing before claim`);
+    if (copy.generation) {
+      await runWarmSpare(a.cmux, a.api, a.stateDir, a.installToken, { ...a.request, installed: spare, generation: copy.generation });
+      lap("installed_warm");
+    }
   }
-  return { spare, generation: copy.generation, leaseId, request: a.request, readyFrame, spareRow, warmReason: spare ? null : warmReasonToken(warm.reason) };
+  return { spare, generation: copy.generation, leaseId, request: a.request, readyFrame, spareRow, warmReason: spare ? null : warmReasonToken(warm.reason), phases };
 }
 
 /** Whether the claim answer's machine carries the login the spare's copy installed (warm-spare loginReceipt). */
@@ -3200,6 +3250,78 @@ export async function desktopLinkDial(cmux: string, api: Pick<Api, "origin" | "b
   }
 }
 
+/** A runner-local receipt, never proof for another run or an operator's --delete-ids. */
+export type WakeCleanupScope = { repository: string; run: string; attempt: string; job: string; api: string; team: string };
+type WakeCleanupRecord = { version: 1; scope: WakeCleanupScope; machine: string; key: string };
+const WAKE_SCOPE_FIELDS = ["repository", "run", "attempt", "job", "api", "team"] as const;
+
+function wakeCleanupScope(backend: Backend, team: string | undefined): WakeCleanupScope {
+  if (backend.name !== "staging" || backend.api !== resolveBackend("staging").api) throw new Error("wake cleanup records are staging only");
+  const env = process.env;
+  if (![env.GITHUB_REPOSITORY, env.GITHUB_RUN_ID, env.GITHUB_RUN_ATTEMPT, env.GITHUB_JOB].every(Boolean)) {
+    throw new Error("wake cleanup records need the current GitHub run, attempt and job");
+  }
+  return { repository: env.GITHUB_REPOSITORY!, run: env.GITHUB_RUN_ID!, attempt: env.GITHUB_RUN_ATTEMPT!, job: env.GITHUB_JOB!, api: backend.api, team: team ?? "" };
+}
+
+export function writeWakeCleanup(file: string, scope: WakeCleanupScope, machine: string, key: string): void {
+  // Persist immediately after create answers, before status, exec or measurement. Atomic replacement means a killed
+  // process cannot leave a half-written JSON receipt. The file contains no token and stays on this job's runner.
+  writeFileSync(`${file}.tmp`, JSON.stringify({ version: 1, scope, machine, key }), { mode: 0o600 });
+  renameSync(`${file}.tmp`, file);
+}
+
+export function readWakeCleanup(file: string, scope: WakeCleanupScope): WakeCleanupRecord | null {
+  let raw: string;
+  try { raw = readFileSync(file, "utf8"); } catch (e) { if ((e as NodeJS.ErrnoException).code === "ENOENT") return null; throw e; }
+  const value = JSON.parse(raw);
+  if (value?.version !== 1 || !/^vm_[a-zA-Z0-9]+$/.test(value.machine ?? "") || !/^jr-[a-z0-9]+-cleanup-delete$/.test(value.key ?? "")) {
+    throw new Error("invalid wake cleanup record");
+  }
+  if (!value.scope || WAKE_SCOPE_FIELDS.some((field) => value.scope[field] !== scope[field])) throw new Error("wake cleanup record scope differs from this job");
+  return value;
+}
+
+export async function cleanupWakeMachine(record: WakeCleanupRecord | null, deps: {
+  get: (id: string) => Promise<{ status: string } | null>;
+  remove: (id: string, key: string) => Promise<unknown>;
+}): Promise<void> {
+  if (!record) return;
+  const gone = (row: { status: string } | null) => row === null || row.status === "deleted" || row.status === "deleting";
+  if (gone(await deps.get(record.machine))) return;
+  let failure: unknown;
+  try { await deps.remove(record.machine, record.key); } catch (e) { failure = e; }
+  // A timed-out or indeterminate answer does not prove deletion failed; read back the same ID in either case.
+  if (gone(await deps.get(record.machine))) return;
+  if (failure) throw failure;
+  throw new Error(`wake cleanup delete not confirmed for ${record.machine}`);
+}
+
+async function cleanupWakeMode(file: string, backend: Backend, email: string | undefined, password: string | undefined, team: string | undefined): Promise<number> {
+  const record = readWakeCleanup(file, wakeCleanupScope(backend, team));
+  if (!record) { console.log("wake cleanup: no returned machine ID recorded"); return 0; }
+  if (!email || !password) throw new Error("wake cleanup needs the staging agent test account");
+  const signed = await passwordSignIn(STACK[backend.stack], email, password);
+  const api = new Api(backend.api, team);
+  api.bearer = signed.access;
+  const get = async (id: string) => {
+    try { return await api.read("cloud.machine.get", { machine: id }); }
+    catch (e) { if (/HTTP 404|cloud\.machine\.not_found/.test(String((e as Error).message))) return null; throw e; }
+  };
+  try {
+    await cleanupWakeMachine(record, {
+      get,
+      // Same key as the interrupted in-process cleanup; deleteMachine bounds and retries indeterminate answers.
+      remove: (id, key) => api.deleteMachine(id, key, 180_000),
+    });
+    console.log(JSON.stringify({ wake_cleanup: record.machine, read_back: "gone or deleting" }));
+    return 0;
+  } catch (e) {
+    console.log(scrub(`wake cleanup failed: ${String((e as Error).message)}`, [password, signed.access, signed.refresh]));
+    return 1;
+  }
+}
+
 /**
  * --cleanup-tag TAG: deletes the machines a journey run with this tag made (`cloud journey auto TAG` and its gateway,
  * by exact name, never another run's), each logged first. For a workflow's always() step: the run's own cleanup is
@@ -4338,7 +4460,21 @@ export function autoMachineName(tag: string, long: boolean): string {
 }
 /** And idle this long: a machine with activity since then is in use, whatever its age (a hand run has no timeout). */
 export const IDLE_JOURNEY_MS = 60 * 60_000;
+/**
+ * A failed machine is dead whatever its age: the platform never brings a failed machine back, so a run's own
+ * window is no reason to keep it. Its own run deletes it inside the failing step (a create_overdue answer, then up to
+ * DELETE_BUDGET_MS of delete), so a failed machine is the sweep's once its tag is this old. Waiting LONG_JOURNEY_MS
+ * instead grew the drill account about 11 machines per drill pair (run 45979891007 left six failed ones; census
+ * 10:29Z 2026-11-27: 130 machines, 37 failed) while each sweep deleted 0-1.
+ */
+export const FAILED_JOURNEY_MS = 15 * 60_000;
 export interface StaleMachine { id: string; name: string; status: string; created: string }
+/** The account's machines counted by state, for the sweep's before and after (`running 12, paused 63, failed 37`). */
+export function machinesByState(rows: any[]): string {
+  const n = new Map<string, number>();
+  for (const r of rows) { const s = String(r?.status ?? "?"); n.set(s, (n.get(s) ?? 0) + 1); }
+  return [...n].sort((a, b) => b[1] - a[1]).map(([s, c]) => `${s} ${c}`).join(", ") || "none";
+}
 
 /**
  * The machines earlier journey runs meant to delete and left behind (killed or timed out before their cleanup):
@@ -4347,7 +4483,8 @@ export interface StaleMachine { id: string; name: string; status: string; create
  * staging test team to its 300-machine cap, cloud.quota.vm_limit on 2026-11-25), a name only a run that deletes its
  * machine gives, whose tag (`Date.now().toString(36)`, the run's start) is more than `maxAgeMs` old (`longMs` for a
  * long run's `jr-<tag> long…`), with no activity
- * in the last IDLE_JOURNEY_MS (`last_active_at`, when the row has it), and not deleted.
+ * in the last IDLE_JOURNEY_MS (`last_active_at`, when the row has it), and not deleted. A failed one is picked once
+ * its tag is FAILED_JOURNEY_MS old, whatever its window or activity.
  * Ownership is the name, never age or state: a --keep run's `cloud journey jr-<tag>`, any other name, and a tag that
  * does not read as a time are never picked.
  */
@@ -4363,8 +4500,8 @@ export function staleJourneyMachines(rows: any[], nowMs: number, maxAgeMs = STAL
     const started = parseInt(m[1], 36);
     // A real tag is a millisecond time after 2020 and not in the future.
     if (!Number.isFinite(started) || started < Date.UTC(2020, 0, 1) || started > nowMs) continue;
-    if (nowMs - started <= (m[2] ? longMs : maxAgeMs)) continue;
-    if (typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
+    if (r.status === "failed" ? nowMs - started <= FAILED_JOURNEY_MS : nowMs - started <= (m[2] ? longMs : maxAgeMs)) continue;
+    if (r.status !== "failed" && typeof r.last_active_at === "number" && nowMs - r.last_active_at <= IDLE_JOURNEY_MS) continue;
     const id = String(r.id ?? r.machine_id ?? "");
     const created = typeof r.created_at === "number" ? new Date(r.created_at).toISOString() : new Date(started).toISOString();
     if (id) out.push({ id, name, status: String(r.status ?? "?"), created });
@@ -4645,24 +4782,53 @@ export function leakProof(log: string, id: string): string | null {
   return seenCreate ? `the job's journey made ${id} but logged no failed cleanup delete for it` : `the job's log has no journey that made ${id}`;
 }
 
-type GhGet = (url: string, headers: Record<string, string>) => Promise<{ status: number; location: string | null; text: string }>;
+type GhResponse = { status: number; location: string | null; text: string; remaining?: string | null; reset?: string | null; retryAfter?: string | null };
+type GhGet = (url: string, headers: Record<string, string>) => Promise<GhResponse>;
 
 const ghGet: GhGet = async (url, headers) => {
   const res = await fetch(url, { headers, redirect: "manual", signal: AbortSignal.timeout(60_000) });
   const text = await res.text();
-  return { status: res.status, location: res.headers.get("location"), text: text.slice(0, 64 * 1024 * 1024) };
+  return {
+    status: res.status, location: res.headers.get("location"), text: text.slice(0, 64 * 1024 * 1024),
+    remaining: res.headers.get("x-ratelimit-remaining"), reset: res.headers.get("x-ratelimit-reset"),
+    retryAfter: res.headers.get("retry-after"),
+  };
 };
 
 /**
  * The GitHub side of the proof: the job is PROOF_JOB of PROOF_WORKFLOW in a trusted run of JOURNEY_REPO (PROOF_EVENTS,
  * its own head repository, PROOF_BRANCHES), and its log has leakProof's two lines. Null when proven, else why not. The log's download link is fetched without the token.
  */
-export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet = ghGet): Promise<string | null> {
+export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet = ghGet,
+  clock: { now: () => number; sleep: (ms: number) => Promise<unknown> } = { now: Date.now, sleep },
+): Promise<string | null> {
   const api = `https://api.github.com/repos/${JOURNEY_REPO}/actions`;
   const auth = { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28" };
-  const json = async (url: string) => {
+  const diagnostic = (r: GhResponse) => {
+    // Redact before truncating: a cut through a token must never expose its prefix.
+    const safe = (text: string) => scrub(token ? text.split(token).join("[secret]") : text);
+    const body = Buffer.from(safe(r.text)).subarray(0, 200).toString("utf8").replace(/\uFFFD$/, "");
+    return `HTTP ${r.status}; x-ratelimit-remaining=${safe(r.remaining ?? "unknown")}; x-ratelimit-reset=${safe(r.reset ?? "unknown")}; retry-after=${safe(r.retryAfter ?? "unknown")}; body=${JSON.stringify(body)}`;
+  };
+  const read = async (url: string) => {
     const r = await get(url, auth);
-    if (r.status !== 200) throw new Error(`GET ${url.slice(api.length)}: HTTP ${r.status}`);
+    if ((r.status !== 403 && r.status !== 429) || r.remaining !== "0") return r;
+    const now = clock.now();
+    const reset = r.reset && /^\d+$/.test(r.reset) ? Number(r.reset) * 1000 - now : NaN;
+    const retry = r.retryAfter
+      ? (/^\d+$/.test(r.retryAfter) ? Number(r.retryAfter) * 1000 : Date.parse(r.retryAfter) - now)
+      : NaN;
+    const delays = [reset, retry].filter(Number.isFinite);
+    if (!delays.length) return r;
+    // Honor both headers. Longer resets belong to a later run, not an hour-long cleanup job.
+    const delay = Math.max(1000, ...delays);
+    if (delay > 60_000) return r;
+    await clock.sleep(delay);
+    return get(url, auth);
+  };
+  const json = async (url: string) => {
+    const r = await read(url);
+    if (r.status !== 200) throw new Error(`GET ${url.slice(api.length)}: ${diagnostic(r)}`);
     return JSON.parse(r.text);
   };
   try {
@@ -4677,13 +4843,13 @@ export async function provenLeak(entry: DeleteEntry, token: string, get: GhGet =
     if (!PROOF_BRANCHES.has(String(run?.head_branch)) || job.head_branch !== run.head_branch) return `job ${entry.job}: branch ${short(run?.head_branch)} is not feat-cmux-next or main`;
     const workflow = String(run?.path ?? "").replace(/@.*$/, "");
     if (workflow !== PROOF_WORKFLOW) return `job ${entry.job}: workflow ${workflow || "?"} is not ${PROOF_WORKFLOW}`;
-    const link = await get(`${api}/jobs/${entry.job}/logs`, auth);
+    const link = await read(`${api}/jobs/${entry.job}/logs`);
     let log = link.text;
     if (link.status === 302 && link.location) {
       const blob = await get(link.location, {});
       if (blob.status !== 200) return `job ${entry.job}: its log download answered HTTP ${blob.status}`;
       log = blob.text;
-    } else if (link.status !== 200) return `job ${entry.job}: its log answered HTTP ${link.status}`;
+    } else if (link.status !== 200) return `job ${entry.job}: its log answered ${diagnostic(link)}`;
     const why = leakProof(log, entry.id);
     return why ? `job ${entry.job}: ${why}` : null;
   } catch (e) {
@@ -5074,8 +5240,13 @@ export function newReds(before: Step[] | null, after: Step[]): Step[] {
  * Whether every new red is the platform turning the journey away for capacity (no machine to give, or a rate limit),
  * not the deploy breaking a step: such a red never rolls a deploy back (`--compare` exits 4). A machine that was
  * given and then failed (vm_unavailable on its first exec, a crash) is not capacity: a bad build does that.
+ *
+ * `cloud.quota.headroom` (capacityPreflight: the team's machines are all in use by other journeys) and
+ * `cloud.quota.exceeded` (createWithRoom: a create refused at the cap) are the same: cmux-vm.yml run 46001354720's
+ * after-deploy journey went red on "quota_headroom:account-team used 5/5, need 2" while cmux-platform's own deploy
+ * journeyed on that team, and NOW's cloud_deploy_gate read the deploy as broken.
  */
-export const CAPACITY_RED = /\b429\b|rate.?limit|too many requests|no (?:machine|spare|capacity)s? (?:is |are )?available|out of capacity|at capacity|insufficient capacity|no_capacity/i;
+export const CAPACITY_RED = /\b429\b|rate.?limit|too many requests|no (?:machine|spare|capacity)s? (?:is |are )?available|out of capacity|at capacity|insufficient capacity|no_capacity|cloud\.quota\.(?:headroom|exceeded)\b/i;
 export function capacityOnly(reds: Step[]): boolean {
   return reds.length > 0 && reds.every((s) => CAPACITY_RED.test(s.detail));
 }
@@ -5107,6 +5278,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return 4;
     }
     return reds.length ? 3 : 0;
+  }
+  // --capacity-only JOURNEY.json: exit 0 when the run's failed steps are all capacity (capacityOnly), 1 otherwise, so
+  // cloud-journey-ci.sh writes verdict not-run for a journey the platform turned away instead of red.
+  const capOnly = argv.indexOf("--capacity-only");
+  if (capOnly >= 0) {
+    let steps: Step[] = [];
+    try { steps = (JSON.parse(readFileSync(argv[capOnly + 1], "utf8")).steps as Step[]) ?? []; } catch { return 1; }
+    return capacityOnly(steps.filter((s) => s.status === "fail")) ? 0 : 1;
   }
   const backendArg = argValue("--backend", argv) ?? (argValue("--api", argv) ? "custom" : "staging");
   const backendName = normalizeBackendName(backendArg, argValue("--api", argv));
@@ -5145,6 +5324,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const kept = argValue("--delete-kept", argv);
   if (kept !== undefined) return deleteKeptMode(kept, backend, email, password, team, signIn);
   if (argv.includes("--surge")) return surgeMode(backend, outDir, email, password, team, signIn);
+  const cleanupWakeRecord = argValue("--cleanup-wake-record", argv);
+  if (cleanupWakeRecord !== undefined) return cleanupWakeMode(cleanupWakeRecord, backend, email, password, team);
   const cleanupTag = argValue("--cleanup-tag", argv);
   if (cleanupTag !== undefined) return cleanupTagMode(cleanupTag, backend, email, password, team, argv.includes("--kept"));
   const agent = argValue("--agent", argv) ?? "claude";
@@ -5197,7 +5378,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   // (the page-in, hq#17877's resume-memory-probe.sh measure, now beside the matrix's points).
   // --wake-echo N: right after the machine runs, N platform pause/wake cycles timed to the first echo of a typed
   // character (cloud-wake-echo.ts), then the machine is deleted; nothing else of the journey runs.
+  const cleanupCreatedIdsOnly = argv.includes("--cleanup-created-ids-only");
   const wakeEchoN = Number(argValue("--wake-echo", argv) ?? 0);
+  const wakeCleanupRecord = argValue("--wake-cleanup-record", argv);
+  const wakeScope = wakeCleanupRecord === undefined ? null : wakeCleanupScope(backend, team);
+  if (wakeScope && (wakeEchoN < 1 || keep || preclaim || argv.includes("--app-cli"))) throw new Error("--wake-cleanup-record requires a new wake-echo machine");
   const wakeEchoHoldMs = Number(argValue("--wake-echo-hold", argv) ?? 5) * 1000;
   const wakeEchoDeadline = argValue("--wake-echo-deadline", argv);
   const resumeFill = Number(argValue("--resume-fill", argv) ?? 0);
@@ -5308,6 +5493,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   };
   // The journey-only checks, once the machine runs: after the reply, or after the failure that cut the chat off.
   let runJourneyOnly: (() => Promise<void>) | null = null;
+  // The Cloud scroll-stress probe (SCROLL_PROBE_STEP), once the machine runs: after the carrier dial, or after the
+  // failure that cut the chat off, so a red chat still measures the Cloud terminal surface.
+  let runScrollProbe: (() => Promise<void>) | null = null;
   // What probe.json adds once create answered: the claim's spare report, claimed_spare and the failure facts.
   const probeExtra: ProbeExtra = {};
   J.warm = () => spareTaken(probeExtra);
@@ -5422,7 +5610,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     if (deleted) return;
     let id = machine;
-    if (!id) {
+    if (!id && !cleanupCreatedIdsOnly) {
       // Every page: the machine may sit past the first (a shared account's list).
       const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
       id = rows.find((r) => r?.name === machineName && r.status !== "deleted")?.id ?? null;
@@ -5502,7 +5690,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const v = await api.op("user.ensure", {}, `${tag}-ensure`);
       return { value: v, detail: `user ${v.id ?? v.user?.id ?? "?"}` };
     });
-    if (!keep) {
+    if (!keep && !cleanupCreatedIdsOnly) {
       // Installs that killed runs left live fill the account's state until install.register is refused
       // (owner.state_full). Revoked ones past 100 are pruned, so revoking frees the space. Never fails the journey.
       const name = "sweep leaked journey installs";
@@ -5641,7 +5829,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `was ${before}; set before the chat machine is made, so its edge route goes to the gateway` };
       });
     }
-    if (!keep) {
+    if (!keep && !cleanupCreatedIdsOnly) {
       // Machines that killed or timed-out runs left behind hold the account's quota (cloud.quota.exceeded at create).
       // A sweep error never fails the journey: the step is recorded as skipped with the error, and create goes on.
       const name = "sweep leaked journey machines";
@@ -5656,7 +5844,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           console.log(`sweep: deleting ${m.id} "${m.name}" status ${m.status} created ${m.created}`);
           await api.deleteMachine(m.id, `${tag}-sweep-${m.id}`).catch((e) => failed.push(`${m.id}: ${err(e)}`));
         }
-        const detail = `${stale.length - failed.length} of ${stale.length} leaked deleted (${rows.length} machines)${stale.length ? `: ${stale.map((m) => m.id).join(", ")}` : ""}${failed.length ? `; failed ${failed.join("; ")}` : ""}`;
+        // The account's count by state before and after, so a run's log shows whether the account is shrinking.
+        const after = await listAllMachines((params) => api.read("cloud.machine.list", params)).then((r) => `${r.length} machines: ${machinesByState(r)}`, (e) => `list failed: ${err(e)}`);
+        console.log(`sweep: before ${rows.length} machines: ${machinesByState(rows)}; after ${after}`);
+        const detail = `${stale.length - failed.length} of ${stale.length} leaked deleted; before ${rows.length} machines: ${machinesByState(rows)}; after ${after}${stale.length ? `: ${stale.map((m) => m.id).join(", ")}` : ""}${failed.length ? `; failed ${failed.join("; ")}` : ""}`;
         J.record({ step: name, status: failed.length ? "skip" : "pass", ms: Date.now() - t0, detail });
       } catch (e) {
         J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `list failed: ${err(e)}` });
@@ -5703,7 +5894,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           }), preclaimSpareWait * 1000, { ready: (ms) => waitForAnySpareReady({ ...api, team: wireTeam }, ms) });
           prepared = got;
           const waited = wait ? `; waited ${wait.waited_ms} ms over ${wait.attempts} warm(s)${wait.cold_after_wait ? ", bound ran out" : wait.ready_by === "claim_path" ? ", the claim path's spare ready" : ""}` : "";
-          J.record({ step: name, status: prepared.spare ? "pass" : "skip", ms: Date.now() - t0, detail: (prepared.spare ? `a spare warmed; the login copied on its spare.ready and reported installed${prepared.generation ? "" : " (no copy generation: no receipt to read)"}` : "warm-spare named no spare: the login goes with the agent's start") + waited });
+          J.record({ step: name, status: prepared.spare ? "pass" : "skip", ms: Date.now() - t0, detail: (prepared.spare ? `a spare warmed; the login copied on its spare.ready and reported installed${prepared.generation ? "" : " (no copy generation: no receipt to read)"}` : "warm-spare named no spare: the login goes with the agent's start") + waited + preclaimPhasesText(prepared.phases) });
         } catch (e) {
           prepared = null;
           J.record({ step: name, status: "skip", ms: Date.now() - t0, detail: `the login goes with the agent's start: ${String((e as Error)?.message ?? e).slice(0, 300)}` });
@@ -5790,6 +5981,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const v = room.value;
           if (room.refusals) console.log(`create machine: waited ${Math.round(room.waitedMs / 1000)} s for room (${room.refusals} cloud.quota refusals)`);
           machine = v.machine.id as string;
+          if (wakeCleanupRecord && wakeScope) writeWakeCleanup(wakeCleanupRecord, wakeScope, machine, `${tag}-cleanup-delete`);
           createAnsweredAt = Date.now();
           afterCreate = J.steps.length;
           J.firstText.mark("created");
@@ -5843,8 +6035,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             await api.op("cloud.machine.pause", { machine: created.id }, `${tag}-we-pause-${k++}`);
             return awaitPaused(async () => String((await row())?.status ?? "unread"), t0, 180_000);
           },
-          wake: () => startWithRetry(
-            (key) => api.raw("POST", "/v1/ops", { op: "cloud.machine.start", params: { machine: created.id }, idempotency_key: key }, 180_000),
+          wake: (recordAttempt) => startWithRetry(
+            async (key) => {
+              const sent = Date.now();
+              const r = await api.raw("POST", "/v1/ops", { op: "cloud.machine.start", params: { machine: created.id }, idempotency_key: key }, 180_000);
+              const answered = Date.now();
+              const timing = parseServerTiming(r.headers?.get("server-timing"));
+              const metrics = Object.fromEntries(Object.entries(timing ?? {}).filter(([name, ms]) =>
+                ["provider", "vmapi", "bind", "pre", "finish", "total"].includes(name) && Number.isFinite(ms)));
+              recordAttempt?.({ sent_at_ms: sent, answered_at_ms: answered, http_status: r.status,
+                machine_status: r.body?.value?.machine?.status ?? null, timing_ms: metrics });
+              return r;
+            },
             () => `${tag}-we-start-${k++}`,
             async () => String((await row())?.status ?? "unread"),
             180_000,
@@ -5876,6 +6078,28 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: r.stdout.trim() || "clean" };
       });
     }
+    // Report only: a probe that does not run leaves the Cloud surface unmeasured (NOW reads it unknown, never 0)
+    // instead of turning the chat journey red. `--skip scroll` leaves it out. The production journeys pass no --cmux
+    // (the carrier dial stays off there) but do pass the shipped cmux-tui as --preclaim-login, which serves the probe.
+    // Every production run from 11-27 04:16Z to 06:24Z failed at "reply" (no inference gateway online, Codex not
+    // signed in), and the probe sat after it behind --cmux, so the Cloud surface never got a reading.
+    const scrollCmux = cmux ?? preclaimLoginCmux;
+    let scrollProbeStarted = false;
+    const scrollProbe = async () => {
+      if (scrollProbeStarted) return;
+      scrollProbeStarted = true;
+      if (only.has("scroll")) return J.skip(SCROLL_PROBE_STEP, "--skip scroll");
+      if (!scrollCmux) return J.skip(SCROLL_PROBE_STEP, "not measured: no cmux-tui (--cmux or --preclaim-login)");
+      const t0 = Date.now();
+      try {
+        const t = await carrierScrollProbe(scrollCmux, api, created.id);
+        probeExtra.terminal_scroll = t;
+        J.record({ step: SCROLL_PROBE_STEP, status: "pass", ms: Date.now() - t0, detail: scrollDetail(t) });
+      } catch (e) {
+        J.record({ step: SCROLL_PROBE_STEP, status: "skip", ms: Date.now() - t0, detail: `not measured: ${(e as Error).message}`.slice(0, 1000) });
+      }
+    };
+    runScrollProbe = scrollProbe;
     // The checks only the journey makes (JOURNEY_ONLY_STEPS): none is part of what a person's chat waits on, so they
     // run after the reply, outside J.firstText's create-to-first-text window (they cost about 6 s at p50 inside it).
     // A run cut off before the reply runs them after the failure, before cleanup, so each still passes or fails.
@@ -6832,19 +7056,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const d = await carrierDial(cmux, api, created.id);
         return { value: null, detail: dialDetail(d) };
       });
-      // Report only: a probe that does not run leaves the Cloud surface unmeasured (NOW reads it unknown, never 0)
-      // instead of turning the chat journey red. `--skip scroll` leaves it out.
-      if (only.has("scroll")) J.skip(SCROLL_PROBE_STEP, "--skip scroll");
-      else {
-        const t0 = Date.now();
-        try {
-          const t = await carrierScrollProbe(cmux, api, created.id);
-          probeExtra.terminal_scroll = t;
-          J.record({ step: SCROLL_PROBE_STEP, status: "pass", ms: Date.now() - t0, detail: scrollDetail(t) });
-        } catch (e) {
-          J.record({ step: SCROLL_PROBE_STEP, status: "skip", ms: Date.now() - t0, detail: `not measured: ${(e as Error).message}`.slice(0, 1000) });
-        }
-      }
+      await scrollProbe();
       if (autocloudTui) {
         await J.step("autocloud TUI chat (cmux-autocloud --machine)", async () => ({ value: null, detail: autocloudTuiChat(autocloudTui, cmux, api, created.id, agent, modelStub ? null : "pong") }));
       }
@@ -6858,6 +7070,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: `${r.body.value.relay}, ticket until ${r.body.value.expires_at}, grant and daemon key present` };
       });
       J.skip("connect (carrier dial)", "--cmux is required for a carrier dial");
+      await scrollProbe();
     }
     if (createAnsweredAt !== null) {
       await J.step("guest carrier timeline", async () => {
@@ -7159,6 +7372,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // A red run is the one whose trace matters most: save it before cleanup deletes the machine.
     await saveSendTraceOnce();
     await runJourneyOnly?.().catch(() => undefined);
+    await runScrollProbe?.().catch(() => undefined);
   } finally {
     await finishJourney(cleanup, firstTextObserver, onSignal);
   }
