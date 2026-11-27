@@ -91,7 +91,8 @@ mod tests {
                 assert_eq!(request["params"]["value"], "high");
             }
         }
-        app.scope.close(std::time::Duration::from_secs(1)).await;
+        let report = app.scope.close(std::time::Duration::from_secs(1)).await;
+        assert!(report.joined(), "{report}");
     }
 
     #[test]

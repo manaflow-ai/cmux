@@ -240,7 +240,10 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
             _ = tokio::time::sleep_until(settle) => break,
         }
     }
-    app.scope.close(std::time::Duration::from_secs(1)).await;
+    let report = app.scope.close(std::time::Duration::from_secs(1)).await;
+    if !report.joined() {
+        tracing::warn!(%report, "terminal UI tasks ignored shutdown");
+    }
     app.set_pointer(false);
     let _ = crossterm::execute!(
         std::io::stdout(),
