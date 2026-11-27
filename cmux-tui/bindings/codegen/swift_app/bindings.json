@@ -2049,7 +2049,7 @@
       }
     },
     "TerminalIO": {
-      "$comment": "Hand-written still: set-attach-visibility, clear-history, the clipboard subscribe and reply, cancel-creating-input, release-attached-view-size, set-size-counts, detach-attached-view, resize-attached-view and snapshot (the schema adds a capability the app lacks); set-size-policy (nested Policy); send (two Swift types share it, and SendInputRequest's public Data field needs public import Foundation); attach-surface (its init does work); terminal-find (the schema adds max_matches and page_rows).",
+      "$comment": "Hand-written still: set-attach-visibility, clear-history, the clipboard subscribe and reply, cancel-creating-input, release-attached-view-size, set-size-counts, detach-attached-view, resize-attached-view and snapshot (the schema adds a capability the app lacks); set-size-policy (nested Policy); send (two Swift types share it, and SendInputRequest's public Data field needs public import Foundation); attach-surface (its init does work).",
       "enums": {},
       "requests": {
         "send-key": {
@@ -2168,6 +2168,63 @@
             }
           },
           "response": "hand-written"
+        },
+        "terminal-find": {
+          "name": "TerminalFindRequest",
+          "doc": [
+            "`terminal-find`: one page of Cmd-F matches over a PTY surface's whole retained history, newest",
+            "first (cmux-tui `spec/commands.md`). The daemon matches and pages; a client asks for the next",
+            "page with the previous `nextBefore` and `epoch`. A daemon without the command answers",
+            "\"unknown variant\", which the caller treats as no history search."
+          ],
+          "order": [
+            "surface",
+            "query",
+            "case_sensitive",
+            "whole_word",
+            "regex",
+            "before",
+            "epoch",
+            "page_rows",
+            "max_matches"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "case_sensitive": {
+              "optional": false,
+              "default": "false",
+              "encode": "always"
+            },
+            "whole_word": {
+              "optional": false,
+              "default": "false",
+              "encode": "always"
+            },
+            "regex": {
+              "optional": false,
+              "default": "false",
+              "encode": "always"
+            }
+          },
+          "response": "hand-written"
+        },
+        "offer-link-to-phone": {
+          "name": "OfferLinkToPhoneRequest",
+          "doc": [
+            "`offer-link-to-phone`: a program in terminal `terminalID` asked a browser for `url`",
+            "(`browser.open_link`). The daemon owns the terminals and the phone's connections, so it",
+            "decides: when a phone drives the terminal (its last key came from that phone, recently) and",
+            "the address is public, the phone gets the link and opens it, and `Response.offered` is",
+            "true; the app then opens nothing. Otherwise it is false and the app opens the link as before.",
+            "A daemon older than this command answers with an error: the app opens it as before too."
+          ],
+          "order": [
+            "terminal_id",
+            "url"
+          ],
+          "response": "generate"
         }
       }
     },
