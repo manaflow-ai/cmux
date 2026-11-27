@@ -20,6 +20,7 @@ pub mod peer_state;
 pub mod permission;
 pub mod presence;
 pub mod process;
+pub mod range;
 pub mod session;
 pub mod signature;
 pub mod sync;
@@ -635,9 +636,11 @@ pub fn registry() -> Vec<MethodDecl> {
         // schema would describe itself.
         request::<ProtocolParams, Value>(method::MUX_PROTOCOL),
         untyped(method::MUX_SHUTDOWN, Request),
+        untyped(method::MUX_HEAP_PROFILE, Request),
         keyed::<params::PeersParams>("_acpmux/peers", Request),
         untyped("_acpmux/peer_status", Request),
         untyped("_acpmux/host_health", Request),
+        untyped("_acpmux/wireguard_admit", Request),
         untyped("_acpmux/host_overload", Request),
         untyped("_acpmux/vm_host", Request),
         untyped("_acpmux/autocloud_enroll", Request),

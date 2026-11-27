@@ -32,6 +32,9 @@ impl HolderService {
                     .envs(crate::terminal_host_runtime::spawned_orphan_grace().map(|grace| {
                         (cmux_holder::ORPHAN_GRACE_ENV, grace.as_millis().to_string())
                     }))
+                    // The holder ends its terminals once this file is gone
+                    // (its state root deleted): no daemon can link it again.
+                    .envs(self.token_file.as_ref().map(|path| (cmux_holder::TOKEN_FILE_ENV, path)))
                     .stdin(Stdio::piped())
                     .stdout(Stdio::piped())
                     .stderr(Stdio::null());

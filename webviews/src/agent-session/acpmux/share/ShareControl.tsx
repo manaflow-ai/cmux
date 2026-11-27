@@ -14,6 +14,7 @@ import { NoticeStack, createNoticeQueue } from "../../../ui/NoticeStack";
 import { useAutoRetry } from "../autoRetry";
 import { useT, translate } from "../i18n";
 import { copyTextResult } from "../conversation/clipboard";
+import { NativeError } from "../nativeError";
 import { ShareDialogBody } from "./ShareDialog";
 import {
   inviteStep,
@@ -42,6 +43,17 @@ function shareRefusalText(error: unknown): string | undefined {
   if (code === "share.limit") return translate("share.error.limit");
   if (code === "share.room_unreachable") return translate("share.error.offline");
   if (code === "share.room_refused") return translate("share.error.refused");
+  // The app's own sentence for a share refusal (AgentShareStrings: share.room_unconfigured's "This
+  // Cloud machine can't make share links yet…", share.not_owner's, …) arrives as a bridge
+  // error's message, already in the app's language: the person reads that, not the generic line.
+  if (
+    error instanceof NativeError &&
+    typeof code === "string" &&
+    code.startsWith("share.") &&
+    error.message.trim() !== "" &&
+    error.message !== translate("error.requestFailed")
+  )
+    return error.message;
   return undefined;
 }
 
@@ -189,6 +201,11 @@ export function ShareDialogHost({
           onInvite={invite}
           onRole={(account: string, role: ShareRole) => void step(() => client.setRole(account, role))}
           onRemove={(account: string) => void step(() => client.remove(account))}
+          onApprove={(account: string, role: ShareRole) =>
+            void step(() => client.approve(account, role), translate("share.approved", { account }))
+          }
+          // Silent (RFD 0077 D2): the row goes, nothing is said here or to them.
+          onDecline={(account: string) => void step(() => client.decline(account))}
           onGeneral={general}
           onCopy={copy}
           onDone={() => onOpenChange(false)}
