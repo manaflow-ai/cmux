@@ -34,6 +34,11 @@ on:
           - default
           - universal
           - arm64
+      app_compilation_cache_canary:
+        description: Enable the app-host compilation cache for one bounded main-branch canary run.
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -1573,6 +1578,7 @@ jobs:
       source_parent1: ${{ needs.changes.outputs.source_parent1 }}
       cache_backend: ${{ inputs.cache_backend }}
       release_archs: ${{ inputs.release_archs }}
+      app_compilation_cache_canary: ${{ inputs.app_compilation_cache_canary }}
       pr_runner: ${{ needs.changes.outputs.macos_pr_runner }}
       pr_retry_runner: ${{ needs.changes.outputs.macos_pr_retry_runner }}
       pr_shard_runner: ${{ needs.changes.outputs.macos_pr_shard_runner }}
