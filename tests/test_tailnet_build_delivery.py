@@ -161,7 +161,19 @@ class ShippedAcpmuxCarriesItsFeaturesTests(unittest.TestCase):
             count += len(builds)
             for n, line in builds:
                 text = line + (lines[n] if line.rstrip().endswith("\\") else "")
-                self.assertIn("acpmux_features", text, f"{path.name}:{n} builds acpmux without its features")
+                # A build may consume the shared shell variable or resolve the same
+                # feature flags inline.  Both paths execute the shipping-feature
+                # helper; require the inline form to name the standalone manifest so
+                # it cannot silently calculate flags for a different package.
+                has_shipping_features = (
+                    "acpmux_features" in text
+                    or re.search(
+                        r"acpmux-build-features\.sh\s+crates/acpmux-standalone/Cargo\.toml\s+\"\$t\"",
+                        text,
+                    )
+                )
+                self.assertTrue(has_shipping_features,
+                                f"{path.name}:{n} builds acpmux without its shipping features")
         self.assertGreaterEqual(count, 3)
         self.assertIn("acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml", self.WORKFLOW.read_text())
 
