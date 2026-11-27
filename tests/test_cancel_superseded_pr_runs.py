@@ -72,8 +72,9 @@ class Verdict(unittest.TestCase):
 class Workflow(unittest.TestCase):
     def test_runs_on_every_push_of_a_same_repo_pr_and_can_cancel(self):
         doc = yaml.load(WORKFLOW.read_text(), Loader=yaml.BaseLoader)
-        self.assertEqual(doc["on"], {"pull_request": {"types": ["synchronize"]}})
+        self.assertEqual(doc["on"], {"pull_request": {"types": ["closed", "synchronize"]}})
         job = doc["jobs"]["cancel"]
+        self.assertIn("github.event.action == 'synchronize'", job["if"])
         self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", job["if"])
         self.assertIn("no-janitor", job["if"])
         self.assertEqual(job["permissions"], {"actions": "write", "contents": "read"})
