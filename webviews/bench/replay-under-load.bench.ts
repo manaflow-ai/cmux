@@ -182,11 +182,15 @@ function installReactProfiler() {
   const frames: number[] = [];
   const loaf: unknown[] = [];
   const nameOf = (f: Fiber): string | null => {
-    const t = f.type as { displayName?: string; name?: string; type?: unknown; render?: unknown } | string | null;
-    if (typeof t === "function") return (t as { displayName?: string }).displayName || t.name || "anonymous";
+    const t = f.type as unknown;
+    if (typeof t === "function") {
+      const fn = t as { displayName?: string; name?: string };
+      return fn.displayName || fn.name || "anonymous";
+    }
     if (t && typeof t === "object") {
-      const inner = (t.type ?? t.render) as { displayName?: string; name?: string } | undefined;
-      return t.displayName || inner?.displayName || inner?.name || null;
+      const o = t as { displayName?: string; type?: unknown; render?: unknown };
+      const inner = (o.type ?? o.render) as { displayName?: string; name?: string } | undefined;
+      return o.displayName || inner?.displayName || inner?.name || null;
     }
     return null;
   };
