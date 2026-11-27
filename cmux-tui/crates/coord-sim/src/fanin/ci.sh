@@ -43,8 +43,11 @@ fi
 SIM=${CARGO_TARGET_DIR:-$ROOT/cmux-tui/crates/coord-sim/target}/release/coord-sim
 [ -x "$BIN" ] && [ -x "$SIM" ] || { echo "FANIN: binaries missing ($BIN, $SIM)"; exit 1; }
 # Under /tmp (sticky): acpmux refuses a state directory below a writable, non-sticky ancestor.
-RUN=$(mktemp -d /tmp/fanin-run.XXXXXX)
+# FANIN_RUN_BASE (another sticky folder, e.g. /dev/shm) puts the homes on another file system:
+# an A/B of how much of a ramp is the disk.
+RUN=$(mktemp -d "${FANIN_RUN_BASE:-/tmp}/fanin-run.XXXXXX")
 chmod 700 "$RUN"
+echo "FANIN run dir $RUN on $(df -T "$RUN" | awk 'NR==2 {print $2}')"
 # Each ramp starts its daemons from the binary path again, and a runner's target dir can be
 # shared: another job's build there swapped a later ramp's controller to another commit's acpmux
 # (cmux#49864 run29: n=2000 read build 3ded5d2ce while n=50 read this head). Run private copies.
