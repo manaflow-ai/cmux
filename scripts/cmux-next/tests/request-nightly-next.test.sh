@@ -631,12 +631,12 @@ RUN_ID=11 request --sha "$other" --release-compile-green
 RUN_ID=11 request --sha "$other" --release-compile-green
 ! backfilled && grep -q "already dispatched in this job" <<<"$out" \
   || fail "the backfill must dispatch at most once per job:" "$out" "$(cat "$TMP/gh.log")"
-# At most one backfill an hour: every tick and Release compile calls it from its own job, so the
-# per-job stamp alone let 51 dispatches through in 31 h (ci-min-per-pr-14).
+# At most one backfill per gap (25 min since #59970; an hour before): every tick and Release compile calls
+# it from its own job, so the per-job stamp alone let 51 dispatches through in 31 h (ci-min-per-pr-14).
 date -u -d '-10 minutes' +%Y-%m-%dT%H:%M:%SZ > "$TMP/gh-last-dispatch"
 RUN_ID=13 request --sha "$other" --release-compile-green
-[[ "$status" == 0 ]] && ! backfilled && grep -q "min ago (gap 60 min)" <<<"$out" \
-  || fail "no backfill within an hour of the last dispatch:" "$out" "$(cat "$TMP/gh.log")"
+[[ "$status" == 0 ]] && ! backfilled && grep -q "min ago (gap 25 min)" <<<"$out" \
+  || fail "no backfill within the gap of the last dispatch:" "$out" "$(cat "$TMP/gh.log")"
 date -u -d '-61 minutes' +%Y-%m-%dT%H:%M:%SZ > "$TMP/gh-last-dispatch"
 RUN_ID=14 request --sha "$other" --release-compile-green
 [[ "$status" == 0 ]] && backfilled \

@@ -30,6 +30,7 @@ import type { NewTabStartFailure } from "../newtab/StartFailure";
 import type { NewTabScreenActions } from "../newtab/NewTabScreen";
 import { LazyNewTabPage, LazyNewTabScreen } from "../newtab/lazyNewTab";
 import { HistoryScreen } from "../lazyScreens";
+import { openCloudEnvironment } from "../cloudEnvironment";
 import { NewTabAppSlot } from "../newtab/NewTabAppSlot";
 import { NewTabClock } from "../newtab/NewTabClock";
 import { historyPages } from "../queue/historyPages";
@@ -751,6 +752,26 @@ export function drawPaneBody({
   closeWorkflowSideTab,
   showWorkflowAgent,
 }: PaneBodyDeps) {
+  // Over cmux's composer, never in its place (Leo 2026-11-16), on every New Tab look, Classic too
+  // (Leo, 2026-11-16: "the time on new tab at least it doesn't work for me right now"): the clock
+  // (`tabs.newTabClock.*`, newtab/NewTabClock.tsx), then an extension's slot (`tabs.newTabApp`,
+  // newtab/NewTabAppSlot.tsx). Whatever the extension does, the composer, its focus and its
+  // input-ready report stay the page's own. `newTab.app`, not `newTabApp`: the room stays after the
+  // slot gives up, so the composer never jumps.
+  const newTabAbove =
+    showNewTab && (newTab.app || newTab.clock) ? (
+      <>
+        {newTab.clock && <NewTabClock {...newTab.clock} />}
+        {newTabApp && (
+          <NewTabAppSlot
+            key={`${newTabGeneration}:${newTabApp}`}
+            app={newTabApp}
+            {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
+            onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
+          />
+        )}
+      </>
+    ) : undefined;
   return !knowsWhatItIs ? (
     // Clear until it knows: the pane's background shows, never a chat screen a New Tab replaces.
     <ShortcutsContext.Provider value={shortcuts}>
@@ -892,28 +913,7 @@ export function drawPaneBody({
                       !late,
                     )
                   }
-                  // Over cmux's composer, never in its place (Leo 2026-11-16): the clock
-                  // (`tabs.newTabClock.*`, newtab/NewTabClock.tsx), then an extension's slot
-                  // (`tabs.newTabApp`, newtab/NewTabAppSlot.tsx). Whatever the extension does, the
-                  // composer, its focus and its input-ready report stay the page's own.
-                  // `newTab.app`, not `newTabApp`: the room stays after the slot gives up, so the composer never jumps.
-                  {...(newTab.app || newTab.clock
-                    ? {
-                        above: (
-                          <>
-                            {newTab.clock && <NewTabClock {...newTab.clock} />}
-                            {newTabApp && (
-                              <NewTabAppSlot
-                                key={`${newTabGeneration}:${newTabApp}`}
-                                app={newTabApp}
-                                {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
-                                onUnavailable={() => setNewTabAppGone(newTabAdoptions)}
-                              />
-                            )}
-                          </>
-                        ),
-                      }
-                    : {})}
+                  {...(newTabAbove ? { above: newTabAbove } : {})}
                   onSetup={(resume) => {
                     setupContinuation.current = resume;
                     setHarnessesOpen(true);
@@ -991,6 +991,9 @@ export function drawPaneBody({
                                   onDismiss={dismissCloudFailure}
                                   onSwitchTeam={switchTeamAndRetry}
                                   onOpenNewCloudChat={openNewCloudChatForStart}
+                                  onOpenEnvironment={({ environmentId, repository, section }) =>
+                                    openCloudEnvironment({ environmentId, repo: repository, section })
+                                  }
                                   {...cloudTooBigActions}
                                   onSetUp={setUpCloud}
                                   onSetUpDismiss={dismissCloudSetUp}
@@ -1279,6 +1282,7 @@ export function drawPaneBody({
               takeDraft={takeNewTabDraft}
               {...(newTabStartFailure ? { startFailure: newTabStartFailure } : {})}
               onFieldEdit={newTabFieldEdited}
+              {...(newTabAbove ? { above: newTabAbove } : {})}
             />
           ) : replaying && replaying === snapshot.sessionId ? (
             <ReplayScreen
@@ -1653,6 +1657,9 @@ export function drawPaneBody({
                     onDismiss={dismissCloudFailure}
                     onSwitchTeam={switchTeamAndRetry}
                     onOpenNewCloudChat={openNewCloudChatForStart}
+                    onOpenEnvironment={({ environmentId, repository, section }) =>
+                      openCloudEnvironment({ environmentId, repo: repository, section })
+                    }
                     {...cloudTooBigActions}
                     onSetUp={setUpCloud}
                     onSetUpDismiss={dismissCloudSetUp}
