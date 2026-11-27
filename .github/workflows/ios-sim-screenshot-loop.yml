@@ -1,0 +1,93 @@
+# Pull-request simulator loop for iOS, fire and forget (Leo, 2026-11-27: "do we have any checks for ios
+# visually interactively etc how much is manual how much can be audomated"; "make it fire and forget").
+#
+# On a GitHub-hosted macOS runner: build the app, boot an iPhone simulator, launch it and drive the chat
+# composer keyboard (ComposerKeyboardPinUITests, both the Chief and the terminal composer) and the terminal
+# keyboard (TerminalKeyboardNoResizeUITests: vim and a mock Claude Code screen, keyboard up and down five
+# times) through XCUITest. Every XCTAttachment screenshot, a screen recording and the result bundle's test
+# results are uploaded as the `ios-sim-screenshots` artifact. Same harness as ios-launch-tti-hosted.yml:
+# scripts/ci/cmux-next-ios-sim.sh test ui=SUITE,SUITE video.
+#
+# Never blocking: the job is continue-on-error and not a required check. It reports in the step summary and
+# the artifact; a red run is information, not a gate. No fleet or self-hosted runner is used.
+name: iOS simulator screenshot loop
+
+on:
+  pull_request:
+    paths:
+      - cmux-next-ios/**
+      - Packages/iOS/**
+      - scripts/ci/cmux-next-ios-sim.sh
+      - .github/workflows/ios-sim-screenshot-loop.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  loop:
+    name: composer + terminal keyboard screenshots
+    runs-on: macos-26
+    continue-on-error: true
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          ./scripts/select-ci-xcode.sh
+          echo "DEVELOPER_DIR=$(xcode-select -p)" >> "$GITHUB_ENV"
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Drive the composer and terminal keyboard (XCUITest)
+        id: run
+        continue-on-error: true
+        env:
+          JOBS: "4"
+        run: |
+          set -uo pipefail
+          bash scripts/ci/cmux-next-ios-sim.sh test \
+            ui=ComposerKeyboardPinUITests,TerminalKeyboardNoResizeUITests video
+          rc=$?
+          echo "status=$rc" >> "$GITHUB_OUTPUT"
+          exit "$rc"
+
+      - name: Summary
+        if: ${{ !cancelled() }}
+        env:
+          STATUS: ${{ steps.run.outputs.status }}
+        run: |
+          {
+            echo "### iOS simulator screenshot loop"
+            echo
+            echo "XCUITest exit status: ${STATUS:-none}. Not a required check; the screenshots are in the artifact."
+            echo
+            [ -f artifacts/ios-sim/SUMMARY.md ] && cat artifacts/ios-sim/SUMMARY.md
+          } >> "$GITHUB_STEP_SUMMARY"
+          find artifacts/ios-sim -name '*.png' 2>/dev/null | wc -l | xargs echo "screenshots:"
+
+      - name: Upload screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-sim-screenshots
+          path: |
+            artifacts/ios-sim/screens/
+            artifacts/ios-sim/*-attachments/
+            artifacts/ios-sim/*-tests.json
+            artifacts/ios-sim/*-console.txt
+            artifacts/ios-sim/ui-video-small.mp4
+            artifacts/ios-sim/ui-video.mp4
+            artifacts/ios-sim/SUMMARY.md
+            artifacts/ios-sim/ui-tests-failures.txt
+          retention-days: 7
+          if-no-files-found: warn
