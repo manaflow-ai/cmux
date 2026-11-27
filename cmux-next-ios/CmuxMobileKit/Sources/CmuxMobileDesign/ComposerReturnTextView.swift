@@ -273,7 +273,13 @@ open class ComposerReturnTextView: UITextView {
     /// draft on every key laid out all of it, several times per SwiftUI update, one width
     /// per slot: seconds of lag per few keys in a 5,000-character draft on a phone in Low
     /// Power Mode (Leo, 2026-11-23; ComposerTypingLagUITests).
-    public func contentHeight(width: CGFloat) -> CGFloat {
+    ///
+    /// `onProbe`: measure on the off-screen probe even for the whole draft. A width other than
+    /// the field's own must never be laid out on the live view: `sizeThatFits` at a foreign
+    /// width re-lays the live text view out mid SwiftUI pass, which asks the field's size
+    /// again, so opening a chat never idled (LaunchTTIUITests chat open, "main thread busy
+    /// for 30.0s", from #57970).
+    public func contentHeight(width: CGFloat, onProbe: Bool = false) -> CGFloat {
         let full = (text ?? "") as NSString
         let width = max(width, 1)
         #if DEBUG
@@ -286,7 +292,7 @@ open class ComposerReturnTextView: UITextView {
         #endif
         var limit = Self.measureChunk
         while true {
-            if full.length <= limit { return measure(full as String, width: width, whole: true) }
+            if full.length <= limit { return measure(full as String, width: width, whole: !onProbe) }
             let cut = full.rangeOfComposedCharacterSequence(at: limit).location
             let height = measure(full.substring(to: cut), width: width, whole: false)
             if fieldHeight.scrolls(contentHeight: height) { return height }
@@ -386,7 +392,8 @@ open class ComposerReturnTextView: UITextView {
                   abs(proposedWidth - settled.width) > 0.5 else {
                 return CGSize(width: width, height: settled.height)
             }
-            return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: proposedWidth),
+            // On the probe: the live view is laid out at its own width only.
+            return CGSize(width: width, height: fieldHeight.height(contentHeight: contentHeight(width: proposedWidth, onProbe: true),
                                                                    reserve: stripReserve))
         }
         guard bounds.width > 0 else {
