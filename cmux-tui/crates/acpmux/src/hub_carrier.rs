@@ -1564,13 +1564,13 @@ impl HubCarrier {
     /// One pass of [`Self::keep_reopening`]: every machine at once, each slot locked while its
     /// circuit opens, so a dial to that machine waits on this open rather than racing it.
     pub async fn reopen_closed(&self) -> usize {
-        let slots: Vec<_> =
-            self.kept
-                .to_reopen()
-                .into_iter()
-                .chain(self.direct.kept.to_reopen())
-                .chain(self.iroh.kept.to_reopen())
-                .collect();
+        let slots: Vec<_> = self
+            .kept
+            .to_reopen()
+            .into_iter()
+            .chain(self.direct.kept.to_reopen())
+            .chain(self.iroh.kept.to_reopen())
+            .collect();
         let opened =
             futures::future::join_all(slots.into_iter().map(|(daemon, lane, slot)| async move {
                 self.reopen(&daemon, lane, &slot).await
