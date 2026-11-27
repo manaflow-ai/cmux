@@ -144,6 +144,8 @@ ENV.pop(claude_login_cache.TOKEN_ENV, None)
 CACHED_LOGINS: list[str] = []
 # The Claude connections this run added (claude_login_cache.connect), removed in finish().
 ADDED_CONNECTIONS: list[dict] = []
+# The VM token this proof created, removed in finish(). A pre-existing token is never touched.
+VM_TOKEN_CREATED = False
 
 
 def claude_chat(agent: str) -> bool:
@@ -161,7 +163,7 @@ START_LOGIN = ("--login", args.login) if args.login and claude_chat(args.agent) 
 # --grant-claude-login: the launched app's own cmux.json (0600), removed with its folder when the run ends. It holds
 # the consent a Release build's claude chat on the account's own machine waits for (CloudLoginCopyConsentSetting:
 # only the file can say yes; `settings set` asks a person on screen, which CI has not). Never the shared
-# ~/.config/cmux/cmux-next.json a person's other apps read.
+# ~/.config/cmux-next/cmux-next.json a person's other apps read.
 CLAUDE_LOGIN_SETTING = ("cloud", "useMyClaudeLoginOnMyCloudMachines")
 CONFIG_DIR = None
 CONFIG_FILE = None
@@ -296,6 +298,13 @@ signal.signal(signal.SIGTERM, lambda signum, frame: sys.exit(128 + signum))  # a
 
 
 def finish(result: str) -> None:
+    global VM_TOKEN_CREATED
+    if VM_TOKEN_CREATED:
+        code, out, err = cmux("vm", "token", "revoke", "--json", timeout=60)
+        record("revoke VM token", code, out, err)
+        if code != 0 and result == "pass":
+            result = "fail: VM token not revoked"
+        VM_TOKEN_CREATED = False
     while CACHED_LOGINS:
         entry = CACHED_LOGINS.pop()
         code, err = claude_login_cache.remove(CLI, ENV, entry)
@@ -975,6 +984,7 @@ code, out, err = cmux("vm", "token", "create", "--ttl", "30m", "--json", timeout
 record("vm token create", code, out, err, elapsed_ms=round((time.monotonic() - started) * 1000))
 if code != 0:
     finish("fail: vm token create")
+VM_TOKEN_CREATED = True
 
 # 3. The Cloud chat: start, send, wait for the turn, read the reply. The machine is named after the
 # run, so a start still pending (exit 75: creation goes on in the app) is asked again with the same

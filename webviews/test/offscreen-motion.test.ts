@@ -363,3 +363,61 @@ test("a scroller with no height yet has not been laid out: nothing in it is ende
     sheet.close();
   }
 });
+
+test("a row the intersection observer saw wholly in view costs no box read per token", async () => {
+  const sheet = page({ top: 0, height: 300 });
+  // jsdom has no IntersectionObserver: a stand-in the test drives, as the engine would after layout.
+  const observers: Array<{ fire: (target: Element, ratio: number) => void; watched: Set<Element> }> = [];
+  class FakeIntersection {
+    watched = new Set<Element>();
+    constructor(private readonly callback: (entries: Array<Partial<IntersectionObserverEntry>>) => void) {
+      observers.push({
+        fire: (target, ratio) => this.callback([{ target, isIntersecting: ratio > 0, intersectionRatio: ratio }]),
+        watched: this.watched,
+      });
+    }
+    observe(target: Element) {
+      this.watched.add(target);
+    }
+    unobserve(target: Element) {
+      this.watched.delete(target);
+    }
+    disconnect() {
+      this.watched.clear();
+    }
+  }
+  (sheet.window as unknown as { IntersectionObserver: unknown }).IntersectionObserver = FakeIntersection;
+  const live = sheet.add(sheet.scroller, "acpmux-row", { top: 100, height: 60 });
+  const stop = endOffscreenMotion(sheet.scroller);
+  const proto = sheet.window.HTMLElement.prototype;
+  const read = proto.getBoundingClientRect;
+  let reads = 0;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    reads += 1;
+    return read.call(this);
+  };
+  try {
+    const [io] = observers;
+    expect(io?.watched.has(live)).toBe(true);
+    io!.fire(live, 1);
+    // A streamed token: a word appended in the live row, whose fade plays.
+    for (let token = 0; token < 5; token += 1)
+      sheet.plays(sheet.add(live, "acpmux-word", { top: 120, height: 20 }), sheet.fade());
+    await sheet.flush();
+    expect(reads).toBe(0);
+    // The row grows past the view's edge: the observer says so and the box reads return.
+    io!.fire(live, 0.8);
+    const below = sheet.plays(sheet.add(live, "acpmux-word", { top: 400, height: 20 }), sheet.fade());
+    await sheet.flush();
+    expect(reads).toBeGreaterThan(0);
+    expect(below.finished).toBe(1);
+    // A removed row is unobserved.
+    live.remove();
+    await sheet.flush();
+    expect(io!.watched.has(live)).toBe(false);
+  } finally {
+    proto.getBoundingClientRect = read;
+    stop();
+    sheet.close();
+  }
+});
