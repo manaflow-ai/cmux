@@ -100,6 +100,53 @@ class CargoLocksTests(unittest.TestCase):
         self.assertEqual(self.git("status", "--porcelain").split(), ["M", "ffi/Cargo.lock"])
         self.assertEqual(self.locks("check").returncode, 0)
 
+    def drop_crate_b(self):
+        """b leaves core's workspace and its directory goes; core's lock still lists it (cmux#57348: cmux-coderouter
+        stayed in cmux-tui/Cargo.lock after its crate was deleted, and `cargo update --locked` passed)."""
+        self.write("core/Cargo.toml", '[workspace]\nmembers = ["a"]\nresolver = "2"\n')
+        self.git("rm", "-rq", "core/b")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "drop b")
+
+    def test_a_lock_entry_for_a_crate_no_manifest_names_is_stale(self):
+        self.drop_crate_b()
+        self.assertIn('name = "b"', (self.repo / "core/Cargo.lock").read_text())
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("stale: core/Cargo.lock: does not match its manifests (lists packages its manifests no "
+                      "longer resolve: b 0.1.0)", result.stdout)
+        self.assertNotIn("ffi/Cargo.lock", result.stdout)
+
+    def test_a_crate_only_an_optional_feature_reaches_is_not_stale(self):
+        """a names c behind an off-by-default feature; the lock lists c and a default-features resolve does not
+        (2026-11-27: cmux-tui/Cargo.lock's wasmtime, behind acpmux's `hot-modules`, refused every lock-touching
+        push as "lists packages its manifests no longer resolve", on a base that cargo itself accepted)."""
+        self.write("opt/c/Cargo.toml", '[package]\nname = "c"\nversion = "0.1.0"\nedition = "2021"\n')
+        self.write("opt/c/src/lib.rs", "")
+        self.write("core/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[dependencies]\nc = { path = "../../opt/c", optional = true }\n\n[features]\nextra = ["dep:c"]\n')
+        self.cargo("core", "generate-lockfile", "--offline")
+        self.cargo("ffi", "generate-lockfile", "--offline")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "a has an optional c")
+        self.assertIn('name = "c"', (self.repo / "core/Cargo.lock").read_text())
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_fix_drops_the_orphaned_entry(self):
+        self.drop_crate_b()
+
+        fixed = self.locks("fix")
+
+        self.assertEqual(fixed.returncode, 0, fixed.stdout + fixed.stderr)
+        self.assertIn("fixed: core/Cargo.lock", fixed.stdout)
+        self.assertNotIn('name = "b"', (self.repo / "core/Cargo.lock").read_text())
+        self.assertEqual(self.locks("check").returncode, 0)
+
     def test_fix_with_nothing_stale_changes_nothing(self):
         fixed = self.locks("fix")
 

@@ -557,6 +557,24 @@ RATCHET_BASELINES = {
     "swift-type-scale-baseline.tsv": ((0, 1), 2),
     "visible-only-baseline.tsv": ((0, 1), 2),
 }
+
+
+def classic_ids_text(text: str) -> str:
+    """A classic-ids row's text in the trimmed form check-state-roots.sh keys on (cmux#55211): the character after
+    the match (a quote, slash, comma or paren) is context, not key. Base's old-form rows (the matched text with its
+    trailing quote, slash or comma kept) and the trimmed ones then key the same, so an installed copy of either form
+    never reads the other's rows as deleted and its hits as new (2026-11-25: #55211 was refused for ~60 such rows)."""
+    if text.startswith("com.cmuxterm.app"):
+        return "com.cmuxterm.app"
+    if re.match(r"(\.config|\.local|Library|\.cache)", text):
+        return re.sub(r"cmux.$", "cmux", text)
+    if not text.startswith("/tmp/"):
+        return re.sub(r"[,)]$", ")", text)
+    return text
+
+
+# A ratchet baseline whose key text has more than one written form: file -> {key column: its one form}.
+RATCHET_KEY_FORMS = {"classic-ids-baseline.tsv": {1: classic_ids_text}}
 # Shrink-only baselines kept as a list of lines (path and the line's text): a push that fixes a listed site removes
 # its line, and the installed copy over both trees then reads the fix as "fixed, remove from the baseline", a new
 # finding (2026-11-17: the act-as-me consent card moved onto the shared dialog card and could not push). Each tree
@@ -778,7 +796,7 @@ def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
         raise CannotDecide(f"prepush-gate: {error}")
     files: set[str] = set()
     for name, (keys, count) in RATCHET_BASELINES.items():
-        rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count) if blob else {}
+        rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count, name) if blob else {}
                 for blob in (blobs[f"{rev}:{SCRIPTS}/{name}"] for rev in (base, head))]
         files.update(key[0] for key in rows[0].keys() | rows[1].keys() if rows[0].get(key) != rows[1].get(key))
     files = {p for p in files if p.startswith(CHANGED_SCOPES)}
@@ -1616,14 +1634,17 @@ def crash_raises(repo: Path, base: str, head: str) -> list[tuple[str, str, str |
     return found
 
 
-def _ratchet_rows(text: str, keys: tuple[int, ...], count: int) -> dict[tuple[str, ...], int]:
-    """{key: count} of a ratchet baseline's rows; comments, blank and malformed lines are not rows."""
-    rows = {}
+def _ratchet_rows(text: str, keys: tuple[int, ...], count: int, name: str = "") -> dict[tuple[str, ...], int]:
+    """{key: count} of a ratchet baseline's rows; comments, blank and malformed lines are not rows. NAME's
+    RATCHET_KEY_FORMS bring each key to its one form, and rows that then share a key add up."""
+    forms = RATCHET_KEY_FORMS.get(name, {})
+    rows: dict[tuple[str, ...], int] = {}
     for line in text.splitlines():
         parts = line.split("\t")
         if line.startswith("#") or len(parts) <= max(*keys, count) or not parts[count].isdigit():
             continue
-        rows[tuple(parts[i] for i in keys)] = parse_tool_int(parts[count], "ratchet count")
+        key = tuple(forms[i](parts[i]) if i in forms else parts[i] for i in keys)
+        rows[key] = rows.get(key, 0) + parse_tool_int(parts[count], "ratchet count")
     return rows
 
 
@@ -1703,19 +1724,24 @@ def lower_ratchet_baselines(repo: Path, rev: str, scripts_dir: Path, moved: dict
         own = texts.get(f"{rev}:{SCRIPTS}/{name}")
         if not path.is_file() or own is None:
             continue
-        pushed = _ratchet_rows(own.decode(errors="replace"), keys, count)
+        pushed = _ratchet_rows(own.decode(errors="replace"), keys, count, name)
         installed_lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
-        carried = carry_renamed_rows(installed_lines, moved or {}, lambda line: _ratchet_rows(line, keys, count),
+        carried = carry_renamed_rows(installed_lines, moved or {},
+                                     lambda line: _ratchet_rows(line, keys, count, name),
                                      set(k[0] for k in pushed), count)
         taken += [f"{name}: {note}" for note in carried[1]]
         lines, changed = [], bool(carried[1])
+        # Installed rows that share a key (two written forms of one text) share the push's count: each takes what
+        # is left of it, in file order.
+        left = dict(pushed)
         for line in carried[0]:
-            row = _ratchet_rows(line, keys, count)
+            row = _ratchet_rows(line, keys, count, name)
             if not row:
                 lines.append(line)
                 continue
             (key, installed), = row.items()
-            now = pushed.get(key, 0)
+            now = min(installed, left.get(key, 0))
+            left[key] = left.get(key, 0) - now
             if now >= installed:
                 lines.append(line)
                 continue
