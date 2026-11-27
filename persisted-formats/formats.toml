@@ -182,6 +182,9 @@ policy = "unreviewed"
 key = "cmux.acpmux.addedGitHubRepos.v1"
 
 [[storage_key]]
+key = "cmux.acpmux.anchoredList"
+
+[[storage_key]]
 key = "cmux.acpmux.backgroundFocus"
 
 [[storage_key]]
@@ -192,9 +195,6 @@ key = "cmux.acpmux.cloud.signedIn"
 
 [[storage_key]]
 key = "cmux.acpmux.composer-draft."
-
-[[storage_key]]
-key = "cmux.acpmux.detail"
 
 [[storage_key]]
 key = "cmux.acpmux.harnessCatalog.v1"
@@ -333,6 +333,9 @@ key = "cmux.agentPane.lastNewChatPlace"
 
 [[storage_key]]
 key = "cmux.agentPane.promptTops.v1"
+
+[[storage_key]]
+key = "cmux.agentPane.railCountOffset.v1"
 
 [[storage_key]]
 key = "cmux.agentPane.threadBookmarks.v1"
