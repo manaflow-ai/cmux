@@ -246,6 +246,7 @@ mod outbox_open_tests;
 #[cfg(test)]
 pub(crate) mod outbox_oracle;
 pub(crate) mod outbox_stats;
+pub(crate) mod team_send_queue;
 mod own_host;
 #[cfg(test)]
 mod owned_scope_bench_tests;
@@ -1630,6 +1631,8 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
+    /// Team messages accepted while the mesh hub is offline (`team_send_queue.rs`).
+    pub(crate) team_send_queue: team_send_queue::TeamSendQueue,
     /// Per host, how long no ssh carry goes to it after one was not taken
     /// (`server/ssh_carry.rs`): this daemon's alone, so two hubs (or two tests) never share it.
     pub(crate) ssh_carry_cooldown: std::sync::Mutex<crate::server::ssh_carry::Cooldown>,
@@ -2046,6 +2049,7 @@ impl Hub {
             mcp_connects: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
+            team_send_queue: Default::default(),
             ssh_carry_cooldown: Default::default(),
             mesh: Default::default(),
             mesh_relay: Default::default(),
@@ -2162,6 +2166,26 @@ impl Hub {
     /// How many outbox deliveries are not settled yet (`outbox.rs`).
     pub fn outbox_unsettled(&self) -> usize {
         self.outbox.unsettled()
+    }
+
+    /// Flushes offline team sends after the relay has proved the hub reachable again.
+    pub(crate) async fn flush_team_send_queue(&self, mesh: Arc<dyn crate::mesh::MeshHub>) {
+        for (queued, receipt) in self.team_send_queue.flush(mesh.as_ref()).await {
+            if !self.outbox.record_team_receipt(
+                &receipt.message_id,
+                &queued.address,
+                queued.caller.as_deref(),
+            ) {
+                tracing::warn!(message_id = %receipt.message_id, "team send receipt could not be persisted");
+                continue;
+            }
+            if let Some(caller) = queued.caller.as_deref()
+                && let Ok(session) = self.resolve(caller)
+                && !self.record_team_send(&session, &receipt.message_id)
+            {
+                tracing::warn!(message_id = %receipt.message_id, "team sender receipt could not be persisted");
+            }
+        }
     }
 
     /// A background reader of [`Hub::subscribe`] fell `missed` events behind (rework stage 3,
