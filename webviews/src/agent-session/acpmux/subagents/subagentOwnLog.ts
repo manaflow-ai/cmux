@@ -140,7 +140,8 @@ export function useOwnLog(
       live && setState({ key, done: false, log: foldOwnLog(id, records, chat) });
     read(id, onNewest).then(
       (records) => live && setState({ key, done: true, log: foldOwnLog(id, records, chat) }),
-      () => live && setState((now) => ({ key, done: false, failed: true, log: now?.key === key ? now.log : undefined })),
+      () =>
+        live && setState((now) => ({ key, done: false, failed: true, log: now?.key === key ? now.log : undefined })),
     );
     return () => {
       live = false;

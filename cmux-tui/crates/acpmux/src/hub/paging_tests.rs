@@ -1025,7 +1025,8 @@ fn subagent_newest_page_perf() {
 /// subagent's records, oldest first, as the forward page does.
 #[test]
 fn subagent_newest_page_matches_forward_page() {
-    let root = std::env::temp_dir().join(format!("acpmux-subagent-newest-{}", uuid::Uuid::now_v7()));
+    let root =
+        std::env::temp_dir().join(format!("acpmux-subagent-newest-{}", uuid::Uuid::now_v7()));
     let sessions = root.join("sessions");
     let mut seq = 0;
     {
@@ -1046,8 +1047,7 @@ fn subagent_newest_page_matches_forward_page() {
         let filter = transcript(omit).of_subagent(Some("sub-a"));
         let forward = hub.events_page("c", 0, None, 5000, None, false, &filter).unwrap();
         let parsed_before = PARSED_LINES.with(std::cell::Cell::get);
-        let newest =
-            hub.events_page("c", 0, Some(seq + 1), 5000, None, true, &filter).unwrap();
+        let newest = hub.events_page("c", 0, Some(seq + 1), 5000, None, true, &filter).unwrap();
         let parsed = PARSED_LINES.with(std::cell::Cell::get) - parsed_before;
         // Its own 67 lines, never the other subagent's or the parent's 133.
         assert!(parsed <= 67, "the newest page parsed {parsed} lines for 67 records");

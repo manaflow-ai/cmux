@@ -5888,10 +5888,7 @@ export class AcpmuxDirectClient {
   /// reply from its first frame and the fold never reads a finished subagent as running. It read
   /// up to eight pages from its start before drawing anything (Leo, 2026-11-27: "these take way
   /// too long to load i feel like.. regardless these needs to be faster").
-  async readSubagentLog(
-    subagent: string,
-    onNewest?: (records: EventRecord[]) => void,
-  ): Promise<EventRecord[]> {
+  async readSubagentLog(subagent: string, onNewest?: (records: EventRecord[]) => void): Promise<EventRecord[]> {
     const sessionId = this.selectedSessionId;
     // l10n-allow: internal selection race; the subagent pane renders its own localized state.
     if (!sessionId) throw new Error("No chat");
