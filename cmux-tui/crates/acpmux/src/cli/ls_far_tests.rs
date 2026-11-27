@@ -147,15 +147,22 @@ async fn an_old_kept_listing_is_read_again_and_kept_only_when_the_relay_misses()
     let kept = kept.unwrap();
     assert_eq!(kept.state, RemoteState::Stale { as_of_ms: old });
     assert_eq!(kept.rows[0]["sessionId"], "old");
-    assert!(cache.with_file_name(REFRESH_MARK).exists(), "the miss starts a refresh");
+    assert!(cache.with_file_name(MISSED_MARK).exists(), "the miss is recorded");
 
-    // While that refresh runs, the next ls lists the kept rows at once.
+    // Model the detached refresh's live lease while checking the next ls. The test binary does
+    // not spawn the refresh child, so the fixture owns the lock for this short assertion.
+    let refresh = claim_refresh(&cache).expect("the test can hold the refresh lease");
     let started = std::time::Instant::now();
-    let kept =
-        start_with(Some(stalled_relay()), cache, None, FAR_BUDGET).finish().await.relay.unwrap();
+    let kept = start_with(Some(stalled_relay()), cache.clone(), None, FAR_BUDGET)
+        .finish()
+        .await
+        .relay
+        .unwrap();
     let took = started.elapsed();
     assert!(took < Duration::from_millis(200), "a running refresh was waited on: {took:?}");
     assert_eq!(kept.state, RemoteState::Stale { as_of_ms: old });
+    drop(refresh);
+    assert!(claim_refresh(&cache).is_some(), "the refresh lease releases after the read");
 }
 
 #[tokio::test]

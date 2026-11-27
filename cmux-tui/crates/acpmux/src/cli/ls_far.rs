@@ -544,12 +544,8 @@ fn refresh_detached(cache: &Path) {
                 "refreshes the relay cache after this ls exits; its relay child is killed at send_relay::LS_DEADLINE",
             );
         }
-        drop(lease);
     }
-    // This process is the test binary, so no child runs: the lease stands for the child's,
-    // held (with its mark) for as long as that read would run, here the rest of the test.
-    #[cfg(test)]
-    std::mem::forget(lease);
+    drop(lease);
 }
 
 /// `ls --refresh-relay-cache`: one relay listing, by [`send_relay::LS_DEADLINE`], kept as the
