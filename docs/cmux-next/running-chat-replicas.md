@@ -53,3 +53,6 @@ not a count of lost workspace files.
 The regression detector is `running_replica`: storage tests recover more than 1,000
 journal records after deleting the source and reject tampering and unsafe paths; hub tests
 exercise interrupted-turn recovery and inert queued work.
+Storage manifests always use `/` between path components, including on Windows.
+The Windows hosted gate runs `running_replica` storage tests; the nested native-state
+round trip asserts the serialized paths to detect platform separator regressions.

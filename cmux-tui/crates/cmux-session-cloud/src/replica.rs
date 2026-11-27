@@ -207,8 +207,15 @@ fn scan(
             bail!("replica file count exceeds its bound");
         }
         let path = entry.path();
-        let relative =
-            path.strip_prefix(base)?.to_str().context("replica paths must be UTF-8")?.to_string();
+        // The encrypted manifest uses portable separators even when captured on Windows.
+        // Validate each resulting name below, retaining the rejection of literal backslashes
+        // in Unix filenames rather than treating them as directory separators.
+        let relative = path
+            .strip_prefix(base)?
+            .iter()
+            .map(|part| part.to_str().context("replica paths must be UTF-8"))
+            .collect::<anyhow::Result<Vec<_>>>()?
+            .join("/");
         safe_path(&relative)?;
         let kind = entry.file_type()?;
         if kind.is_dir() {

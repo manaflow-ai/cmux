@@ -1467,6 +1467,9 @@ jobs:
           # owner-only directory and sandbox refusals; mock-daemon tests.
           cargo test --locked --target x86_64-pc-windows-gnu \
             -p cmux-sdk -p cmux-daemon-client
+          # Replica manifests use portable paths, including nested Windows captures.
+          cargo test --locked --target x86_64-pc-windows-gnu \
+            -p cmux-session-cloud running_replica -- --test-threads=2
           # acpmux builds for Windows (the port lands in steps): every
           # target, tests included, so no Unix-only code comes back ungated.
           cargo check --locked --target x86_64-pc-windows-gnu -p acpmux --all-targets

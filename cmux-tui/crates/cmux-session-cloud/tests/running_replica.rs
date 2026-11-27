@@ -99,6 +99,14 @@ fn running_replica_recovers_long_journal_and_native_state_after_source_loss() {
     let hashes = writer.store.get_root(&receipt.pair).unwrap();
     assert_eq!(hashes[0], receipt.manifest);
     assert_eq!(hashes.len(), 4); // manifest, journal, and two native state chunks.
+    let manifest: serde_json::Value = serde_json::from_slice(
+        &seal::open(&writer.key, &writer.store.get(&receipt.manifest).unwrap(), 8 << 20).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(manifest["directories"], serde_json::json!(["native", "native/empty"]));
+    assert!(
+        manifest["files"].as_array().unwrap().iter().any(|entry| entry["path"] == "native/state")
+    );
     for hash in &hashes {
         let encrypted = writer.store.get(hash).unwrap();
         assert!(!encrypted.windows(20).any(|w| w == b"private-running-chat"));
