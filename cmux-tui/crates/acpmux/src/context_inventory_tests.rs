@@ -347,3 +347,22 @@ fn the_fakes_strip_every_hidden_block_the_product_sends() {
     sent.sort_unstable();
     assert_eq!(listed, sent, "update tests/guidance_sources.json to the product's RULE_SOURCES");
 }
+
+/// A probe copies a fake alone to another machine, without `guidance_sources.json` beside it, so
+/// each fake carries the same list on one line; a fake that read only the file exited at its
+/// start there (hq remote_reconnect_probe.py, `agent.exited`, after cmux#62040).
+#[test]
+fn each_fake_carries_the_hidden_block_sources_when_copied_alone() {
+    let file = include_str!("../tests/guidance_sources.json").trim();
+    let line = format!("GUIDANCE_SOURCES_STANDALONE = {file}\n");
+    for (name, source) in [
+        ("fake_agent.py", include_str!("../tests/fake_agent.py")),
+        ("fake_claude.py", include_str!("../tests/fake_claude.py")),
+        ("fake_workflow_agent.py", include_str!("../tests/fake_workflow_agent.py")),
+    ] {
+        assert!(
+            source.contains(&line),
+            "tests/{name}: set its `{line}` to tests/guidance_sources.json"
+        );
+    }
+}
