@@ -136,6 +136,11 @@ class Workflow(unittest.TestCase):
         self.assertIn("--script scripts/cmux-next/check-release-compile.sh", text)
         self.assertIn("--arg=--nightly", text)
         self.assertIn("arch: [arm64, x86_64]", text)
+        # One arch's red cancels the other arch's wait (the reds are arch-independent).
+        self.assertIn("fail-fast: true", text)
+        # A cancelled arch cancels its fleet step too, so it does not build for nobody.
+        self.assertIn("if: ${{ cancelled() && steps.cache.outputs.cache-hit != 'true' }}", text)
+        self.assertIn('"$client" cancel "$step" --reason "nightly pr build: job cancelled"', text)
         self.assertEqual(sorted(npb.ARCHS), ["arm64", "x86_64"])
         # The gateway runner refuses any job whose id does not end in -fleet.
         gateway = re.findall(r"^  ([a-z0-9_-]+):\n(?:    .*\n)*?    runs-on: \$\{\{ vars.CI_EVAL_STEP_GATEWAY", text, re.M)
@@ -235,7 +240,7 @@ class BaseRed(unittest.TestCase):
         self.assertIn(f"name=" + npb.PASS_ARTIFACT, text)
         self.assertIn("name: ${{ steps.verdict.outputs.name }}-${{ matrix.arch }}", text)
         # The fleet refusing the step for its own disk is no verdict, not a red on the head.
-        self.assertIn("failed on no worker: invalid ci-step: source depot full' \"$log\"", text)
+        self.assertIn("grep -q 'source depot full' \"$log\"", text)
         self.assertIn("continue-on-error: true  # past its time it builds", text)
         self.assertEqual(text.count("continue-on-error: true  # best effort: never changes the compile's verdict"), 2)
         self.assertIn("ADDED_LABEL: ${{ github.event.label.name }}", text)

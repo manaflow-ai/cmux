@@ -87,7 +87,11 @@ jobs:
     timeout-minutes: 90
     permissions: {}
     strategy:
-      fail-fast: false
+      # One arch's red cancels the other's wait. The reds seen are arch-independent: a Swift error in the
+      # head or base, or the fleet refusing the step (source depot full), so the second arch only repeats it
+      # while holding its runner up to an hour. 2026-11-27 07-13Z: in 89 runs that ran both arches, the other
+      # arch outlived the first red by 1,035 job-min (~4.1k GitHub min/day). The next push runs both again.
+      fail-fast: true
       matrix:
         arch: [arm64, x86_64]
     env:
@@ -135,9 +139,10 @@ jobs:
             # Not started within QUEUE_WAIT_S: the step would stay queued and build for nobody.
             "$client" cancel "$step" --reason "nightly pr build: not started within ${QUEUE_WAIT_S}s" || true
           fi
-          if [[ "$status" != 0 ]] && grep -q -E '^cmux-ci: step [0-9a-f]+ failed on no worker: invalid ci-step: source depot full' "$log"; then
-            # The controller refused the step before any worker took it (jobs 140511754276 and 26 more,
-            # 2026-11-27 11:53-13Z): the fleet's disk, not the head. No verdict, not a red on the head.
+          if [[ "$status" != 0 ]] && grep -q 'source depot full' "$log"; then
+            # The controller refused admission because its source depot was full (HTTP 503, or a step that
+            # "failed on no worker"): no Mac built anything, so this is no verdict on the PR, like 69. Exit 1
+            # here blocked land-judge on runs 46033734368 (#61459) and 46031330461 (#61407).
             status=69
           fi
           case "$status" in
@@ -146,6 +151,18 @@ jobs:
             *) echo "::error title=nightly app compile::fleet verification failed for $ARCH (cmux-ci exit $status); see the client output for the admission, setup or build error"
                exit "$status" ;;
           esac
+      - name: Cancel the fleet step of a cancelled job
+        # fail-fast (or a newer push) cancelled this job: its fleet step, queued or building, has no reader.
+        if: ${{ cancelled() && steps.cache.outputs.cache-hit != 'true' }}
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          log="$RUNNER_TEMP/nightly-pr-build-$ARCH.log"
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" 2>/dev/null | head -1 | cut -d' ' -f2)"
+          if [[ -x "$client" && -n "$step" ]]; then
+            "$client" cancel "$step" --reason "nightly pr build: job cancelled" || true
+          fi
       - name: Record the pass
         if: ${{ steps.compile.outputs.passed == 'true' }}
         run: mkdir -p "$RUNNER_TEMP/nightly-pr-build-pass" && echo "$KEY" > "$RUNNER_TEMP/nightly-pr-build-pass/key"

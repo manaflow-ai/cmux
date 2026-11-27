@@ -15,6 +15,29 @@ import type { UpstreamConfig } from "./live.ts";
 import { timedUpstream } from "./timing.ts";
 
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+const MAX_FAILURE_PREFIX_CHARS = 8 * 1024;
+
+/** Read only enough of a failed create response to classify known transient provider overloads. */
+const capacityOverloaded = async (response: Response): Promise<boolean> => {
+  if (response.body === null) return false;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let prefix = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      prefix += decoder.decode(value, { stream: true });
+      if (prefix.length >= MAX_FAILURE_PREFIX_CHARS) break;
+    }
+  } catch {
+    return false;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+  return /infrastructure\s+overloaded|capacity\s+queue\s+wait\s+expired/i.test(prefix);
+};
 
 export interface UpstreamHttp {
   /** A JSON request. Resolves with the parsed body, or `null` for an empty (204) response. */
@@ -84,6 +107,10 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
           }),
         );
         if (!response.ok) {
+          const kind = operation === "createVm" && response.status === 429 && (await capacityOverloaded(response))
+            ? "capacity_overloaded" as const
+            : undefined;
+          if (kind !== undefined) return { ok: false as const, status: response.status, kind };
           await response.body?.cancel();
           return { ok: false as const, status: response.status };
         }
@@ -92,7 +119,7 @@ export function makeUpstreamHttp(config: UpstreamConfig): UpstreamHttp {
       catch: () => new UpstreamError({ operation, status: null }),
     }).pipe(
       Effect.flatMap((result) =>
-        result.ok ? Effect.succeed(result.response) : Effect.fail(new UpstreamError({ operation, status: result.status })),
+        result.ok ? Effect.succeed(result.response) : Effect.fail(new UpstreamError({ operation, status: result.status, ...(result.kind === undefined ? {} : { kind: result.kind }) })),
       ),
     );
 
