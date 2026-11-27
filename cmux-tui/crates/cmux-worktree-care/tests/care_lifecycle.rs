@@ -892,6 +892,7 @@ fn pr_archive_preserves_late_writes_and_restores_the_linked_checkout() {
         guarded: unguarded(),
         apply: true,
         pressure: Some(Pressure::Normal),
+        still: None,
         only: vec![wt.clone()],
         measure: false,
     };
