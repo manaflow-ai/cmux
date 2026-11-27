@@ -3114,6 +3114,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-sign-clone-sweep"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-signed-bundle"
 version = "0.1.0"
 dependencies = [
@@ -3461,6 +3468,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-sign-clone-sweep",
  "cmux-signed-bundle",
  "cmux-stack-auth",
  "cmux-sync",
@@ -4030,11 +4038,13 @@ dependencies = [
 name = "cmux-worktree-care"
 version = "0.1.0"
 dependencies = [
+ "cmux-cas",
  "cmux-file-lock",
  "cmux-git",
  "libc",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]

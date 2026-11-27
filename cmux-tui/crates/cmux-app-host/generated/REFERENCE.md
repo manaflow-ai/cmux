@@ -787,6 +787,7 @@ Ops no app may call:
 | --- | --- | --- | --- |
 | `agent.changed` | `agent.list` | `agent:read` | An agent's state changed (working, blocked, idle, done). |
 | `agent_chat.changed` | `agent_chat.list` | `agent_chat:read` | An agent chat was added, closed, renamed, read or changed state. |
+| `app.storage.changed` | `app.storage.get` | `storage:local` | Another of the person's devices changed this app's synced storage (an app granted storage:synced). The body is {"keys": [...]}, the keys that changed here; read them again with cmux.storage.get or cmux.storage.keys. An app with only storage:local never hears it. |
 | `chat.changed` | `chat.list` | `chat:read` | A listed field of an agent chat changed (state, title, unread, pin, step, pull requests); not fired for updated_ms alone. |
 | `github.changed` | `integration.request` | `integration:github:read` | GitHub data the person can read changed: a pull request, a review, a check run or suite, or a commit status, on a repository a GitHub connection covers. The Cloud turns the GitHub App's verified webhook into this invalidation within seconds; read GitHub again through integration.request. The body is {} for a change, or {"live": bool} when the push channel goes up or down (signed out, offline, no GitHub connection): a new subscriber hears {"live": ...} first. While it is not live, keep a slow re-read. |
 | `media.changed` | `media.get` | `media:read` | What plays changed: another track, play or pause, a seek, or new artwork. |
