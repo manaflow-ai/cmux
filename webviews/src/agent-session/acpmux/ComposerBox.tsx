@@ -79,9 +79,8 @@ export type ComposerBoxProps = {
   /// Codex's attachments say they go as files (AttachmentStrip).
   codex?: boolean;
   onRemoveAttachment(id: string): void;
-  /// A loading chip's × and a failed chip's Retry (attachmentIntake.tsx PendingChip).
+  /// A loading chip's × (attachmentIntake.tsx PendingChip).
   onCancelAttachment?(id: string): void;
-  onRetryAttachment?(id: string): void;
   /// A cancelled loading chip's node came back (undo): read its file again; false when it can't.
   onReviveAttachment?(id: string): boolean;
   /// Why a staged image's original failed to upload, by chip id (AttachmentStrip).
@@ -105,6 +104,8 @@ export type ComposerBoxProps = {
   onFieldMenuOpen?(): void;
   /// Drawn with the prompt, inside its menu (the chat's shell field over the hidden prompt).
   fieldOverlay?: React.ReactNode;
+  /// The vim mode to show (`agentPane.composerVimKeys` on); unset, nothing is drawn.
+  vimMode?: "normal" | "insert";
   /// The box's first children: menus anchored to the field (the `/` and `@` lists, which draw out of
   /// the box's glass, backdropLayer.tsx) and hidden inputs.
   top?: React.ReactNode;
@@ -150,7 +151,6 @@ export function ComposerBox({
   codex = false,
   onRemoveAttachment,
   onCancelAttachment,
-  onRetryAttachment,
   onReviveAttachment,
   originalFailures,
   onReorderAttachment,
@@ -162,6 +162,7 @@ export function ComposerBox({
   fieldMenu,
   onFieldMenuOpen,
   fieldOverlay,
+  vimMode,
   top,
   onCardPress,
   leading,
@@ -234,7 +235,6 @@ export function ComposerBox({
     setAttachments,
     pending: pending ?? [],
     cancel: (id) => onCancelAttachment?.(id),
-    retry: (id) => onRetryAttachment?.(id),
     revive: (id) => onReviveAttachment?.(id) ?? false,
     expand: (id) => {
       pastedChips.expand(id);
@@ -351,6 +351,9 @@ export function ComposerBox({
       <div
         ref={attachBox}
         className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
+        // The page's glass, at the popups' tokens (composerStates.css, ONE MATERIAL FAMILY), never the App's:
+        // the card animates its height and the App's glass trails a report, and the stack's seams are one rim.
+        data-page-glass="docked composer: animates its height and joins the stack's rim, which the App's glass cannot follow"
         // The compact grid (composerLocation.css): a state attribute, not a :has() on the box.
         data-composer-grid=""
         data-attachment-view={attachmentView}
@@ -377,7 +380,6 @@ export function ComposerBox({
           }}
           selected={whole}
           {...(onCancelAttachment ? { onCancel: inline.cancel } : {})}
-          {...(onRetryAttachment ? { onRetry: onRetryAttachment } : {})}
           {...(originalFailures ? { originalFailures } : {})}
           onReorder={onReorderAttachment ?? inline.reorder}
           onExpand={inline.expand}
@@ -491,6 +493,11 @@ export function ComposerBox({
               field's own caret as before. */}
           <Slot slot={composerCaretSlot} props={{ empty: !/\S/.test(field.value) }} />
         </ContextMenu>
+        {vimMode && (
+          <output className="acpmux-vim-mode" data-vim-mode={vimMode} aria-live="off">
+            {vimMode === "normal" ? "NORMAL" : "INSERT"}
+          </output>
+        )}
         {/* The button row: a right-click here shows a control hidden from its own (composerChrome.tsx). */}
         <ChromeArea className="acpmux-chrome-area" items={chromeItems}>
           {/* The box grid for +, the prompt, the mic and Send, with the model group in

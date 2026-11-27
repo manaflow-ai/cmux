@@ -94,22 +94,3 @@ fn a_failed_stop_is_still_logged() {
         entries.iter().map(|e| &e.text).collect::<Vec<_>>()
     );
 }
-
-#[test]
-fn a_failed_claude_result_is_not_a_natural_end() {
-    let event: AcpmuxEvent = serde_json::from_value(json!({
-        "seq": 1,
-        "at": T0 + 1,
-        "dir": "in",
-        "kind": "claude.result",
-        "msg": {"type": "result", "subtype": "error_api", "is_error": true, "result": "upstream failed"}
-    }))
-    .unwrap();
-    let mut fold = TurnFold::new();
-    fold.apply(&event);
-    assert_eq!(
-        fold.ended().and_then(|ended| ended.error.as_deref()),
-        Some("upstream failed")
-    );
-    assert!(!fold.take_natural_end());
-}

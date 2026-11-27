@@ -3,6 +3,7 @@ everything on a push, the full-ci label, a router change or a path the graph can
 import importlib.util
 import json
 import posixpath
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -166,6 +167,48 @@ class Routes(unittest.TestCase):
                 self.assertTrue(all(run.values()), result.lines())
                 self.assertTrue(result.everything)
 
+    def test_the_label_on_a_tooling_only_change_routes_by_inputs(self):
+        """ci-min-per-pr-140: full-ci on a change to CI and tooling files only (scripts/ci/tooling_only.py) runs just
+        the jobs whose inputs it touches; one path outside those folders, or an unlistable change, runs every job."""
+        run, result = route(["scripts/ci/x.py", "tests/test_x.py", ".github/workflows/other.yml", "docs/a.md",
+                             "README.md"], labels=["full-ci"])
+        self.assertFalse(any(run.values()), result.lines())
+        self.assertFalse(result.everything)
+        self.assertEqual(route(["scripts/run-app.sh", "tests/test_x.py"], labels=["full-ci"])[0],
+                         {"app-tests": True, "app-sim": False, "core-check": False})
+        self.assertTrue(all(route([".github/workflows/w.yml"], labels=["full-ci"])[0].values()))
+        self.assertTrue(all(route(["scripts/ci/affected_jobs.py"], labels=["full-ci"])[0].values()))
+        for changed in (["scripts/ci/x.py", "webviews/src/App.tsx"], [], None):
+            with self.subTest(changed=changed):
+                run, result = route(changed, labels=["full-ci"])
+                self.assertTrue(all(run.values()), result.lines())
+
+    def test_full_ci_following_the_graph_runs_only_the_jobs_the_change_affects(self):
+        """--full-ci-follows-graph (cmux-tui-spec.yml): a full-ci head that touches no input of a job skips it, one
+        that touches an input runs it, and every fail-open case still runs every job."""
+        follows = {"labels": ["full-ci"], "full_ci_follows_graph": True}
+        run, result = route(["webviews/src/app.tsx"], **follows)
+        self.assertFalse(any(run.values()), result.lines())
+        self.assertFalse(result.everything)
+        run, _ = route(["scripts/run-app.sh"], **follows)
+        self.assertEqual(run, {"app-tests": True, "app-sim": False, "core-check": False})
+        for changed in (None, ["scripts/ci/affected_jobs.py"], ["cmux-tui/scripts/tool.sh"]):
+            with self.subTest(changed=changed):
+                run, result = route(changed, **follows)
+                self.assertTrue(all(run.values()), result.lines())
+        run, _ = route(["webviews/src/app.tsx"], event="push", full_ci_follows_graph=True)
+        self.assertTrue(all(run.values()))
+        run, _ = route(["webviews/src/app.tsx"], labels=["full-ci"])  # without the flag: every job, as before
+        self.assertTrue(all(run.values()))
+
+    def test_full_ci_following_the_graph_still_lifts_the_pull_request_skip(self):
+        skip = {"workflows": {".github/workflows/s.yml": {"heavy": "x"}}}
+        text = json.dumps({**json.loads(MAP), "pull_request_skip": skip})
+        with fake_tree(FILES) as tree:
+            result = jobs.route(tree, ["scripts/run-app.sh"], map_text=text, labels=["full-ci"],
+                                full_ci_follows_graph=True)
+        self.assertEqual(result.pr_skip, {(".github/workflows/s.yml", "heavy"): True})
+
     def test_a_markdown_file_no_crate_names_runs_nothing(self):
         self.assertFalse(any(route(["cmux-tui/README.md", "cmux-tui/docs/x.md"])[0].values()))
 
@@ -193,6 +236,21 @@ class Routes(unittest.TestCase):
             result = jobs.route(tree, ["cmux-tui/crates/lonely/src/lib.rs"], map_text=MAP)
         self.assertTrue(all(result.run.values()))
         self.assertIn("could not be read", result.everything)
+
+    def test_check_reports_an_unreadable_graph_and_still_checks_the_other_jobs(self):
+        # #53846: a base whose Cargo.toml did not parse crashed the whole check, which hid the PR's own missing path.
+        import tempfile
+        broken = {**FILES, "cmux-tui/crates/app/Cargo.toml": "[package\n"}
+        with tempfile.TemporaryDirectory() as tmp, fake_tree(broken) as tree:
+            root = Path(tmp)
+            (root / jobs.MAP).parent.mkdir(parents=True, exist_ok=True)
+            (root / jobs.MAP).write_text(MAP)
+            (root / ".github/workflows").mkdir(parents=True, exist_ok=True)
+            (root / ".github/workflows/w.yml").write_text("on:\n  pull_request:\n    paths:\n      - cmux-tui/**\njobs:\n")
+            problems = jobs.check(root, tree)
+        text = "\n".join(problems)
+        self.assertIn("cmux-tui/crates/app/Cargo.toml does not parse", text)
+        self.assertIn('the pull_request paths miss "schemas/core.json"', text)
 
     def test_the_root_package_is_its_targets_not_the_workspace(self):
         files = {**FILES, "cmux-tui/Cargo.toml": '[package]\nname = "watch"\nbuild = "build-support/b.rs"\n'
@@ -703,7 +761,60 @@ class TheRepository(unittest.TestCase):
             self.assertFalse(any(result.run.values()), result.lines())
         self.assertTrue(jobs.gate(ROOT, outside, workflow, event="push", map_text=map_text)[0])
         self.assertTrue(jobs.gate(ROOT, outside, workflow, labels=[jobs.FULL_LABEL], map_text=map_text)[0])
+        tooling = ["scripts/ci/x.py", "tests/test_x.py", ".github/workflows/other.yml", "docs/x.md"]
+        self.assertFalse(jobs.gate(ROOT, tooling, workflow, labels=[jobs.FULL_LABEL], map_text=map_text)[0])
+        self.assertTrue(jobs.gate(ROOT, tooling + [workflow], workflow, labels=[jobs.FULL_LABEL], map_text=map_text)[0])
+        self.assertTrue(jobs.gate(ROOT, tooling + ["webviews/x.ts"], workflow, labels=[jobs.FULL_LABEL],
+                                  map_text=map_text)[0])
         self.assertTrue(jobs.gate(ROOT, None, workflow, map_text=map_text)[0])
+        follows = {"labels": [jobs.FULL_LABEL], "full_ci_follows_graph": True, "map_text": map_text}
+        self.assertFalse(jobs.gate(ROOT, outside, workflow, **follows)[0])
+        self.assertTrue(jobs.gate(ROOT, None, workflow, **follows)[0])
+        self.assertTrue(jobs.gate(ROOT, outside, workflow, event="push", **follows)[0])
+
+    def test_cmux_tui_spec_lets_full_ci_follow_the_graph_and_unreadable_labels_run_everything(self):
+        """cmux-tui-spec.yml's gate and route pass --full-ci-follows-graph (a full-ci head that touches no input of a
+        heavy job skips it: about 33,000 runner-minutes a day, 2026-11-26); labels that do not parse still run every
+        job."""
+        text = (ROOT / ".github/workflows/cmux-tui-spec.yml").read_text()
+        for command in ("gate", "route"):
+            with self.subTest(command=command):
+                call = re.search(rf"affected_jobs\.py {command} --workflow \.github/workflows/cmux-tui-spec\.yml "
+                                 r"\\\n([^\n]*)", text)
+                self.assertIsNotNone(call, command)
+                self.assertIn("--full-ci-follows-graph", call.group(1))
+        import contextlib
+        import io
+        import os
+        import subprocess
+        import tempfile
+        from unittest import mock
+        head = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True,
+                              check=True).stdout.strip()
+
+        def needed(labels):  # an empty change (HEAD..HEAD) with the full-ci label
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "out"
+                with mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    jobs.main(["gate", "--workflow", ".github/workflows/cmux-tui-spec.yml", "--base", head,
+                               "--head", head, "--labels", labels, "--full-ci-follows-graph"])
+                return "needed=true" in out.read_text()
+
+        self.assertFalse(needed('["full-ci"]'))
+        self.assertTrue(needed("not json"))
+
+    def test_fix_writes_a_missing_path_in_the_entry_style(self):
+        text = 'on:\n  push:\n    paths:\n      - "a/**"\n      # c\n      - "b.txt"\n  pull_request:\n    paths:\n      - a/**\njobs:\n  x:\n'
+        pushed = jobs.add_workflow_paths(text, "push", ["skills/x/SKILL.md"])
+        self.assertEqual(jobs.workflow_paths(pushed, "push"), ["a/**", "b.txt", "skills/x/SKILL.md"])
+        self.assertIn('      - "skills/x/SKILL.md"\n', pushed)
+        pulled = jobs.add_workflow_paths(pushed, "pull_request", ["c.txt"])
+        self.assertEqual(jobs.workflow_paths(pulled, "pull_request"), ["a/**", "c.txt"])
+        self.assertIn("      - c.txt\n", pulled)
+        batch = '{"suites": [{"paths": [\n  "a/**"\n]}, {"paths": [\n  "a/**",\n  "b.txt"\n]}]}'
+        added = json.loads(jobs.add_batch_paths(batch, ["a/**", "b.txt"], ["c.txt"]))
+        self.assertEqual([suite["paths"] for suite in added["suites"]], [["a/**"], ["a/**", "b.txt", "c.txt"]])
 
     def test_the_workflow_paths_reader(self):
         text = 'on:\n  push:\n    paths:\n      - "a/**"\n      # c\n      - b.txt\n  pull_request:\njobs:\n  x:\n'

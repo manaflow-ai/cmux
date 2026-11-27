@@ -140,41 +140,55 @@ impl QuietKeepalive {
     pub fn sent(&mut self, now: Instant) {
         self.last_sent = self.last_sent.max(now);
     }
+
+    /// The longest gap it allows from now on (`WgNet::set_air_floor`).
+    pub fn set_every(&mut self, every: Duration) {
+        self.every = every;
+    }
+}
+
+/// The link's idle air gap (`WgNet::set_idle_air_gap`): the shortest gap
+/// between two of the tunnel's own unsolicited sends (routine path probes
+/// and their off-path notes) while no data flows, so a radio that went back
+/// to sleep is woken once a gap, not once a probe. When the session sent
+/// anything else in a pass (data, an answer), the radio is awake: a probe
+/// due then rides along at once.
+#[derive(Debug, Default)]
+pub struct AirGap {
+    gap: Option<Duration>,
+    last_own: Option<Instant>,
+    tx_bytes: usize,
+}
+
+impl AirGap {
+    pub fn set(&mut self, gap: Option<Duration>) {
+        self.gap = gap;
+    }
+
+    /// Until when routine probes wait, at a pass that starts with the
+    /// session's sent byte count at `tx_bytes`. `None`: they go when due.
+    pub fn floor(&self, tx_bytes: usize) -> Option<Instant> {
+        let gap = self.gap?;
+        if tx_bytes != self.tx_bytes {
+            return None;
+        }
+        Some(self.last_own? + gap)
+    }
+
+    /// The probes of a pass are out: `before` and `after` are the sent
+    /// byte counts around them.
+    pub fn probed(&mut self, (before, after): (usize, usize), now: Instant) {
+        if after != before {
+            self.last_own = Some(now);
+        }
+        self.tx_bytes = after;
+    }
 }
 
 #[cfg(test)]
-mod quiet_keepalive_tests {
-    use super::*;
+#[path = "timers_air_gap_tests.rs"]
+mod air_gap_tests;
 
-    const EVERY: Duration = Duration::from_secs(10);
-    const TICK: Duration = Duration::from_secs(1);
-
-    #[test]
-    fn an_idle_session_keeps_the_interval() {
-        let start = Instant::now();
-        let mut keepalive = QuietKeepalive::new(EVERY, start);
-        assert!(!keepalive.due(0, start + EVERY - TICK));
-        assert!(keepalive.due(0, start + EVERY));
-        keepalive.sent(start + EVERY);
-        assert!(!keepalive.due(0, start + EVERY * 2 - TICK));
-        assert!(keepalive.due(0, start + EVERY * 2));
-    }
-
-    #[test]
-    fn other_traffic_holds_it_and_the_gap_never_passes_the_interval() {
-        let start = Instant::now();
-        let mut keepalive = QuietKeepalive::new(EVERY, start);
-        // Something leaves every 5 s: no keepalive ever.
-        let mut tx = 0;
-        for second in 1..=60 {
-            if second % 5 == 0 {
-                tx += 100;
-            }
-            assert!(!keepalive.due(tx, start + TICK * second), "second {second}");
-        }
-        // Then silence: the send seen at 60 s may have left just after the
-        // 59 s run, so the keepalive is due by 69 s.
-        assert!(!keepalive.due(tx, start + TICK * 68));
-        assert!(keepalive.due(tx, start + TICK * 69));
-    }
-}
+#[cfg(test)]
+#[path = "timers_quiet_keepalive_tests.rs"]
+mod quiet_keepalive_tests;

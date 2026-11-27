@@ -404,7 +404,10 @@ impl Hub {
                 // `historyLater: {keepTurns}`: the history follows the chat (`transfer_history.rs`).
                 let keep = params.get("historyLater").filter(|l| !l.is_null());
                 let keep = keep.map(|l| l.get("keepTurns").and_then(Value::as_u64).unwrap_or(1));
-                self.transfer_prepare(&self.resolve(text("sessionId"))?, params.get("base"), keep)
+                // A prepare copies the whole history: off the runtime's workers, so the chat
+                // and every other one answer while it runs (`qos::off_worker`, cmux#54461).
+                let session = self.resolve(text("sessionId"))?;
+                crate::qos::off_worker(|| self.transfer_prepare(&session, params.get("base"), keep))
             }
             "history_have" => self.transfer_history_have(params),
             "history_export" => {
@@ -413,7 +416,8 @@ impl Hub {
             "history" => self.transfer_history(&self.resolve(text("sessionId"))?, params),
             "base" => self.transfer_base(params),
             "stage" => self.transfer_stage(params),
-            "stage_finish" => self.transfer_stage_finish(params),
+            // Rewrites the staged prefix whole: off the runtime's workers too.
+            "stage_finish" => crate::qos::off_worker(|| self.transfer_stage_finish(params)),
             "digest" => self.transfer_digest(params),
             "end_stale" => self.transfer_end_stale(params).await,
             "progress" => self.transfer_progress(params),
@@ -468,6 +472,20 @@ impl Hub {
             "forget" => self.transfer_forget(params).await,
             _ => Err(RpcError::method_not_found(m)),
         }
+    }
+
+    /// This machine's route back as the owner of its agent memory, for a chat leaving it
+    /// (`memory_follow::route_back`): its `remoteDaemon` through its hub carrier. A config being
+    /// written right now reads as no route, as a machine with none does.
+    fn memory_route_back(&self) -> Option<crate::memory_follow::Followed> {
+        #[cfg(feature = "hub-carrier")]
+        {
+            let remote_daemon = self.config.try_read().ok()?.remote_daemon.clone();
+            let key = self.hub_carrier.get().map(|c| c.public_key());
+            crate::memory_follow::route_back(remote_daemon.as_deref(), key.as_deref())
+        }
+        #[cfg(not(feature = "hub-carrier"))]
+        None
     }
 
     /// Freezes the chat for its move and makes its bundle. With `after_turn` (how long to wait), a
@@ -644,26 +662,7 @@ impl Hub {
             } else {
                 super::auto_resume::Cut::Move
             };
-            carried = self.log_continuation(session, &running, how);
-            // Its place at the head, as a record of its own: a guarded target drops the
-            // provenance that would put it there (`transfer_guard.rs` `guarded_record`).
-            if let Some(id) = &carried {
-                let order: Vec<String> = std::iter::once(id.clone())
-                    .chain(
-                        session
-                            .queue
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .iter()
-                            .map(|q| q.prompt_id.clone()),
-                    )
-                    .collect();
-                self.append(session, "mux", "queue_order", json!({"promptId": id, "order": order}));
-            }
-            match &carried {
-                Some(id) => self.cancel_turn_for_replacement(session, &running, id).await,
-                None => self.cancel_turn(session, &running).await,
-            }
+            carried = self.cut_turn_to_move(session, &running, how).await;
         }
         let carried = carried.as_deref();
         let guard = match early {
@@ -683,6 +682,7 @@ impl Hub {
             drop(guard);
             return Err(unfreeze(transfer_error("busy", "a recovered turn is running"), carried));
         }
+        let mut steps = transfer_live::MoveSteps::new("begin");
         // Nothing appends now: the prepared prefix is the log's head, or the move is refused.
         let mut prefix = match precopy.map(|(id, after)| self.check_prefix(session, id, after)) {
             Some(Err(error)) => {
@@ -692,6 +692,7 @@ impl Hub {
             Some(Ok(prefix)) => Some(prefix),
             None => None,
         };
+        steps.step("check_prefix");
         // Export before the ownership scan so a concurrent log-scan callback cannot remove a
         // held prompt before `held_prompts` captures the move's exact queue snapshot.
         if let Err(error) = crate::home_fs::create_dirs(&dir) {
@@ -705,28 +706,31 @@ impl Hub {
         // reads only what came after (`transfer_precopy.rs` `PrefixFold`).
         let mut folded = prefix.as_mut().and_then(|p| p.folded.take());
         let grown = folded.as_ref().map(|f| (f.native_dir.as_path(), &f.native));
-        let made = self
-            .export_grown(session, &dir, prefix.as_ref().map(|p| p.after_seq), grown)
-            .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
-            .and_then(|bundle| {
-                let approved_waiting = match folded.as_mut() {
-                    Some(f) => self.held_prompts_from(std::mem::take(&mut f.held), &bundle)?,
-                    None => {
-                        let prefix_seq =
-                            prefix.as_ref().map(|p| (session.id.as_str(), p.after_seq));
-                        self.held_prompts_with(prefix_seq, &bundle)?
-                    }
-                };
-                if !approved_waiting.is_empty() && !gates_receiver {
-                    return Err(approved_prompts_error(
-                        json!(approved_waiting),
-                        "the move's client does not check that its receiver approves",
-                    ));
+        // A whole move's bundle is its whole history: made off the runtime's workers, so the
+        // daemon's other chats answer while it is (`qos::off_worker`, cmux#54461).
+        let made = crate::qos::off_worker(|| {
+            self.export_grown(session, &dir, prefix.as_ref().map(|p| p.after_seq), grown)
+        })
+        .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))
+        .and_then(|bundle| {
+            let approved_waiting = match folded.as_mut() {
+                Some(f) => self.held_prompts_from(std::mem::take(&mut f.held), &bundle)?,
+                None => {
+                    let prefix_seq = prefix.as_ref().map(|p| (session.id.as_str(), p.after_seq));
+                    self.held_prompts_with(prefix_seq, &bundle)?
                 }
-                let files = bundle_files(&bundle)
-                    .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
-                Ok((files, approved_waiting))
-            });
+            };
+            if !approved_waiting.is_empty() && !gates_receiver {
+                return Err(approved_prompts_error(
+                    json!(approved_waiting),
+                    "the move's client does not check that its receiver approves",
+                ));
+            }
+            let files = bundle_files(&bundle)
+                .map_err(|e| RpcError::internal(format!("transfer: bundle: {e}")))?;
+            Ok((files, approved_waiting))
+        });
+        steps.step("export");
         let (files, approved_waiting) = match made {
             Ok(made) => made,
             Err(error) => {
@@ -753,6 +757,7 @@ impl Hub {
                 carried,
             ));
         }
+        steps.step("epoch");
         let epoch = session.bump_ownership_epoch();
         if let Err(error) = crate::home_fs::write(dir.join("epoch"), epoch.to_string()) {
             drop(guard);
@@ -776,6 +781,7 @@ impl Hub {
                 carried,
             ));
         }
+        steps.step("transfer_out");
         drop(guard);
         if let Some(socket) = to {
             let _ = crate::home_fs::write(dir.join("to"), socket);
@@ -832,8 +838,11 @@ impl Hub {
         }
         // The chat's agent memory goes with it (`memory_follow.rs`).
         let settings = crate::user_settings::text();
-        let memory =
-            crate::memory_follow::outgoing(settings.as_deref(), &session.meta().session_env);
+        let memory = crate::memory_follow::outgoing(
+            settings.as_deref(),
+            &session.meta().session_env,
+            self.memory_route_back(),
+        );
         if let Some(memory) = memory {
             answer.set(crate::memory_follow::MANIFEST_FIELD, memory);
         }
@@ -1041,7 +1050,7 @@ impl Hub {
     /// (`transfer_begin`) joins the queue here, at its head, and runs, as it would have where
     /// the chat was going. Only that prompt is taken from the log, once: the rest of the live
     /// queue (an inbox digest's messages included) stays as it is.
-    fn queue_carried(self: &Arc<Self>, session: &Arc<Session>, prompt_id: &str) {
+    pub(super) fn queue_carried(self: &Arc<Self>, session: &Arc<Session>, prompt_id: &str) {
         self.restore_queue_only(session, Some(prompt_id));
         self.reword_unmoved(session, prompt_id);
         let _ = self.move_queued(session, prompt_id, 0, None);

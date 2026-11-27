@@ -1,6 +1,13 @@
 {
   "family": "integration",
   "ops": {
+    "integration.approval.approve": {
+      "source": "cloud",
+      "owner": "cloud:FeedDO",
+      "class": "mutation",
+      "risk": "mutate-own",
+      "digest": "1db88c6ed3db17f2"
+    },
     "integration.approval.get": {
       "source": "cloud",
       "owner": "cloud:ConnectionDO",
@@ -13,14 +20,14 @@
       "owner": "cloud:ConnectionDO",
       "class": "mutation",
       "risk": "mutate-shared",
-      "digest": "0f482a84cd13ea22"
+      "digest": "62b79e37d7eac00a"
     },
     "integration.connect": {
       "source": "cloud",
       "owner": "cloud:ConnectionDO",
       "class": "mutation",
       "risk": "mutate-shared",
-      "digest": "50b1b0162afa649f"
+      "digest": "5db42bfbb8f0fefb"
     },
     "integration.list": {
       "source": "cloud",

@@ -191,8 +191,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// reloads or restarts such a page by itself: a reload would read the file again and drop them.
     /// They stay in the recovery draft and the quit hook; the person closes or saves the tab.
     public var holdsUnsavedEdits: () -> Bool = { false }
-    /// The daemon tab the page shows (the agent chat's), nil for a page in no tab: app health names a stuck
-    /// page by that tab's title and workspace (`AppHealthPlaces`).
+    /// The daemon tab the page shows (the agent chat's), nil for a page in no tab.
     public var healthTabKey: @MainActor () -> String? = { nil }
     /// The page's own last word on unsaved edits (its heartbeat's `edits`: an editor that marked
     /// itself `[data-cmux-unsaved-edits]`, the Cloud page's file editor), kept until the next beat.
@@ -291,6 +290,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
+    /// The page's process ended and its host holds it for the host's own answer: the crash notice and
+    /// its Reload, or the host's automatic retry (the agent chat's ``reloadsAfterCrash`` false), or the
+    /// notice after ``PageCrashReloads`` ran out. App health's repairs leave such a page alone: they
+    /// reloaded it under the notice and reset its crash count, so a page that crashes as it loads
+    /// loaded again every few minutes forever (hq#27887, class 2). Cleared by ``reloadAfterCrashes()``.
+    public internal(set) var holdsCrash = false
     /// Whether the document an overlay served started (PageWebView+OverlayStart.swift), and the bound
     /// on its first word.
     var overlayStart = OverlayStartCheck()
@@ -575,7 +580,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         uiScaleObservation?.cancel()
         let chatZoom = followsChatZoom
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale, Typography.pageRowTextScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale, Typography.pageRowTextScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1, DesignSettings.shared.pageMetrics) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }

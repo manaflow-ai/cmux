@@ -38,6 +38,18 @@ request job reads it with its own read-only token. The pull request names the ru
                   `audit=true` for CI_RECEIPT_AUDIT_PERCENT of valid receipts (default 10, seeded by the head and the
                   receipt run, so pushing or reopening again does not re-roll it):
                   the job still runs in full, and a red there names the receipt and its producer.
+
+Lane receipts (fast gates). Leo: "Shift checks left into the lanes. The agent's lane VM already has the tree built; it
+runs the fast tier and the affected tests before pushing, and records a signed receipt keyed by tree hash." `produce
+fast-gates` run plainly on a lane (no cmux-ci; leo-workspace `wt push` runs it before every cmux push from a Linux lane
+host) records its pass with the build controller (POST /v1/ci/lane-receipt, tailnet). The controller names the producer
+from the caller's tailnet node (`lane:<node>`) and signs the receipt with its CI receipt key (cmuxterm-hq
+build-fleet/cmd/controller/lane_receipt.go). `verify --lane` asks the controller first through its public front door
+with the run's OIDC token (audience cmux-ci-lane-receipt) for receipts of this head's tree and holds each to this
+run's merge exactly as above (same base: same merge tree; older base: an ancestor). Audit is the same 10%, and every
+receipt of a producer in shadow (one whose audited receipt re-ran red, until 20 audits agree) is audited; the
+workflow's lane-receipt-audit job reports each audited verdict back. No lane receipt falls through to the pointer and
+discovery path above. `vars.CI_LANE_RECEIPTS=0` turns the lane lookup off; `produce --no-record` records nothing.
 """
 from __future__ import annotations
 

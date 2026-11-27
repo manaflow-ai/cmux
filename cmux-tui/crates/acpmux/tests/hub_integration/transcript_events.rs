@@ -242,39 +242,32 @@ async fn reply_chunks_carry_one_segment_per_run_of_text() {
     assert!(first.iter().all(|(_, a)| second.iter().all(|(_, b)| a != b)));
 }
 
-/// The pane cuts a reply's row at the turn's first TodoWrite call (shown until the turn has a
-/// checklist) and its first plan (a new checklist), and at a plan after the list was cleared, but
-/// not at a later TodoWrite or plan update, which it hides behind the checklist: the segments end
-/// at the same places (`stream.rs` `cuts_reply`). A new prompt starts a new checklist.
+/// TodoWrite calls and plans are never logged (`todo_tools.rs`), so none cuts a reply: every
+/// chunk of a turn's one message is one segment.
 #[tokio::test]
-async fn reply_segments_end_at_a_turns_first_checklist() {
+async fn todo_calls_and_plans_are_never_logged_nor_cut_a_reply() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "checklist").await;
     c.request(method::SESSION_PROMPT, prompt(&id, "reply-checklist", None)).await.unwrap();
     c.request(method::SESSION_PROMPT, prompt(&id, "reply-checklist", None)).await.unwrap();
     let events = hub.events(&id, 0, 1000).unwrap();
+    assert!(find(&events, "plan").is_empty());
+    assert!(find(&events, "tool_call").is_empty());
     let segs: Vec<String> = find(&events, "agent_message_chunk")
         .iter()
         .map(|e| e.msg["params"]["_meta"]["acpmux"]["segment"].as_str().unwrap().to_owned())
         .collect();
     assert_eq!(segs.len(), 14, "{segs:?}");
     for run in segs.chunks(7) {
-        // a | first TodoWrite | b | first plan | c, second TodoWrite, d, plan update, e | cleared,
-        // f | new plan | g.
-        assert_ne!(run[0], run[1], "{run:?}");
-        assert_ne!(run[1], run[2], "{run:?}");
-        assert_eq!(run[2], run[3], "{run:?}");
-        assert_eq!(run[3], run[4], "{run:?}");
-        assert_eq!(run[4], run[5], "{run:?}");
-        assert_ne!(run[5], run[6], "{run:?}");
+        assert!(run.iter().all(|s| s == &run[0]), "{run:?}");
     }
+    assert_ne!(segs[0], segs[7], "each turn's segment is its own: {segs:?}");
 }
 
-/// A usage tick, a call's update and the checklist's update between a turn's checklist and its
-/// next reply chunk carry no turn, and none starts one: the message stays one segment, as the pane
-/// keeps it one row (#41540 review F1).
+/// A usage tick, a call's update and a plan between two reply chunks carry no turn, and none
+/// starts one: the message stays one segment, as the pane keeps it one row (#41540 review F1).
 #[tokio::test]
-async fn reply_segment_survives_ticks_between_checklist_updates() {
+async fn reply_segment_survives_ticks_between_chunks() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "checklist-ticks").await;
     c.request(method::SESSION_PROMPT, prompt(&id, "reply-checklist-ticks", None)).await.unwrap();
@@ -292,23 +285,18 @@ async fn reply_segment_survives_ticks_between_checklist_updates() {
     assert_ne!(segs[0], segs[2], "each turn's segment is its own: {segs:?}");
 }
 
-/// A DeepSeek Harness todo call acpmux hides (it becomes the plan) is no cut in the reply, and the
-/// plan it makes is one where it is the turn's first checklist: the segments end where the pane
-/// cuts the row, and a page of the log starting anywhere reads the same ids (#41540 review F2).
+/// A DeepSeek Harness todo call and its result are dropped before the log (`todo_tools.rs`): no
+/// row, no plan, and no cut in the reply, and a page of the log starting anywhere reads the same
+/// segment ids (#41540 review F2).
 #[tokio::test]
-async fn hidden_todo_calls_keep_the_reply_segment_across_pages() {
+async fn dropped_todo_calls_keep_the_reply_segment_across_pages() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "dsh-todo").await;
     c.request(method::SESSION_PROMPT, prompt(&id, "reply-dsh-todo", None)).await.unwrap();
     let events = hub.events(&id, 0, 1000).unwrap();
-    // The calls were hidden (marked) and their results made two plans.
-    let calls = find(&events, "tool_call");
-    assert_eq!(calls.len(), 2, "{calls:?}");
-    assert!(
-        calls.iter().all(|e| e.msg["params"]["update"]["_meta"]["acpmux"]["planTool"] == true),
-        "{calls:?}"
-    );
-    assert_eq!(find(&events, "plan").len(), 2);
+    assert!(find(&events, "tool_call").is_empty());
+    assert!(find(&events, "tool_call_update").is_empty());
+    assert!(find(&events, "plan").is_empty());
     let chunks: Vec<(u64, String)> = find(&events, "agent_message_chunk")
         .iter()
         .map(|e| {
@@ -316,15 +304,7 @@ async fn hidden_todo_calls_keep_the_reply_segment_across_pages() {
         })
         .collect();
     assert_eq!(chunks.len(), 5, "{chunks:?}");
-    let seg = |i: usize| chunks[i].1.as_str();
-    // a | hidden call | b: one row.
-    assert_eq!(seg(0), seg(1), "{chunks:?}");
-    // The turn's first plan cuts it.
-    assert_ne!(seg(1), seg(2), "{chunks:?}");
-    // c | hidden call | d | plan update | e: one row behind the checklist.
-    assert_eq!(seg(2), seg(3), "{chunks:?}");
-    assert_eq!(seg(3), seg(4), "{chunks:?}");
-    // A page starting at any chunk reads every chunk's id as the whole log does.
+    assert!(chunks.iter().all(|(_, s)| s == &chunks[0].1), "{chunks:?}");
     for (start, _) in &chunks {
         let page = hub.events(&id, start.saturating_sub(1), 1000).unwrap();
         for e in find(&page, "agent_message_chunk") {
@@ -528,6 +508,7 @@ async fn turn_result_carries_error_text_and_streamed_error_chunks() {
     assert_eq!(r.msg["errorText"], "Selected model is at capacity.");
     assert_eq!(r.msg["errorCode"], json!({"serverOverloaded": {}}));
     assert_eq!(r.msg["errorSource"], "codex");
+    // The log keeps `failed`; the row of a turn acpmux holds for capacity reads `capacity` (#54477).
     // The session row reads `capacity` while acpmux holds that turn to retry it (#54477,
     // `hub/auto_resume.rs` `row_last_turn`); the turn's own result above stays `failed`.
     let summary = hub.session_summary(&hub.resolve("errs").unwrap());

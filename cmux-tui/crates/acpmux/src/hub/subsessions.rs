@@ -118,6 +118,11 @@ fn setting(key: &str, max: u32) -> Option<u32> {
     Some(n.floor().clamp(1.0, f64::from(max)) as u32)
 }
 
+/// [`setting`] for another module's key (`lane_fanout.rs`).
+pub(super) fn setting_u32(key: &str, max: u32) -> Option<u32> {
+    setting(key, max)
+}
+
 /// Where a limit value came from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
@@ -191,6 +196,21 @@ pub struct StartRequest {
     /// A refusal may name this host and its paths: false for a Web client, here or
     /// through a peer (`server/requests.rs`).
     pub local: bool,
+}
+
+impl StartRequest {
+    /// Options that require starting a separate harness or checkout.
+    pub(crate) fn own_launch_option(&self) -> Option<&'static str> {
+        [
+            ("harness", self.harness.is_some()),
+            ("model", self.model.is_some()),
+            ("effort", self.effort.is_some()),
+            ("cwd", self.cwd.is_some()),
+            ("worktree", self.worktree),
+        ]
+        .into_iter()
+        .find_map(|(field, given)| given.then_some(field))
+    }
 }
 
 /// A sub-session's new worktree (and the folder it was made from) until its
@@ -468,19 +488,12 @@ impl Hub {
         if req.prompt.trim().is_empty() {
             return Err(RpcError::invalid_params("prompt must not be empty"));
         }
-        if req.fork {
-            let own = [
-                ("harness", req.harness.is_some()),
-                ("model", req.model.is_some()),
-                ("effort", req.effort.is_some()),
-                ("cwd", req.cwd.is_some()),
-                ("worktree", req.worktree),
-            ];
-            if let Some((field, _)) = own.iter().find(|(_, given)| *given) {
-                return Err(RpcError::invalid_params(format!(
-                    "a fork runs your harness, model and folder: start_session with fork takes no {field}"
-                )));
-            }
+        if req.fork
+            && let Some(field) = req.own_launch_option()
+        {
+            return Err(RpcError::invalid_params(format!(
+                "a fork runs your harness, model and folder: start_session with fork takes no {field}"
+            )));
         }
         let pm = parent.meta();
         if pm.status == SessionStatus::Closed {
@@ -583,7 +596,11 @@ impl Hub {
                 name: None,
                 // A family lives on one daemon: a child starts beside its parent.
                 redirect: false,
+                auto: false,
+                waiting: None,
                 harness: Some(harness.clone()),
+                // The parent's lane holds this child (`lane_fanout.rs`).
+                caller: Some(parent.id.as_str()),
             })
             .await?;
         // Its worktree is made, and its harness spawns, only in the very folder checked.
@@ -939,7 +956,7 @@ impl Hub {
         // The last turn's text, and the running turn's again (a turn that changed between the
         // two reads above): a parent may have pasted a key into it, and what it does now is a
         // tool call's title, often a command with its arguments.
-        let turn_text = ["/turn/prompt", "/turn/activity", "/turn/planStep"];
+        let turn_text = ["/turn/prompt", "/turn/activity"];
         for pointer in ["/lastTurn/errorText", "/lastTurn/prompt"].into_iter().chain(turn_text) {
             if let Some(slot) = row.pointer_mut(pointer)
                 && let Some(text) = slot.as_str()

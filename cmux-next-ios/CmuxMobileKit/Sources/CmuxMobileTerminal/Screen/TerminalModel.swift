@@ -26,7 +26,17 @@ public final class TerminalModel {
     public internal(set) var programName: String
     /// The Mac the session runs on (`Workspace.macID`): the terminal shows that Mac's terminal
     /// theme (``CmuxMobileTerminalThemes``). Nil for a placeholder or mock session.
-    public var hostMacID: String?
+    public var hostMacID: String? {
+        didSet {
+            guard oldValue != nil, oldValue != hostMacID else { return }
+            cancelAttachmentSend()
+            attachmentPrestager.cancelAll()
+            // The old closure captures the previous Mac's id. Clear it before the
+            // new tab binding arrives, even when both Macs use the same folder.
+            uploaderDirectory = nil
+            uploader = nil
+        }
+    }
     /// The terminal theme the surface shows now (its card paints the same background); nil until
     /// a Mac ever sent one.
     public internal(set) var hostTheme: CmuxMobileTerminalTheme?
@@ -105,7 +115,17 @@ public final class TerminalModel {
     /// Sends one attachment to the Mac and returns its path there (the
     /// link's `upload` service). Nil hides the attachment menu: without a
     /// Mac to receive them there is nothing honest to attach.
-    public var uploader: (@MainActor (_ payload: LinkUpload.Payload, _ name: String) async throws -> String)?
+
+    public var uploader: (@MainActor (_ payload: LinkUpload.Payload, _ name: String) async throws -> String)? {
+        didSet {
+            syncAttachmentUploads()
+        }
+    }
+    /// The Mac folder captured with `uploader`. A terminal upload must not reuse
+    /// a pre-transfer after the shell changes directory.
+    @ObservationIgnored private var uploaderDirectory: String?
+    @ObservationIgnored private let attachmentPrestager = ComposerAttachmentPrestager()
+
     /// The composer shows its `+` menu: a Mac can receive attachments, or
     /// the DEBUG mock stands in for one so layout captures match live (SPEC M4).
     var attachmentsAvailable: Bool {
@@ -143,6 +163,7 @@ public final class TerminalModel {
     /// person sends again or edits (termfix-r13 D5, T-INPUT-17).
     public internal(set) var composerNotice: String?
     @ObservationIgnored private var uploadTask: Task<Void, Never>?
+    @ObservationIgnored private var uploadAttemptID = UUID()
 
     // Artifacts
     public internal(set) var artifacts: [TerminalArtifact] = []
@@ -200,6 +221,24 @@ public final class TerminalModel {
         coldFrame = image
         restoredFrame = image
         if snapshot == nil { snapshot = image }
+        measureColdFrame(image)
+    }
+
+    /// Where the cached frame's rows end (``TerminalFrameRows``), measured when the frame is
+    /// restored; nil for no frame or a blank one.
+    public private(set) var coldFrameRows: TerminalFrameRows?
+    /// The cached frame has been measured (its rows may still be nil: a blank still).
+    public private(set) var coldFrameMeasured = false
+
+    /// Measured at once, in the call that restores the frame: the page's first frame already
+    /// draws the still in its place (Leo, 2026-11-24: "the loading has layout shifts and
+    /// placeholder states that likely dont need to be so placeholder and better diffed"). A
+    /// measure off the main thread left a frame or two with nothing, then the still popped in.
+    /// The scan reads a 256 px wide copy (a few ms), once per restored still; the same still
+    /// handed to the next host (a reconnect, the warm set) is not measured again.
+    private func measureColdFrame(_ image: UIImage) {
+        coldFrameRows = TerminalFrameRowsMemo.rows(for: image)
+        coldFrameMeasured = true
     }
 
     /// The page as last seen, as rows (`TerminalSeed`): fed into this host's fresh surface
@@ -219,9 +258,18 @@ public final class TerminalModel {
     }
 
     /// The bytes this host's fresh surface shows before the Mac's replay: its kept rows, else
-    /// the Mac's screen text when it came first. Once, at the session's start.
-    func takeSeed() -> Data? {
-        guard !seeded, let rows = seedRows ?? cardScreenText.flatMap(TerminalSeed.rows(fromScreenText:)) else { return nil }
+    /// the Mac's screen text when it came first, each of its rows cut at the surface's `columns`
+    /// (``TerminalSeed/rows(_:clippedTo:)``). Once, at the session's start.
+    func takeSeed(columns: Int = 0) -> Data? {
+        guard !seeded else { return nil }
+        let rows: String
+        if let kept = seedRows {
+            rows = kept
+        } else if let mac = cardScreenText.flatMap(TerminalSeed.rows(fromScreenText:)) {
+            rows = TerminalSeed.rows(mac, clippedTo: columns)
+        } else {
+            return nil
+        }
         seedRows = nil
         seeded = true
         return TerminalSeed.bytes(rows: rows)
@@ -252,6 +300,8 @@ public final class TerminalModel {
 
     /// Set by the controller.
     weak var controller: TerminalViewController?
+    /// The composer's text view, for the controller's inset (`stripOverlap`).
+    @ObservationIgnored let composerField = ComposerFieldRef()
 
     public init(session: any TerminalSession, artifactSource: any ArtifactSource, title: String = "zsh",
                 quietStatus: QuietStatusGate = QuietStatusGate()) {
@@ -262,6 +312,8 @@ public final class TerminalModel {
         self.programName = session.programName
         self.connectionState = session.connectionState
         quietStatus.update(down: !session.connectionState.isAttached)
+        // Listening from the first terminal on: a cached frame is laid out at the keyboard's height.
+        _ = TerminalKeyboardHeight.shared
         joystickEngine.send = { [weak self] direction in self?.joystick(direction) }
         collector = TerminalArtifactCollector { [weak self] list in self?.artifacts = list }
         sizeClaimer = TerminalSizeClaimer(clock: ContinuousClock()) { [weak self] claims in
@@ -373,6 +425,12 @@ public final class TerminalModel {
         if connection != connectionState {
             connectionState = connection
             quietStatus.update(down: !connection.isAttached)
+            if connection.isAttached {
+                syncAttachmentUploads()
+            } else {
+                cancelAttachmentSend()
+                attachmentPrestager.cancelAll()
+            }
         }
         // Attached again: a held composer send went out (or was dropped, which says so
         // first); a later drop must never put already-sent text back.
@@ -519,7 +577,7 @@ public final class TerminalModel {
                 // Nothing changed on the Mac (an inline program's input reaches into the
                 // history, the link dropped): the person feels it did not clear.
                 modelLog.error("clear-history failed: \(String(describing: error), privacy: .public)")
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                CmuxMobileTheme.standard.haptics.notify(.error)
             }
         }
     }
@@ -638,11 +696,17 @@ public final class TerminalModel {
     #if DEBUG
     /// DEBUG: every page's `ptyResizesSent` added up (the keyboard pin trace's `rz=`).
     public internal(set) static var debugResizesSentTotal = 0
+    /// DEBUG: every terminal surface's presented frames added up (the keyboard pin trace's `tp=`).
+    public internal(set) static var debugPresentsTotal = 0
     /// DEBUG: posted when the terminal surface takes a key from the system keyboard
     /// (the keyboard pin trace's `ev=keyAccepted`, the motion bench's time to interactive).
     public static let debugKeyAccepted = Notification.Name("cmux.debug.terminal.keyAccepted")
     /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
     var demoNote = "start"
+    /// DEBUG: the grid the Mac's program ends at, and whether an answer to a
+    /// resize is still on its way (the demo's `attach` phase). Set, the page
+    /// keeps a ``TerminalAttachTrace`` from its view loading on.
+    var demoFinalGrid: (() -> (columns: Int, rows: Int, inFlight: Bool))?
     /// DEBUG: the grid columns the full-screen app ends at (the mock Mac's
     /// PTY), nil while a size change is on its way (the settle probe).
     @ObservationIgnored var demoFinalColumns: (@MainActor () -> Int?)?
@@ -650,8 +714,12 @@ public final class TerminalModel {
 
     /// Refreshes `snapshot` from the live page, rendered here on the main
     /// thread: for callers that need the picture now (the background save).
+    /// A capture of a surface that drew none of the Mac's rows (only the page background: a
+    /// solid black card) never replaces the card's picture: the card keeps its last-known
+    /// page, or shows the Mac's screen text, or nothing (`TerminalCardContent`). Once the page
+    /// drew live output, a blank capture is the real screen (a cleared terminal) and is kept.
     public func captureSnapshot() {
-        if let image = controller?.snapshot() {
+        if let image = controller?.snapshot(), drewLiveOutput || !TerminalFrameKeep.isBlank(image) {
             cardRenders += 1
             cardSnapshotAt = CACurrentMediaTime()
             snapshot = image
@@ -692,6 +760,16 @@ public final class TerminalModel {
             self.snapshot = image
             Self.dumpCard(image)
         }
+    }
+
+    /// The card's picture as last drawn, once the off-main render in flight (if any) lands: kept
+    /// as the tab's last-known picture when the person leaves the tab or the app goes to the
+    /// background (`TabCardSnapshots`). The page's snapshot once it drew the Mac's output, else
+    /// the frame the tab was restored with: never a page from before the first attach (as
+    /// `frameToKeep`). Nothing is rendered here.
+    public func cardPictureToKeep() async -> UIImage? {
+        await cardRender?.value
+        return drewLiveOutput ? snapshot : restoredFrame
     }
 
     /// The last off-main card render (tests await it).
@@ -884,22 +962,50 @@ public final class TerminalModel {
             return
         }
         let pending = attachments
+
+        let directory = uploaderDirectory
+        let claimed = attachmentPrestager.claim(pending, directory: directory)
+        let attemptID = UUID()
+        uploadAttemptID = attemptID
+
         isUploading = true
         attachmentError = nil
         uploadTask = Task { [weak self] in
             var paths: [String] = []
             for attachment in pending {
                 do {
-                    paths.append(try await uploader(try attachment.payload(), attachment.name))
+                    if let entry = claimed[attachment.id] {
+                        do {
+                            paths.append(try await entry.task.value)
+                        } catch is CancellationError {
+                            throw CancellationError()
+                        } catch {
+                            let transfer = try await attachment.transferPayload()
+                            try Task.checkCancellation()
+                            paths.append(try await uploader(transfer.payload, transfer.name))
+                        }
+                    } else {
+                        let transfer = try await attachment.transferPayload()
+                        try Task.checkCancellation()
+                        paths.append(try await uploader(transfer.payload, transfer.name))
+                    }
                 } catch {
                     guard let self else { return }
+                    guard self.uploadAttemptID == attemptID else { return }
+                    self.attachmentPrestager.cancelClaimed()
                     self.isUploading = false
+                    self.uploadTask = nil
+                    self.syncAttachmentUploads()
+                    if error is CancellationError { return }
                     self.attachmentError = "Couldn't send \(attachment.name): \(Self.message(error))"
                     return
                 }
             }
             guard let self else { return }
+            guard self.uploadAttemptID == attemptID else { return }
+            self.attachmentPrestager.releaseClaimed()
             self.isUploading = false
+            self.uploadTask = nil
             let submit = ComposerSubmit(attachmentPaths: paths, text: self.composerText, pressReturn: pressReturn)
             let draft = self.composerText
             if pressReturn { self.controller?.noteSent(draft) }
@@ -914,6 +1020,17 @@ public final class TerminalModel {
         }
     }
 
+    /// Stops an attachment send without discarding the draft or its tiles.
+    public func cancelAttachmentSend() {
+        guard isUploading else { return }
+        uploadAttemptID = UUID()
+        attachmentPrestager.cancelClaimed()
+        uploadTask?.cancel()
+        uploadTask = nil
+        isUploading = false
+        syncAttachmentUploads()
+    }
+
     static func message(_ error: any Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? String(describing: error)
     }
@@ -921,6 +1038,7 @@ public final class TerminalModel {
 
     func addAttachment(_ attachment: ComposerAttachment) {
         attachments.append(attachment)
+        syncAttachmentUploads()
     }
 
     /// A tapped attachment, before sending: every attachment opens full screen, to swipe between.
@@ -930,11 +1048,31 @@ public final class TerminalModel {
     }
 
     func removeAttachment(_ id: ComposerAttachment.ID) {
+        if isUploading { cancelAttachmentSend() }
         attachments.removeAll { $0.id == id }
+        syncAttachmentUploads()
         if attachments.isEmpty { attachmentError = nil }
     }
 
     func clearAttachmentError() { attachmentError = nil }
+
+
+    func syncAttachmentUploads() {
+        guard connectionState.isAttached else {
+            attachmentPrestager.cancelAll()
+            return
+        }
+        attachmentPrestager.sync(attachments, directory: uploaderDirectory, upload: uploader)
+    }
+
+    /// Updates the upload closure and its destination as one snapshot. The live
+    /// host calls this when its daemon tree publishes a new working directory.
+    public func setUploader(_ uploader: (@MainActor (LinkUpload.Payload, String) async throws -> String)?,
+                            directory: String?) {
+        uploaderDirectory = directory
+        self.uploader = uploader
+    }
+
 
     // MARK: Key bar
 
@@ -969,7 +1107,12 @@ public final class TerminalModel {
             index += 1
             if index % 4 == 0, !oneParagraph { text += "\n\n" }
         }
-        return String(text.prefix(count))
+        // End on a word boundary: a draft cut mid-word ("...befo") fuses the first typed word
+        // into it ("befothe"), and autocorrect then rewrites that word, so the keys a test typed
+        // are not the text it reads back. The length stays exactly `count`.
+        guard count > 0 else { return "" }
+        let cut = String(text.prefix(count - 1))
+        return cut.hasSuffix("\n") ? cut + "\n" : cut + " "
     }
 
     /// Demo drivers (`ws-terminal-reattach`): the session's link changes as a
@@ -989,7 +1132,18 @@ public final class TerminalModel {
     }
     #endif
 
+    #if DEBUG
+    /// DEBUG, for TerminalComposerTapBleedUITests: how many key-row keys fired and the last
+    /// one's identifier ("3:ctrl-c"), read through the composer's `terminal.keyBar.fired` probe.
+    var keyBarFired = "0"
+    @ObservationIgnored private var keyBarFiredCount = 0
+    #endif
+
     func keyBar(_ key: KeyBarKey) {
+        #if DEBUG
+        keyBarFiredCount += 1
+        keyBarFired = "\(keyBarFiredCount):\(key.identifier)"
+        #endif
         guard let surface = controller?.surface else { return }
         // Keys that leave the terminal (classic: paste, zoom, compose, hide)
         // first turn off an armed modifier, so it cannot linger unseen.

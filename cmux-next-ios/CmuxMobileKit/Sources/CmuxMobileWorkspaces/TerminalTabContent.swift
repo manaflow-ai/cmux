@@ -2,6 +2,7 @@
 import CmuxMobileDesign
 import CmuxMobileModel
 import SwiftUI
+import UIKit
 
 /// What a terminal tab's page needs to know from the tabs chrome.
 public struct TerminalTabContext {
@@ -13,6 +14,9 @@ public struct TerminalTabContext {
     public var chromeTop: CGFloat?
     /// The page is settled full screen and takes input.
     public var isInteractive: Bool
+    /// The page is full screen (not zoomed out to the tab grid), even while a menu, a swipe or the
+    /// address bar briefly takes input from it: what the page's orientation follows.
+    public var isOnPage: Bool
     /// A pinch is driving the tab zoom: suspend the terminal's own pinch.
     public var isZoomGestureActive: Bool
     /// Finger travel on the page (positive = finger down); collapses and
@@ -24,10 +28,12 @@ public struct TerminalTabContext {
     public var openLink: (@MainActor (URL) -> Void)?
 
     public init(safeAreaInsets: EdgeInsets, chromeTop: CGFloat? = nil, isInteractive: Bool, isZoomGestureActive: Bool,
-                reportScroll: @escaping @MainActor (CGFloat) -> Void, openLink: (@MainActor (URL) -> Void)? = nil) {
+                reportScroll: @escaping @MainActor (CGFloat) -> Void, openLink: (@MainActor (URL) -> Void)? = nil,
+                isOnPage: Bool? = nil) {
         self.safeAreaInsets = safeAreaInsets
         self.chromeTop = chromeTop
         self.isInteractive = isInteractive
+        self.isOnPage = isOnPage ?? isInteractive
         self.isZoomGestureActive = isZoomGestureActive
         self.reportScroll = reportScroll
         self.openLink = openLink
@@ -84,6 +90,20 @@ public protocol TerminalTabContent: AnyObject {
     /// Mac; a nil tab: any terminal of that Mac may have, its event stream
     /// started again) while `owner` lives. One handler per owner.
     func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void)
+    /// The person leaves `tab` (for the grid or another tab) or the app goes to the background:
+    /// `keep` hears the tab's card picture as last drawn, once it is ready, and the source keeps
+    /// it as the tab's last-known picture (`TabCardSnapshots`). `fresh`: the page is still on
+    /// screen, so it is copied now and composed off the main thread first. `onlyIfChanged`: a
+    /// page that drew nothing since its card was taken is not copied again, and `keep` hears that
+    /// same picture (which `TabCardSnapshots.put` does not encode again). Nothing for a tab with
+    /// no host, nor one whose page never drew the Mac's output.
+    func captureCard(for tab: WorkspaceTab, fresh: Bool, onlyIfChanged: Bool, keep: @escaping @MainActor (UIImage) -> Void)
+    /// `tab` has a page this launch, so `captureCard` may keep a picture of it (the background's
+    /// capture spends its bounded count only on these).
+    func hostsCard(for tab: WorkspaceTab) -> Bool
+    /// The store the cards read last-known pictures from: the tabs source's own
+    /// (`WorkspaceTabsSource.snapshots`), so what it keeps is what the cards read.
+    func useCardPictures(_ snapshots: TabCardSnapshots)
 }
 
 extension TerminalTabContent {
@@ -100,6 +120,9 @@ extension TerminalTabContent {
     public func statusSubtitle(for tab: WorkspaceTab) -> String? { nil }
     public func sceneActiveChanged(_ active: Bool) {}
     public func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void) {}
+    public func captureCard(for tab: WorkspaceTab, fresh: Bool, onlyIfChanged: Bool, keep: @escaping @MainActor (UIImage) -> Void) {}
+    public func hostsCard(for tab: WorkspaceTab) -> Bool { false }
+    public func useCardPictures(_ snapshots: TabCardSnapshots) {}
 }
 
 /// A page menu row a terminal tab adds.
@@ -152,6 +175,7 @@ struct PlaceholderTerminalPage: View {
     let tab: WorkspaceTab
     let insets: EdgeInsets
     var retry: (@MainActor () async -> Void)? = nil
+    @State private var autoRetry = AutoRetry()
 
     var body: some View {
         ContentUnavailableView {
@@ -159,8 +183,10 @@ struct PlaceholderTerminalPage: View {
         } description: {
             Text("This terminal isn't available.")
         } actions: {
-            if let retry { RetryButton(action: retry).accessibilityIdentifier("terminal.placeholder.retry") }
+            // Reloads on its own (AutoRetry); past the quiet bound one quiet line, no button.
+            AutoRetryQuietLine(autoRetry)
         }
+        .autoRetry(autoRetry, failing: retry != nil) { await retry?() }
         .padding(.top, insets.top)
         .padding(.bottom, insets.bottom)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

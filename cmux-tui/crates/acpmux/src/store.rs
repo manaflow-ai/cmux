@@ -251,12 +251,43 @@ pub struct ForkBefore {
     pub ready: bool,
 }
 
-/// Reserved before creating a child; retained even if the child is purged.
+/// Reserved before creating a child; retained even if the child is purged. A plain fork's
+/// (`session/fork` with a `requestId` and no boundary, `hub/fork_request.rs`) has no `prompt_id`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ForkRequest {
+    #[serde(default)]
     pub prompt_id: String,
     pub child_id: String,
+}
+
+/// How a fork's agent gets its chat's conversation at its first start, kept until that start (or
+/// its first prompt) took it, so a daemon restart in between resumes it (`hub/fork_start.rs`):
+/// it was in memory only, and a fork restarted before its agent started began a fresh
+/// conversation under the copied turns (cmux#50096).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ForkStart {
+    /// The fork is whole: its history and `forked` record are in. A fork a restart cut off
+    /// before then is closed at the next start, never shown as a copy.
+    #[serde(default)]
+    pub made: bool,
+    /// Claude's `--resume <this> --fork-session`: the chat's agent session it forks from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_from: Option<String>,
+    /// Its first prompt carries the chat's transcript (a fork onto another harness, or one its
+    /// agent could not fork mid-turn), under `note` when set.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rehydrate: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+impl ForkStart {
+    /// Nothing left to keep: a whole fork whose agent took its conversation.
+    pub fn settled(&self) -> bool {
+        self.made && self.resume_from.is_none() && !self.rehydrate
+    }
 }
 
 /// A person's return to a chat that kept working (`hub/seen.rs`): the log seq they had seen when
@@ -316,6 +347,16 @@ pub struct SessionMeta {
     /// name still arrives. At most `former_names::KEPT`; no other session keeps the same one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub former_names: Vec<String>,
+    /// The sessions it took over (`acpmux succeed`), as `HOST/NAME` (or a bare NAME on this
+    /// host), each with the former names its predecessor listed. They go out in its heartbeat
+    /// row's `formerNames`, so the hub sends a message for a dead predecessor here
+    /// (plans/cmux-next/message-delivery-successors.md).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub succeeds: Vec<String>,
+    /// The role addresses (`goal:SLUG`, `area:NAME`, `topic:NAME`) it claimed (`acpmux role
+    /// claim`): a send to the address reaches it, here and through the hub.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub roles: Vec<crate::mesh::RoleClaim>,
     /// `agent` in a chat stored before the agent-to-harness rename (e857185a58).
     #[serde(alias = "agent")]
     pub harness: String,
@@ -428,6 +469,9 @@ pub struct SessionMeta {
     pub history_kept_through: Option<u64>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub fork_requests: std::collections::BTreeMap<String, ForkRequest>,
+    /// A fork whose agent has not taken the chat's conversation yet ([`ForkStart`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fork_start: Option<ForkStart>,
     /// Whether this daemon verified the local parent link when the fork was made. Imported
     /// metadata is explicitly unverified, even when an old bundle happened to carry parent ids.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -533,10 +577,6 @@ pub struct SessionMeta {
         skip_serializing_if = "Option::is_none"
     )]
     pub goal: Option<GoalState>,
-    /// What is done and next across the chat's turns (`task_list.rs`): its harness's latest plan,
-    /// or the list its agent or Chief keeps. None until one is written.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub task_list: Option<crate::task_list::TaskList>,
     /// Per-session permission rules layered above the policy (see hub/rules.rs).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_rules: Option<Value>,
@@ -607,6 +647,13 @@ pub struct SessionMeta {
     /// Kept on disk, so the next daemon finds it too.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub create_key: Option<String>,
+    /// What placed it on this machine for another machine's person: `autoCloud`
+    /// ([`crate::autocloud_enroll::PLACED_BY_AUTOCLOUD`], `_meta.acpmux.placedBy` on its
+    /// `session/new`). Such a chat runs below the owner's own work and gets out of the way when the
+    /// owner comes back (`hub/owner_return.rs`). None: started for this machine's own person, or
+    /// saved before this existed. Never copied to a fork or a moved-in session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placed_by: Option<String>,
     /// The journal seq the agent's own session ends at, when the journal went past it without
     /// the agent: records its owner kept went back in (`hub/journal_restore.rs`, a session moved
     /// to a fresh machine from an older disk). The agent resumes its own older session, so its
@@ -702,6 +749,10 @@ pub struct SessionMeta {
     /// Unsent composer text owned by this acpmux session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub composer_draft: Option<String>,
+    /// A person pinned the chat to the top of their list (`_acpmux/pin`), synced to their other
+    /// replicas as `pin/<id>` (`hub/synced.rs`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pinned: bool,
     /// The session took its mode from the person's approval of its preset
     /// (`hub/person.rs` (b)): the approved contents' digest. A spawn from
     /// other contents leaves that mode (`hub/start_gate/preset_bind.rs`).
@@ -819,6 +870,12 @@ pub struct SessionMeta {
     /// (`hub/fork_subagent.rs`). The info view's `forkOf`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fork_of_subagent: Option<SubagentForkOf>,
+    /// The chat's place mode as the place menu set it (`place_mode.rs`): its pin. It is part of
+    /// the chat's metadata, so it moves with the chat. None: never picked, which reads as Auto
+    /// once this machine's one-time migration pinned every older chat to it (`place_pin.rs`,
+    /// `hub/place_migrate.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place_mode: Option<crate::place_mode::PlaceMode>,
 }
 
 /// A fork of a chat's subagent: the chat, and the subagent as its `_meta.acpmux.subagents`

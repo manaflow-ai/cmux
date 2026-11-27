@@ -126,6 +126,10 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// `_meta.acpmux.fullAccess`, read on each connection; false after acpmux refuses it).
     case fullAccess(Bool)
     case status(AgentSessionSummary.Status)
+    /// The session's footer facts (`composerStatus.facts` on its row, RFD 0130): a whole row's
+    /// (attach, the chat's own `session_changed`) or a census row's, which leaves out the facts
+    /// that repeat the row's fields (``AgentFooterFacts/updated(with:)``).
+    case footerFacts(AgentFooterFacts)
     /// A call the source made for the person failed (refused allow, trust gate, link down).
     case clientError(String)
     /// A prompt that never reached the agent (an attachment upload failed, the
@@ -135,6 +139,10 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// A prompt's attachments are on their way to the Mac (``AgentUploadProgress``): the chat
     /// shows the message at once, with how far its upload is, until the Mac's echo of it.
     case promptUploading(promptID: String, AgentUploadProgress)
+    /// The prompts on their way that draw a row (the Rust outbox's `pending_sends`, shown ones
+    /// only), in send order, each with what the person can do to it: Stop and Delete always,
+    /// Send now when offered. A text prompt that goes at once never appears here.
+    case pendingSends([AgentPendingSend])
     /// `_meta.acpmux.subagents`: a subagent started or changed state.
     case subagent(AgentSubagentChange)
     /// An update from a subagent's own session (`_meta.acpmux.subagent`).
@@ -142,6 +150,17 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// Several records applied as one change (a replayed history), so no
     /// half-replayed state (a past turn still "Working") is ever on screen.
     case batch([AgentSessionEvent])
+}
+
+extension AgentSessionEvent {
+    /// The source's or link's state (still reading history, connected, what models and modes
+    /// the Mac offers), not a change to the chat's turns, ask or queue.
+    var isLinkState: Bool {
+        switch self {
+        case .historyLoading, .status, .fullAccess, .modelsAvailable, .modesAvailable, .earlierHistory: true
+        default: false
+        }
+    }
 }
 
 /// A person's action in the chat, encoded by the source into acpmux calls:
@@ -176,6 +195,31 @@ public enum AgentClientIntent: Hashable, Sendable {
     case resumeQueue
     /// Stop sending a message whose attachments are still uploading: it comes back to the composer.
     case cancelSend(promptID: String)
+    /// Delete a message on its way: it is taken back (off the Mac's queue if it may be there)
+    /// and nothing comes back to the composer.
+    case deleteSend(promptID: String)
+    /// Send now: a message waiting on a retry goes at once (the outbox's `retry_now`).
+    case retrySend(promptID: String)
+}
+
+/// A message on its way that the chat draws a row for (``AgentSessionEvent/pendingSends(_:)``).
+public struct AgentPendingSend: Hashable, Sendable {
+    public var promptID: String
+    public var text: String
+    /// Not gone yet past the quiet threshold (the link, a backoff, a "not now").
+    public var waiting: Bool
+    /// Send now is offered.
+    public var canSendNow: Bool
+    /// Stopped after it may have reached the Mac: its removal is awaited.
+    public var stopping: Bool
+
+    public init(promptID: String, text: String, waiting: Bool, canSendNow: Bool, stopping: Bool) {
+        self.promptID = promptID
+        self.text = text
+        self.waiting = waiting
+        self.canSendNow = canSendNow
+        self.stopping = stopping
+    }
 }
 
 public struct AgentAttachment: Hashable, Sendable, Codable, Identifiable {

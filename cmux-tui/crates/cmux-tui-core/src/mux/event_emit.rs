@@ -97,6 +97,9 @@ impl Mux {
             self.tree_revision.bump();
         }
         self.activity.observe(&event);
+        if journal_plugin_demand_tapped() {
+            self.note_journal_plugin_demand_event(&event);
+        }
         if let MuxEvent::Conversation(conversation) = &event {
             self.chiefs().brains.observe(conversation);
         }
@@ -104,6 +107,7 @@ impl Mux {
     }
 
     pub(crate) fn emit_terminal_output(&self, runtime_id: SurfaceId) {
+        self.activity.note_output(runtime_id);
         for placement in self.terminal_event_placements(runtime_id) {
             self.emit(MuxEvent::SurfaceOutput(placement));
         }

@@ -23,13 +23,17 @@ use cmux_json::JsonSet as _;
 
 pub mod actions;
 mod answering;
+mod capacity_wait;
+pub mod chat_find;
 mod composer_draft;
 #[cfg(all(test, unix))]
 mod composer_draft_tests;
 mod events;
+pub mod new_line;
 mod reconnect_wait;
 mod run;
 mod scheduler;
+mod start_wait;
 mod state;
 mod terminal;
 pub use run::run;
@@ -68,6 +72,8 @@ pub mod scroll;
 mod session_ops;
 pub mod shimmer;
 pub mod skills;
+#[cfg(test)]
+mod subagent_wait_tests;
 pub mod theme;
 
 pub use actions::Action;
@@ -197,6 +203,9 @@ pub struct App {
     pub show_system: bool,
     pub(crate) quit: bool,
     pub(crate) pending_select: Option<String>,
+    /// A draft's start that lost its daemon connection, run again after the reconnect
+    /// (`start_wait.rs`): the draft's id and the message it was sending.
+    pub(crate) start_after_reconnect: Option<(u64, String, Vec<PromptImage>)>,
     pub(crate) initial_empty_checked: bool,
     pub tick: u64,
     pub chrome: Chrome,
@@ -264,6 +273,12 @@ pub struct App {
     pub dialog_rect: Rect,
     /// The open answer flow of a pending agent question (answering.rs).
     pub answering: Option<Answering>,
+    /// The open find bar over the transcript (chat_find.rs), as GUI chats have.
+    pub find: Option<chat_find::Find>,
+    /// Items each chat held when it was last left (new_line.rs).
+    pub(crate) seen_items: HashMap<String, usize>,
+    /// The "N new messages" line of the chat on screen (new_line.rs).
+    pub new_line: Option<new_line::NewLine>,
 }
 
 pub(crate) const DEFAULT_STATUS: &str = "";
@@ -463,7 +478,12 @@ impl App {
         if self.row_count() == 0 {
             return;
         }
+        let left = self.selected_id();
         self.selected = idx.min(self.row_count() - 1);
+        let now = self.selected_id();
+        if now != left {
+            self.note_return(left, now.as_deref());
+        }
         self.transcript_anchor = None;
         if let Some(pos) = self
             .sidebar_nav
@@ -479,6 +499,20 @@ impl App {
                 self.attach(&id);
             }
         }
+    }
+
+    /// The selection moved from `left` to `now`: note what `left` held, and mark what arrived in
+    /// `now` since it was last left (new_line.rs).
+    fn note_return(&mut self, left: Option<String>, now: Option<&str>) {
+        if let Some(left) = left
+            && let Some(t) = self.transcripts.get(&left)
+        {
+            self.seen_items.insert(left, t.items.len());
+        }
+        self.new_line = now.and_then(|id| {
+            let seen = *self.seen_items.get(id)?;
+            new_line::NewLine::on_return(id, self.transcripts.get(id)?, seen)
+        });
     }
 
     /// Re-ask the daemon for harnesses and status (after a reconnect).

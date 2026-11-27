@@ -45,6 +45,8 @@ pub(crate) mod overlay;
 #[path = "peer_tailnet.rs"]
 mod tailnet_path;
 
+#[path = "peer_demand.rs"]
+mod demand;
 #[cfg(feature = "hub-carrier")]
 #[path = "peer_hub.rs"]
 mod hub_path;
@@ -56,6 +58,8 @@ mod ssh_errors;
 mod tokens;
 #[path = "peer_wanted.rs"]
 mod wanted;
+pub use demand::DIAL_AT_START_ENV;
+pub(crate) use demand::{lazily, saved};
 use wanted::BackoffWait;
 pub use wanted::{WAKE_ENV, WakeHook};
 #[path = "peer_controls.rs"]
@@ -66,6 +70,8 @@ mod list_read;
 mod runtime;
 #[path = "peer_runtime_io.rs"]
 mod runtime_io;
+#[path = "peer_runtime_requests.rs"]
+mod runtime_requests;
 pub(crate) use runtime_io::{
     ATTACH_RETRY_AFTER, lends_over, page_max_seq, refuses_attach, replayable,
 };
@@ -160,6 +166,9 @@ pub enum PeerNotice {
     /// (`Peer::lists_after_ready`).
     Listed,
     Disconnected(String),
+    /// The link closed because nothing used it (`LinkEnd::Idle`): its rows are last-known now,
+    /// with no outage; the next use dials again.
+    Idle,
     /// The remote daemon sent WebSocket Close 1012; its rows stay usable while it restarts.
     Restarting,
     /// Full session list from `_acpmux/watch` or a single `session_changed`: each row's compact
@@ -300,6 +309,9 @@ enum LinkEnd {
     /// The link ended to move to another path of this peer (`peer_carriers.rs`): no outage,
     /// the next connect runs at once and its chats resume from their cursors.
     Switching,
+    /// Nothing used the link for `peer_demand::IDLE_CLOSE_AFTER`: it closes, and the next use
+    /// dials again. No outage, no failed attempt.
+    Idle,
 }
 
 pub struct Peer {
@@ -310,6 +322,8 @@ pub struct Peer {
     /// Unique per `Peer` instance; a replacement under the same name gets a
     /// new one.
     pub generation: u64,
+    /// Fixed before registry publication; leased instances must never persist session rows.
+    pub(crate) leased: bool,
     pub url: String,
     token: Option<String>,
     /// The peer's peer token (`server/peer_auth.rs`), sent with `token`.
@@ -421,6 +435,8 @@ pub struct Peer {
     /// `vmBoundary`, `hub/vm_boundary.rs`): each `session/new` it forwards
     /// says `vmBoundary: true`.
     vm_boundary: AtomicBool,
+    /// `PeerConfig` `group`: the person's own placing of this machine (`own` or `agent`).
+    group_override: StdMutex<Option<String>>,
     /// The daemon's `peerWake` command, shared by every peer and swapped on a config reload
     /// (`Peer::wake` runs it once per wake window).
     wake_hook: std::sync::OnceLock<WakeHook>,
@@ -544,6 +560,9 @@ pub struct Peer {
     /// How long this peer's links may stay silent: longer for one that answers late. Made from
     /// `timings` at the first link, so a test can set them first.
     silence: StdMutex<Option<SilenceBudget>>,
+    /// A link dialed while the last one sat silent past its budget, and opened first
+    /// (`Peer::serve_heard`): the next connect serves it instead of dialing.
+    replacement: StdMutex<Option<(crate::peer_paths::Via, carriers::Opened)>>,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
     /// The last successful cache write still records an outage that Connected must clear.
@@ -597,6 +616,9 @@ pub struct Peer {
     /// This link's messages from the peer so far: the bytes of their frames, and of their JSON
     /// text (more when the peer compresses them, `frame_compress.rs`).
     received: ReceivedBytes,
+    /// The current link's transport read progress (`Heard::read`), from its open: a read
+    /// forwarded on it waits while bytes keep arriving (`Peer::link_read`).
+    link_read: StdMutex<cmux_deadline::Progress>,
 }
 
 /// What a link received: frame bytes and JSON text bytes, from its open.
@@ -604,12 +626,79 @@ pub struct Peer {
 pub struct ReceivedBytes {
     frames: AtomicU64,
     text: AtomicU64,
+    /// Of `text`: replay pages' records (`replay_chat`), and their count.
+    replay: AtomicU64,
+    replay_events: AtomicU64,
+    /// Of `text`: live records of a chat still replaying, carried and dropped (the replay
+    /// carries them again), and their count.
+    gated: AtomicU64,
+    gated_events: AtomicU64,
+    /// Of `text`: (bytes, messages) by what they were: a notification's method, `reply`, or
+    /// `list` (the v2 list stream's frames). Names which source a slow resume carried.
+    kinds: StdMutex<std::collections::BTreeMap<String, (u64, u64)>>,
 }
 
 impl ReceivedBytes {
     fn reset(&self) {
-        self.frames.store(0, Ordering::SeqCst);
-        self.text.store(0, Ordering::SeqCst);
+        for n in [
+            &self.frames,
+            &self.text,
+            &self.replay,
+            &self.replay_events,
+            &self.gated,
+            &self.gated_events,
+        ] {
+            n.store(0, Ordering::SeqCst);
+        }
+        self.kinds.lock_or_recover().clear();
+    }
+
+    pub(crate) fn add_kind(&self, kind: &str, text: usize) {
+        let mut kinds = self.kinds.lock_or_recover();
+        let row = match kinds.get_mut(kind) {
+            Some(row) => row,
+            None => kinds.entry(kind.to_owned()).or_default(),
+        };
+        row.0 = row.0.saturating_add(u64::try_from(text).unwrap_or(u64::MAX));
+        row.1 += 1;
+    }
+
+    /// `patch`'s bytes by field path, three levels deep, as kinds `patch:a.b.c`.
+    pub(crate) fn add_patch_fields(&self, patch: &serde_json::Value) {
+        fn walk(r: &ReceivedBytes, v: &serde_json::Value, path: &str, depth: usize) {
+            let serde_json::Value::Object(o) = v else { return };
+            for (k, child) in o {
+                let at = if path.is_empty() { format!("patch:{k}") } else { format!("{path}.{k}") };
+                r.add_kind(&at, serde_json::to_string(child).map_or(0, |s| s.len()));
+                if depth < 3 {
+                    walk(r, child, &at, depth + 1);
+                }
+            }
+        }
+        walk(self, patch, "", 1);
+    }
+
+    pub(crate) fn add_replay(&self, text: usize) {
+        self.replay.fetch_add(u64::try_from(text).unwrap_or(u64::MAX), Ordering::SeqCst);
+        self.replay_events.fetch_add(1, Ordering::SeqCst);
+    }
+
+    pub(crate) fn add_gated(&self, text: usize) {
+        self.gated.fetch_add(u64::try_from(text).unwrap_or(u64::MAX), Ordering::SeqCst);
+        self.gated_events.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// Where this link's received bytes went, for the peer's summary.
+    pub fn split(&self) -> serde_json::Value {
+        let r = |n: &AtomicU64| n.load(Ordering::SeqCst);
+        serde_json::json!({
+            "frames": r(&self.frames), "text": r(&self.text),
+            "replay": r(&self.replay), "replayEvents": r(&self.replay_events),
+            "gatedLive": r(&self.gated), "gatedLiveEvents": r(&self.gated_events),
+            "kinds": self.kinds.lock_or_recover().iter()
+                .map(|(k, (b, n))| (k.clone(), serde_json::json!({"bytes": b, "count": n})))
+                .collect::<serde_json::Map<_, _>>(),
+        })
     }
 
     fn add(&self, frame: usize, text: usize) {
@@ -879,7 +968,7 @@ fn stopped_reading(budget: Duration) -> String {
 fn write_late(budget: Duration, wake_probe: Option<tokio::time::Instant>) -> String {
     match wake_probe {
         Some(probe) if probe <= tokio::time::Instant::now() => {
-            format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs())
+            "no answer to the wake probe after this computer woke".to_owned()
         }
         _ => stopped_reading(budget),
     }
