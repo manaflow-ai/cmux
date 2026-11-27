@@ -44,6 +44,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // A glyph is a pure function of the id: answered here for a peer's session too.
     method::SESSION_SIGNATURE,
     method::MUX_STATUS,
+    method::MUX_HEAP_PROFILE,
     method::MUX_PERF,
     method::MUX_CALLERS,
     method::MUX_FELT_SNAPSHOT,
@@ -128,6 +129,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     // Every live chat on this daemon (`host_notice.rs`).
     "_acpmux/host_notice",
     "_acpmux/host_health",
+    // A peer admits this daemon's WireGuard key itself (`peer_wg_learn.rs`).
+    crate::peer::wg_learn::ADMIT,
     // This machine's own load and swap, for its app's warning (`host_overload.rs`).
     "_acpmux/host_overload",
     "_acpmux/place",
