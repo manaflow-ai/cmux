@@ -53,16 +53,22 @@ final class CEFResizeFences {
             // This app's own deadline: the commit never waits longer than the GPU's deadline and one refresh.
             let clock = clock
             let after = Duration.milliseconds(Int64(timeoutMs)) + .microseconds(Int64(max(refreshMs, 1) * 1_000))
-            // The task holds the fence (and so its port) until the deadline or `drop()`: once the turn ended nothing
-            // else does, and a fence freed with its send right would hold the window's commits for good.
-            fence.deadline = Task {
+            // The deadline runs off the main actor and holds the fence's send right (``CEFFenceRight``) until it or
+            // `drop()` frees it: once the turn ended nothing else does, and a right freed with nobody dropping it would hold
+            // the window's commits for good. Off the main actor, because the render server holds every later commit of
+            // the window while the fence is open: a main thread busy in one of those commits (or anything else) cannot
+            // run a main-actor deadline, so the fence stayed open past its deadline for as long as the main thread was
+            // busy. Nightly c6ff12463, s9-browser-w30 divider drag: both fences of each round expired, and those rounds
+            // showed 3 or 4 frames in about 900 ms (frame p50 242 ms, max 928 ms).
+            let right = fence.right
+            fence.deadline = Task.detached {
                 // wakeup-allow: one-shot deadline of one resize turn (a frame or two), cancelled when every page reported
                 do { try await clock.sleep(for: after) } catch { return }
-                if fence.outstanding > 0 { CEFHostView.trackerStats.resizeFencesExpired += 1 }
-                fence.drop()
+                guard right.drop() else { return }
+                Task { @MainActor in CEFHostView.trackerStats.resizeFencesExpired += 1 }
             }
         }
-        let joined = ask(fence.port) { [weak fence] presented in
+        let joined = ask(fence.right.port) { [weak fence] presented in
             if presented { CEFHostView.trackerStats.resizeFencePresented += 1 } else { CEFHostView.trackerStats.resizeFenceMissed += 1 }
             guard let fence else { return }
             fence.outstanding -= 1
@@ -79,13 +85,13 @@ final class CEFResizeFences {
 /// One window's fence of one turn (``CEFResizeFences``).
 @MainActor
 final class CEFResizeFence {
-    fileprivate var port: mach_port_t
+    fileprivate let right: CEFFenceRight
     fileprivate var outstanding = 0
     fileprivate var sealed = false
     fileprivate var deadline: Task<Void, Never>?
 
     fileprivate init(port: mach_port_t) {
-        self.port = port
+        right = CEFFenceRight(port: port)
     }
 
     fileprivate func seal() {
@@ -94,9 +100,7 @@ final class CEFResizeFence {
     }
 
     fileprivate func drop() {
-        guard port != mach_port_t(MACH_PORT_NULL) else { return }
-        mach_port_deallocate(mach_task_self_, port)
-        port = mach_port_t(MACH_PORT_NULL)
+        guard right.drop() else { return }
         outstanding = 0
         deadline?.cancel()
         deadline = nil
@@ -115,6 +119,29 @@ final class CEFResizeFence {
         let call = unsafeBitCast(context.method(for: create), to: CreateFencePort.self)
         let port = call(context, create)
         return port == mach_port_t(MACH_PORT_NULL) ? nil : port
+    }
+}
+
+/// The app's send right on one fence, freed once by whichever comes first: every page reported (main actor) or the
+/// fence's deadline (off the main actor, ``CEFResizeFences/join(window:layer:timeoutMs:refreshMs:ask:)``).
+final class CEFFenceRight: @unchecked Sendable {
+    private let lock = NSLock()
+    private var name: mach_port_t
+
+    init(port: mach_port_t) { name = port }
+
+    /// The port while the right is held; `MACH_PORT_NULL` once freed.
+    var port: mach_port_t { lock.withLock { name } }
+
+    /// Frees the right; false when it was freed already.
+    func drop() -> Bool {
+        let taken: mach_port_t = lock.withLock {
+            defer { name = mach_port_t(MACH_PORT_NULL) }
+            return name
+        }
+        guard taken != mach_port_t(MACH_PORT_NULL) else { return false }
+        mach_port_deallocate(mach_task_self_, taken)
+        return true
     }
 }
 

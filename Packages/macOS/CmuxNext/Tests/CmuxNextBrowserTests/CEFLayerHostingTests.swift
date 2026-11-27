@@ -675,8 +675,31 @@ private final class LiveResizeWindow: NSWindow {
         clock.advance(by: .milliseconds(40))
         for _ in 0..<50 where sendRights(fence.port) != 0 { await Task.yield() }
         #expect(sendRights(fence.port) == 0)
+        for _ in 0..<50 where CEFHostView.trackerStats.resizeFencesExpired == expired { await Task.yield() }
         #expect(CEFHostView.trackerStats.resizeFencesExpired == expired + 1)
         // A late report finds the right gone and changes nothing.
+        for done in fork.dones { done(false) }
+        #expect(sendRights(fence.port) == 0)
+    }
+
+    /// The deadline frees the fence while the main thread is busy: the render server holds every later commit of the
+    /// window until then, so a deadline that needed the main thread held the window's frames for as long as the main
+    /// thread was busy (nightly c6ff12463, s9-browser-w30 divider drag: both fences expired each round, frame p50
+    /// 242 ms).
+    @Test func aFenceGoesAtItsDeadlineWhileTheMainThreadIsBusy() async throws {
+        let (hosting, _, window) = makeHosted()
+        defer { window.close() }
+        hosting.paneResizeDrag(active: true)
+        hosting.pageViewResized()
+        let fence = try #require(fork.fences.first)
+        endTurn()
+        try await clock.waitForSleeper()
+        let clock = clock
+        Thread.detachNewThread { clock.advance(by: .milliseconds(40)) }
+        // The main thread stays busy (no await, no run loop) until the right is gone or 2 s passed.
+        let start = Date()
+        while sendRights(fence.port) != 0, Date().timeIntervalSince(start) < 2 { usleep(1_000) }
+        #expect(sendRights(fence.port) == 0, "the fence's deadline waited for the main thread")
         for done in fork.dones { done(false) }
         #expect(sendRights(fence.port) == 0)
     }
