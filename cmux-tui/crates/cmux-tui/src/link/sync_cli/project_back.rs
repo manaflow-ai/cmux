@@ -3,11 +3,14 @@
 //! agent wrote sits in the projection's upper layer on the machine; this brings it here in
 //! O(edits):
 //!
-//! 1. the machine's listing of the upper layer and whiteouts (`projection.layer`, no bytes);
+//! 1. the machine's listing of the upper layer and whiteouts (`projection.layer`, no bytes),
+//!    with the dependency, cache and build folders the agent made (`node_modules`, a Cargo
+//!    `target`) counted, not listed: they stay on the machine (`kept_on_machine` in the summary);
 //! 2. this Mac's stat of each path they touch, against the manifest the session started from
 //!    (kept here by `serve`, [`record`]), planned by [`cmux_projection::way_back::plan`]: writes,
 //!    deletes, mode changes and named conflicts. New paths this Mac's git ignores stay there;
-//! 3. only the files the plan writes or names come over (`projection.files`), and the upper's
+//! 3. only the files the plan writes or names come over (`projection.files`, in batches of
+//!    bounded paths and bytes), and the upper's
 //!    `.git` files of each repository go through the HEAD and index three-way
 //!    ([`super::git_back::plan_from_layer`]), never copied as files;
 //! 4. one transaction here ([`super::place`]): every file replaced or deleted is checked to be
@@ -26,7 +29,7 @@
 //! cmux link project release --socket S --at REMOTE FOLDER [--why archived|deleted]
 //! ```
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead as _, BufReader, Read as _, Seek as _, Write as _};
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::os::unix::net::UnixStream;
@@ -180,6 +183,73 @@ pub(in crate::link) fn bring_back(socket: &Path, found: &Recorded, keep: bool) -
     }
 }
 
+/// One `projection.layer` answer: the listing's size, the mark, the listing.
+struct Listing {
+    bytes: u64,
+    /// The upper layer as the machine read it: what `projection.brought_back` frees.
+    mark: Option<String>,
+    layer: Layer,
+}
+
+/// The folders `prune` left on the machine, and the answer's totals of them.
+#[derive(Default)]
+struct KeptOnMachine {
+    pruned: Vec<layer::Pruned>,
+    totals: Value,
+}
+
+/// The machine's listing of `name`'s upper layer; with `prune`, its dependency and cache
+/// folders as counts instead (a machine from before `prune` lists them all, and none come back
+/// counted).
+fn layer_of(socket: &Path, name: &str, prune: bool) -> anyhow::Result<(Listing, KeptOnMachine)> {
+    let (answer, mut reader) =
+        dial(socket, &json!({"cmd": "projection.layer", "name": name, "prune": prune}), &[])?;
+    let bytes =
+        field(&answer, "/data/bytes").as_u64().context("the machine sent no listing size")?;
+    let mark = field(&answer, "/data/mark").as_str().map(str::to_owned);
+    let mut raw = Vec::new();
+    (&mut reader).take(bytes).read_to_end(&mut raw)?;
+    anyhow::ensure!(raw.len() as u64 == bytes, "the machine's listing ended early");
+    let layer = Layer::decode(&raw)?;
+    let mut kept = KeptOnMachine::default();
+    if let Some(more) = field(&answer, "/data/pruned_bytes").as_u64() {
+        let mut raw = Vec::new();
+        (&mut reader).take(more).read_to_end(&mut raw)?;
+        anyhow::ensure!(raw.len() as u64 == more, "the machine's pruned list ended early");
+        kept.pruned = Layer::decode_pruned(&raw)?;
+        kept.totals = field(&answer, "/data/kept_on_machine").clone();
+    }
+    Ok((Listing { bytes, mark, layer }, kept))
+}
+
+/// The most paths one `projection.files` dial asks for.
+const BATCH_PATHS: usize = 4096;
+/// The most listed bytes one `projection.files` dial asks for (one larger file goes alone).
+const BATCH_BYTES: u64 = 256 * 1024 * 1024;
+
+/// `paths` in order, cut into runs of at most [`BATCH_PATHS`] paths and [`BATCH_BYTES`] bytes
+/// by `size`; never an empty run.
+fn batches<'a>(paths: &'a [String], size: impl Fn(&str) -> u64) -> Vec<&'a [String]> {
+    let mut runs = Vec::new();
+    let (mut start, mut bytes) = (0, 0u64);
+    for (at, path) in paths.iter().enumerate() {
+        let len = size(path);
+        if at > start && (at - start == BATCH_PATHS || bytes.saturating_add(len) > BATCH_BYTES) {
+            if let Some(batch) = paths.get(start..at) {
+                runs.push(batch);
+            }
+            (start, bytes) = (at, 0);
+        }
+        bytes = bytes.saturating_add(len);
+    }
+    if start < paths.len() {
+        if let Some(batch) = paths.get(start..) {
+            runs.push(batch);
+        }
+    }
+    runs
+}
+
 /// Milliseconds since `since`.
 fn ms(since: Instant) -> u64 {
     u64::try_from(since.elapsed().as_millis()).unwrap_or(u64::MAX)
@@ -193,16 +263,14 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
         .context("this Mac kept no manifest for the projection")?;
     let manifest = Manifest::decode(&encoded)?;
 
-    let (answer, mut reader) =
-        dial(socket, &json!({"cmd": "projection.layer", "name": found.name}), &[])?;
-    let bytes =
-        field(&answer, "/data/bytes").as_u64().context("the machine sent no listing size")?;
-    // The upper layer as the machine read it: what `projection.brought_back` frees.
-    let mark = field(&answer, "/data/mark").as_str().map(str::to_owned);
-    let mut raw = Vec::new();
-    (&mut reader).take(bytes).read_to_end(&mut raw)?;
-    anyhow::ensure!(raw.len() as u64 == bytes, "the machine's listing ended early");
-    let mut changed = Layer::decode(&raw)?;
+    // Dependency, cache and build folders the agent made stay on the machine, counted, not
+    // listed (`Layer::collect_pruned`): 100k files under `node_modules` never cross. A folder
+    // this Mac had when it projected (a committed `vendor/.cache`) is asked for again whole.
+    let (mut listing, mut kept_on_machine) = layer_of(socket, &found.name, true)?;
+    if kept_on_machine.pruned.iter().any(|folder| manifest.resolve(&folder.path).is_some()) {
+        (listing, kept_on_machine) = layer_of(socket, &found.name, false)?;
+    }
+    let Listing { bytes, mark, layer: mut changed } = listing;
     let listed_ms = ms(started);
     // Modes as the copy keeps them (0644, 0755, 0600, 0700), the manifest's own rule.
     for entry in &mut changed.upper {
@@ -245,13 +313,17 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
     let received = staging.0.join("upper");
     std::fs::create_dir_all(&received)?;
     let mut fetched_bytes = 0u64;
-    if !wanted.is_empty() {
-        let list = wanted.join("\n").into_bytes();
+    // In batches of bounded paths and bytes, one dial each: a codemod's 100k files never make
+    // one path list past the machine's limit or one answer that outlives a dial's wait.
+    let size_of: BTreeMap<&str, u64> =
+        changed.upper.iter().map(|entry| (entry.path.as_str(), entry.size)).collect();
+    for batch in batches(&wanted, |path| size_of.get(path).copied().unwrap_or(0)) {
+        let list = batch.join("\n").into_bytes();
         let line =
             json!({"cmd": "projection.files", "name": found.name, "paths_bytes": list.len()});
         let (_, mut reader) = dial(socket, &line, &list)?;
-        let arrived = layer::receive_files(&mut reader, &wanted, &received, MAX_FILE)?;
-        for (path, came) in wanted.iter().zip(&arrived) {
+        let arrived = layer::receive_files(&mut reader, batch, &received, MAX_FILE)?;
+        for (path, came) in batch.iter().zip(&arrived) {
             if !came {
                 bail!("{path} went away on the machine during Bring Back; nothing changed here");
             }
@@ -374,6 +446,14 @@ fn run(socket: &Path, found: &Recorded, keep: bool) -> anyhow::Result<Back> {
         "staged": git_plans.len(),
         "bytes": fetched_bytes,
         "listing_bytes": bytes,
+        // What the agent made that stays on the machine uncounted by Bring Back's lists:
+        // `{folders, files, bytes}` and each folder.
+        "kept_on_machine": {
+            "totals": kept_on_machine.totals,
+            "folders": kept_on_machine.pruned.iter()
+                .map(|f| json!({"path": f.path, "files": f.files, "bytes": f.bytes}))
+                .collect::<Vec<_>>(),
+        },
         "dropped": dropped,
         "edited_since": edited_since,
         "freed_bytes": freed_bytes,
@@ -624,9 +704,18 @@ fn keep_ignored_home(
     if ignored.is_empty() {
         return Ok(ignored);
     }
+    // Only the outermost ignored paths: git names every file under an ignored folder too, and
+    // a build tree is 100k of them.
     ignored.sort();
-    let under_ignored =
-        |path: &str| ignored.iter().any(|hit| path == hit || path.starts_with(&format!("{hit}/")));
+    ignored.dedup();
+    let all: BTreeSet<String> = ignored.iter().cloned().collect();
+    let within = |path: &str, set: &BTreeSet<String>| {
+        path.match_indices('/')
+            .any(|(at, _)| path.get(..at).is_some_and(|prefix| set.contains(prefix)))
+    };
+    ignored.retain(|path| !within(path, &all));
+    let roots: BTreeSet<String> = ignored.iter().cloned().collect();
+    let under_ignored = |path: &str| roots.contains(path) || within(path, &roots);
     plan.writes.retain(|write| write.replaces.is_some() || !under_ignored(&write.path));
     plan.conflicts.retain(|c| manifest.resolve(&c.path).is_some() || !under_ignored(&c.path));
     Ok(ignored)
