@@ -267,7 +267,7 @@
    edge's tab was. A small round surface lights on hover, as the `eye` arm's. */
 .acpmux-hat-hide[data-at="line"] {
   --acpmux-hide-ink: 0%;
-  top: 2px;
+  top: var(--grid-half-step);
   right: var(--acpmux-tray-inset);
   width: var(--acpmux-tray-chevron-width);
   height: var(--acpmux-tray-head-height);
