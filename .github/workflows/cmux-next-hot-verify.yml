@@ -946,6 +946,13 @@ jobs:
             exit 0
           fi
           [[ "$rc" == 0 ]] || exit "$rc"
+          # The worker found nothing to look at (e.g. the nightly already contains the merge): no comment, and no
+          # needs_build output, so the publish steps below (needs_build == 'false') skip.
+          if nothing="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d.get("reason") or ""); sys.exit(0 if d.get("nothing") else 1)' "$RUNNER_TEMP/stage.out")"; then
+            echo "nothing=true" >> "$GITHUB_OUTPUT"
+            echo "hot verify: the worker found nothing to look at ($nothing); no comment" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["needs_build"] else 1)' "$RUNNER_TEMP/stage.out"; then
             echo "needs_build=true" >> "$GITHUB_OUTPUT"
             echo "hot verify: the worker's plan against the nightly says this change needs a build; no comment (the build path covers it)" | tee -a "$GITHUB_STEP_SUMMARY"
