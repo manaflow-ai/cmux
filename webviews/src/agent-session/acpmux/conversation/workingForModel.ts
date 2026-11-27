@@ -1,4 +1,4 @@
-import { createContext } from "react";
+import { createContext, use } from "react";
 import { type Translate } from "../i18n";
 import type { TurnTokenSplit } from "../model";
 import { turnSpan } from "./turns";
@@ -29,3 +29,12 @@ export function workingParts(counts: WorkingCounts): { key: string; label: strin
 }
 
 export const WorkingCountsContext = createContext<WorkingCounts | undefined>(undefined);
+
+// Retained transcript rows use a distinct context: a provider of the outer context alone
+// does not block React's lazy propagation through a memoized, offscreen row.
+export const RowWorkingCountsContext = createContext<{ counts: WorkingCounts | undefined } | undefined>(undefined);
+
+export function useWorkingCounts() {
+  const row = use(RowWorkingCountsContext);
+  return row ? row.counts : use(WorkingCountsContext);
+}
