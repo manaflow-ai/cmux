@@ -444,6 +444,28 @@ class FieldOverrideTests(unittest.TestCase):
         self.assertIn("        self.index = index.map { min(max($0, 0), Self.maxIndex) }\n", source)
         self.assertIn("try container.encode(index, forKey: .index)", source)
 
+    def test_clamp_without_a_constant_uses_the_literal_maximum_and_adds_no_property(self) -> None:
+        source = self.source(title={"update": True}, index={"type": "Int", "clamp": {"minimum": 1, "maximum": 500}})
+        self.assertNotIn("static let max", source)
+        self.assertIn("    public var index: Int\n", source)
+        self.assertIn("        self.index = min(max(index, 1), 500)\n", source)
+        optional = self.source(
+            title={"update": True}, index={"type": "UInt32", "optional": True, "clamp": {"minimum": 0, "maximum": 200}}
+        )
+        self.assertIn("        self.index = index.map { min(max($0, 0), 200) }\n", optional)
+
+    def test_two_unnamed_clamps_are_allowed(self) -> None:
+        document = mutation_document()
+        fields = document["commands"]["rename-pane"]["request"]["fields"]
+        fields["count"] = _field({"kind": "scalar", "name": "uint64"})
+        clamp = {"minimum": 1, "maximum": 5}
+        source = rendered(document, mutation_bindings(
+            title={"update": True}, index={"type": "Int", "clamp": clamp}, count={"type": "Int", "clamp": clamp}
+        ))
+        joined = "".join(source.values())
+        self.assertIn("self.index = min(max(index, 1), 5)", joined)
+        self.assertIn("self.count = min(max(count, 1), 5)", joined)
+
     def test_a_bad_clamp_is_refused(self) -> None:
         good = {"minimum": 1, "maximum": 5, "constant": "maxLimit"}
         cases = {
@@ -451,6 +473,8 @@ class FieldOverrideTests(unittest.TestCase):
             "a non-integer bound": {"index": {"type": "Int", "clamp": {**good, "maximum": 5.5}}},
             "a boolean bound": {"index": {"type": "Int", "clamp": {**good, "minimum": True}}},
             "a constant that is not a name": {"index": {"type": "Int", "clamp": {**good, "constant": "max-limit"}}},
+            "a constant that is not a string": {"index": {"type": "Int", "clamp": {**good, "constant": 5}}},
+            "no maximum": {"index": {"type": "Int", "clamp": {"minimum": 1}}},
             "an unknown key": {"index": {"type": "Int", "clamp": {**good, "step": 1}}},
             "a non-integer field": {"index": {"type": "Double", "clamp": good}},
             "an update field": {"title": {"update": True, "type": "Int", "clamp": good}},
