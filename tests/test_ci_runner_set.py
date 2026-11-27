@@ -77,6 +77,8 @@ PINNED: dict[str, tuple[str, set[str]]] = {
      {'upload', 'set-testflight-notes', 'assign-internal'}),
     'ios-app-review-readiness.yml': ('app-store-connect and store-declarations hold the App Store Connect API key (release environment), as ios-asc-ops.yml op does, and review-gate mints the bot App token: the fork-routing secret rule forbids a variable-movable runner',
      {'app-store-connect', 'store-declarations', 'review-gate'}),
+    'cloud-mvp-nightly-readback.yml': ('holds the production agent Stack sign-in pair: the fork-routing secret rule forbids a variable-movable runner',
+     {'readback'}),
     'ios-asc-subscription-records.yml': ('holds the App Store Connect API key (release environment), as ios-asc-ops.yml op does: the fork-routing secret rule forbids a variable-movable runner',
      {'records'}),
     'ios-asc-ops.yml': ('holds the App Store Connect API key (release environment): the fork-routing secret rule forbids a variable-movable runner',

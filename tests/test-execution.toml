@@ -2559,6 +2559,10 @@ path = "tests/test_ci_ghostty_zig_packages_fetched.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_fast_checks_warm_checkout.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_workflow_duplicate_keys.py"
 lane = "linux-guard"
 

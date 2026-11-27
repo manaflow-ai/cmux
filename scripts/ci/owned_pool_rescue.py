@@ -567,6 +567,11 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/nightly-next-launch-smoke.yml",
     # feat-cmux-next only; calls pr-pipeline.yml, whose ios job takes the ios-runner pool picker's output.
     ".github/workflows/pr-router.yml",
+    ".github/workflows/ios-fast-verdict-dispatch.yml",  # same call as pr-router.yml (feat-cmux-next only)
+    # feat-cmux-next only; its ios job takes the ios-runner pool picker's output.
+    ".github/workflows/cmux-next-pr-pipeline-ios-batch.yml",
+    # feat-cmux-next only; its probe job takes vars.CI_SIDE_LANE_RUNNER on attempts 1 and 2.
+    ".github/workflows/accounts-nightly-probe.yml",
     # feat-cmux-next only; its build job takes the pool picker job route's output (cmux#55612).
     ".github/workflows/ios-sim-linux-build.yml",
     ".github/workflows/macos-cross-parity.yml",
@@ -614,7 +619,23 @@ TRUSTED_SIDE_EVENTS = frozenset({"push", "schedule", "workflow_dispatch"})
 # Workflows that can take an owned pool but are never rescued here, each with why. A person decides
 # their re-runs. owned_pool_sources.py must find no owned workflow outside these and
 # WATCHED_WORKFLOW_PATHS (tests/test_ci_owned_pool_sources.py).
+# The gateway-only workflows below share one reason.
+_GATEWAY_ONLY = (
+    "feat-cmux-next only; its job runs on the frozen glaeda gateway label (cmux#54437: CI_COMPILE_CHECK_GATEWAY or CI_EVAL_STEP_GATEWAY written out as 'glaeda-gateway-xcode-26.6'), a thin cmux-ci client the gateway hook admits by job name (glaeda-cmux-runner-hook GATEWAY_JOBS) and no other runner may take, so no move off it exists: a person re-runs it"
+)
 UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/cmux-next-fast-tier-batch.yml": _GATEWAY_ONLY,  # swift-fleet, only when the public route cannot serve
+    ".github/workflows/cmux-next-head-compile.yml": _GATEWAY_ONLY,
+    ".github/workflows/cmux-next-ios-energy-nightly.yml": _GATEWAY_ONLY,
+    ".github/workflows/cmux-next-ios-keyboard-motion.yml": _GATEWAY_ONLY,
+    ".github/workflows/cmux-next-iphone-clips.yml": _GATEWAY_ONLY,
+    ".github/workflows/cmux-next-perf-bench.yml": _GATEWAY_ONLY,
+    ".github/workflows/cmux-next-split-table.yml": _GATEWAY_ONLY,
+    ".github/workflows/cmux-next-stress-bench.yml": _GATEWAY_ONLY,
+    ".github/workflows/cmux-next-tab-switch.yml": _GATEWAY_ONLY,
+    ".github/workflows/fleet-compile-check.yml": _GATEWAY_ONLY,
+    ".github/workflows/ios-base-bisect.yml": _GATEWAY_ONLY,
+    ".github/workflows/screen-stream-eval.yml": _GATEWAY_ONLY,
     ".github/workflows/cloud-composer-journey.yml":
         "never takes an owned pool: pick-runner runs e2e_runner_pool.py with --owned 0 and keeps only a Blacksmith "
         "macOS 26 label, because the journey job holds a Stack account pair; a re-run takes the declared macos_26 "
