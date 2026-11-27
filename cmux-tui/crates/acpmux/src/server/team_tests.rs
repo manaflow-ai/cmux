@@ -850,3 +850,6 @@ async fn team_offline_rpc_restart_alias_and_sender_scope() {
         .await;
     assert_eq!(denied["error"]["data"]["reason"], "team.forbidden", "{denied}");
 }
+
+#[path = "team_directory_tests.rs"]
+mod directory;

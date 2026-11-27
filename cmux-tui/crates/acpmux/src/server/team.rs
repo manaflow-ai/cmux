@@ -20,6 +20,9 @@ pub(super) async fn handle(
         return answer;
     }
     authorize(hub, conn).await?;
+    if let Some(answer) = super::team_directory::handle(hub, conn, method, params) {
+        return answer;
+    }
     match method {
         crate::rpc::method::MUX_TEAM_SEND => {
             let mesh = hub.mesh.get();
