@@ -442,6 +442,24 @@ async fn a_pushed_reading_fills_the_host_row_and_spares_the_pull() {
         .expect("machine-b row");
     assert_eq!(machine_b["health"], json!({"cpus": 16}));
 
+    // A later failed pull survives cache maintenance and makes this host unreachable.
+    hub.hub_health.lock().unwrap().answered("machine-b", None, now + 2);
+    hub.mesh_health_hosts(now + 2).due(&mut hub.hub_health.lock().unwrap(), now + 2);
+    let machine_b =
+        hub.mesh_book_hosts().into_iter().find(|row| row["name"] == "machine-b").unwrap();
+    assert!(crate::placement::reach::row_unreachable(&machine_b, now + 2).is_some());
+
+    // A still newer heartbeat proves contact and supersedes the failed pull.
+    let mut back = book();
+    let d = back.daemons.iter_mut().find(|d| d.daemon_id == "d-b").unwrap();
+    d.health = Some(json!({"cpus": 4}));
+    d.health_at = Some(now + 3);
+    hub.apply_mesh_book(back, "person-1", Some("d-a"));
+    let machine_b =
+        hub.mesh_book_hosts().into_iter().find(|row| row["name"] == "machine-b").unwrap();
+    assert_eq!(machine_b["health"], json!({"cpus": 4}));
+    assert!(crate::placement::reach::row_unreachable(&machine_b, now + 3).is_none());
+
     // A push gone stale is ignored: the pull is the fallback again.
     let hub = self::hub();
     let mut old = book();
@@ -455,6 +473,7 @@ async fn a_pushed_reading_fills_the_host_row_and_spares_the_pull() {
         .find(|row| row["name"] == "machine-b")
         .expect("machine-b row");
     assert!(machine_b.get("health").is_none());
+    assert!(crate::placement::reach::row_unreachable(&machine_b, now).is_some());
     assert!(hub.mesh_health_hosts(now).pull.contains(&"machine-b".to_owned()));
 }
 
