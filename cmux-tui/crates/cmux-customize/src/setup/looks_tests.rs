@@ -36,8 +36,8 @@ fn the_compiled_catalog_reads_and_lists_the_looks() {
     let catalog = catalog().unwrap();
     let ids: Vec<&str> = catalog.looks.iter().map(|look| look.id.as_str()).collect();
     // Leo, 2026-11-27: "we need to have at least SOMETHING you root for" and
-    // "and obv dont call it t3 code and whatnot". The gallery lists four looks
-    // under names of our own; the other looks stay installable by name.
+    // "and obv dont call it t3 code and whatnot", then "haha but idm
+    // namedropping claude/codex". The other looks stay installable by name.
     let profiles = ["codex", "claude-code"];
     let mut want: Vec<String> =
         profiles.iter().map(|app| format!("manaflow-ai/{app}-profile")).collect();
@@ -53,7 +53,7 @@ fn the_compiled_catalog_reads_and_lists_the_looks() {
         assert!((2..=3).contains(&look.traits.len()), "{}: traits {:?}", look.id, look.traits);
     }
     let names: Vec<&str> = catalog.looks.iter().map(|look| look.name.as_str()).collect();
-    assert_eq!(names, ["Pebble", "Kiln", "Studio", "Paper"]);
+    assert_eq!(names, ["Codex", "Claude Code", "Studio", "Paper"]);
     assert_eq!(catalog.looks[2].repo, "github.com/manaflow-ai/cmux-studio-look");
     assert_eq!(catalog.looks[3].repo, "github.com/manaflow-ai/cmux-paper-look");
     // The app looks are folders of cmux itself, on the branch that carries them.
