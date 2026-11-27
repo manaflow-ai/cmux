@@ -1021,7 +1021,7 @@ jobs:
           acpmux_group=("acpmux-standalone" "$(zb 5) -p acpmux-standalone --bin acpmux-standalone $acpmux_features")
           if [[ "$LTO" == thin ]]; then
             lead_bins+=" acpmux-standalone"
-            lead+=" -p acpmux-standalone --bin acpmux-standalone $(../scripts/ci/acpmux-build-features.sh crates/acpmux-standalone/Cargo.toml "$t" acpmux-standalone)"
+            lead+=" -p acpmux-standalone --bin acpmux-standalone $acpmux_features"
             acpmux_group=()
           fi
           ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \
@@ -2354,7 +2354,7 @@ jobs:
       }}
     # GitHub-hosted OIDC is required for artifact attestations; this job is
     # intentionally exempt from the self-hosted runner routing guard.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }} # github-hosted-required: artifact attestations need GitHub OIDC
+    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC
     timeout-minutes: 15
     permissions:
       contents: read
