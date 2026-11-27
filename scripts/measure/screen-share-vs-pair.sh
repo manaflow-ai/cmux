@@ -114,9 +114,11 @@ if [[ -n "$peer_token" ]]; then
 fi
 # The rig root screen-share-vs.py uses on both Macs. Over peer-serve the two steps run in different homes (a
 # worker's step home, the bench account's), so its home-relative default fails "different homes". Absolute, the
-# same on both Macs, per run by the secret token (no other account can claim it first), space-free.
+# same on both Macs, per run by the secret token (no other account can claim it first), space-free. One root only:
+# the source=screen rig listens under $rig_root, and a second --root on the leg (last flag wins) sent every rig
+# ping elsewhere, so the leg failed "the rig is not running" right after `SSVP rig up=1`.
 root_args=()
-[[ -n "$peer_token" ]] && root_args=(--root "/tmp/cmux-ssvp-$(shasum -a 256 "$work/peer-token" | cut -c17-32)")
+[[ -n "$rig_root" ]] && root_args=(--root "$rig_root")
 if [[ "$role" == viewer ]]; then
   [[ -n "$self_ip" ]] || { echo "SSVP no LAN address on $self" | tee -a "$work/probe.txt"; pack; exit 3; }
   echo "SSVP viewer serving $self_ip:$peer_port for ${hold_s} s" | tee -a "$work/probe.txt"
@@ -162,7 +164,7 @@ PY
     sleep 5
   done
   echo "SSVP peer $url out=${got:0:300}" | tee -a "$work/probe.txt"
-  [[ "$got" == "$partner"* ]] && target="$partner" via_args=(--via peer --peer-url "$url" --peer-token-file "$work/peer-token" --root "$rig_root")
+  [[ "$got" == "$partner"* ]] && target="$partner" via_args=(--via peer --peer-url "$url" --peer-token-file "$work/peer-token")
 fi
 [[ -n "$peer_token" ]] || for t in "$partner" "$partner.local" ${partner_ip:+"$partner_ip"}; do
   got=$(ssh -o BatchMode=yes -o ConnectTimeout=6 -o StrictHostKeyChecking=accept-new "$t" 'hostname -s' 2>&1 | tail -1)
