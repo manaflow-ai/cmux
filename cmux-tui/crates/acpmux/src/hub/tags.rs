@@ -56,6 +56,10 @@ impl Hub {
             let drops_marker = (set.contains_key(ARCHIVED_TAG)
                 || remove.iter().any(|k| k == ARCHIVED_TAG))
                 && !set.contains_key(ARCHIVED_BY_TAG);
+            // A deleted chat is an archived one (`history_delete.rs`): unarchived from any list,
+            // it is restored, never purged later.
+            let drops_deleted =
+                remove.iter().any(|k| k == ARCHIVED_TAG) && !set.contains_key(ARCHIVED_TAG);
             let expires_at = ttl_seconds.map(|t| now_ms().saturating_add(t.saturating_mul(1000)));
             for (k, v) in set {
                 let value = match v {
@@ -70,9 +74,7 @@ impl Hub {
             if drops_marker {
                 m.tags.remove(ARCHIVED_BY_TAG);
             }
-            // A deleted chat is an archived one (`history_delete.rs`): unarchived from any list,
-            // it is restored, never purged later.
-            if remove.iter().any(|k| k == ARCHIVED_TAG) && !sets(ARCHIVED_TAG) {
+            if drops_deleted {
                 use super::history_delete::{DELETED_BY_TAG, DELETED_TAG};
                 m.tags.remove(DELETED_TAG);
                 m.tags.remove(DELETED_BY_TAG);
