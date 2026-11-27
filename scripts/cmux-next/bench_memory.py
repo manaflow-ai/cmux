@@ -95,8 +95,10 @@ import os
 import plistlib
 import re
 import shlex
+import hashlib
 import shutil
 import signal
+import stat
 import socket
 import subprocess
 import sys
@@ -459,6 +461,9 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
             gpu = GpuSampler(GPU_INTERVAL_S)
             gpu.start()
             files_before = store_files(bundle)
+            # The files each process holds open for writing, digested: a write through a mapping moves no mtime.
+            held = open_for_write({pid: kind for pid, (kind, _) in owned(app_pid, bundle).items()})
+            held_before = file_digests(held_paths(held))
         time.sleep(measure)  # sleep-ok: the measured idle CPU/wakeup window (`measure` s between the two rusage reads)
     rows = []
     for pid, (kind, cmd) in owned(app_pid, bundle).items():
@@ -515,6 +520,7 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
         # A write that lands outside the roots, or in a file deleted before the window ends, moves no mtime the
         # census reads: the files each process holds open for writing name it.
         result["files_written"]["open_for_write"] = open_for_write({row["pid"]: row["kind"] for row in rows})
+        result["files_written"]["rewritten_in_place"] = rewritten_in_place(held_before, file_digests(held_before))
     return result
 
 
@@ -534,15 +540,72 @@ def store_roots(bundle: str) -> list[str]:
     if saved:
         roots.append(saved)
     roots += [os.path.join(home, ".acpmux"), os.path.join(home, ".cmux")]
-    for parent in ("Library/Application Support", "Library/Caches"):
+    # The account's per-user cache and temp folders too: Metal's shader cache and the app's caches sit there,
+    # keyed by bundle id, outside every home (a 107 MB/h launch-window app write moved no file under the rest).
+    for parent in [os.path.join(home, "Library/Application Support"), os.path.join(home, "Library/Caches"),
+                   *darwin_user_dirs()]:
         try:
-            roots += [os.path.join(home, parent, name) for name in os.listdir(os.path.join(home, parent))
-                      if "cmux" in name.lower()]
+            roots += [os.path.join(parent, name) for name in os.listdir(parent) if "cmux" in name.lower()]
         except OSError:
             pass
     # Nested roots are walked once (the saved state sits under Application Support/cmux-next).
     roots = sorted({os.path.realpath(r) for r in roots if os.path.isdir(r)})
     return [r for r in roots if not any(r != o and r.startswith(o + os.sep) for o in roots)]
+
+
+
+def darwin_user_dirs() -> list[str]:
+    """The account's per-user cache and temp folders (`getconf DARWIN_USER_CACHE_DIR`, `DARWIN_USER_TEMP_DIR`):
+    Metal's shader cache and the app's caches under its bundle id sit there, outside HOME and ~/Library."""
+    found = []
+    for name in ("DARWIN_USER_CACHE_DIR", "DARWIN_USER_TEMP_DIR"):
+        try:
+            out = subprocess.run(["getconf", name], capture_output=True, text=True, timeout=5).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if out:
+            found.append(out)
+    return found
+
+
+# A file a process holds open for writing is digested when it is at most this big (a mapped write moves no mtime).
+DIGEST_MAX_BYTES = 64 << 20
+
+
+def file_digests(paths, limit: int = DIGEST_MAX_BYTES) -> dict[str, tuple[int, int, str]]:
+    """Path -> (size, mtime ns, blake2b) for each regular file at most `limit` bytes; others are left out."""
+    found = {}
+    for path in paths:
+        try:
+            st = os.stat(path)
+            if not stat.S_ISREG(st.st_mode) or st.st_size > limit:
+                continue
+            h = hashlib.blake2b(digest_size=16)
+            with open(path, "rb") as f:
+                for chunk in iter(lambda: f.read(1 << 20), b""):
+                    h.update(chunk)
+        except OSError:
+            continue
+        found[path] = (st.st_size, st.st_mtime_ns, h.hexdigest())
+    return found
+
+
+def held_paths(held: dict[str, list[str]]) -> list[str]:
+    """Every path in an open_for_write() answer, once."""
+    return sorted({path for paths in held.values() for path in paths})
+
+
+def rewritten_in_place(before: dict, after: dict) -> list[dict]:
+    """Files held open for writing whose bytes changed in the window, the ones whose mtime stayed first: a write
+    through a mapping (Chromium's BrowserMetrics, a disk cache index, an mmap'd store) moves no mtime, so
+    files_written cannot see it, but the account's disk writes still count its page-outs."""
+    changed = []
+    for path, (size, mtime, digest) in after.items():
+        old = before.get(path)
+        if old is not None and old[2] != digest:
+            changed.append({"path": path, "bytes": size, "grew": size - old[0], "mtime_moved": old[1] != mtime})
+    changed.sort(key=lambda row: (row["mtime_moved"], -row["bytes"]))
+    return changed
 
 
 def store_files(bundle: str, limit: int = 200_000) -> dict[str, tuple[int, int]]:
