@@ -13,25 +13,6 @@ import { defaultHarness, type ScreenAgent } from "./screenModel";
 /// the harness and model picked last in `folder` or anywhere (lastPick.ts, Leo 2026-10-11), else
 /// the remembered agent or the first installed with its default model; none while acpmux names no
 /// default (listedNoDefault).
-/** Keep the remembered model through harness-list confirmation when that harness is present. */
-export function rememberedNewTabModel(
-  remembered: LastPick | undefined,
-  harness: string | undefined,
-  picked: string | undefined,
-  listed: boolean,
-  entryPresent: boolean,
-): string | undefined {
-  if (
-    !remembered ||
-    remembered.harness !== harness ||
-    remembered.harness !== picked ||
-    isDefaultChoice({ id: remembered.model }) ||
-    (listed && !entryPresent)
-  )
-    return undefined;
-  return remembered.model;
-}
-
 export function newTabStart(
   snapshot: AcpmuxSnapshot,
   agents: readonly ScreenAgent[],
@@ -72,7 +53,9 @@ export function newTabStart(
         harness,
         // The agent's model, named on the chip (its own "default" when none is known yet).
         model:
-          rememberedNewTabModel(remembered, harness, picked, listed, entry !== undefined) ??
+          (kept && harness === picked && remembered && !isDefaultChoice({ id: remembered.model })
+            ? remembered.model
+            : undefined) ??
           defaultModel(harness, snapshot.catalog, undefined, folder) ??
           "default",
       },

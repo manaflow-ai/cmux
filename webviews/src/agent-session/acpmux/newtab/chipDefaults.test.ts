@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { normalizeCatalog } from "../direct";
 import { emptySnapshot } from "../snapshotCache";
-import { listedNoDefault, newTabStart, rememberedNewTabModel } from "./chipDefaults";
+import { listedNoDefault, newTabStart } from "./chipDefaults";
 
 // Onboarding probe 2026-11-22: on a fresh Mac acpmux had only the built-in Chief and UniiChat, and a
 // new person's first New Tab started on UniiChat, signed out of it. acpmux names no default there
@@ -41,14 +41,34 @@ test("a catalog given as a list keeps its first agent", () => {
   expect(start(listed)).toBe("codex");
 });
 
-test("keeps the remembered model when the picked harness is confirmed", () => {
-  expect(rememberedNewTabModel({ harness: "claude", model: "claude-opus" }, "claude", "claude", true, true)).toBe(
-    "claude-opus",
+test("keeps the remembered model while the chosen harness is unlisted", () => {
+  const snapshot = {
+    ...emptySnapshot(),
+    catalog: normalizeCatalog({ harnesses: { claude: { kind: "acp" } }, defaultHarness: "claude" }),
+  };
+  const result = newTabStart(
+    snapshot,
+    [{ id: "claude", name: "Claude" }],
+    undefined,
+    undefined,
+    { harness: "claude", model: "claude-opus" },
+    false,
   );
+  expect(result.snapshot.summary?.model).toBe("claude-opus");
 });
 
-test("does not keep a remembered model for a missing listed harness", () => {
-  expect(rememberedNewTabModel({ harness: "claude", model: "claude-opus" }, "claude", "claude", true, false)).toBe(
+test("drops a remembered model after the chosen harness is absent from a listing", () => {
+  const snapshot = {
+    ...emptySnapshot(),
+    catalog: normalizeCatalog({ harnesses: { codex: { kind: "acp" } }, defaultHarness: "codex" }),
+  };
+  const result = newTabStart(
+    snapshot,
+    [{ id: "codex", name: "Codex" }],
     undefined,
+    undefined,
+    { harness: "claude", model: "claude-opus" },
+    true,
   );
+  expect(result.snapshot.summary?.model).not.toBe("claude-opus");
 });
