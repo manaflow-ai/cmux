@@ -61,7 +61,7 @@ phone from its DEBUG launch environment (CMUX_MOBILE_STACK_REFRESH_TOKEN, adopte
 session), the Mac from its own token store file, written before its launch. The refresh token is
 never printed, and is in no argv and no artifact.
 """
-import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, signal, socket, stat, statistics, subprocess, sys, threading, time
+import argparse, calendar, glob, hashlib, json, math, os, plistlib, pwd, re, secrets, shutil, signal, socket, stat, statistics, subprocess, sys, tempfile, threading, time
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../.."))
 sys.path.insert(0, os.path.join(ROOT, "scripts/cmux-next"))
@@ -191,14 +191,20 @@ def attach_leg(simctl,udid, bundle_id, phone_env, phone_log, phone_shot, work, n
     source = os.path.join(data, "tmp", ATTACH_NAME)
     os.makedirs(os.path.dirname(source), exist_ok=True)
     sparse_file(source, ATTACH_BYTES)
+    image_root = os.path.realpath(tempfile.mkdtemp(prefix="attachment-image-", dir=work))
+    for folder in ("picked", "sent"):
+        os.mkdir(os.path.join(image_root, folder))
     since = time.monotonic()
     try:
         subprocess.run(simctl + ["terminate", udid, bundle_id], capture_output=True)
         subprocess.run(simctl + ["launch", udid, bundle_id, "-cmux-mobile-no-restore", "-cmux-mobile-demo", "live-attach",
-                                 "-CmuxMobileAttachE2EFile", source], env=phone_env, check=True, capture_output=True)
+                                 "-CmuxMobileAttachE2EFile", source, "-CmuxMobileAttachE2ERoot", image_root],
+                       env=phone_env, check=True, capture_output=True)
         seen = {}
+        image_receipt = None
         for step, shot in (("tile", "attach-1-tile"), ("progress", "attach-2-progress"), ("progress-later", "attach-3-progress-later"),
-                           ("cancelled-and-sent", "attach-4-cancelled-typed"), ("shown", "attach-5-terminal")):
+                           ("cancelled-and-sent", "attach-4-cancelled-typed"), ("image-ready", "attach-5-image-ready"),
+                           ("image-sent", "attach-6-image-sent"), ("shown", "attach-7-terminal")):
             hit = phone_log.wait_at(re.compile(r"demo step: live-attach (%s|no \S+)\b ?(.*)" % re.escape(step)), 300, since=since)
             if not hit:
                 note(f"- attach: FAIL, no `live-attach {step}` line in 300 s")
@@ -209,6 +215,16 @@ def attach_leg(simctl,udid, bundle_id, phone_env, phone_log, phone_shot, work, n
                 return False
             seen[step] = hit[1].group(2)
             note(f"- attach {step}: {seen[step]} -> {phone_shot(shot)}")
+            try:
+                if step == "image-ready":
+                    image_receipt = attachment_image_ready(image_root, seen[step])
+                    note(f"- attach received image: {json.dumps(image_receipt, sort_keys=True)}")
+                elif step == "image-sent":
+                    receipt = attachment_image_sent(image_root, seen[step], image_receipt)
+                    note(f"- attach received destination image: {json.dumps(receipt, sort_keys=True)}")
+            except (ValueError, OSError, subprocess.SubprocessError) as error:
+                note(f"- attach: FAIL, receiving Mac image validation: {error}")
+                return False
             since = hit[0]
         sent = seen["cancelled-and-sent"]
         ok = "attachments=0" in sent and "uploading=false" in sent and "composerFree=true" in sent and "text=sent" in sent
@@ -220,6 +236,49 @@ def attach_leg(simctl,udid, bundle_id, phone_env, phone_log, phone_shot, work, n
             os.unlink(source)
         except OSError:
             pass
+        shutil.rmtree(image_root)
+
+
+def attachment_image_receipt(directory, path, original, transferred):
+    """Read actual received bytes, refusing an old destination or an unoptimized image."""
+    directory, path = os.path.realpath(directory), os.path.realpath(path)
+    if os.path.commonpath([directory, path]) != directory or not os.path.isfile(path):
+        raise ValueError("image did not land in the expected destination")
+    size, digest = sha256(path)
+    if not 0 < size == transferred < original:
+        raise ValueError("received byte count must match the upload and be smaller than the original")
+    result = subprocess.run(["/usr/bin/sips", "-g", "pixelWidth", "-g", "pixelHeight", path],
+                            capture_output=True, text=True, check=True, timeout=15)
+    dimensions = [int(value) for value in re.findall(r"pixel(?:Width|Height):\s*(\d+)", result.stdout)]
+    if len(dimensions) != 2 or not all(0 < value <= 2048 for value in dimensions):
+        raise ValueError("received image must decode with both dimensions at most 2048")
+    return {"bytes": size, "sha256": digest, "width": dimensions[0], "height": dimensions[1],
+            "original": original}
+
+
+def attachment_image_ready(root, event):
+    match = re.fullmatch(r"original=(\d+) payload=(\d+) confirmed=(\d+) sent=(\d+) path=(.+)", event)
+    if not match:
+        raise ValueError("missing image pretransfer receipt")
+    return attachment_image_receipt(os.path.join(root, "picked"), match[5], int(match[1]), int(match[2]))
+
+
+def attachment_image_sent(root, event, ready):
+    match = re.fullmatch(r"readback=image-[A-Fa-f0-9]+ original=(\d+) destination=(.+)", event)
+    destination = os.path.join(root, "sent")
+    if not match or match[2] != destination or ready is None or int(match[1]) != ready["original"]:
+        raise ValueError("missing terminal read-back at the new destination")
+    # The host places uploads below .cmux/attachments/phone-<session>, inside this rig-owned folder.
+    files = glob.glob(os.path.join(destination, "**", "*.jpg"), recursive=True)
+    # glob does not descend into .cmux on Python 3.9.
+    files += glob.glob(os.path.join(destination, ".cmux", "attachments", "**", "*.jpg"), recursive=True)
+    files = sorted(set(files))
+    if len(files) != 1:
+        raise ValueError("expected exactly one received image at the new destination")
+    receipt = attachment_image_receipt(destination, files[0], ready["original"], ready["bytes"])
+    if receipt != ready:
+        raise ValueError("destination change altered the optimized image")
+    return receipt
 
 
 def sha256(path):
