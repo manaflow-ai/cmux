@@ -83,4 +83,20 @@ struct SettledWorkInMotionTests {
         #expect(root.settlingWork["SettledWorkInMotionTests.live"]?.timer.isScheduled == true,
                 "a settle asked for during a window's live resize never armed")
     }
+
+    /// The last drag event's layout can come after the resize's end while the window still reports the resize
+    /// (Compose.swift `onEndLiveResize` places its width a turn later for it): a settle it asks for then still arms, so
+    /// nothing after the end has to arm it (PR 59620 review).
+    @Test func aCallAfterTheResizesEndStillArmsItsSettle() {
+        let (root, window) = root()
+        defer { window.closeAfterTest() }
+        let queue = FrameBatchQueue(owner: "SettledWorkInMotionTests")
+        window.isLive = true
+        root.whenSettled("SettledWorkInMotionTests.trailing", after: .seconds(30), on: queue) {}
+        root.viewDidEndLiveResize()
+        root.whenSettled("SettledWorkInMotionTests.trailing", after: .seconds(30), on: queue) {}
+        window.isLive = false
+        #expect(root.settlingWork["SettledWorkInMotionTests.trailing"]?.timer.isScheduled == true,
+                "a settle asked for by a layout after the resize's end was left unarmed")
+    }
 }
