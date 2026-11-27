@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.chiefPet.about.moon" : {
+      "comment" : "Chief pet character Moon (a moon moth): one-line description.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A moon moth drawn to the glow of your terminals."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "عثة قمرية ينجذب إلى وهج طرفياتك."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mjesečev moljac kojeg privlači sjaj vaših terminala."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Et månesværmer, der drages mod skæret fra dine terminaler."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein Mondfalter, den das Leuchten deiner Terminals anzieht."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una polilla lunar atraída por el brillo de tus terminales."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un papillon lunaire attiré par la lueur de vos terminaux."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Una falena lunare attratta dal bagliore dei tuoi terminali."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ターミナルの光に惹かれる月の蛾。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មេអំបៅព្រះចន្ទដែលទាក់ទាញដោយពន្លឺនៃទែមីណាល់របស់អ្នក។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "터미널 불빛에 이끌리는 달나방."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En månemøll som trekkes mot lyset fra terminalene dine."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ćma księżycowa, którą przyciąga blask twoich terminali."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Uma mariposa lunar atraída pelo brilho dos seus terminais."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Лунная моль, которую манит свет ваших терминалов."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ผีเสื้อกลางคืนจันทราที่ถูกแสงจากเทอร์มินัลดึงดูด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Terminallerinizin ışıltısına çekilen bir ay güvesi."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Місячний метелик, якого вабить сяйво ваших терміналів."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Chú bướm đêm trăng bị ánh sáng terminal thu hút."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "被终端微光吸引的月蛾。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "被終端機微光吸引的月蛾。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

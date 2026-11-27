@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useAutoRetry } from "../autoRetry";
 import { postNative } from "../native";
 import { NativeError } from "../nativeError";
 import { Icon } from "../icons/Icon";
@@ -136,10 +137,11 @@ export function RepoRecoveryCard({
       );
   };
   /// Waits up to a minute for GitHub to report the install, then retries the held repository action.
-  const waitForGithub = () => {
+  /// `again`: the card's own next wait after one that ended unconnected, with no countdown.
+  const waitForGithub = (again = false) => {
     const retry = recovery.retry;
     if (!retry) return;
-    set({ kind: "waiting", until: Date.now() + GITHUB_WAIT_MS });
+    set(again ? { kind: "waiting" } : { kind: "waiting", until: Date.now() + GITHUB_WAIT_MS });
     void request<{ connected?: boolean }>(retry.wait_action ?? "cloud.repo.wait_github", {
       timeout_ms: GITHUB_WAIT_MS,
     }).then(
@@ -157,13 +159,16 @@ export function RepoRecoveryCard({
     open(url);
     waitForGithub();
   };
-  const getLink = () => {
+  /// `again`: the card's own ask after the app had no link. A link found then waits for the person's
+  /// Connect click, so no page opens on its own.
+  const getLink = (again = false) => {
     set({ kind: "linking" });
     void request<{ connect?: { install_url?: unknown } }>("cloud.repo.local", {}).then(
       (reply) => {
         const url = githubInstallUrl(reply?.connect?.install_url);
         if (!url) return set({ kind: "noLink" });
         if (mounted.current) setFetchedUrl(url);
+        if (again) return set({ kind: "idle" });
         // The page may refuse a window opened after an await; the wait offers "Open GitHub again".
         if (recovery.retry) connect(url);
         else {
@@ -186,8 +191,6 @@ export function RepoRecoveryCard({
         return getLink();
       case "reopen":
         return void (installUrl && open(installUrl));
-      case "checkAgain":
-        return waitForGithub();
       case "retry":
         return attach(choice);
       case "requestAccess":
@@ -198,7 +201,14 @@ export function RepoRecoveryCard({
     }
   };
 
-  const view = repoRecoveryView({ ...recovery, installUrl }, phase, choice);
+  // A missing link and an install GitHub hasn't reported yet are asked again on their own while the
+  // card shows; a failure that lasts the house deadline reads as one quiet "still trying" line.
+  const failed = phase.kind === "noLink" || phase.kind === "notConnected" ? phase.kind : undefined;
+  const { stillTrying } = useAutoRetry(failed, () => (failed === "noLink" ? getLink(true) : waitForGithub(true)), {
+    busy: phase.kind === "linking" || phase.kind === "waiting",
+  });
+
+  const view = repoRecoveryView({ ...recovery, installUrl }, phase, choice, stillTrying);
   if (!view) return null;
   return <RepoRecoveryCardView view={view} pressed={choice} onAction={onAction} />;
 }

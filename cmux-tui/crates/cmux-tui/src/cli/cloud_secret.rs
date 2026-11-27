@@ -4,7 +4,7 @@
 //! A value goes into the login Keychain (service `cmux-cloud-secret`, account `<scope>/<NAME>`,
 //! scope `OWNER/NAME` or `*` for every repo) through `security -i` on stdin, as `cmux harness
 //! secret set` does: it is read from a no-echo prompt or stdin, never from argv, and is never
-//! printed or logged. `~/.config/cmux/cloud-secrets.json` (0600) lists the accounts and when each
+//! printed or logged. `~/.config/cmux-next/cloud-secrets.json` (0600) lists the accounts and when each
 //! was set, never a value: `ls` reads it, and the app's `cloud deliver-secrets` uses the times to
 //! deliver a changed value again. Values reach a machine only over its daemon link.
 
@@ -195,7 +195,8 @@ fn index_path() -> Option<PathBuf> {
     index_path_from(|key| std::env::var_os(key).filter(|v| !v.is_empty()), other_app)
 }
 
-/// `$CMUX_NEXT_CLOUD_SECRETS_FILE`, else `$HOME/.config/cmux/cloud-secrets.json`. A `cmux` bundled
+/// `$CMUX_NEXT_CLOUD_SECRETS_FILE`, else `$HOME/.config/cmux/cloud-secrets.json` (`.config/cmux-next/`
+/// on macOS, `cmux_config::NEXT_DIR`). A `cmux` bundled
 /// in another app than the terminal's (`other_app`) ignores the variable: it is that app's index.
 fn index_path_from(
     env: impl Fn(&str) -> Option<std::ffi::OsString>,
@@ -204,7 +205,9 @@ fn index_path_from(
     if !other_app && let Some(path) = env(INDEX_OVERRIDE) {
         return Some(PathBuf::from(path));
     }
-    env("HOME").map(|home| PathBuf::from(home).join(".config/cmux/cloud-secrets.json"))
+    env("HOME").map(|home| {
+        PathBuf::from(home).join(".config").join(cmux_config::NEXT_DIR).join("cloud-secrets.json")
+    })
 }
 
 /// The index's `secrets` object: empty when there is no file (nothing set yet); an error for a file

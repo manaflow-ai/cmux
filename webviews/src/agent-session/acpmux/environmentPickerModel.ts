@@ -6,9 +6,23 @@ import { type CloudMachine, isCloudMachineRow } from "./cloudMachines";
 /// The sections (environments.ts `environmentSections`): This Mac, My machines, Cloud and VMs.
 export const SECTION_LABELS: Record<EnvironmentSection, StringKey> = {
   local: "composer.thisMac",
+  autocloud: "composer.envAutoCloud",
   mine: "composer.envMine",
   fleet: "composer.envFleet",
 };
+/// An AutoCloud Mac's capability badges (RFD 0172 `caps`), in this order; `macos` and the CPU go
+/// unsaid (every row in the section is a Mac), and a word this build does not know is dropped.
+const AUTOCLOUD_CAPS: readonly (readonly [string, StringKey])[] = [
+  ["xcode", "composer.autoCloudCap.xcode"],
+  ["ios-simulator", "composer.autoCloudCap.iosSimulator"],
+  ["gpu-metal", "composer.autoCloudCap.gpuMetal"],
+  ["linux", "composer.autoCloudCap.linux"],
+  ["gpu-nvidia", "composer.autoCloudCap.gpuNvidia"],
+];
+export function autoCloudCapLabels(environment: Environment): string[] {
+  const caps = environment.autoCloud?.caps ?? [];
+  return AUTOCLOUD_CAPS.filter(([cap]) => caps.includes(cap)).map(([, key]) => t(key));
+}
 /// A machine a chat cannot start on yet, in words: its link state as acpmux says it.
 const STATE_LABELS: Record<string, StringKey> = {
   connecting: "rail.connectorPending",
@@ -35,8 +49,10 @@ const CLOUD_STAGE_LABELS: Record<string, StringKey> = {
   // A machine that failed to start says so, never "Not connected", which reads as a link to fix.
   failed: "switch.failedShort",
 };
+/// A stage this list does not know yet is still a pick that opens the machine (cloudMachines.ts
+/// cloudMachineAction), so it says Open, never "Not connected" for a link nobody can fix.
 function cloudMachineLabel(machine: CloudMachine): string {
-  return t(CLOUD_STAGE_LABELS[machine.stage] ?? "composer.envNotConnected");
+  return t(CLOUD_STAGE_LABELS[machine.stage] ?? "composer.envOpenMachine");
 }
 
 /// The machines (and saved environments) a list holds before it gets a search field.

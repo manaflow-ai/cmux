@@ -80,6 +80,9 @@ import Testing
                               backing: .buffered, defer: true)
         let parent = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 100, height: 100), styleMask: [.titled],
                               backing: .buffered, defer: true)
+        // An NSWindow made in code is released when it closes; ARC releases it again at the end of the test, and the
+        // test process crashed (SIGSEGV, the whole ClickTraceTests run with it).
+        parent.isReleasedWhenClosed = false
         defer { page.close(); overlay.close(); parent.close() }
         // The overlay takes a press the window server gave to a page window (no sendEvent of the app saw it).
         let taken = try Self.press(timestamp: 2, window: page)

@@ -17,6 +17,11 @@ public struct PreviousLaunch: Equatable, Sendable {
         self.restoredAtMs = restoredAtMs
     }
 
+    /// What `registry`, the saved windows this launch restores now, left open; nil when nothing was saved.
+    @MainActor public static func restoredNow(_ registry: WindowRegistry) -> PreviousLaunch? {
+        registry.windows.isEmpty ? nil : PreviousLaunch(windowIDs: registry.openRecency, restoredAtMs: UInt64(max(0, Date().timeIntervalSince1970 * 1000)))
+    }
+
     /// What Restore Previous App Launch reopens.
     public struct Plan: Equatable, Sendable {
         /// Closed-history items (`closed_…`) to reopen, windows first, then workspaces, oldest close first.

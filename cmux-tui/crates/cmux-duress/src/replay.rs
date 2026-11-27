@@ -784,15 +784,14 @@ fn tui_bytes_run(
         while let Some((t, write, bytes)) = writes.next() {
             let start = writer_ready(t, mac_free.get(), &unread.borrow());
             let (mut merged, mut held) = (bytes, vec![(t, write)]);
-            while let Some((t, write, bytes)) =
-                writes.next_if(|(t, _, _)| *t <= start && merged.len() < MERGE_MAX_BYTES)
-            {
+            while let Some((t, write, bytes)) = writes.next_if(|(t, _, bytes)| {
+                *t <= start && merged.len() + bytes.len() <= MERGE_MAX_BYTES
+            }) {
                 merged.extend_from_slice(&bytes);
                 held.push((t, write));
             }
             send(start, &merged, &held, &mut mac, metrics)?;
         }
-        drop(send);
         if !waiting.is_empty() {
             let start = hop_start.max(last_paint + FRAME_MS).max(phone_free);
             let done = coalesced_paint(&mut waiting, start, waiting_cost, metrics);
@@ -828,7 +827,6 @@ fn tui_bytes_run(
         let due = last_sent.map_or(0.0, |sent| sent + interval.unwrap_or(0.0));
         send(due, &pending, &held, &mut mac, metrics)?;
     }
-    drop(send);
     if !waiting.is_empty() {
         let start = hop_start.max(last_paint + FRAME_MS).max(phone_free);
         let done = coalesced_paint(&mut waiting, start, waiting_cost, metrics);
@@ -903,8 +901,8 @@ fn coalesced_paint(
 /// The socket's unread bytes past which the Mac's writer blocks (a send buffer plus a receive
 /// buffer, about macOS's defaults).
 const SOCKET_WINDOW: usize = 128 * 1024;
-/// `merge_ready`'s cap per event, `OUTPUT_COALESCE_MAX_BYTES`'s value.
-const MERGE_MAX_BYTES: usize = 1 << 20;
+/// `merge_ready`'s cap per event, `DRAIN_MAX_BYTES`'s value (a read past it starts the next event).
+const MERGE_MAX_BYTES: usize = 256 * 1024;
 
 /// When the writer can start an event due at `due`: after its last write, and once the phone has
 /// read enough of `unread` (in order) to leave at most `SOCKET_WINDOW` bytes unread.
@@ -988,6 +986,8 @@ mod tests {
     use super::*;
 
     fn recordings() -> Inputs {
+        // affected-reads: cmux-tui webviews/test/fixtures/chat-sim/replay-lane-session.ndjson
+        // affected-reads: cmux-tui/crates/cmux-agent-cli-render/tests/fixtures/claude-code-2.1.310/pty.jsonl webviews/test/fixtures/chat-sim/replay-lane-session.ndjson
         let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
         Inputs::load_repo(&repo).expect("the PTY and chat fixtures (a full checkout)")
     }

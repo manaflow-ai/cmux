@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.sidebarHeader.dark.help" : {
+      "comment" : "Settings row help for the dark sidebar header picture.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A picture across the top of the sidebar in the dark appearance (file: and an absolute path). Unset, none."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "صورة أعلى الشريط الجانبي في المظهر الداكن (file: ومسار مطلق). إذا لم تُحدَّد، فلا صورة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slika preko vrha bočne trake u tamnom izgledu (file: i apsolutna putanja). Ako nije postavljeno, nema je."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et billede øverst i sidepanelet i det mørke udseende (file: og en absolut sti). Hvis det ikke er angivet, vises intet."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Bild oben quer über der Seitenleiste im dunklen Erscheinungsbild (file: und ein absoluter Pfad). Nicht gesetzt: keines."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una imagen en la parte superior de la barra lateral en la apariencia oscura (file: y una ruta absoluta). Sin definir, ninguna."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une image en haut de la barre latérale en apparence sombre (file: et un chemin absolu). Non définie : aucune."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Un'immagine nella parte superiore della barra laterale nell'aspetto scuro (file: e un percorso assoluto). Se non impostata, nessuna."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ダーク表示でサイドバー上部に表示する画像です（file: と絶対パス）。未設定なら表示しません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "រូបភាពនៅផ្នែកខាងលើនៃរបារចំហៀងក្នុងរូបរាងងងឹត (file: និងផ្លូវពេញ)។ ពេលមិនបានកំណត់ គ្មានទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다크 모드에서 사이드바 위쪽에 걸친 그림입니다(file:과 절대 경로). 설정하지 않으면 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Et bilde øverst i sidepanelet i det mørke utseendet (file: og en absolutt bane). Hvis det ikke er angitt, vises ingenting."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Obraz u góry paska bocznego w ciemnym wyglądzie (file: i ścieżka bezwzględna). Gdy nie ustawiono, brak obrazu."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uma imagem no topo da barra lateral na aparência escura (file: e um caminho absoluto). Se não definido, nenhuma."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Изображение вдоль верха боковой панели в тёмном оформлении (file: и абсолютный путь). Если не задано, его нет."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ภาพพาดบนสุดของแถบด้านข้างในลักษณะที่ปรากฏแบบมืด (file: และพาธแบบสัมบูรณ์) หากไม่ได้ตั้งค่า จะไม่มี"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Koyu görünümde kenar çubuğunun üstünde yer alan bir görsel (file: ve mutlak bir yol). Ayarlanmazsa görsel yok."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Зображення вздовж верху бічної панелі в темному вигляді (file: і абсолютний шлях). Якщо не задано, його немає."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Một ảnh ở đầu thanh bên trong giao diện tối (file: và đường dẫn tuyệt đối). Khi chưa đặt, không có ảnh."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "深色外观中横跨侧边栏顶部的图片（file: 加绝对路径）。未设置时不显示。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "深色外觀中橫跨側邊欄頂部的圖片（file: 加絕對路徑）。未設定時不顯示。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

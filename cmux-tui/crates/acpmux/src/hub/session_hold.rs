@@ -56,9 +56,33 @@ pub struct FleetHold {
     pub reason: Option<String>,
     #[serde(default)]
     pub at: u64,
+    /// When it lifts by itself (ms since the epoch); none: it stays until released. A hold
+    /// left behind by a run that ended silently idled every chat on a host (2026-11-25), so
+    /// `session hold --fleet` sets one ([`DEFAULT_FOR_MS`] unless `--for` says otherwise).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<u64>,
+    /// Who set it: the caller session's name or id, else `person`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<String>,
 }
 
+/// How long a fleet hold lasts when `--for` names no time: long enough for a night's triage,
+/// short enough that a forgotten one does not hold a host's chats for days.
+pub const DEFAULT_FOR_MS: u64 = 12 * 60 * 60 * 1000;
+
 impl FleetHold {
+    /// Whether it holds at `now_ms`: on, and not past its `until`. A hold an older acpmux wrote
+    /// (no `until`, no `by`) lifts [`DEFAULT_FOR_MS`] after it was set: those are the leftovers
+    /// that held hosts' chats silently. `--for never` (no `until`, a `by`) stays.
+    pub fn active(&self, now_ms: u64) -> bool {
+        let until = match (self.until, &self.by) {
+            (Some(until), _) => until,
+            (None, Some(_)) => u64::MAX,
+            (None, None) => self.at.saturating_add(DEFAULT_FOR_MS),
+        };
+        self.on && now_ms < until
+    }
+
     /// Whether the allowlist lets chat `name` (id `id`) run.
     pub fn allows(&self, name: &str, id: &str) -> bool {
         let lower = name.to_lowercase();
@@ -108,11 +132,11 @@ impl FleetHoldCache {
     fn put(&mut self, hold: &FleetHold) -> std::io::Result<()> {
         let path = self.path();
         if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
+            crate::home_fs::create_dirs(dir)?;
         }
         let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(hold).unwrap_or_default())?;
-        std::fs::rename(&tmp, &path)?;
+        crate::home_fs::write(&tmp, serde_json::to_vec_pretty(hold).unwrap_or_default())?;
+        crate::home_fs::rename(&tmp, &path)?;
         self.read = None;
         Ok(())
     }
@@ -152,6 +176,19 @@ impl Hub {
         self.fleet_hold.lock().unwrap_or_else(|e| e.into_inner()).get()
     }
 
+    /// The fleet hold as `daemon status` and `session info` show it, when it holds now: who set
+    /// it, why, since and until when, and how many chats it holds. None when off or expired.
+    pub(crate) fn fleet_hold_shown(&self) -> Option<Value> {
+        let fleet = self.fleet_hold();
+        if !fleet.active(now_ms()) {
+            return None;
+        }
+        let held = self.sessions().iter().filter(|s| self.session_held(s)).count();
+        let mut shown = json!(fleet);
+        shown.set("held", json!(held));
+        Some(shown)
+    }
+
     /// Whether `session` is held: its own hold, or the fleet hold when the allowlist does not
     /// name it and it was not released under it.
     pub(crate) fn session_held(&self, session: &Session) -> bool {
@@ -160,7 +197,7 @@ impl Hub {
             Some(RELEASED) => false,
             _ => {
                 let fleet = self.fleet_hold();
-                fleet.on && !fleet.allows(&session.meta().name, &session.id)
+                fleet.active(now_ms()) && !fleet.allows(&session.meta().name, &session.id)
             }
         }
     }
@@ -222,7 +259,12 @@ impl Hub {
             .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
             .unwrap_or_default();
         let reason = params.get("reason").and_then(Value::as_str).map(str::to_owned);
-        let hold = FleetHold { on, allow, reason, at: now_ms() };
+        let by = params.get("by").and_then(Value::as_str).map(str::to_owned);
+        let at = now_ms();
+        // `forMs`: 0 keeps it until released; absent, [`DEFAULT_FOR_MS`].
+        let for_ms = params.get("forMs").and_then(Value::as_u64).unwrap_or(DEFAULT_FOR_MS);
+        let until = (on && for_ms > 0).then(|| at.saturating_add(for_ms));
+        let hold = FleetHold { on, allow, reason, at, until, by };
         cache
             .put(&hold)
             .map_err(|e| RpcError::internal(format!("could not write the fleet hold: {e}")))?;
@@ -245,7 +287,7 @@ impl Hub {
         }
         let fleet = self.fleet_hold();
         let name = name.unwrap_or_default();
-        if !fleet.on || (!name.is_empty() && fleet.allows(name, "")) {
+        if !fleet.active(now_ms()) || (!name.is_empty() && fleet.allows(name, "")) {
             return None;
         }
         Some(

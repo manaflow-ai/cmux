@@ -2,7 +2,7 @@
 // Running subagents, background commands and chats the agent started in one tray at the foot of
 // the chat, right above the composer (SubagentTray.tsx, runningTray.ts), never in the middle of
 // history, in a turn and after it ("Running in background · …"): one running is its line alone;
-// several get a header ("3 subagents running · 1 command") with a line each; past three they start
+// several get a header ("3 subagents · 1 command") with a line each; past three they start
 // folded to the header. The transcript has no "Running in background" row. A subagent that ended
 // remains a bounded status card in the tray and leaves one line where it ended
 // (SubagentDoneLine.tsx), a failure in the danger color, a stopped one with why when known, and
@@ -27,6 +27,10 @@ import { SUBAGENTS, SubagentFold, type Subagent } from "./subagentFold";
 import { trayPanelLook } from "./trayPanel.experiment";
 import { RUNNING_TRAY_LINE } from "./subagentSelectors";
 import { pinKindsHead } from "../../../gallery/fixtures/kindsHead";
+
+// These variants check the carded head's columns (icon, time, chevron); the one-line head (trayFoldHead
+// `line`, the default since Leo, 2026-11-25) draws none while tucked, so they pin the carded `groups` head.
+const CARD_HEAD = { "subagent-tray-fold-head": "groups" } as const;
 
 const prompt = "Find out how the daemon updates itself, and check the docs agree";
 
@@ -128,28 +132,6 @@ const described = activity(
   ],
   1.4,
 );
-
-/** A running turn with a five-step todo list and three background commands (the tray's hat). */
-function planChat() {
-  return chat(
-    [
-      user("Land the tray change: compile, test and update the spec", 3),
-      row("plan", 2.9, {
-        plan: [
-          { content: "Read the tray and its tests", status: "completed" },
-          { content: "Move the plan into the hat", status: "completed" },
-          { content: "Run the tray tests", status: "in_progress" },
-          { content: "Compile the app on the fleet", status: "pending" },
-          { content: "Update the design spec", status: "pending" },
-        ],
-      }),
-      devServer,
-      described,
-      assistant("The plan is in the hat now. The tests and the compile are running.", 0.5),
-    ],
-    { isWorking: true },
-  );
-}
 
 /** Background shell lines anyone runs, with no description, so each reads by a built-in rule
  * (session-info/commandRules.ts; Leo, 2026-11-03: "we should be able to parse these more... like
@@ -526,6 +508,7 @@ export default pinKindsHead(
     experiment: { definition: trayPanelLook, script: panelScript },
     variants: {
       geometry: {
+        experiments: CARD_HEAD,
         note: "Geometry fixture: running, completed and cancelled rows share the trailing tracks above a running empty composer.",
         play: async (ctx) => {
           await openTray(ctx);
@@ -549,6 +532,7 @@ export default pinKindsHead(
       // Leo, 2026-11-05, on background subagents each reading "Bash": "these are all bash? How are they
       // all bash? Aren't they sub-agents?". Claude's progress names their last tool and nothing more.
       "bare-tool-said": {
+        experiments: CARD_HEAD,
         note: "Background subagents whose progress names only their last tool (Bash): each line reads what the agent last said instead.",
         play: openTray,
         snapshot: chat(
@@ -579,6 +563,7 @@ export default pinKindsHead(
         ),
       },
       "bare-tool-silent": {
+        experiments: CARD_HEAD,
         note: "The same subagents before they said anything: a bare Bash reads as running a command, never as the line's kind.",
         play: openTray,
         snapshot: chat(
@@ -596,6 +581,7 @@ export default pinKindsHead(
         ),
       },
       "bare-tool-command": {
+        experiments: CARD_HEAD,
         note: "A subagent's call titled only Bash, its command in its input: the line reads the command in words.",
         play: openTray,
         snapshot: chat(
@@ -621,6 +607,7 @@ export default pinKindsHead(
         ),
       },
       "grid-31": {
+        experiments: CARD_HEAD,
         note: "Grid fixture: 31 rows (29 ended and two running), expanded with the header visible.",
         snapshot: panel(29),
         play: async (ctx) => {
@@ -629,6 +616,7 @@ export default pinKindsHead(
         },
       },
       "panel-two": {
+        experiments: CARD_HEAD,
         note: "Leo's panel with two chats running and three ended (2026-10-25: \"this section, the whatever background tasks ... it's kind of wack\"): the header pinned on top, running first, then the latest that ended; no line carries a subtitle, so none shows a raw shell line.",
         play: async (ctx) => {
           await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
@@ -643,6 +631,7 @@ export default pinKindsHead(
         snapshot: panel(3),
       },
       "panel-one-running": {
+        experiments: CARD_HEAD,
         note: "One of the two chats ended: the header and its collapse stay while ended lines show (it used to unmount once fewer than two ran).",
         play: async (ctx) => {
           await openTray(ctx);
@@ -652,6 +641,7 @@ export default pinKindsHead(
         snapshot: panel(3, 1),
       },
       "short-dock": {
+        experiments: CARD_HEAD,
         note: "A 300px pane with a constrained dock: the header stays reachable when the list gives up its height; every line is in the list, no View all.",
         height: 400,
         snapshot: chat(
@@ -683,11 +673,13 @@ export default pinKindsHead(
         },
       },
       "panel-118": {
+        experiments: CARD_HEAD,
         note: 'The same panel with 118 agents, every ended one opened and the list scrolled to its end (Leo: the collapse at the top "disappears for some reason ... sometimes"): the header stays pinned on top; only the list scrolls, every line in it (no View all).',
         play: scrollPanel,
         snapshot: panel(116),
       },
       "workflow-progress": {
+        experiments: CARD_HEAD,
         note: "A workflow reports completed/started agents, failures and queued agents in the default tray (its token usage is Session Info's).",
         // Workflows are on by default, which shows this as the workflow card instead; a host that
         // turns them off (`workflowLabs` false) still gets the tray line this state covers.
@@ -716,6 +708,7 @@ export default pinKindsHead(
         ),
       },
       "one-running": {
+        experiments: CARD_HEAD,
         note: "One subagent running: its line alone above the composer, its icon in the theme's accent, what it does now, its time and state.",
         play: trayLines(1),
         snapshot: chat(
@@ -728,21 +721,25 @@ export default pinKindsHead(
         ),
       },
       "running-stop-solid": {
+        experiments: CARD_HEAD,
         note: 'The default running line (Leo, 2026-11-03: "do we really need a running symbol vs just having the time and a square stop button?"): its own mark, its task, its ticking time and a filled square Stop in the text colour, as Claude Desktop\'s Background tasks rows read; no spinner, no Running word. The done line keeps Done · its time.',
         play: runningStop("solid"),
         snapshot: runningStopChat,
       },
       "running-stop-muted": {
+        experiments: CARD_HEAD,
         note: "The same running lines with the filled square Stop muted, the time's tone.",
         play: runningStop("muted"),
         snapshot: runningStopChat,
       },
       "running-stop-boxed": {
+        experiments: CARD_HEAD,
         note: "The same running lines with the filled square Stop on a faint 10% box, as the Background tasks panel draws its Stop.",
         play: runningStop("boxed"),
         snapshot: runningStopChat,
       },
       "row-menu": {
+        experiments: CARD_HEAD,
         note: "A running subagent has a fixed Stop square in its row track and the same action in its context menu. A right-click opens the menu on the click, and the line stays lit under it.",
         play: async (ctx) => {
           await trayLines(2)(ctx);
@@ -771,6 +768,7 @@ export default pinKindsHead(
         ),
       },
       "duration-columns": {
+        experiments: CARD_HEAD,
         note: "Duration-column stress fixture: running work spans 9s, 2h 20m and 12h 59m 59s so every time stays on one line in the shared trailing track.",
         play: async (ctx) => {
           await trayLines(6)(ctx);
@@ -797,6 +795,7 @@ export default pinKindsHead(
         ),
       },
       "one-command": {
+        experiments: CARD_HEAD,
         note: "One background command: its line leads with its kind's mark (a test run's check, trayCommandKinds.ts) in place of the word Command, ends in a chevron (a click opens its output) and has no fill at rest; hover fills the whole line to the tray's edges, one inset. The whole shell line is its tooltip.",
         play: async (ctx) => {
           await trayLines(1)(ctx);
@@ -806,6 +805,7 @@ export default pinKindsHead(
         snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
       },
       "lone-command-folded": {
+        experiments: CARD_HEAD,
         note: "One background command heads the hat folded, as its own line: its title, its shell line muted, its time at the row's end, the panel button and the up chevron. Expanding it is one transition (lone-command-open).",
         height: 420,
         snapshot: loneCommandChat(),
@@ -814,6 +814,7 @@ export default pinKindsHead(
         },
       },
       "lone-command-open": {
+        experiments: CARD_HEAD,
         note: "The same hat expanded (Leo, 2026-11-08: \"things don't balance out\"): the header reads its counts and keeps its time where the folded line had it, at the row's end over the line's own time; the shell line slides out as the title slides over, and the line grows in under the header on the shared fold. No other control shows or hides on the way.",
         height: 420,
         snapshot: loneCommandChat(),
@@ -823,6 +824,7 @@ export default pinKindsHead(
         },
       },
       "command-words": {
+        experiments: CARD_HEAD,
         note: 'Background commands read in words, not shell (Leo, 2026-11-03: "instead of raw things, we should be able to deterministically/heuristically have stuff"): built-in rules know only shapes anyone runs. A sleep reads Waiting 9m 20s, a merge Merging cmux#34769, a push Pushing its branch, bun test Testing its file, ssh On its host: what it runs there, docker compose Starting containers. The shell line is the tooltip; a line about a pull request links to it from its tail.',
         height: 560,
         play: async (ctx) => {
@@ -846,6 +848,7 @@ export default pinKindsHead(
         }),
       },
       "command-words-preset": {
+        experiments: CARD_HEAD,
         note: "With cmux-next.json's agentPane.display.commandLabels set to [\"cmux-fleet\", a deploy rule], the fleet preset names the session and cmux-ci lines (Starting Tray command labels, Fleet tests · Playwright, Fleet run for #34769) and the person's own rule names deploy (Deploying staging). Without it they read by program and main argument, as cmux-ci test.",
         height: 480,
         display: {
@@ -872,6 +875,7 @@ export default pinKindsHead(
         }),
       },
       "command-substitution": {
+        experiments: CARD_HEAD,
         note: "Leo's raw rev-parse HEAD); strip, repaired: git rev-parse HEAD · cmux-ci run: the setup's substitution stays named, then the program that does the work (session-info/commandWorkLabel.ts; the cmux-fleet preset would read it as Fleet run). Shell flags and interpolation remain in the full-command tooltip.",
         snapshot: glyphCheckScene(),
         play: async (ctx) => {
@@ -884,11 +888,13 @@ export default pinKindsHead(
         },
       },
       "command-substitution-described": {
+        experiments: CARD_HEAD,
         note: "The same shell line with a human description: the tray uses that title unchanged.",
         snapshot: glyphCheckScene("Check the glyphs on the fleet"),
         play: trayLines(1),
       },
       "command-substitution-folded": {
+        experiments: CARD_HEAD,
         note: "The command shares the tray with a reviewer. Its readable title also appears in the folded name arm; no malformed assignment leaks into the strip.",
         snapshot: chat(
           [
@@ -900,12 +906,14 @@ export default pinKindsHead(
         ),
       },
       "expand-on-composer": {
+        experiments: CARD_HEAD,
         note: "Chosen (Leo, 2026-11-01: \"there's a layout shift when i expand it\"): the tray stays on the composer, its columns on the composer's. What it opens lies over the transcript's foot, as a menu over the composer does, and no row moves; the room under the last row takes it once the rows move anyway (a reply streaming on, a send, Jump to latest, or the reader's wheel past the end). The running turn's live line is never covered (Leo, 2026-11-04: \"why does it not display Thinking or anything here???\"): over it the tray takes half the line's rest gap and the rows go up by the rest.",
         height: 420,
         snapshot: panel(3, 2, EARLIER),
         play: expandTray("composer"),
       },
       "expand-after-latest": {
+        experiments: CARD_HEAD,
         note: "Alternative, not chosen: the tray attached under the latest message. At the end, opening it pushes the whole transcript up by what opened (as a tool call opened at the bottom does); away from the end it opens below the view. Nothing on the composer, but the tray's columns no longer line up with the composer's Stop and microphone.",
         height: 420,
         theme: { subagentTrayPlacement: "after-latest-message" },
@@ -913,6 +921,7 @@ export default pinKindsHead(
         play: expandTray("after-latest"),
       },
       "after-latest-message": {
+        experiments: CARD_HEAD,
         note: "Labs/fixture placement: the running command tray sits directly after the latest message while the default remains above the composer. A click opens the command's row; its live tail needs a connected process source, which the gallery has none of.",
         theme: { subagentTrayPlacement: "after-latest-message" },
         play: async (ctx) => {
@@ -931,50 +940,11 @@ export default pinKindsHead(
         },
         snapshot: chat([user("Run the red/green tests in the background", 59), testRun], { isWorking: true }),
       },
-      "plan-and-commands": {
-        note: 'Leo\'s composer hat with the turn\'s todo list (2026-11-03: "we said earlier the composer hat is kinda ok?"): folded, it reads "2 of 5 · <the step at work>" before the newest command, "+2 more" and the time; the transcript holds no list while the turn runs.',
-        play: async (ctx) => {
-          await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
-          const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent ?? "";
-          if (!title.startsWith("2 of 5 · Run the tray tests")) throw new Error(`unexpected hat: ${title}`);
-          if (ctx.document.querySelector(".cv-plan:not(.acpmux-running-tray .cv-plan)"))
-            throw new Error("the running list is in the hat, not the transcript");
-        },
-        snapshot: planChat(),
-      },
-      "plan-and-commands-open": {
-        note: "The same hat opened: the checklist first, then a line per background command.",
-        play: async (ctx) => {
-          await openTray(ctx);
-          await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-running-tray .cv-plan__item").length === 5);
-          await ctx.waitFor(() => ctx.document.querySelectorAll(RUNNING_TRAY_LINE).length === 3);
-        },
-        snapshot: planChat(),
-      },
-      "plan-short-dock": {
-        note: "The opened hat in a dock with room for the header and about three rows: the checklist and the command lines share that height, each scrolling in place, so a command's Stop stays reachable.",
-        play: async (ctx) => {
-          await openTray(ctx);
-          await ctx.waitFor(() => ctx.document.querySelectorAll(RUNNING_TRAY_LINE).length === 3);
-          const dock = ctx.document.querySelector<HTMLElement>(".acpmux-dock")!;
-          const composer = dock.querySelector<HTMLElement>(".acpmux-composer")!;
-          const header = dock.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
-          const rows = 3 * header.getBoundingClientRect().height;
-          dock.style.maxHeight = `${composer.getBoundingClientRect().height + header.getBoundingClientRect().height + rows}px`;
-          const shown = (selector: string) => {
-            const tray = ctx.document.querySelector(".acpmux-running-tray")!.getBoundingClientRect();
-            const box = ctx.document.querySelector(selector)!.getBoundingClientRect();
-            return Math.min(box.bottom, tray.bottom) - Math.max(box.top, tray.top);
-          };
-          await ctx.waitFor(() => shown(".acpmux-running-tray__plan") > 0 && shown(".acpmux-running-tray__list") > 0);
-        },
-        snapshot: planChat(),
-      },
       "several-running": {
         note: "Two subagents and a background command: a header with the counts and the time since the first started, a line each once its header is opened (it starts folded to the header). The ended task remains a compact status card.",
         // The header-time test measures this time (hat-header-time-width.test.ts); the default draws none
         // in a several-item header (trayHeadClock.experiment.ts).
-        experiments: { "subagent-tray-head-clock": "run" },
+        experiments: { ...CARD_HEAD, "subagent-tray-head-clock": "run" },
         play: trayLines(3),
         snapshot: chat(
           [
@@ -994,6 +964,7 @@ export default pinKindsHead(
         ),
       },
       "hat-context-menu-bottom": {
+        experiments: CARD_HEAD,
         note: "Right-click the finished task beside its time and checkmark. In the Mac app, the chat menu opens above the pointer.",
         height: 480,
         snapshot: rowsChat([
@@ -1108,6 +1079,7 @@ export default pinKindsHead(
         ]),
       ),
       "command-and-subagent": {
+        experiments: CARD_HEAD,
         note: "A turn with a subagent and a background command: a header with both counts, then a line each; the working line counts nothing, the tray is the count.",
         play: async (ctx) => {
           await trayLines(2)(ctx);
@@ -1123,7 +1095,8 @@ export default pinKindsHead(
         ),
       },
       "one-agent-two-commands": {
-        note: "One subagent and two background commands, opened: the header reads exactly `1 subagent running · 1 test run · 1 build` above its lines, the commands counted by what they do (folded, it names them: agent-pane.subagent-tray-names).",
+        experiments: CARD_HEAD,
+        note: "One subagent and two background commands, opened: the header reads exactly `1 subagent · 1 test run · 1 build` above its lines, the commands counted by what they do (folded, it names them: agent-pane.subagent-tray-names).",
         play: async (ctx) => {
           await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
           await ctx.click({ selector: ".acpmux-running-tray__head" });
@@ -1131,7 +1104,7 @@ export default pinKindsHead(
           // leaving words are gone.
           await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-running-tray__title .acpmux-tick__out"));
           const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
-          if (title !== "1 subagent running · 1 test run · 1 build") throw new Error(`unexpected tray title: ${title}`);
+          if (title !== "1 subagent · 1 test run · 1 build") throw new Error(`unexpected tray title: ${title}`);
         },
         snapshot: chat(
           [
@@ -1146,6 +1119,7 @@ export default pinKindsHead(
         ),
       },
       "between-turns": {
+        experiments: CARD_HEAD,
         note: "After the turn: a background subagent and two chats the agent started still run. The tray says so above the composer; the transcript ends with the turn's footer.",
         play: async (ctx) => {
           await openTray(ctx);
@@ -1190,6 +1164,7 @@ export default pinKindsHead(
         })(),
       },
       "dispatched-lane": {
+        experiments: CARD_HEAD,
         note: 'Leo, 2026-11-03, on a lane a coordinator dispatched showing as a running line: "like why is this even in the "running" in the first place?" The tray lists only the chat\'s own work: its subagent\'s line, never the lane (started with sessions new, tagged mux.parent, no startedBy), which is its own chat in the sidebar.',
         play: async (ctx) => {
           // One item heads the hat folded (Leo, 2026-11-07): its header opens it to the line.
@@ -1231,6 +1206,7 @@ export default pinKindsHead(
         })(),
       },
       "counts-equal-rows": {
+        experiments: CARD_HEAD,
         note: "What Leo called lying, told straight: the header counts what runs kind by kind (2 subagents, 2 sessions it started, a test run and a build), then the 3 that ended in the list, and equals the rows under it. A command reads as what it does, not its cd prefix; a chat says what its turn does now. What ended stays visible as bounded status cards.",
         play: async (ctx) => {
           await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
@@ -1239,7 +1215,7 @@ export default pinKindsHead(
           const title = ctx.find({ selector: ".acpmux-running-tray__title" }).textContent;
           // Kind by kind (trayHeadKinds.ts): the chats it started read as sessions, and what ended in
           // the list counts after what runs.
-          if (title !== "2 subagents running · 2 sessions · 1 test run · 1 build · 3 done")
+          if (title !== "2 subagents · 2 sessions · 1 test run · 1 build · 3 done")
             throw new Error(`the header must count the rows: ${title}`);
         },
         snapshot: countsChats(false),
@@ -1248,6 +1224,7 @@ export default pinKindsHead(
         afterCall: { "pane.painted": countsChats(true) },
       },
       "codex-lineage": {
+        experiments: CARD_HEAD,
         note: 'A Codex chat\'s subagents as its records say (Leo 2026-10-22: "why is it like... staggered? were they created by another subagent?"): the chat itself started both, so they sit side by side. A child that reports its parent thread never makes the chat a subagent of its own, nested under that child.',
         play: async (ctx) => {
           await openTray(ctx);
@@ -1269,6 +1246,7 @@ export default pinKindsHead(
       // mark right where this stop square would be", a title cut far before its time, and "me clicking
       // this, the entire box, it just feels like, okay, I would be expanding this".
       "row-running": {
+        experiments: CARD_HEAD,
         note: "A running row: its task up to its ticking time, then its filled Stop square and its chevron.",
         play: async (ctx) => {
           await openTray(ctx);
@@ -1278,6 +1256,7 @@ export default pinKindsHead(
         snapshot: rowsChat([agent("Make autoland land again", 6.2, "running", { action: "Read land_ready.py" })]),
       },
       "row-finished-check": {
+        experiments: CARD_HEAD,
         note: "A finished row beside a running one: its check sits in the Stop square's slot, after its time, the same size and column, so nothing moves when a row finishes; no Done on the left.",
         play: async (ctx) => {
           await openTray(ctx);
@@ -1294,6 +1273,7 @@ export default pinKindsHead(
         ]),
       },
       "row-long-title": {
+        experiments: CARD_HEAD,
         note: "A long task runs right up to its time and cuts with an ellipsis only where it truly overflows.",
         play: async (ctx) => {
           await openTray(ctx);
@@ -1308,11 +1288,12 @@ export default pinKindsHead(
         ]),
       },
       "row-expanded": {
+        experiments: CARD_HEAD,
         note: "An expanded tray's subagent row opens its chat directly; the Stop button remains separate.",
         play: async (ctx) => {
           await openTray(ctx);
           await ctx.click({ selector: ".acpmux-running-tray .acpmux-agent-line__button" });
-          await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-of"));
+          await ctx.waitFor(() => ctx.document.querySelector(".acpmux-view-corner"));
         },
         snapshot: rowsChat([
           agent("Make autoland land again", 6.2, "running", {
@@ -1323,6 +1304,7 @@ export default pinKindsHead(
         ]),
       },
       "many-folded": {
+        experiments: CARD_HEAD,
         note: "Five running: the tray starts folded to its header so it never takes the transcript's room; the chevron opens the list.",
         play: async (ctx) => {
           await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
@@ -1343,6 +1325,7 @@ export default pinKindsHead(
         ),
       },
       "finished-line": {
+        experiments: CARD_HEAD,
         note: "A finished turn, its Worked for opened: each subagent left one quiet line where it ended, with its name and how long it ran; no tray.",
         play: async (ctx) => {
           await openFold(ctx);
@@ -1363,6 +1346,7 @@ export default pinKindsHead(
         ]),
       },
       "failed-line": {
+        experiments: CARD_HEAD,
         note: "A subagent that failed says so in the danger color. A stopped one says why when the pane knows: the person stopped it (Stop), or a Send now interrupted its turn; one stopped for a reason the pane cannot know (another client's cancel, Claude's own TaskStop) says none rather than guess. One that did not finish offers Restart on hover.",
         play: async (ctx) => {
           await openFold(ctx);
@@ -1398,6 +1382,7 @@ export default pinKindsHead(
         ]),
       },
       "restart-on-hover": {
+        experiments: CARD_HEAD,
         note: "Restart on a stopped subagent's line, shown on hover or keyboard focus (focused here): the hover row's compact button, its name and what it does on hover. It asks the chat to run the subagent again with its prompt.",
         play: async (ctx) => {
           await openFold(ctx);

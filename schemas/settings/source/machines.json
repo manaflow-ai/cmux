@@ -337,6 +337,31 @@
           ]
         },
         {
+          "key": "computerUse.floatingPreview",
+          "note": "Prototype: a floating, non-activating panel over every app with the live preview; the menu bar's Computer Use menu shows and hides it. Needs computerUse.livePreview (the worker streams no frame without it).",
+          "title": {
+            "key": "settings.computerUse.floatingPreview",
+            "text": "Floating Live Preview"
+          },
+          "help": {
+            "key": "settings.computerUse.floatingPreview.help",
+            "text": "A live view of the app an agent uses, floating over every app. Drag it anywhere; hide it from the menu bar."
+          },
+          "summary": {
+            "key": "settings.computerUse.floatingPreview.summary",
+            "text": "Shows the app an agent uses in a floating panel"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "computer use",
+            "live preview",
+            "floating",
+            "picture in picture",
+            "preview"
+          ]
+        },
+        {
           "key": "computerUse.whileLocked",
           "note": "Off by default. On, while the screen is locked the engine still runs app and window lists, window captures by window id and background input to a window; foreground input, display captures, launches and permission prompts stay refused with mac_locked (cmux_computer_use::locked; cmuxterm-hq docs/design/locked-screen-computer-use.md).",
           "title": {
@@ -625,6 +650,60 @@
           }
         },
         {
+          "key": "cloud.useMyGitHubLogin",
+          "name": "useMyGitHubLogin",
+          "note": "Cloud starts use the cmux GitHub App by default. Only an explicit opt-in carries this Mac's personal GitHub CLI login.",
+          "title": {
+            "key": "settings.cloud.useMyGitHubLogin",
+            "text": "Use My GitHub Login on Cloud Machines"
+          },
+          "help": {
+            "key": "settings.cloud.useMyGitHubLogin.help",
+            "text": "Cloud machines use the cmux GitHub App by default. Turn this on to share this Mac’s personal GitHub CLI login with machines you start. To remove a shared login, run cmux github login forget on that machine."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "cloud",
+            "github",
+            "gh",
+            "login",
+            "git",
+            "clone",
+            "push",
+            "token",
+            "repository",
+            "sign in",
+            "account"
+          ]
+        },
+        {
+          "key": "cloud.defaultImage",
+          "name": "defaultImage",
+          "note": "The Cloud environment (image) a new Cloud chat boots from when the chat names none: `auto` (the default; cloud.startChat sends no environment and the platform derives one from the repository) or one of the account's Cloud environment ids (`cloud.environment.list`). Replaces the composer's Environment chip (PR 51769). Auto reuses the person's own Cloud machine for a new chat; a named environment makes a new machine per chat, as a machine boots in its image only when made (cmux-tui start_chat_cli.rs `reusable`). The chat page follows it (AgentPaneDisplaySetting.followedAppPaths; webviews chatCloudEnvironment.ts); Settings draws it as a menu of Auto and the environments (webviews settings editors/DefaultImageEditor.tsx).",
+          "title": {
+            "key": "settings.cloud.defaultImage",
+            "text": "Default Image"
+          },
+          "help": {
+            "key": "settings.cloud.defaultImage.help",
+            "text": "The Cloud environment new Cloud chats start from. Auto picks one from the chat's repository. Any other environment gives each new chat its own machine."
+          },
+          "kind": "text",
+          "default": "auto",
+          "keywords": [
+            "cloud",
+            "image",
+            "environment",
+            "default",
+            "auto",
+            "snapshot",
+            "vm",
+            "machine",
+            "new chat"
+          ]
+        },
+        {
           "key": "cloud.agentsStartWithoutAsking",
           "title": {
             "key": "settings.cloud.agentsStartWithoutAsking",
@@ -681,9 +760,35 @@
           ]
         },
         {
+          "key": "cloud.addFolderLive",
+          "name": "addFolderLive",
+          "note": "Add folder in a Cloud chat's Sources (Leo, 2026-11-25: \"mostly just the one you selected, right? then you can add more folders and files/select more as you go potentially\"): a Mac folder is copied read-only to the chat's machine and joins the chat's folders between turns, and an agent's access-request card in any Cloud chat lands its folder the same way. On by default (Leo, 2026-11-25: \"it doesnt work if it's not \\\"on by default\\\"\"); this switch turns it off.",
+          "title": {
+            "key": "settings.cloud.addFolderLive",
+            "text": "Add Folders to Running Cloud Chats"
+          },
+          "help": {
+            "key": "settings.cloud.addFolderLive.help",
+            "text": "Sources shows Add Folder, and a folder an agent asks for joins its chat. Copies are read-only; secret files never go."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "cloud",
+            "folder",
+            "add",
+            "sources",
+            "share",
+            "access",
+            "directory",
+            "attach",
+            "machine"
+          ]
+        },
+        {
           "key": "cloud.autoCloud",
           "name": "autoCloud",
-          "note": "AutoCloud (Leo, 2026-11-24): the new-chat Where menu's Auto opens Auto, Cloud only and Machine…, and Auto may start a chat on a Cloud VM when this Mac has no room. Hidden until it ships; the plan gate still applies.",
+          "note": "AutoCloud (Leo, 2026-11-24): the new-chat Where menu's Auto opens Auto, Cloud only and Machine…, and Auto may start a chat on a Cloud VM when this Mac has no room. A Settings switch, off by default, so a person can turn the preview on without editing cmux-next.json (Leo, 2026-11-24: \"can we put our mvp in?\"). Also the switch for keeping a chat running: with it on, a chat that starts on this Mac is copied to the Cloud, goes on there when this Mac sleeps or goes offline, and comes home (plans/cmux-next/auto-mode/DESIGN.md; the acpmux daemon reads it when a chat starts; nothing is copied where the Cloud store is not bound). The plan gate still applies.",
           "title": {
             "key": "settings.cloud.autoCloud",
             "text": "Auto Places Chats in Cloud"
@@ -694,7 +799,6 @@
           },
           "kind": "toggle",
           "default": false,
-          "page_hidden": "AutoCloud preview; cmux-next.json only until it ships",
           "keywords": [
             "cloud",
             "auto",
@@ -739,6 +843,52 @@
       },
       "rows": [
         {
+          "key": "worktrees.location",
+          "name": "location",
+          "note": "Default ~/.cmux/worktrees, where cmux always put them. The shared folder of the worktrees cmux makes for local chats, forks and lanes, as <folder>/<project>/<name>: cmux-config worktree_names::location, read by git.worktree.create (cmux-tui-core git_ops/worktree.rs) and acpmux subsession_worktree.rs. A leading ~/ is the home folder; a value that is no absolute path is the default. agentPane.sessionWorktrees set to project keeps them inside the project instead.",
+          "title": {
+            "key": "settings.worktrees.location",
+            "text": "Worktree Folder"
+          },
+          "help": {
+            "key": "settings.worktrees.location.help",
+            "text": "Where cmux makes worktrees for local chats, forks and lanes, one folder per project."
+          },
+          "kind": "text",
+          "default": "~/.cmux/worktrees",
+          "keywords": [
+            "git",
+            "worktree",
+            "folder",
+            "location",
+            "path",
+            "disk",
+            "storage"
+          ]
+        },
+        {
+          "key": "worktrees.branchPrefix",
+          "name": "branchPrefix",
+          "note": "Default cmux/, the prefix cmux always used. The start of the branch name of each worktree cmux makes (cmux/fix-login): cmux-config worktree_names::branch_prefix, read by git.worktree.create and acpmux subsession_worktree.rs. Empty is no prefix; one git would not take at the start of a branch name is the default.",
+          "title": {
+            "key": "settings.worktrees.branchPrefix",
+            "text": "Worktree Branch Prefix"
+          },
+          "help": {
+            "key": "settings.worktrees.branchPrefix.help",
+            "text": "The start of each new worktree's branch name, such as cmux/."
+          },
+          "kind": "text",
+          "default": "cmux/",
+          "keywords": [
+            "git",
+            "worktree",
+            "branch",
+            "prefix",
+            "name"
+          ]
+        },
+        {
           "key": "worktrees.autoCleanup",
           "name": "autoCleanup",
           "note": "On by default. The acpmux daemon archives and removes the worktrees agents finished with and trims the build output of idle ones; unpushed work stays in git and comes back when the chat reopens (cmux-tui acpmux hub/worktree_care.rs, auto_cleanup_enabled, read from the settings file at each pass).",
@@ -765,7 +915,7 @@
         {
           "key": "worktrees.cleanBuildCaches",
           "name": "cleanBuildCaches",
-          "note": "Off by default. On: machine cleanup also removes this Mac's build caches nobody used lately (Xcode DerivedData and the like); package caches only when the disk is nearly full (cmux-tui cmux-worktree-care).",
+          "note": "On by default (was off before cmux care). On: machine cleanup also removes this machine's regenerable build caches nobody used lately (Xcode DerivedData, package caches, idle build folders and the like), under the disk budget; an explicit false keeps them (cmux-tui cmux-worktree-care).",
           "title": {
             "key": "settings.worktrees.cleanBuildCaches",
             "text": "Clean Up Build Caches"
@@ -775,7 +925,7 @@
             "text": "Also remove this Mac's build caches nobody used lately, such as Xcode DerivedData. Package caches go only when the disk is nearly full."
           },
           "kind": "toggle",
-          "default": false,
+          "default": true,
           "keywords": [
             "disk",
             "storage",
@@ -1197,6 +1347,62 @@
           }
         },
         {
+          "key": "transport.tailnetCarrier",
+          "name": "tailnetCarrier",
+          "note": "Read by direct route races. When direct-only, a cached Tailscale LocalAPI view may add a peer's direct tailnet address as a candidate. DERP and peer-relay paths are excluded until their cost is measured. Off is the default.",
+          "title": {
+            "key": "settings.transport.tailnetCarrier",
+            "text": "Tailscale Carrier"
+          },
+          "help": {
+            "key": "settings.transport.tailnetCarrier.help",
+            "text": "Race a peer's direct Tailscale address with the other transports when tailscaled reports one."
+          },
+          "summary": {
+            "key": "settings.transport.tailnetCarrier.summary",
+            "text": "Use direct Tailscale paths when available"
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.transport.tailnetCarrier.off",
+                "text": "Off"
+              },
+              "note": "Do not add Tailscale candidates."
+            },
+            {
+              "value": "direct-only",
+              "title": {
+                "key": "settings.transport.tailnetCarrier.directOnly",
+                "text": "Direct Only"
+              },
+              "note": "Add only paths tailscaled reports as direct."
+            },
+            {
+              "value": "on",
+              "title": {
+                "key": "settings.transport.tailnetCarrier.on",
+                "text": "On"
+              },
+              "note": "Accept the carrier policy value. Relayed paths remain excluded until their cost is measured."
+            }
+          ],
+          "default": "off",
+          "keywords": [
+            "tailscale",
+            "tailnet",
+            "wireguard",
+            "transport",
+            "direct",
+            "relay"
+          ],
+          "swift_enum": {
+            "name": "TailnetCarrierMode"
+          }
+        },
+        {
           "key": "remote.screenSharingProfile",
           "name": "screenSharingProfile",
           "note": "Read by MacScreenSession: ultra puts a=cmux-rd-encode-profile:ultra in the viewer's cmux.rd offer and the host's cmux-rd serve setup gets \"encode_profile\": \"ultra\"; balanced (the default) sends nothing. Not remote.ultra, which repairs loss on the WireGuard tunnel.",
@@ -1395,6 +1601,34 @@
             "mbps",
             "megabits",
             "data"
+          ]
+        },
+        {
+          "key": "remoteDesktop.sharpLinuxText",
+          "note": "Off by default. On: this Mac's Screen Sharing hello offers cap video.sharp_text, and a Linux host whose encoder is OpenH264 codes the session in its switching screen usage instead of camera usage (cmux-rd-host encoder.rs shipped_openh264_options). Screen usage's motion search encodes a 1080p frame about 4x slower (cmux#51662). The host's CMUX_RD_OPENH264_USAGE still wins. Mac, Windows and GPU (VAAPI) hosts ignore it.",
+          "title": {
+            "key": "settings.remoteDesktop.sharpLinuxText",
+            "text": "Sharper Text from Linux Machines"
+          },
+          "help": {
+            "key": "settings.remoteDesktop.sharpLinuxText.help",
+            "text": "A Linux machine without a GPU encoder codes its screen for sharp text instead of speed. Text reads clearer while it changes; typing and scrolling show a little later."
+          },
+          "summary": {
+            "key": "settings.remoteDesktop.sharpLinuxText.summary",
+            "text": "Linux screens favor sharp text over speed"
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "screen sharing",
+            "remote desktop",
+            "linux",
+            "text",
+            "sharp",
+            "screen usage",
+            "openh264",
+            "encoder"
           ]
         }
       ]

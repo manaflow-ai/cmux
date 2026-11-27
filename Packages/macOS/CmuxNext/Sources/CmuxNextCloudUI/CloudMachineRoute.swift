@@ -46,7 +46,7 @@ public struct CloudMachineRoute: Sendable {
 
     /// The route of Cloud machine `machineID`, whose commands run through the Cloud API's exec. `start` starts or resumes
     /// the machine when the exec finds it not running (``startingWhenStopped(_:start:)``); nil refuses as the route does.
-    public init(api: CloudAPIClient, machineID: String, start: (@Sendable () async throws -> Void)? = nil) {
+    public init(api: CloudDaemon, machineID: String, start: (@Sendable () async throws -> Void)? = nil) {
         self.init(machineID: machineID, exec: { try await api.exec(machineID, command: $0, timeoutMs: $1) }, start: start)
     }
 
@@ -350,10 +350,18 @@ public struct CloudMachineRoute: Sendable {
         + "set -- setpriv --reuid=cmux --regid=cmux --init-groups env HOME=/home/cmux USER=cmux LOGNAME=cmux; "
         + "else set --; fi; \"$@\" \"$c\" acp --json warm-home --wait 2>/dev/null; true"
 
+    private struct WarmHomeRequest: Encodable { var acpmuxHome: String? }
+    private struct WarmHomeReply: Decodable { var command: String }
+
     /// Warms the first home chat of a spare machine ahead of its claim (leo: "a cmux Cloud chat's create-to-first-text p50
     /// <= 3000 ms"): whether its agent is ready in the folder that chat will take. Never starts the machine.
-    public func warmHome() async -> Bool {
-        guard let stdout = try? await plain(Self.warmHomeCommand, Self.timeoutMs).stdout else { return false }
+    /// `acpmuxHome` is this Mac's acpmux home: Rust (`cloud_warm_home`, cmux-cloud-start-core `spare_shapes`) reads the
+    /// person's recent harnesses and models there and the command warms a spare of each beside the default
+    /// (ask-30d56720f6; off with `ACPMUX_SPARE_PERSONAL=0`).
+    public func warmHome(acpmuxHome: String? = nil) async -> Bool {
+        let command = CloudStartCore().call("cloud_warm_home", WarmHomeRequest(acpmuxHome: acpmuxHome), as: WarmHomeReply.self)?
+            .command ?? Self.warmHomeCommand
+        guard let stdout = try? await plain(command, Self.timeoutMs).stdout else { return false }
         return Self.warmHomeReady(stdout)
     }
 

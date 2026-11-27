@@ -17,6 +17,7 @@
 // back has not passed) nothing is drawn: the composer just clears.
 import { MOTION_SEND_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
+import { motionToken } from "../../../ui/motion/motionTokens";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { cssTimeMs } from "./fold";
 import { INLINE_TOKEN } from "../attachments";
@@ -115,16 +116,23 @@ export function tuckSent(box: HTMLElement | null | undefined, sent: HTMLElement 
     timing,
   );
   // The composer clears in the same frame and gives back the height its text and chips took, so its
-  // top edge moves down: the copies and the edge move with it, before that frame paints (a resize
-  // observer runs after layout and before paint), so the copy starts where the text was in the
-  // composer and falls behind the edge where it is now.
-  const placed = edge;
+  // top edge moves down: the edge moves with it, and the copies with the field, before that frame
+  // paints (a resize observer runs after layout and before paint), so the copy starts where the text
+  // is in the composer and falls behind the edge where it is now. The copies follow the field, not
+  // the box's top: the attachment tray over the field (the default view since #55723) goes away with
+  // the send, which moves the box's top by its height while the field stays, and a copy moved by the
+  // box's top started under the composer.
+  const placed = top;
   const moved =
     typeof ResizeObserver === "function"
       ? new ResizeObserver(() => {
-          const now = box.getBoundingClientRect().top - main.getBoundingClientRect().top;
+          const mainTop = main.getBoundingClientRect().top;
+          const now = box.getBoundingClientRect().top - mainTop;
           under.style.height = `${Math.max(0, now)}px`;
-          for (const copy of [ghost, lower]) copy.style.top = `${top + now - placed}px`;
+          const typed = editor.isConnected ? editor : box.querySelector(".acpmux-composer-prompt [contenteditable]");
+          const fieldNow = typed?.getBoundingClientRect().top;
+          const shift = fieldNow === undefined ? now - edge : fieldNow - mainTop - placed;
+          for (const copy of [ghost, lower]) copy.style.top = `${top + shift}px`;
         })
       : undefined;
   moved?.observe(box);
@@ -211,8 +219,7 @@ function tuckStyle(box: Element): SendTuckStyle {
 
 /// The send clock (`--agent-motion-send`, scaled with the host's speed), the scale's value without one.
 function sendMs(box: Element): number {
-  const token = box.ownerDocument.defaultView?.getComputedStyle(box).getPropertyValue("--agent-motion-send") ?? "";
-  return cssTimeMs(token) ?? MOTION_SEND_MS;
+  return cssTimeMs(motionToken(box, "--agent-motion-send")) ?? MOTION_SEND_MS;
 }
 
 /// A layer over the pane for one half of the tuck: it takes no pointer and draws nothing itself.

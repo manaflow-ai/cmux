@@ -1,10 +1,9 @@
 {
   "_comment": "Swift test targets that no automatic runner covers (scripts/ci/swift_test_coverage.py, hq#11644). Each entry is either run_by: a workflow that runs the whole package on its pull requests (checked), or not_run: why no pull request check runs it. Prefer a runner: scripts/ci/swift-linux-packages.txt, PACKAGES in scripts/ci/package-test-lane.sh, or a fast-tier.json entry for CmuxNext. A not_run reason that names a failure is a red test: fix it and move the package to a runner. The failures below are from package-test-lane.sh suite on an owned Mac at ccc9958672bf (2026-11-15).",
   "targets": [
-    {"package": "Packages/Shared/CmuxVNC", "target": "CmuxVNCTests", "run_by": ".github/workflows/cmux-vnc.yml"},
+    {"package": "Packages/Shared/CmuxVNC", "target": "CmuxVNCIntegrationTests", "run_by": ".github/workflows/cmux-vnc.yml"},
     {"package": "Packages/Shared/CmuxMessagesLab", "target": "MessagesLabHomeTests", "not_run": "a lab package whose suites include frame-time budgets (HomeBackgroundLoadPerfTests, DragWhileStreamingTests) and layout checks; 1 of its 2 suites fails on an owned Mac (HomeRetrySendTests, HomeMenuHighlightFollowTests, HomeOpensAtNewestTests among others) and drag tests take 40 s each"},
     {"package": "Packages/Shared/CmuxMessagesLab", "target": "MessagesLabSidebarTests", "not_run": "same package as MessagesLabHomeTests: the package lane runs a package whole, and MessagesLabHomeTests fails on an owned Mac"},
-    {"package": "Packages/Shared/CmuxSpinner", "target": "CmuxSpinnerTests", "not_run": "red on feat-cmux-next: NoSystemSpinnerTests.noSystemSpinners finds UIActivityIndicatorView in cmux-next-ios/CmuxMobileKit (ChiefSlashSuggestionsView.swift:147 and others), and the scan takes 70 s"},
     {"package": "Packages/iOS/CmuxConversation", "target": "CmuxConversationMacUITests", "not_run": "macOS-only (AppKit), and red on an owned Mac: MacComposerAttachmentTests.finderCopyOfAnImageFilePastesThePhoto reads no image from the pasteboard; Core and Geometry run on Linux (scripts/ci/swift-linux-packages.txt)"}
   ]
 }

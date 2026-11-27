@@ -19,14 +19,13 @@ extension AppStoreContentBuilder {
                                       AppStoreButton(AppStoreStrings.retry, style: .plain, identifier: "cmux.appStore.community.retry") {
                                           model.loadCommunity(refresh: true)
                                       }], vertical: false, spacing: Metrics.space2))
-            } else if page.updating {
-                views.append(L.label(AppStoreStrings.communityUpdating, font: Typography.system(size: TypeScale.detail), ink: .tertiary))
             }
             if !page.elsewhere.isEmpty {
                 views.append(L.stack([L.label(AppStoreStrings.onOtherDevices, font: Typography.system(size: TypeScale.title, weight: TypeScale.emphasis)),
                                       grid(page.elsewhere.map { communityRow($0, elsewhere: true) })], spacing: Metrics.space2))
             }
-            views.append(page.rows.isEmpty ? L.state(AppStoreStrings.noMatches, width: width)
+            // A refresh says nothing over cached rows (RFD 0143); `apps-changed` swaps them when the fetch lands.
+            views.append(page.rows.isEmpty ? L.state(page.updating ? AppStoreStrings.loading : AppStoreStrings.noMatches, width: width)
                                            : grid(page.rows.map { communityRow($0, elsewhere: false) }))
         }
         return views

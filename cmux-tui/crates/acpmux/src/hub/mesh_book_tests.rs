@@ -11,7 +11,13 @@ fn hub() -> Arc<Hub> {
 }
 
 fn daemon(id: &str, host: &str, user: &str) -> BookDaemon {
-    BookDaemon { daemon_id: id.into(), host: host.into(), user: user.into(), last_seen_at: 5 }
+    BookDaemon {
+        daemon_id: id.into(),
+        host: host.into(),
+        user: user.into(),
+        last_seen_at: 5,
+        ..Default::default()
+    }
 }
 
 fn session(id: &str, name: &str, host: &str, daemon: &str, state: &str) -> BookSession {
@@ -371,4 +377,181 @@ async fn a_given_handle_rides_the_heartbeat_and_names_the_hub_row() {
     hub.apply_mesh_book(renamed, "person-1", Some("d-a"));
     assert_eq!(hub.mesh_book_resolve("machine-b/Kiwi").as_deref(), Some(B_ID));
     assert_eq!(hub.mesh_book_resolve("machine-b/Mango"), None);
+}
+
+/// A machine's health read through the hub goes via one session the hub lists on it (the hub
+/// takes a read only when it names a session): one of that machine's, never a session of a
+/// machine whose name it starts with, and none for a machine the book lists no session on.
+#[test]
+fn a_machine_read_goes_through_one_of_its_own_listed_sessions() {
+    let hub = hub();
+    let mut b = book();
+    b.daemons.push(daemon("d-b2", "machine-b2", "person-1"));
+    b.sessions.push(session(
+        "0198f2a4-0000-7000-8000-0000000000b2",
+        "other",
+        "machine-b2",
+        "d-b2",
+        "ready",
+    ));
+    hub.apply_mesh_book(b, "person-1", Some("d-a"));
+    assert_eq!(hub.mesh_book_session_on("machine-b").as_deref(), Some(B_ID));
+    assert_eq!(
+        hub.mesh_book_session_on("machine-b2").as_deref(),
+        Some("0198f2a4-0000-7000-8000-0000000000b2")
+    );
+    assert_eq!(hub.mesh_book_session_on("machine-c"), None);
+    hub.set_mesh_book(Default::default(), Vec::new());
+    assert_eq!(hub.mesh_book_session_on("machine-b"), None);
+}
+
+/// A machine only the hub reaches that pushed its health on its heartbeat reads as a reading in
+/// the host row (`health`, `healthAt`), is not pulled, and a pull newer than the push wins
+/// (RFD 0181 T1). One that sent none, or sent long ago, keeps the pull.
+#[tokio::test]
+async fn a_pushed_reading_fills_the_host_row_and_spares_the_pull() {
+    let hub = hub();
+    let now = crate::store::now_ms();
+    let mut b = book();
+    let d = b.daemons.iter_mut().find(|d| d.daemon_id == "d-b").unwrap();
+    d.health = Some(json!({"cpus": 8, "liveSessions": 2}));
+    d.health_at = Some(now);
+    // A teammate's push is no one of ours.
+    let t = b.daemons.iter_mut().find(|d| d.daemon_id == "d-t").unwrap();
+    t.health = Some(json!({"cpus": 1}));
+    t.health_at = Some(now);
+    hub.apply_mesh_book(b, "person-1", Some("d-a"));
+    let rows = hub.mesh_book_hosts();
+    let machine_b = rows.iter().find(|row| row["name"] == "machine-b").expect("machine-b row");
+    assert_eq!(machine_b["health"], json!({"cpus": 8, "liveSessions": 2}));
+    assert_eq!(machine_b["healthAt"], json!(now));
+    assert!(
+        !hub.mesh_health_hosts(now).pull.contains(&"machine-b".to_owned()),
+        "no ask for a machine that pushed"
+    );
+
+    assert!(hub.mesh_health_hosts(now).listed.contains("machine-b"));
+
+    // A pull newer than the push survives the next refresh and replaces it.
+    hub.hub_health.lock().unwrap().answered("machine-b", Some(json!({"cpus": 16})), now + 1);
+    hub.mesh_health_hosts(now).due(&mut hub.hub_health.lock().unwrap(), now);
+    let machine_b = hub
+        .mesh_book_hosts()
+        .into_iter()
+        .find(|row| row["name"] == "machine-b")
+        .expect("machine-b row");
+    assert_eq!(machine_b["health"], json!({"cpus": 16}));
+
+    // A push gone stale is ignored: the pull is the fallback again.
+    let hub = self::hub();
+    let mut old = book();
+    let d = old.daemons.iter_mut().find(|d| d.daemon_id == "d-b").unwrap();
+    d.health = Some(json!({"cpus": 8}));
+    d.health_at = Some(now - 10 * 60_000);
+    hub.apply_mesh_book(old, "person-1", Some("d-a"));
+    let machine_b = hub
+        .mesh_book_hosts()
+        .into_iter()
+        .find(|row| row["name"] == "machine-b")
+        .expect("machine-b row");
+    assert!(machine_b.get("health").is_none());
+    assert!(hub.mesh_health_hosts(now).pull.contains(&"machine-b".to_owned()));
+}
+
+/// A just-started daemon's `transfer_hub {resolve}` waits for its first book read rather than
+/// calling a listed machine unlisted (session-move-gcp, 2026-11-27 00:52Z: a move 3 s after a
+/// restart), and a later one answers from the read list at once.
+#[cfg(feature = "hub-carrier")]
+#[tokio::test]
+async fn a_resolve_before_the_first_book_read_waits_for_it() {
+    let hub = hub();
+    let asked = {
+        let hub = hub.clone();
+        tokio::spawn(async move { hub.transfer_hub(&json!({"resolve": "machine-b"})).await })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(!asked.is_finished(), "an unread list is not an answer yet");
+    hub.apply_mesh_book(book(), "person-1", Some("d-a"));
+    let found = asked.await.expect("join").expect("listed once read");
+    assert_eq!(found["host"], "machine-b");
+    let began = std::time::Instant::now();
+    let gone = hub.transfer_hub(&json!({"resolve": "machine-z"})).await;
+    assert!(gone.is_err(), "a read list that lacks it says so");
+    assert!(began.elapsed() < std::time::Duration::from_secs(1), "no wait once read");
+}
+
+/// A hub row's `updatedAt` is when the chat last changed on its machine, as its heartbeat says,
+/// not when this daemon first saw it: a restarted reader lists the same time, so a fleet's rows do
+/// not all move to the restart's millisecond (2026-11-26: 1,675 of 1,866 rows read 22:59-23:00Z
+/// with nothing changed). A hub that sends none keeps the old reading.
+#[tokio::test]
+async fn a_hub_rows_updated_at_is_its_machines_not_the_readers_clock() {
+    let hub = hub();
+    let meta = serde_json::from_value(json!({
+        "schema": crate::store::META_SCHEMA, "id": "s1", "name": "worker", "harness": "fake",
+        "cwd": "/work/app", "status": "idle", "createdAt": 1, "updatedAt": 1_700_000_000_000u64,
+    }))
+    .expect("meta");
+    hub.store.save(&meta).expect("save");
+    let session = hub.make_session(meta);
+    hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
+    hub.update_live_session_index(&session);
+    let changed = session.meta.lock().unwrap().updated_at;
+    let rows = hub.mesh_rows().await;
+    let row = rows.iter().find(|r| r.session_id == "s1").expect("listed");
+    assert_eq!(row.updated_at, Some(changed));
+    assert_eq!(serde_json::to_value(row).expect("json")["updatedAt"], changed);
+
+    let at = 1_700_000_123_456u64;
+    let mut said = book();
+    said.sessions[1].updated_at = Some(at);
+    let updated = |hub: &Arc<Hub>| {
+        let all = hub.all_session_summaries();
+        all.iter().find(|s| s["sessionId"] == B_ID).expect("listed")["updatedAt"].clone()
+    };
+    hub.apply_mesh_book(said.clone(), "person-1", Some("d-a"));
+    assert_eq!(updated(&hub), at);
+    let restarted = self::hub();
+    restarted.apply_mesh_book(said.clone(), "person-1", Some("d-a"));
+    assert_eq!(updated(&restarted), at, "a restarted reader lists the same time");
+
+    let mut events = hub.events.subscribe();
+    said.sessions[1].updated_at = Some(at + 1);
+    hub.apply_mesh_book(said, "person-1", Some("d-a"));
+    assert_eq!(notices(&mut events).len(), 1, "a real change is announced");
+    assert_eq!(updated(&hub), at + 1);
+
+    let before = crate::store::now_ms();
+    let silent = self::hub();
+    silent.apply_mesh_book(book(), "person-1", Some("d-a"));
+    assert!(updated(&silent).as_u64().expect("ms") >= before, "no time said: first seen here");
+}
+
+/// A row that leaves the book and comes back as it left keeps its `updatedAt`: a hub outage past
+/// a heartbeat's TTL empties the book until each machine heartbeats again, and that is no change
+/// to any chat (2026-11-27: 587 of 596 rows restamped at 00:14:38Z after a 503, none changed). One
+/// that comes back changed is stamped anew.
+#[tokio::test]
+async fn a_row_back_after_a_hub_outage_keeps_its_updated_at() {
+    let hub = hub();
+    let updated = |hub: &Arc<Hub>| {
+        let all = hub.all_session_summaries();
+        all.iter().find(|s| s["sessionId"] == B_ID).map(|s| s["updatedAt"].as_u64().expect("ms"))
+    };
+    hub.apply_mesh_book(book(), "person-1", Some("d-a"));
+    let first = updated(&hub).expect("listed");
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let mut outage = book();
+    outage.sessions.clear();
+    hub.apply_mesh_book(outage, "person-1", Some("d-a"));
+    assert_eq!(updated(&hub), None, "gone while the hub lists nothing");
+    hub.apply_mesh_book(book(), "person-1", Some("d-a"));
+    assert_eq!(updated(&hub), Some(first), "back unchanged: no new time");
+
+    hub.set_mesh_book(Default::default(), Vec::new());
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let mut changed = book();
+    changed.sessions[1].state = "idle".into();
+    hub.apply_mesh_book(changed, "person-1", Some("d-a"));
+    assert!(updated(&hub).expect("listed") > first, "back changed: stamped anew");
 }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { guestCommand, parseGuest, phaseProblem, resultProblem, staleExecutorMachines } from "./executor-journey.ts";
+import { STALE_JOURNEY_MS } from "./cloud-journey.ts";
 
 const GOOD = { status: "completed", execution: { ok: true, value: { pages: 20, mentionsOverview: true, chars: 3886 }, toolCalls: [{ name: "deepwiki.read_wiki_structure", outcome: "success", durationMs: 556 }] }, unavailableApps: [] };
 
@@ -30,7 +31,8 @@ describe("executor journey", () => {
 
   test("sweeps only its own old, idle machines", () => {
     const now = Date.UTC(2026, 10, 22, 12);
-    const old = (now - 4 * 3_600_000).toString(36);
+    // Older than the sweep age, whatever cloud-journey.ts sets it to (it went from 4 h to 11 h; a fixed 4 h went stale).
+    const old = (now - STALE_JOURNEY_MS - 3_600_000).toString(36);
     const fresh = (now - 600_000).toString(36);
     const rows = [
       { id: "vm_a", name: `cmux-test-exec-${old}`, status: "running" },

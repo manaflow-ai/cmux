@@ -254,6 +254,11 @@ public nonisolated enum TabTunables {
         "tabs.trailingButtons", .tabs, "Tab bar buttons",
         help: "How the tab bar's plus, pane-type chevron and More look and show hover.",
         default: .split, code: "TabTunables.trailingButtons")
+    /// The trailing controls' look in use: the tunable's, unless `appearance.toolbarButtonStyle` asks for bare glyphs
+    /// (plain) or for the pane's pill (grouped, glass), where a fill per button would stack on the pill.
+    @MainActor public static var effectiveTrailingButtons: TabTrailingButtons {
+        DesignSettings.shared.toolbarButtonStyle == .standard ? trailingButtons.value : .glyphs
+    }
     // @intent Leo 2026-10-22 (ask-a8b97f1201): one mark for a busy tab with unread output, not the dot and the
     // spinner side by side; the tab bar playground's Busy + Unread page compares the looks.
     public static let busyUnreadMark = Tunable<TabBusyUnreadMark>.choice(
@@ -273,5 +278,6 @@ public nonisolated enum TabTunables {
             + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
                hoverPreviews.descriptor, hoverCardEntrance.descriptor, hoverCardRetarget.descriptor, loadingAnimation.descriptor, busyUnreadMark.descriptor, statusMarkPlacement.descriptor, trailingButtons.descriptor, chevronOnHover.descriptor] + VerticalTabTunables.all
+            + GooTunables.all // the gooey tabs' knobs, a section per level (plans/cmux-next/gooey-tabs.md, "Knobs")
     }
 }

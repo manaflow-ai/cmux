@@ -9,7 +9,8 @@
   "workflows": {
     ".github/workflows/cmux-next-fast-gates.yml": {
       "fast-gates": {
-        "why": "web lint, crash ratchet, prepush gate, crash-class rules and the webviews checks: each judges only what the change adds in these trees",
+        "why": "web lint, crash ratchet, prepush gate, crash-class rules, the webviews checks and entry logs: each judges only what the change adds in these trees",
+        "route_job": "resolve",
         "inputs": [
           "Packages/",
           "cmux-tui/",
@@ -31,6 +32,8 @@
           "scripts/git-hooks/pre-push",
           "tests/workflow_jobs.py",
           "docs/mdm/",
+          "docs/ci/cmux-next-workflow-notes.md",
+          "docs/ci/nightly-workflow-notes.md",
           "**/*.xcstrings",
           "scripts/web_lint_prepush.py",
           "scripts/ci/cmux_next_fast_gates.py",
@@ -39,6 +42,11 @@
           "scripts/ci/crash-class-gate.sh",
           "scripts/ci/pr_owned_findings.py",
           "scripts/ci/fast_gate_webviews_checks.py",
+          "scripts/ci/entry_logs.py",
+          "scripts/ci/egress_new_sites.py",
+          "tests/test_egress_gate.py",
+          "tests/test_outbound_hosts.py",
+          "tests/test_classic_cloud_routes.py",
           "backend/apps/api/"
         ],
         "push_cover": [
@@ -53,7 +61,8 @@
           "scripts/web-lint.sh": "web_lint_prepush.py FIX_COMMAND: the fix it prints, not run by the gate",
           "tests/": "web_lint_prepush.py SOURCE_DIRS: a web package's own tests/ folder, inside the package (an input)",
           "design/surface-materials.md": "prepush-gate.py names it in a check title; the check reads schemas/surface-materials/",
-          "docs/app-store-platonic-ideal.md": "prepush-gate.py names it in a check title"
+          "docs/app-store-platonic-ideal.md": "prepush-gate.py names it in a check title",
+          "scripts/ci/": "crash-class-gate.sh's --rules regex names scripts/ci/(crash-class-gate.sh|pr_owned_findings.py), both already inputs"
         }
       }
     },
