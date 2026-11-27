@@ -19,7 +19,7 @@ pub fn caller_key(authorization: Option<&[u8]>) -> String {
 
 /// The part of a caller key a log line may show.
 pub fn short(key: &str) -> &str {
-    &key[..key.len().min(12)]
+    key.get(..key.floor_char_boundary(key.len().min(12))).unwrap_or_default()
 }
 
 pub struct AuthCache {
@@ -67,6 +67,15 @@ impl AuthCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_key_stays_on_utf8_boundaries() {
+        assert_eq!(short(""), "");
+        assert_eq!(short("anon"), "anon");
+        assert_eq!(short("0123456789abcdef"), "0123456789ab");
+        assert_eq!(short("01234567890é"), "01234567890");
+        assert_eq!(short("0123456789é"), "0123456789é");
+    }
 
     #[test]
     fn grant_is_per_caller_tenant_repo_and_expires() {
