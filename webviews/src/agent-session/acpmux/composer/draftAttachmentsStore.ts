@@ -23,6 +23,38 @@ export const DRAFT_ATTACHMENTS_CONNECT_WAIT_MS = 5_000;
 
 /// How many chats' chip contents the page keeps in memory for a write that changes stores.
 const CONTENTS_KEPT = 8;
+const AUTHORITY_KEY_PREFIX = "cmux.draft-attachments.authority.";
+type Authority = "host" | "daemon";
+
+function authorityKey(sessionId: string): string {
+  return `${AUTHORITY_KEY_PREFIX}${encodeURIComponent(sessionId)}`;
+}
+
+function readAuthority(sessionId: string): Authority | undefined {
+  try {
+    const value = globalThis.localStorage?.getItem(authorityKey(sessionId));
+    return value === "host" || value === "daemon" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function rememberAuthority(sessionId: string, authority: Authority): void {
+  try {
+    globalThis.localStorage?.setItem(authorityKey(sessionId), authority);
+  } catch {
+    // Web storage is optional in galleries and can be unavailable in a private page. The
+    // process-local marker still protects the current page when persistence is unavailable.
+  }
+}
+
+function forgetAuthority(sessionId: string): void {
+  try {
+    globalThis.localStorage?.removeItem(authorityKey(sessionId));
+  } catch {
+    // Web storage is optional in galleries and can be unavailable in a private page.
+  }
+}
 
 /// Each chat's unsent chips, kept with the chat's session in acpmux so a restart, a session switch,
 /// a reconnect, another client or a move to another machine reads the same ones (Leo: "making sure
@@ -38,6 +70,21 @@ export function draftAttachmentsStore(
   /// Chats whose last write went to the host because acpmux refused it: the host is newer for them,
   /// so the next read takes the host's and moves them to acpmux.
   const hostNewer = new Set<string>();
+  /// Serialize each chat's store transitions. A late daemon rejection must not move an older write
+  /// to the host after a later write has already succeeded in acpmux.
+  const queues = new Map<string, Promise<void>>();
+  const ordered = <T>(sessionId: string, operation: () => Promise<T>): Promise<T> => {
+    const previous = queues.get(sessionId) ?? Promise.resolve();
+    const next = previous.catch(() => undefined).then(operation);
+    const completion = next.then(
+      () => undefined,
+      () => undefined,
+    );
+    queues.set(sessionId, completion);
+    return next.finally(() => {
+      if (queues.get(sessionId) === completion) queues.delete(sessionId);
+    });
+  };
   /// Each chat's chips with their contents as last read or written: a write names a chip without
   /// the contents its store already holds, so one that goes to the other store takes them from here.
   const contents = new Map<string, ComposerAttachment[]>();
@@ -51,10 +98,12 @@ export function draftAttachmentsStore(
       contents.delete(oldest);
     }
   };
-  const hostRead = (sessionId: string) => host.read(sessionId).catch(() => [] as ComposerAttachment[]);
-  const toHost = (sessionId: string, attachments: ComposerAttachment[]) => {
+  const hostRead = async (sessionId: string): Promise<ComposerAttachment[]> => host.read(sessionId);
+  const toHost = async (sessionId: string, attachments: ComposerAttachment[]) => {
+    const result = await host.write(sessionId, contents.get(sessionId) ?? attachments);
     hostNewer.add(sessionId);
-    return host.write(sessionId, contents.get(sessionId) ?? attachments);
+    rememberAuthority(sessionId, "host");
+    return result;
   };
   /// The page's actions, waiting a moment for its client to install them when it has not yet.
   const connected = async (): Promise<DraftAttachmentActions> => {
@@ -79,48 +128,91 @@ export function draftAttachmentsStore(
     write: NonNullable<DraftAttachmentActions["write"]>,
     sessionId: string,
     chips: ComposerAttachment[],
-  ) => {
+  ): Promise<boolean> => {
     try {
       await write(sessionId, chips);
     } catch {
-      return;
+      return false;
     }
     hostNewer.delete(sessionId);
-    if (chips.length) await host.write(sessionId, []).catch(() => undefined);
+    rememberAuthority(sessionId, "daemon");
+    if (chips.length) {
+      try {
+        await host.write(sessionId, []);
+        forgetAuthority(sessionId);
+      } catch {
+        // Keep the daemon marker while host cleanup is unconfirmed.
+      }
+    } else {
+      // The successful empty host read already confirmed there is nothing to clean up.
+      forgetAuthority(sessionId);
+    }
+    return true;
   };
-  const read = async (sessionId: string): Promise<ComposerAttachment[]> => {
+  const readSession = async (sessionId: string): Promise<ComposerAttachment[]> => {
     const { read, write } = await connected();
-    if (!read) return hostRead(sessionId);
-    const answer = await read(sessionId).catch(() => undefined);
+    if (!read) {
+      const authority = readAuthority(sessionId);
+      if (authority === "daemon") throw new Error("acpmux is unavailable while its draft is authoritative");
+      const fromHost = await hostRead(sessionId);
+      if (fromHost.length || !options.actionsChanged || authority === "host") return fromHost;
+      throw new Error("acpmux connection is unavailable and draft authority is unknown");
+    }
+    // A successful response without `attachments` is an older daemon. A rejected read is a
+    // storage/link failure and must not be converted into that compatibility path.
+    const answer = await read(sessionId);
     const held = (answer as { attachments?: unknown } | null | undefined)?.attachments;
     // An older daemon (or one that did not answer): the host's, as before.
     if (!Array.isArray(held)) return hostRead(sessionId);
-    if (held.length && !hostNewer.has(sessionId)) return held as ComposerAttachment[];
+    const daemonChips = held as ComposerAttachment[];
+    const authority = readAuthority(sessionId);
+    const hostIsNewer = authority ? authority === "host" : hostNewer.has(sessionId);
+    // A non-empty acpmux answer is authoritative after a reload. hostNewer is process-local, so
+    // a reloaded page cannot safely tell whether a non-empty host copy is newer or stale. Only a
+    // successful host fallback (persisted as `host`) permits the host to supersede acpmux.
+    if (daemonChips.length && !hostIsNewer) return daemonChips;
+    if (!daemonChips.length && authority === "daemon" && !hostIsNewer) return daemonChips;
+    // Reaching this point means the host copy is needed to decide whether migration is required.
+    // A rejected read is a storage/link failure, not an empty draft.
     const fromHost = await hostRead(sessionId);
-    if (!fromHost.length && !hostNewer.has(sessionId)) return held as ComposerAttachment[];
+    if (!fromHost.length && !hostIsNewer) return daemonChips;
     if (write) await migrate(write, sessionId, fromHost);
     return fromHost;
   };
   return {
     async read(sessionId) {
-      const chips = await read(sessionId);
-      remember(sessionId, chips);
-      return chips;
+      return ordered(sessionId, async () => {
+        const chips = await readSession(sessionId);
+        remember(sessionId, chips);
+        return chips;
+      });
     },
     async write(sessionId, attachments) {
-      remember(sessionId, attachments);
-      const { write } = actions();
-      if (!write) return toHost(sessionId, attachments);
-      // The last write went to the host: acpmux may not hold the contents of a chip named without them.
-      const sent = hostNewer.has(sessionId) ? (contents.get(sessionId) ?? attachments) : attachments;
-      try {
-        const answer = (await write(sessionId, sent)) as { held?: unknown } | null | undefined;
-        if (hostNewer.delete(sessionId)) await host.write(sessionId, []).catch(() => undefined);
-        return { held: Array.isArray(answer?.held) ? answer.held : [] };
-      } catch {
-        // An older daemon refuses a draft write without text; the host keeps them as before.
-        return toHost(sessionId, attachments);
-      }
+      return ordered(sessionId, async () => {
+        remember(sessionId, attachments);
+        const { write } = actions();
+        if (!write) return toHost(sessionId, attachments);
+        // The last write went to the host: acpmux may not hold the contents of a chip named without them.
+        const sent = hostNewer.has(sessionId) ? (contents.get(sessionId) ?? attachments) : attachments;
+        try {
+          const answer = (await write(sessionId, sent)) as { held?: unknown } | null | undefined;
+          const authority = readAuthority(sessionId);
+          const hadHost = hostNewer.delete(sessionId);
+          rememberAuthority(sessionId, "daemon");
+          if (hadHost || authority === "host") {
+            try {
+              await host.write(sessionId, []);
+              forgetAuthority(sessionId);
+            } catch {
+              // Keep the daemon marker while host cleanup is unconfirmed.
+            }
+          }
+          return { held: Array.isArray(answer?.held) ? answer.held : [] };
+        } catch {
+          // An older daemon refuses a draft write without text; the host keeps them as before.
+          return toHost(sessionId, attachments);
+        }
+      });
     },
   };
 }

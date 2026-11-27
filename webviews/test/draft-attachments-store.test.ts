@@ -5,7 +5,7 @@
 // whose inline tokens mark each chip's place; the host's store is only where an older daemon keeps
 // them, and where they move from once. Each transition below reads every chip back in its order
 // with its contents, its token where it was in the draft.
-import { expect, test } from "bun:test";
+import { beforeEach, expect, test } from "bun:test";
 import { inlineToken, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import {
   draftAttachmentsStore,
@@ -22,6 +22,7 @@ type Session = { draft?: string; chips: ComposerAttachment[] };
 class Daemon {
   disk: Record<string, Session> = {};
   older = false;
+  failRead = false;
   requests: { method: string; params: Record<string, unknown> }[] = [];
   restart() {
     this.disk = JSON.parse(JSON.stringify(this.disk));
@@ -31,6 +32,7 @@ class Daemon {
     const sessionId = String(params.sessionId);
     const session = (this.disk[sessionId] ??= { chips: [] });
     if (method === "_acpmux/draft_get") {
+      if (this.failRead) throw new Error("acpmux storage unavailable");
       const answer: Record<string, unknown> = { sessionId, draft: session.draft ?? null };
       if (params.attachments === true && !this.older) answer.attachments = session.chips.map((chip) => ({ ...chip }));
       return answer;
@@ -46,7 +48,11 @@ class Daemon {
         session.chips = (params.attachments as ComposerAttachment[]).map((chip) => {
           if (chip.data !== undefined || chip.text !== undefined) return { ...chip };
           const old = had.find((each) => each.id === chip.id);
-          return { ...chip, ...(old?.data ? { data: old.data } : {}), ...(old?.text ? { text: old.text } : {}) };
+          return {
+            ...chip,
+            ...(old?.data ? { data: old.data } : {}),
+            ...(old?.text ? { text: old.text } : {}),
+          };
         });
         answer.held = session.chips.filter((chip) => chip.data || chip.text).map((chip) => chip.id);
       }
@@ -66,7 +72,9 @@ const connect = (daemon: Daemon): DraftAttachmentActions => ({
 /// The host's store (AgentPaneDraftAttachments.swift): contents once per chip, nothing for `[]`.
 class Host implements KeptAttachments {
   chats = new Map<string, ComposerAttachment[]>();
+  failRead = false;
   async read(sessionId: string) {
+    if (this.failRead) throw new Error("host link dropped");
     return (this.chats.get(sessionId) ?? []).map((chip) => ({ ...chip }));
   }
   async write(sessionId: string, attachments: ComposerAttachment[]) {
@@ -99,6 +107,19 @@ function page(daemon: Daemon | undefined) {
 
 const openStore = (map: ReturnType<typeof page>, host: KeptAttachments, connectWaitMs = 2_000) =>
   draftAttachmentsStore(map.actions, host, { actionsChanged: map.actionsChanged, connectWaitMs });
+
+beforeEach(() => {
+  try {
+    const storage = globalThis.localStorage;
+    if (!storage) return;
+    for (let index = storage.length - 1; index >= 0; index -= 1) {
+      const key = storage.key(index);
+      if (key?.startsWith("cmux.draft-attachments.authority.")) storage.removeItem(key);
+    }
+  } catch {
+    // The browser may not expose web storage in a test worker.
+  }
+});
 
 const shot = (index: number): ComposerAttachment => ({
   id: `shot-${index}`,
@@ -160,6 +181,84 @@ test("(a) a later write names a chip without its contents; acpmux keeps them", a
   await daemon.request("_acpmux/draft_set", { sessionId: "chat-a", text: draft });
   daemon.restart();
   await expectInPlace(daemon, "chat-a", await openStore(page(daemon), new Host()).read("chat-a"));
+});
+
+test("(a) a stale host copy never supersedes non-empty acpmux after a reload", async () => {
+  const daemon = new Daemon();
+  const host = new Host();
+  const store = openStore(page(daemon), host);
+  await store.write("chat-a", [chips[0]!]);
+  // The reloaded adapter has no in-memory hostNewer marker. A non-empty host copy may be stale,
+  // so the daemon's non-empty answer remains authoritative.
+  host.chats.set("chat-a", [chips[1]!]);
+  const reopened = openStore(page(daemon), host);
+  expect((await reopened.read("chat-a")).map((chip) => chip.id)).toEqual(["shot-1"]);
+  expect(daemon.disk["chat-a"]?.chips.map((chip) => chip.id)).toEqual(["shot-1"]);
+  expect(host.chats.get("chat-a")?.map((chip) => chip.id)).toEqual(["paste-1"]);
+});
+
+test("(a) a marked host fallback supersedes stale acpmux after a reload", async () => {
+  const daemon = new Daemon();
+  const host = new Host();
+  const store = openStore(page(daemon), host);
+  await store.write("chat-a", [chips[0]!]);
+  daemon.older = true;
+  await store.write("chat-a", [chips[1]!]);
+  daemon.older = false;
+  const reopened = openStore(page(daemon), host);
+  expect((await reopened.read("chat-a")).map((chip) => chip.id)).toEqual(["paste-1"]);
+  expect(daemon.disk["chat-a"]?.chips.map((chip) => chip.id)).toEqual(["paste-1"]);
+  expect(host.chats.has("chat-a")).toBe(false);
+});
+
+test("(a) an intentional empty host fallback survives a reload", async () => {
+  const daemon = new Daemon();
+  daemon.older = true;
+  const host = new Host();
+  const store = openStore(page(daemon), host);
+  await store.write("chat-a", [chips[0]!]);
+  await store.write("chat-a", []);
+  daemon.older = false;
+  expect(await openStore(page(daemon), host).read("chat-a")).toEqual([]);
+  expect(daemon.disk["chat-a"]?.chips).toEqual([]);
+});
+
+test("(a) a transient host read does not migrate an empty draft over kept host chips", async () => {
+  const daemon = new Daemon();
+  const host = new Host();
+  host.chats.set("chat-a", [chips[0]!]);
+  host.failRead = true;
+  const store = openStore(page(daemon), host);
+  await expect(store.read("chat-a")).rejects.toThrow("host link dropped");
+  expect(daemon.requests.filter((request) => request.method === "_acpmux/draft_set")).toHaveLength(0);
+  expect(host.chats.get("chat-a")?.map((chip) => chip.id)).toEqual(["shot-1"]);
+});
+
+test("(a) a disconnected daemon authority never becomes an empty replacement", async () => {
+  const daemon = new Daemon();
+  const host = new Host();
+  const map = page(daemon);
+  const store = openStore(map, host, 20);
+  await store.write("chat-a", [chips[0]!]);
+  map.install({});
+  await expect(store.read("chat-a")).rejects.toThrow("acpmux is unavailable");
+  expect(daemon.disk["chat-a"]?.chips.map((chip) => chip.id)).toEqual(["shot-1"]);
+});
+
+test("(a) a disconnected empty host does not claim unknown daemon authority", async () => {
+  const store = openStore(page(undefined), new Host(), 20);
+  await expect(store.read("chat-a")).rejects.toThrow("draft authority is unknown");
+});
+
+test("(a) a daemon read failure is not treated as an older daemon", async () => {
+  const daemon = new Daemon();
+  const host = new Host();
+  host.chats.set("chat-a", [chips[0]!]);
+  daemon.failRead = true;
+  const store = openStore(page(daemon), host);
+  await expect(store.read("chat-a")).rejects.toThrow("acpmux storage unavailable");
+  expect(daemon.requests.filter((request) => request.method === "_acpmux/draft_set")).toHaveLength(0);
+  expect(host.chats.get("chat-a")?.map((chip) => chip.id)).toEqual(["shot-1"]);
 });
 
 test("(b) session switch: A, then B, then A shows A's chips in place and B's own", async () => {
@@ -237,6 +336,38 @@ test("(d) a refused acpmux write goes to the host, and the next one carries the 
   expect(host.chats.has("chat-a")).toBe(false);
   daemon.restart();
   await expectInPlace(daemon, "chat-a", await openStore(page(daemon), new Host()).read("chat-a"));
+});
+
+test("(d) a late rejected write cannot replace a later successful write", async () => {
+  const daemon = new Daemon();
+  const host = new Host();
+  const map = page(daemon);
+  const store = openStore(map, host);
+  let started!: () => void;
+  let release!: () => void;
+  const firstStarted = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const firstGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const request = daemon.request.bind(daemon);
+  let sets = 0;
+  daemon.request = async (method, params) => {
+    if (method === "_acpmux/draft_set" && sets++ === 0) {
+      started();
+      await firstGate;
+      throw new Error("old daemon");
+    }
+    return request(method, params);
+  };
+  const first = store.write("chat-a", [chips[0]!]);
+  await firstStarted;
+  const second = store.write("chat-a", [chips[1]!]);
+  release();
+  await Promise.all([first, second]);
+  expect(daemon.disk["chat-a"]?.chips.map((chip) => chip.id)).toEqual(["paste-1"]);
+  expect(host.chats.has("chat-a")).toBe(false);
 });
 
 test("sending forgets the chips in acpmux: `[]` leaves none to come back", async () => {
