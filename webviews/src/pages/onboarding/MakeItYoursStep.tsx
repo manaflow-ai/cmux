@@ -33,15 +33,13 @@ import { SlidingIndicator } from "../../ui/motion/SlidingIndicator";
 import type { ChatsRunIn, MakeItYoursBackground, MakeItYoursMaterial, MakeItYoursState, WorkStyle } from "./ops";
 import { HostIcon, useOnboarding } from "./parts";
 import {
-  COMPUTER_USE_MODES,
+  CHAT_FEELS,
   LOOK_BUNDLES,
   NOISES,
   PERMISSIONS,
   bundleWrites,
-  computerUse,
-  computerUseWrites,
-  finishSoundOn,
-  finishSoundWrites,
+  chatFeel,
+  chatFeelWrites,
   noise,
   noiseWrites,
   permission,
@@ -53,9 +51,11 @@ import {
   type MakeItYoursScreen,
   type WalkValues,
   type WalkWrite,
-  CHAT_FEELS,
-  chatFeel,
-  chatFeelWrites,
+  COMPUTER_USE_MODES,
+  computerUse,
+  computerUseWrites,
+  finishSoundOn,
+  finishSoundWrites,
 } from "./walk";
 import { Faces } from "./walkLook";
 
@@ -346,9 +346,10 @@ function TrustScreen({ opened, current }: { opened: WalkValues; current: WalkVal
 const CHAT_FEEL_KEYS = {
   instant: "onboarding.makeItYours.chatFeel.instant",
   pop: "onboarding.makeItYours.chatFeel.pop",
+  top: "onboarding.makeItYours.chatFeel.top",
 } as const;
 
-/** Screen 2's chat feel row: how a sent prompt arrives (agentPane.display.sendPop; Instant, as cmux
+/** Screen 2's chat feel row: how a sent prompt arrives (agentPane.display.sendPop and sendScrollsToTop; Instant, as cmux
  * ships, unless already set). */
 function ChatFeelRow({ opened, current }: { opened: WalkValues; current: WalkValues }) {
   const { strings } = useOnboarding();

@@ -98,99 +98,56 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
         }
     }
 
-    struct Settings: Equatable {
-        var degradation: RTCDegradationPreference
+    /// The screen sender's parameters for one quality, display size and frame rate
+    /// (cmux-rd-screen `quality::Encoding`).
+    struct Settings: Equatable, Decodable {
+        /// libwebrtc's `RTCDegradationPreference`, by its case name.
+        enum Degradation: String, Decodable {
+            /// Auto: lower the frame rate under load, keep the resolution (text stays sharp).
+            case maintainResolution
+            /// Smooth Motion: lower the resolution under load, keep the frame rate.
+            case maintainFramerate
+            /// The fixed presets: neither.
+            case disabled
+
+            var preference: RTCDegradationPreference {
+                switch self {
+                case .maintainResolution: .maintainResolution
+                case .maintainFramerate: .maintainFramerate
+                case .disabled: .disabled
+                }
+            }
+        }
+
+        var degradation: Degradation
         var maxBitrate: Int
         var minBitrate: Int?
         var maxFramerate: Int
+        /// The factor the picture is scaled down by before encoding (1: full size).
         var scaleDown: Double
     }
 
     /// The rate a stream runs at unless both displays can show more, and the
-    /// least Auto and Smooth Motion ask for.
+    /// least Auto and Smooth Motion ask for (cmux-rd-screen `BASELINE_FRAME_RATE`).
     static let baselineFrameRate = 60
-    /// The most a stream asks for (ProMotion).
+    /// The most a stream asks for (ProMotion; `MAXIMUM_FRAME_RATE`).
     static let maximumFrameRate = 120
-    /// Auto and Smooth Motion's bitrate ceiling at 60 fps for a picture of
-    /// unknown size: 200 kbit a frame.
-    static let adaptiveBitrateAtBaseline = 12_000_000
-    /// Auto and Smooth Motion's bitrate ceiling for a known picture: 0.18
-    /// bits per encoded pixel per frame, from Petal
-    /// (https://github.com/kiruna-labs/petal, Apache-2.0,
-    /// `apps/desktop/src-tauri/src/transport/publisher.rs`), which raised it
-    /// from 0.13 after small text read "readable, not crisp" at QP 26: the
-    /// ceiling is the lever on QP. Clamped to
-    /// ``adaptiveBitrateFloor``...``adaptiveBitrateCeiling(frameRate:)``.
-    static let adaptiveBitsPerPixelFrame = 0.18
-    /// The least ceiling a known picture gets (Petal's 4 Mbps).
-    static let adaptiveBitrateFloor = 4_000_000
-    /// The most a known picture asks for: Petal's 16 Mbps, and never less
-    /// than 200 kbit a frame (24 Mbps at 120 fps, as before), so a
-    /// high-rate stream keeps its per-frame budget.
-    static func adaptiveBitrateCeiling(frameRate: Int) -> Int {
-        max(16_000_000, adaptiveBitrateAtBaseline / baselineFrameRate * frameRate)
-    }
 
-    /// Auto and Smooth Motion's bitrate ceiling for a `width`×`height`
-    /// picture as encoded (after ``Settings/scaleDown``) at `frameRate`.
-    /// A picture of unknown size keeps 200 kbit a frame.
-    static func adaptiveBitrate(width: Double, height: Double, frameRate: Int) -> Int {
-        guard width > 0, height > 0 else { return adaptiveBitrateAtBaseline / baselineFrameRate * frameRate }
-        let wanted = Int((adaptiveBitsPerPixelFrame * width * height * Double(frameRate)).rounded())
-        return min(max(wanted, adaptiveBitrateFloor), adaptiveBitrateCeiling(frameRate: frameRate))
-    }
-    /// The most pixels a second Auto and Smooth Motion ask the hardware
-    /// H.264 encoder for above 60 fps (2160×1396 at 120). VideoToolbox's
-    /// H.264 encoder is bound by pixels a second, not by its level or
-    /// settings: an M1 Max sustains about 400 Mpixel/s (3456×2234 at 55 fps,
-    /// 2160×1396 at 120 with 28 ms latency), an M4 Pro about 500. One value
-    /// for every Mac (not measured per chip): ProMotion Macs are M1 Pro or later.
-    static let maximumEncodedPixelRate = 360_000_000
-
-    /// The frames per second to capture and encode at. Auto and Smooth
-    /// Motion follow both screens: the lower of the most the host's captured
-    /// display and the viewer's display show, at most 120 and never below
-    /// 60. A rate nobody reported (an older peer, a source that does not
-    /// know it, a display that says 0) counts as 60, so the stream stays
-    /// where it was. The fixed presets keep their own rate.
-    func frameRate(hostMaximum: Int?, viewerMaximum: Int?) -> Int {
-        switch self {
-        case .low, .medium, .high:
-            return settings(sourceHeight: 0).maxFramerate
-        case .auto, .smooth:
-            let known = { (rate: Int?) -> Int in rate.flatMap { $0 > 0 ? $0 : nil } ?? Self.baselineFrameRate }
-            return min(max(min(known(hostMaximum), known(viewerMaximum)), Self.baselineFrameRate), Self.maximumFrameRate)
-        }
-    }
-
-    /// The sender's encoding for a display `sourceWidth`×`sourceHeight`
-    /// pixels (0: unknown) at `frameRate` (from
-    /// ``frameRate(hostMaximum:viewerMaximum:)``).
-    /// Auto and Smooth Motion's bitrate ceiling follows the encoded pixels
-    /// and the frame rate (``adaptiveBitrate(width:height:frameRate:)``): a
-    /// full Retina display gets 16 Mbps at 60 fps and 24 at 120, a small
-    /// picture less (1280×800 at 60: about 11 Mbps). At a fixed ceiling a
-    /// faster stream would give every frame fewer bits and text would blur in motion.
-    /// It is a ceiling, not a target: WebRTC's congestion control still sets
-    /// the rate from the network, and a still screen sends next to nothing.
-    /// Above 60 fps they also scale the picture down just enough to stay
-    /// within ``maximumEncodedPixelRate``: a 16" MacBook Pro's 3456×2234 goes
-    /// out at about 2154×1392 at 120 fps (60 fps keeps the full size).
-    func settings(sourceWidth: Int = 0, sourceHeight: Int, frameRate: Int = ScreenQuality.baselineFrameRate) -> Settings {
-        func scale(to height: Int) -> Double { sourceHeight > height ? Double(sourceHeight) / Double(height) : 1 }
-        let fps = min(max(frameRate, Self.baselineFrameRate), Self.maximumFrameRate)
-        let pixelRate = Double(sourceWidth) * Double(sourceHeight) * Double(fps)
-        let fitEncoder = fps > Self.baselineFrameRate && pixelRate > Double(Self.maximumEncodedPixelRate)
-            ? (pixelRate / Double(Self.maximumEncodedPixelRate)).squareRoot() : 1
-        let adaptiveBitrate = Self.adaptiveBitrate(width: Double(sourceWidth) / fitEncoder,
-                                                   height: Double(sourceHeight) / fitEncoder, frameRate: fps)
-        switch self {
-        case .auto: return Settings(degradation: .maintainResolution, maxBitrate: adaptiveBitrate, maxFramerate: fps, scaleDown: fitEncoder)
-        case .smooth: return Settings(degradation: .maintainFramerate, maxBitrate: adaptiveBitrate, maxFramerate: fps, scaleDown: fitEncoder)
-        case .low: return Settings(degradation: .disabled, maxBitrate: 1_500_000, minBitrate: 1_500_000, maxFramerate: 30, scaleDown: scale(to: 720))
-        case .medium: return Settings(degradation: .disabled, maxBitrate: 4_000_000, minBitrate: 4_000_000, maxFramerate: 30, scaleDown: scale(to: 1080))
-        case .high: return Settings(degradation: .disabled, maxBitrate: 10_000_000, minBitrate: 10_000_000, maxFramerate: 60, scaleDown: 1)
-        }
+    /// The frames per second both displays agree on and the sender's encoding
+    /// at it for a display `sourceWidth`×`sourceHeight` pixels (0: unknown),
+    /// asked of the rules (cmux-rd-screen `quality`, op
+    /// `screen_quality_encoding`, with its tests): Auto and Smooth Motion
+    /// follow both screens (60 to 120 fps) and the encoded pixels; the fixed
+    /// presets hold their own rate and bitrate. Nil without the rules: the
+    /// stream keeps libwebrtc's own sender parameters at 60 fps.
+    func encoding(sourceWidth: Int = 0, sourceHeight: Int = 0, hostMaximum: Int? = nil, viewerMaximum: Int? = nil,
+                  rules: ScreenRules) -> (frameRate: Int, settings: Settings)? {
+        struct Request: Encodable { var quality: ScreenQuality, sourceWidth: Int, sourceHeight: Int, hostMaximum: Int?, viewerMaximum: Int? }
+        struct Answer: Decodable { var frameRate: Int, encoding: Settings }
+        let request = Request(quality: self, sourceWidth: sourceWidth, sourceHeight: sourceHeight,
+                              hostMaximum: hostMaximum, viewerMaximum: viewerMaximum)
+        guard let answer = rules.ask("screen_quality_encoding", request, as: Answer.self) else { return nil }
+        return (answer.frameRate, answer.encoding)
     }
 }
 
@@ -529,10 +486,13 @@ public final class ScreenStreamHost: @unchecked Sendable {
         self.log = log
     }
 
-    /// The loopback Screen Sharing backend (V1).
+    /// The loopback Screen Sharing backend (V1); `vncRules` answer its RFB handshake
+    /// (``VNCRules/bundled``: libcmux_rd_screen.dylib's).
     public convenience init(pairing: VNCPairing, target: VNCEndpoint, credentials: VNCCredentials,
-                            log: @escaping @Sendable (String) -> Void = { print($0) }) {
-        self.init(pairing: pairing, backend: { VNCLoopbackBackend(target: target, credentials: credentials, log: log) }, log: log)
+                            vncRules: VNCRules = .bundled, log: @escaping @Sendable (String) -> Void = { print($0) }) {
+        self.init(pairing: pairing, backend: {
+            VNCLoopbackBackend(target: target, credentials: credentials, rules: vncRules, log: log)
+        }, log: log)
     }
 
     /// Holds the pairing room open until cancelled (nothing to do without a pairing).
@@ -633,7 +593,7 @@ public final class ScreenStreamHost: @unchecked Sendable {
                 }
             }
         })
-        let answer = try await link.answer(offer: sdp, video: session.video)
+        let answer = try await link.answer(offer: sdp, video: session.video, encoding: ScreenQuality.auto.encoding(rules: rules)?.settings)
         try await signaling.send(.answer(answer))
         log("viewer offered; streaming answer sent")
     }
@@ -1026,15 +986,17 @@ public final class ScreenStreamHost: @unchecked Sendable {
     @discardableResult
     private func applyQuality(_ session: Session) -> Bool {
         let hostRate = session.backend.maximumFrameRate
-        let (quality, size, cap, fps, changed) = session.lock.withLock { () -> (ScreenQuality, CGSize, Int?, Int, Bool) in
+        let (settings, cap, fps, changed) = session.lock.withLock { () -> (ScreenQuality.Settings?, Int?, Int, Bool) in
             let display = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
             let cap = session.demand.captureCap(quality: session.quality, scales: session.backend.scalesToDemand)
             let size = ViewerDemand.fit(display, cap: cap, rules: rules)
-            let fps = session.quality.frameRate(hostMaximum: hostRate, viewerMaximum: session.viewerFrameRate)
+            let encoding = session.quality.encoding(sourceWidth: Int(size.width), sourceHeight: Int(size.height),
+                                                    hostMaximum: hostRate, viewerMaximum: session.viewerFrameRate, rules: rules)
+            let fps = encoding?.frameRate ?? ScreenQuality.baselineFrameRate
             defer { session.frameRate = fps }
-            return (session.quality, size, cap, fps, session.frameRate != fps)
+            return (encoding?.settings, cap, fps, session.frameRate != fps)
         }
-        session.link.applyVideo(quality, source: size, frameRate: fps)
+        if let settings { session.link.applyVideo(settings) }
         session.backend.setFrameRate(fps)
         session.backend.setMaximumLongEdge(cap)
         refreshSoon(session) // a still screen shows the new settings now, not at the next back-off step
@@ -1080,8 +1042,10 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
     private let inputStream: AsyncStream<ScreenInput>
     private let inputSink: AsyncStream<ScreenInput>.Continuation
 
-    public init(target: VNCEndpoint, credentials: VNCCredentials, log: @escaping @Sendable (String) -> Void) {
-        client = VNCClient(endpoint: target, options: VNCSessionOptions(credentials: credentials))
+    /// `rules` answer the RFB handshake (cmux-vnc's `vnc_*` ops).
+    public init(target: VNCEndpoint, credentials: VNCCredentials, rules: VNCRules = .bundled,
+                log: @escaping @Sendable (String) -> Void) {
+        client = VNCClient(endpoint: target, options: VNCSessionOptions(credentials: credentials, rules: rules))
         self.log = log
         (inputStream, inputSink) = AsyncStream.makeStream(of: ScreenInput.self)
     }
