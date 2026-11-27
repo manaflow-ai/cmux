@@ -2151,13 +2151,14 @@ impl Brain {
     /// `state/compactor.json`), never a Chief message; a good probe removes
     /// it, and retracts a notice an older build posted as a message (cx-1hpt).
     ///
-    /// A compactor that cannot run because its agent is not installed is no fault: the Set Up
-    /// card already says Claude Code is missing, with its Install button. First-run findings: a
-    /// clean Mac's Chief conversation showed "Chief memory summaries are paused. The Chief still
-    /// answers." under the card from the first launch on.
+    /// A compactor that cannot run because the turns' own agent is not installed is no fault: the
+    /// Set Up card already says that agent is missing, with its Install button. First-run findings:
+    /// a clean Mac's Chief conversation showed "Chief memory summaries are paused. The Chief still
+    /// answers." under the card from the first launch on. A compactor whose other agent is missing
+    /// (a Codex Chief that compacts on Claude Code) still posts its notice.
     fn compactor_status(&mut self, status: Result<(), String>) {
         let status = match status {
-            Err(text) if crate::harness_gate::harness_missing(&text) => {
+            Err(text) if crate::harness_gate::turn_agent_missing(&text, self.turn_harness()) => {
                 (self.log)(&text);
                 Ok(())
             }
@@ -2172,6 +2173,13 @@ impl Brain {
             Err(text) => self.post_compactor_notice(COMPACTOR_NOTICE, text),
             Ok(()) => self.retract_compactor_notice(),
         }
+    }
+
+    /// The harness the Chief's turns run on: the last turn's, else the configured one.
+    pub(super) fn turn_harness(&self) -> &str {
+        self.turn_engine
+            .as_ref()
+            .map_or(self.settings.harness.as_str(), |e| e.harness.as_str())
     }
 
     /// A stuck line's notice (`Input::CompactorStuck`): posted like the

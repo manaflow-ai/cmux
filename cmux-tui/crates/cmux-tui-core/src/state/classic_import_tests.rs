@@ -1001,8 +1001,12 @@ fn this_apps_own_preferences_file_is_not_classic_settings() {
     let probe = mux.classic_import_probe(Some(&places), nightly, Mode::Automatic).unwrap();
     assert_eq!(probe["available"], false, "{probe}");
     assert_eq!(probe["decision"]["reason"], "no_classic_session", "{probe}");
+    let own_only = probe["observed"].clone();
 
     std::fs::write(prefs.join("com.cmuxterm.app.plist"), b"bplist00").unwrap();
     let probe = mux.classic_import_probe(Some(&places), nightly, Mode::Automatic).unwrap();
     assert_eq!(probe["available"], true, "classic stable's settings still count: {probe}");
+    // Review of the first-run fixes: the stamp a ledger records still counts the app's own
+    // file, as earlier builds did, so a person who already decided is not asked again.
+    assert_eq!(probe["observed"], own_only, "the observed stamp is the one earlier builds wrote");
 }

@@ -153,13 +153,22 @@ impl Places {
     /// file is no sign of classic: cmux NEXT NIGHTLY shares classic nightly's bundle id
     /// and writes `com.cmuxterm.app.nightly.plist` itself at its first launch, so a Mac
     /// that never had classic was asked "Import from classic cmux?" (first-run findings).
+    /// A classic nightly whose only trace is that file goes unoffered: classic saves its
+    /// session, which the probe counts on its own.
     fn classic_settings_present(&self, bundle_id: &str) -> bool {
+        self.settings_files_present(bundle_id, false)
+    }
+
+    /// `classic_settings_present`, counting this app's own preferences file when
+    /// `count_own`: what the probe's `observed` stamp hashed before that file stopped
+    /// counting, so a ledger that recorded it still reads unchanged.
+    fn settings_files_present(&self, bundle_id: &str, count_own: bool) -> bool {
         let prefs = self.probe_home.join("Library/Preferences");
         self.config_home.join("cmux/cmux.json").is_file()
             || cmux_classic_import::ghostty::source_path(&self.support, bundle_id).is_some()
             || cmux_classic_import::source::CHANNELS
                 .iter()
-                .filter(|id| **id != bundle_id)
+                .filter(|id| count_own || **id != bundle_id)
                 .any(|id| prefs.join(format!("{id}.plist")).is_file())
     }
 
@@ -503,9 +512,11 @@ impl Mux {
         let settings = places.classic_settings_present(bundle_id);
         let available = !files.is_empty() || settings;
         // Include only settings presence. Changing a Classic preference after a
-        // one-time settings import must not cause another launch prompt.
+        // one-time settings import must not cause another launch prompt. The stamp
+        // counts this app's own preferences file as earlier builds did: a ledger
+        // stamped then must not read changed and ask again.
         let mut stamp = Sha256::new();
-        stamp.update([u8::from(settings)]);
+        stamp.update([u8::from(settings || places.settings_files_present(bundle_id, true))]);
         for (index, size, nanos) in files {
             stamp.update([index as u8]);
             stamp.update(size.to_le_bytes());
