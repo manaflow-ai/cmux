@@ -68,16 +68,11 @@ impl Record {
 
 /// Writes `bytes` to `path` owner-only and atomically.
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write as _;
     let parent = path.parent().ok_or_else(|| std::io::Error::other("no parent folder"))?;
     crate::home_fs::private_dir(parent)?;
-    let mut tmp = tempfile::NamedTempFile::new_in(parent)?;
-    // NamedTempFile is created 0600 on Unix; the explicit call also covers Windows' access list.
-    crate::router_socket::owner_only(tmp.path());
-    tmp.write_all(bytes)?;
-    tmp.as_file().sync_all()?;
-    tmp.persist(path).map_err(|e| e.error)?;
-    Ok(())
+    // 0600 from creation (an owner-only access list on Windows), synced, under one copy name per
+    // process (`home_fs::write_durable`), not a random one per write.
+    crate::home_fs::write_durable(path, bytes)
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> std::io::Result<Option<T>> {

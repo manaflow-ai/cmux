@@ -2,7 +2,7 @@ import { type Dispatch, type RefObject, type SetStateAction } from "react";
 import { type ComposerAttachment } from "../attachments";
 import { callNative } from "../callNative";
 import { type CloudComposeReservation } from "../cloudComposeReservation";
-import { type useChatCloudEnvironment } from "../CloudEnvironmentChip";
+import { type useChatCloudEnvironment } from "../chatCloudEnvironment";
 import { currentCloudPlan, readCloudPlanFresh } from "../cloudMachines";
 import { cloudPlanHoldsSend } from "../cloudPlans";
 import {
@@ -166,7 +166,7 @@ export function sendToCloudWith(
   if (refused === "cloud_checking") {
     // The tab's check hasn't answered (cloudRun.ts cloudPageRefusal): this send waits for it and
     // goes by itself, the prompt held where it was typed. A read now, since the handshake's may
-    // have missed its 15 s; a read that fails again shows Check again (sandboxUnchecked).
+    // have missed its 15 s; a read that fails again is read again on its own (sandboxUnchecked).
     // The composer's text as it was held, raw (the send's text is trimmed and expanded): an
     // unchanged composer matches it exactly.
     const shownAtHold = fromPage ? undefined : composerHandle.current?.draft();

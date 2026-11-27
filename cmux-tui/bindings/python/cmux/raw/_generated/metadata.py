@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'e3be564a907b381713600261d9b705ccea89c5d327eb05c653ce132afdef0008'
+IR_SHA256 = '6ca9835c2b5e897aea083c0a9ef5399cfceec848d825d37fd4bc0d69db6cfd89'
 
 
 @dataclass(frozen=True)
@@ -1439,6 +1439,7 @@ COMMANDS = {
             'key': CommandFieldMetadata(None, None),
             'mutation_id': CommandFieldMetadata(None, None),
             'name': CommandFieldMetadata(None, None),
+            'name_source': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
         },
     ),
@@ -3650,6 +3651,7 @@ COMMANDS = {
             'expected_generation': CommandFieldMetadata(None, None),
             'expected_revision': CommandFieldMetadata(None, None),
             'icon': CommandFieldMetadata(None, None),
+            'keep_awake': CommandFieldMetadata(12, 'workspace-keep-awake-v1'),
             'key': CommandFieldMetadata(None, None),
             'marked_unread': CommandFieldMetadata(12, 'notification-mark-unread-v1'),
             'mutation_id': CommandFieldMetadata(None, None),
@@ -4268,6 +4270,7 @@ EVENTS = {
     'agent-inventory-watch-ended': EventMetadata('agent-inventory-watch-ended', 12, 'agent-inventory-watch-v1', ('control',), 'emitted'),
     'agent-presence-changed': EventMetadata('agent-presence-changed', 12, 'agent-presence-v1', ('subscribe',), 'emitted'),
     'agent-session-share-changed': EventMetadata('agent-session-share-changed', 12, 'agent-session-share-events-v1', ('subscribe',), 'emitted'),
+    'apps-cloud-machine': EventMetadata('apps-cloud-machine', 12, 'apps-v1', ('control',), 'emitted'),
     'bell': EventMetadata('bell', 5, None, ('subscribe',), 'emitted'),
     'bookmarks-changed': EventMetadata('bookmarks-changed', 12, 'bookmarks-v1', ('subscribe',), 'emitted'),
     'browser-state': EventMetadata('browser-state', 6, None, ('attach-browser',), 'emitted'),

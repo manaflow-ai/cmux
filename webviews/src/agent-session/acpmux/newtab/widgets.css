@@ -65,25 +65,29 @@
   overflow: hidden;
   border-radius: var(--nt-widget-radius); /* concentric-allow: Apple's widget corner (22 pt continuous), the card holds an app's scene, not buttons */
   corner-shape: superellipse(1.6);
+  color: var(--agent-text);
+  /* One material (ui/glass/glass.css): the card is .ui-glass and sets only tokens: its own wash as the
+     tint, the popover level's 24 px blur, and the Reduce Transparency fill. */
+  --glass-tint: var(--nt-widget-card);
+  --glass-edge: var(--nt-widget-card-edge);
+  --glass-backdrop: var(--ds-glass-popover-blur);
+  /* glass-opaque-allow: Reduce Transparency's fill only (glass.css applies it under that setting) */
+  --glass-opaque: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
+}
+/* A preview in the Add Widget gallery sits on the gallery sheet's glass: the card's wash and edge with
+   no blur of its own, so the sheet stays the one material (design/glass-system.md R5). Reduce
+   Transparency: the opaque card. */
+.nt-widget-card--preview {
   background: var(--nt-widget-card);
   box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--nt-widget-card-edge);
-  color: var(--agent-text);
-  /* The popover glass level (ui/glass/glass.css): the card's 24 px blur, at the level's saturation. */
-  -webkit-backdrop-filter: var(--ds-glass-popover-blur);
-  backdrop-filter: var(--ds-glass-popover-blur);
 }
-/* Reduce Transparency or Liquid Glass off: an opaque card, no blur. */
 @media (prefers-reduced-transparency: reduce) {
-  .nt-widget-card {
+  .nt-widget-card--preview {
     background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
   }
 }
-:root:is([data-reduce-transparency], [data-glass="off"]) .nt-widget-card {
+:root:is([data-reduce-transparency], [data-glass="off"]) .nt-widget-card--preview {
   background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 .nt-widget-card > .cmux-app-scene-root,
 .nt-widget-card > * {

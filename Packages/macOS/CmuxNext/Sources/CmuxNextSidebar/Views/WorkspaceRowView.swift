@@ -20,6 +20,13 @@ final class WorkspaceRowView: SidebarRowView {
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
     internal let agentMark = DecorativeImageView() // the row's label says the agent's state
     internal(set) var agentMarkVariant = SidebarAgentMarkVariant.off
+    /// The agent's dot glyph beside the title (`appearance.agentSignature`, WorkspaceRowView+Signature): made the
+    /// first time a row shows one and removed when the setting turns off, so a row with it off has no view for it.
+    internal(set) var signatureMark: DecorativeImageView?
+    /// The session id and glyph the row shows; nil draws none.
+    internal(set) var signature: (id: String, glyph: SidebarAgentSignature)?
+    /// Its list's store of the glyphs (``SidebarModel/agentSignatures``, set on every dequeue); nil asks nothing.
+    weak var agentSignatures: SidebarAgentSignatures?
     /// A harness mark with no registered icon or brand takes its workspace's stable color (WorkspaceRowView+Rendering).
     private(set) var agentMarkFallbackColor: GroupColor?
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
@@ -91,12 +98,10 @@ final class WorkspaceRowView: SidebarRowView {
     /// A muted workspace (`notifications.mutedWorkspaces`): a quiet bell-slash
     /// in the trailing cluster, in the tertiary text color; hidden otherwise.
     let mutedMark = DecorativeImageView()
-    /// A workspace on a Cloud machine (``WorkspaceRowContent/runsInCloud``): a small muted cloud in the trailing status cluster.
-    let cloudMark = DecorativeImageView()
-    /// A runaway agent chat in the workspace (`SidebarWorkspace.usageWarnings`: no autocompact
-    /// cap, a huge context, a storm of subagents): a small warning triangle in the trailing
-    /// cluster, apart from the working spinner; its tooltip says each rule and the number.
-    let usageWarningMark = DecorativeImageView()
+    /// A workspace pinned inside its group (`SidebarWorkspace.isPinnedInGroup`): a small filled pin in the trailing
+    /// cluster, in the tertiary text color, beside the row's own icon and status (#56146: a grouped pinned row drew no
+    /// pin at rest, so it read as unpinned).
+    let pinMark = DecorativeImageView()
     /// The workspace's tabs play sound (or are muted): a small speaker in the
     /// trailing cluster, always shown while they do, crossed out while they
     /// are muted. A click mutes or unmutes them (`onToggleAudio`). Made when it first shows
@@ -222,13 +227,10 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
         mutedMark.setAccessibilityElement(false)
-        cloudMark.imageScaling = .scaleProportionallyDown
-        cloudMark.isHidden = true
-        cloudMark.setAccessibilityElement(false) // the row's label says Cloud
-        usageWarningMark.imageScaling = .scaleProportionallyDown
-        usageWarningMark.isHidden = true
-        usageWarningMark.setAccessibilityElement(false)
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, cloudMark, usageWarningMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
+        pinMark.imageScaling = .scaleProportionallyDown
+        pinMark.isHidden = true
+        pinMark.setAccessibilityElement(false) // the row's label says Pinned
+        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, pinMark, mutedMark, badge, rowBadge, presenceDots, driveIndicator, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap, rollUp, subagentsView].forEach(addSubview)
         headFill.isHidden = true
         layer?.insertSublayer(headFill, at: 0)
@@ -272,6 +274,12 @@ final class WorkspaceRowView: SidebarRowView {
     func redrawLastConfiguration() {
         guard let last = lastConfiguration else { return }
         configure(last.0, row: last.1, badgeStyle: last.2)
+    }
+
+    /// A new backing scale (another display) draws the dot glyph at that scale (WorkspaceRowView+Signature).
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        if signatureMark != nil { needsLayout = true }
     }
 
     /// Its configure sets everything the reset clears again, or the list does (hover, selection, callbacks).
@@ -326,18 +334,22 @@ final class WorkspaceRowView: SidebarRowView {
         /// The badge or glow (`notifications.attention.mark`) and the glow's breath (WorkspaceRowView+NeedsYouGlow).
         var needsYouMark = DesignSettings.shared.attention.mark, animatesLoops = Motion.indicators.animatesLoops
         var row: WorkspaceRowContent?
+        /// The agent's dot glyph once read (`appearance.agentSignature`): its arrival configures the row again.
+        var signature: SidebarAgentSignature?
     }
 
     func configure(_ ws: SidebarWorkspace, row: SidebarRow, badgeStyle: SidebarRowBadgeStyle? = nil) {
         lastConfiguration = (ws, row, badgeStyle)
         let tunables = observedTunables()
+        // Off: no lookup, no request (`SidebarAgentSignatures` returns nil before touching anything).
+        let signatureGlyph = agentSignatures?.glyph(for: ws.agentSessionID, enabled: tunables.agentSignature, row: self)
         let content = Content(
             ws: ws, group: row.group,
             fontSize: SidebarStyle.titleFont.pointSize, iconSize: SidebarStyle.leadingGlyphSide,
             agentMark: tunables.agentMark, presenceDots: tunables.presenceDots, driveIndicator: tunables.driveIndicator, rowBadge: badgeStyle ?? tunables.rowBadge, stackLimit: tunables.stackCap.limit,
             rowTitle: tunables.rowTitle, rowTitleSingleChat: tunables.rowTitleSingleChat,
             agentBadges: tunables.agentBadges,
-            row: row.content
+            row: row.content, signature: signatureGlyph
         )
         guard needsConfigure(content) else { return }
         // A placeholder with a title (a connecting SSH machine, cx-gaq9) draws its text, not the bar.
@@ -358,9 +370,8 @@ final class WorkspaceRowView: SidebarRowView {
         // `experiments.agentBadges`: the row's one status pill stands in for its status mark (the badge, the status
         // glyph, an agent mark in the status's place); nil (off, idle, failed) keeps the shipped mark.
         let pill = content.agentBadges.showsPills && !isPlaceholderRow && !isShowingPlaceholder ? SidebarAgentPill.of(ws) : nil
-        // The leading slot is the row's own icon and its state only, never where it runs: a Cloud row's cloud is a
-        // small muted mark in the trailing status cluster (Leo 2026-11-22: "im not sure we want the cloud icon at the
-        // left. it makes it stick out in a slight eyesore-y way. compared to the local ones which have no icon").
+        // The leading slot is the row's own icon and its state only, never where it runs: no row draws a cloud, only a
+        // Cloud chat's tab does (2026-11-25, cmux#55668).
         icon.configure(icon: shown.icon)
         iconKind = shown.icon
         configureColor(shown)
@@ -411,6 +422,7 @@ final class WorkspaceRowView: SidebarRowView {
         agentMarkFallbackColor = isShowingPlaceholder ? nil : Self.agentMarkFallbackColor(ws, variant: agentMarkVariant)
         agentMark.image = markImage
         agentMark.isHidden = markImage == nil || (pill != nil && agentMarkVariant == .replacesStatus)
+        configureSignature(isShowingPlaceholder ? nil : ws.agentSessionID.flatMap { id in signatureGlyph.map { (id: id, glyph: $0) } })
         badge.configure(badgesLead ? .none : ws.unread)
         // An agent driving the screen or a browser has its own mark, dots or not; the dots show the rest.
         presenceDots.configure(content.presenceDots && !isShowingPlaceholder ? ws.presence.filter { $0.drive == nil } : [])
@@ -418,14 +430,11 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
-        cloudMark.image = shown.runsInCloud && !isShowingPlaceholder ? NSImage.icon(.cloud, size: Self.cloudMarkSide) : nil
-        cloudMark.isHidden = cloudMark.image == nil
+        pinMark.image = ws.isPinnedInGroup && !isShowingPlaceholder
+            ? NSImage.icon(.statePinned, size: SidebarStyle.indicatorSize, style: .solid) : nil
+        pinMark.isHidden = pinMark.image == nil
         // The bell-slash alone does not say what is muted: notifications, not the tabs' sound. The row's hover card
         // and its accessibility label say it (a1315's cut 3: rows carry no tooltips).
-        // acpmux's own lines name the rule and the number ("90 subagents started in the last hour, above 40").
-        usageWarningMark.image = ws.usageWarnings.isEmpty || isShowingPlaceholder ? nil
-            : NSImage.icon(symbol: "exclamationmark.triangle.fill", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1))
-        usageWarningMark.isHidden = usageWarningMark.image == nil
         audio = isShowingPlaceholder ? nil : ws.audio
         if audio != nil { _ = audioSlot.control(in: self) }
         audioSlot.made.map(applyAudio)

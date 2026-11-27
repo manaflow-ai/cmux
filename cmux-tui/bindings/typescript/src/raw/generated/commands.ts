@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e3be564a907b381713600261d9b705ccea89c5d327eb05c653ce132afdef0008. */
+/* cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.ts. */
 
 
 import type * as T from "./types.js";
@@ -1168,6 +1168,8 @@ export interface CreateWorkspaceRequest extends CmuxRequestBase {
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "name"?: (string) | null;
+  /** user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace. */
+  "name_source"?: (T.NameSource) | null;
   "origin"?: (string) | null;
 }
 export type CreateWorkspaceResult = T.WorkspaceMutationResult;
@@ -2768,6 +2770,7 @@ export interface SetWorkspaceMetadataRequest extends CmuxRequestBase {
   "expected_generation"?: (string) | null;
   "expected_revision"?: (bigint) | null;
   "icon"?: (string) | null;
+  "keep_awake"?: (boolean) | null;
   "key"?: (string) | null;
   "marked_unread"?: (boolean) | null;
   "mutation_id"?: (string) | null;

@@ -72,6 +72,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     public var showProjects = true
     /// The Projects menu's Group By (`sidebar.groupBy`).
     public var groupBy: SidebarGroupBy = .none
+    /// `sidebar.folderlessUngrouped`: under Group by Folder, rows with no folder sit at the end of the list with no
+    /// No Folder header. Off by default (the header shows).
+    public var folderlessUngrouped = false
     /// Show All Chats on New Tab: the New Tab page's Threads and Console styles list every
     /// chat on this device; off, the recent chats only (Lawrence 2026-10-09: on by default). The
     /// key keeps its `sidebar.` name from when All chats was a sidebar section (cx-n0i9).
@@ -85,9 +88,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// (plans/cmux-next/sidebar-search.md). On by default; off hides the button only.
     public var showSearchButton = true
     /// `sidebar.showLiveToggle`: the footer's Live button after the profile avatar (Leo 2026-11-24: "an icon
-    /// maybe toggle somewhere omnipresent... say the bottom left of the sidebar area"). On by default; off
-    /// hides the button only.
-    public var showLiveToggle = true
+    /// maybe toggle somewhere omnipresent... say the bottom left of the sidebar area"). Off by default
+    /// (Lawrence 2026-11-25: "keep things as minimal as possible"); off hides the button only.
+    public var showLiveToggle = false
     /// `presence.live`: whether this Mac is live to teammates and agents. The Live button shows and flips it.
     public var presenceLive = false
     /// `sidebar.showNewWorkspaceChooser`: the titlebar's chevron beside the + that opens the New
@@ -141,10 +144,11 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// "Settled (N)" row at the end of its list until its next turn, question or failure (the rule is Rust's,
     /// `cmux-layout-reducer` `settle`). Off by default; the Studio look turns it on.
     public var settleFinished = false
-    /// `sidebar.showAutomaticSessions`: sessions no person started and no chat's subagent (a script, an automation, a
-    /// launcher; the daemon records `created_by` kind `script`) draw in place. Off by default: they fold into an
-    /// "Automatic (N)" row at the end of their list (the rule is Rust's, `cmux-layout-reducer` `automatic`).
-    public var showAutomaticSessions = false
+    /// `sidebar.showAgentSessions`: sessions another session's agent started list in the sidebar, each nested under
+    /// the row of the session that started it. Off by default: they draw no row (Leo 2026-11-25 about the nested
+    /// helper sessions: "idk who asked for those in teh sidebar. it's weird"), except one that waits on the person
+    /// (a permission or a question) and one the person opened (selected); the parent chat lists them all.
+    public var showAgentSessions = false
     /// `sidebar.showColors`: the sidebar draws workspace and group colors. Off draws none (a
     /// workspace's swatch goes, its symbol or emoji stays; a group draws as one with no color)
     /// and keeps every stored color (Lawrence 2026-10-22: "need to be able to remove all
@@ -178,6 +182,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// How large the list's text, leading glyphs and rows are (`sidebar.textSize`, ``SidebarTextSize``):
     /// the original size by default; Larger matches the ChatGPT app's sidebar.
     public var textSize: SidebarTextSize = .standard
+    /// What the profile button at the sidebar's foot opens (`sidebar.profileMenu.style`,
+    /// ``SidebarProfileMenuStyle``): cmux's app menu by default; Account puts accounts and switching first.
+    public var profileMenuStyle: SidebarProfileMenuStyle = .app
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
     /// Off by default: a fresh profile's sidebar is pinned, its Settings and
     /// account band always shown; hover-reveal is opt-in (Leo 2026-10-11).
@@ -195,10 +202,23 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// `sidebar.priorityView.shown`: the bell's state, whether the installed Priority view shows
     /// at the top of the sidebar. Off, the sidebar is unchanged.
     public var priorityViewShown = true
+    /// `sidebar.priorityView.filters`: All, Waiting, Unread and Running chips with counts under the
+    /// Priority header, and Mark All as Read (the Codex app's activity list). Off by default.
+    public var priorityViewFilters = false
+    /// `sidebar.priorityView.showIdle`: idle chats list under the others (default). Off, the view
+    /// lists only chats that need the person or run a turn, pinned and dragged ones aside.
+    public var priorityViewShowIdle = true
+    /// `sidebar.priorityView.statusWords`: each Priority row says its state in words ("Needs you",
+    /// "Done", "Working 5m"). Off by default: the status mark alone.
+    public var priorityViewStatusWords = false
     /// `sidebar.sessionTree` (Claude desktop's Code tab): a workspace started by another
     /// workspace's agent lists under it on a thin line, rows carry their pull requests, and the
     /// first rows their Command-number keycaps. Off by default: it changes the list's look.
     public var sessionTree = false
+    /// `sidebar.workspaceListApp`: the id of an installed extension that draws the whole workspace
+    /// list (`cmux.sidebar/1`). Nil (the default) draws the built-in list, which also shows while the
+    /// extension loads, fails or is removed.
+    public var workspaceListApp: String?
     /// `sidebar.style`: the standard sidebar (default) or the thin rail.
     public var style: SidebarLayoutStyle = .standard
     /// `sidebar.nav`: the nav block a look puts at the top of the sidebar, one plain row per cmux action

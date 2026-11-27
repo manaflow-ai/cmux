@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR e3be564a907b381713600261d9b705ccea89c5d327eb05c653ce132afdef0008. */
+/* cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.ts. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1156,6 +1156,7 @@ export type ServerStatsConnections = {
 };
 
 export type ServerStatsDisk = {
+  "checkpoints"?: (ServerStatsDiskCheckpoints) | null;
   "error": (string) | null;
   "files": Array<ServerStatsDiskFile>;
   "files_truncated": boolean;
@@ -1168,6 +1169,14 @@ export type ServerStatsDisk = {
   "segments": (ServerStatsDiskSegments) | null;
   "shm_bytes": bigint;
   "wal_bytes": bigint;
+};
+
+export type ServerStatsDiskCheckpoints = {
+  "budget_bytes": bigint;
+  "bytes": bigint;
+  "checkpoints": bigint;
+  "largest_bytes": bigint;
+  "over_budget": boolean;
 };
 
 export type ServerStatsDiskFile = {

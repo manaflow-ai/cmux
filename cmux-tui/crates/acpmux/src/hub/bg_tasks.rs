@@ -458,7 +458,7 @@ impl Hub {
             && scope.covers(&record)
             && record.notify
             && to_the_end
-            && view["state"] != "running"
+            && view.get("state").and_then(Value::as_str) != Some("running")
         {
             self.bg_end_told(session, &dir, id);
         }
@@ -829,7 +829,14 @@ async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec
         .spawn()
         .with_context(|| format!("start the task's runner ({})", runner.program().display()))?;
     if let Some(pid) = child.id() {
-        crate::agent_host::scope::place(pid).await;
+        // The task's scope joins its session's slice, which holds the session's total
+        // (`session_total.rs`); the hosts slice when that is off or not made.
+        let slice = if crate::agent_host::scope::moves() {
+            crate::session_total::ensure(&spec.session_id, std::time::Duration::from_secs(2)).await
+        } else {
+            None
+        };
+        crate::agent_host::scope::place_in(pid, slice).await;
     }
     let mut stdin = child.stdin.take().context("runner stdin")?;
     let stdout = child.stdout.take().context("runner stdout")?;

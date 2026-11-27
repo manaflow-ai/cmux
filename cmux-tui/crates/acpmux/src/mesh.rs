@@ -67,6 +67,13 @@ pub struct SessionRow {
     /// The role addresses it claimed (`acpmux role claim`), at most [`MAX_ROLES`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<RoleClaim>,
+    /// When the session last changed here (ms since the epoch, its meta's `updated_at`): what
+    /// another machine's row shows as `updatedAt`. Without it a reading daemon stamps each hub row
+    /// with its own clock whenever it first sees it, so every restart of a reader moved all of a
+    /// fleet's rows to one millisecond (`mesh_book::set_mesh_book`). A hub that does not know the
+    /// key drops it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<u64>,
 }
 
 /// The most `formerNames` one heartbeat row lists.
@@ -209,6 +216,9 @@ pub struct BookSession {
     /// Its heartbeat's `roles` (`SessionRow::roles`), when the hub returns them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub roles: Vec<RoleClaim>,
+    /// Its heartbeat's `updatedAt` (`SessionRow::updated_at`), when the hub returns it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<u64>,
 }
 
 /// A heartbeat: it replaces this daemon's sessions in the address book.
@@ -233,6 +243,39 @@ pub struct HeartbeatReply {
     #[serde(default)]
     pub daemon_id: String,
     pub ttl_seconds: u64,
+}
+
+/// A joined machine's free capacity (cmux-platform `POST /v1/machines/joined/heartbeat`, RFD 0004
+/// step 3): what its team's placement reads to pick it for a session. The hub keys it by the
+/// machine id of the credential that sent it, whatever `host_id` says, and drops it two minutes
+/// after the last one.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Capacity {
+    pub host_id: String,
+    pub region: String,
+    pub capabilities: CapacityLimits,
+    pub free_vcpu: f64,
+    pub free_mem_gib: f64,
+    pub free_disk_gib: f64,
+    pub sessions_running: u64,
+    pub load: f64,
+    pub state: String,
+}
+
+/// What a [`Capacity`] machine is and the most one session there can have.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapacityLimits {
+    pub memory_pause: bool,
+    pub fork: bool,
+    pub gpu: bool,
+    /// `arm64` or `x86_64`.
+    pub arch: String,
+    /// `linux` or `macos`.
+    pub os: String,
+    pub max_vcpu: f64,
+    #[serde(rename = "maxMemGiB")]
+    pub max_mem_gib: f64,
 }
 
 /// Whom a message is for: a session id, or a name (with `host` when several hosts have it); a
@@ -360,6 +403,40 @@ pub struct TeamPage {
     pub messages: Vec<InMessage>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next: Option<u64>,
+}
+
+/// A listen: the right to read what another member's agent address receives, until `expires_at`
+/// (ms). The hub opens one only for an address whose owner granted the listener's user.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Listen {
+    pub id: String,
+    pub team_address: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub listener: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opened_by: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opened_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<u64>,
+}
+
+/// The open listens the hub names for this caller: its own, and others' on its addresses.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Listens {
+    #[serde(default)]
+    pub listening: Vec<Listen>,
+    #[serde(default)]
+    pub listeners: Vec<Listen>,
+}
+
+/// Whether `id` has the hub's listen id shape, `lsn_` and 32 lowercase hex digits, so it is safe
+/// in a path.
+pub fn is_listen_id(id: &str) -> bool {
+    id.strip_prefix("lsn_").is_some_and(|hex| {
+        hex.len() == 32 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    })
 }
 
 /// A message to post.
@@ -590,6 +667,22 @@ pub trait MeshHub: Send + Sync {
     fn acknowledge<'a>(&'a self, _message_id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async { Err(HubError::unavailable("team acknowledgement is unavailable")) })
     }
+    /// Open a listen on another member's agent address, for `ttl_seconds` or the hub's default.
+    fn listen_open<'a>(
+        &'a self,
+        _team_address: &'a str,
+        _ttl_seconds: Option<u64>,
+    ) -> BoxFuture<'a, Result<Listen, HubError>> {
+        Box::pin(async { Err(HubError::unavailable("team listens are unavailable")) })
+    }
+    /// The open listens: this caller's, and others' on its addresses.
+    fn listens(&self) -> BoxFuture<'_, Result<Listens, HubError>> {
+        Box::pin(async { Err(HubError::unavailable("team listens are unavailable")) })
+    }
+    /// Close one of this caller's listens; the open listens after it.
+    fn listen_close<'a>(&'a self, _id: &'a str) -> BoxFuture<'a, Result<Listens, HubError>> {
+        Box::pin(async { Err(HubError::unavailable("team listens are unavailable")) })
+    }
     fn ack<'a>(&'a self, message_id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>>;
     /// Replace this daemon's sessions in the address book.
     fn heartbeat<'a>(
@@ -610,6 +703,11 @@ pub trait MeshHub: Send + Sync {
         _wait: Duration,
     ) -> BoxFuture<'a, Result<Receipt, HubError>> {
         self.receipt(message_id)
+    }
+    /// Report this joined machine's free capacity to its team's placement. A hub that takes no
+    /// report refuses it.
+    fn capacity<'a>(&'a self, _report: &'a Capacity) -> BoxFuture<'a, Result<(), HubError>> {
+        Box::pin(async { Err(HubError::refused("this hub takes no capacity report")) })
     }
 }
 
