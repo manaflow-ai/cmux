@@ -1024,9 +1024,9 @@ describe("auto-roll bake secrets", () => {
     jobs: Record<string, { secrets?: Record<string, string>; steps: Array<{ name?: string; run?: string }> }>;
   };
   const load = (name: string) => YAML.parse(readFileSync(new URL(`../../.github/workflows/${name}`, import.meta.url), "utf8")) as Workflow;
-  const NAMES = ["FREESTYLE_API_KEY", "CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD"];
+  const NAMES = ["FREESTYLE_API_KEY", "CMUX_UITEST_STACK_EMAIL", "CMUX_UITEST_STACK_PASSWORD", "CF_R2_ACCESS_KEY_ID", "CF_R2_SECRET_ACCESS_KEY", "CF_R2_ACCOUNT_ID"];
 
-  test("the bake declares exactly the three secrets, all optional, and the roll passes exactly those", () => {
+  test("the bake declares exactly the six secrets, all optional, and the roll passes exactly those", () => {
     const call = load("cloud-vm-image-bake.yml").on.workflow_call;
     expect(Object.keys(call.secrets).sort()).toEqual([...NAMES].sort());
     for (const name of NAMES) expect(call.secrets[name]).toEqual({ required: false });
