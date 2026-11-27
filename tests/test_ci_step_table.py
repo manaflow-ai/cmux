@@ -129,6 +129,56 @@ class NightlyGateTest(unittest.TestCase):
         self.assertNotIn("pr-pipeline.yml", start)
         self.assertEqual(only, [])
 
+    # #62617's file list: the regenerated cmux-vm Rust client and its TypeScript twin. Its caller
+    # (cmux-vm/src/run.rs, E0061) broke the base after the merge; #62842 fixed it forward.
+    GENERATED_CLIENT = ["workers/cmux-vm/cli/crates/cmux-vm-client/src/generated.rs",
+                        "workers/cmux-vm/cli/crates/cmux-vm-client/src/generated_raw.rs",
+                        "workers/cmux-vm/sdk/src/schema.d.ts"]
+
+    def test_a_landing_head_regenerating_a_client_compiles_its_callers(self) -> None:
+        start, why, (jobs, only) = self.landing(self.GENERATED_CLIENT)
+        self.assertIn("pr-pipeline.yml", start, why.get("pr-pipeline.yml"))
+        self.assertEqual(jobs, ["linux"])
+        self.assertIn("cmux-vm-clients-rust", only)
+        self.assertNotIn("tooling-tests-1", only, "a whole-tree input (`**`) is not a user of the generated source")
+
+    def test_pr_scope_keeps_a_generated_sources_rooted_inputs(self) -> None:
+        linux = ci_steps.route(ci_steps.load(), self.GENERATED_CLIENT, pr_scope=True)["linux"]
+        self.assertIn("cmux-vm-clients-rust", linux, "the --only gate runs under --pr-scope too")
+        hand = ["workers/cmux-vm/cli/crates/cmux-vm/src/run.rs"]
+        self.assertNotIn("cmux-vm-clients-rust", ci_steps.route(ci_steps.load(), hand, pr_scope=True)["linux"],
+                         "a hand-written file under a whole-directory input still waits for the post-merge batch")
+
+    def test_every_generated_rust_source_routes_a_compile_step(self) -> None:
+        """The class: each generated .rs the manifest or the baseline names reaches a step before the merge."""
+        t = ci_steps.load()
+        globs = [g for g in ci_steps.generated_globs() if g.endswith(".rs") and "*" not in g]
+        self.assertTrue(globs)
+        for path in globs:
+            with self.subTest(path):
+                self.assertTrue(ci_steps.generated_source(path))
+                self.assertTrue(ci_steps.generated_gate_steps(t, [path], ["linux"]),
+                                f"{path} is generated, so no class routes it: give a step a rooted input over it")
+
+    def test_a_generated_gate_ignores_whole_tree_inputs(self) -> None:
+        t = table('''
+            [step.client]
+            job = "linux"
+            inputs = ["workers/cmux-vm/cli/**"]
+            run = "true"
+            [step.everything]
+            job = "linux"
+            inputs = ["**"]
+            run = "true"
+            [step.all-rust]
+            job = "linux"
+            inputs = ["**/*.rs"]
+            run = "true"
+        ''')
+        self.assertEqual(ci_steps.generated_gate_steps(t, self.GENERATED_CLIENT[:1]), ["client"])
+        self.assertEqual(ci_steps.generated_gate_steps(t, ["workers/cmux-vm/cli/crates/cmux-vm/src/run.rs"]), [])
+        self.assertEqual(ci_steps.generated_gate_steps(t, None), [])
+
     def test_the_workflows_pass_only_through(self) -> None:
         router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())["jobs"]
         pipeline = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
