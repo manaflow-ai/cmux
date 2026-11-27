@@ -2,98 +2,98 @@
  "_source": "cmux-lawrences-mac-mini:8444/data.json at 2026-10-20T22:22:07Z (runners: name, status, busy, labels; pools: the dashboard's per-label counts)",
  "updated": "2026-10-20T22:22:07Z",
  "pools": {
-  "glaeda-gui-std-xcode-27.2": {
+  "glaeda-gui-std-xcode-26.6": {
    "queued": 0,
    "online": 0,
    "busy": 0,
    "idle": 0,
    "total": 0
   },
-  "glaeda-light-xcode-27.2": {
+  "glaeda-light-xcode-26.6": {
    "queued": 0,
    "online": 5,
    "busy": 3,
    "idle": 2,
    "total": 12
   },
-  "glaeda-promote-root-trusted-std-xcode-27.2": {
+  "glaeda-promote-root-trusted-std-xcode-26.6": {
    "queued": 0,
    "online": 1,
    "busy": 0,
    "idle": 1,
    "total": 1
   },
-  "glaeda-promote-side-trusted-std-xcode-27.2": {
+  "glaeda-promote-side-trusted-std-xcode-26.6": {
    "queued": 0,
    "online": 0,
    "busy": 0,
    "idle": 0,
    "total": 4
   },
-  "glaeda-promote-trusted-std-xcode-27.2": {
+  "glaeda-promote-trusted-std-xcode-26.6": {
    "queued": 0,
    "online": 1,
    "busy": 0,
    "idle": 1,
    "total": 5
   },
-  "glaeda-root-light-xcode-27.2": {
+  "glaeda-root-light-xcode-26.6": {
    "queued": 0,
    "online": 2,
    "busy": 0,
    "idle": 2,
    "total": 6
   },
-  "glaeda-root-std-xcode-27.2": {
+  "glaeda-root-std-xcode-26.6": {
    "queued": 0,
    "online": 9,
    "busy": 0,
    "idle": 9,
    "total": 22
   },
-  "glaeda-root-trusted-std-xcode-27.2": {
+  "glaeda-root-trusted-std-xcode-26.6": {
    "queued": 0,
    "online": 2,
    "busy": 0,
    "idle": 2,
    "total": 2
   },
-  "glaeda-session-std-xcode-27.2": {
+  "glaeda-session-std-xcode-26.6": {
    "queued": 1,
    "online": 0,
    "busy": 0,
    "idle": 0,
    "total": 0
   },
-  "glaeda-side-light-xcode-27.2": {
+  "glaeda-side-light-xcode-26.6": {
    "queued": 133,
    "online": 3,
    "busy": 3,
    "idle": 0,
    "total": 6
   },
-  "glaeda-side-std-xcode-27.2": {
+  "glaeda-side-std-xcode-26.6": {
    "queued": 0,
    "online": 60,
    "busy": 9,
    "idle": 51,
    "total": 104
   },
-  "glaeda-std-xcode-27.2": {
+  "glaeda-std-xcode-26.6": {
    "queued": 0,
    "online": 69,
    "busy": 9,
    "idle": 60,
    "total": 126
   },
-  "glaeda-trusted-light-xcode-27.2": {
+  "glaeda-trusted-light-xcode-26.6": {
    "queued": 0,
    "online": 0,
    "busy": 0,
    "idle": 0,
    "total": 0
   },
-  "glaeda-trusted-std-xcode-27.2": {
+  "glaeda-trusted-std-xcode-26.6": {
    "queued": 0,
    "online": 2,
    "busy": 0,
@@ -108,10 +108,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-promote-trusted-std-xcode-27.2"
+     "name": "glaeda-promote-trusted-std-xcode-26.6"
     },
     {
-     "name": "glaeda-promote-root-trusted-std-xcode-27.2"
+     "name": "glaeda-promote-root-trusted-std-xcode-26.6"
     }
    ]
   },
@@ -121,10 +121,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-promote-trusted-std-xcode-27.2"
+     "name": "glaeda-promote-trusted-std-xcode-26.6"
     },
     {
-     "name": "glaeda-promote-side-trusted-std-xcode-27.2"
+     "name": "glaeda-promote-side-trusted-std-xcode-26.6"
     }
    ]
   },
@@ -134,10 +134,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-promote-trusted-std-xcode-27.2"
+     "name": "glaeda-promote-trusted-std-xcode-26.6"
     },
     {
-     "name": "glaeda-promote-side-trusted-std-xcode-27.2"
+     "name": "glaeda-promote-side-trusted-std-xcode-26.6"
     }
    ]
   },
@@ -147,10 +147,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-promote-trusted-std-xcode-27.2"
+     "name": "glaeda-promote-trusted-std-xcode-26.6"
     },
     {
-     "name": "glaeda-promote-side-trusted-std-xcode-27.2"
+     "name": "glaeda-promote-side-trusted-std-xcode-26.6"
     }
    ]
   },
@@ -160,10 +160,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-promote-trusted-std-xcode-27.2"
+     "name": "glaeda-promote-trusted-std-xcode-26.6"
     },
     {
-     "name": "glaeda-promote-side-trusted-std-xcode-27.2"
+     "name": "glaeda-promote-side-trusted-std-xcode-26.6"
     }
    ]
   },
@@ -173,10 +173,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-light-xcode-27.2"
+     "name": "glaeda-light-xcode-26.6"
     },
     {
-     "name": "glaeda-root-light-xcode-27.2"
+     "name": "glaeda-root-light-xcode-26.6"
     }
    ]
   },
@@ -186,10 +186,10 @@
    "busy": true,
    "labels": [
     {
-     "name": "glaeda-light-xcode-27.2"
+     "name": "glaeda-light-xcode-26.6"
     },
     {
-     "name": "glaeda-side-light-xcode-27.2"
+     "name": "glaeda-side-light-xcode-26.6"
     }
    ]
   },
@@ -199,10 +199,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-light-xcode-27.2"
+     "name": "glaeda-light-xcode-26.6"
     },
     {
-     "name": "glaeda-root-light-xcode-27.2"
+     "name": "glaeda-root-light-xcode-26.6"
     }
    ]
   },
@@ -212,10 +212,10 @@
    "busy": true,
    "labels": [
     {
-     "name": "glaeda-light-xcode-27.2"
+     "name": "glaeda-light-xcode-26.6"
     },
     {
-     "name": "glaeda-side-light-xcode-27.2"
+     "name": "glaeda-side-light-xcode-26.6"
     }
    ]
   },
@@ -225,10 +225,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -238,10 +238,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -251,10 +251,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -264,10 +264,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -277,10 +277,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -290,10 +290,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -303,10 +303,10 @@
    "busy": true,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -316,10 +316,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -329,10 +329,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -342,10 +342,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -355,10 +355,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -368,10 +368,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -381,10 +381,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -394,10 +394,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -407,10 +407,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -420,10 +420,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -433,10 +433,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -446,10 +446,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -459,10 +459,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -472,10 +472,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -485,10 +485,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -498,10 +498,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -511,10 +511,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -524,10 +524,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -537,10 +537,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -550,10 +550,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -563,10 +563,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -576,10 +576,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -589,10 +589,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -602,10 +602,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -615,10 +615,10 @@
    "busy": true,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -628,10 +628,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -641,10 +641,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -654,10 +654,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -667,10 +667,10 @@
    "busy": true,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -680,10 +680,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -693,10 +693,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -706,10 +706,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -719,10 +719,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -732,10 +732,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -745,10 +745,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -758,10 +758,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -771,10 +771,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -784,10 +784,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -797,10 +797,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -810,10 +810,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -823,10 +823,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -836,10 +836,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -849,10 +849,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -862,10 +862,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -875,10 +875,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -888,10 +888,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -901,10 +901,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -914,10 +914,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -927,10 +927,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -940,10 +940,10 @@
    "busy": true,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -953,10 +953,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -966,10 +966,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -979,10 +979,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -992,10 +992,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1017,7 +1017,7 @@
      "name": "glaeda-mini"
     },
     {
-     "name": "xcode-27.2"
+     "name": "xcode-26.6"
     },
     {
      "name": "glaeda-class-std"
@@ -1029,10 +1029,10 @@
      "name": "glaeda-trusted"
     },
     {
-     "name": "glaeda-trusted-std-xcode-27.2"
+     "name": "glaeda-trusted-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-trusted-std-xcode-27.2"
+     "name": "glaeda-root-trusted-std-xcode-26.6"
     },
     {
      "name": "glaeda-runner-cmux15-glaeda"
@@ -1063,7 +1063,7 @@
      "name": "glaeda-mini"
     },
     {
-     "name": "xcode-27.2"
+     "name": "xcode-26.6"
     },
     {
      "name": "glaeda-class-std"
@@ -1075,10 +1075,10 @@
      "name": "glaeda-trusted"
     },
     {
-     "name": "glaeda-trusted-std-xcode-27.2"
+     "name": "glaeda-trusted-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-trusted-std-xcode-27.2"
+     "name": "glaeda-root-trusted-std-xcode-26.6"
     },
     {
      "name": "glaeda-runner-cmux15-glaeda-1"
@@ -1097,10 +1097,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-light-xcode-27.2"
+     "name": "glaeda-light-xcode-26.6"
     },
     {
-     "name": "glaeda-root-light-xcode-27.2"
+     "name": "glaeda-root-light-xcode-26.6"
     }
    ]
   },
@@ -1110,10 +1110,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-light-xcode-27.2"
+     "name": "glaeda-light-xcode-26.6"
     },
     {
-     "name": "glaeda-side-light-xcode-27.2"
+     "name": "glaeda-side-light-xcode-26.6"
     }
    ]
   },
@@ -1123,10 +1123,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-light-xcode-27.2"
+     "name": "glaeda-light-xcode-26.6"
     },
     {
-     "name": "glaeda-root-light-xcode-27.2"
+     "name": "glaeda-root-light-xcode-26.6"
     }
    ]
   },
@@ -1136,10 +1136,10 @@
    "busy": true,
    "labels": [
     {
-     "name": "glaeda-light-xcode-27.2"
+     "name": "glaeda-light-xcode-26.6"
     },
     {
-     "name": "glaeda-side-light-xcode-27.2"
+     "name": "glaeda-side-light-xcode-26.6"
     }
    ]
   },
@@ -1149,10 +1149,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-light-xcode-27.2"
+     "name": "glaeda-light-xcode-26.6"
     },
     {
-     "name": "glaeda-root-light-xcode-27.2"
+     "name": "glaeda-root-light-xcode-26.6"
     }
    ]
   },
@@ -1162,10 +1162,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-light-xcode-27.2"
+     "name": "glaeda-light-xcode-26.6"
     },
     {
-     "name": "glaeda-side-light-xcode-27.2"
+     "name": "glaeda-side-light-xcode-26.6"
     }
    ]
   },
@@ -1175,10 +1175,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-light-xcode-27.2"
+     "name": "glaeda-light-xcode-26.6"
     },
     {
-     "name": "glaeda-root-light-xcode-27.2"
+     "name": "glaeda-root-light-xcode-26.6"
     }
    ]
   },
@@ -1188,10 +1188,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-light-xcode-27.2"
+     "name": "glaeda-light-xcode-26.6"
     },
     {
-     "name": "glaeda-side-light-xcode-27.2"
+     "name": "glaeda-side-light-xcode-26.6"
     }
    ]
   },
@@ -1201,10 +1201,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -1214,10 +1214,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -1227,10 +1227,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1240,10 +1240,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1253,10 +1253,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1266,10 +1266,10 @@
    "busy": true,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1279,10 +1279,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -1292,10 +1292,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -1305,10 +1305,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1318,10 +1318,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1331,10 +1331,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1344,10 +1344,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1357,10 +1357,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1370,10 +1370,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1383,10 +1383,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1396,10 +1396,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1409,10 +1409,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1422,10 +1422,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1435,10 +1435,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -1448,10 +1448,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -1461,10 +1461,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1474,10 +1474,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1487,10 +1487,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1500,10 +1500,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1513,10 +1513,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1526,10 +1526,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1539,10 +1539,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1552,10 +1552,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1565,10 +1565,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1578,10 +1578,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1591,10 +1591,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -1604,10 +1604,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -1617,10 +1617,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1630,10 +1630,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1643,10 +1643,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1656,10 +1656,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1669,10 +1669,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1682,10 +1682,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1695,10 +1695,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1708,10 +1708,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1721,10 +1721,10 @@
    "busy": true,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1734,10 +1734,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1747,10 +1747,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -1760,10 +1760,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -1773,10 +1773,10 @@
    "busy": true,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1786,10 +1786,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1799,10 +1799,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1812,10 +1812,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1825,10 +1825,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1838,10 +1838,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1851,10 +1851,10 @@
    "busy": true,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1864,10 +1864,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1877,10 +1877,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1890,10 +1890,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1903,10 +1903,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -1916,10 +1916,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-root-std-xcode-27.2"
+     "name": "glaeda-root-std-xcode-26.6"
     }
    ]
   },
@@ -1929,10 +1929,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1942,10 +1942,10 @@
    "busy": true,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1955,10 +1955,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1968,10 +1968,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1981,10 +1981,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -1994,10 +1994,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -2007,10 +2007,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -2020,10 +2020,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -2033,10 +2033,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   },
@@ -2046,10 +2046,10 @@
    "busy": false,
    "labels": [
     {
-     "name": "glaeda-std-xcode-27.2"
+     "name": "glaeda-std-xcode-26.6"
     },
     {
-     "name": "glaeda-side-std-xcode-27.2"
+     "name": "glaeda-side-std-xcode-26.6"
     }
    ]
   }

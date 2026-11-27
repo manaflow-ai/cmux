@@ -9,10 +9,10 @@
 # Every fleet Mac (macOS 26.6 and later, and macOS 27) builds with one Xcode:
 # 27.2 (27B52) at /Applications/Xcode_27.2.app. Leo, 2026-11-26: "i've started
 # thinking we want to have xcode 27.2 across the fleet standardized, no more old
-# versions." One pin keeps one DerivedData and CAS key space and one set of
-# runner labels (xcode-27.2). cmuxterm-hq build-fleet/mini-ops/ops/
-# install-xcode-27.2.sh installs it; `xcode_pin_audit.py --exact` reports a
-# host that still carries any other Xcode. Xcode 27 needs macOS 26.6 or later.
+# versions." One pin keeps one DerivedData and CAS key space; runner labels go
+# version-free under RFD 0185. cmuxterm-hq build-fleet/mini-ops/ops/
+# install-xcode.sh installs it; `xcode_pin_audit.py --exact` reports a host
+# that still carries any other Xcode. Xcode 27 needs macOS 26.6 or later.
 #
 # macOS 15 is only the Blacksmith hosted image (no fleet Mac runs it), whose
 # newest Xcode is 26.3; that line stays until those jobs move to macOS 26.

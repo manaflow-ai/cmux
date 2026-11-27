@@ -36,8 +36,8 @@ _git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
 git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
 _git_fixture_spec.loader.exec_module(git_fixture_env)
 
-SIDE = "glaeda-side-std-xcode-27.2"
-ROOT_LABEL = "glaeda-root-std-xcode-27.2"
+SIDE = "glaeda-side-std-xcode-26.6"
+ROOT_LABEL = "glaeda-root-std-xcode-26.6"
 REPO_ID = "42"
 
 
@@ -136,7 +136,7 @@ class PickerTests(unittest.TestCase):
     def test_busy_offline_and_unpinnable_runners_are_not_free(self):
         roots, sides = place.free_runners([
             root_runner("a-glaeda-1", busy=True), root_runner("b-glaeda-1", status="offline"),
-            runner("c-glaeda-1", ROOT_LABEL), runner("d-glaeda-2", "glaeda-side-light-xcode-27.2")], SIDE)
+            runner("c-glaeda-1", ROOT_LABEL), runner("d-glaeda-2", "glaeda-side-light-xcode-26.6")], SIDE)
         self.assertEqual((roots, sides), ([], []))
 
     def test_no_free_owned_mac_for_two_minutes_compiles_nothing(self):
@@ -199,7 +199,7 @@ class PickerTests(unittest.TestCase):
         self.assertEqual(gap("f" * 40, commits[9]), "")
 
 
-FRESH = "glaeda-dev-std-xcode-27.2"
+FRESH = "glaeda-dev-std-xcode-26.6"
 SMALL, LARGE = "blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"
 NOW = dt.datetime(2026, 11, 2, 10, 12, tzinfo=dt.timezone.utc)
 
@@ -378,7 +378,7 @@ class DailyPickerTests(unittest.TestCase):
     def test_an_idle_nightly_slot_comes_after_the_nearest_cache_and_before_the_dev_slot_and_blacksmith(self):
         # The runner hook ranks the DEV daily compile nightly-tier, so the nightly slot admits it. Leo: "Nightlies
         # come first on the fleet". Order: owned idle on the nearest cache, idle nightly slot, DEV slot, Blacksmith.
-        nightly = "glaeda-nightly-std-xcode-27.2"
+        nightly = "glaeda-nightly-std-xcode-26.6"
         night = runner("cmux20s-glaeda-nightly", nightly)
         # A claimable warm host still wins.
         result = self.daily([slot("cmux8s-glaeda-2"), night], self.records(cmux8s=1), NIGHTLY_LABEL=nightly)

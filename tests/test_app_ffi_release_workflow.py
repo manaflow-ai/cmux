@@ -1754,10 +1754,10 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
     promote pool once CI_NEXT_PROMOTE_POOL is set (2026-11-10: run 42833220418's build queued 66 minutes on
     blacksmith-6vcpu-macos-26 behind pull request jobs, and the base stayed red 5 h 14 min)."""
 
-    PROMOTE = "glaeda-promote-trusted-std-xcode-27.2"
+    PROMOTE = "glaeda-promote-trusted-std-xcode-26.6"
     SMALL = "blacksmith-6vcpu-macos-26"
 
-    NIGHTLY_SLOT = "glaeda-nightly-std-xcode-27.2"
+    NIGHTLY_SLOT = "glaeda-nightly-std-xcode-26.6"
 
     def runner(self, promote: str, event: str = "push", attempt: int = 1, slot: str = "off",
                owner: str = "manaflow-ai") -> str:
@@ -1770,7 +1770,7 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
 
     def test_every_attempt_takes_the_nightly_slot_ahead_of_pull_request_jobs(self):
         # RELEASE_FIRST (claude-sr2-coord, 2026-11-16): run 43869638705's build, a dispatch, queued 1 to 4 hours on
-        # glaeda-side-std-xcode-27.2 behind PR jobs. glaeda's nightly slot label carries no PR job, and glaeda's
+        # glaeda-side-std-xcode-26.6 behind PR jobs. glaeda's nightly slot label carries no PR job, and glaeda's
         # hook ranks this build as a nightly job there.
         for event in ("push", "workflow_dispatch"):
             for attempt in (1, 2, 3):
@@ -1825,7 +1825,7 @@ class BuildRescueToBlacksmith(unittest.TestCase):
     02:38Z with no runner and was cancelled having never run."""
 
     SMALL, LARGE = "blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"
-    SIDE = "glaeda-side-std-xcode-27.2"
+    SIDE = "glaeda-side-std-xcode-26.6"
     MINUTE = 60.0
 
     def setUp(self):
@@ -1856,10 +1856,10 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         self.assertEqual(self.runner(""), self.SIDE)
         self.assertEqual(self.runner("something-else"), self.SIDE)
         # with the switch unset the ordinary run takes the nightly slot; a rescue still goes first
-        self.assertEqual(self.runner("", pin_slot=""), "glaeda-nightly-std-xcode-27.2")
+        self.assertEqual(self.runner("", pin_slot=""), "glaeda-nightly-std-xcode-26.6")
         self.assertEqual(self.runner("blacksmith", pin_slot=""), self.SMALL)
 
-    POOL = "glaeda-promote-trusted-light-xcode-27.2"
+    POOL = "glaeda-promote-trusted-light-xcode-26.6"
 
     def pool_runner(self, pool: str, rescue: str = "", event: str = "push", attempt: int = 1,
                     pin_slot: str = "off") -> str:
@@ -1870,7 +1870,7 @@ class BuildRescueToBlacksmith(unittest.TestCase):
             "needs": {"placement": {"outputs": {"placed_attempt": "1",
                                                 "blacksmith_6_jobs": " app-ffi-build " if rescue else ""}}},
             "vars": {"CI_FFI_RELEASE_POOL": pool, "CI_SIDE_LANE_RUNNER": self.SIDE, "CI_RELEASE_PIN_SLOT": pin_slot,
-                     "CI_NEXT_PROMOTE_POOL": "glaeda-promote-trusted-std-xcode-27.2",
+                     "CI_NEXT_PROMOTE_POOL": "glaeda-promote-trusted-std-xcode-26.6",
                      "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL, "macos_26_large": self.LARGE})}})
 
     def test_the_ffi_release_pool_takes_every_attempt_when_set(self):
@@ -1884,7 +1884,7 @@ class BuildRescueToBlacksmith(unittest.TestCase):
         self.assertEqual(self.pool_runner(""), self.SIDE)
         # the dedicated pool, when set, goes ahead of the nightly slot; unset, the nightly slot takes the build
         self.assertEqual(self.pool_runner(self.POOL, pin_slot=""), self.POOL)
-        self.assertEqual(self.pool_runner("", pin_slot=""), "glaeda-nightly-std-xcode-27.2")
+        self.assertEqual(self.pool_runner("", pin_slot=""), "glaeda-nightly-std-xcode-26.6")
 
     def test_only_this_workflow_reads_the_ffi_release_pool(self):
         readers = sorted(path.name for path in (ROOT / ".github/workflows").glob("*.yml")
@@ -1978,9 +1978,9 @@ class BuildRescueNeverToAnOffOrDeadBlacksmith(unittest.TestCase):
     sat on, never Blacksmith."""
 
     SMALL, LARGE = "blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"
-    SIDE = "glaeda-side-std-xcode-27.2"
-    FFI_POOL = "glaeda-promote-trusted-light-xcode-27.2"
-    PROMOTE = "glaeda-promote-trusted-std-xcode-27.2"
+    SIDE = "glaeda-side-std-xcode-26.6"
+    FFI_POOL = "glaeda-promote-trusted-light-xcode-26.6"
+    PROMOTE = "glaeda-promote-trusted-std-xcode-26.6"
     BLACKSMITH = re.compile(r"blacksmith-\d+vcpu-macos-")
 
     def setUp(self):
@@ -2080,9 +2080,9 @@ class BuildRescueAgainToAnUntriedPool(unittest.TestCase):
     has named (`rescue_tried`, pool keys), never Blacksmith again, and leaves the build queued once every owned
     pool is tried: at most three dispatches in a chain."""
 
-    SIDE = "glaeda-side-std-xcode-27.2"
-    FFI_POOL = "glaeda-promote-trusted-light-xcode-27.2"
-    PROMOTE = "glaeda-promote-trusted-std-xcode-27.2"
+    SIDE = "glaeda-side-std-xcode-26.6"
+    FFI_POOL = "glaeda-promote-trusted-light-xcode-26.6"
+    PROMOTE = "glaeda-promote-trusted-std-xcode-26.6"
 
     def setUp(self):
         self.workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
@@ -2124,7 +2124,7 @@ class BuildRescueAgainToAnUntriedPool(unittest.TestCase):
         # The side pool's build can ask for labels other than CI_SIDE_LANE_RUNNER (CI_SIDE_LANE_LABELS): the chain
         # records the pool it sent the build to, not the labels, so that pool still counts as tried.
         for switch in ("", "on", "pr-rescue"):
-            for stuck in (self.PROMOTE, "glaeda-side-xcode-27.2", "blacksmith-6vcpu-macos-26"):
+            for stuck in (self.PROMOTE, "glaeda-side-xcode-26.6", "blacksmith-6vcpu-macos-26"):
                 with self.subTest(switch=switch, stuck=stuck):
                     self.assertEqual(self.watch(switch, stuck, "ffi-pool,promote,side"), (m.WAIT, []))
 

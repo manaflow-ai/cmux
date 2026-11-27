@@ -765,7 +765,7 @@ def dead_end(route_wait: float | None, live: Mapping[str, int], waiting: Mapping
     host), or None (an idle runner, or nothing read). It is a dead end once that wait reaches STALL_MINUTES
     (the stall rule every picker reads) and exceeds SMALL's own oldest wait, while SMALL still starts jobs:
     a runner in flight, or no queue. On 2026-10-29 cmux#26723's fast tier (run 40841809952) queued on
-    glaeda-side-std-xcode-27.2 from 08:24Z behind 96 jobs whose oldest had waited 443 minutes, while
+    glaeda-side-std-xcode-26.6 from 08:24Z behind 96 jobs whose oldest had waited 443 minutes, while
     blacksmith-6vcpu-macos-26 ran 4 with its oldest queued 27 minutes: overflow() called that queue stalled
     and kept the job on the far longer one.
     """
@@ -796,7 +796,7 @@ def overflow(jobs: Sequence[str], waiting: Mapping[str, int], *, stall: Sequence
     waits on one reserved pool with no fallback (2026-10-24: "THERE SHOULD BE 0 QUEUE EVER HERE"). With
     every owned side runner busy and no free Blacksmith slot, the jobs used to stay on the side label and
     the run took the refusals-only marker, so nothing moved them again: on 2026-10-29 cmux#26723's fast
-    tier waited on glaeda-side-std-xcode-27.2 from 03:14Z for hours while glaeda's listener gate held the
+    tier waited on glaeda-side-std-xcode-26.6 from 03:14Z for hours while glaeda's listener gate held the
     saturated std minis' side runners offline, and cmux#27066's waited 2 h the same way.
 
     6 vCPU is the overflow, never 12: its ten slots turn over (median start 2.6 min on 2026-10-20), while a
@@ -881,7 +881,7 @@ def bot_rerun(env: Mapping[str, str]) -> bool:
     Until 2026-11-10 attempt 2 was the last placement, until 2026-11-15 attempt 3: whatever the last one chose held.
     cmux#40330's run 42858473381 stayed on glaeda-side-std-xcode-26.6 for hours after a placement read a stalled
     Blacksmith, and run 43716323834's attempt 5 (#43733) queued 'cmux-next generated files' on side-std again while
-    glaeda-gui-std-xcode-27.2 had 0 queued. cmux-next.yml's macos-placement runs on every bot attempt to match."""
+    glaeda-gui-std-xcode-26.6 had 0 queued. cmux-next.yml's macos-placement runs on every bot attempt to match."""
     attempt = (env.get("GITHUB_RUN_ATTEMPT") or "").strip()
     return (attempt.isdigit() and int(attempt) >= 2
             and (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip() in RESCUE_ACTORS)
