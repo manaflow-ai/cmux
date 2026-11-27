@@ -368,6 +368,57 @@ class RangeDeadlineTests(unittest.TestCase):
         self.assertEqual(fetch.call_count, 2)
         self.assertEqual(self.sleeps, [])
 
+    def test_a_slow_transfer_that_keeps_landing_bytes_runs_past_the_stall_window(self):
+        # cmux run 45999336721: a fixed cut discarded a ~1.5 MB/s transfer that
+        # was still moving; only a transfer with no bytes landing may stop early.
+        factory = mock.Mock(return_value="https://blob.example/initial")
+
+        def fetch(url, start, end, fd, budget):
+            self.clock += 50
+            os.pwrite(fd, b"x", start)
+            budget.progress(1)
+
+        with mock.patch.object(transport.time, "monotonic", side_effect=lambda: self.clock), \
+                mock.patch.object(transport.time, "sleep", side_effect=self.sleep):
+            transport.download_ranges(factory, self.target, 4, connections=1, chunk_bytes=1,
+                                      deadline_seconds=600, stall_seconds=90, fetch=fetch)
+        self.assertEqual(self.target.read_bytes(), b"xxxx")
+        self.assertEqual(self.clock, 200)
+        self.assertEqual(self.sleeps, [])
+
+    def test_a_transfer_that_lands_nothing_stops_at_the_stall_bound(self):
+        factory = mock.Mock(return_value="https://blob.example/initial")
+
+        def fetch(url, start, end, fd, budget):
+            self.clock += 100
+            budget.check()
+
+        with self.assertRaisesRegex(transport.TransportError, "stalled: no bytes for 90 s"):
+            with mock.patch.object(transport.time, "monotonic", side_effect=lambda: self.clock), \
+                    mock.patch.object(transport.time, "sleep", side_effect=self.sleep):
+                transport.download_ranges(factory, self.target, 1, connections=1, chunk_bytes=1,
+                                          deadline_seconds=600, stall_seconds=90, fetch=fetch)
+        self.assertLess(self.clock, 600)
+
+    def test_the_ceiling_still_ends_a_moving_transfer_and_says_how_far_it_got(self):
+        factory = mock.Mock(return_value="https://blob.example/initial")
+
+        def fetch(url, start, end, fd, budget):
+            self.clock += 60
+            budget.progress(1)
+            budget.check()
+
+        with self.assertRaisesRegex(transport.TransportError, r"deadline exceeded \(\d+ bytes landed\)"):
+            with mock.patch.object(transport.time, "monotonic", side_effect=lambda: self.clock), \
+                    mock.patch.object(transport.time, "sleep", side_effect=self.sleep):
+                transport.download_ranges(factory, self.target, 100, connections=1, chunk_bytes=1,
+                                          deadline_seconds=300, stall_seconds=90, fetch=fetch)
+
+    def test_the_default_ceiling_leaves_room_for_the_slowest_observed_mac(self):
+        # The iOS product is ~645 MB; ~1.5 MB/s Macs need ~7 minutes.
+        self.assertGreaterEqual(transport.DEADLINE_SECONDS, 645 / 1.0)
+        self.assertLess(transport.STALL_SECONDS, transport.DEADLINE_SECONDS)
+
     def test_concurrent_403s_share_one_url_renewal(self):
         import threading
 

@@ -50,7 +50,13 @@ CHUNK_BYTES = 16 * 1024 * 1024
 CONNECTIONS = 16
 ATTEMPTS = 4
 REQUEST_TIMEOUT_SECONDS = 60
-DEADLINE_SECONDS = 360
+# A transfer that is still landing bytes keeps going up to DEADLINE_SECONDS; one
+# that lands nothing across every connection for STALL_SECONDS gives up early.
+# A fixed 360 s cut threw away a nearly complete transfer on a ~1.5 MB/s Mac
+# and restarted from zero on the slower single stream, which then hit its own
+# bounds (cmux run 45999336721, 3 of 5 runs of cmux#59805 on 3 different Macs).
+DEADLINE_SECONDS = 720
+STALL_SECONDS = 90
 AGGREGATE_MEMBERS = {"app-host-products.tar.gz"}
 PRODUCTS = {
     "app-host": ("app-host-products.tar.gz", "app-host-products"),
@@ -265,10 +271,42 @@ def runtime_artifacts(environ=os.environ):
     return RuntimeArtifacts(environ.get("ACTIONS_RUNTIME_TOKEN", ""), environ.get("ACTIONS_RESULTS_URL", ""))
 
 
-def _fetch_range(url, start, end, fd, deadline):
+class _Budget:
+    """The transfer's time bound: a hard ceiling plus a whole-transfer stall bound.
+
+    `progress` is called for every block written by any connection, so a slow
+    but moving transfer is never cut by the stall bound, only by the ceiling.
+    """
+
+    def __init__(self, deadline_seconds, stall_seconds):
+        now = time.monotonic()
+        self.deadline = now + deadline_seconds
+        self.stall_seconds = stall_seconds
+        self.last_progress = now
+        self.received = 0
+        self._lock = threading.Lock()
+
+    def remaining(self):
+        return min(self.deadline, self.last_progress + self.stall_seconds) - time.monotonic()
+
+    def check(self):
+        now = time.monotonic()
+        if now >= self.deadline:
+            raise TransportError(f"parallel download deadline exceeded ({self.received} bytes landed)")
+        if now - self.last_progress >= self.stall_seconds:
+            raise TransportError(f"parallel download stalled: no bytes for {self.stall_seconds:g} s "
+                                 f"({self.received} bytes landed)")
+
+    def progress(self, count):
+        with self._lock:
+            self.received += count
+            self.last_progress = time.monotonic()
+
+
+def _fetch_range(url, start, end, fd, budget):
     expected = end - start + 1
     request = urllib.request.Request(url, headers={"Range": f"bytes={start}-{end}"})
-    timeout = max(1.0, min(REQUEST_TIMEOUT_SECONDS, deadline - time.monotonic()))
+    timeout = max(1.0, min(REQUEST_TIMEOUT_SECONDS, budget.remaining()))
     with urllib.request.urlopen(request, timeout=timeout) as response:
         if response.status != 206:
             raise TransportError(f"range request returned HTTP {response.status}")
@@ -277,37 +315,36 @@ def _fetch_range(url, start, end, fd, deadline):
             raise TransportError("range response does not match the request")
         offset = start
         while offset <= end:
-            if time.monotonic() > deadline:
-                raise TransportError("parallel download deadline exceeded")
+            budget.check()
             block = response.read(min(1024 * 1024, end + 1 - offset))
             if not block:
                 break
             written = os.pwrite(fd, block, offset)
             if written != len(block):
                 raise TransportError("short write")
+            budget.progress(written)
             offset += written
         if offset - start != expected or response.read(1):
             raise TransportError("range body length mismatch")
 
 
 def download_ranges(url_factory, target, size, *, connections=CONNECTIONS,
-                    chunk_bytes=CHUNK_BYTES, deadline_seconds=DEADLINE_SECONDS, fetch=_fetch_range):
+                    chunk_bytes=CHUNK_BYTES, deadline_seconds=DEADLINE_SECONDS,
+                    stall_seconds=STALL_SECONDS, fetch=_fetch_range):
     """Write exactly `size` bytes into target from concurrent range requests.
 
     url_factory() returns a signed URL; it is called again after an HTTP 403 so
     an expired signature re-resolves instead of failing the transfer.
-    The deadline prevents new requests and retries; it does not interrupt an
-    in-flight URL resolver or fetch.
+    The budget (deadline_seconds ceiling, stall_seconds with no byte landing on
+    any connection) prevents new requests and retries and ends a fetch between
+    blocks; it does not interrupt an in-flight URL resolver.
     """
     size = _positive(size, "size")
     if size > MAX_BYTES:
         raise TransportError("artifact exceeds size limit")
-    deadline = time.monotonic() + deadline_seconds
+    budget = _Budget(deadline_seconds, stall_seconds)
     lock = threading.Lock()
-
-    def check_deadline():
-        if time.monotonic() >= deadline:
-            raise TransportError("parallel download deadline exceeded")
+    check_deadline = budget.check
 
     check_deadline()
     state = {"url": url_factory()}
@@ -330,7 +367,7 @@ def download_ranges(url_factory, target, size, *, connections=CONNECTIONS,
                 url = current_url()
                 try:
                     check_deadline()
-                    fetch(url, span[0], span[1], fd, deadline)
+                    fetch(url, span[0], span[1], fd, budget)
                     return
                 except urllib.error.HTTPError as error:
                     error.close()
@@ -342,7 +379,7 @@ def download_ranges(url_factory, target, size, *, connections=CONNECTIONS,
                         break
                 except (OSError, TransportError) as error:
                     last_error = error
-                remaining = deadline - time.monotonic()
+                remaining = budget.remaining()
                 if attempt + 1 == ATTEMPTS or remaining <= 0:
                     break
                 time.sleep(min(2 ** attempt, 8, remaining))
