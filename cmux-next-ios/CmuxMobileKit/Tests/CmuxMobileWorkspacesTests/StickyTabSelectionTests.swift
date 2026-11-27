@@ -18,11 +18,14 @@ import CmuxMobileAgentChat
         let clock: GridTestClock
     }
 
-    static func rig() -> Rig {
+    static func rig(showsBrowsers: Bool = true) -> Rig {
         let store = AppStore.mock(tabMemory: .inMemory([:]))
         store.macConnection[mac] = .connected
         let clock = GridTestClock()
         let source = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux", sessions: AgentSessionDirectory(), clock: clock)
+        // Selection holds must not depend on the test host's saved pane filter.
+        source.paneFilter = PaneFilterSetting(defaults: nil)
+        source.paneFilter.showsBrowsers = showsBrowsers
         source.opened()
         source.activate("t-zsh")
         return Rig(store: store, source: source, clock: clock)
@@ -43,8 +46,8 @@ import CmuxMobileAgentChat
         for _ in 0..<20 { await Task.yield() }
     }
 
-    @Test func disconnectResyncReconnectKeepsTheTabOnScreen() async {
-        let rig = Self.rig()
+    @Test(arguments: [false, true]) func disconnectResyncReconnectKeepsTheTabOnScreen(showsBrowsers: Bool) async {
+        let rig = Self.rig(showsBrowsers: showsBrowsers)
         #expect(rig.source.activeTabID == "t-zsh")
         // The link drops; a resync publishes the workspace without the terminal tab.
         rig.store.macConnection[Self.mac] = .connecting
@@ -67,7 +70,8 @@ import CmuxMobileAgentChat
         Self.publish(rig.store, without: nil)
         rig.source.refreshTabs()
         #expect(rig.source.activeTabID == "t-zsh")
-        #expect(rig.source.tabs.map(\.id) == ["t-claude", "t-zsh", "t-docs"])
+        #expect(rig.source.allTabs.map(\.id) == ["t-claude", "t-zsh", "t-docs"])
+        #expect(rig.source.tabs.map(\.id) == (showsBrowsers ? ["t-claude", "t-zsh", "t-docs"] : ["t-claude", "t-zsh"]))
         // The tab comes back: no stale hold clock fires later.
         rig.clock.advance(by: .seconds(60))
         await Self.settle()
