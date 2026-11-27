@@ -567,7 +567,7 @@ pub use native_history::FEATURE as NATIVE_HISTORY_FEATURE;
 pub use peer_row::PeerRow;
 pub use person_hold::PromptTriager;
 pub(crate) use policy_mode::SetRequest;
-pub(crate) use pool::SESSION_NEW_BUDGET;
+pub(crate) use pool::{SESSION_NEW_BUDGET, breaker_status_line};
 pub use prompt_coach::CoachRewriter;
 pub use retention::RetentionRequest;
 pub(crate) use route_switch::is_chief;

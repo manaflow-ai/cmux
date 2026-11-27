@@ -310,6 +310,7 @@ impl Hub {
             started: latch.clone(),
             claimed_under: None,
             codex_answer: None,
+            ready_at: Duration::ZERO,
         };
         // An off this start began under, or that began while it ran, holds though an unset
         // followed (review 73): an agent that came up in full access then is not kept.
@@ -439,6 +440,25 @@ impl Hub {
     }
 
     /// End entries nobody will take (in the background).
+    /// End entries no chat took (evicted, released, idled out, over the cap, dead): each one
+    /// that ends soon after it became ready is churn for the start breaker (`breaker.rs`).
+    pub(super) fn pool_end_unused(&self, entries: Vec<Pooled>) {
+        if !entries.is_empty() {
+            let now = lock(&self.clock).now();
+            let mut breaker = lock(&self.pool.breaker);
+            for p in &entries {
+                breaker.note_unused_end(&p.key.harness, p.ready_at, now);
+            }
+        }
+        self.pool_discard(entries);
+    }
+
+    /// Whether a start of `harness` no person asked for may run now (`breaker.rs`).
+    pub(in crate::hub) fn background_start_admitted(&self, harness: &str) -> bool {
+        let now = lock(&self.clock).now();
+        lock(&self.pool.breaker).admit(harness, now)
+    }
+
     pub(super) fn pool_discard(&self, entries: Vec<Pooled>) {
         // Also called from a drop (`ClaimGuard`): without a runtime the
         // next daemon's sweep ends the host.

@@ -45,6 +45,16 @@ impl Hub {
                 tracing::info!(session = %session.id, "not warmed: the folder has no Trust answer");
                 continue;
             }
+            // A start no person asked for spends the background-start budget (`pool/breaker.rs`);
+            // an agent already running costs none.
+            let running = match session.child.lock().await.clone() {
+                Some(child) => child.is_alive().await,
+                None => false,
+            };
+            if !running && !self.background_start_admitted(&session.meta().harness) {
+                tracing::info!(session = %session.id, "not warmed: background starts are paused");
+                continue;
+            }
             if self.child_for(&session).await.is_ok() {
                 warmed.push(json!({"sessionId": session.id, "cwd": cwd}));
             }

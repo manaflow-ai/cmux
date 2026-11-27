@@ -45,12 +45,14 @@ use std::hash::{Hash, Hasher};
 use std::time::Duration;
 
 mod auth;
+mod breaker;
 mod held;
 pub(crate) mod policy;
 mod reaper;
 mod reserved;
 mod spare;
 mod start;
+pub(crate) use breaker::status_line as breaker_status_line;
 use held::{TapSlot, holding_inbound, holding_tap};
 use policy::{Origin, Pool, PoolKey, Role, Take};
 pub(crate) use reaper::run_reaper;
@@ -124,6 +126,8 @@ pub(crate) struct PoolState {
     /// A spare a person request wanted was refused (pool off, over the RSS cap, no spec): the
     /// next person request tries again only after this.
     spare_presence_retry_at: StdMutex<Option<std::time::Instant>>,
+    /// The one budget every background start spends (`breaker.rs`).
+    breaker: StdMutex<breaker::StartBreaker>,
 }
 
 type Spec = (String, Option<String>);
@@ -148,6 +152,7 @@ impl PoolState {
             spare_restart: StdMutex::new(Vec::new()),
             spare_wake: Notify::new(),
             spare_presence_busy: AtomicBool::new(false),
+            breaker: StdMutex::new(breaker::StartBreaker::default()),
             spare_presence_retry_at: StdMutex::new(None),
         }
     }
@@ -191,6 +196,9 @@ pub(super) struct Pooled {
     /// The answer its claim's spec asked for the person's own `cmux` entry
     /// (`PoolSpec::answer`): the claiming chat's start reads it (`record_spawn_inputs`).
     codex_answer: Option<crate::agent_tools::CodexAnswer>,
+    /// When it became ready on the hub's clock (`pool_want`), so an end soon after counts as
+    /// churn (`breaker.rs`).
+    ready_at: Duration,
 }
 
 impl Pooled {
@@ -467,7 +475,9 @@ impl Hub {
             .collect();
         drop(pool);
         let rss: u64 = lock(&self.pool.pool).ready_mut().map(|p| p.rss).sum();
-        json!({"entries": entries, "rssBytes": rss})
+        let now = lock(&self.clock).now();
+        let breaker = lock(&self.pool.breaker).view(now);
+        json!({"entries": entries, "rssBytes": rss, "breaker": breaker})
     }
 
     /// The key and spawn line a new session drafted as `draft` would get.
@@ -712,7 +722,7 @@ impl Hub {
         };
         let (released, ended) =
             lock(&self.pool.pool).release(&spec.key.cwd, Some(&spec.key.harness));
-        self.pool_discard(ended);
+        self.pool_end_unused(ended);
         json!({"released": released})
     }
 
@@ -755,15 +765,22 @@ impl Hub {
             pool.set_hinted_per_harness(per_harness);
             pool.want(role, spec.key.clone(), now)
         };
-        self.pool_discard(wanted.evicted);
+        self.pool_end_unused(wanted.evicted);
         self.start_pool_reaper();
         let Some(generation) = wanted.start else { return };
+        // Every background start spends the breaker's budget (`breaker.rs`); over it, or while
+        // it is tripped, the key stays wanted with nothing started.
+        if !lock(&self.pool.breaker).admit(&spec.key.harness, now) {
+            lock(&self.pool.pool).failed(&spec.key, generation);
+            return;
+        }
         #[cfg(debug_assertions)]
         crate::hub::full_access_bound::POOL_STARTS.send_modify(|n| *n += 1);
         let hub = self.clone();
         self.scope.spawn_named("pool-start", async move {
             match hub.spawn_pooled(&spec, &off).await {
-                Ok(p) => {
+                Ok(mut p) => {
+                    p.ready_at = lock(&hub.clock).now();
                     let id = p.session_id.clone();
                     let back = if hub.pool.stopping.load(Ordering::SeqCst) {
                         Some(p)
@@ -842,7 +859,7 @@ impl Hub {
                 "session pool over its RSS cap; oldest entries end"
             );
         }
-        self.pool_discard(evicted);
+        self.pool_end_unused(evicted);
     }
 
     /// Hold a claimed entry for `session/new` until `ensure_child` takes it.
@@ -1349,9 +1366,7 @@ impl Hub {
                     },
                     |expired| {
                         tracing::info!(count = expired.len(), "idle pooled sessions exit");
-                        for p in expired {
-                            tokio::spawn(end_pooled(p));
-                        }
+                        hub.pool_end_unused(expired);
                     },
                     RSS_TICK,
                     || {
