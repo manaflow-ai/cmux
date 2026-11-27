@@ -305,7 +305,7 @@ mod doctor_checks {
             evaluate(None, &Endpoint::Unreachable("no socket".into()), &not_asked, &not_asked);
         assert_eq!(failing(&checks)[0], "daemon");
 
-        let no_helper = "This cmux build can't run Computer Use. Install the latest cmux.";
+        let no_helper = "This cmux build can't run Computer Use. Run `cmux computer-use install`, or install the latest cmux.";
         let endpoint = Endpoint::State(json!({"state": "unavailable", "reason": no_helper}));
         let failed =
             Reply::Failed { code: "computer_use_unavailable".into(), message: no_helper.into() };

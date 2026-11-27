@@ -61,6 +61,7 @@ use live::{Change, Daemon, LivePayload, Phases, Store, Wanted};
 
 mod app_build;
 mod copy;
+pub(in crate::cli) mod cu_install;
 pub(in crate::cli) mod cu_upgrade;
 mod daemon_updates;
 mod helper;

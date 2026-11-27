@@ -308,6 +308,25 @@ is to turn Computer Use off and on (the worker starts again from the staged
 copy); restarting the app alone does not, because the daemon and its worker
 outlive it.
 
+## Without the cmux app: install
+
+`cmux computer-use install [--from nightly|PR|SHA|branch] [--dry-run]` puts the signed helper on
+a Mac that has a `cmux` CLI but no cmux app (the Python wheel, a release binary). The daemon's
+launcher looks for the helper in the app holding it, then in the installed apps
+(`/Applications/cmux NIGHTLY.app`, `/Applications/cmux.app`), then in the folder this command
+fills, `~/Library/Application Support/cmux-next/standalone/Contents/Library/<app> Helper.app`
+(`cmux_signed_bundle::standalone_app`). An installed app's own helper always wins, and the
+command installs nothing when one is there (`cmux computer-use upgrade` changes that one).
+
+With no installed helper to compare against, the anchor is the build's signed `mac-live.json`
+and cmux's own Developer ID team (`7WLXT3NR37`). The record's requirement must be the Developer
+ID form of its bundle id and that team. The zip is fetched, its size and sha256 checked, unpacked
+as a try does, and its one bundle must pass `codesign --verify --strict --deep` against that
+requirement. It is then swapped in and staged to the worker's fixed path. Running it again
+updates the helper in place, so macOS keeps the grants. Screen Recording and Accessibility are
+asked for once, for the helper rather than the terminal, at its first capture; then
+`cmux computer-use doctor` reports each check.
+
 ## Hot upgrade
 
 `cmux computer-use upgrade [--from nightly|PR|SHA|branch] [--dry-run]` replaces only the

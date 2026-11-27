@@ -388,6 +388,27 @@ pub(super) fn prepare(
             "the installed Screen Sharing helper's requirement ({requirement}) is not the build's ({built}); nothing was swapped"
         ));
     }
+    let staging = staging_for(&installed)?;
+    let staged = fetch_checked(wanted, store, signing, staging.path(), &have_id, &requirement)?;
+    let swap = Swap::new(installed, staging, staged)?;
+    if swap.from == swap.to {
+        return Ok(Prepared::Untouched("the app's helper is already the build's".to_owned()));
+    }
+    Ok(Prepared::Swap(swap))
+}
+
+/// Downloads the build's helper zip into `store` (size and sha256 checked), unpacks it into
+/// `staging/unpacked` (no entry may leave it) and returns its one bundle, once its bundle id is
+/// `have_id`, it has the executable, and its signature meets `requirement`. Shared by a try's
+/// swap and `cmux computer-use install`.
+pub(super) fn fetch_checked(
+    wanted: &WantedHelper,
+    store: &Store,
+    signing: &dyn Signing,
+    staging: &Path,
+    have_id: &str,
+    requirement: &str,
+) -> Result<PathBuf, String> {
     let zip = Wanted {
         file: ZIP.to_owned(),
         binary: Some(Binary {
@@ -398,8 +419,7 @@ pub(super) fn prepare(
         fetch_url: Some(wanted.fetch_url.clone()),
     };
     let zip = store.fetch(&zip)?.ok_or("the helper zip was not fetched")?;
-    let staging = staging_for(&installed)?;
-    let unpacked = staging.path().join("unpacked");
+    let unpacked = staging.join("unpacked");
     fs::create_dir(&unpacked).map_err(|e| format!("{}: {e}", unpacked.display()))?;
     signing.unpack(&zip, &unpacked)?;
     let mut bundles = Vec::new();
@@ -424,16 +444,12 @@ pub(super) fn prepare(
     if !staged.join("Contents/MacOS").join(EXECUTABLE).is_file() {
         return Err(format!("{ZIP}'s helper has no Contents/MacOS/{EXECUTABLE}"));
     }
-    signing.verify(staged, &requirement).map_err(|e| {
+    signing.verify(staged, requirement).map_err(|e| {
         format!(
             "{ZIP}'s helper does not meet the installed helper's requirement ({requirement}): {e}"
         )
     })?;
-    let swap = Swap::new(installed, staging, staged.clone())?;
-    if swap.from == swap.to {
-        return Ok(Prepared::Untouched("the app's helper is already the build's".to_owned()));
-    }
-    Ok(Prepared::Swap(swap))
+    Ok(staged.clone())
 }
 
 /// The swap that puts back the helper a receipt's `undo.screen_sharing_helper` names, when

@@ -1905,6 +1905,9 @@ fn app_try_sha_from_a_file_before_daemon_from_says_so() {
 #[path = "cu_upgrade_tests.rs"]
 mod cu_upgrade_tests;
 
+#[path = "cu_install_tests.rs"]
+mod cu_install_tests;
+
 const TREE: &str = "cccccccccccccccccccccccccccccccccccccccc";
 const SIGNED_CMUX: &[u8] = b"new cmux, Team-signed, longer still";
 const SIGNED_HOST: &[u8] = b"new app host, Team-signed";

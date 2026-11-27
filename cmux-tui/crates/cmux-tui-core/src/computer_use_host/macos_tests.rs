@@ -32,18 +32,18 @@ fn the_app_bundles_first_helper_runs_the_worker() {
     let exe = app.join("Contents/Resources/bin/cmux-tui");
     std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
     // No helper yet: nothing to run.
-    assert_eq!(find_helper(None, &exe, &[]), None);
+    assert_eq!(find_helper(None, &exe, &[], None), None);
     // A bundle without the executable is no helper; the current name beats the old one.
     helper(&app.join("Contents/Library/cmux A Screen Sharing.app"), "x", false);
     helper(&app.join("Contents/Library/cmux NIGHTLY Helper.app"), "x", true);
     helper(&app.join("Contents/Library/cmux Z Screen Sharing.app"), "x", true);
     helper(&app.join("Contents/Library/Other.app"), "x", true);
     assert_eq!(
-        find_helper(None, &exe, &[]),
+        find_helper(None, &exe, &[], None),
         Some(app.join("Contents/Library/cmux NIGHTLY Helper.app"))
     );
     // A daemon outside any app bundle finds none.
-    assert_eq!(find_helper(None, &root.join("bin/cmux-tui"), &[]), None);
+    assert_eq!(find_helper(None, &root.join("bin/cmux-tui"), &[], None), None);
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -54,23 +54,45 @@ fn a_daemon_outside_any_app_runs_the_installed_apps_helper() {
     let stable = root.join("Applications/cmux.app");
     let installed = [nightly.to_str().unwrap(), stable.to_str().unwrap()];
     let bare = root.join("bin/cmux-tui");
-    assert_eq!(find_helper(None, &bare, &installed), None);
+    assert_eq!(find_helper(None, &bare, &installed, None), None);
     let in_stable = stable.join("Contents/Library/cmux Screen Sharing.app");
     helper(&in_stable, "x", true);
-    assert_eq!(find_helper(None, &bare, &installed), Some(in_stable));
+    assert_eq!(find_helper(None, &bare, &installed, None), Some(in_stable));
     // NIGHTLY is searched before stable.
     let in_nightly = nightly.join("Contents/Library/cmux NIGHTLY Helper.app");
     helper(&in_nightly, "x", true);
-    assert_eq!(find_helper(None, &bare, &installed), Some(in_nightly));
+    assert_eq!(find_helper(None, &bare, &installed, None), Some(in_nightly));
     // The app holding the daemon comes first, and the override beats all.
     let own = root.join("own.app");
     let in_own = own.join("Contents/Library/cmux Screen Sharing.app");
     helper(&in_own, "x", true);
     let exe = own.join("Contents/Resources/bin/cmux-tui");
-    assert_eq!(find_helper(None, &exe, &installed), Some(in_own));
+    assert_eq!(find_helper(None, &exe, &installed, None), Some(in_own));
     let dev = root.join("Dev Screen Sharing.app");
     helper(&dev, "x", true);
-    assert_eq!(find_helper(Some(dev.clone()), &exe, &installed), Some(dev));
+    assert_eq!(find_helper(Some(dev.clone()), &exe, &installed, None), Some(dev));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_machine_without_a_cmux_app_runs_the_standalone_installed_helper() {
+    let root = scratch("standalone");
+    let stable = root.join("Applications/cmux.app");
+    let installed = [stable.to_str().unwrap()];
+    let standalone = root.join("standalone");
+    let bare = root.join("bin/cmux-tui");
+    // `cmux computer-use install` has not run: nothing to run.
+    assert_eq!(find_helper(None, &bare, &installed, Some(&standalone)), None);
+    let in_standalone = standalone.join("Contents/Library/cmux NIGHTLY Helper.app");
+    helper(&in_standalone, "x", true);
+    assert_eq!(
+        find_helper(None, &bare, &installed, Some(&standalone)),
+        Some(in_standalone.clone())
+    );
+    // An installed app's own helper comes first: the standalone one is only the fallback.
+    let in_stable = stable.join("Contents/Library/cmux Helper.app");
+    helper(&in_stable, "x", true);
+    assert_eq!(find_helper(None, &bare, &installed, Some(&standalone)), Some(in_stable));
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -82,12 +104,12 @@ fn the_development_override_wins_only_when_it_is_a_helper() {
     helper(&app.join("Contents/Library/cmux Screen Sharing.app"), "x", true);
     let dev = root.join("Dev Screen Sharing.app");
     helper(&dev, "x", true);
-    assert_eq!(find_helper(Some(dev.clone()), &exe, &[]), Some(dev));
+    assert_eq!(find_helper(Some(dev.clone()), &exe, &[], None), Some(dev));
     // Set but not a helper: refused, never a silent fall back to the bundled one.
-    assert_eq!(find_helper(Some(root.join("missing.app")), &exe, &[]), None);
+    assert_eq!(find_helper(Some(root.join("missing.app")), &exe, &[], None), None);
     // Empty means unset.
     assert_eq!(
-        find_helper(Some(PathBuf::new()), &exe, &[]),
+        find_helper(Some(PathBuf::new()), &exe, &[], None),
         Some(app.join("Contents/Library/cmux Screen Sharing.app"))
     );
     let _ = std::fs::remove_dir_all(&root);

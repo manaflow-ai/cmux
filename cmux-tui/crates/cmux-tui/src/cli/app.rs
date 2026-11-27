@@ -63,8 +63,8 @@ mod version;
 pub(super) mod wait;
 mod web_cas;
 mod web_pieces;
-pub(super) use try_cmd::cu_upgrade;
 pub(crate) use try_cmd::spawn_daemon_updates;
+pub(super) use try_cmd::{cu_install, cu_upgrade};
 pub(super) use web_cas::USAGE as WEB_CAS_USAGE;
 pub(super) use web_pieces::USAGE as WEB_PIECES_USAGE;
 
