@@ -12,7 +12,7 @@ import { sameRowFrame } from "../virtualTranscriptModel";
 import { TurnWaterfall } from "./TurnWaterfall";
 import { TurnActionsContext } from "./turnActions";
 import { turnView } from "./turns";
-import { turnWork, waterfall, waterfallCharts, waterfallLines, WATERFALL_FIRST, workEnds } from "./waterfallSpans";
+import { turnWork, waterfall, WATERFALL_FIRST, workEnds, waterfallCharts, waterfallLines } from "./waterfallSpans";
 
 const call = (id: string, from: number | undefined, to: number | undefined, status = "completed"): AcpmuxActivity => ({
   kind: "tool",
