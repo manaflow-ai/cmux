@@ -416,6 +416,7 @@ async fn resume_one(hub: &Arc<Hub>, mut p: Pending) {
         }
         Stage::Waiting => {
             set_stand(&id, Some(Stand::AfterTurn));
+            saved_peers_up(hub).await;
             let outcome = run_move(hub, &mut p, true).await;
             finish(hub, &p, outcome).await;
         }
@@ -426,6 +427,27 @@ async fn resume_one(hub: &Arc<Hub>, mut p: Pending) {
         Stage::Moving => {
             finish(hub, &p, Err("this machine stopped during the move".into())).await;
         }
+    }
+}
+
+/// Waits until the saved peers this daemon dials are registered, as the daemon's peer-start
+/// gate starts them only after its first client (or 2 s). A move that ran before would find no
+/// route to the Cloud machine and go to the team hub, which refuses carried changes. Bounded:
+/// a peer that never registers leaves the move to fail with its own reason.
+async fn saved_peers_up(hub: &Arc<Hub>) {
+    const LIMIT: Duration = Duration::from_secs(15);
+    let deadline = tokio::time::Instant::now() + LIMIT;
+    let _ = tokio::time::timeout(Duration::from_secs(3), hub.wait_local_ready()).await;
+    let wanted: Vec<String> = hub.config.read().await.peers.keys().cloned().collect();
+    loop {
+        let have = hub.peers();
+        let up = |name: &String| {
+            have.iter().any(|p| p.get("name").and_then(serde_json::Value::as_str) == Some(name))
+        };
+        if wanted.iter().all(up) || tokio::time::Instant::now() >= deadline {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
