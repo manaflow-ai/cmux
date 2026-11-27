@@ -9389,7 +9389,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   };
   const loadNewTabProjects = useCallback(
     () =>
-      callNative<{ projects?: string[]; repos?: unknown; machine?: boolean; projectRows?: string }>("project.list").then((result) => {
+      callNative<{ projects?: string[]; repos?: unknown; machine?: boolean; projectRows?: string }>(
+        "project.list",
+      ).then((result) => {
         // Each folder's repository (projectRepos.ts): the pickers fold worktrees under it.
         const repos = parseProjectRepos(result?.repos);
         const projects = (result?.projects ?? []).map((cwd): Project => {
@@ -9406,7 +9408,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// reads it, from its first render, while its own is pending or if it fails (Codex review of
   /// #24274).
   /// `projects` undefined: not answered yet.
-  const [loadedProjects, setDirectProjects] = useState<{ page: number; projects?: Project[]; machine?: boolean; projectRows?: NativeProjectRow[] }>({
+  const [loadedProjects, setDirectProjects] = useState<{
+    page: number;
+    projects?: Project[];
+    machine?: boolean;
+    projectRows?: NativeProjectRow[];
+  }>({
     page: 0,
   });
   const projectsAnswered = loadedProjects.page === newTabGeneration && loadedProjects.projects !== undefined;
