@@ -30,6 +30,14 @@
 #           for generic iOS Simulator, without injected DEBUG or demo conditions.
 #           Compile only: no simulator runtime, install, launch or publication.
 #           Takes no further arguments; retains build logs and evidence.zip.
+#   ui-build config=debug|demo
+#           Build once, test on many hosts (Leo, 2026-11-27: "potentially the build/test
+#           dichotomy that xcode sometimes have too"): CmuxMobileLinkFFI.xcframework, xcodegen
+#           and `xcodebuild build-for-testing` of CmuxMobileApp and its UI tests in that
+#           configuration, for generic iOS Simulator, the same build a `test ui=` step makes
+#           beside its Demo build. No simulator. evidence.zip holds ui-products.tar.gz
+#           (Build/Products with its .xctestrun) and ui-build.json; a `test ui=... products=JOB`
+#           step on any host runs those products with no build of its own (below).
 #   build   CmuxMobileLinkFFI.xcframework, xcodegen, and the app for the
 #           simulator (Demo: optimized, with the DEBUG developer surface); then
 #           boot one iPhone, install, launch, screenshot.
@@ -67,6 +75,12 @@
 #               debug otherwise. A -Onone Debug app with its debug dylib launches
 #               far slower than anything a person installs, so its launch numbers
 #               measure the build, not the app.
+#             products=JOB   run the ui= suites on the products of the done ui-build step JOB
+#               (24 hex; the same commit and config=, which is required), passed by the fleet
+#               worker as the input ui-products (CMUX_CI_UI_PRODUCTS, the build's evidence.zip):
+#               `xcodebuild test-without-building -xctestrun` on this host's iPhone, no FFI,
+#               xcodegen or app build and no launch check. Only warm ui= suites (no only=,
+#               cold suites, duress=, net= or profile). The controller pins the input to JOB.
 #             video   record the UI tests' iPhone screen (simctl recordVideo)
 #               to ui-video.mp4 in the artifact: before/after videos of a change;
 #               with ffmpeg on the host (Homebrew), also ui-video-small.mp4:
@@ -318,8 +332,8 @@ if [[ $# -gt 1 ]]; then
   done
   set -- "$1" ${sim_rest[@]+"${sim_rest[@]}"}
 fi
-if [[ "$mode" == release-build && ( -n "$sim_device" || $reduce_motion -eq 1 ) ]]; then
-  echo "cmux-next-ios-sim.sh: release-build boots no simulator; it takes no device= or reducemotion=" >&2; exit 2
+if [[ ( "$mode" == release-build || "$mode" == ui-build ) && ( -n "$sim_device" || $reduce_motion -eq 1 ) ]]; then
+  echo "cmux-next-ios-sim.sh: $mode boots no simulator; it takes no device= or reducemotion=" >&2; exit 2
 fi
 # handoff through the fleet controller's shots form: the controller's MODE list (hq
 # build-fleet/cmd/controller/ios_next_sim_step.go iosNextSimModes) does not name handoff yet, and
@@ -338,7 +352,7 @@ if [[ "$mode" == shots && $# -eq 2 && "${2:-}" == try=dev ]]; then
   set -- try
   mode=try
 fi
-case "$mode" in build|release-build|test|bench|all|pair-e2e|screen-proof|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff|try|theme-relaunch) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, test, bench, all, pair-e2e, screen-proof, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy, handoff, try or theme-relaunch, got '$mode'" >&2; exit 2 ;; esac
+case "$mode" in build|release-build|test|bench|all|pair-e2e|screen-proof|shots|clips|chief-live-perf|chief-live-perf-baseline|listperf|energy|handoff|try|theme-relaunch|ui-build) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, release-build, ui-build, test, bench, all, pair-e2e, screen-proof, shots, clips, chief-live-perf, chief-live-perf-baseline, listperf, energy, handoff, try or theme-relaunch, got '$mode'" >&2; exit 2 ;; esac
 if [[ ( "$mode" == release-build || "$mode" == try ) && $# -ne 1 ]]; then
   echo "cmux-next-ios-sim.sh: $mode takes no further arguments" >&2; exit 2
 fi
@@ -415,6 +429,14 @@ ui_profile=0
 ui_config=""
 duress_specs=()
 net_profiles=()
+ui_products_job=""
+if [[ "$mode" == ui-build ]]; then
+  case "$#:${2:-}" in
+    2:config=debug) ui_config=Debug ;;
+    2:config=demo) ui_config=Demo ;;
+    *) echo "cmux-next-ios-sim.sh: ui-build takes exactly config=debug or config=demo" >&2; exit 2 ;;
+  esac
+fi
 if [[ "$mode" == test && $# -gt 1 ]]; then
   for sel in "${@:2}"; do
     case "$sel" in
@@ -446,11 +468,23 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
         net_profiles+=("${sel#net=}") ;;
       config=debug) ui_config=Debug ;;
       config=demo) ui_config=Demo ;;
+      products=*)
+        ui_products_job="${sel#products=}"
+        [[ "$ui_products_job" =~ ^[0-9a-f]{24}$ ]] ||
+          { echo "cmux-next-ios-sim.sh: products= wants a ui-build step's job id (24 hex), got '$ui_products_job'" >&2; exit 2; } ;;
       video) ui_video=1 ;;
       profile) ui_profile=1 ;;
-      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, duress=SPEC, net=PROFILE, config=debug|demo, video and profile, got '$sel'" >&2; exit 2 ;;
+      *) echo "cmux-next-ios-sim.sh: test takes only=LIST, ui=LIST, duress=SPEC, net=PROFILE, config=debug|demo, products=JOB, video and profile, got '$sel'" >&2; exit 2 ;;
     esac
   done
+  if [[ -n "$ui_products_job" ]]; then
+    # Products built elsewhere: warm UI suites in the build's config, nothing that builds here.
+    [[ ${#ui_suites[@]} -gt 0 && ${#ui_cold[@]} -eq 0 && ${#kit_only[@]} -eq 0 && ${#duress_specs[@]} -eq 0 &&
+      ${#net_profiles[@]} -eq 0 && $ui_profile -eq 0 && -n "$ui_config" ]] ||
+      { echo "cmux-next-ios-sim.sh: products=JOB runs warm ui= suites with config= (the build's), without only=, cold suites, duress=, net= or profile" >&2; exit 2; }
+    [[ -n "${CMUX_CI_UI_PRODUCTS:-}" && -f "${CMUX_CI_UI_PRODUCTS}" ]] ||
+      { echo "cmux-next-ios-sim.sh: products=$ui_products_job needs the build's evidence.zip as the input ui-products (CMUX_CI_UI_PRODUCTS); this run has none" >&2; exit 2; }
+  fi
   if [[ $ui_profile -eq 1 && $((${#ui_suites[@]} + ${#ui_cold[@]})) -eq 0 ]]; then
     echo "cmux-next-ios-sim.sh: profile records the UI test run; give it ui=SUITE,..." >&2; exit 2
   fi
@@ -816,7 +850,7 @@ fi
 # The simulator runtime and iPhone, chosen before anything is built: the runtime the fleet declares
 # (CMUX_CI_IOS_SIM_RUNTIME, set by the build fleet's controller), else the newest (ios_sim_runtime.py).
 # A host without the declared runtime fails here, with the runtimes it has.
-if [[ "$mode" != release-build && "$mode" != try ]]; then
+if [[ "$mode" != release-build && "$mode" != try && "$mode" != ui-build ]]; then
   phone_class=()
   if [[ "$appstore" == 1 ]]; then phone_class=(--phone-class appstore-6.9); fi
   sim_choice="$(xcrun simctl list -j runtimes devicetypes |
@@ -840,6 +874,29 @@ note "- commit: $(git rev-parse HEAD)"
 note "- host: $(hostname -s), $(sysctl -n machdep.cpu.brand_string), $(sysctl -n hw.ncpu) cores, macOS $(sw_vers -productVersion)"
 note "- Xcode: $(xcodebuild -version | tr '\n' ' ')"
 note "- xcodegen: $xcodegen_version (pinned, sha256 verified)"
+
+# --- UI products from a ui-build step (test ui=... products=JOB) ------------
+# The build's evidence.zip, restored digest-checked by the worker: its Build/Products (the apps and the
+# .xctestrun) go to this step's work directory, and the build and launch sections below are skipped.
+ui_xctestrun=""
+if [[ -n "$ui_products_job" ]]; then
+  t0=$SECONDS
+  dd_root="${CMUX_DERIVED_DATA_SLOT:-$work}"
+  mkdir -p "$work/ui-products"
+  unzip -q -o "$CMUX_CI_UI_PRODUCTS" ui-products.tar.gz ui-build.json -d "$work/ui-products" ||
+    { echo "error: the ui-products input is not a ui-build evidence.zip (no ui-products.tar.gz)" >&2; exit 3; }
+  tar -xzf "$work/ui-products/ui-products.tar.gz" -C "$work/ui-products"
+  rm -f "$work/ui-products/ui-products.tar.gz"
+  built_sha="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["sha"])' "$work/ui-products/ui-build.json")"
+  built_config="$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["config"])' "$work/ui-products/ui-build.json")"
+  [[ "$built_sha" == "$(git rev-parse HEAD)" && "$built_config" == "$ui_config" ]] ||
+    { echo "error: products $ui_products_job are $built_config at $built_sha, not $ui_config at $(git rev-parse HEAD)" >&2; exit 3; }
+  ui_xctestrun="$(find "$work/ui-products/Products" -maxdepth 1 -name '*iphonesimulator*.xctestrun' | head -n 1)"
+  [[ -n "$ui_xctestrun" ]] || { echo "error: products $ui_products_job hold no .xctestrun" >&2; exit 3; }
+  ui_prebuild_status=0
+  note "- UI products: ui-build job $ui_products_job ($ui_config), restored in $((SECONDS - t0)) s; no build on this host"
+fi
+if [[ -z "$ui_products_job" ]]; then  # (not indented) the build and the app's launch, through "handoff" below
 
 # --- Build ------------------------------------------------------------------
 t0=$SECONDS
@@ -923,6 +980,36 @@ note "- FFI: $((SECONDS - t0)) s ($ffi_how)"
 # A runner with the glaeda disk registry exports CMUX_DERIVED_DATA_SLOT: its per-stream DerivedData root.
 dd_root="${CMUX_DERIVED_DATA_SLOT:-$work}"
 dd="$dd_root/dd"
+if [[ "$mode" == ui-build ]]; then
+  # The same build-for-testing as test ui='s prebuild below, alone, and its products as the artifact.
+  ui_build_args=(-project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration "$ui_config"
+    -destination 'generic/platform=iOS Simulator' -enableCodeCoverage NO -derivedDataPath "$dd_root/dd-ui"
+    CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= CMUX_MOBILE_APPLE_SIGN_IN=YES
+    ARCHS=arm64 ONLY_ACTIVE_ARCH=YES -quiet)
+  [[ "$ui_config" != Demo ]] || ui_build_args+=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CMUX_MOBILE_DEMO')
+  ffi_s=$((SECONDS - t0))
+  ui_t0=$SECONDS
+  set +e
+  xcodebuild build-for-testing "${ui_build_args[@]}" >"$work/ui-build.log" 2>&1
+  status=$?
+  set -e
+  cp "$work/ui-build.log" "$out/ui-build.log" 2>/dev/null || true
+  [[ $status -eq 0 ]] || { tail -40 "$work/ui-build.log"; note "- UI test build: exit $status"; exit 1; }
+  xcodebuild_s=$((SECONDS - ui_t0))
+  products="$dd_root/dd-ui/Build/Products"
+  ls "$products"/*iphonesimulator*.xctestrun >/dev/null 2>&1 || { echo "error: build-for-testing left no .xctestrun in $products" >&2; exit 1; }
+  pack_t0=$SECONDS
+  tar -czf "$out/ui-products.tar.gz" -C "$dd_root/dd-ui/Build" Products
+  pack_s=$((SECONDS - pack_t0))
+  build_s=$((SECONDS - t0))
+  printf '{"schema": "cmux.ios-ui-build.v1", "sha": "%s", "config": "%s", "host": "%s", "build_seconds": %s, "ffi_xcodegen_seconds": %s, "build_for_testing_seconds": %s, "pack_seconds": %s, "bytes": %s}\n' \
+    "$(git rev-parse HEAD)" "$ui_config" "$(hostname -s)" "$build_s" "$ffi_s" "$xcodebuild_s" "$pack_s" \
+    "$(stat -f %z "$out/ui-products.tar.gz")" >"$out/ui-build.json"
+  note "- ui-build ($ui_config): $build_s s (FFI + xcodegen $ffi_s s, build-for-testing $xcodebuild_s s, pack $pack_s s), ui-products.tar.gz $(du -h "$out/ui-products.tar.gz" | cut -f1)"
+  (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip)
+  cat "$summary"
+  exit 0
+fi
 # Demo builds the Swift packages as Release (no DEBUG), so the flood benchmark
 # and terminal demo would be missing; the command-line conditions reach the
 # packages too (verify/terminal-flood.md, Reproducing).
@@ -1188,6 +1275,7 @@ if [[ -n "${CMUX_CI_SIMSLIM:-}" && -x "${CMUX_CI_SIMSLIM}" ]] &&
 else
   rm -f "$out/simulator-memory.json"
 fi
+fi  # the build and the app's launch (skipped with products=JOB)
 
 # --- handoff: the simulator check, signed in ---------------------------------
 # The agent account the worker keeps for simulator sign-in (hq build-fleet README, "Sign-in"):
@@ -1664,6 +1752,11 @@ if [[ $((${#ui_suites[@]} + ${#ui_cold[@]})) -gt 0 ]]; then
   ui_status=0
   # Built beside the Demo build: only the run is left. A failed prebuild builds again here (`test`).
   [[ "$ui_prebuild_status" != 0 ]] || ui_action=test-without-building
+  if [[ -n "$ui_xctestrun" ]]; then
+    # Built on another host (ui-build): its .xctestrun names the products beside it, no project needed.
+    ui_xcodebuild=(-xctestrun "$ui_xctestrun" -destination "id=$ui_udid,arch=arm64" -quiet)
+    ui_action=test-without-building
+  fi
   if [[ $ui_profile -eq 0 && ${#ui_cold[@]} -gt 0 ]]; then
     # Cold suites run test-without-building once per fresh boot: built once, first.
     ui_t0=$SECONDS
@@ -2402,7 +2495,7 @@ else
     python3 -I scripts/ci/cmux_next_pair_e2e.py --redact > "$out/app-log.txt" || true
   cp "$work/build.log" "$out/build.log" 2>/dev/null || true
   # The app (so the same build runs on another Mac's simulator) and the recordings.
-  ditto -c -k --keepParent "$app" "$out/CmuxMobileApp-Demo-simulator.app.zip"
+  [[ -n "$ui_products_job" ]] || ditto -c -k --keepParent "$app" "$out/CmuxMobileApp-Demo-simulator.app.zip"
   if [[ "$mode" == handoff ]]; then
     ditto -c -k --keepParent "$device_app" "$out/CmuxMobileApp-Demo-device-unsigned.app.zip"
     python3 -I cmux-next-ios/scripts/handoff_receipt.py manifest "$out/handoff.json" --tag "$handoff_tag" \
