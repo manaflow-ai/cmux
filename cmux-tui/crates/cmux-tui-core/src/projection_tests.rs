@@ -507,6 +507,7 @@ fn control_line(name: &str, mark: Option<&str>, why: Option<&str>) -> WayBackLin
         mark: mark.map(str::to_owned),
         why: why.map(str::to_owned),
         path: None,
+        prune: false,
         paths: Vec::new(),
         prune: false,
     }
