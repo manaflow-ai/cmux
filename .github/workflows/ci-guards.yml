@@ -455,6 +455,10 @@ jobs:
           bash tests/test_ci_fleet_compilation_cache.sh
           python3 tests/test_ci_fleet_compilation_cache.py
 
+      - name: Validate the VM runner guest Bun cache marker check
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: bash tests/test_ci_fsr_bun_cache.sh
+
       - name: Validate feature flag linter scope
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_lint_feature_flags_review_date.py
@@ -1314,6 +1318,10 @@ jobs:
       - name: Validate fast checks fail over from stalled labels
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
+
+      - name: Test fleet submission from a plain checkout
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_submit_fleet_test.py
 
       - name: Validate the fast checks Rust setup carries the pinned cargo-nextest
         if: ${{ !cancelled() && matrix.group == 'ci' }}
