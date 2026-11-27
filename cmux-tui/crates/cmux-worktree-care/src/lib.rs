@@ -50,6 +50,7 @@ pub mod procs;
 pub mod restore;
 pub mod schedule;
 pub mod store;
+pub mod walk_memo;
 
 pub use inventory::{Facts, Repo, Worktree};
 pub use policy::{Action, Pressure, Verdict};

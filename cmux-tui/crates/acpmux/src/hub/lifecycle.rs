@@ -343,6 +343,9 @@ impl Hub {
             .filter(|_| profile.kind == crate::config::HarnessKind::ClaudeStdio)
             .filter(|e| crate::claude_stdio::takes_effort_at_spawn(e));
         meta.workspace_id = workspace_id;
+        // Its Sources, then the folders every new chat gets (`agents.additionalDirectories`).
+        let additional_directories =
+            super::additional_dirs::with_settings(additional_directories, remote);
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
         // Claude Code (stdio) takes it as a Stop hook, Codex (codex-acp) as its goal
@@ -358,6 +361,7 @@ impl Hub {
         meta.subsession = subsession;
         meta.lineage = lineage;
         meta.created_by = created_by;
+        self.stamp_chief_owner(&mut meta);
         meta.tools
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));

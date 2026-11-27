@@ -165,7 +165,14 @@ import {
   reconnectRefusalStarts,
   RETRY_FIRST_MS,
 } from "../hostRetry";
-import { acpmuxSendsReady, heldStartStop, sendsHeldForHost, untilHostAnswers, pageClientLink } from "../sendWhenReady";
+import {
+  acpmuxSendsReady,
+  heldStartStop,
+  sendsHeldForHost,
+  untilHostAnswers,
+  pageClientLink,
+  paneSends,
+} from "../sendWhenReady";
 import { revealedSubagent, SUBAGENT_REVEAL } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
