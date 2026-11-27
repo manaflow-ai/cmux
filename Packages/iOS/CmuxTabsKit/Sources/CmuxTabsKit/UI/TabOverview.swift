@@ -45,10 +45,32 @@ struct CardCloseGlyph: View {
     }
 }
 
+/// A title row's icon: the tab's own picture (a favicon) at the symbol's size, else the
+/// symbol. Never empty: a tab with no picture yet keeps its symbol.
+struct TabGlyph: View {
+    var icon: UIImage?
+    var systemImage: String
+    /// The symbol's point size; a picture is drawn two points larger, the symbol's box.
+    var size: CGFloat
+    var tint: Color
+
+    var body: some View {
+        if let icon {
+            // Fit, never stretch: a favicon need not be square (HIG, Images).
+            Image(uiImage: icon).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                .frame(width: size + 2, height: size + 2)
+                .clipShape(.rect(cornerRadius: (size + 2) * 0.22, style: .continuous))
+        } else {
+            Image(systemName: systemImage).font(.system(size: size)).foregroundStyle(tint)
+        }
+    }
+}
+
 /// One tab card: the card content with rounded corners, close button, title row.
 struct TabCard<Content: View>: View {
     var title: String
     var systemImage: String
+    var icon: UIImage?
     var pageSize: CGSize
     var width: CGFloat
     var height: CGFloat
@@ -83,8 +105,7 @@ struct TabCard<Content: View>: View {
                 .background { CardShadow(radius: radius) }
                 .opacity(contentHidden ? 0 : 1)
             HStack(spacing: 6) {
-                Image(systemName: systemImage).font(.system(size: 14))
-                    .foregroundStyle(theme.colors.secondaryLabel)
+                TabGlyph(icon: icon, systemImage: systemImage, size: 14, tint: theme.colors.secondaryLabel)
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(theme.colors.label)
@@ -361,7 +382,7 @@ struct TabOverview<Source: TabsDataSource>: View {
         let tab = card.tab, index = card.index
         let r = card.departed?.rect ?? layout.card(index)
         let copy = { DepartingCard(id: tab.id, tab: tab, rect: r) }
-        TabCard(title: tab.title, systemImage: tab.systemImage, pageSize: layout.size, width: r.width, height: r.height,
+        TabCard(title: tab.title, systemImage: tab.systemImage, icon: source.icon(for: tab.id), pageSize: layout.size, width: r.width, height: r.height,
                 radius: layout.cardRadius, showsClose: !selecting, closeOpacity: chrome.closeOpacity,
                 titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset,
                 contentHidden: tab.id == hiddenTabId, onOpen: { onSelect(tab.id) },
@@ -429,7 +450,7 @@ struct TabOverview<Source: TabsDataSource>: View {
 
     @ViewBuilder private func pinnedCardView(_ tab: TabsKitTab, index: Int) -> some View {
         let r = layout.card(index)
-        PinnedCard(title: tab.title, systemImage: tab.systemImage, width: r.width, height: r.height,
+        PinnedCard(title: tab.title, systemImage: tab.systemImage, icon: source.icon(for: tab.id), width: r.width, height: r.height,
                    selected: selecting ? selection.contains(tab.id) : nil)
             .opacity(swipes.menuCard == tab.id ? 0 : 1)
             .overlay {
@@ -437,7 +458,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                     card: r.size, radius: r.height / 2, passThrough: nil,
                     menu: { selecting ? [] : menuSections(tab) },
                     preview: { scale in
-                        AnyView(PinnedCard(title: tab.title, systemImage: tab.systemImage, width: r.width * scale, height: r.height * scale, selected: nil)
+                        AnyView(PinnedCard(title: tab.title, systemImage: tab.systemImage, icon: source.icon(for: tab.id), width: r.width * scale, height: r.height * scale, selected: nil)
                             .environment(\.tabsKitTheme, theme))
                     },
                     dragKey: nil,
@@ -676,6 +697,7 @@ struct CardMenuPreview<Content: View>: View {
 struct PinnedCard: View {
     var title: String
     var systemImage: String
+    var icon: UIImage?
     var width: CGFloat
     var height: CGFloat
     var selected: Bool?
@@ -683,7 +705,7 @@ struct PinnedCard: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: systemImage).font(.system(size: 15)).foregroundStyle(.white.opacity(0.6))
+            TabGlyph(icon: icon, systemImage: systemImage, size: 15, tint: .white.opacity(0.6))
             Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
             Spacer(minLength: 4)
             ZStack {

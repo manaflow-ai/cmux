@@ -122,8 +122,8 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .commandAvailability: "commandAvailability"
         case .clientReady(let ready): ready ? "clientReady" : "clientNotReady"
         case .launchSettle: "launchSettle"
-        case .painted(_, _, true): "painted(copy)"
-        case .painted(let fromKeptTail, let settled, _):
+        case .painted(_, _, true, _): "painted(copy)"
+        case .painted(let fromKeptTail, let settled, _, _):
             settled ? (fromKeptTail ? "painted(settled,keptTail)" : "painted(settled)") : fromKeptTail ? "painted(keptTail)" : "painted"
         case .dictation: "dictation"
         case .dictationHandoff: "dictationHandoff"

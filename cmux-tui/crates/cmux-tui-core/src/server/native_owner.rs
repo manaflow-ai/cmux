@@ -103,6 +103,7 @@ const COMMANDS: &[&str] = &[
     "set-tab-pinned",
     "read-screen",
     "read-scrollback",
+    "terminal-find",
     "send-key",
     "list-terminals",
     "set-attach-visibility",
@@ -355,6 +356,7 @@ pub(super) fn raw_command(mux: &Mux, client: u64, command: &Command) -> bool {
         | Command::SetTabPinned { .. }
         | Command::ReadScreen { .. }
         | Command::ReadScrollback { .. }
+        | Command::TerminalFind { .. }
         | Command::SendKey { .. }
         | Command::ListTerminals
         | Command::SetAttachVisibility { .. }

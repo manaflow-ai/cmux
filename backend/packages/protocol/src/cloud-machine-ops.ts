@@ -563,7 +563,7 @@ export const CloudMigrationStart = cloudMutation(
  * cmux-platform because they are in this catalog (platform-forward.ts). Same shapes as cmux-platform
  * src/server/cloud/domain/SurgeOps.ts.
  */
-export const SURGE_CAP = 8
+export const SURGE_CAP = 100
 // The operation catalog reads input fields from the top-level schema, so leave this struct inline.
 export const SurgeRequest = Schema.Struct({
   count: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: SURGE_CAP })),

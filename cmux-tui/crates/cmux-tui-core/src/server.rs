@@ -260,6 +260,7 @@ use cmd_sizing::{optional_surface_size, paired_surface_size};
 pub use size_lease::{SIZE_LEASE_CAPABILITY, SIZE_LEASE_V2_CAPABILITY};
 mod cmd_subscribe;
 mod cmd_tabs;
+mod cmd_terminal_find;
 mod cmd_terminal_io;
 mod cmd_terminals;
 mod creating_input;
@@ -801,7 +802,6 @@ struct CreateSurfaceWithReceiptRequest {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct BrowserProviderTargetRequest {
     tab_id: String,
     target_id: String,
@@ -809,7 +809,6 @@ struct BrowserProviderTargetRequest {
 
 /// `set-host-size-policy`'s `policy`: a mode and optionally the order.
 #[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct HostSizePolicyRequest {
     mode: String,
     #[serde(default)]
@@ -1238,6 +1237,26 @@ enum Command {
         surface: SurfaceId,
         start: u32,
         count: u32,
+    },
+    /// One page of Cmd-F matches in the whole retained history, newest first
+    /// (`cmd_terminal_find.rs`).
+    TerminalFind {
+        surface: SurfaceId,
+        query: String,
+        #[serde(default)]
+        case_sensitive: bool,
+        #[serde(default)]
+        whole_word: bool,
+        #[serde(default)]
+        regex: bool,
+        #[serde(default)]
+        before: Option<u64>,
+        #[serde(default)]
+        epoch: Option<u64>,
+        #[serde(default)]
+        page_rows: Option<u64>,
+        #[serde(default)]
+        max_matches: Option<usize>,
     },
     SidebarPlugin {
         cols: u16,
@@ -1951,6 +1970,10 @@ enum Command {
     ListNotifications {
         #[serde(default)]
         limit: Option<usize>,
+        /// true: the reply also carries `agent_notice_stats`, how often agent
+        /// notices were read and how fast (`mux/agent_notice_stats.rs`).
+        #[serde(default)]
+        stats: bool,
     },
     /// Pin or unpin a tab placement; pinned tabs sort first in their pane.
     SetTabPinned {
@@ -2424,6 +2447,8 @@ enum Command {
         #[serde(flatten)]
         mutation: MutationRequest,
     },
+    /// Release every user-owned workspace name to the automatic namer.
+    ReleaseWorkspaceNames {},
     RenameProviderManagedWorkspace {
         workspace: WorkspaceId,
         key: String,
@@ -2591,6 +2616,7 @@ impl Command {
             | Self::ReadScreen { surface }
             | Self::ClearHistory { surface, .. }
             | Self::ReadScrollback { surface, .. }
+            | Self::TerminalFind { surface, .. }
             | Self::WaitFor { surface, .. }
             | Self::SendKey { surface, .. }
             | Self::Copy { surface, .. }

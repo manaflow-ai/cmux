@@ -375,7 +375,7 @@ extension TabStripView {
         framedCells = FramedCells(basis: cellFrameBasis(mapping: mapping), trailing: trailing, count: cells.count)
         let buttonWidth = metrics.newTabButtonWidth
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth) + newTabLeadingGap
-        // The pane ⋮'s height in every look, centered on the tabs: it keeps its size when the tabs are shorter.
+        // A tab's height in every look (`Metrics.tabBarControlSide`), the pane ⋮'s too, centered on the tabs.
         let buttonHeight = NewTabButtonView.frameHeight
         let buttonFrame = CGRect(x: pixel(buttonX), y: pixel(tabY + (tabHeight - buttonHeight) / 2), width: buttonWidth, height: buttonHeight)
         let buttonFrom = newTabButton.frame.origin

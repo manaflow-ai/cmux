@@ -12,11 +12,15 @@ import { BackgroundTurnLine } from "./BackgroundTurnLine";
 import { backgroundRunRowId } from "./backgroundRuns";
 import { turnView, WORKED } from "./turns";
 
+// Put back exactly what was there: the key itself, when the file found none (test/support/leakDetector.ts).
+const hadExperiments = "cmuxExperiments" in globalThis;
+const previousExperiments = globalThis.cmuxExperiments;
 beforeAll(() => {
   globalThis.cmuxExperiments = { "claude-turn-fold": "runs" };
 });
 afterAll(() => {
-  delete globalThis.cmuxExperiments;
+  if (hadExperiments) globalThis.cmuxExperiments = previousExperiments;
+  else delete globalThis.cmuxExperiments;
 });
 
 const START = Date.UTC(2026, 10, 24, 1, 0, 0);

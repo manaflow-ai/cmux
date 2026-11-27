@@ -6706,13 +6706,24 @@ Result: `object{}` or `object{refused:"unknown_run"}`.
 
 Returns the retained notification ledger (at most 256), newest first.
 
-Params: `limit` (usize, default 256).
+Params: `limit` (usize, default 256); `stats` (bool, default false).
 
 Result:
 
 ```text
-object{notifications:[object{id:string, title:string, subtitle:string|null, body:string, level:"info"|"warning"|"error", terminal_id:string|null, surface:Id|null, created_at_ms:uint64, acknowledged:bool}]}
+object{notifications:[object{id:string, title:string, subtitle:string|null, body:string, level:"info"|"warning"|"error", terminal_id:string|null, surface:Id|null, created_at_ms:uint64, acknowledged:bool}], agent_notice_stats?:object}
 ```
+
+With `stats: true` the reply also carries `agent_notice_stats`: how often agent
+notices (source `agent`) were read, and how fast, per kind (`finished`,
+`failed`, `needs_input`, `other`) and over `all`. Each kind has `posted`,
+`read_within_60s`, `read_within_10m`, `read_later`, `never_read` (unread
+10 min after its post), `unread_recent` (unread, younger than 10 min),
+`acted_rate` (read within 10 min over posted minus unread_recent; null when
+none) and `read_ms_p50`/`read_ms_p95` (null when none was read). A read is the
+first console ack or client read the store records. The window is the retained
+ledger (`window.since_ms`, the oldest agent notice in it), so a restart keeps
+the numbers and the cost stays constant.
 
 ### set-tab-pinned
 
@@ -9883,6 +9894,55 @@ Example:
 ```json
 {"id":5,"cmd":"read-scrollback","surface":1,"start":40,"count":2}
 {"id":5,"ok":true,"data":{"rows":[{"row":0,"runs":[{"text":"cargo test","fg":null,"bg":null,"attrs":0}]},{"row":1,"runs":[{"text":"ok","fg":"#00ff00","bg":null,"attrs":1}]}],"start":40,"total":83,"epoch":17}}
+```
+
+### terminal-find
+
+| Field | Value |
+| --- | --- |
+| name | `terminal-find` |
+| status | proposed |
+| since | protocol 7 |
+
+Returns one page of Cmd-F matches in a PTY surface's whole retained history (the scrollback and the active area), newest first: the bottom row first, right to left within a line. A soft-wrapped line is searched as one line, so a match can span rows. The terminal's lock is held for one chunk of 512 rows at a time, never for the whole search.
+
+Rows are named by history marker (the row's number counted from the first row the terminal ever retained), so a page's cursor and its matches stay valid while old rows are evicted. A resize reflow renumbers markers and bumps `epoch`; a request whose `epoch` differs restarts at the bottom with `restarted:true`.
+
+Params:
+
+| Name | JSON type | Required/default | Constraints |
+| --- | --- | --- | --- |
+| `surface` | `Id` | required | Must identify a live PTY surface |
+| `query` | `string` | required | Empty matches nothing |
+| `case_sensitive` | `bool` | `false` | Match letter case exactly |
+| `whole_word` | `bool` | `false` | Word boundary on both sides |
+| `regex` | `bool` | `false` | `query` is a Rust `regex` pattern, not a literal |
+| `before` | `uint64` | the bottom | Marker the page ends above (exclusive): the previous page's `next_before` |
+| `epoch` | `uint64` | none | The previous page's `epoch` |
+| `page_rows` | `uint64` | `8192` | About how many rows one page reads; a page always finishes its logical line |
+| `max_matches` | `uint` | `10000` | Clamped to `1..=10000` |
+
+Result:
+
+```text
+object{matches:array<object{start:object{marker:uint64,column:uint16},end:object{marker:uint64,column:uint16},rows_from_bottom:uint64,snippet:string,snippet_start:uint32,snippet_len:uint32}>,next_before:uint64|null,complete:bool,epoch:uint64,renumbered:bool,restarted:bool,interrupted:bool,scanned_rows:uint64,bottom:uint64,rows:uint16,cols:uint16,invalid_pattern?:string}
+```
+
+`start` and `end` are inclusive cells. `rows_from_bottom` is `bottom - start.marker` (1 is the bottom row), which a client mirror with less history maps to its own rows. `snippet_start` and `snippet_len` place the match in `snippet` in UTF-16 units. `next_before` is null once the oldest row was searched. `interrupted` says rows were evicted under the page. An invalid regex answers `ok` with no matches and `invalid_pattern` set.
+
+Errors:
+
+| Error | Condition |
+| --- | --- |
+| `unknown surface <id>` | Surface id does not exist |
+| `browser surface does not support PTY/VT socket commands` | Surface is a browser |
+| `bad request: ...` | Missing fields or wrong JSON type |
+
+Example:
+
+```json
+{"id":6,"cmd":"terminal-find","surface":1,"query":"needle"}
+{"id":6,"ok":true,"data":{"matches":[{"start":{"marker":10,"column":9},"end":{"marker":10,"column":14},"rows_from_bottom":10013,"snippet":"the deep needle is here","snippet_start":9,"snippet_len":6}],"next_before":null,"complete":true,"epoch":1,"renumbered":false,"restarted":false,"interrupted":false,"scanned_rows":10023,"bottom":10023,"rows":24,"cols":80}}
 ```
 
 ### wait-for

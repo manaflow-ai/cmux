@@ -98,6 +98,9 @@ public final class LiveCoordinator {
     public internal(set) var relayAvailable: Bool?
     /// The focused Mac's theme and wallpaper for the chrome (ask-87d30da8e5).
     @ObservationIgnored let appearance = MacAppearanceFeed()
+    /// Every linked Mac's tabs as its `tabs` service pushes them: what the grid's cards show
+    /// of tabs this phone never opened. The shell sets its sink (the phone's card store).
+    @ObservationIgnored public let tabs = MacTabsFeed()
     /// The focused Mac's Feed source.
     public var feed: LiveFeed { focused.feed }
     /// The focused Mac's terminal agents' events in the Feed.
@@ -189,9 +192,13 @@ public final class LiveCoordinator {
     @ObservationIgnored private var snapshotSavePending = false
     /// Reads the cached rows past each Mac's first screen, after launch (`restoreRest`).
     @ObservationIgnored private var restTask: Task<Void, Never>?
-    /// The spaces on screen are the launch snapshot's one space, not the account's list yet
-    /// (Stack's team list has not answered): a pairing code is not judged against them.
-    @ObservationIgnored private(set) var spacesFromSnapshot = false
+    #if DEBUG
+    /// Test-only (compiled out of Release): the Mac the end-of-task hand-off names
+    /// (`CMUX_MOBILE_FOCUS_MAC`, cmux-next-ios/scripts/review.sh), remembered as its team's pick once
+    /// that team's Macs list it, so the phone focuses the tagged build and not another build of the
+    /// same computer. It only picks a Mac, as a tap in the Macs list does: the Mac still decides pairing.
+    @ObservationIgnored public var dogfoodFocusMacID: String?
+    #endif
     /// The team whose registration, Macs and presence are running or done.
     @ObservationIgnored private var startedTeamID: String?
     /// The team the Feed's items came from. Feed items carry no Mac, so on a switch they
@@ -491,7 +498,6 @@ public final class LiveCoordinator {
         self.snapshot = snapshot
         store.teams = [Team(id: snapshot.teamID, name: snapshot.teamName, macs: snapshot.macs)]
         store.activeTeamID = snapshot.teamID
-        spacesFromSnapshot = true
         var workspaces: [Workspace] = []
         var total = 0
         for mac in snapshot.macs {
@@ -587,11 +593,9 @@ public final class LiveCoordinator {
         // A team the phone already shows (picked, or followed to a Mac) stays active.
         let keep = list.contains { $0.id == store.activeTeamID } ? store.activeTeamID : selectedID
         store.applyLiveTeams(list, selectedID: keep)
-        spacesFromSnapshot = false
         activeTeamChanged()
         for team in list { loadPrefs(team.id) }
         discovery.start { [weak self] in await self?.lookForMacs() }
-        steerToInvite()
     }
 
     /// The user chose their personal space (setup's "Choose a space"): it
@@ -672,7 +676,7 @@ public final class LiveCoordinator {
             guard !Task.isCancelled else { return }
             log.error("team start failed: \(String(describing: error), privacy: .public)")
             // Failed either way: a warm start's cached rows stay on screen
-            // (WorkspacesLaunchState keeps them and says they are the last known);
+            // (WorkspacesLaunchState keeps them, with no connection text);
             // the retry below catches up.
             store.teamDataState = .failed
             // Try again on its own (the list's Retry also works).
@@ -769,8 +773,13 @@ public final class LiveCoordinator {
         }
         store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate,
                                            ownerUserID: $0.ownerUserId, machineID: $0.machineId, quietMs: $0.quietMs) }, teamID: teamID)
+        #if DEBUG
+        if let id = dogfoodFocusMacID, macs.contains(where: { $0.deviceId.lowercased() == id.lowercased() }) {
+            UserDefaults.standard.set(id, forKey: "cmuxMobile.live.mac.\(teamID)")
+            dogfoodFocusMacID = nil
+        }
+        #endif
         retarget()
-        steerToInvite()
         scheduleSnapshotSave()
     }
 
@@ -780,7 +789,7 @@ public final class LiveCoordinator {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let remembered = UserDefaults.standard.string(forKey: "cmuxMobile.live.mac.\(team.id)")
             ?? (snapshot?.teamID == team.id ? snapshot?.linkedMacID : nil)
-        // The remembered Mac stands for its computer (a build this phone paired by its code, beside
+        // The remembered Mac stands for its computer (a build this phone picked, beside
         // another build of the same computer), in the focus and in every list (``MacRoster``).
         store.setPickedMac(remembered, teamID: team.id)
         let next = LinkMachine.target(in: listedMacs(store.activeTeam ?? team), remembered: remembered, current: focusedMacID)
@@ -800,12 +809,10 @@ public final class LiveCoordinator {
     /// listed Mac while something names it (a Feed answer or a notification of
     /// that build, `touch`, or a link it still holds until idle), so an ask
     /// from that build is still answered on it.
-    /// A Mac whose pairing code is held is one too, while the code is.
     private func dialableMacs(_ team: Team) -> [MacDevice] {
         let own = team.macs.filter { !othersMacs.contains($0.id) }
         let listed = Set(MacRoster(own, preferring: team.pickedMacID).visible.map(\.id))
-        let invited = pairing?.invites.pending()?.mac
-        return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil || $0.id == invited }
+        return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil }
     }
 
     /// The focused Mac changed: the last one stays linked while it is recent
@@ -841,8 +848,7 @@ public final class LiveCoordinator {
             live.isOnline = true
             return live
         }
-        let decision = linkPolicy.decide(macs: ranked, focused: focusedMacID, showing: showing, lastShown: lastShown, now: now,
-                                         pinned: pairing?.invites.pending()?.mac)
+        let decision = linkPolicy.decide(macs: ranked, focused: focusedMacID, showing: showing, lastShown: lastShown, now: now)
         for mac in macs where decision.linked.contains(mac.id) {
             let session = session(for: mac)
             session.name = mac.name
@@ -912,6 +918,7 @@ public final class LiveCoordinator {
         if store.macLinkStatus[id] != nil { store.macLinkStatus[id] = nil }
         store.macLinkDiagnostics[id] = nil
         session.offlineTask?.cancel()
+        session.stallTask?.cancel()
         session.workspacesTimeout?.cancel()
         session.acpmux.cancelWaiters()
         // Signed out: the unbind below ends each chat's link, which saves its kept copy; nothing

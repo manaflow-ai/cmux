@@ -285,7 +285,11 @@ pub(crate) async fn forward(
     if m == method::MUX_DETACH {
         return Some(Ok(json!({})));
     }
-    let reply = read(mesh.as_ref(), host, rest, m, params).await;
+    let reply = if READ_METHODS.contains(&m) {
+        read_shared(hub, mesh, host, rest, m, params).await
+    } else {
+        read(mesh.as_ref(), host, rest, m, params).await
+    };
     let mut reply = settle(conn, device.as_deref(), reply);
     // The opened chat reads as its listed row does (`HOST/name`, its `qualifiedSessionId`).
     if m == method::MUX_ATTACH
@@ -509,7 +513,16 @@ pub(crate) async fn read(
     m: &str,
     params: &Value,
 ) -> Result<Value, RpcError> {
-    let text = ask(mesh, host, key, body(m, params)).await?;
+    read_body(mesh, host, key, body(m, params)).await
+}
+
+async fn read_body(
+    mesh: &dyn crate::mesh::MeshHub,
+    host: &str,
+    key: &str,
+    body: String,
+) -> Result<Value, RpcError> {
+    let text = ask(mesh, host, key, body).await?;
     let mut reply: Value = serde_json::from_str(&text)
         .map_err(|_| RpcError::internal(format!("{host}'s answer to the read is not JSON")))?;
     if let Some(held) = reply.get(PARTS).cloned() {
@@ -520,6 +533,38 @@ pub(crate) async fn read(
         object.insert("via".into(), json!("hub"));
     }
     Ok(reply)
+}
+
+#[derive(Clone, Eq, Hash, PartialEq)]
+pub(crate) struct ReadKey {
+    client: usize,
+    host: String,
+    session: String,
+    body: String,
+}
+
+/// Read through the hub once for callers that arrive while the same route and request are active.
+/// The mesh client's identity is part of the key so a browser device never joins the daemon's
+/// credentialed read or another device's read.
+async fn read_shared(
+    hub: &Hub,
+    mesh: Arc<dyn crate::mesh::MeshHub>,
+    host: &str,
+    key: &str,
+    m: &str,
+    params: &Value,
+) -> Result<Value, RpcError> {
+    let request = ReadKey {
+        client: Arc::as_ptr(&mesh).cast::<()>() as usize,
+        host: host.to_owned(),
+        session: key.to_owned(),
+        body: body(m, params),
+    };
+    hub.mesh_read_flights
+        .run(request.clone(), || async move {
+            read_body(mesh.as_ref(), &request.host, &request.session, request.body).await
+        })
+        .await
 }
 
 /// An answer the receiver holds in parts, read part by part and put together. A page's answer

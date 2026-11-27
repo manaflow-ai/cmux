@@ -449,9 +449,10 @@ Or ask: "make cmux look and work like the Codex app"
 ### Like the Claude desktop app
 
 The Claude desktop app's Code tab, dark, with colors measured from the real app: a #191919 page,
-a warm #282524 sidebar with a 1 pt line at its edge, sessions under their project with sub-sessions
-nested under the session that started them, title-only rows, a one-line #303030 composer with a
-1 pt edge and 12 pt corners, and your prompt in a #252525 pill. It ships its theme file
+a #151515 sidebar a step darker with a hairline at its edge, sessions under their project with
+sub-sessions nested under the session that started them, title-only rows, a one-line #303030
+composer with a 1 pt edge and 12 pt corners (the chat's and the New Tab's), and your prompt in a
+#252525 pill. It keeps your density. It ships its theme file
 (`themes/claude-code-app.json`) and chat stylesheet (`agent-pane/theme.css`), so you can copy and
 change either. Command-N starts a Claude chat, Shift-Command-M opens the mode menu (plan mode is
 in it), and new panes open beside the chat.
@@ -516,6 +517,20 @@ cmux customize use ~/.local/state/cmux/customize/recipes/violet-app.json
 ```
 
 Or ask: "make cmux look like a violet desktop coding app"
+
+### A light web coding app
+
+Workspaces as one-line tabs, a quiet sidebar, a white page on a light-gray frame, a centered
+760-point chat column, your prompts in light-gray bubbles and a hairline rounded composer.
+Command-N starts a chat and Shift-Command-[ and ] walk the tabs. It ships its theme file
+(`themes/web-coding-app.json`) and chat stylesheet (`agent-pane/theme.css`); the colors are
+matched by eye, not measured.
+
+```sh
+cmux customize use ~/.local/state/cmux/customize/recipes/web-coding-app.json
+```
+
+Or ask: "make cmux look like a light web coding agent, with workspaces as tabs"
 
 ## For agents and scripts
 

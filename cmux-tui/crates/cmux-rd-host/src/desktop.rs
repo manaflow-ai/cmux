@@ -164,6 +164,14 @@ mod tests {
 pub fn open(cfg: &SessionCfg, cursor_metadata: bool) -> Res<Halves> {
     #[cfg(not(target_os = "macos"))]
     let _ = cursor_metadata;
+    // The portal shares what the person picks in its dialog; it cannot be told one window.
+    #[cfg(target_os = "linux")]
+    if let (crate::capture_backend::CaptureBackend::Portal, Some(id)) = (cfg.capture, cfg.window) {
+        return Err(format!(
+            "window {id:#x}: sharing one window needs X11 capture (this session uses the portal)"
+        )
+        .into());
+    }
     #[cfg(target_os = "linux")]
     return match cfg.capture {
         crate::capture_backend::CaptureBackend::X11 => crate::x11::open(cfg),

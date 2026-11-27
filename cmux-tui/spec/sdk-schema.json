@@ -12799,6 +12799,107 @@
     "PTY surfaces only; row indexes are snapshot-relative and not durable."
    ]
   },
+  "terminal-find": {
+   "authority": "control",
+   "since": 7,
+   "capability": null,
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "query": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "Empty matches nothing."
+     },
+     "case_sensitive": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "whole_word": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false
+     },
+     "regex": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "description": "query is a Rust regex pattern, not a literal."
+     },
+     "before": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "Marker the page ends above (exclusive): the previous page's next_before."
+     },
+     "epoch": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "The previous page's epoch; a different one restarts at the bottom."
+     },
+     "page_rows": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
+     "max_matches": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       {
+        "minimum": 1,
+        "maximum": 10000
+       }
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "PTY surfaces only; matches newest first, named by history marker (spec/commands.md terminal-find)."
+   ]
+  },
   "wait-for": {
    "authority": "control",
    "since": 6,

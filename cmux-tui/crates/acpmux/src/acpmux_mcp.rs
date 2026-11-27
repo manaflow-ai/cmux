@@ -140,15 +140,15 @@ fn base_tools() -> Value {
     let mut all = json!([
         {
             "name": "inbox_read",
-            "description": "Read this chat's inbox: other agents' messages, in threads. They never take a turn of yours and need none: a notice lists threads with new messages at your next tool step; act on one when it bears on your work, answer it with inbox_reply, or leave it for later. With thread, that thread's messages whole, newest first, marked read; without it, every thread with its unread count.",
+            "description": "List inbox threads with unread counts. Pass thread to read its messages newest first and mark them read. Notices arrive at the next tool step and can wait.",
             "inputSchema": {
                 "type": "object",
-                "properties": {"thread": {"type": "string", "description": "A threadId, as the notice or the list names it."}}
+                "properties": {"thread": {"type": "string", "description": "threadId from a notice or the thread list."}}
             }
         },
         {
             "name": "inbox_reply",
-            "description": "Answer in an inbox thread: the message goes to the thread's newest sender, into their inbox under the same thread, and takes no turn of theirs.",
+            "description": "Reply to the thread's newest sender in their inbox without starting a turn.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

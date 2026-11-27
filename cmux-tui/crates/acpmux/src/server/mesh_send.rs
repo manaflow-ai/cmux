@@ -184,6 +184,7 @@ pub(super) fn waiting_reason(e: &HubError) -> String {
 }
 
 /// What `_acpmux/send_queue` does with a target only the hub routes.
+#[allow(clippy::large_enum_variant)] // built once per send and matched at once; boxing buys nothing
 pub(super) enum Posted {
     /// The hub took it, or refused it: the answer as it is.
     Answered(Result<Value, RpcError>),
@@ -377,14 +378,29 @@ fn sender(
     claim: Option<Value>,
     relay: Option<Value>,
 ) -> Sender {
+    // A program outside any session (`ACPMUX_FROM=glaeda-land`) with no relay of its own is its
+    // own relay: the record names it, so a receiver reads "glaeda-land on HOST", not the machine.
+    let relay = match caller {
+        Some(_) => None,
+        None => relay.or_else(|| program_relay(named.as_deref())),
+    };
     Sender {
         name: caller.map(|id| hub.session_name(id)).or(named),
         session_id: caller.map(str::to_owned),
         host: Some(crate::pairing::mesh_host()),
         claim,
-        relay: relay.filter(|_| caller.is_none()),
+        relay,
         ..Sender::default()
     }
+}
+
+/// The relay record naming a program outside any session by its declared name on this machine,
+/// or None when the name is no one relay name ([`RelaySender::of`] decides).
+fn program_relay(named: Option<&str>) -> Option<Value> {
+    let by = named?.trim();
+    let machine = crate::pairing::mesh_host();
+    crate::prompt_provenance::RelaySender::of(&json!({"by": by, "machine": machine}))
+        .map(|r| r.to_value())
 }
 
 /// The relay record (`prompt_provenance::FROM_RELAY`) of a send a relay on this machine's unix
@@ -647,6 +663,29 @@ mod tests {
         let to = recipient_in(&hub, "machine-b/claude-sr2-coord-old");
         assert_eq!(to.name.as_deref(), Some("claude-sr2-coord-old"));
         assert_eq!(recipient_in(&hub, "machine-b/Kiwi").name.as_deref(), Some("Kiwi"));
+    }
+
+    /// gap:surface:naming: a send no session made names its program in the relay record it
+    /// carries; one a session made carries none, and a name no relay record fits carries none.
+    #[test]
+    fn a_program_outside_any_session_carries_its_name_as_the_relay_record() {
+        let mut config: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+        config.store.mode = crate::config::StoreMode::Memory;
+        let store =
+            crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let from = sender(&hub, None, Some("glaeda-land".into()), None, None);
+        let relay = from.relay.as_ref().and_then(crate::prompt_provenance::RelaySender::of);
+        let relay = relay.expect("a relay record");
+        assert_eq!(relay.by, "glaeda-land");
+        assert_eq!(relay.machine, crate::pairing::mesh_host());
+        assert_eq!(relay.session, None);
+        let broker = json!({"by": "lane-gh", "machine": "m", "session": "lane-7"});
+        let from = sender(&hub, None, Some("glaeda-land".into()), None, Some(broker.clone()));
+        assert_eq!(from.relay, Some(broker.clone()));
+        assert_eq!(sender(&hub, Some("s-1"), None, None, Some(broker)).relay, None);
+        assert_eq!(sender(&hub, None, Some("two words".into()), None, None).relay, None);
+        assert_eq!(sender(&hub, None, None, None, None).relay, None);
     }
 
     /// cmuxterm-hq#17418: `class: question` to 9 sessions reached only through the relay sent 0

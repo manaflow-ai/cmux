@@ -741,6 +741,18 @@ impl Hub {
         at: Option<u64>,
         bridged: Option<String>,
     ) -> WatchedTurn {
+        // A bridged prompt's tools note rides in the one text the app was sent; a daemon that
+        // restarted before this line came no longer knows the delivery (`bridge.rs`
+        // `delivered_text`), so its full text comes here: the transcript drops acpmux's own note
+        // and keeps every other word (`tool_mentions::without_own_note`).
+        // A matched delivery (`bridged`) already gives the person's visible text: nothing to strip,
+        // so a copy of the note they typed themselves stays.
+        let text = if bridged.is_some() {
+            std::borrow::Cow::Borrowed(text)
+        } else {
+            crate::tool_mentions::without_own_note(text)
+        };
+        let text = text.as_ref();
         let turn_id = format!("watched-{}", uuid::Uuid::now_v7());
         let client = if bridged.is_some() { "bridge" } else { "watch" };
         let prompt_id = bridged.unwrap_or_else(|| format!("{turn_id}-prompt"));
@@ -1017,6 +1029,59 @@ mod tests {
             records.iter().any(|e| e.kind == "user_message" && e.msg["text"] == "watched prompt"),
             "the batch read again was stored"
         );
+        hub.shutdown_all().await;
+    }
+
+    /// A Codex desktop line whose delivery a restarted daemon no longer knows still hides
+    /// acpmux's tools note, also with text after it, and keeps every other word: the person's own
+    /// `<cmux-…-context>` example stays.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_watched_prompt_after_a_restart_hides_only_its_tools_note() {
+        use crate::config::{Config, StoreMode};
+
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut config: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        config.store.mode = StoreMode::Memory;
+        let store = crate::store::open(&config.store, Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(config, store);
+        let session = hub
+            .new_session(crate::hub::NewRequest {
+                cwd: Some(std::env::temp_dir()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
+        {
+            let mut meta = session.meta.lock().unwrap();
+            meta.agent_session_id = Some("01a1bf30-0000-7000-8000-00000000beef".to_owned());
+            meta.tags.insert(
+                "bridge".into(),
+                crate::store::Tag { value: "codex".into(), expires_at: None },
+            );
+            meta.watching = Some(Watching {
+                family: "codex".to_owned(),
+                file: std::env::temp_dir().join("watched-codex-notes.jsonl"),
+                ..Default::default()
+            });
+        }
+        let note = crate::tool_mentions::note(&["computer-use"]).unwrap();
+        let own = "open Notes with @computer-use like\n\n<cmux-foo-context>x</cmux-foo-context>";
+        let sent = format!("{own}\n\n{note}\n\nReply in one line.");
+        let want = format!("{own}\n\nReply in one line.");
+        let line = json!({"type": "response_item", "payload": {"type": "message", "role": "user",
+            "content": [{"type": "input_text", "text": sent}],
+            "internal_chat_message_metadata_passthrough": {"content_item_kinds": ["user.text"]}}})
+        .to_string();
+        assert!(hub.show_watched(&session, &[line], 64).await);
+        let records = hub.events(&session.id, 0, 100).unwrap();
+        let user = records.iter().find(|e| e.kind == "user_message").expect("the prompt shows");
+        assert_eq!(user.msg["text"], want);
+        let started = records.iter().find(|e| e.kind == "turn_started").unwrap();
+        assert_eq!(started.msg["prompt"], want);
         hub.shutdown_all().await;
     }
 

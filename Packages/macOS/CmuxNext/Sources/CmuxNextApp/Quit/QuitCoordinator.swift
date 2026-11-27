@@ -147,6 +147,7 @@ final class QuitCoordinator {
         logger.notice("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
         Task { @MainActor [services] in
+            services.windows.recordSaver.layoutCache.flushNow() // the layout as seen, before anything leaves the screen
             let choice = QuitPolicy.decide(origin, behavior: behavior)
             // Unsaved documents (R96 quit hook) are the only question a quit can ask.
             guard await resolveUnsaved(origin) else {
@@ -251,6 +252,7 @@ final class QuitCoordinator {
                 // Nothing is written when nothing changed.
                 await services.home.flushCacheForQuit()
                 await services.windows.recordSaver.launchRecord.flush()
+                await services.windows.recordSaver.layoutCache.flush()
                 guard let self else { return }
                 // CefShutdown runs on the main thread and can block it for good: from here the quit ends by a deadline whatever it
                 // does (a keep quit's deadline is armed already and stays), and a debug build reports that hang, never asserts it.

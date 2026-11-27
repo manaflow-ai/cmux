@@ -672,6 +672,10 @@
   --acpmux-session-info-card-pad: 4px;
   --acpmux-session-info-row-radius: max(4px, calc(var(--acpmux-session-info-card-radius) - var(--acpmux-session-info-card-pad)));
   --acpmux-session-info-row-hover: color-mix(in srgb, var(--agent-text) 7%, transparent);
+  /* Every fold chevron's scale in its 12px box (the head's, a fold row's, Context's folds): 0.84, a
+     step over the lab's 0.72 (Lucas, 2026-11-23: "make the chevron for context and other chevrons
+     slightly bigger"). */
+  --acpmux-session-info-chevron-scale: 0.84;
 }
 .acpmux-session-info-row--button:hover:not(:disabled),
 .acpmux-session-info-pr:has(> .acpmux-session-info-pr__link:hover),
@@ -921,6 +925,20 @@ button.acpmux-session-info-port:hover,
 }
 .acpmux-session-info-row .acpmux-diff-counts {
   opacity: 0.8;
+}
+/* Carried memory: a proposed file's diff, opened under its row (CarriedSection.tsx), on the label column. */
+.acpmux-carried-diff {
+  padding: 0 var(--grid-gap) 4px calc(var(--grid-gap) * 2 + var(--grid-icon-box));
+}
+.acpmux-carried-diff > pre {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  color: var(--agent-muted);
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .acpmux-session-info-note {
   margin: 0;
@@ -1398,6 +1416,16 @@ button.acpmux-session-info-port:focus-visible {
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-detail--letter-spacing);
 }
+/* Why a row does not open (TasksSection.tsx, a1e7752d4c3: the reason as text, not a tooltip) gives way
+   with the command, never squeezing it out: in a 320px panel a finished row's long time and the
+   reason left the command no width, so the row read "No terminal to open" with no command at all. */
+.acpmux-session-info-task__why {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .acpmux-session-info-task[data-state="failed"] .acpmux-session-info-task__state,
 .acpmux-session-info-task[data-state="lost"] .acpmux-session-info-task__state {
   color: var(--agent-status-failure);
@@ -1647,11 +1675,11 @@ button.acpmux-session-info-scope__parent:focus-visible {
   height: calc(var(--grid-icon-box) - var(--grid-base));
   margin-inline: calc(var(--grid-base) / 2);
 }
-/* The icon pack's chevron fills 60% of its box; the lab's, 44%. Drawn at the lab's size inside the
-   same 12px box (nothing moves), with a line that stays about one pixel wide whatever the scale
+/* The icon pack's chevron fills 60% of its box; the lab's, 44%. Drawn a step over the lab's size
+   (--acpmux-session-info-chevron-scale) inside the same 12px box (nothing moves), with a line that stays about one pixel wide whatever the scale
    (Lucas, 2026-11-06: lab vs app, "the > is too big"). */
 .acpmux-session-info :is(.acpmux-session-info-fold > svg, .acpmux-session-info-section__fold) {
-  scale: 0.72;
+  scale: var(--acpmux-session-info-chevron-scale);
 }
 .acpmux-session-info :is(.acpmux-session-info-fold > svg, .acpmux-session-info-section__fold) path {
   vector-effect: non-scaling-stroke;

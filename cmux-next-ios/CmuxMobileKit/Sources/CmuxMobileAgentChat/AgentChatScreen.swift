@@ -7,6 +7,7 @@ import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxMobileModel
 import CmuxSpinner
+import GameController
 import SwiftUI
 import UIKit
 
@@ -889,6 +890,14 @@ public struct AgentChatBottomStack: View {
                         .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named(Self.stackSpace)).minY }) { offset in
                             if composerOffset != offset { composerOffset = offset }
                         }
+                        // The space between the composer and a raised keyboard is darkened from the
+                        // card's middle down, as the ChatGPT and Claude iOS apps draw it (Leo,
+                        // 2026-11-23: "they properly darken the ... space between the ios composer
+                        // and the built in keyboard"). The band runs on under the keyboard, which
+                        // covers it, so it never shows an edge while the keyboard moves.
+                        .background(alignment: .top) {
+                            KeyboardSkirt(shown: composerFocused && GCKeyboard.coalesced == nil)
+                        }
                         // After the geometry reader: the entrance is render only, so the stack's
                         // measured place (the transcript's inset, the keyboard pin) is the resting one.
                         .newChatEntrance(.composer, style: entranceStyle, settled: composerSettled)
@@ -970,6 +979,27 @@ public struct AgentChatBottomStack: View {
                 withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { surface.showPermissionChoices() }
             }
         }
+    }
+}
+
+/// The darkened band from a composer's middle down to and under the system keyboard
+/// (`Color.cmuxMobileKeyboardSkirt`). Shown while the composer has focus and no hardware keyboard is
+/// attached (one leaves no software keyboard to sit on). Draws only; touches pass through.
+struct KeyboardSkirt: View {
+    var shown: Bool
+    /// How far the band runs on below the composer: past the gap and into the keyboard's area.
+    static let reach: CGFloat = 400
+
+    var body: some View {
+        GeometryReader { proxy in
+            Color.cmuxMobileKeyboardSkirt
+                .frame(width: proxy.size.width, height: proxy.size.height / 2 + Self.reach)
+                .offset(y: proxy.size.height / 2)
+                .opacity(shown ? 1 : 0)
+                .animation(.cmuxMobileSmooth.unlessReduceMotion, value: shown)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 

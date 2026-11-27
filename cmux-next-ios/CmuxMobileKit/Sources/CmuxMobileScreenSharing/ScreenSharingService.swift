@@ -64,6 +64,8 @@ public final class ScreenSharingService {
     var demoDiscovery: Discovery?
     var demoMacs: [HubDevice] = []
     var demoAccess: [String: DeviceScope] = [:]
+    /// Mock mode's Macs (`useMock`).
+    @ObservationIgnored var mockMacs: (@MainActor () -> [HubDevice])?
     @ObservationIgnored var demoTask: Task<Void, Never>?
     #endif
 

@@ -205,7 +205,7 @@ final class PaneContentView: NSView, PaneContentChrome, PaneMotionHolding, Agent
         }
         // Lay out the browser's band after the host frame its constraints depend on.
         super.layout()
-        toolbar?.view.refreshCorner() // "…"'s hover spans the strip's frame, set above or by the band's constraints
+        toolbar?.view.refreshCorner() // the controls' hover spans the strip's frame, set above or by the band's constraints
         // Restored terminal views are attached while the pane is still at
         // zero size. Reapply their frame after the host receives its launch
         // bounds so Ghostty and its find/glass overlays get a real first

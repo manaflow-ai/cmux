@@ -792,6 +792,9 @@ impl Started {
             {
                 *slot = Some(sid.clone());
             }
+            if t.resumes_cut_turn {
+                tr.owe_resumed();
+            }
             tr
         });
         let codex = (spec.translator.is_none() && spec.codex_bridge)

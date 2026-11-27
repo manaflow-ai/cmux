@@ -24,6 +24,8 @@ enum AgentPaneHandshakeReply {
             var handshake = request == .ready
                 ? try await model.host.handshake(sessionId: model.sessionId)
                 : try await model.host.reconnectHandshake(sessionId: model.sessionId)
+            // Each await of the page's handshake, for the relaunch bench (bench_relaunch_reconnect.py PHASES).
+            AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_endpoint")
             // Only a chat without a session yet starts from the seed.
             if model.sessionId == nil, let seed = await model.seed?.take() {
                 handshake.cwd = seed.cwd
@@ -71,6 +73,7 @@ enum AgentPaneHandshakeReply {
             handshake.tab = model.tabKey()
             // A chat on another machine names that machine (its host set it), never this Mac.
             let localName = await AgentPaneModel.localMachineName?.value
+            AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_machine")
             if handshake.machineName == nil { handshake.machineName = localName }
             // The picker's local row starts a chat on the page's own acpmux: this Mac's, never replaced by a
             // seeded chat's peer or Cloud machine, or the machine a remote route attaches the page to.
@@ -86,6 +89,7 @@ enum AgentPaneHandshakeReply {
             // A peer's folder belongs to that peer. Never resolve it against this Mac's
             // workspace/agent-home or read local Git data at the same path.
             let filled = started || handshake.peer != nil ? false : await model.startFolders.apply(to: &handshake, ready: request == .ready, model: model)
+            AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_folders")
             if !started, handshake.peer == nil {
                 handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd)
                 // Its pull requests' diffs are read from this folder before GitHub (GitHubLocalDiff).
@@ -93,12 +97,14 @@ enum AgentPaneHandshakeReply {
                     AgentReplyPullRequests.shared.noteFolder(cwd, of: repository)
                 }
             }
+            AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_github")
             handshake.revealTurn = model.pendingRevealTurn
             model.pendingRevealTurn = nil
             // Only a fresh page reads it; a reconnect keeps it for the page's own ready.
             if request == .ready {
                 // At launch the last quit's state may still be read (AgentPaneRelaunchWake.hand): wait for it here.
                 if model.pendingWake == nil, let source = model.wakeSource { model.pendingWake = await source() }
+                AgentPaneLaunchTimings.shared.mark("agent_pane.handshake_wake")
                 model.wakeSource = nil
                 handshake.wake = model.pendingWake
                 (model.handedWake, model.pendingWake) = (model.pendingWake, nil)

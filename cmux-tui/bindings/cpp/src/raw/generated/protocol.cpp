@@ -36685,6 +36685,136 @@ Result<TerminalEventsRequest> Codec<TerminalEventsRequest>::decode(const Json& v
     return result;
 }
 
+Result<Json> Codec<TerminalFindRequest>::encode(const TerminalFindRequest& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.before.is_absent()) {
+        auto encoded = encode_value(value.before);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("before", std::move(encoded).value());
+    }
+    if (value.case_sensitive) {
+        auto encoded = encode_value(*value.case_sensitive);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("case_sensitive", std::move(encoded).value());
+    }
+    if (!value.epoch.is_absent()) {
+        auto encoded = encode_value(value.epoch);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("epoch", std::move(encoded).value());
+    }
+    if (!value.max_matches.is_absent()) {
+        auto encoded = encode_value(value.max_matches);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("max_matches", std::move(encoded).value());
+    }
+    if (!value.page_rows.is_absent()) {
+        auto encoded = encode_value(value.page_rows);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("page_rows", std::move(encoded).value());
+    }
+    auto encoded_query = encode_value(value.query);
+    if (!encoded_query) return std::move(encoded_query).error();
+    object.emplace("query", std::move(encoded_query).value());
+    if (value.regex) {
+        auto encoded = encode_value(*value.regex);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("regex", std::move(encoded).value());
+    }
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    if (value.whole_word) {
+        auto encoded = encode_value(*value.whole_word);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("whole_word", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<TerminalFindRequest> Codec<TerminalFindRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    TerminalFindRequest result{};
+    const Json* field_before = value.find("before");
+    if (field_before) {
+        if (field_before->is_null()) {
+            result.before = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_before);
+            if (!decoded) return std::move(decoded).error();
+            result.before = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_case_sensitive = value.find("case_sensitive");
+    if (field_case_sensitive) {
+        auto decoded = decode_value<bool>(*field_case_sensitive);
+        if (!decoded) return std::move(decoded).error();
+        result.case_sensitive = std::move(decoded).value();
+    }
+    const Json* field_epoch = value.find("epoch");
+    if (field_epoch) {
+        if (field_epoch->is_null()) {
+            result.epoch = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_epoch);
+            if (!decoded) return std::move(decoded).error();
+            result.epoch = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_max_matches = value.find("max_matches");
+    if (field_max_matches) {
+        if (field_max_matches->is_null()) {
+            result.max_matches = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_max_matches);
+            if (!decoded) return std::move(decoded).error();
+            result.max_matches = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_page_rows = value.find("page_rows");
+    if (field_page_rows) {
+        if (field_page_rows->is_null()) {
+            result.page_rows = Field<std::uint64_t>::null();
+        } else {
+            auto decoded = decode_value<std::uint64_t>(*field_page_rows);
+            if (!decoded) return std::move(decoded).error();
+            result.page_rows = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_query = value.find("query");
+    if (!field_query) {
+        return make_error(ErrorCode::decode, "missing required field 'query'");
+    }
+    if (field_query) {
+        auto decoded = decode_value<std::string>(*field_query);
+        if (!decoded) return std::move(decoded).error();
+        result.query = std::move(decoded).value();
+    }
+    const Json* field_regex = value.find("regex");
+    if (field_regex) {
+        auto decoded = decode_value<bool>(*field_regex);
+        if (!decoded) return std::move(decoded).error();
+        result.regex = std::move(decoded).value();
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<Id>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
+    }
+    const Json* field_whole_word = value.find("whole_word");
+    if (field_whole_word) {
+        auto decoded = decode_value<bool>(*field_whole_word);
+        if (!decoded) return std::move(decoded).error();
+        result.whole_word = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<TerminalHistoryRequest>::encode(const TerminalHistoryRequest& value) {
     (void)value;
     Json::Object object;
@@ -48146,16 +48276,16 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand274FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand294FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand295FieldRequirements{{
     {"icon", 12U, "bookmark-icon-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand300FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand301FieldRequirements{{
     {"icon", 12U, "screen-group-icon-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 1> kCommand301FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 1> kCommand302FieldRequirements{{
     {"icon", 12U, "tab-group-icon-v1"},
 }};
-constexpr std::array<CommandMetadata, 311> kCommands{{
+constexpr std::array<CommandMetadata, 312> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-screens-to-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-tabs-to-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -48437,6 +48567,7 @@ constexpr std::array<CommandMetadata, 311> kCommands{{
     {"terminal-clipboard-subscribe", "frontend", 12U, "terminal-clipboard-read-v1", true, "subscribe", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-command-context", "control", 12U, "terminal-command-context-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-events", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"terminal-find", "control", 7U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-history", "control", 12U, "terminal-snapshot-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-last-command", "control", 12U, "terminal-last-command-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"terminal-ports", "control", 12U, "terminal-ports-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -48450,14 +48581,14 @@ constexpr std::array<CommandMetadata, 311> kCommands{{
     {"unregister-browser-provider", "local-admin", 10U, "browser-provider-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-tab-group", "control", 12U, "saved-tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand294FieldRequirements)},
+    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand295FieldRequirements)},
     {"update-browser-profile", "control", 12U, "browser-profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-frontend-browser-tab", "control", 12U, "frontend-browser-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-personal-group", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-profile", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-remote-terminal-tab", "control", 12U, "remote-terminal-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand300FieldRequirements)},
-    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand301FieldRequirements)},
+    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand301FieldRequirements)},
+    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand302FieldRequirements)},
     {"update-workspace-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open-claim", "frontend", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -51671,6 +51802,17 @@ Result<TerminalEventsResult> Client::terminal_events(
     auto response = core_.request("terminal-events", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<TerminalEventsResult>(response.value());
+}
+
+Result<JsonValue> Client::terminal_find(
+    const TerminalFindRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("terminal-find", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<JsonValue>(response.value());
 }
 
 Result<TerminalHistoryPagesResult> Client::terminal_history(

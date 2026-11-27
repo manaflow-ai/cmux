@@ -3,14 +3,13 @@
    only where the user formats. Theme tokens only. */
 .acpmux-md-field {
   position: relative;
-  /* The draft grows about as tall as Claude Code desktop's before it scrolls (Leo 2026-11-22: "look at
-     how big claude code can grow"): up to 60% of the pane, thirty lines at most. Was twelve lines or
-     40vh (#24984, Lawrence: "too big" then), which capped a pasted page at a third of the pane. Short
-     panes still give up height (bottomStack.css). */
-  max-height: min(
-    calc(var(--text-content--line-height) * var(--acpmux-composer-max-lines, 30) + var(--cmux-control-height, 23px)),
-    60vh
-  );
+  /* The draft grows to Claude desktop's composer cap, then scrolls inside (Leo 2026-11-24, comparing
+     ours with Claude's: follow Claude's max). Claude's prompt stops at 384 px (Tailwind max-h-96); his
+     screenshot of it measured a ~400 pt card in a 1348 pt window, about 30%. #51620 had raised ours to
+     thirty lines or 60% of the pane, which reached about 55% of his pane. One token, shared by every
+     composer field (styles.css --acpmux-composer-max-height); short panes still give up height
+     (bottomStack.css). */
+  max-height: min(var(--acpmux-composer-max-height, calc(384px * var(--cmux-interface-scale, 1))), 50vh);
   overflow-y: auto;
   /* A long draft scrolls in this box alone (Leo 2026-10-20: reaching the top or the bottom must
      not shift anything): no chaining into the transcript, no bounce. */
@@ -648,6 +647,11 @@
   -webkit-mask: var(--cmux-link-icon) center / 100% 100% no-repeat;
   mask: var(--cmux-link-icon) center / 100% 100% no-repeat;
 }
+.acpmux-md .is-titled-start[data-image]::before {
+  background: var(--cmux-link-icon) center / 100% 100% no-repeat;
+  -webkit-mask: none;
+  mask: none;
+}
 .acpmux-md .is-titled[data-title]::after {
   content: attr(data-title);
   padding: var(--cmux-link-chip-pad-block) var(--cmux-link-chip-pad-inline);
@@ -660,6 +664,23 @@
   white-space: normal;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
+}
+/* Inside a selection (a drag across it, Select All) the chip is selected whole, as one character, and
+   draws as selected text does: the selection's own fill (desktop.css ::selection), square, in place of
+   the wash. The browser's highlight skips a widget, so the chip paints it (Lucas, 2026-11-24). */
+.acpmux-md .is-titled[data-title][data-selected]::after {
+  /* Selected text's highlight fills the line; an inline box's fill covers only the font's ascent and
+     descent (1.193em in the system font) and its padding. The padding takes it to the line, and an
+     inline box's block padding moves no line, so selecting reflows nothing. WebKit rounds the text's
+     highlight out to whole pixels and a fill to the nearest, so the end takes half a device pixel
+     more (a hairline's half; measured at 2x: the line's last device pixel row). */
+  padding-block: calc((var(--text-content--line-height) - 1.193em) / 2)
+    calc((var(--text-content--line-height) - 1.193em) / 2 + var(--cmux-hairline) / 2);
+  border-radius: 0;
+  background: var(
+    --cmux-selection-fill,
+    var(--cmux-text-selection, color-mix(in srgb, var(--cmux-accent, CanvasText) 28%, transparent))
+  );
 }
 /* With the icon: the wash starts under it (back by the pad and the icon), the title 4px after it,
    as chips/cmuxLinkChip.css .cv-cmux-link__icon spaces it. */

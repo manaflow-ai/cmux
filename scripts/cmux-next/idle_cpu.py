@@ -113,7 +113,10 @@ def owed_restart(ops, cycles: int) -> dict:
     gone. The positions are the daemon run's: the new run starts from the bottom, so the old run's are pushed up
     first (`cycles` more batches: the peer removed and linked again) past any the new run reaches at idle. A build
     without the #254 fix then follows the old batch forever; one with it drops it at the new run's first list.
-    `ops` does each step (LiveOwedOps on a fleet Mac); returns what was done."""
+    A hidden page drops list notices and reads the list anew when shown (sessionPages.ts `invalidate`), so it never
+    owes a batch: an agent page is shown first. `ops` does each step (LiveOwedOps on a fleet Mac); returns what was
+    done."""
+    ops.show_chat()
     ops.add_peer()
     rows = ops.listed_rows()
     if rows <= PEER_ROW_BATCH_MIN:
@@ -143,8 +146,18 @@ class LiveOwedOps:
     (idle_cost_load.PeerDaemon) and the app's renderers. Every process it signals is the bench's: the launched
     app's renderers and acpmux daemon (the app starts a new one after a crash, AgentPaneHost.swift)."""
 
-    def __init__(self, app_pid: int, bundle: str, socket: str, peer, want_rows: int):
+    def __init__(self, app_pid: int, bundle: str, socket: str, peer, want_rows: int, client=None,
+                 workspace: str | None = None):
         self.app_pid, self.bundle, self.socket, self.peer, self.want = app_pid, bundle, socket, peer, want_rows
+        self.client, self.workspace = client, workspace
+
+    def show_chat(self):
+        if not self.workspace:
+            raise RuntimeError("no chat workspace to show: --peer-rows needs --chats 1 or more")
+        shown = self.client.action("goToWorkspace", workspace=self.workspace)
+        if isinstance(shown, dict) and (shown.get("error") or shown.get("code")):
+            raise RuntimeError(f"goToWorkspace {self.workspace}: {shown}")
+        time.sleep(5)  # test script: the shown chat page loads its list before the batches
 
     def _rpc(self, method, params, timeout=120):
         import idle_cost_load
@@ -206,6 +219,48 @@ class LiveOwedOps:
                 return pid
             time.sleep(1)  # test script: the app starts its daemon again when a page reconnects
         return None
+
+
+TIMER_RE = re.compile(r"<CFRunLoopTimer [^>]*>\{valid = (\w+), firing = \w+, interval = ([0-9.e+-]+),[^}]*?"
+                      r"callout = ([^,}\n]+)")
+
+
+def wake_report(before: dict, after: dict) -> dict:
+    """The app's own wakeup sources over the measured windows, from two `debug.wakeups` answers: each ledger
+    (owner, reason) count's rate between them (one born between them counts from 0), busiest first, and the main
+    run loop's valid repeating timers at the end (each wakes the main thread 1/interval times a second, outside
+    the ledger)."""
+    if not isinstance(before, dict) or not isinstance(after, dict) or before.get("error") or after.get("error"):
+        return {"error": (after or {}).get("error") or (before or {}).get("error") or "no debug.wakeups answer"}
+    seconds = max(float(after.get("uptime_s") or 0) - float(before.get("uptime_s") or 0), 1e-3)
+    was = {(e.get("owner"), e.get("reason")): e.get("count") or 0 for e in before.get("ledger") or []}
+    ledger = []
+    for entry in after.get("ledger") or []:
+        key = (entry.get("owner"), entry.get("reason"))
+        delta = (entry.get("count") or 0) - was.get(key, 0)
+        if delta > 0:
+            ledger.append({"owner": key[0], "reason": key[1], "count": delta, "per_s": round(delta / seconds, 3)})
+    ledger.sort(key=lambda e: -e["count"])
+    timers = []
+    seen = set()
+    for valid, interval, callout in TIMER_RE.findall(after.get("main_run_loop") or ""):
+        if valid != "Yes" or float(interval) <= 0 or (callout.strip(), interval) in seen:
+            continue
+        seen.add((callout.strip(), interval))
+        timers.append({"callout": callout.strip()[:160], "interval_s": float(interval),
+                       "per_s": round(1 / float(interval), 3)})
+    timers.sort(key=lambda t: -t["per_s"])
+    return {"seconds": round(seconds, 1), "ledger": ledger,
+            "ledger_per_s": round(sum(e["per_s"] for e in ledger), 3), "timers": timers}
+
+
+def thread_wake_rows(traced: dict) -> list[dict]:
+    """thread_wakes.record's threads, busiest first: wakeups and CPU ms per second, with the thread's name."""
+    seconds = max(float(traced.get("seconds") or 0), 1e-3)
+    rows = [{"tid": tid, "name": t.get("name") or "?", "wakes_per_s": round(t.get("wakes", 0) / seconds, 2),
+             "cpu_ms_per_s": round(t.get("running_ns", 0) / 1e6 / seconds, 3)}
+            for tid, t in (traced.get("threads") or {}).items()]
+    return sorted(rows, key=lambda r: -r["wakes_per_s"])
 
 
 def log(message: str) -> None:
@@ -658,6 +713,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--restart-cycles", type=int, default=3,
                         help="with --peer-rows: batches before the owed one, so the old run's positions pass the "
                              "new run's")
+    parser.add_argument("--wake-trace", type=int, default=0,
+                        help="after the windows: the app's own wakeup ledger over them (debug.wakeups), its main run "
+                             "loop timers, and a System Trace of this many seconds (1-15; capped in size and "
+                             "refused below 30 GiB free, thread_wakes.record) naming each app thread's wakeups")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
     args.parser = parser
@@ -666,16 +725,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def check_args(args: argparse.Namespace) -> None:
     parser = args.parser
+    if not 0 <= args.wake_trace <= 15:
+        parser.error("--wake-trace must be 0 (off) to 15 seconds")
     if (args.windows < 1 or args.window <= 0 or args.minutes < 0 or args.chats < 0 or args.history < 0
             or not math.isfinite(args.writers) or not math.isfinite(args.window) or not math.isfinite(args.minutes)
             or args.writers < 0 or args.history_prompt_kb < 0 or (args.writers > 0 and args.history <= 0)):
         parser.error("--windows must be >= 1, --window > 0, --minutes, --chats, --history, --history-prompt-kb and "
                      "--writers >= 0, and --writers needs --history")
     if (args.peer_rows or args.restart_at is not None) and not (
-            args.peer_rows > PEER_ROW_BATCH_MIN and args.restart_at is not None
+            args.chats >= 1 and args.peer_rows > PEER_ROW_BATCH_MIN and args.restart_at is not None
             and math.isfinite(args.restart_at) and 0 <= args.restart_at <= args.minutes and args.restart_cycles >= 0):
         parser.error(f"--peer-rows must be > {PEER_ROW_BATCH_MIN} with --restart-at between 0 and --minutes, "
-                     "and --restart-cycles >= 0")
+                     "--chats >= 1 (a shown agent page) and --restart-cycles >= 0")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -702,7 +763,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.chats > 0:
             chats = bench_memory.FakeChats(client, bundle, args.fake_agent)
             for index in range(args.chats):
-                made += chats.open(index) is not None
+                workspace = chats.open(index)
+                made += workspace is not None
+                state["chat_workspace"] = workspace or state.get("chat_workspace")
             log(f"idle-cpu: {made} of {args.chats} chats made, their first turn answered")
             if made < args.chats:
                 verdict.update(status=3, why=f"only {made} of {args.chats} chats were made")
@@ -723,7 +786,7 @@ def main(argv: list[str] | None = None) -> int:
             made = sum(peer.new_chat(f"idle bench peer chat {i}") is not None for i in range(args.peer_rows))
             log(f"idle-cpu: the peer daemon has {made} of {args.peer_rows} chats")
             socket_path = bench_memory.FakeChats.acpmux_socket(bundle)
-            ops = LiveOwedOps(process.pid, bundle, socket_path, peer, made)
+            ops = LiveOwedOps(process.pid, bundle, socket_path, peer, made, client, state.get("chat_workspace"))
             log(f"idle-cpu: idle {args.minutes:g} min from now; the app's acpmux restarts at {args.restart_at:g} min "
                 "with a batch of the peer's rows owed")
             time.sleep(args.restart_at * 60)  # sleep-ok: the idle period before the restart
@@ -759,9 +822,18 @@ def main(argv: list[str] | None = None) -> int:
 
         threads: list = []
         renderer_threads: list = []
+        wake_call = lambda: client.call("debug.wakeups", {"run_loop": True}, timeout=30)  # noqa: E731
+        wakes_before = wake_call() if args.wake_trace else None
         rows = measure(process.pid, bundle, args.windows, args.window,
                        each if args.sample_each_window and not args.no_sample else None, threads, renderer_threads)
         result["processes"] = rows
+        if args.wake_trace:
+            import thread_wakes
+            result["wakeups"] = wake_report(wakes_before, wake_call())
+            log("IDLE-CPU-WAKE-LEDGER " + json.dumps(result["wakeups"], sort_keys=True)[:4000])
+            traced = thread_wakes.record(process.pid, args.wake_trace)
+            result["thread_wakes"] = traced.get("error") or thread_wake_rows(traced)
+            log("IDLE-CPU-WAKE-THREADS " + json.dumps(result["thread_wakes"])[:4000])
         result["app_threads"] = threads
         result["renderer_threads"] = [{str(pid): groups for pid, groups in window.items()} for window in renderer_threads]
         result["pages"] = page_activity(lambda method, params=None: client.call(method, params, timeout=30))
