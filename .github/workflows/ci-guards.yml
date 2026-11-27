@@ -1124,7 +1124,9 @@ jobs:
 
       - name: Validate the cmux-next web-bundle cache contract
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_cmux_next_web_bundle_cache.py
+        run: |
+          python3 tests/test_cmux_next_web_bundle_cache.py
+          python3 tests/test_cmux_next_web_bundle_sparse.py
 
       - name: Validate the nightly builder
         if: ${{ !cancelled() && matrix.group == 'ci' }}

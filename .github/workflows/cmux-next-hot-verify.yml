@@ -413,7 +413,7 @@ jobs:
       pr: ${{ steps.check.outputs.pr }}
       head: ${{ steps.check.outputs.head }}
       pr_head: ${{ steps.check.outputs.pr_head }}
-      web: ${{ steps.check.outputs.web }}
+      publish_web: ${{ steps.check.outputs.publish_web }}
       rust: ${{ steps.check.outputs.rust }}
       layers: ${{ steps.check.outputs.layers }}
       kind: ${{ steps.check.outputs.kind }}
@@ -504,14 +504,14 @@ jobs:
         run: |
           bash scripts/cmux-next/hot-verify-pr.sh
 
-  # The PR's web layer on files.cmux.com: one dispatch of cmux-next-web-bundle-publish.yml's own pr path (its
+  # An open PR's web layer on files.cmux.com: one dispatch of cmux-next-web-bundle-publish.yml's own pr path (its
   # build job runs the PR's web build with no secret; its publish job holds its own credentials). Nothing waits
   # for it here: the look does not need it (the worker serves the head's web itself when latest.json does not name
   # the head yet), and the wait for latest.json held a Linux runner for up to 40 minutes per look.
   web:
     name: web layer
     needs: target
-    if: ${{ (inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.web == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (inputs.look_result == '' && needs.target.outputs.ok == 'true' && needs.target.outputs.publish_web == 'true') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
