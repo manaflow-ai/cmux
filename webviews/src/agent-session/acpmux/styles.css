@@ -431,14 +431,16 @@
    gives up its floor, so the composer is the same size and in the same place loading as open: a second
    max-height here clamped a tall draft 32 px shorter (and 32 px lower) while the chat connected, and the
    stage's floor pushed the dock past the pane's bottom in a short pane (Leo, 2026-11-24: "we need to have
-   more things decoupled from posisble shifts"; test/agent-pane-composer-anchored-above.test.ts). */
-.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock{position:relative;flex:none}
-.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-stage{min-height:0}
+   more things decoupled from posisble shifts"; test/agent-pane-composer-anchored-above.test.ts).
+   `data-connecting` is set while the loading area is up (ChatUnavailableState.tsx `ConnectingArea`), not
+   a `:has()` over the pane, which restyled the whole pane for every node inserted under it. */
+.acpmux-main[data-dock="float"][data-connecting]>.acpmux-dock{position:relative;flex:none}
+.acpmux-main[data-dock="float"][data-connecting]>.acpmux-stage{min-height:0}
 /* Its notices (noticeSlotModel.ts DOCK_NOTICE) take none of that height: in flow they shrank the stage, so
    the spinner and its words moved up as one came (a reload's connect, PaneBoundary's Try again) and down as
    it went. They lie over the stage's empty foot instead, just above the stack (Leo, 2026-11-22: "that
    message should not shift layout"); test/agent-pane-chat-unavailable.test.ts measures it. */
-.acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock>:is(.acpmux-host-line,.acpmux-host-line-group,.acpmux-host-error,.acpmux-switch-notice,.ui-notice,.acpmux-dictation-notice,.acpmux-managed-banner,.acpmux-composer-remote-note){position:absolute;left:0;right:0;bottom:100%;z-index:var(--layer-raised,1)}
+.acpmux-main[data-dock="float"][data-connecting]>.acpmux-dock>:is(.acpmux-host-line,.acpmux-host-line-group,.acpmux-host-error,.acpmux-switch-notice,.ui-notice,.acpmux-dictation-notice,.acpmux-managed-banner,.acpmux-composer-remote-note){position:absolute;left:0;right:0;bottom:100%;z-index:var(--layer-raised,1)}
 /* Equal upper/lower tracks keep the spinner centered. Its 28px square needs 40px while rotating.
    Copy stretches to its track instead of overflowing an intrinsically sized, centered grid item. */
 .acpmux-unavailable[data-unavailable="connecting"]{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 40px minmax(0,1fr);gap:8px;padding-bottom:0}
@@ -622,8 +624,9 @@
    their sizes, so a card growing past the dock's cap shrank the composer too, eating the quiet row's room and sliding the
    card down 6 px under a tile pasted into it (test/composer-attach-no-jump.test.ts, the narrow pane). */
 .acpmux-main[data-new-chat]>.acpmux-dock>.acpmux-home-area{flex:0 1000 auto;min-height:0;max-height:50%}
-/* The hero (header, glyph and title) keeps its room on a short pane; the lists, which scroll, give way first. */
-.acpmux-main[data-new-chat]:has(>.acpmux-dock>.acpmux-home-area:not(:empty))>.acpmux-stage{min-height:128px}
+/* The hero (header, glyph and title) keeps its room on a short pane; the lists, which scroll, give way first.
+   `data-home-lists` (HomeLists.gallery.tsx, homeListsShown) marks lists drawn, not a pane-level `:has()` (paneAncestorHas.test.ts). */
+.acpmux-main[data-new-chat][data-home-lists]>.acpmux-stage{min-height:128px}
 /* No lists to show: no wrapper either, so the hero centers exactly as without this feature. */
 .acpmux-home-area:empty{display:none}
 .acpmux-home-area{overflow:auto;padding:0 max(16px,calc((100% - 760px)/2)) 12px;font-family:var(--font-ui);-webkit-font-smoothing:antialiased}

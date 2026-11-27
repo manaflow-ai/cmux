@@ -48,6 +48,7 @@ export function HomeLists({
   const { waiting, review } = homeLists(sessions, currentId, asks, tabs);
   const settled = onUnsettle ? settledShelf(sessions, currentId) : NO_SETTLED;
   const t = useT();
+  // homeListsShown (homeListsModel.ts) answers the same question for the pane's `data-home-lists`.
   // One select for every row, calling the latest `onSelect`: a parent's new closure draws no row.
   const select = useStableCallback((sessionId: string) => onSelect(sessionId));
   if (waiting.length === 0 && review.length === 0 && settled.total === 0) return null;
