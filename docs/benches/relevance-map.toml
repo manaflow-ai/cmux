@@ -3890,6 +3890,10 @@ name = "schemas:sidebar-drag-geometry"
 paths = ["schemas/sidebar-drag-geometry/**"]
 
 [[unit]]
+name = "schemas:sidebar-hover-card-rules"
+paths = ["schemas/sidebar-hover-card-rules/**"]
+
+[[unit]]
 name = "schemas:sidebar-item-info"
 paths = ["schemas/sidebar-item-info/**"]
 
