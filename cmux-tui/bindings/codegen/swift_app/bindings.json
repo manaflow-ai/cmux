@@ -2207,6 +2207,47 @@
     },
     "Conversations": {
       "requests": {
+        "conversation-history": {
+          "name": "ConversationHistoryRequest",
+          "doc": [
+            "`conversation-history`: up to `limit` (1...500) messages before `beforeSeq`, ascending."
+          ],
+          "order": [
+            "conversation",
+            "before_seq",
+            "limit"
+          ],
+          "fields": {
+            "limit": {
+              "type": "Int",
+              "clamp": {
+                "minimum": 1,
+                "maximum": 500
+              }
+            }
+          },
+          "response": "ConversationHistory"
+        },
+        "conversation-snapshot": {
+          "name": "ConversationSnapshotRequest",
+          "doc": [
+            "`conversation-snapshot`: the head and the newest `tail` messages (1...500)."
+          ],
+          "order": [
+            "conversation",
+            "tail"
+          ],
+          "fields": {
+            "tail": {
+              "type": "Int",
+              "clamp": {
+                "minimum": 1,
+                "maximum": 500
+              }
+            }
+          },
+          "response": "ConversationSnapshot"
+        },
         "conversation-thread": {
           "name": "ConversationThreadRequest",
           "doc": [
