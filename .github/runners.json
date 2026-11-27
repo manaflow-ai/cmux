@@ -390,6 +390,10 @@
       "class": "apple-gui",
       "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the stress runs to the bench Mac with cmux-ci run"
     },
+    "cmux-next-agent-conn-chaos.yml#chaos-fleet": {
+      "class": "apple-gui",
+      "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the chaos suite to a fleet Mac with cmux-ci run"
+    },
     "screen-stream-eval.yml#eval": {
       "class": "apple-gui",
       "picker_followup": "runs-on is the build-fleet gateway runner, which only hands the measurement to the controller with cmux-ci run"
