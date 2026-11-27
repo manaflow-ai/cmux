@@ -31,6 +31,7 @@ pub(crate) const SAVE_EVERY_MS: u64 = 10_000;
 
 /// The failure classes a failed delivery is counted under: a bounded set, so the file and the
 /// status stay small whatever the errors say.
+#[cfg(test)]
 pub(crate) const CLASSES: &[&str] = &[
     "unknown_recipient",
     "no_session",
@@ -238,6 +239,11 @@ pub fn ls_line(stats: &Value) -> Option<String> {
         stats.get("latencyP95Ms").and_then(Value::as_u64),
     ) {
         line.push_str(&format!(", p50 ≤{p50} ms, p95 ≤{p95} ms"));
+    }
+    // The counts above are of every send since `sinceMs`; this is how many wait now. Without
+    // it, "1857 queued" read as 1,857 sends stuck when 5 were (huge-blue, 2026-11-27).
+    if n("depth") > 0 {
+        line.push_str(&format!(", {} waiting now", n("depth")));
     }
     if let Some(oldest) = stats.get("oldestUndeliveredMs").and_then(Value::as_u64) {
         line.push_str(&format!(", oldest waiting {} s", oldest / 1000));
