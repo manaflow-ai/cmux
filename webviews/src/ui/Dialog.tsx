@@ -19,11 +19,14 @@ export interface DialogProps {
   label?: string;
   /** An alert dialog: role `alertdialog`, and a press outside never dismisses it (Escape still does). */
   alert?: boolean;
+  /** Keep the dialog open when the person presses the backdrop. */
+  disablePointerDismissal?: boolean;
   className?: string;
   backdropClassName?: string;
   /** The popup's own style (a custom property it reads). */
   style?: CSSProperties;
   initialFocus?: React.RefObject<HTMLElement | null> | boolean;
+  finalFocus?: React.RefObject<HTMLElement | null>;
   /** Keys of the dialog's own content. The popup takes focus when a press inside lands on no
    * focusable element, so a handler on an inner element would miss them. */
   onKeyDown?: (event: React.KeyboardEvent<HTMLElement>) => void;
@@ -35,10 +38,12 @@ export function Dialog({
   onOpenChange,
   label,
   alert = false,
+  disablePointerDismissal = false,
   className,
   backdropClassName,
   style,
   initialFocus,
+  finalFocus,
   onKeyDown,
   children,
 }: DialogProps) {
@@ -54,12 +59,13 @@ export function Dialog({
     return () => document.removeEventListener("keydown", guardChordEscape, true);
   }, [open]);
   const Root = alert ? BaseAlertDialog.Root : BaseDialog.Root;
+  const dismissal = alert ? {} : { disablePointerDismissal };
   // A dialog drawn as the shared glass (`.ui-dialog.ui-glass`, popupSurface.css THE SHEET ROLE) is the App's
   // sheet glass under the page in a see-through Chromium page (ui/glass/hostGlass.ts), as a native dialog
   // card is; the page under it blurs in place. One without `.ui-glass` draws no glass to hand over.
   const glass = /(?:^|\s)ui-glass(?:\s|$)/.test(className ?? "");
   return (
-    <Root open={open} onOpenChange={(next) => onOpenChange(next)}>
+    <Root open={open} onOpenChange={(next) => onOpenChange(next)} {...dismissal}>
       <BaseDialog.Portal container={container}>
         <BaseDialog.Backdrop className={cx("ui-backdrop", backdropClassName)} />
         <BaseDialog.Popup
@@ -72,6 +78,7 @@ export function Dialog({
           aria-label={label}
           style={style}
           initialFocus={initialFocus}
+          finalFocus={finalFocus}
           onKeyDown={onKeyDown}
           onKeyDownCapture={(event) => {
             // Cmd/Ctrl/Option chords belong to the host dispatcher, even while a dialog is open.
