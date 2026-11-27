@@ -199,6 +199,7 @@ const CAPABILITIES: &[&str] = &[
     crate::git_seed::GIT_SEED_EXPORT_CAPABILITY,
     crate::git_seed::GIT_SEED_HOLD_CAPABILITY,
     crate::git_seed::GIT_SEED_CARRY_CAPABILITY,
+    crate::git_seed::GIT_SEED_BORROW_CAPABILITY,
     crate::blob_fetch::BLOB_FETCH_CAPABILITY,
     // A projected folder on the owner's own machine: its stream dial passes
     // `fs_wire::remote_dial_admits` for the owner's Native dial only.
@@ -310,7 +311,8 @@ struct ClientInfo {
 fn handshake(mux: &Arc<Mux>, client: u64, command: &str, fields: Value) -> anyhow::Result<Value> {
     if command == "identify" {
         let params: Identify = serde_json::from_value(fields)?;
-        let mut identity = cmd_server::identify(mux, params.machine_metadata, params.revisions)?;
+        let mut identity =
+            identify_reply::identify(mux, params.machine_metadata, params.revisions)?;
         identity["capabilities"] = json!(
             identify_capabilities(mux)
                 .into_iter()
