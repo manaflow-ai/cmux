@@ -48,6 +48,7 @@ struct State {
 pub(crate) struct TeamSendQueue {
     state: Arc<Mutex<State>>,
     flushing: Arc<tokio::sync::Mutex<()>>,
+    retry: Arc<crate::mesh_gate::Gate>,
 }
 
 impl TeamSendQueue {
@@ -202,7 +203,7 @@ impl TeamSendQueue {
                 return;
             };
             let Some(item) = item else { return };
-            if !enabled().await {
+            if !enabled().await || !self.retry.may_try() {
                 return;
             }
             let receipt = match mesh.send(&item.message).await {
@@ -213,8 +214,12 @@ impl TeamSendQueue {
                     receipt.detail = Some(error.to_string());
                     receipt
                 }
-                Err(_) => return,
+                Err(error) => {
+                    self.retry.failed(error.retry_after);
+                    return;
+                }
             };
+            self.retry.answered();
             let (queue, record) = (self.clone(), record.clone());
             let settled = tokio::task::spawn_blocking(move || {
                 if !record(&item, &receipt) {
@@ -361,7 +366,7 @@ mod tests {
         assert!(after_restart.pending().is_empty());
     }
 
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn transient_failure_keeps_head_and_stops_fifo_flush() {
         let queue = TeamSendQueue::default();
         queue.enqueue(message("first", "one"), "@member/agent".into(), None).await.unwrap();
@@ -374,6 +379,14 @@ mod tests {
             queue.pending().iter().map(|item| item.message.body.as_str()).collect::<Vec<_>>(),
             ["first", "second"]
         );
+        for _ in 0..20 {
+            queue.flush(&mesh, |_, _| true, || async { true }).await;
+        }
+        assert_eq!(mesh.bodies.lock().unwrap().len(), 1, "offline bursts share one probe");
+        tokio::time::advance(crate::mesh_gate::FIRST_WINDOW).await;
+        queue.flush(&mesh, |_, _| true, || async { true }).await;
+        assert_eq!(mesh.bodies.lock().unwrap().as_slice(), ["first", "first", "second"]);
+        assert!(queue.pending().is_empty());
     }
 
     #[tokio::test]
