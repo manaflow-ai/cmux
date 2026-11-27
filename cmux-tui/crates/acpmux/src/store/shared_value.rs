@@ -174,6 +174,7 @@ pub struct SharedText(Arc<str>);
 
 impl SharedText {
     /// Whether both are the one copy.
+    #[cfg(test)]
     pub(crate) fn shares(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }

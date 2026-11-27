@@ -7,7 +7,14 @@ fn last_of(image: &[u8]) -> LastImage {
     let fields = raw_fields(image).unwrap();
     let hashes = field_hashes(&fields);
     let (names, hashes) = shape(&fields, &hashes, None);
-    LastImage { lsn: 7, folder: FolderId { ino: 1, birth_ns: 0 }, names, hashes, saw: None, whole_next: false }
+    LastImage {
+        lsn: 7,
+        folder: FolderId { ino: 1, birth_ns: 0 },
+        names,
+        hashes,
+        saw: None,
+        whole_next: false,
+    }
 }
 
 #[test]
