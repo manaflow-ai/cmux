@@ -1,10 +1,11 @@
 import { act } from "react";
+import { drawWaitingTicksForTests } from "../../src/agent-session/acpmux/threadMinimap/ticksFrame";
 
-/// A chat's rail draws its ticks in the frame after the chat's first paint, and the task after it
-/// (ThreadMinimap.tsx `ticksDrawn`, schedule.ts `afterPaint`): this runs that frame and that task, as
-/// a browser would before a person sees the rail, so a test reads the ticks a chat shows.
-export const railFrame = () =>
-  act(async () => {
-    await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
-    for (let turn = 0; turn < 3; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
-  });
+/// A chat's rail draws its ticks in the frame after the chat's first paint (ThreadMinimap.tsx
+/// `ticksDrawn`, ticksFrame.ts): this draws them now, as that frame would before a person sees the
+/// rail, so a test reads the ticks a chat shows. It runs no animation frame: the rail's other frame
+/// work stays where each test drives it (thread-rail-ticks-after-paint.test.tsx runs the real frame).
+/// A synchronous act: an async one yields to the host, and a jsdom frame due then runs as well.
+export const railFrame = async () => {
+  act(() => drawWaitingTicksForTests());
+};
