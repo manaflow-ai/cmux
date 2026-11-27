@@ -47,6 +47,10 @@ nonisolated final class MacScreenFrameCounter: Sendable {
     /// The stream's timings so far (a copy of a few kilobytes at most).
     var timings: MacScreenFrameTimings { state.withLock { $0.timings } }
 
+    /// Frames presented that the pane has not heard about yet (it hears every 15th): a still
+    /// screen's last few frames wait here until the next batch, so a read adds them.
+    var uncounted: Int { state.withLock { $0.pending } }
+
     /// The frames counted since the last call.
     func take() -> Int {
         state.withLock { state in

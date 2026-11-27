@@ -164,14 +164,17 @@ extension MacScreenPages {
         row["fps"] = .number((stats.fps * 10).rounded() / 10)
         row["target_fps"] = stats.targetFps.map { .number(Double($0)) } ?? .null
         row["rtt_ms"] = stats.latencyMs.map(JSONValue.number) ?? .null
-        row["frames_decoded"] = .number(stats.framesDecoded)
+        // The pane hears of presented frames in batches of 15; the batch not yet heard counts too,
+        // or a still screen's last frames read as never decoded (`screen_still` false).
+        let decoded = stats.framesDecoded + Double(session.frameCounter?.uncounted ?? 0)
+        row["frames_decoded"] = .number(decoded)
         row["frames_dropped"] = .number(stats.framesDropped)
         row["host_frames"] = stats.hostFrames.map(JSONValue.number) ?? .null
         let hostStatsAge = stats.hostStatsAt.map { (Date().timeIntervalSince($0) * 1000).rounded() }
         row["host_stats_age_ms"] = hostStatsAge.map(JSONValue.number) ?? .null
         row["screen_still"] = Self.screenStill(
             hostFrames: stats.hostFrames, hostStatsAgeMs: hostStatsAge,
-            decoded: stats.framesDecoded, dropped: stats.framesDropped
+            decoded: decoded, dropped: stats.framesDropped
         ).map(JSONValue.bool) ?? .null
         row["frame"] = .string("\(Int(session.frameSize.width))x\(Int(session.frameSize.height))")
         row["rtt_ms_window"] = summary(timings.rtt)
