@@ -77,7 +77,7 @@ let package = Package(
         .target(name: "CmuxMobileNotifications"),
         // CMUXAuthCore: CMUXBuildSpace, the dev build's X-Cmux-Build-Space header.
         // CmuxMobileLinkFFI: New Task's terminal line, image type and agent pick rules (TaskComposer) are Rust's task_composer.
-        // CmuxMobileLinkFFI: the workspace group rules (applyGroups, PendingGroupEdits) are Rust's workspace_groups.
+        // CmuxMobileLinkFFI: the workspace group rules (applyGroups, PendingGroupEdits) are Rust's workspace_groups; the arrangement and move rules are workspace_arrangement and workspace_moves.
         .target(name: "CmuxMobileModel", dependencies: ["CmuxMobileDesignCore", .product(name: "CmuxEgress", package: "CmuxEgress"), .product(name: "CMUXAuthCore", package: "CMUXAuthCore"), .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS]))], resources: [.process("Resources")]),
         .binaryTarget(name: "CmuxMobileLinkFFIFFI", path: "Frameworks/CmuxMobileLinkFFI.xcframework"),
         .target(
@@ -380,6 +380,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
     try project("CmuxMobileLive", directory: "Sources/CmuxMobileLive", sources: [
         "ClockInstants.swift", "LinkConnectivityEvents.swift", "LinkController.swift", "LinkMachine.swift",
         "LinkPairingRetry.swift", "LinkServiceFailure.swift", "PresenceTiming.swift", "ReliabilityLinuxShims.swift",
+        "RetryBounds.swift",
     ], dependencies: [
         "CmuxMobileModel", "CmuxMobileTransport",
         .product(name: "CmuxConnectivityTelemetry", package: "CmuxConnectivityTelemetry"),
