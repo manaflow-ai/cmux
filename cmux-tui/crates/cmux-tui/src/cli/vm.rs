@@ -710,8 +710,15 @@ pub(super) enum NewRoute {
 const APP_CREATE_FLAGS: [&str; 1] = ["--repo"];
 
 /// Flags only the VM API's create takes (cmux-vm's `CreateArgs`).
-const VM_API_CREATE_FLAGS: [&str; 6] =
-    ["--snapshot", "--image", "--image-revision", "--public-egress", "--idle-timeout", "--label"];
+const VM_API_CREATE_FLAGS: [&str; 7] = [
+    "--snapshot",
+    "--image",
+    "--image-revision",
+    "--public-egress",
+    "--egress-allow",
+    "--idle-timeout",
+    "--label",
+];
 
 /// Where `vm new <tail>` (or its old spelling `machine new`) goes. A flag only one side takes
 /// picks that side; otherwise the app makes it when there is one (`app_present`), with its own
@@ -785,7 +792,9 @@ table on stderr.
 Headless (CI, no app) or with a VM API key of your own (CMUX_VM_API_KEY, a
 config file or `cmux vm key new`), it makes a VM API VM instead, which also
 takes --snapshot SNAPSHOT_ID, --image IMAGE_ID --image-revision REV,
---public-egress, --idle-timeout SECONDS, --label KEY=VALUE and --idempotency-key KEY.
+--public-egress, --egress-allow PRESET|HOST, --idle-timeout SECONDS, --label KEY=VALUE
+and --idempotency-key KEY. --egress-allow locks the VM to an allowlist: `--egress-allow npm`
+reaches the npm registry and the hosts every cmux VM needs, and nothing else.
 There --size, --persistent (--idle-timeout -1), --bootstrap lane --bootstrap-script
 FILE, --machine-config FILE and --wait [--timeout SECONDS] work as well, with
 no app: the script and the file go to the VM over the VM API, and --wait
