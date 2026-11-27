@@ -939,8 +939,10 @@ jobs:
           # Incremental (thin only): acpmux's lib recompiled in full (445 s) on nearly every merge
           # because a crate below it changed. With incremental on, rustc reuses the unchanged
           # codegen units from target/<triple>/release/incremental, which the per-commit
-          # workspace delta (cargo-target-delta.sh pack: every file newer than the stamp) carries
-          # to the next build; cargo_target_strip.py still drops it from the dependency entry.
+          # workspace delta (cargo-target-delta.sh pack: every file written, or under incremental/
+          # hard-linked, after the stamp) carries to the next build; cargo_target_strip.py still drops
+          # it from the dependency entry. Measured off vs on (acpmux after a cmux-config edit):
+          # 465/438/445 s vs 78/89/86 s; a cold build costs 660 s vs 612 s.
           profile=""
           if [[ "$LTO" == thin ]]; then
             export CARGO_PROFILE_RELEASE_LTO=off
