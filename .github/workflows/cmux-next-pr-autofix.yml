@@ -163,7 +163,7 @@ jobs:
       # two scripts below); the next step fetches the history it needs. A
       # fetch-depth 0 checkout fetched every branch's (about 25,000) commits
       # and trees and the whole tree's blobs: 3-6 min on 2026-11-03.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           filter: blob:none
@@ -491,7 +491,7 @@ jobs:
       # Also after a lookup that did not finish (killed at its limit, or a crash).
       stale_pick: ${{ steps.lookup.outputs.stale_pick == 'true' || steps.lookup.outcome == 'failure' || steps.lookup.outcome == 'cancelled' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         id: checkout
         continue-on-error: true
         timeout-minutes: 5
@@ -508,7 +508,7 @@ jobs:
         if: steps.checkout.outcome == 'success'
         continue-on-error: true
         timeout-minutes: 5
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: base
@@ -614,7 +614,7 @@ jobs:
         timeout-minutes: 5
         run: apt-get update -qq && apt-get install -y -qq --no-install-recommends git python3 curl ca-certificates
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -707,7 +707,7 @@ jobs:
       verified: ${{ steps.regenerate.outcome == 'success' && (steps.regenerate.outputs.exports != 'true' || steps.upload.outcome == 'success') && 'true' || 'false' }}
       exports: ${{ steps.regenerate.outcome == 'success' && steps.upload.outcome == 'success' && 'true' || 'false' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -812,7 +812,7 @@ jobs:
       # Depth 1, then only the base's and the head's commits (next step): fetch-depth 0 fetched every
       # branch's commits and trees (about 33,000 refs, 0.6 GB) into a workspace the last step wipes, so each
       # run paid 2.3 to 15 min of checkout (median 4.8 of 40 runs, 2026-11-22 00:15-02:15Z) inside its 40-minute limit.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -1079,7 +1079,7 @@ jobs:
       # action-areas. fetch-depth 0 fetched every branch's (about 32,000) commit graphs: 150 s median
       # on the GCP pool, and on Freestyle VMs a fetch silent for 60 s that git gave up on three times
       # (25 of 37 runs failed there, 2026-11-23 00:55-03:36Z).
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           filter: blob:none
@@ -1581,7 +1581,7 @@ jobs:
       contents: read
       pull-requests: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
@@ -1632,7 +1632,7 @@ jobs:
       # scripts do): the patch was made by the pull request's code, and the
       # script decides what of it may be pushed.
       - name: Check out the base's apply script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/${{ github.event.pull_request.base.ref }}
           path: base
@@ -1640,7 +1640,7 @@ jobs:
           sparse-checkout: scripts/cmux-next
           sparse-checkout-cone-mode: true
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           path: head
