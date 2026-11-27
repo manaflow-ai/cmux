@@ -181,6 +181,14 @@ pub fn table() -> Vec<(&'static str, Ask)> {
         ),
         (method::MUX_CALLERS, Run(json!({}))),
         (method::MUX_FELT_SNAPSHOT, Run(json!({}))),
+        (method::MUX_WATCHDOG_HOLD, Run(json!({}))),
+        (
+            method::MUX_BG_REARM,
+            Any(
+                json!({"version": 1, "sessionId": "$S", "waits": []}),
+                "the session move requires the person's connection; this harness has no person proof",
+            ),
+        ),
         (method::MUX_HEAP_PROFILE, Run(json!({}))),
         (method::MUX_PERF, Run(json!({"op": "snapshot"}))),
         (method::SESSION_SIGNATURE, Run(json!({"sessionIds": ["$S"]}))),
