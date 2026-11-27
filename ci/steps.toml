@@ -422,6 +422,44 @@ python3 scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_re
 # swift-acpmux-protocol.yml). Those workflows keep their push, dispatch and post-merge runs; a pull
 # request runs them here. `inputs` is each one's former pull_request path filter. A step whose
 # workflow ran its checks under `if: !cancelled()` runs every one and fails if any failed.
+# Every page's strings, strict, on the pull request that changes a catalog or a setting. cmux-next-guards.yml's
+# static-checks runs the same generation on the feat-cmux-next push, but a pull request skips that job (Tier A of
+# scripts/ci/affected-jobs.json pull_request_skip), so a setting with English-only strings landed twice and the
+# push's Release compile was red on every later commit while no nightly could promote: #51725 (11-23, 3 h) and
+# #55301 (11-26, 3 h; fixed by #58991). The export is regenerated first, as the PR autofix and base-autofix do,
+# because a pull request edits the settings sources, not the export the generator reads. Exit 2 from the Linux
+# export (a Swift shape it cannot read) leaves the Mac to decide: the committed export is checked instead. It runs
+# alone: both write into the checkout (the export, the gitignored tables) while no other step reads it.
+[step.page-strings]
+job = "linux"
+timeout = 300
+alone = true
+# Its ** globs route it on a pull request too: a catalog edit anywhere in the tree is the case it exists for.
+pr_scope = false
+title = "Page strings generate with no missing translation"
+about = "the settings export the pull request's sources make, then every React page's strings table, strict (webviews/scripts/pages/gen-strings.mjs)"
+needs = ["node"]
+inputs = [
+  "**/*.xcstrings",
+  "schemas/settings/**",
+  "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/**",
+  "scripts/cmux-next/linux-exports/**",
+  "scripts/cmux-next/export-settings-linux.sh",
+  "scripts/cmux-next/settings-exports.txt",
+  "scripts/cmux-next/string_catalogs.py",
+  "webviews/scripts/pages/**",
+]
+run = '''
+rc=0
+bash scripts/cmux-next/export-settings-linux.sh || rc=$?
+if [ "$rc" = 2 ]; then
+  echo "::notice::the Linux settings export cannot decide; checking the committed export (the Mac export decides)"
+elif [ "$rc" != 0 ]; then
+  exit "$rc"
+fi
+CMUX_STRINGS_BEST_EFFORT="" node webviews/scripts/pages/gen-strings.mjs
+'''
+
 [step.labels-manifest]
 job = "linux"
 timeout = 120
@@ -1840,8 +1878,8 @@ CMUX_INSTANT_SKIP_TYPECHECK=1 bun run test:instant
 [step.react-apps-check]
 job = "web-browser"
 timeout = 1800
-# Its verdict follows the head's labels, sha and base, not only its tree.
-reuse = false
+# Its verdict follows the head's base and labels too: pr_receipt.py's key pins the paths the merge changes against
+# the base, and a full-ci run never takes a receipt.
 title = "React apps check"
 about = "webviews' source checks, bundles, PR-scoped rules and touched tests, judged against the base"
 needs = ["bun", "node"]
@@ -2798,6 +2836,51 @@ inputs = [
   ".github/actions/setup-cmux-tui-rust/**",
   ".github/actions/runner-cargo-home/**",
   "cmux-tui/rust-toolchain.toml",
+  # The crates CmuxMobileLinkFFI compiles outside cmux-next-ios/, from its Cargo graph (ios_link_ffi_key.closure;
+  # `scripts/ci/ios_app_package_paths.py --rust` prints them, --check holds them exact): a shared cmux-tui crate
+  # change starts the iOS checks (cmux#55399).
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/crates/cmux-agent-pane-policy/**",
+  "cmux-tui/crates/cmux-auto-session/**",
+  "cmux-tui/crates/cmux-braid-carrier/**",
+  "cmux-tui/crates/cmux-braid-class/**",
+  "cmux-tui/crates/cmux-braid-path/**",
+  "cmux-tui/crates/cmux-build-space/**",
+  "cmux-tui/crates/cmux-bundle/**",
+  "cmux-tui/crates/cmux-cloud-disk/**",
+  "cmux-tui/crates/cmux-cloud-handlers/**",
+  "cmux-tui/crates/cmux-cloud-start-core/**",
+  "cmux-tui/crates/cmux-cloud-wire/**",
+  "cmux-tui/crates/cmux-composer-send/**",
+  "cmux-tui/crates/cmux-egress/**",
+  "cmux-tui/crates/cmux-felt/**",
+  "cmux-tui/crates/cmux-follow-cam/**",
+  "cmux-tui/crates/cmux-mobile-core/**",
+  "cmux-tui/crates/cmux-mobile-last-place/**",
+  "cmux-tui/crates/cmux-process/**",
+  "cmux-tui/crates/cmux-rd-core/**",
+  "cmux-tui/crates/cmux-rd-ffi/**",
+  "cmux-tui/crates/cmux-rd-link/**",
+  "cmux-tui/crates/cmux-rd-proto/**",
+  "cmux-tui/crates/cmux-rd-screen/**",
+  "cmux-tui/crates/cmux-relay-snapshot/**",
+  "cmux-tui/crates/cmux-remote-browser/**",
+  "cmux-tui/crates/cmux-remote-protocol/**",
+  "cmux-tui/crates/cmux-scope/**",
+  "cmux-tui/crates/cmux-share-approval/**",
+  "cmux-tui/crates/cmux-tab-snapshots/**",
+  "cmux-tui/crates/cmux-terminal-prediction/**",
+  "cmux-tui/crates/cmux-terminal-projection/**",
+  "cmux-tui/crates/cmux-terminal-sizing/**",
+  "cmux-tui/crates/cmux-transport/**",
+  "cmux-tui/crates/cmux-unix-socket/**",
+  "cmux-tui/crates/cmux-vnc/**",
+  "cmux-tui/crates/cmux-wg/**",
+  "cmux-tui/crates/cmux-window-rules/**",
+  "cmux-tui/vendor/crossterm/**",
+  "cmux-tui/vendor/smoltcp/**",
+  "cmux-tui/vendor/terminput-crossterm/**",
 ]
 # Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker build nothing in the iPhone app
 # (#53223, scripts/cmux-next/build_select.py reads the kit workflow's filter); the scripts the kit or the app build
@@ -2859,6 +2942,7 @@ inputs = [
   "Packages/Shared/CmuxEgress/**",
   "Packages/Shared/CmuxGhosttyKit/**",
   "Packages/Shared/CmuxHomeCore/**",
+  "Packages/Shared/CmuxLiveCode/**",
   "Packages/Shared/CmuxScreenKit/**",
   "Packages/Shared/CmuxSpinner/**",
   "Packages/Shared/CmuxTheme/**",
@@ -2881,6 +2965,51 @@ inputs = [
   ".github/actions/setup-cmux-tui-rust/**",
   ".github/actions/runner-cargo-home/**",
   "cmux-tui/rust-toolchain.toml",
+  # The crates CmuxMobileLinkFFI compiles outside cmux-next-ios/, from its Cargo graph (ios_link_ffi_key.closure;
+  # `scripts/ci/ios_app_package_paths.py --rust` prints them, --check holds them exact): a shared cmux-tui crate
+  # change starts the iOS checks (cmux#55399).
+  "cmux-tui/Cargo.lock",
+  "cmux-tui/Cargo.toml",
+  "cmux-tui/crates/cmux-agent-pane-policy/**",
+  "cmux-tui/crates/cmux-auto-session/**",
+  "cmux-tui/crates/cmux-braid-carrier/**",
+  "cmux-tui/crates/cmux-braid-class/**",
+  "cmux-tui/crates/cmux-braid-path/**",
+  "cmux-tui/crates/cmux-build-space/**",
+  "cmux-tui/crates/cmux-bundle/**",
+  "cmux-tui/crates/cmux-cloud-disk/**",
+  "cmux-tui/crates/cmux-cloud-handlers/**",
+  "cmux-tui/crates/cmux-cloud-start-core/**",
+  "cmux-tui/crates/cmux-cloud-wire/**",
+  "cmux-tui/crates/cmux-composer-send/**",
+  "cmux-tui/crates/cmux-egress/**",
+  "cmux-tui/crates/cmux-felt/**",
+  "cmux-tui/crates/cmux-follow-cam/**",
+  "cmux-tui/crates/cmux-mobile-core/**",
+  "cmux-tui/crates/cmux-mobile-last-place/**",
+  "cmux-tui/crates/cmux-process/**",
+  "cmux-tui/crates/cmux-rd-core/**",
+  "cmux-tui/crates/cmux-rd-ffi/**",
+  "cmux-tui/crates/cmux-rd-link/**",
+  "cmux-tui/crates/cmux-rd-proto/**",
+  "cmux-tui/crates/cmux-rd-screen/**",
+  "cmux-tui/crates/cmux-relay-snapshot/**",
+  "cmux-tui/crates/cmux-remote-browser/**",
+  "cmux-tui/crates/cmux-remote-protocol/**",
+  "cmux-tui/crates/cmux-scope/**",
+  "cmux-tui/crates/cmux-share-approval/**",
+  "cmux-tui/crates/cmux-tab-snapshots/**",
+  "cmux-tui/crates/cmux-terminal-prediction/**",
+  "cmux-tui/crates/cmux-terminal-projection/**",
+  "cmux-tui/crates/cmux-terminal-sizing/**",
+  "cmux-tui/crates/cmux-transport/**",
+  "cmux-tui/crates/cmux-unix-socket/**",
+  "cmux-tui/crates/cmux-vnc/**",
+  "cmux-tui/crates/cmux-wg/**",
+  "cmux-tui/crates/cmux-window-rules/**",
+  "cmux-tui/vendor/crossterm/**",
+  "cmux-tui/vendor/smoltcp/**",
+  "cmux-tui/vendor/terminput-crossterm/**",
 ]
 # Agent tools beside the app (review.sh, try.sh, the hand-off host) and the mobile Worker build nothing in the iPhone app
 # (#53223, scripts/cmux-next/build_select.py reads the kit workflow's filter); the scripts the kit or the app build
