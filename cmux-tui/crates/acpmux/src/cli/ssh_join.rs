@@ -281,6 +281,28 @@ fn shell_safe_origin(origin: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b':' | b'/' | b'.' | b'-' | b'_'))
 }
 
+/// The host name ssh would connect to for `host` (`HOST` or `USER@HOST`): its config's
+/// `HostName` (`ssh -G`, which connects nowhere), so an alias resolves to the real address.
+pub fn ssh_hostname(program: &str, host: &str) -> Option<String> {
+    if !valid_host(host) {
+        return None;
+    }
+    let out = cmux_process::Command::new(program)
+        .args(["-G", "--", host])
+        .stdin(cmux_process::Stdio::null())
+        .output()
+        .ok()?;
+    hostname_of(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// `hostname` in `ssh -G` output.
+pub(crate) fn hostname_of(config: &str) -> Option<String> {
+    config
+        .lines()
+        .find_map(|line| line.strip_prefix("hostname ").map(str::trim).map(str::to_owned))
+        .filter(|name| !name.is_empty() && valid_host(name))
+}
+
 /// The login ssh would use for `host` (`ssh -G`, which reads the config and connects nowhere).
 pub fn ssh_login(program: &str, host: &str) -> Option<String> {
     if !valid_host(host) {

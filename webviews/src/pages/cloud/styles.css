@@ -110,7 +110,7 @@ select {
 .cloud-migration-text {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--grid-half-step);
   min-width: 0;
   font-size: 12px;
   color: var(--cloud-text-2);
@@ -153,7 +153,7 @@ select {
 }
 
 .cloud-loading,
-.cloud-disconnected,
+.cloud-still-trying,
 .cloud-signed-out {
   flex: 1;
 }
@@ -227,6 +227,36 @@ select {
   padding: 14px 0 6px;
 }
 
+/* The surge card (SurgeCard.tsx): one line above the machine list after a surge. */
+.cloud-surge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--grid-half-step) var(--grid-gap);
+  margin: 0 0 var(--grid-gap);
+  padding: var(--grid-gap) var(--grid-gap);
+  border: 1px solid var(--cloud-separator);
+  border-left: 3px solid var(--cloud-text-2);
+  border-radius: var(--ds-radius-md);
+  background: var(--cloud-elevated);
+}
+
+.cloud-surge.is-drained {
+  border-left-color: var(--cloud-ok);
+}
+
+.cloud-surge-title {
+  font-weight: 600;
+}
+
+.cloud-surge-ready {
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-surge-part {
+  font-variant-numeric: tabular-nums;
+}
+
 .cloud-section-title {
   margin: 0;
   font-size: 13px;
@@ -260,7 +290,7 @@ select {
   align-items: center;
   gap: 9px;
   min-width: 0;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   cursor: default;
 }
 
@@ -371,6 +401,83 @@ select {
   color: var(--cloud-text-2);
 }
 
+.cloud-disk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--grid-half-step) var(--ds-space-2);
+  margin-bottom: var(--grid-half-step);
+  color: var(--cloud-text-2);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-disk-bar-track {
+  display: flex;
+  flex: 1 1 160px;
+  max-width: 320px;
+  border-radius: var(--ds-radius-sm);
+  background: color-mix(in srgb, var(--cloud-text-2) 18%, transparent);
+}
+
+.cloud-disk-bar-segment {
+  height: 100%;
+}
+
+.cloud-disk-bar-system {
+  background: color-mix(in srgb, var(--cloud-text-2) 55%, Canvas);
+}
+
+/* The project's own files: the strongest mark, the part an agent's work grows. */
+.cloud-disk-bar-project,
+.cloud-disk-bar-used {
+  background: var(--cloud-text);
+}
+
+/* Caches are the part a cleanup can give back. */
+.cloud-disk-bar-caches {
+  background: var(--cloud-ok);
+}
+
+.cloud-disk-bar-free {
+  background: color-mix(in srgb, var(--cloud-text-2) 18%, transparent);
+}
+
+/* Under 2 GiB free: the free rest and the label turn red; the split keeps its colours. */
+.cloud-disk-bar-almost-full .cloud-disk-bar-track,
+.cloud-disk-bar-almost-full .cloud-disk-bar-free {
+  background: color-mix(in srgb, var(--cloud-bad) 45%, transparent);
+}
+
+.cloud-disk-bar-warning {
+  color: var(--cloud-bad);
+}
+
+.cloud-disk-bar-gallery-state {
+  margin-bottom: var(--ds-space-4);
+}
+
+.cloud-disk-bar-legend {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: var(--ds-space-2);
+}
+
+.cloud-disk-bar-key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-1);
+}
+
+.cloud-disk-bar-details {
+  flex-basis: 100%;
+}
+
+.cloud-disk-bar-details summary {
+  cursor: default;
+}
+
 .cloud-disk-health-user code {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: var(--text-caption);
@@ -474,6 +581,21 @@ select {
   overflow-wrap: anywhere;
 }
 
+/* A failed renewal: one warning line under the plan, Manage Billing beside it. */
+.cloud-past-due {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 4px;
+}
+
+.cloud-past-due-text {
+  flex: 1 1 14em;
+  min-width: 0;
+  color: var(--cloud-warn);
+}
+
 .cloud-mono {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 12px;
@@ -482,7 +604,7 @@ select {
 
 .cloud-input {
   padding: 3px 8px;
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   border: 1px solid var(--cloud-separator);
   background: transparent;
   outline: none;
@@ -540,6 +662,79 @@ select {
   background: var(--cloud-text-2);
 }
 
+/* This month: the total beside the title, one line per meter (amount and its dollars), as-of, the card. */
+.cloud-month {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cloud-month-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.cloud-month-title {
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--cloud-text-2);
+}
+
+.cloud-month-test {
+  font-size: var(--text-caption);
+  color: var(--cloud-warn);
+}
+
+.cloud-month-total {
+  margin-left: auto;
+  font-size: var(--text-body);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-month-lines {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.cloud-month-line {
+  display: grid;
+  grid-template-columns: minmax(0, 70px) minmax(0, 1fr) minmax(0, max-content);
+  gap: 8px;
+  font-size: var(--text-caption);
+  color: var(--cloud-text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-month-line dd {
+  margin: 0;
+}
+
+.cloud-month-usd {
+  text-align: right;
+  color: var(--cloud-text);
+}
+
+.cloud-month-asof,
+.cloud-month-loading {
+  margin: 0;
+  font-size: var(--text-caption);
+}
+
+.cloud-month-failed,
+.cloud-month-payment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.cloud-month-card {
+  font-variant-numeric: tabular-nums;
+}
+
 .cloud-items {
   list-style: none;
   margin: 0;
@@ -550,7 +745,7 @@ select {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 2px 10px;
+  gap: var(--grid-half-step) 10px;
   padding: 4px 0;
   border-bottom: 1px solid var(--cloud-separator);
 }
@@ -564,7 +759,7 @@ select {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 2px;
+  gap: var(--grid-half-step);
   min-width: 0;
   max-width: 100%;
   margin-left: auto;
@@ -725,7 +920,7 @@ select {
   padding: 6px 8px;
   overflow: auto;
   border: 1px solid var(--cloud-separator);
-  border-radius: 6px;
+  border-radius: var(--ds-radius-md);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
@@ -742,7 +937,7 @@ select {
 
 .cloud-browser-route {
   display: grid;
-  gap: 2px;
+  gap: var(--grid-half-step);
   padding-top: 6px;
 }
 
@@ -850,6 +1045,11 @@ select {
 .cloud-store-cta .cloud-button {
   padding: 6px 14px;
   font-weight: 600;
+}
+
+/* Beside Sign In: what it signs in to ("Signs in to cmux.com"). */
+.cloud-store-cta .ui-sign-in__backend {
+  align-self: center;
 }
 
 .cloud-store-art {
@@ -1003,7 +1203,7 @@ select {
 .cloud-store-tier {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--grid-half-step);
   padding: 14px 14px 12px;
   border-radius: 10px;
   border: 1px solid var(--cloud-separator);
@@ -1223,4 +1423,87 @@ select {
 .cloud-create-waiting {
   display: block;
   margin: 8px 0;
+}
+
+/* The plan's hours and the spend limit past them (PoolPanel.tsx, RFD 0081). */
+.cloud-pool-track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--cloud-separator);
+  overflow: hidden;
+}
+
+.cloud-pool-fill {
+  display: block;
+  height: 100%;
+  background: var(--cloud-text-2);
+}
+
+.cloud-pool[data-state="near"] .cloud-pool-fill,
+.cloud-pool[data-state="overage"] .cloud-pool-fill {
+  background: var(--cloud-warn);
+}
+
+.cloud-pool[data-state="paused"] .cloud-pool-fill {
+  background: var(--cloud-bad);
+}
+
+.cloud-pool-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--cloud-text-2);
+  opacity: 0.5;
+}
+
+.cloud-pool-used {
+  margin: 6px 0 0;
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-pool-alert {
+  display: flex;
+  flex-direction: column;
+  gap: var(--grid-half-step);
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--cloud-warn);
+  font-size: var(--text-detail);
+}
+
+.cloud-pool-alert strong {
+  color: var(--cloud-warn);
+  font-weight: 600;
+}
+
+.cloud-pool-alert-bad {
+  border-color: var(--cloud-bad);
+}
+
+.cloud-pool-alert-bad strong {
+  color: var(--cloud-bad);
+}
+
+.cloud-pool-limit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cloud-pool-currency {
+  color: var(--cloud-text-2);
+}
+
+.cloud-pool-input {
+  flex: 1 1 auto;
+  width: 90px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cloud-pool-hint {
+  margin: 6px 0 0;
 }

@@ -9,9 +9,18 @@
 //! half the scale; the host resets the count to 0 when the scale it draws at
 //! changes. At [`MIN_SCALE`] the answer is `Hold(TooHeavy)`, for as long as
 //! the host keeps the count.
+//!
+//! A motion scene (plans/cmux-next/motion-scenes.md) with no keyframes whose
+//! physics sleeps is at rest (`Player::at_rest`): the host passes that as
+//! [`ScheduleInput::at_rest`] and the answer is `Hold(AtRest)`, after every
+//! unseen and power reason and the GPU budget, and before `Idle`. Input still
+//! wakes it: the host asks again after a pointer move or a press, the frame it
+//! draws for that input wakes the scene's physics, and the next ask runs.
 
 /// Nothing for this long (no pointer motion over the window, no key press in
-/// it, no size or theme change) and the wallpaper holds on its frame.
+/// it, no size or theme change, and for a wallpaper with `agents` no agent
+/// event) and the wallpaper holds on its frame. A manifest's `idle_after`
+/// shortens it ([`ScheduleInput::idle_after_s`]).
 pub const IDLE_AFTER_S: f64 = 20.0;
 /// The Settings cap when the host passes none.
 pub const DEFAULT_FPS_CAP: u32 = 30;
@@ -47,8 +56,11 @@ pub enum HoldReason {
     AnimationsOff = 10,
     /// The GPU budget failed at the lowest scale.
     TooHeavy = 11,
-    /// Nothing happened for [`IDLE_AFTER_S`].
+    /// Nothing happened for the idle time ([`ScheduleInput::idle_after_s`]).
     Idle = 12,
+    /// A motion scene with nothing moving: no keyframes, and its physics, if
+    /// any, asleep. Its frame does not change until input wakes it.
+    AtRest = 13,
 }
 
 impl HoldReason {
@@ -67,6 +79,7 @@ impl HoldReason {
             Self::AnimationsOff => "animations_off",
             Self::TooHeavy => "too_heavy",
             Self::Idle => "idle",
+            Self::AtRest => "at_rest",
         }
     }
 
@@ -105,8 +118,16 @@ pub struct ScheduleInput {
     pub seconds_since_activity: f64,
     /// Seconds since the pointer last moved over the window (counts only when `interactive`).
     pub seconds_since_pointer: f64,
+    /// Seconds since an agent in the window last wrote output or changed state
+    /// (counts only when `agents`).
+    pub seconds_since_agent_event: f64,
     /// The manifest's `interactive`.
     pub interactive: bool,
+    /// The manifest's `agents`.
+    pub agents: bool,
+    /// The manifest's `idle_after` in seconds; 0 (or anything not above 0)
+    /// means [`IDLE_AFTER_S`], and a longer time is cut to it.
+    pub idle_after_s: f64,
     /// `appearance.liveWallpaperFrameRate`; 0 means the default (30).
     pub settings_fps_cap: u32,
     /// The manifest's `fps`.
@@ -117,6 +138,8 @@ pub struct ScheduleInput {
     pub scale: f32,
     /// The view has drawn at least one frame.
     pub has_frame: bool,
+    /// A motion scene at rest (`Player::at_rest`); false for a program wallpaper.
+    pub at_rest: bool,
 }
 
 impl Default for ScheduleInput {
@@ -134,12 +157,16 @@ impl Default for ScheduleInput {
             animations_off: false,
             seconds_since_activity: 0.0,
             seconds_since_pointer: f64::INFINITY,
+            seconds_since_agent_event: f64::INFINITY,
             interactive: true,
+            agents: false,
+            idle_after_s: 0.0,
             settings_fps_cap: DEFAULT_FPS_CAP,
             manifest_fps: DEFAULT_FPS_CAP,
             gpu_strikes: 0,
             scale: MAX_SCALE,
             has_frame: true,
+            at_rest: false,
         }
     }
 }
@@ -172,6 +199,11 @@ pub fn gpu_strikes(strikes: u32, gpu_ms: f32) -> u32 {
     } else {
         0
     }
+}
+
+/// The idle time for `idle_after_s` ([`ScheduleInput::idle_after_s`]).
+pub fn idle_after(idle_after_s: f64) -> f64 {
+    if idle_after_s > 0.0 { idle_after_s.min(IDLE_AFTER_S) } else { IDLE_AFTER_S }
 }
 
 /// Decides whether the wallpaper draws now, and how.
@@ -207,9 +239,17 @@ pub fn schedule(input: &ScheduleInput) -> Decision {
         scale = (scale / 2.0).max(MIN_SCALE);
     }
 
-    let quiet = |s: f64| s.is_nan() || s >= IDLE_AFTER_S;
+    // Nothing on screen would change: holding costs nothing, and `draw_one`
+    // still gives a view with no frame its picture.
+    if input.at_rest {
+        return hold(HoldReason::AtRest, scale);
+    }
+
+    let idle = idle_after(input.idle_after_s);
+    let quiet = |s: f64| s.is_nan() || s >= idle;
     let pointer_quiet = !input.interactive || quiet(input.seconds_since_pointer);
-    if quiet(input.seconds_since_activity) && pointer_quiet {
+    let agents_quiet = !input.agents || quiet(input.seconds_since_agent_event);
+    if quiet(input.seconds_since_activity) && pointer_quiet && agents_quiet {
         return hold(HoldReason::Idle, scale);
     }
 
@@ -218,221 +258,5 @@ pub fn schedule(input: &ScheduleInput) -> Decision {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn run(input: &ScheduleInput) -> (u32, f32) {
-        match schedule(input) {
-            Decision::Run { fps, interval_s, scale } => {
-                assert!((interval_s - 1.0 / f64::from(fps)).abs() < 1e-12);
-                (fps, scale)
-            }
-            d => panic!("held: {d:?}"),
-        }
-    }
-
-    fn held(input: &ScheduleInput) -> (HoldReason, bool) {
-        match schedule(input) {
-            Decision::Hold { reason, draw_one, .. } => (reason, draw_one),
-            d => panic!("ran: {d:?}"),
-        }
-    }
-
-    #[test]
-    fn runs_by_default_at_30() {
-        assert_eq!(run(&ScheduleInput::default()), (30, 1.0));
-    }
-
-    #[test]
-    fn every_hold_condition_holds_alone() {
-        type Set = fn(&mut ScheduleInput);
-        let cases: [(Set, HoldReason); 10] = [
-            (|i| i.visible = false, HoldReason::Occluded),
-            (|i| i.coverage_resting = true, HoldReason::Covered),
-            (|i| i.minimized = true, HoldReason::Minimized),
-            (|i| i.app_hidden = true, HoldReason::AppHidden),
-            (|i| i.screens_asleep = true, HoldReason::ScreensAsleep),
-            (|i| i.session_inactive = true, HoldReason::SessionInactive),
-            (|i| i.low_power = true, HoldReason::LowPower),
-            (|i| i.thermal_serious = true, HoldReason::Thermal),
-            (|i| i.reduce_motion = true, HoldReason::ReduceMotion),
-            (|i| i.animations_off = true, HoldReason::AnimationsOff),
-        ];
-        for (set, reason) in cases {
-            let mut i = ScheduleInput::default();
-            set(&mut i);
-            assert_eq!(held(&i).0, reason);
-            // Pointer motion never overrides a hold.
-            i.seconds_since_pointer = 0.0;
-            assert_eq!(held(&i).0, reason);
-        }
-    }
-
-    #[test]
-    fn precedence_is_the_listed_order() {
-        let all = ScheduleInput {
-            visible: false,
-            coverage_resting: true,
-            minimized: true,
-            app_hidden: true,
-            screens_asleep: true,
-            session_inactive: true,
-            low_power: true,
-            thermal_serious: true,
-            reduce_motion: true,
-            animations_off: true,
-            seconds_since_activity: 100.0,
-            gpu_strikes: 9,
-            scale: 0.25,
-            ..Default::default()
-        };
-        assert_eq!(held(&all).0, HoldReason::Occluded);
-        let i = ScheduleInput {
-            visible: true,
-            coverage_resting: false,
-            minimized: false,
-            app_hidden: false,
-            ..all
-        };
-        assert_eq!(held(&i).0, HoldReason::ScreensAsleep);
-        let i = ScheduleInput {
-            screens_asleep: false,
-            session_inactive: false,
-            low_power: false,
-            thermal_serious: false,
-            reduce_motion: false,
-            animations_off: false,
-            ..i
-        };
-        assert_eq!(held(&i).0, HoldReason::TooHeavy);
-        let i = ScheduleInput { gpu_strikes: 0, ..i };
-        assert_eq!(held(&i).0, HoldReason::Idle);
-    }
-
-    #[test]
-    fn idles_after_20_seconds_of_nothing() {
-        let mut i = ScheduleInput { seconds_since_activity: 19.9, ..Default::default() };
-        run(&i);
-        i.seconds_since_activity = 20.0;
-        assert_eq!(held(&i), (HoldReason::Idle, false));
-        // Pointer motion wakes an interactive wallpaper.
-        i.seconds_since_pointer = 0.5;
-        run(&i);
-        // But not one that is not interactive.
-        i.interactive = false;
-        assert_eq!(held(&i).0, HoldReason::Idle);
-        // A key press or theme change wakes either.
-        i.seconds_since_activity = 0.0;
-        run(&i);
-        // A NaN clock is no activity.
-        i.seconds_since_activity = f64::NAN;
-        assert_eq!(held(&i).0, HoldReason::Idle);
-    }
-
-    #[test]
-    fn the_cap_is_the_lower_of_manifest_and_settings() {
-        for (manifest, settings, want) in [
-            (30, 30, 30),
-            (60, 30, 30),
-            (24, 60, 24),
-            (60, 60, 60),
-            (60, 15, 15),
-            (12, 0, 12),
-            (60, 0, 30),
-            (0, 30, 1),
-            (90, 120, 60),
-        ] {
-            let i = ScheduleInput {
-                manifest_fps: manifest,
-                settings_fps_cap: settings,
-                ..Default::default()
-            };
-            assert_eq!(run(&i).0, want, "{manifest} {settings}");
-        }
-    }
-
-    #[test]
-    fn the_cap_applies_while_the_pointer_moves() {
-        let i = ScheduleInput {
-            manifest_fps: 60,
-            settings_fps_cap: 15,
-            seconds_since_pointer: 0.0,
-            ..Default::default()
-        };
-        assert_eq!(run(&i).0, 15);
-    }
-
-    #[test]
-    fn strikes_count_frames_over_4ms_in_a_row() {
-        assert_eq!(gpu_strikes(0, 4.1), 1);
-        assert_eq!(gpu_strikes(2, 9.0), 3);
-        assert_eq!(gpu_strikes(2, 4.0), 0);
-        assert_eq!(gpu_strikes(2, 1.0), 0);
-        assert_eq!(gpu_strikes(2, f32::NAN), 2);
-        assert_eq!(gpu_strikes(2, -1.0), 2);
-        assert_eq!(gpu_strikes(u32::MAX, 9.0), u32::MAX);
-    }
-
-    #[test]
-    fn three_strikes_halve_the_scale_down_to_a_quarter_then_too_heavy() {
-        let mut i = ScheduleInput { scale: 1.0, gpu_strikes: 2, ..Default::default() };
-        assert_eq!(run(&i).1, 1.0);
-        i.gpu_strikes = 3;
-        assert_eq!(run(&i).1, 0.5);
-        i.scale = 0.5;
-        assert_eq!(run(&i).1, 0.25);
-        i.scale = 0.4;
-        assert_eq!(run(&i).1, 0.25);
-        i.scale = 0.25;
-        assert_eq!(held(&i), (HoldReason::TooHeavy, false));
-        if let Decision::Hold { scale, .. } = schedule(&i) {
-            assert_eq!(scale, 0.25);
-        }
-        i.gpu_strikes = 0;
-        assert_eq!(run(&i).1, 0.25);
-    }
-
-    #[test]
-    fn scale_is_clamped() {
-        assert_eq!(run(&ScheduleInput { scale: 4.0, ..Default::default() }).1, 1.0);
-        assert_eq!(run(&ScheduleInput { scale: 0.0, ..Default::default() }).1, 0.25);
-        assert_eq!(run(&ScheduleInput { scale: f32::NAN, ..Default::default() }).1, 1.0);
-    }
-
-    #[test]
-    fn a_window_opening_while_held_draws_one_frame() {
-        let i = ScheduleInput { low_power: true, has_frame: false, ..Default::default() };
-        assert_eq!(held(&i), (HoldReason::LowPower, true));
-        let i =
-            ScheduleInput { seconds_since_activity: 30.0, has_frame: false, ..Default::default() };
-        assert_eq!(held(&i), (HoldReason::Idle, true));
-        // Nothing to draw for while it cannot be seen.
-        let i = ScheduleInput { minimized: true, has_frame: false, ..Default::default() };
-        assert_eq!(held(&i), (HoldReason::Minimized, false));
-        let i = ScheduleInput { low_power: true, has_frame: true, ..Default::default() };
-        assert_eq!(held(&i), (HoldReason::LowPower, false));
-    }
-
-    #[test]
-    fn reason_names_are_unique() {
-        let all = [
-            HoldReason::Occluded,
-            HoldReason::Covered,
-            HoldReason::Minimized,
-            HoldReason::AppHidden,
-            HoldReason::ScreensAsleep,
-            HoldReason::SessionInactive,
-            HoldReason::LowPower,
-            HoldReason::Thermal,
-            HoldReason::ReduceMotion,
-            HoldReason::AnimationsOff,
-            HoldReason::TooHeavy,
-            HoldReason::Idle,
-        ];
-        let names: std::collections::HashSet<_> = all.iter().map(|r| r.name()).collect();
-        assert_eq!(names.len(), all.len());
-        for (n, r) in all.iter().enumerate() {
-            assert_eq!(*r as usize, n + 1);
-        }
-    }
-}
+#[path = "schedule_tests.rs"]
+mod tests;

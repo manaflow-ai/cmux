@@ -26,6 +26,48 @@ pub(super) const ENV_USAGE: &str = "usage: cmux cloud env get [--backend NAME|OR
 
 pub(super) const ENV_USAGE_JA: &str = "使い方: cmux cloud env get [--json]\n        cmux cloud env set local|dev|preview-N|staging|prod [--json]\n        cmux cloud env check-create --backend NAME|ORIGIN --params JSON [--json]\n\n選択はこのアプリのバンドルごとに保存されます。DEV と NEXT nightly は切り替え可能です。\ncheck-create は capability の事前確認だけを行い、マシンを作成しません。\nRelease と RC は既定で prod を使用し、許可された起動先へ切り替え可能です。切り替え後は Cloud に再度サインインしてください。\n";
 
+/// `cmux env --help` (env_command.rs): the Cloud environments a chat's machine is set up with.
+/// Not `cmux cloud env`, which picks the backend ([`ENV_USAGE`]).
+#[cfg_attr(not(unix), allow(dead_code))]
+pub(super) const ENVIRONMENTS_USAGE: &str = "usage: cmux env list
+       cmux env show ENV
+       cmux env create NAME [--repo OWNER/NAME] [--ref BRANCH] [--setup-file F] [--maintenance-file F]
+       cmux env edit ENV [--repo OWNER/NAME] [--ref BRANCH] [--setup-file F] [--maintenance-file F]
+                         [--image I] [--network off|limited|full]
+       cmux env set-var ENV KEY VALUE
+       cmux env unset-var ENV KEY
+       cmux env set-secret ENV KEY --host HOST [--host HOST]...
+       cmux env unset-secret ENV KEY
+       cmux env add-file ENV PATH --from LOCALFILE
+       cmux env rm-file ENV PATH
+       cmux env default [--repo OWNER/NAME] [ENV]
+       cmux env logs ENV [--repo OWNER/NAME] [--ref BRANCH]
+
+Your Cloud environments: what a Cloud chat's machine is set up with. ENV is an
+environment's id (env_...) or its name. Every command takes --json.
+
+  list          Your environments and your team's, Default first
+  show          One environment: repository, scripts, network, variables, files,
+                and each secret's name and hosts. A secret's value is never shown.
+  create        A new personal environment
+  edit          Change the flags given; the others stay
+  set-var       Set a plain variable (its value is shown by show)
+  unset-var     Remove a variable
+  set-secret    Set a secret sent only to HOST in a request header, never put on
+                the machine. Its value is read from a hidden prompt, or from stdin
+                (`op read ... | cmux env set-secret ENV KEY --host api.example.com`),
+                never from the command line.
+  unset-secret  Remove a secret
+  add-file      Put LOCALFILE's text at PATH on the machine
+  rm-file       Remove a file
+  default       Show this project's default environment, or set it to ENV. The
+                project is --repo, else this folder's GitHub origin.
+  logs          The last setup's steps and output for the environment's repository.
+                If it was never set up for that repository, this starts its setup.
+
+`cmux cloud env get|set` picks the Cloud backend; it is not this command.
+";
+
 /// A machine action's target flag.
 const TARGET: &str = "--target vm:VM_ID";
 
@@ -206,7 +248,7 @@ const GROUPS: &[Group] = &[
             verb("file-read", "{target} --path /FILE", "Read a file", "ファイルを読む"),
             verb(
                 "file-write",
-                "{target} --path /FILE --contents TEXT",
+                "{target} --path /FILE --contents TEXT|--contents-file FILE",
                 "Write text to a file",
                 "ファイルにテキストを書き込む",
             ),
@@ -607,6 +649,12 @@ TEAM KEYS (one shared key per agent for the team; owners and admins)
   cmux cloud team-keys remove claude|codex --team TEAM_ID
 A team key overrides each member's own key on the team's Cloud machines.
 
+YOUR OWN CLOUD (a team's own GCP project as its machine pool; team admins)
+  cmux cloud provider gcp status --team TEAM_ID --json
+  cmux cloud provider gcp set --team TEAM_ID --project ID --zone ZONE --service-account EMAIL --pool-size N
+  cmux cloud provider gcp off --team TEAM_ID
+Then `cmux vm new --provider gcp` makes the team's machines there, metered like every Cloud machine.
+
 CLIENT SESSIONS (a scoped token for one of your machines, no app needed)
   cmux cloud client-session create --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]
   cmux cloud client-session exec --target vm:VM_ID -- COMMAND...
@@ -642,6 +690,12 @@ claude は `claude setup-token` を実行し、トークンを表示せずに取
   cmux cloud team-keys set claude|codex --team TEAM_ID [--kind api_key|oauth] [--secret-file PATH]
   cmux cloud team-keys remove claude|codex --team TEAM_ID
 チームキーは、チームの Cloud マシンで各メンバー自身のキーより優先されます。
+
+自分のクラウド（チーム自身の GCP プロジェクトをマシンプールとして使う、チーム管理者）
+  cmux cloud provider gcp status --team TEAM_ID --json
+  cmux cloud provider gcp set --team TEAM_ID --project ID --zone ZONE --service-account EMAIL --pool-size N
+  cmux cloud provider gcp off --team TEAM_ID
+その後 `cmux vm new --provider gcp` でチームのマシンがそこに作られ、他の Cloud マシンと同じく計測されます。
 
 クライアントセッション（自分のマシン 1 台だけに使える短期トークン、アプリ不要）
   cmux cloud client-session create --target vm:VM_ID [--ttl SECONDS] [--token-file PATH]
@@ -865,9 +919,9 @@ pub(super) fn overview(japanese: bool) -> String {
         "\nCHAT REPOSITORIES (use --socket for the Cloud machine)\n  repo list --session CHAT [--query NAME]\n  repo add --session CHAT --repo NAME [--ref REF]\n  repo wait-github --session CHAT [--timeout-ms N]\n  repo attached --session CHAT\n  repo local\n  repo sync --repos-json JSON [--recent-json JSON] [--install-url URL] [--complete true|false]\n"
     });
     text.push_str(if japanese {
-        "\nクリーンアップ\n  pause-all                                管理する全マシンを一時停止し、自動再開を停止\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --yes      一時停止中のマシンをアーカイブして削除 (--yes)\n"
+        "\nチェック\n  preflight [--agent claude|codex] [--json]  Cloud チャットを今開始できるか、できない理由\n\nクリーンアップ\n  pause-all                                管理する全マシンを一時停止し、自動再開を停止\n  keep-machine --target vm:VM_ID [--off]       自動で削除されないよう保持\n  archive-machine --target vm:VM_ID --yes      一時停止中のマシンをアーカイブして削除 (--yes)\n"
     } else {
-        "\nCLEANUP\n  pause-all                                Pause all managed machines; hold automatic wakes\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --yes      Archive a paused machine's disk, then delete it (--yes)\n"
+        "\nCHECKS\n  preflight [--agent claude|codex] [--json]  Would a Cloud chat start now, and if not, why\n\nCLEANUP\n  pause-all                                Pause all managed machines; hold automatic wakes\n  keep-machine --target vm:VM_ID [--off]       Keep a machine from automatic deletion\n  archive-machine --target vm:VM_ID --yes      Archive a paused machine's disk, then delete it (--yes)\n"
     });
     text.push('\n');
     text.push_str(if japanese { OUTRO_JA } else { OUTRO_EN });
@@ -900,6 +954,10 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
     if name == ARCHIVE {
         return Some(ARCHIVE_USAGE.to_owned());
     }
+    #[cfg(unix)]
+    if let Some(long) = super::vm_short::long_verb(name) {
+        return find(long).map(|verb| short_verb_help(name, verb, japanese));
+    }
     let verb = find(name)?;
     let usage = usage_line(verb);
     let note = renamed(name).map_or_else(String::new, |new| {
@@ -929,6 +987,93 @@ pub(super) fn verb_help(name: &str, japanese: bool) -> Option<String> {
             )
         },
     )
+}
+
+/// `vm exec --help`'s note (vm_exec_input.rs): argv, stdin, and how a file gets there.
+#[cfg(unix)]
+const EXEC_NOTE_EN: &str = "\
+Several words keep their argv (each is shell-quoted); one word is a shell line:
+  cmux vm exec dev -- 'ls | wc -l'
+Piped stdin reaches the command, binary included (up to 16 MiB), so this copies a file:
+  cat f | cmux vm exec dev -- sh -c 'cat > f'
+--stdin waits for a slow pipe; --no-stdin never reads stdin. Without either, stdin is read
+when it is not a terminal and has data within a second. A larger file: scp
+(`cmux cloud prepare-scp --help`).
+";
+
+#[cfg(unix)]
+const EXEC_NOTE_JA: &str = "\
+複数の語はそれぞれシェル用に引用され、argv のまま届きます。1 語ならシェルの 1 行です:
+  cmux vm exec dev -- 'ls | wc -l'
+パイプした標準入力はコマンドに届きます（バイナリ可、16 MiB まで）。ファイルのコピー:
+  cat f | cmux vm exec dev -- sh -c 'cat > f'
+--stdin は遅いパイプを待ち、--no-stdin は標準入力を読みません。どちらもなければ、端末でなく
+1 秒以内にデータがある標準入力を読みます。もっと大きいファイルは scp で
+（`cmux cloud prepare-scp --help`）。
+";
+
+/// The short spelling's usage (vm_short.rs): the VM by name or id, or none when you have one.
+#[cfg(unix)]
+fn short_usage(name: &str, verb: &Verb) -> String {
+    let flags = verb.usage.replace("{target}", "").replace("--yes", "[--yes]");
+    let flags = flags.trim();
+    match name {
+        "ls" | "list" => format!("cmux vm {name}"),
+        "exec" => "cmux vm exec [NAME|ID] [--stdin|--no-stdin] -- COMMAND...".to_owned(),
+        "rename" => "cmux vm rename [NAME|ID] NEW_NAME".to_owned(),
+        // `--all`: every running VM (vm_short.rs `pause_all`).
+        "pause" | "shutdown" => format!("cmux vm {name} [NAME|ID | --all]"),
+        _ if flags.is_empty() => format!("cmux vm {name} [NAME|ID]"),
+        _ => format!("cmux vm {name} [NAME|ID] {flags}"),
+    }
+}
+
+/// `cmux vm pause --help` (and `cmux cloud pause --help`): the short verb's own usage, then the
+/// long spelling it runs. Before, every short verb but `exec` and `ssh` printed the whole overview
+/// (CMUX-674 item 15: `vm status --help`).
+#[cfg(unix)]
+fn short_verb_help(name: &str, verb: &Verb, japanese: bool) -> String {
+    let short = short_usage(name, verb);
+    let long = usage_line(verb);
+    let shutdown = name == "shutdown";
+    // Only these fall back to the VM API without the app (vm_short.rs API_VERBS); `status`,
+    // `resize`, `rename`, `ssh` and `move` do not, so their help must not say they do.
+    let api = super::vm_short::API_VERBS.contains(&name);
+    if japanese {
+        let note = if shutdown {
+            "`shutdown` は `pause` と同じです（削除は `rm`）。\n"
+        } else if name == "exec" {
+            EXEC_NOTE_JA
+        } else {
+            ""
+        };
+        format!(
+            "使い方: {short}\n\n{}。VM は名前か ID で指定し、1 台なら省略できます。\n{note}\n同じ動作: {long}\n{}\n",
+            verb.ja,
+            if api {
+                "アプリがなければ cmux VM API の同名の動詞として動きます（`cmux vm --help`）。"
+            } else {
+                "この動詞には cmux アプリが必要です。アプリなしで使える VM API の動詞は `cmux vm --help` にあります。"
+            }
+        )
+    } else {
+        let note = if shutdown {
+            "`shutdown` is `pause` (`rm` deletes the VM).\n"
+        } else if name == "exec" {
+            EXEC_NOTE_EN
+        } else {
+            ""
+        };
+        format!(
+            "usage: {short}\n\n{}. Name the VM by its name or id, or leave it out when you have one.\n{note}\nSame as: {long}\n{}\n",
+            verb.en,
+            if api {
+                "Without the cmux app this is the cmux VM API's verb of the same name (`cmux vm --help`)."
+            } else {
+                "This verb needs the cmux app; the VM API verbs that work without it are in `cmux vm --help`."
+            }
+        )
+    }
 }
 
 /// The usage line alone, for a parse error that names the verb.

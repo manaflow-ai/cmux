@@ -30,7 +30,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use zeroize::Zeroizing;
 
-use super::{GuestState, LinkShare, LinkShares, Redeem, ShareState, find, op_of};
+use super::{AccessAsk, GuestState, LinkShare, LinkShares, Redeem, ShareState, find, op_of};
 use crate::mux::Mux;
 use crate::server::RenderService;
 
@@ -357,7 +357,7 @@ pub(super) async fn call(
     body: Option<&Value>,
     timeout: Duration,
 ) -> Option<(u16, Value)> {
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui_core::server::agent_session_share_room")
         .default_headers(cmux_build_space::headers().ok()?)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(timeout)
@@ -529,10 +529,12 @@ impl Drop for DeleteGuard {
         let shares = shares(&mux);
         shares.release_room_delete(&self.share_id);
         shares.rearm();
-        // A late PUT that found this worker in flight wrote its host token after the worker's
-        // last read: the queued `DELETE` runs now with it, not at the share's expiry.
+        // A late PUT or the expiry timer may have tried to start cleanup while this worker
+        // still held the claim. Check both after releasing it.
         if self.tokenless
-            && view(&mux, &self.share_id).is_some_and(|v| v.delete && v.host_token.is_some())
+            && view(&mux, &self.share_id).is_some_and(|v| {
+                v.delete && (v.host_token.is_some() || shares.now() >= v.expires_at)
+            })
         {
             delete(&mux, &self.share_id, None);
         }
@@ -680,7 +682,7 @@ fn delete_after(
 }
 
 /// Starts the share's host socket, or has the running one reconcile.
-fn host(mux: &Arc<Mux>, share_id: &str) {
+pub(super) fn host(mux: &Arc<Mux>, share_id: &str) {
     let bridge = &shares(mux).bridge;
     let mut hosts = bridge.hosts.lock().unwrap_or_else(|e| e.into_inner());
     if hosts.get(share_id).is_some_and(|(_, host)| host.send(Cmd::Reconcile).is_ok()) {
@@ -825,7 +827,12 @@ async fn connect(url: &str, share_id: &str, token: &str, timeout: Duration) -> R
     let config = tungstenite::protocol::WebSocketConfig::default()
         .max_message_size(Some(MAX_HOST_FRAME_BYTES))
         .max_frame_size(Some(MAX_HOST_FRAME_BYTES));
-    let connect = tokio_tungstenite::connect_async_with_config(request, Some(config), false);
+    let connect = cmux_egress::ws::connect_async_with_config(
+        request,
+        Some(config),
+        false,
+        "cmux_tui_core::server::agent_session_share_room",
+    );
     match tokio::time::timeout(timeout, connect).await {
         Ok(Ok((socket, _))) => Ok(socket),
         Ok(Err(tungstenite::Error::Http(reply))) => Err(match reply.status().as_u16() {
@@ -1067,6 +1074,7 @@ impl Guests {
                 }
                 ask
             }
+            "guest_cancel" => relay::Ask::Cancel,
             "guest_typing" => relay::Ask::Typing(frame.get("on") == Some(&Value::Bool(true))),
             "older" => match frame.get("before_seq").and_then(Value::as_u64) {
                 Some(before) => relay::Ask::Older(before),
@@ -1104,7 +1112,8 @@ impl Guests {
         tries: u32,
     ) {
         self.waiting.remove(guest);
-        if !view(mux, share_id).is_some_and(|v| v.active.iter().any(|g| g == guest)) {
+        let Some(view) = view(mux, share_id) else { return };
+        if !view.active.iter().any(|g| g == guest) {
             return;
         }
         let bridge = &shares(mux).bridge;
@@ -1171,7 +1180,7 @@ fn refused(mux: &Mux, share_id: &str, guest: &str, ask: relay::Ask) -> Vec<Value
 }
 
 /// The redeem refusals the room may pass to a guest.
-const GUEST_REFUSALS: [&str; 9] = [
+const GUEST_REFUSALS: [&str; 12] = [
     "share.secret",
     "share.not_invited",
     "share.used",
@@ -1181,6 +1190,11 @@ const GUEST_REFUSALS: [&str; 9] = [
     "share.closed",
     "share.kicked",
     "share.left",
+    // An access request's: an anonymous visitor cannot ask, an invited account redeems instead,
+    // and a share holds only so many asks.
+    "share.needs_sign_in",
+    "share.invited",
+    "share.limit",
 ];
 
 /// The daemon's answer to one room frame.
@@ -1202,7 +1216,8 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                 |name: &str| frame.get(name).and_then(Value::as_str).unwrap_or_default().to_owned();
             let redeem = Redeem {
                 share_id: share_id.to_owned(),
-                secret: field("secret"),
+                // A null secret is no secret (an account-only accept), never an empty one to check.
+                secret: frame.get("secret").filter(|v| !v.is_null()).map(|_| field("secret")),
                 name: field("name"),
                 attempt_id: field("attempt_id"),
                 // The account the room signed in: an invitee's (no secret then), or a signed-in
@@ -1233,6 +1248,32 @@ fn answer(mux: &Mux, share_id: &str, frame: &Value, ready: &mut bool) -> Vec<Val
                     let code =
                         if GUEST_REFUSALS.contains(&code) { code } else { "share.unavailable" };
                     vec![json!({"v": 1, "t": "redeemed", "request_id": request_id, "error": code})]
+                }
+            }
+        }
+        // A signed-in visitor with no access asks the owner for it. Like `redeem`, the room's own
+        // frame: `account` is its attestation of a verified sign-in (none: an anonymous visitor).
+        "request" if *ready => {
+            let field =
+                |name: &str| frame.get(name).and_then(Value::as_str).unwrap_or_default().to_owned();
+            let ask = AccessAsk {
+                share_id: share_id.to_owned(),
+                account: frame.get("account").and_then(Value::as_str).map(str::to_owned),
+                name: field("name"),
+                avatar_url: frame.get("avatar_url").and_then(Value::as_str).map(str::to_owned),
+            };
+            let directory = mux.session_state_directory();
+            let asked = shares(mux).request_access(directory.as_deref(), ask);
+            let request_id = frame.get("request_id").unwrap_or(&Value::Null);
+            let attempt_id = frame.get("attempt_id").unwrap_or(&Value::Null);
+            match asked {
+                Ok(_) => vec![json!({"v": 1, "t": "requested", "request_id": request_id,
+                    "attempt_id": attempt_id, "state": "requested"})],
+                Err(code) => {
+                    let code =
+                        if GUEST_REFUSALS.contains(&code) { code } else { "share.unavailable" };
+                    vec![json!({"v": 1, "t": "requested", "request_id": request_id,
+                        "attempt_id": attempt_id, "error": code})]
                 }
             }
         }
@@ -1319,3 +1360,7 @@ pub fn start_link_share_bridge(mux: &Arc<Mux>, room: Option<&str>) {
 #[cfg(test)]
 #[path = "agent_session_share_room_tests.rs"]
 pub(super) mod tests;
+
+#[cfg(test)]
+#[path = "agent_session_share_room_seeded_tests.rs"]
+mod seeded_tests;

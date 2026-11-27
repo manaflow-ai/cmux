@@ -42,6 +42,18 @@
      "description": "Whether those cards draw a hairline edge."},
     {"name": "toolCards", "kind": "choice", "choices": ["row", "card", "minimal"], "default": "row",
      "description": "How a run of tool calls draws: one-line rows with icons, the rows on a card, or quiet rows with no icons."},
+    {"name": "toolRow.textSize", "kind": "number", "min": 0.75, "max": 1, "unit": "fraction", "default": 1,
+     "description": "The size of a tool row's words (its title, and the command or file after it), times the text size. Every one-line row keeps its 20 pt line, so no row moves."},
+    {"name": "toolRow.weight", "kind": "number", "min": 300, "max": 700, "unit": "weight", "default": 400,
+     "description": "The weight of a tool row's words."},
+    {"name": "toolRow.font", "kind": "choice", "choices": ["text", "mono"], "default": "text",
+     "description": "The face of a tool row's title: the transcript's text face, or the code face."},
+    {"name": "toolRow.commandFont", "kind": "choice", "choices": ["text", "mono"], "default": "text",
+     "description": "The face of the command, file or path a tool row names after its verb."},
+    {"name": "toolOutput.textSize", "kind": "number", "min": 0.7, "max": 1, "unit": "fraction", "default": 0.857,
+     "description": "The size of an opened call's output, times the text size (12 at the 14 pt text); its lines are 1.5 times it."},
+    {"name": "toolOutput.font", "kind": "choice", "choices": ["mono", "text"], "default": "mono",
+     "description": "The face of an opened call's output: the code face, or the transcript's text face."},
     {"name": "codeCard.radius", "kind": "number", "min": 0, "max": 20, "unit": "points", "default": 16,
      "description": "The corner radius of code blocks."},
     {"name": "timestamps", "kind": "choice", "choices": ["hover", "always", "off"], "default": "hover",
@@ -62,7 +74,8 @@
        "density": "cozy", "messageWidth": 640, "font": "system", "fontSize": 13, "lineHeight": 1.6,
        "userMessage.style": "bubble", "userMessage.align": "right", "userMessage.maxWidth": 0.75,
        "userMessage.radius": 10, "userMessage.paddingBlock": 7, "userMessage.paddingInline": 12, "userMessage.fill": 0.05,
-       "toolCards": "minimal", "toolCard.radius": 10, "toolCard.border": "none", "codeCard.radius": 10, "timestamps": "off"
+       "toolCards": "minimal", "toolCard.radius": 10, "toolCard.border": "none", "codeCard.radius": 10, "timestamps": "off",
+       "toolOutput.textSize": 0.92
      }},
     {"name": "studio", "title": "Studio", "description": "Dense work logs: tight rows, a rounded bubble, small radii.",
      "tokens": {

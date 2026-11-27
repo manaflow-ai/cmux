@@ -13,6 +13,9 @@ export function newTabPageSubmit(deps: {
   whenHandshaken(run: () => void): void;
   /// The page becomes a chat asking `text` (in `cwd`).
   startChat(text: string, cwd?: string, attachments?: ComposerAttachment[], chat?: NewTabChat): void;
+  /// True: a chat may not start with `text` now (`@computer-use` while Computer Use is not ready,
+  /// CMUX-682): asked on the submit's own key press, before the handshake wait, so it still opens setup.
+  holdsSend?(text: string): boolean;
 }): (
   kind: TabKind,
   text: string,
@@ -22,6 +25,7 @@ export function newTabPageSubmit(deps: {
 ) => Promise<void> | undefined {
   return (kind, text, cwd, attachments, chat) => {
     if (kind === "agent") {
+      if (text && deps.holdsSend?.(text)) return undefined;
       deps.whenHandshaken(() => deps.startChat(text, cwd, attachments, chat));
       return undefined;
     }

@@ -130,4 +130,42 @@ struct AgentSessionAlreadyShownTests {
             #expect(Self.string(answered["workspace_key"]) == key.rawValue)
         }
     }
+
+    private static func openWorkspace(_ services: AppServices, session: String, key: WorkspaceKey) -> ControlActionRun {
+        RegistryControlBridge(registry: services.registry).performActionTracked(
+            ControlActionRequest(actionID: "agent.openSessionWorkspace", target: nil,
+                                 arguments: ["session": .string(session), "key": .string(key.rawValue)], origin: ActionOrigin.mcp.rawValue)
+        )
+    }
+
+    /// ask-e3ce1c3684 (Leo: "we somehow have the reply with only OK and workspace 13, is, like, both having these"): an
+    /// agent's MCP open of a session (`app_agent_open`) that a tab of another workspace already shows (its open-tab, or
+    /// an earlier open under another key) made a second workspace, so the sidebar listed one session as two rows. The
+    /// open now answers the shown tab and makes no workspace.
+    @Test func anMCPOpenOfASessionShownElsewhereMakesNoSecondWorkspace() async throws {
+        try await PasswordManagerRouteTests.withApp { services, connection in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-one-row")
+            try #require(services.agentTabs.canHostChat, "this build has no agent page")
+            let session = "acp-one-row-\(UUID().uuidString.prefix(8).lowercased())"
+            let key = WorkspaceKey.generate()
+            _ = try await WorkspaceCreation.create(key, name: "workspace-13", on: connection, repair: services.emptyWorkspaces) { workspace in
+                try await connection.createTerminal(in: workspace, cwd: nil)
+            }
+            let pane = try #require(await services.daemon.store.firstPane(mirroring: key))
+            let first = Self.openTab(services, session: session, pane: pane)
+            let opened = try #require(await first.results.first?.value.get())
+            let tab = try #require(Self.string(opened["tab"]), "no tab in \(opened)")
+            try await PasswordManagerRouteTests.until({ AgentSessionTab.liveTab(showing: session, host: nil, services: services) != nil }, report: {
+                "the chat tab \(tab) is live in workspace \(key.rawValue)"
+            })
+
+            let other = WorkspaceKey.generate()
+            let run = Self.openWorkspace(services, session: session, key: other)
+            #expect(run.outcome == .ran, "\(run.outcome)")
+            let answered = try #require(await run.results.first?.value.get(), "the run answered no result")
+            #expect(Self.string(answered["tab"]) == tab, "answered \(answered), the chat is in \(tab)")
+            #expect(Self.string(answered["workspace_key"]) == key.rawValue)
+            #expect(!services.daemon.store.workspaces.contains { $0.key == other }, "a second workspace shows the session")
+        }
+    }
 }

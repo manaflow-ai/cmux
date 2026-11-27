@@ -32,7 +32,7 @@ pub fn run(args: &[String]) -> i32 {
 /// [`run`] with the desktop's host services given (the helper's own screen capture).
 pub fn run_with(host: Option<Arc<dyn HostServices>>) -> i32 {
     worker::run(
-        std::io::stdin().lock(),
+        std::io::BufReader::new(std::io::stdin()),
         std::io::stdout(),
         move || Ok(platform(host)),
         worker::ASK_TIMEOUT,
@@ -50,9 +50,5 @@ fn platform(host: Option<Arc<dyn HostServices>>) -> Platform {
 }
 
 #[cfg(test)]
-mod tests {
-    #[test]
-    fn extra_arguments_are_refused_before_any_desktop_opens() {
-        assert_eq!(super::run(&["--control".into(), "x".into()]), 2);
-    }
-}
+#[path = "computer_use_worker_tests.rs"]
+mod tests;

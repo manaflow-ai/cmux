@@ -10,9 +10,11 @@ import CoreGraphics
 /// step (`SidebarTextSize.textStep`) to their text. Pure: ``HomeSidebarHeaderLayout`` and the views
 /// take one through their initializers; ``current`` reads the app's settings.
 nonisolated struct HomeSidebarHeaderMetrics: Equatable, Sendable {
-    /// The filter circle's diameter and the search capsule's height, as in Messages (its glass
-    /// filter and search field are one height).
+    /// The filter circle's diameter (the avatar-only list's glass circles).
     var side: CGFloat
+    /// The search capsule's height: Messages' 36 pt field at the standard size (measured at 2x,
+    /// 2026-11-23), 6 pt taller than the circles at every size.
+    var searchHeight: CGFloat { side + 6 }
     /// The on filter's chip height, and the gap under it to the list.
     var chipHeight: CGFloat
     var chipGap: CGFloat

@@ -29,13 +29,19 @@
 //!   tried again, or a re-render, reads no model. A failed read is cached too, as no summary.
 //! - Off: `ACPMUX_INBOX_READER=0` in the daemon's environment. In unit tests only a chat a test
 //!   gave a summarizer ([`set_test_summarizer`]) has a reader.
+//! - Its score also decides whether a message wakes a cold chat ([`quiet`], `inbox.rs`
+//!   `inbox_review`): one it rated background or noise waits for the chat's next turn.
 
 use super::*;
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
-/// The longest one read runs. It only fills the cache: no notice waits for it.
-const READ_TIMEOUT: Duration = Duration::from_secs(15);
+/// The longest one read's model call runs, once it has its slot. It only fills the cache: no
+/// notice waits for it. The completion default ([`crate::complete::DEFAULT_TIMEOUT_MS`], 20 s).
+/// Measured: Claude's small model on `complete_own` answered in p50 3.9 s, p99 10.2 s (one busy agent
+/// VM's daemon.log, 2026-11-23T12:00Z..11-24T09:12Z, n=2004), so 20 s is the p99 times 2. The
+/// old 15 s, a guess, cut 12 of those answers and timed out 43 reads.
+const READ_TIMEOUT: Duration = Duration::from_millis(crate::complete::DEFAULT_TIMEOUT_MS as u64);
 /// The answer, in tokens: a score and one line.
 const MAX_TOKENS: u32 = 96;
 /// The most of a message's words the reader reads.
@@ -181,6 +187,25 @@ pub(in crate::hub) fn parse_read(answer: &str) -> Option<Summary> {
     })
 }
 
+/// The highest score that wakes no cold chat: 1 background, 0 noise (`inbox.rs` "Deadlines").
+pub(in crate::hub) const QUIET_SCORE: u8 = 1;
+
+/// Whether the reader rated message `prompt_id` of chat `session_id` background or noise
+/// ([`QUIET_SCORE`]). False when it read none (a short message, a blocker, a read still running
+/// or failed): such a message wakes as its class says. Takes no model call.
+pub(in crate::hub) fn quiet(session_id: &str, prompt_id: &str) -> bool {
+    if !on(session_id) || !quiet_on() {
+        return false;
+    }
+    let key = (session_id.to_owned(), prompt_id.to_owned());
+    matches!(cache().map.get(&key), Some(Entry::Done(Some(s))) if s.score <= QUIET_SCORE)
+}
+
+/// `ACPMUX_INBOX_QUIET=0` in the daemon's environment lets a rated message wake as its class says.
+fn quiet_on() -> bool {
+    !matches!(std::env::var("ACPMUX_INBOX_QUIET").as_deref(), Ok("0" | "false" | "off"))
+}
+
 /// One message to read.
 pub(in crate::hub) struct Job {
     session_id: String,
@@ -286,17 +311,21 @@ impl Hub {
             self.scope.spawn_named("inbox-reader", async move {
                 let started = Instant::now();
                 let prompt = read_prompt(goal.as_deref(), &job.from, &job.text);
-                let answer = hub.inbox_read_once(&job.session_id, prompt).await;
-                let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+                let (waited, answer) = hub.inbox_read_once(&job.session_id, prompt).await;
+                let as_ms = |d: Duration| u64::try_from(d.as_millis()).unwrap_or(u64::MAX);
+                // `ms` is the whole read; `wait_ms` its wait for a slot, `run_ms` the model call.
+                let ms = as_ms(started.elapsed());
+                let wait_ms = as_ms(waited);
+                let run_ms = ms.saturating_sub(wait_ms);
                 let summary = match answer {
                     Ok(answer) => {
                         let summary = parse_read(&answer);
                         let outcome = if summary.is_some() { "summary" } else { "unreadable" };
-                        tracing::info!(session = %job.session_id, prompt = %job.prompt_id, ms, outcome, "inbox reader");
+                        tracing::info!(session = %job.session_id, prompt = %job.prompt_id, ms, wait_ms, run_ms, outcome, "inbox reader");
                         summary
                     }
                     Err(reason) => {
-                        tracing::info!(session = %job.session_id, prompt = %job.prompt_id, ms, %reason, "inbox reader: no summary");
+                        tracing::info!(session = %job.session_id, prompt = %job.prompt_id, ms, wait_ms, run_ms, %reason, "inbox reader: no summary");
                         None
                     }
                 };
@@ -305,22 +334,30 @@ impl Hub {
         }
     }
 
+    /// One read: waits for a reader slot, then asks the model. Returns how long the slot wait
+    /// took beside the answer. The slot wait has no deadline: the read only fills the cache, and
+    /// nothing waits for it, so a queue behind [`SLOTS`] costs a later summary, never a lost one
+    /// (a deadline there dropped 95 of 2786 reads on one busy agent VM, 2026-11-23..24).
     async fn inbox_read_once(
         self: &Arc<Self>,
         session_id: &str,
         prompt: String,
-    ) -> Result<String, String> {
-        let _slot = tokio::time::timeout(READ_TIMEOUT, READS.acquire())
-            .await
-            .map_err(|_| "no reader slot in time".to_owned())?
-            .map_err(|e| e.to_string())?;
+    ) -> (Duration, Result<String, String>) {
+        let queued = Instant::now();
+        let slot = READS.acquire().await;
+        let waited = queued.elapsed();
+        let _slot = match slot {
+            Ok(slot) => slot,
+            Err(e) => return (waited, Err(e.to_string())),
+        };
         if let Some(summarizer) = test_summarizer(session_id) {
             let run = tokio::task::spawn_blocking(move || summarizer(prompt));
-            return match tokio::time::timeout(READ_TIMEOUT, run).await {
+            let answer = match tokio::time::timeout(READ_TIMEOUT, run).await {
                 Ok(Ok(answer)) => answer,
                 Ok(Err(e)) => Err(e.to_string()),
                 Err(_) => Err("timed out".into()),
             };
+            return (waited, answer);
         }
         let call = self.complete_own(
             Some("claude"),
@@ -329,11 +366,12 @@ impl Hub {
             READ_TIMEOUT,
             super::super::complete::ModelFallback::SmallOnly,
         );
-        match tokio::time::timeout(READ_TIMEOUT + Duration::from_secs(1), call).await {
+        let answer = match tokio::time::timeout(READ_TIMEOUT + Duration::from_secs(1), call).await {
             Ok(Ok(answer)) => Ok(answer),
             Ok(Err(e)) => Err(e.reason().to_owned()),
             Err(_) => Err("timed out".into()),
-        }
+        };
+        (waited, answer)
     }
 }
 

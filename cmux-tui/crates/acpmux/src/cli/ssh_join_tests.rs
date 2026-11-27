@@ -479,6 +479,7 @@ fn hub_rows_read_the_heartbeat_and_ignore_new_fields() {
 
 fn node(name: &str, login: Option<&str>, tags: &[&str]) -> crate::tailnet::Node {
     crate::tailnet::Node {
+        path: crate::tailnet::PeerPath::Unknown,
         host_name: name.into(),
         dns_name: format!("{name}.tail9.ts.net"),
         os: "linux".into(),

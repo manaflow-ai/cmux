@@ -6,7 +6,7 @@
 // and the link Copy link puts on the clipboard.
 import { postNative } from "../native";
 
-export type ShareRole = "view" | "talk";
+export type ShareRole = "view" | "talk" | "drive";
 export type GeneralAccess = "restricted" | "anyone";
 
 export interface ShareGuest {
@@ -30,9 +30,8 @@ export interface ChatShare {
   state: string;
   url: string | null;
   inviteUrl: string | null;
-  /** The role every link guest gets: `view` for a dialog's Anyone with the link; null for a link
-   * made elsewhere (Share with Guest…, whose guests may send held messages). */
-  role: ShareRole | null;
+  /** The role every link guest gets: `view` or `talk`; Drive is never a link role. */
+  role: Exclude<ShareRole, "drive"> | null;
   createdAt: number;
   expiresAt: number;
   usesLeft: number;
@@ -46,6 +45,9 @@ export interface SharePerson {
   role: ShareRole;
   /** A device of theirs has the chat open now. */
   joined: boolean;
+  /** They have opened the chat at least once (a guest record with their account, gone or not):
+   * false is an invite still pending, which the row says. Missing (an older host): not shown. */
+  opened?: boolean;
 }
 
 export interface ShareView {
@@ -69,10 +71,14 @@ export function shareView(shares: readonly ChatShare[]): ShareView {
   for (const share of open) {
     for (const invitee of share.invitees) {
       if (invitee.state !== "invited") continue;
-      const joined = share.guests.some((guest) => guest.joined && guest.account === invitee.account);
+      const theirs = share.guests.filter((guest) => guest.account === invitee.account);
+      const joined = theirs.some((guest) => guest.joined);
+      const opened = theirs.length > 0;
       const known = people.get(invitee.account);
-      if (known) known.joined ||= joined;
-      else people.set(invitee.account, { account: invitee.account, role: invitee.role, joined });
+      if (known) {
+        known.joined ||= joined;
+        known.opened ||= opened;
+      } else people.set(invitee.account, { account: invitee.account, role: invitee.role, joined, opened });
     }
   }
   // Every live view-role share is a bearer link, whatever invite records it also holds: Restricted
@@ -111,7 +117,7 @@ const RESTRICT_ROUNDS = 5;
 
 export function shareClient(sessionId: string, host: ShareCall = nativeShareCall) {
   // Every op names the chat it is for: the host refuses one whose tab shows another chat by now, so
-  // a step (a role change's two calls included) never lands on a chat the person did not share.
+  // a step never lands on a chat the person did not share.
   const call: ShareCall = (op, params = {}) => host(op, { ...params, session: sessionId });
   return {
     async state(): Promise<ShareView> {
@@ -120,11 +126,9 @@ export function shareClient(sessionId: string, host: ShareCall = nativeShareCall
     },
     invite: (account: string, role: ShareRole) => call("invite", { account, role }),
     remove: (account: string) => call("uninvite", { account }),
-    /** A role change is a remove, then an invite (the daemon refuses another role on an invited account). */
-    async setRole(account: string, role: ShareRole) {
-      await call("uninvite", { account });
-      await call("invite", { account, role });
-    },
+    /** A role change is the invite again with the new role: the daemon changes it in place, so a
+     * failed change leaves the person their access as it was. */
+    setRole: (account: string, role: ShareRole) => call("invite", { account, role }),
     /** The viewer link Copy link hands out: the one this page made while it is live, else a new one. */
     async viewerLink(view: ShareView): Promise<string> {
       const kept = madeLinks.get(sessionId);
@@ -158,6 +162,24 @@ export function shareClient(sessionId: string, host: ShareCall = nativeShareCall
 }
 
 export type ShareClient = ReturnType<typeof shareClient>;
+
+/** An account as the daemon compares it (agent_session_shares.rs `normal_account`): trimmed, lowercased. */
+export function normalAccount(text: string): string {
+  return text.trim().toLowerCase();
+}
+
+/** What Invite does with `account`: someone already with access keeps one row, so the same role
+ * again only says so (`already`) and another role changes theirs (`role`; the daemon refuses a
+ * second invite with another role, `share.invited`); anyone else is invited. */
+export function inviteStep(
+  view: ShareView,
+  account: string,
+  role: ShareRole,
+): { kind: "invite" } | { kind: "already" | "role"; account: string } {
+  const known = view.people.find((person) => person.account === normalAccount(account));
+  if (!known) return { kind: "invite" };
+  return { kind: known.role === role ? "already" : "role", account: known.account };
+}
 
 /** Whether `text` reads as an account the daemon takes: an email address or a cmux `@handle`. */
 export function isAccount(text: string): boolean {

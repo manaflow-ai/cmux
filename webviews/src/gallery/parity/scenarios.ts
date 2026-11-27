@@ -150,7 +150,7 @@ export const SCENARIOS: readonly Scenario[] = [
     source: "src/gallery/parity/editedFilesReference.gallery.ts",
     variant: "nine-files",
     inspect:
-      "Compare the reference: +129 −5, three file rows, Undo, View changes, and Show 6 more files. Expand and collapse the remaining six.",
+      "Compare the reference: +129 −5, three file rows, Undo, and Show 6 more files. Expand and collapse the remaining six; a file row opens its diff inside the card.",
   },
   {
     id: "files-two-reference",
@@ -160,7 +160,7 @@ export const SCENARIOS: readonly Scenario[] = [
     source: "src/gallery/parity/editedFilesReference.gallery.ts",
     variant: "two-files",
     inspect:
-      "Inspect the nested paths, Undo and View changes. Hover or focus the aggregate totals to reveal View changes and its arrow.",
+      "Inspect the nested paths and Undo. Click or focus a file row to open its diff inside the card, with Open in Changes in the diff's header.",
   },
   transcript(
     "files",
@@ -419,16 +419,6 @@ export const SCENARIOS: readonly Scenario[] = [
     source: "src/gallery/parity/contextUsage.gallery.ts",
     variant: "unknown",
     inspect: "A chat with history but no reported counts explains the empty ring on hover.",
-  },
-  {
-    id: "subagent-nested",
-    group: "Subagents",
-    title: "Subagent with its own child agents",
-    entry: "agent-pane.subagents",
-    source: `${subagents}subagents.gallery.ts`,
-    variant: "child-group",
-    inspect:
-      "Test coverage spawned Unit tests and Integration tests. Their plain list has no broken card rim or empty row gaps.",
   },
   {
     id: "stack-materials",

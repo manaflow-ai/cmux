@@ -13,6 +13,12 @@ pub struct Frontmatter {
     pub description: Option<String>,
     /// Claude Code: `disable-model-invocation: true` keeps the skill out of the model's list.
     pub disable_model_invocation: bool,
+    /// A Claude Code subagent's `model` (`sonnet`, `opus`, `inherit`, a full id).
+    pub model: Option<String>,
+    /// A Claude Code subagent's `color`.
+    pub color: Option<String>,
+    /// A Claude Code subagent's `tools`: a comma-separated string or a YAML list; empty is every tool.
+    pub tools: Vec<String>,
 }
 
 /// `text`'s `---` block (without its fences) and what follows its closing line, or `None` when it
@@ -23,12 +29,17 @@ fn split(text: &str) -> Option<(&str, &str)> {
     let end = body
         .match_indices("\n---")
         .map(|(at, _)| at)
-        .find(|&at| matches!(body[at + 4..].chars().next(), None | Some('\n' | '\r' | ' ' | '\t')))
+        .find(|&at| {
+            matches!(
+                body.get(at + 4..).unwrap_or_default().chars().next(),
+                None | Some('\n' | '\r' | ' ' | '\t')
+            )
+        })
         .or_else(|| body.starts_with("---").then_some(0))?;
     let close = if end == 0 && body.starts_with("---") { 3 } else { end + 4 };
-    let rest = &body[close.min(body.len())..];
+    let rest = body.get(close.min(body.len())..).unwrap_or_default();
     let rest = rest.split_once('\n').map_or("", |(_, after)| after);
-    Some((&body[..end], rest))
+    Some((body.get(..end)?, rest))
 }
 
 /// What follows the frontmatter of `text` (the prompt of a slash command file); all of `text`
@@ -58,10 +69,29 @@ pub fn parse(text: &str) -> Option<Frontmatter> {
             })
             .filter(|text| !text.is_empty())
     };
+    let tools = match map.get(&Yaml::String("tools".to_owned())) {
+        Some(Yaml::Array(items)) => items
+            .iter()
+            .filter_map(|item| item.as_str().map(|t| t.trim().to_owned()))
+            .filter(|t| !t.is_empty())
+            .collect(),
+        _ => field("tools")
+            .map(|text| {
+                text.split(',')
+                    .map(str::trim)
+                    .filter(|t| !t.is_empty())
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default(),
+    };
     Some(Frontmatter {
         name: field("name"),
         description: field("description"),
         disable_model_invocation: field("disable-model-invocation").as_deref() == Some("true"),
+        model: field("model"),
+        color: field("color"),
+        tools,
     })
 }
 
@@ -72,52 +102,5 @@ pub fn name_and_description(text: &str) -> Option<(String, String)> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reads_plain_quoted_and_block_values() {
-        let plain = "---\nname: wrangler\ndescription: Deploy Workers.\n---\nbody\n";
-        assert_eq!(
-            name_and_description(plain),
-            Some(("wrangler".into(), "Deploy Workers.".into()))
-        );
-        let quoted = "---\nname: \"goal\"\ndescription: 'Make a goal: done-when'\n---\n";
-        assert_eq!(
-            name_and_description(quoted),
-            Some(("goal".into(), "Make a goal: done-when".into()))
-        );
-        let folded = "---\nname: aws-auth\ndescription: >-\n  Adds user authentication\n  with Cognito.\n---\n# AWS\n";
-        assert_eq!(
-            name_and_description(folded),
-            Some(("aws-auth".into(), "Adds user authentication with Cognito.".into()))
-        );
-        let literal = "---\r\nname: x\r\ndescription: |\r\n  one\r\n  two\r\n---\r\n";
-        assert_eq!(parse(literal).unwrap().description.as_deref(), Some("one\ntwo"));
-    }
-
-    #[test]
-    fn body_follows_the_block() {
-        assert_eq!(body("---\ndescription: d\n---\nDo it\nnow\n"), "Do it\nnow\n");
-        assert_eq!(body("---\r\ndescription: d\r\n---\r\nDo it\r\n"), "Do it\r\n");
-        assert_eq!(body("---\n---\nx"), "x");
-        assert_eq!(body("no frontmatter"), "no frontmatter");
-        assert_eq!(body("---\ndescription: d\n---"), "");
-    }
-
-    #[test]
-    fn missing_fields_and_flags() {
-        let only = "---\ndescription: top cmd\ndisable-model-invocation: true\n---\nDo it\n";
-        let front = parse(only).unwrap();
-        assert_eq!(front.name, None);
-        assert_eq!(front.description.as_deref(), Some("top cmd"));
-        assert!(front.disable_model_invocation);
-        assert_eq!(name_and_description(only), None);
-        assert_eq!(parse("no frontmatter"), None);
-        assert_eq!(parse("---\n- a list\n---\n"), None);
-        assert_eq!(parse("---\n---\n"), Some(Frontmatter::default()));
-        // A `---` that starts a longer word does not end the block.
-        let dashes = "---\nname: a\ndescription: |\n  x\n  ---word\n---\n";
-        assert_eq!(parse(dashes).unwrap().description.as_deref(), Some("x\n---word"));
-    }
-}
+#[path = "frontmatter_tests.rs"]
+mod tests;

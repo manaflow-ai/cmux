@@ -1,0 +1,26 @@
+CHIEF-LAT-MACHINE host=fixture
+CHIEF-LAT-SUMMARY {"label": "before", "ref": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "rounds": 2, "claude_code_version": "2.1.325", "engine": null, "asks": 6, "asks_timed_out": 0, "asks_correct": 6, "asks_checked": 6, "chief_turns": 8, "turn_statuses": {"ok": 8}, "host_started_turns": 2, "first_request_tokens": {"n": 8, "p50": 40510, "p90": 40510, "mean": 40260.0}, "request_tokens": {"n": 16, "p50": 41105, "p90": 41105, "mean": 40682.5}, "requests_per_turn": {"n": 8, "p50": 2, "p90": 2, "mean": 2.0}, "ttft_ms": {"n": 8, "p50": 3300, "p90": 3400, "mean": 3250.0}, "ttft_ms_warm": {"n": 4, "p50": 3400, "p90": 3400, "mean": 3300.0}, "ttft_ms_cold": {"n": 4, "p50": 3300, "p90": 3300, "mean": 3200.0}, "turn_ms": {"n": 8, "p50": 10500, "p90": 11000, "mean": 10250.0}, "felt_first_reply_ms": {"n": 6, "p50": 4002, "p90": 4003, "mean": 4002.0}, "felt_last_reply_ms": {"n": 6, "p50": 10002, "p90": 10003, "mean": 10002.0}, "cold_turns": 4, "cold_share": 0.5, "cold_turns_after_first": 2, "rerendered_turns": 2, "rerendered_cold": 2, "sends": 8, "refused_sends": 2, "tool_ms": {"send": {"n": 8, "p50": 30, "p90": 30, "mean": 30.0}}, "cost_usd": 0.4, "system_bytes": 30000, "view_bytes_last": 9004}
+CHIEF-LAT-SUMMARY {"label": "after", "ref": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "rounds": 2, "claude_code_version": "2.1.325", "engine": null, "asks": 6, "asks_timed_out": 0, "asks_correct": 6, "asks_checked": 6, "chief_turns": 8, "turn_statuses": {"ok": 8}, "host_started_turns": 2, "first_request_tokens": {"n": 8, "p50": 32510, "p90": 32510, "mean": 32385.0}, "request_tokens": {"n": 16, "p50": 32905, "p90": 32905, "mean": 32645.0}, "requests_per_turn": {"n": 8, "p50": 2, "p90": 2, "mean": 2.0}, "ttft_ms": {"n": 8, "p50": 2700, "p90": 2800, "mean": 2650.0}, "ttft_ms_warm": {"n": 6, "p50": 2700, "p90": 2800, "mean": 2700.0}, "ttft_ms_cold": {"n": 2, "p50": 2500, "p90": 2500, "mean": 2500.0}, "turn_ms": {"n": 8, "p50": 8700, "p90": 9200, "mean": 8450.0}, "felt_first_reply_ms": {"n": 6, "p50": 4002, "p90": 4003, "mean": 4002.0}, "felt_last_reply_ms": {"n": 6, "p50": 10002, "p90": 10003, "mean": 10002.0}, "cold_turns": 2, "cold_share": 0.25, "cold_turns_after_first": 0, "rerendered_turns": 2, "rerendered_cold": 0, "sends": 8, "refused_sends": 0, "tool_ms": {"send": {"n": 8, "p50": 30, "p90": 30, "mean": 30.0}}, "cost_usd": 0.4, "system_bytes": 30000, "view_bytes_last": 9004}
+| Chief latency (scenario `latency`, 6 asks) | before `aaaaaaaaaa` | after `bbbbbbbbbb` | change |
+|---|---|---|---|
+| First request of a turn, input tokens (p50) | 40,510 | 32,510 | -20% |
+| First request of a turn, input tokens (p90) | 40,510 | 32,510 | -20% |
+| Every request, input tokens (p50) | 41,105 | 32,905 | -20% |
+| Requests per Chief turn (mean) | 2.00 | 2.00 | +0% |
+| First token, host (p50) | 3.3 s | 2.7 s | -18% |
+| First token, warm turns (p50) | 3.4 s | 2.7 s | -21% |
+| First token, cold turns (p50) | 3.3 s | 2.5 s | -24% |
+| Turn time, host (p50) | 10.5 s | 8.7 s | -17% |
+| Turn time, host (p90) | 11.0 s | 9.2 s | -16% |
+| Send to first reply, felt (p50) | 4.0 s | 4.0 s | +0% |
+| Send to last reply, felt (p50) | 10.0 s | 10.0 s | +0% |
+| Send to last reply, felt (p90) | 10.0 s | 10.0 s | +0% |
+| Cold turns (first request wrote more cache than it read) | 4 | 2 | -50% |
+| Cold share | 50% | 25% |  |
+| Chief turns (host-started) | 8 (2) | 8 (2) | |
+| View re-renders (cold) | 2 (2) | 2 (0) | |
+| Refused sends | 2 | 0 | -100% |
+| Asks correct | 6/6 | 6/6 | |
+| Chief turn cost, USD | 40% | 40% | +0% |
+
+2 round(s) each, same worker, alternating before/after; Claude Code 2.1.325. Tokens are input + cache read + cache write. Cold share counts the run's first turn too (always cold).

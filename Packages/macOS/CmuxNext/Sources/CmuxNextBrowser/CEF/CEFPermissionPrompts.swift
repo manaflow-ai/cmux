@@ -1,7 +1,7 @@
 import Foundation
 
 /// Chromium permission requests cmux asks about in the prompt bar
-/// (location, camera, microphone; PERMISSION_PROMPT,
+/// (location, camera, microphone, notifications; PERMISSION_PROMPT,
 /// `CEFShim/src/shim_permissions.mm`), decided
 /// with the shared store like WebKit's (`SitePermissionRequest`). Chromium
 /// remembers Allow and Block itself as well.
@@ -12,6 +12,12 @@ struct CEFPermissionPrompts {
     static let camera: Int64 = 1 << 2
     static let cameraPanTiltZoom: Int64 = 1 << 1
     static let microphone: Int64 = 1 << 12
+    /// `CEF_PERMISSION_TYPE_NOTIFICATIONS`: asked alone; an allowed site's notifications show as
+    /// cmux banners (`BrowserWebNotificationScript`).
+    static let notifications: Int64 = 1 << 15
+
+    /// Not a CEF bit: the shim sends it for getDisplayMedia() (`kPermissionDisplayCapture`).
+    static let displayCapture: Int64 = 1 << 30
 
     /// The prompt-bar question for a request's bits (`kHostPermissions` in
     /// `permission_prompt_policy.h`); nil for a set the bar does not ask.
@@ -19,6 +25,8 @@ struct CEFPermissionPrompts {
     /// and pan-tilt-zoom comes with the camera.
     static func kind(of permissions: Int64) -> BrowserPermissionKind? {
         if permissions == geolocation { return .location }
+        if permissions == displayCapture { return .screenShare }
+        if permissions == notifications { return .notifications }
         guard permissions != 0, permissions & ~(camera | cameraPanTiltZoom | microphone) == 0 else { return nil }
         let wantsCamera = permissions & (camera | cameraPanTiltZoom) != 0
         let wantsMicrophone = permissions & microphone != 0
@@ -58,6 +66,14 @@ struct CEFPermissionPrompts {
         tab.pageInfoActivity.recordRequest(kind.siteKinds)
         Self.waiting.insert(token)
         let tab = tab
+        if kind == .screenShare {
+            // Sharing the screen is asked every time and never remembered for the site.
+            tab.enqueuePrompt(.permission(kind), origin: site) { response in
+                Self.waiting.remove(token)
+                runtime.permissionContinue(token, response == .allowOnce || response == .allow ? .grant : .deny)
+            }
+            return
+        }
         let ask: @MainActor (BrowserPromptKind, String, @escaping (BrowserPromptResponse) -> Void) -> Void = { kind, origin, answer in
             guard Self.waiting.contains(token) else { return answer(.cancel) }
             tab.enqueuePrompt(kind, origin: origin, completion: answer)
@@ -73,7 +89,8 @@ private extension BrowserPromptKind {
     /// A question `CEFPermissionPrompts` puts in the bar for Chromium.
     var isChromiumPermission: Bool {
         switch self {
-        case .permission(.location), .permission(.camera), .permission(.microphone), .permission(.cameraAndMicrophone): true
+        case .permission(.location), .permission(.camera), .permission(.microphone), .permission(.cameraAndMicrophone), .permission(.screenShare),
+             .permission(.notifications): true
         default: false
         }
     }

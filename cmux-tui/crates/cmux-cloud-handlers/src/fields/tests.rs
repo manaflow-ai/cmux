@@ -164,6 +164,26 @@ fn the_created_answer_carries_bootstrap_repo_and_machine_config() {
 }
 
 #[test]
+fn a_create_with_options_says_whether_its_machine_was_reused() {
+    let made = |created: f64| -> Created {
+        serde_json::from_value(json!({
+            "machine": {"id": "vm-5", "title": "t", "status": "running", "createdAt": created},
+            "askedAt": 1_764_000_000.0,
+        }))
+        .unwrap()
+    };
+    let reused = created(&NewMachine::default(), &made(1_764_000_000.0 - 600.0));
+    assert_eq!(reused["reused"], json!(true));
+    let own = created(&NewMachine::default(), &made(1_764_000_000.0 + 40.0));
+    assert_eq!(own["reused"], json!(false));
+    assert!(own["created_at"].is_string());
+    // NaN or infinite times (a broken record) claim nothing.
+    let mut broken = made(0.0);
+    broken.machine.created_at = Some(f64::NAN);
+    assert!(!created(&NewMachine::default(), &broken).contains_key("reused"));
+}
+
+#[test]
 fn a_create_with_no_script_says_none() {
     let made: Created = serde_json::from_value(json!({
         "machine": {"id": "vm-4", "title": "t", "status": "running"},
@@ -249,17 +269,65 @@ fn machine_status_prints_why_the_machine_failed_and_its_idle_pause() {
 fn machine_status_text_rounds_like_the_app() {
     let status: Status = serde_json::from_value(json!({
         "machineId": "vm-1", "title": "box", "status": "running", "state": "running", "cpus": 4, "cpuPercent": 12.6,
-        "memoryUsedMb": 1023.5, "memoryTotalMb": 8192.0, "diskUsedMb": 1.0, "diskTotalMb": 2.0, "ipv4": "10.0.0.7",
+        "memoryUsedMb": 1023.5, "memoryTotalMb": 8192.0, "diskUsedMb": 13516.8, "diskTotalMb": 20480.0, "ipv4": "10.0.0.7",
         "cost": {"usage": "$0.59 so far"},
     }))
     .unwrap();
     assert_eq!(
         describe(&status),
-        "box (vm-1)\nstate: running, status: running\ncpus: 4, 13%\nmemory: 1024 / 8192 MB\ndisk: 1 / 2 MB\naddress: 10.0.0.7\n$0.59 so far"
+        "box (vm-1)\nstate: running, status: running\ncpus: 4, 13%\nmemory: 1024 / 8192 MB\ndisk: 13.2 / 20 GB\naddress: 10.0.0.7\n$0.59 so far"
     );
     let fields = status_fields(&status);
     assert_eq!(fields["cpu_percent"], json!(12.6));
     assert_eq!(fields["address"], json!("10.0.0.7"));
+    assert_eq!(fields["disk"]["label"], json!("13.2 / 20 GB"));
+}
+
+#[test]
+fn machine_status_prints_the_disk_bar_and_its_split() {
+    let status = |extra: Value| -> Status {
+        let mut facts =
+            json!({"machineId": "vm-1", "title": "box", "status": "running", "state": "running"});
+        for (key, value) in extra.as_object().unwrap() {
+            facts[key] = value.clone();
+        }
+        serde_json::from_value(facts).unwrap()
+    };
+    let split = status(json!({
+        "diskTotalMb": 20480.0, "diskUsedMb": 19046.4, "diskFreeMb": 1433.6,
+        "diskSystemMb": 5529.6, "diskProjectMb": 9216.0, "diskCachesMb": 4300.8,
+    }));
+    let text = describe(&split);
+    assert!(text.contains("\ndisk: 18.6 / 20 GB, almost full\n"), "{text}");
+    assert!(text.ends_with("disk split: system 5.4, project 9, caches 4.2, free 1.4 GB"), "{text}");
+    assert_eq!(status_fields(&split)["disk"]["state"], json!("almost_full"));
+    // No use reported: the size alone; no size: no disk line, as before.
+    assert!(describe(&status(json!({"diskTotalMb": 20480.0}))).ends_with("\ndisk: 20 GB"));
+    let none = status(json!({}));
+    assert!(!describe(&none).contains("disk"));
+    assert!(status_fields(&none).get("disk").is_none());
+}
+
+#[test]
+fn machine_status_names_the_chats_on_the_disk_and_its_last_eviction() {
+    let g = 1024_u64.pow(3);
+    let status: Status = serde_json::from_value(json!({
+        "machineId": "vm-1", "title": "box", "status": "running", "state": "running",
+        "diskTotalMb": 20480.0, "diskUsedMb": 10240.0, "diskFreeMb": 10240.0,
+        "diskChats": [{"id": "c-a", "bytes": 4 * g}, {"id": "c-b", "bytes": g}, {"id": "c-c", "bytes": g / 2},
+            {"id": "c-d", "bytes": 1}],
+        "diskEvicted": {"at": 1_700_000_000_000_u64, "freedBytes": 3 * g, "paths": ["/home/u/.npm/_cacache"]},
+    }))
+    .unwrap();
+    let text = describe(&status);
+    assert!(text.contains("\ndisk chats: c-a 4, c-b 1, c-c 0.5 GB, 1 more\n"), "{text}");
+    assert!(
+        text.contains("\ndisk cleared: 3 GB of caches and idle build output at 1700000000000"),
+        "{text}"
+    );
+    let fields = status_fields(&status);
+    assert_eq!(fields["disk_chats"][0]["id"], json!("c-a"));
+    assert_eq!(fields["disk_evicted"]["freed_bytes"], json!(3 * g));
 }
 
 #[test]
@@ -316,6 +384,59 @@ fn a_loaded_list_names_each_machine_its_target_and_owner() {
     );
     assert_eq!(fields["machines"][1]["created_at"], Value::Null);
     assert_eq!(fields["machines"][1]["error"], Value::Null);
+}
+
+#[test]
+fn a_listed_machine_carries_its_disk_bar_when_the_app_knows_its_disk() {
+    let list: MachineList = serde_json::from_value(json!({
+        "loaded": true, "signedIn": true,
+        "machines": [{"machineId": "vm-1", "title": "box", "status": "running", "diskAllocatedMb": 20480.0,
+                      "diskTotalMb": 20480.0, "diskUsedMb": 13516.8, "diskFreeMb": 6963.2,
+                      "diskSystemMb": 5427.2, "diskProjectMb": 6348.8, "diskCachesMb": 1740.8},
+                     {"machineId": "vm-2", "title": "older", "status": "running", "diskAllocatedMb": 20480.0},
+                     {"machineId": "vm-3", "title": "unknown", "status": "paused"}],
+    }))
+    .unwrap();
+    let fields = machine_list(&list);
+    let disk = &fields["machines"][0]["disk"];
+    assert_eq!(disk["label"], json!("13.2 / 20 GB"));
+    assert_eq!(disk["text"], json!("13.2 of 20 GB, 6.8 free"));
+    let kinds: Vec<&str> =
+        disk["segments"].as_array().unwrap().iter().map(|s| s["kind"].as_str().unwrap()).collect();
+    assert_eq!(kinds, ["system", "project", "caches", "free"]);
+    // An older guest: the allocation alone. Nothing known: no `disk`, the row as before.
+    assert_eq!(fields["machines"][1]["disk"]["label"], json!("20 GB"));
+    assert_eq!(fields["machines"][1]["disk"]["state"], json!("allocated"));
+    assert!(fields["machines"][2].get("disk").is_none());
+}
+
+#[test]
+fn a_listed_machine_reads_its_records_disk_report_first() {
+    let list: MachineList = serde_json::from_value(json!({
+        "loaded": true, "signedIn": true,
+        "machines": [{"machineId": "vm-1", "title": "box", "status": "running", "diskAllocatedMb": 20480.0,
+                      "diskUsedMb": 1.0,
+                      "disk": {"total_bytes": 21_474_836_480_u64, "used_bytes": 10_737_418_240_u64,
+                               "free_bytes": 10_737_418_240_u64, "system_bytes": 4_294_967_296_u64,
+                               "project_bytes": 5_368_709_120_u64, "caches_bytes": 1_073_741_824_u64}}],
+    }))
+    .unwrap();
+    let disk = &machine_list(&list)["machines"][0]["disk"];
+    assert_eq!(disk["label"], json!("10 / 20 GB"));
+    assert_eq!(disk["segments"][2]["kind"], json!("caches"));
+}
+
+/// A record report with a split alone (no total, no used) does not hide the per-call stats.
+#[test]
+fn a_partial_records_disk_report_leaves_the_stats() {
+    let list: MachineList = serde_json::from_value(json!({
+        "loaded": true, "signedIn": true,
+        "machines": [{"machineId": "vm-1", "title": "box", "status": "running", "diskAllocatedMb": 20480.0,
+                      "diskTotalMb": 20480.0, "diskUsedMb": 5120.0, "diskFreeMb": 15360.0,
+                      "disk": {"caches_bytes": 1_073_741_824_u64}}],
+    }))
+    .unwrap();
+    assert_eq!(machine_list(&list)["machines"][0]["disk"]["label"], json!("5 / 20 GB"));
 }
 
 /// `cmux chat --on cloud` picks the person's most recently used running chat VM: the list says

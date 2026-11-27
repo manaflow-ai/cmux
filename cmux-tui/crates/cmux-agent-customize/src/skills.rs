@@ -186,7 +186,7 @@ fn claude_overrides(files: &[PathBuf]) -> Vec<(String, String)> {
 }
 
 /// Claude Code's `enabledPlugins` (`plugin@marketplace` → on), merged the same way.
-fn claude_enabled_plugins(files: &[PathBuf]) -> Vec<(String, bool)> {
+pub(crate) fn claude_enabled_plugins(files: &[PathBuf]) -> Vec<(String, bool)> {
     let mut merged: Vec<(String, bool)> = Vec::new();
     for file in files {
         let Ok(text) = fs::read_to_string(file) else { continue };
@@ -242,7 +242,7 @@ fn claude(homes: &Homes, cwd: Option<&Path>) -> Vec<Skill> {
             Some((short.as_str(), id.as_str())),
             &mut out,
         );
-        for skill in &mut out[start..] {
+        for skill in out.iter_mut().skip(start) {
             skill.enabled = on;
         }
     }
@@ -349,7 +349,10 @@ fn claude_commands(
 
 /// `~/.claude/plugins/installed_plugins.json`: each plugin's install folder (user-scoped ones,
 /// and project-scoped ones installed for this project).
-fn claude_installed_plugins(homes: &Homes, project: Option<&Path>) -> Vec<(String, PathBuf)> {
+pub(crate) fn claude_installed_plugins(
+    homes: &Homes,
+    project: Option<&Path>,
+) -> Vec<(String, PathBuf)> {
     let file = homes.claude.join("plugins/installed_plugins.json");
     let Ok(text) = fs::read_to_string(file) else { return Vec::new() };
     let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else { return Vec::new() };
@@ -574,7 +577,7 @@ fn dedup_by_path(skills: &mut Vec<Skill>) {
 }
 
 /// The start of `file`, enough for its frontmatter.
-fn read_head(file: &Path) -> String {
+pub(crate) fn read_head(file: &Path) -> String {
     use std::io::Read as _;
     let Ok(handle) = fs::File::open(file) else { return String::new() };
     let mut bytes = Vec::new();

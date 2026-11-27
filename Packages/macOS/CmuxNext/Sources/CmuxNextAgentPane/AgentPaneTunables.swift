@@ -229,13 +229,6 @@ public nonisolated struct AgentPaneTunables {
         help: "How the agent chat's top-right icons move: still (shipped), a cue (the pressed plate grows, a dot while the turn runs), a spring (icons arrive and make room), or a morph (an icon becomes the pane's tab, hover previews it). Follows the agent pane's Motion setting.",
         default: .still, code: "AgentPaneTunables.headerMotion")
 
-    /// Claude Code desktop's in-session status in an agent chat: the live plan card and the recap
-    /// card. Off by default; each open agent page follows a change (``AgentPaneView/sessionStatus``).
-    public static let sessionStatus = Tunable<Bool>.toggle(
-        "agent.sessionStatus", PageTunables.section, "In-session status (plan card, recap card)",
-        help: "Agent chats show the live plan card and the recap card.",
-        default: false, code: "AgentPaneTunables.sessionStatus")
-
     /// Which done thoughts fold to one line that opens to their text (webviews
     /// conversation/ThoughtRow.tsx): every one by default (Leo 2026-10-20), or, as before, only a
     /// tall one. A long thought streams in a fixed seven-line viewport with its newest line in view,
@@ -392,16 +385,15 @@ public nonisolated struct AgentPaneTunables {
             reasoningSlider.descriptor,
             reasoningSliderStyle.descriptor,
             updatePeersAutomatically.descriptor,
-            sessionStatus.descriptor,
             nativeSessionInfo.descriptor,
             sidebarPreviewVariant.descriptor,
-            subagentTray.descriptor,
             suggestedTasks.descriptor,
             systemDictation.descriptor,
             terminalButtonAdds.descriptor,
             headerControls.descriptor,
             headerMotion.descriptor,
             headerIcons.descriptor,
+            topRightLayout.descriptor,
             thoughtFoldThreshold.descriptor,
             thoughtHeader.descriptor,
             topStripStyle.descriptor,

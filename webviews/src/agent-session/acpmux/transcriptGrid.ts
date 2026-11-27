@@ -118,12 +118,43 @@ export const TRANSCRIPT_LINE_TO_LIVE_STEP =
 /// The interface scale the CSS grid tokens multiply by (desktop.css: `calc(24px *
 /// var(--cmux-interface-scale, 1))`). The virtual stack places its gaps with the same factor, so
 /// placed gaps match the drawn ones and the overlays laid in them at any Interface Size. Read once
-/// per layout pass.
+/// per layout pass, and in the transcript's render (model.ts `transcriptColumn`).
+///
+/// The app writes the scale inline on <html> (DesignSettings.interfaceScaleScript), so it is read
+/// from that declaration: `getComputedStyle(...).getPropertyValue` in render made the browser
+/// recalculate the style of a page whose rows a streamed record had just changed, before React
+/// changed them again, 3.8-5.1 ms of each reply token's 8-11 ms (bench/transcript-replay.bench.ts
+/// PROFILE=1, long log). With no inline value (a page no app hosts) the computed one is read once
+/// and kept until <html>'s attributes change or the app says the scale changed.
 export function gridScale(): number {
   if (typeof document === "undefined" || typeof getComputedStyle !== "function") return 1;
-  const raw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--cmux-interface-scale"));
+  const root = document.documentElement;
+  const inline = (root as Partial<HTMLElement>).style?.getPropertyValue?.(INTERFACE_SCALE_VAR);
+  const raw = parseFloat(inline || computedScale(root));
   return Number.isFinite(raw) && raw > 0 ? raw : 1;
 }
+
+const INTERFACE_SCALE_VAR = "--cmux-interface-scale";
+/// The computed `--cmux-interface-scale` of a page with no inline one, while <html> holds still.
+let computed: { root: Element; value: string } | undefined;
+const computedScale = (root: Element): string => {
+  // A stand-in root (a test's plain object) has no attributes to watch: read it every time.
+  if (typeof MutationObserver !== "function" || typeof Node === "undefined" || !(root instanceof Node))
+    return getComputedStyle(root).getPropertyValue(INTERFACE_SCALE_VAR);
+  if (computed?.root === root) return computed.value;
+  const value = getComputedStyle(root).getPropertyValue(INTERFACE_SCALE_VAR);
+  const kept = { root, value };
+  computed = kept;
+  const forget = () => {
+    if (computed === kept) computed = undefined;
+    watch.disconnect();
+    root.ownerDocument.defaultView?.removeEventListener("cmux-ui-scale-change", forget);
+  };
+  const watch = new MutationObserver(forget);
+  watch.observe(root, { attributes: true });
+  root.ownerDocument.defaultView?.addEventListener("cmux-ui-scale-change", forget);
+  return value;
+};
 
 /// What a row is for the gap rules (grid.md 5.5). Kept per row in the layout, so a placement that
 /// skips DOM-empty rows still picks the gap from the neighbours that draw.
@@ -160,15 +191,21 @@ export const MARK_WORKED = 9;
 /// so under "Subagent finished" or a tool run it is never flush (Lucas, 2026-11-08). Toward a footer
 /// row, a prompt or the live line it is a step row.
 export const MARK_CARD = 10;
-/// A finished turn's todo list folded to its "3 of 3 tasks done" line (conversation/PlanList.tsx,
-/// opened or not). Its turn's footer row sits the same 8 under it as under a final reply (Lucas,
-/// 2026-11-12: "the exact same amount as if it were just a normal final message"); toward every
-/// other row it is any other row.
-export const MARK_PLAN_LINE = 11;
 /// The running turn's line as its last row right under a step or status row (model.ts `isLiveStep`): its box and
 /// the gap over it are TRANSCRIPT_LIVE_STEP_BOX and TRANSCRIPT_LIVE_STEP_GAP; under it, the room a row of that box
 /// has (tailGap). Not another step, which would sit flush.
 export const MARK_LIVE_STEP = 12;
+/// The same line right under a step row whose last item is a thought (model.ts `isLiveThought`): it stands the run
+/// gap a reply has under that thought (TRANSCRIPT_RUN_GAP), not the live step's 8, so the reply that takes its place
+/// lands at its top and the thought's gap is its final 16 from the thought's first frame. Under the 8 the reply came
+/// 8 lower than the line and everything over it moved up 8 more than the reply's own line, the reply overlapping the
+/// line's words while the follow caught up (Leo, 2026-11-24: "the extra spacing after thinking added more layout
+/// shifts"; test/agent-pane-thinking-cls.test.ts). Its box and the room under it are MARK_LIVE_STEP's.
+/// Once the reply is drawn the same line ("Writing") sits TRANSCRIPT_FOOTER_GAP (8) under it, in the place the
+/// turn's footer takes when the turn ends (test/agent-pane-stream-jitter.test.ts "a turn that ends leaves its reply
+/// where it was"). So with "Working for" opened, where the follow lets go, the line comes down by the reply's first
+/// line plus that 8 when the reply starts. Standing it 16 there instead would move the same 8 to the turn's end.
+export const MARK_LIVE_THOUGHT = 13;
 /// Added to a row's mark (a reply or a tool run) when it opens a turn the agent ran on its own that
 /// draws as its own turn, with no line of its own over it (model.ts `opensBackgroundTurn`): a task
 /// notification started it, not a prompt. It stands the turn gap from the row over it, as a prompt
@@ -186,7 +223,7 @@ export const MARK_HEADS_TURN = 128;
 /// Added to the top row of a turn another agent's line opened (model.ts `topsIncomingTurn`): that notice or
 /// message, or the turn's "Working for" / "Worked for" line over it, right under the turn before's last reply
 /// when that turn draws no footer (a turn the agent ran on its own, one whose footer folded). It stands the
-/// block gap, as it does under a footer (transcriptSpacing.ts footer-to-received), not the 16 a status line
+/// block gap (under a footer it stands the run gap, FOOTER_WORKING_GAP_LOOKS), not the 16 a status line
 /// has under prose of its own turn: there the new turn read as the reply's tail (Leo, 2026-11-21: "it is
 /// noticeably bad when you start a new working for whatever and there is no space before"; found by
 /// replaying recorded chats through the chat simulator, sim/README.md). Toward the rows after it, it is
@@ -204,17 +241,15 @@ type MarkedRow = {
   resumable?: boolean;
   below?: boolean;
   turnCopy?: readonly unknown[];
-  plan?: unknown;
-  turnEnded?: boolean;
   turnPhase?: string;
+  /// A footer's Connect GitHub card (conversation/githubConnect.ts): content, as a failure card is.
+  githubConnect?: unknown;
 };
 export function rowMark(row: MarkedRow): number {
   if (row.kind === "user" && !row.incoming && !row.received) return MARK_PROMPT;
   if (row.kind === "assistant" && (row.text?.length ?? 0) > 0) return MARK_MESSAGE;
-  if (row.kind === "plan" && row.plan !== undefined && row.turnEnded === true) return MARK_PLAN_LINE;
-  // The live line in the footer's slot (turns.ts WORKING, THINKING and ACTIVITY_LINE, by value).
-  if ((row.kind === "working" || row.kind === "thinking" || row.kind === "activityLine") && row.below === true)
-    return MARK_FOOTER_SLOT;
+  // The live line in the footer's slot (turns.ts WORKING and THINKING, by value).
+  if ((row.kind === "working" || row.kind === "thinking") && row.below === true) return MARK_FOOTER_SLOT;
   // The live line (turns.ts WORKING and THINKING, by value: this module stays import-free).
   // The turn's header in its running phase is that clock too (turns.ts `turnHeaderId`).
   if (row.kind === "working" || row.kind === "thinking" || (row.kind === "worked" && row.turnPhase === "running"))
@@ -223,6 +258,7 @@ export function rowMark(row: MarkedRow): number {
     // turns.ts isEmptyFooter's inverse, inline so this module stays import-free.
     return row.status !== "failed" &&
       row.status !== "error" &&
+      !row.githubConnect &&
       ((row.text?.length ?? 0) > 0 || (row.turnCopy?.length ?? 0) > 0)
       ? MARK_FOOTER_ROW
       : MARK_FOOTER;
@@ -270,6 +306,26 @@ export function rowGapLook(): (typeof ROW_GAP_LOOKS)[RowGapLook] {
   return set !== undefined && set in ROW_GAP_LOOKS ? ROW_GAP_LOOKS[set as RowGapLook] : ROW_GAP_LOOKS.shipped;
 }
 
+/// The gap from a reply's footer row (Copy, Branch, ...) to the next turn's "Working for" / "Worked for" line, the
+/// waiting indicator or a step row (a woken turn's first tool row, another agent's line), in px at Interface Size 1. It matched no rule and stood the block gap (24): the 24 buttons sit
+/// centred in their 32 row and the 20 line in its 32 row, so it read as ~38 from the icons to the words (Leo,
+/// 2026-11-25: "did we identify the cause between the gap here? betwen the copy branch etc buttons and the next
+/// working for?"). Not flush either: "it is noticeably bad when you start a new working for whatever and there is no
+/// space before" (Leo, 2026-11-21). It ships the run gap (16), the gap "Worked for" stands under any one-line row
+/// (ROW_GAP_LOOKS `shipped`), so a new turn's line reads as a new run, not the footer's tail (8) nor a block away.
+/// Gallery `agent-pane.woken-turn-gap` compares the looks (`<html data-footer-working-gap>`): `block` (24, before)
+/// and `footer` (8). Read only for such a pair.
+export const FOOTER_WORKING_GAP_LOOKS = {
+  block: TRANSCRIPT_BLOCK_GAP,
+  run: TRANSCRIPT_RUN_GAP,
+  footer: TRANSCRIPT_FOOTER_GAP,
+} as const;
+export type FooterWorkingGapLook = keyof typeof FOOTER_WORKING_GAP_LOOKS;
+export function footerWorkingGapLook(): FooterWorkingGapLook {
+  const set = typeof document === "undefined" ? undefined : document.documentElement?.dataset.footerWorkingGap;
+  return set === "block" || set === "footer" ? set : "run";
+}
+
 /// One gap per adjacent pair, the most specific first: the waiting rule, then turn, then block.
 /// (The composer gap is the stack's, tailGap below.) Gaps never add.
 export function transcriptGap(previous: number, next: number): number {
@@ -290,9 +346,6 @@ export function transcriptGap(previous: number, next: number): number {
   // before's "Worked for" (it sat flush): the same gap as the "Worked for" rule below.
   if ((next & MARK_HEADS_TURN) !== 0) return workedHeadGap();
   next = baseMark(next);
-  if (previous === MARK_PLAN_LINE && next === MARK_FOOTER_ROW) return TRANSCRIPT_FOOTER_GAP;
-  if (previous === MARK_PLAN_LINE) previous = MARK_OTHER;
-  if (next === MARK_PLAN_LINE) next = MARK_OTHER;
   if (previous === MARK_WORKED && next !== MARK_PROMPT) return 0;
   if (previous === MARK_WORKED) previous = MARK_STEP;
   // A turn's "Working for" or "Worked for" line opens that turn's work. Right under a one-line row
@@ -304,6 +357,11 @@ export function transcriptGap(previous: number, next: number): number {
   // "Worked for" opens a finished turn's work: right under another turn's last one-line row it stood flush with it,
   // so "Sent to", another agent's line and "Worked for" read as one run (Leo, 2026-11-21: "way too close. no way.").
   if (next === MARK_WORKED && (previous === MARK_STEP || previous === MARK_STATUS)) return workedHeadGap();
+  // The next turn's first row under a reply's footer row: its "Working for" / "Worked for" line, the waiting
+  // indicator, or a step (a woken turn's first tool row, another agent's line). A status line there keeps the
+  // footer gap (8), below.
+  if (previous === MARK_FOOTER_ROW && (next === MARK_WORKED || next === MARK_INDICATOR || next === MARK_STEP))
+    return FOOTER_WORKING_GAP_LOOKS[footerWorkingGapLook()];
   if (next === MARK_WORKED) next = MARK_STEP;
   const near = (mark: number) =>
     mark === MARK_STEP || mark === MARK_STATUS || mark === MARK_MESSAGE || mark === MARK_CARD;
@@ -320,12 +378,13 @@ export function transcriptGap(previous: number, next: number): number {
   if (next === MARK_FOOTER_ROW && (previous === MARK_STEP || previous === MARK_STATUS)) return TRANSCRIPT_FOOTER_GAP;
   // A status line right under a reply's footer row ("Background update", "Background task
   // finished", "Subagent finished", "4 background tasks finished": the agent's own work that came in
-  // after the turn ended) is the tail of that turn: 8 under the footer, as the footer is under the
-  // reply, never a block gap away with the turn gap under it, a lone line in the middle of the band
-  // (Leo, 2026-11-04: "this bare background update tool call floating in teh air is so weird loking
-  // proportionally"; design/transcript-spacing.md "Lone system rows"). Another agent's line or a
-  // tool run there is a step row and keeps the block gap (footer-to-received).
-  if (previous === MARK_FOOTER_ROW && next === MARK_STATUS) return TRANSCRIPT_FOOTER_GAP;
+  // after the turn ended, and the line that opens the turn it woke) sits flush under the footer, as
+  // Claude Code desktop draws "Message from subagent" right under the actions; 8 under it read as a
+  // band between the two (Lucas, 2026-11-27: "less top padding and make it closer to the actions").
+  // Never a block gap away with the turn gap under it, a lone line in the middle of the band (Leo,
+  // 2026-11-04; design/transcript-spacing.md "Lone system rows"). Another agent's line or a tool run
+  // there is a step row and opens the next turn: the run gap, above (footer-to-received).
+  if (previous === MARK_FOOTER_ROW && next === MARK_STATUS) return 0;
   // Waiting for the first output: the indicator right under its prompt takes the block gap.
   if ((next === MARK_INDICATOR || next === MARK_FOOTER_SLOT) && previous === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;
   if (previous === MARK_PROMPT || next === MARK_PROMPT) return TRANSCRIPT_TURN_GAP;
@@ -339,6 +398,7 @@ export function transcriptGap(previous: number, next: number): number {
   // calls and thinking needs to be bigger". Use the same scaled run gap as activity to prose.
   if (line(previous) && (next === MARK_INDICATOR || next === MARK_FOOTER_SLOT)) return TRANSCRIPT_RUN_GAP;
   if (next === MARK_LIVE_STEP) return liveStepGap();
+  if (next === MARK_LIVE_THOUGHT) return TRANSCRIPT_RUN_GAP;
   // A run, or any status line, and the reply's prose around it sit 16 apart, either way.
   if ((line(previous) && next === MARK_MESSAGE) || (previous === MARK_MESSAGE && line(next))) return TRANSCRIPT_RUN_GAP;
   return TRANSCRIPT_BLOCK_GAP;
@@ -351,7 +411,8 @@ export function transcriptGap(previous: number, next: number): number {
 export function tailGap(last: number, beforeLast: number, footerAfter = false): number {
   last = baseMark(last);
   // The live line in a run has the room under it that a row of its box has: an indicator's, or the footer slot's.
-  if (last === MARK_LIVE_STEP) last = liveGapLook().row === "slot" ? MARK_FOOTER_SLOT : MARK_INDICATOR;
+  if (last === MARK_LIVE_STEP || last === MARK_LIVE_THOUGHT)
+    last = liveGapLook().row === "slot" ? MARK_FOOTER_SLOT : MARK_INDICATOR;
   beforeLast = baseMark(beforeLast);
   if (footerAfter) return TRANSCRIPT_BLOCK_GAP;
   if (last === MARK_INDICATOR && beforeLast === MARK_PROMPT) return TRANSCRIPT_BLOCK_GAP;

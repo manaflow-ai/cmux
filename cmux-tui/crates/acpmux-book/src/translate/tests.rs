@@ -852,6 +852,22 @@ fn duplicate_sequences_are_noops_but_new_replayed_prompts_start_a_turn() {
     assert!(state.turn.is_some_and(|id| id > before.last_id));
 }
 
+/// The hub names the subagent a `SendMessage` goes to (`_meta.acpmux.recipient`); its tool row
+/// carries the name, so a page whose window starts after the Agent call still reads "Sent to
+/// <name>", never a raw agent id (Leo, 2026-11-22).
+#[test]
+fn a_send_message_row_carries_its_recipient() {
+    let line = r#"{"seq":1,"at":1000,"dir":"in","kind":"session/update","msg":{"method":"session/update","params":{"_meta":{"acpmux":{"recipient":"Watch the cmux-ci run"}},"update":{"sessionUpdate":"tool_call","toolCallId":"t","status":"pending","title":"SendMessage","_meta":{"claude":{"tool":"SendMessage"}},"rawInput":{"to":"a6c31b7ee45d67550","message":"Queued"}}}}}"#;
+    let mut state = State::default();
+    let ops = t(&mut state, Harness::V1, line.as_bytes()).unwrap();
+    let recipient = ops.iter().find_map(|op| match &op.change {
+        Change::Row(row) | Change::Patch(row) => row.fields.get("recipient").cloned(),
+        _ => None,
+    });
+    // A row field holds its JSON value, as the body the page reads gets it.
+    assert_eq!(recipient.as_deref(), Some(r#""Watch the cmux-ci run""#));
+}
+
 #[test]
 fn long_metadata_is_cut_without_a_late_line_error() {
     let long = "x".repeat(64 * 1024);
@@ -1719,4 +1735,35 @@ fn a_reorder_of_a_full_queue_is_one_pass() {
     let expected: Vec<u64> = (0..1024).rev().map(|n| prompt_hash(&format!("q-{n}"))).collect();
     assert_eq!(state.queue().map(|entry| entry.id_hash).collect::<Vec<_>>(), expected);
     assert!(took < std::time::Duration::from_millis(50), "a full reorder took {took:?}");
+}
+
+#[test]
+fn a_claude_image_row_names_its_size_from_its_header() {
+    let image = |data: &str| {
+        let mut state = State::default();
+        let line = format!(
+            r#"{{"type":"assistant","uuid":"a1","timestamp":"2026-11-23T00:00:01Z","message":{{"id":"m1","content":[{{"type":"image","source":{{"type":"base64","media_type":"image/png","data":"{data}"}}}}]}}}}"#
+        );
+        let ops = t(&mut state, Harness::Claude, line.as_bytes()).unwrap();
+        ops.into_iter()
+            .filter_map(|op| match op.change {
+                Change::Row(row) if row.kind == RowKind::Image && !row.open => Some(row),
+                _ => None,
+            })
+            .next_back()
+            .expect("a settled image row")
+    };
+    // A real 1x1 PNG.
+    let one = image(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+    );
+    assert_eq!(
+        (one.fields.get("w").map(String::as_str), one.fields.get("h").map(String::as_str)),
+        (Some("1"), Some("1"))
+    );
+    assert_eq!(one.head(), r#"{"h":1,"w":1}"#);
+    // A header acpmux does not read names no size, and the row is as before.
+    let unknown = image("AAAA");
+    assert!(!unknown.fields.contains_key("w") && !unknown.fields.contains_key("h"));
+    assert_eq!(unknown.head(), "{}");
 }

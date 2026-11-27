@@ -482,6 +482,25 @@ fn a_config_that_is_not_json_is_named_and_left_as_it_is() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
 }
 
+/// #39320 review: an unlink over a config it cannot read or parse is a failure, never "not
+/// linked" with a zero exit; the config is left as it is.
+#[test]
+fn an_unlink_over_an_unreadable_config_fails() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path(), None);
+    let path = env.config_path(App::ClaudeDesktop);
+    std::fs::write(&path, "{ not json").unwrap();
+    for dry_run in [false, true] {
+        let row = unlink(&env, App::ClaudeDesktop, dry_run);
+        assert!(row.note.as_deref().is_some_and(|n| n.contains("is not JSON")), "{:?}", row.note);
+        assert!(row.failed("unlink"), "dry run {dry_run}: {:?}", row.note);
+    }
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "{ not json");
+    // A config with no entry is a clean unlink.
+    std::fs::write(&path, r#"{"mcpServers": {}}"#).unwrap();
+    assert!(!unlink(&env, App::ClaudeDesktop, false).failed("unlink"));
+}
+
 /// A stand-in `claude` CLI that writes `~/.claude.json` the way `claude mcp add-json` and
 /// `claude mcp remove` do, and logs its argv.
 #[cfg(unix)]
@@ -757,4 +776,89 @@ fn a_pi_skill_that_only_mentions_the_guest_variable_is_not_cmuxs() {
     assert_eq!(link(&env, App::Pi, false).state, State::Foreign);
     assert_eq!(unlink(&env, App::Pi, false).state, State::Foreign);
     assert_eq!(std::fs::read_to_string(&path).unwrap(), theirs);
+}
+
+#[cfg(unix)]
+#[test]
+fn claude_code_gets_the_inbox_relay_once_and_never_over_a_persons_entry() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut env = env(dir.path(), Some(fake_claude(dir.path())));
+    env.args = vec!["acp".to_owned(), "acpmux-mcp".to_owned()];
+    let config = dir.path().join(".claude.json");
+    let servers = || -> Value {
+        serde_json::from_str::<Value>(&std::fs::read_to_string(&config).unwrap()).unwrap()
+            ["mcpServers"]
+            .clone()
+    };
+
+    // Nothing there: the tool-less relay is added, as `<binary> acp inbox-relay`.
+    assert_eq!(ensure_inbox_relay(&env).unwrap(), RelaySetup::Added);
+    let relay = &servers()[RELAY_KEY];
+    assert_eq!(relay["command"], "/opt/cmux/bin/acpmux");
+    assert_eq!(relay["args"], json!(["acp", "inbox-relay"]));
+    assert!(servers().get(SERVER_KEY).is_none(), "the tools stay unlinked");
+
+    // Already there: nothing runs again.
+    assert_eq!(ensure_inbox_relay(&env).unwrap(), RelaySetup::Present);
+    let log = std::fs::read_to_string(dir.path().join("claude.log")).unwrap();
+    assert_eq!(log.lines().count(), 1, "{log}");
+
+    // A person's own entry under the relay's name is theirs: left alone.
+    std::fs::write(&config, r#"{"mcpServers":{"cmux-inbox":{"command":"mine"}}}"#).unwrap();
+    assert_eq!(ensure_inbox_relay(&env).unwrap(), RelaySetup::Present);
+    assert_eq!(servers()[RELAY_KEY]["command"], "mine");
+
+    // A linked guest `cmux` entry already runs the relay: none is added beside it.
+    std::fs::write(&config, "{}").unwrap();
+    assert_eq!(link(&env, App::ClaudeCode, false).state, State::Linked);
+    assert_eq!(ensure_inbox_relay(&env).unwrap(), RelaySetup::Present);
+    assert!(servers().get(RELAY_KEY).is_none());
+
+    // The daemon's home rides along when it is not the default one.
+    env.acpmux_home = Some(PathBuf::from("/srv/acpmux"));
+    assert_eq!(relay_entry(&env)["env"]["ACPMUX_HOME"], "/srv/acpmux");
+}
+
+#[test]
+fn without_claude_code_the_inbox_relay_is_not_installed() {
+    let dir = tempfile::tempdir().unwrap();
+    let env = env(dir.path(), None);
+    assert_eq!(ensure_inbox_relay(&env).unwrap(), RelaySetup::NotInstalled);
+    assert!(!dir.path().join(".claude.json").exists());
+}
+
+#[test]
+fn the_inbox_relay_is_added_unasked_only_when_the_person_turned_it_on() {
+    use crate::user_settings::Settings;
+    let parsed = |text: &str| Settings::Parsed(serde_json::from_str(text).unwrap());
+    // Off by default: no file, a file that does not parse, no key, anything but `true`.
+    for off in [
+        Settings::Missing,
+        Settings::Unreadable("x".to_owned()),
+        parsed("{}"),
+        parsed(r#"{"agents": {"claudeCodeInboxRelay": false}}"#),
+        parsed(r#"{"agents.claudeCodeInboxRelay": "true"}"#),
+    ] {
+        assert!(!relay_setting_on(&off));
+    }
+    assert!(relay_setting_on(&parsed(r#"{"agents": {"claudeCodeInboxRelay": true}}"#)));
+    assert!(relay_setting_on(&parsed(r#"{"agents.claudeCodeInboxRelay": true}"#)));
+    assert!(
+        RELAY_HINT.contains("acpmux desktop link --app claude-code")
+            && RELAY_HINT.contains(RELAY_SETTING)
+    );
+    // The key is the settings row's (one row, default off), so Settings, the palette, the CLI
+    // and MCP all set what this reads.
+    let source: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../schemas/settings/source/agent-defaults.json"
+    ))
+    .unwrap();
+    let row = source["lists"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|list| list["rows"].as_array().unwrap())
+        .find(|row| row["key"] == RELAY_SETTING)
+        .expect("agents.claudeCodeInboxRelay row");
+    assert_eq!((row["kind"].as_str(), row["default"].as_bool()), (Some("toggle"), Some(false)));
 }
