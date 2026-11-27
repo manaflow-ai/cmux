@@ -76,7 +76,7 @@ test("all-green, one-red, and never-run fixtures retain their verdicts through r
   ] as const;
   for (const [fixture, verdicts] of cases) {
     const decoded = readTripwires(fixture);
-    expect(decoded?.items.map((item) => item.verdict)).toEqual(verdicts);
+    expect(decoded?.items.map((item) => item.verdict)).toEqual([...verdicts]);
     expect(decoded?.turnId).toBe("turn-1");
   }
 });
