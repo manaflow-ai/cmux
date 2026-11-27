@@ -41,44 +41,44 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
     func testAgentChat() {
         let g = "11 Agent chat"
         capture([
-            Scene(group: g, id: "pending-question", args: ["-cmux-mobile-demo", "kbd-chat"], settle: 6),
-            Scene(group: g, id: "idle-with-history", args: Self.idleChat, settle: 6),
-            Scene(group: g, id: "history-scrolled-up", args: Self.idleChat, settle: 6) { app in
+            Scene(group: g, id: "pending-question", args: ["-cmux-mobile-demo", "kbd-chat"]),
+            Scene(group: g, id: "idle-with-history", args: Self.idleChat),
+            Scene(group: g, id: "history-scrolled-up", args: Self.idleChat) { app in
                 for _ in 0..<4 {
                     app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
                         .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)))
                 }
                 return nil
             },
-            Scene(group: g, id: "keyboard-up-draft", args: Self.idleChat, settle: 6) { app in
+            Scene(group: g, id: "keyboard-up-draft", args: Self.idleChat) { app in
                 C.steps([{ Self.openComposer(app) }, { app.typeText("Run the tests"); return nil }])
             },
-            Scene(group: g, id: "slash-suggestions", args: Self.idleChat, settle: 6) { app in
+            Scene(group: g, id: "slash-suggestions", args: Self.idleChat) { app in
                 C.steps([{ Self.openComposer(app) }, { app.typeText("/"); return nil }])
             },
-            Scene(group: g, id: "mention-suggestions", args: Self.idleChat, settle: 6) { app in
+            Scene(group: g, id: "mention-suggestions", args: Self.idleChat) { app in
                 C.steps([{ Self.openComposer(app) }, { app.typeText("@"); return nil }])
             },
-            Scene(group: g, id: "running-turn-stop", args: Self.idleChat, settle: 6) { app in
+            Scene(group: g, id: "running-turn-stop", args: Self.idleChat) { app in
                 C.steps([{ Self.send(app, "Summarize the transport layer") }, { C.wait(app.buttons["Stop"].firstMatch, "Stop button", timeout: 10) }])
             },
-            Scene(group: g, id: "turn-finished", args: Self.idleChat, settle: 6) { app in
-                C.steps([{ Self.send(app, "Summarize the transport layer") }, { C.pause(14); return nil }])
+            Scene(group: g, id: "turn-finished", args: Self.idleChat) { app in
+                C.steps([{ Self.send(app, "Summarize the transport layer") }, { C.turnEnded(app) }])
             },
-            Scene(group: g, id: "rich-first-turn", args: ["-cmux-mobile-demo", "kbd-chat-empty"], settle: 6) { app in
-                C.steps([{ Self.send(app, "Plan the release") }, { C.pause(10); return nil }])
+            Scene(group: g, id: "rich-first-turn", args: ["-cmux-mobile-demo", "kbd-chat-empty"]) { app in
+                C.steps([{ Self.send(app, "Plan the release") }, { C.turnEnded(app) }])
             },
-            Scene(group: g, id: "empty-chat-home", args: ["-cmux-mobile-demo", "kbd-chat-empty"], settle: 6),
-            Scene(group: g, id: "offline-queued", args: ["-cmux-mobile-demo", "offline-send"], settle: 8),
-            Scene(group: g, id: "offline-queued-menu", args: ["-cmux-mobile-demo", "offline-send"], settle: 8) { app in
+            Scene(group: g, id: "empty-chat-home", args: ["-cmux-mobile-demo", "kbd-chat-empty"]),
+            Scene(group: g, id: "offline-queued", args: ["-cmux-mobile-demo", "offline-send"]),
+            Scene(group: g, id: "offline-queued-menu", args: ["-cmux-mobile-demo", "offline-send"]) { app in
                 C.longPress(C.any(app, "chat.queued"), "queued chip")
             },
-            Scene(group: g, id: "more-menu", args: Self.idleChat, settle: 6) { app in Self.more(app) },
-            Scene(group: g, id: "files-and-artifacts", args: Self.idleChat, settle: 6) { app in Self.moreItem(app, "Files and Artifacts") },
-            Scene(group: g, id: "agent-edits-review", args: Self.idleChat, settle: 6) { app in
+            Scene(group: g, id: "more-menu", args: Self.idleChat) { app in Self.more(app) },
+            Scene(group: g, id: "files-and-artifacts", args: Self.idleChat) { app in Self.moreItem(app, "Files and Artifacts") },
+            Scene(group: g, id: "agent-edits-review", args: Self.idleChat) { app in
                 C.tap(app.buttons["Review"].firstMatch, "Review (files changed)")
             },
-            Scene(group: g, id: "answer-row-menu", args: Self.idleChat, settle: 6) { app in
+            Scene(group: g, id: "answer-row-menu", args: Self.idleChat) { app in
                 let header = app.navigationBars.buttons["More"].firstMatch
                 guard header.waitForExistence(timeout: 30) else { return "no chat" }
                 let rowMore = app.buttons.matching(NSPredicate(format: "label == %@", "More")).allElementsBoundByIndex
@@ -86,36 +86,36 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
                 guard let rowMore else { return "no answer … button" }
                 return C.tap(rowMore, "answer … button")
             },
-            Scene(group: g, id: "share-transcript", args: Self.idleChat, settle: 6) { app in Self.moreItem(app, "Share Transcript") },
-            Scene(group: g, id: "answer-context-menu", args: Self.idleChat, settle: 6) { app in
+            Scene(group: g, id: "share-transcript", args: Self.idleChat) { app in Self.moreItem(app, "Share Transcript") },
+            Scene(group: g, id: "answer-context-menu", args: Self.idleChat) { app in
                 app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.45)).press(forDuration: 1.2)
                 return nil
             },
-            Scene(group: g, id: "select-text", args: Self.idleChat, settle: 6) { app in
+            Scene(group: g, id: "select-text", args: Self.idleChat) { app in
                 app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.45)).press(forDuration: 1.2)
                 return C.tap(app.buttons["Select Text"].firstMatch, "Select Text")
             },
-            Scene(group: g, id: "voice-mode", args: ["-cmux-mobile-demo", "voice-chat"],
-                  env: ["CMUX_MOBILE_VOICE_MODE_DEMO": "1", "CMUX_MOBILE_VOICE_MODE_DEMO_PROMPT": "what changed today"], settle: 6) { app in
+            Scene(group: g, id: "voice-mode", args: ["-cmux-mobile-demo", "voice-chat", "-composer.voiceButton", "sendButton"],
+                  env: ["CMUX_MOBILE_VOICE_MODE_DEMO": "1", "CMUX_MOBILE_VOICE_MODE_DEMO_PROMPT": "what changed today"]) { app in
                 C.steps([{ C.tap(app.buttons["agentChat.composer.voice"], "voice button") }, { C.wait(app.otherElements["voiceMode.bar"].firstMatch, "voice bar", timeout: 10) }])
             },
-            Scene(group: g, id: "parity-subagents", args: ["-CmuxMobileDemo", "acp-parity", "-CmuxMobileDemoPhases", "subagents"], settle: 0,
+            Scene(group: g, id: "parity-subagents", args: ["-CmuxMobileDemo", "acp-parity", "-CmuxMobileDemoPhases", "subagents"],
                   frames: [("parity-subagents-list", 8), ("parity-subagent-open", 13)]),
-            Scene(group: g, id: "parity-checkpoints", args: ["-CmuxMobileDemo", "acp-parity", "-CmuxMobileDemoPhases", "checkpoints"], settle: 0,
+            Scene(group: g, id: "parity-checkpoints", args: ["-CmuxMobileDemo", "acp-parity", "-CmuxMobileDemoPhases", "checkpoints"],
                   frames: [("parity-checkpoints-list", 8), ("parity-checkpoint-restore", 13)]),
-            Scene(group: g, id: "parity-handoff", args: ["-CmuxMobileDemo", "acp-parity", "-CmuxMobileDemoPhases", "handoff"], settle: 0,
+            Scene(group: g, id: "parity-handoff", args: ["-CmuxMobileDemo", "acp-parity", "-CmuxMobileDemoPhases", "handoff"],
                   frames: [("parity-handoff", 8), ("parity-handoff-started", 13)]),
-            Scene(group: g, id: "chat-feed-tour", args: ["-CmuxMobileDemo", "chat-feed"], settle: 0,
+            Scene(group: g, id: "chat-feed-tour", args: ["-CmuxMobileDemo", "chat-feed"],
                   frames: [("tour-feed", 4), ("tour-show-more", 9), ("tour-inline-answer", 14), ("tour-chat-streaming", 22),
                            ("tour-permission-in-chat", 28), ("tour-question-in-chat", 34), ("tour-diff", 42), ("tour-changes", 52)]),
             Scene(group: g, id: "pending-permission-codex", args: ["-cmux-mobile-tab", "workspaces"]) { app in
                 C.steps([
                     { C.tap(app.buttons["workspace.row.ws-ghostty"], "ws-ghostty row") },
-                    { C.pause(1.5); return C.tap(app.buttons["Tabs"].firstMatch, "Tabs") },
+                    { C.tap(app.buttons["Tabs"].firstMatch, "Tabs") },
                     { C.tap(app.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'codex' AND label ENDSWITH ', tab'")).firstMatch, "Codex card") },
                 ])
             },
-            Scene(group: g, id: "incoming-agent-cards", args: Self.idleChat, settle: 6) { app in
+            Scene(group: g, id: "incoming-agent-cards", args: Self.idleChat) { app in
                 let digest = app.staticTexts["3 messages"].firstMatch
                 for _ in 0..<12 where !digest.isHittable {
                     app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
@@ -154,18 +154,26 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "permission-sending", args: Self.feed + ["-cmuxMobile.dev.slowApproval", "YES"]) { app in
                 C.steps([{ C.swipeLeft(app.tables["feed.list"].cells["feed.row.f-permission"], "permission row") }, { C.tap(app.tables["feed.list"].buttons["Allow"], "Allow action") }])
             },
-            Scene(group: g, id: "row-context-menu", args: Self.feed) { app in C.longPress(app.tables["feed.list"].cells["feed.row.f-pricing"], "pricing row") },
+            // The row's menu opens from its ••• button only.
+            Scene(group: g, id: "row-ellipsis-menu", args: Self.feed) { app in
+                C.tap(app.tables["feed.list"].cells["feed.row.f-pricing"].buttons["Event actions"], "pricing row •••")
+            },
+            // A hold on a row's text selects the held word in place (no lifted row, no menu).
+            Scene(group: g, id: "row-hold-selects-text", args: Self.feed) { app in
+                C.longPress(app.tables["feed.list"].cells["feed.row.f-pricing"], "pricing row")
+            },
             Scene(group: g, id: "open-finished-chat", args: Self.feed) { app in
                 let row = app.tables["feed.list"].cells["feed.row.f-finished"]
                 for _ in 0..<6 where !row.isHittable { _ = C.scrollDown(app) }
                 return C.tap(row, "finished row")
             },
-            Scene(group: g, id: "refresh-error-retry", args: ["-cmux-mobile-demo", "retry-feed"], settle: 4),
+            // keep: past AutoRetry's 10 s quiet bound, the quiet line is the state shown.
+            Scene(group: g, id: "refresh-error-retry", args: ["-cmux-mobile-demo", "retry-feed"], ready: .clock(12)),
             Scene(group: g, id: "new-events-pill", args: Self.feed,
-                  env: ["CMUX_MOBILE_FEED_STRESS": "300", "CMUX_MOBILE_FEED_STRESS_LIVE": "3"], settle: 4) { app in
+                  env: ["CMUX_MOBILE_FEED_STRESS": "300", "CMUX_MOBILE_FEED_STRESS_LIVE": "3"]) { app in
                 C.steps([{ C.tap(app.buttons["All"].firstMatch, "All chip") }, { C.scrollDown(app, times: 3) }, { C.wait(app.buttons["feed.newPill"], "new events pill", timeout: 15) }])
             },
-            Scene(group: g, id: "stress-300", args: Self.feed, env: ["CMUX_MOBILE_FEED_STRESS": "300"], settle: 4),
+            Scene(group: g, id: "stress-300", args: Self.feed, env: ["CMUX_MOBILE_FEED_STRESS": "300"]),
         ])
     }
 
@@ -188,22 +196,22 @@ final class AllUIStatesChatFeedCaptureUITests: UIStateCaptureCase {
                     if kind == "permission" && look == .light { attachShot(group: g, id: "system-permission-alert", look: look, miss: nil) }
                     allow.tap()
                 }
+                // keep: the app posts its dev push on its own clock after launch, with no marker; home sooner suspends it.
                 C.pause(3)
                 XCUIDevice.shared.press(.home)
-                C.pause(1.5)
+                _ = app.wait(for: .runningBackground, timeout: 5)
                 springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.005))
                     .press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.6)))
-                C.pause(2)
                 let platter = springboard.descendants(matching: .any).matching(identifier: "NotificationShortLookView").firstMatch
-                let found = platter.waitForExistence(timeout: 6)
+                let found = platter.waitForExistence(timeout: 8)
                 attachShot(group: g, id: "\(kind)-notification-center", look: look, miss: found ? nil : "no notification platter")
                 if found {
                     platter.press(forDuration: 1.2)
+                    // keep: the long look is drawn by the content extension out of process, which this test cannot query.
                     C.pause(2.5)
                     attachShot(group: g, id: "\(kind)-long-look", look: look, miss: nil)
                 }
                 XCUIDevice.shared.press(.home)
-                C.pause(1)
                 app.terminate()
             }
         }

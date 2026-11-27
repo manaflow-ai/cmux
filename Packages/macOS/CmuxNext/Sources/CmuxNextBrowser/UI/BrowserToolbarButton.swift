@@ -6,13 +6,14 @@ import Foundation
 /// tab plays media, the zoom level while
 /// the page is not at 100 %, Favorites, Downloads once this session has
 /// downloaded something, then the classic browser pane's
-/// design mode, profile, theme, DevTools and More. Each press runs one
+/// design mode, theme and DevTools, the tab's browser profile, and More. Each press runs one
 /// catalog action (`BrowserToolbarHandlers` in the App), so the palette,
 /// the CLI, the socket and the menus share it.
 ///
 /// Only pinned buttons show (cx-d0d.81, `browser.toolbarButtons`): by default
 /// the media hub, zoom and Downloads, each only while it has something to
-/// show, so a page shows Back, Forward, Reload, the address bar and More.
+/// show, and the profile, so a page shows Back, Forward, Reload, the address bar,
+/// its profile and More.
 /// The rest are rows of the More menu, whose Show in Toolbar items pin them.
 public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Sendable {
     /// The media hub (`browser.media.show`): what every tab plays, with
@@ -27,9 +28,12 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
     /// Chrome's toolbar does; never for downloads kept from an earlier run.
     case downloads
     case designMode
-    case profile
     case theme
     case devTools
+    /// The tab's browser profile, as its avatar: the last button before More, outside the address
+    /// bar (Leo 2026-11-22, "move it outside the omnibar like a normal ... browser ... have their
+    /// profiles on the right"; cmuxterm-hq RFD 0050, D1). A press opens the profile menu.
+    case profile
     case overflow
 
     /// A press opens a menu or popover (media, Downloads, profile, theme,
@@ -42,8 +46,30 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
         }
     }
 
+    /// The press opens the menu, and the held press's drag and release pick a row in it, as on a
+    /// pop-up button's `NSMenu` (Leo: "so he click and hold on the context menu start and then it
+    /// goes over and then release should go"). Downloads opens a popup, not a menu, which does not
+    /// follow a held press, so it keeps opening on the release.
+    public var followsPress: Bool { opensMenu && self != .downloads }
+
     /// Accessibility identifier (UI automation, `debug.extensions.toolbar`).
     public var identifier: String { "browser.toolbar.\(rawValue)" }
+
+    /// The catalog action a press runs (`BrowserToolbarHandlers.actionID(for:)` in the App). The theme button runs
+    /// `browserTheme` from its menu, one item per scheme.
+    public var actionName: String {
+        switch self {
+        case .media: "browser.media.show"
+        case .zoom: "browserZoomReset"
+        case .favorites: "bookmark.manager"
+        case .downloads: "browser.downloads.show"
+        case .designMode: "toggleBrowserDesignMode"
+        case .profile: "browser.profile.choose"
+        case .theme: "browserTheme"
+        case .devTools: "toggleBrowserDeveloperTools"
+        case .overflow: "browser.overflow.menu"
+        }
+    }
 
     /// How early the button hides as the pane narrows (`BrowserToolbarButtonsView.collapse`):
     /// design mode and DevTools at level 1, the rest at level 2; More always
@@ -92,15 +118,17 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
         case .favorites: Strings.toolbarFavorites
         case .downloads: Strings.toolbarDownloads
         case .designMode: Strings.toolbarDesignMode
-        case .profile: Strings.toolbarProfileUnknown
         case .theme: Strings.toolbarPinTheme
         case .devTools: Strings.toolbarPinDevTools
+        case .profile: Strings.toolbarProfileUnknown
         case .overflow: Strings.toolbarMore
         }
     }
 
     /// The More menu's Show in Toolbar submenu title.
     public static var showInToolbarTitle: String { Strings.toolbarShowInToolbar }
+    /// The More menu's zoom row title (before its −, percent, + and reset).
+    static var zoomRowTitle: String { Strings.toolbarMenuZoom }
 }
 
 /// What one toolbar button shows.

@@ -3,7 +3,9 @@
 //! An update swaps the daemon at once, while every agent host it adopts keeps running the binary
 //! it started from. A host moves onto the installed build when its session hibernates: the idle
 //! harness and its host stop (`idle.rs`), and the next wake starts a host from the installed
-//! binary (`hosts.rs` `start_hosted`). One that never hibernates (a background subagent at work,
+//! binary (`hosts.rs` `start_hosted`). A host below this build's level (`agent_host::HOST_LEVEL`)
+//! does not wait for the idle period: it moves at its chat's next idle point (`host_level.rs`).
+//! One that never hibernates (a background subagent at work,
 //! a dev server under it) stays on the build it started from, and these say so: the summary's
 //! `hostBuild` and `hostBuildDiffers` (`acpmux session info`, `acpmux ls`, its WARN cell) and
 //! `daemon status`'s `hostsOnOtherBuilds`. Each reads the host record the daemon holds in memory,
@@ -23,7 +25,7 @@ pub(crate) fn host_build_differs(host_build: Option<&str>, daemon: &str) -> bool
 
 /// The build `session`'s live agent host runs, from the host record. None without one, and while
 /// a start or stop holds the child's slot: a summary never waits on it.
-pub(super) fn live_host_build(session: &Session) -> Option<String> {
+pub(crate) fn live_host_build(session: &Session) -> Option<String> {
     session.child.try_lock().ok()?.as_ref()?.host_build()
 }
 

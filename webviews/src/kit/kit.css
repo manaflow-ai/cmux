@@ -82,7 +82,8 @@ button.kit-row:active {
 }
 .kit-row[data-selected],
 button.kit-row[data-selected]:hover {
-  background: var(--ds-color-selection);
+  /* A host gives the selection its own fill by setting this on the row; unset, the theme's. */
+  background: var(--kit-row-selected-fill, var(--ds-color-selection));
 }
 /* A static row's visible text when its label is read instead (Row.tsx). */
 .kit-row-body {
@@ -121,6 +122,13 @@ button.kit-row:focus-visible {
   line-height: var(--text-caption--line-height);
   letter-spacing: var(--text-caption--letter-spacing);
 }
+/* subtitleSize="detail": the customize scene's second line (Row.tsx). */
+.kit-row[data-subtitle-size="detail"] .kit-row-subtitle {
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  /* The row's own, as the scene's second line has it. */
+  letter-spacing: inherit;
+}
 .kit-row-trail {
   display: inline-flex;
   flex: none;
@@ -152,6 +160,25 @@ button.kit-row:focus-visible {
   height: var(--ds-control-icon);
   padding-inline: var(--ds-space-1);
   border-radius: var(--ds-control-icon);
+}
+/* xs: the customize scene's badge (apps/scene/scene.css .cmux-app-scene-badge-label), on the
+   grid lengths that follow the interface scale. Its line box is the surrounding text's, as the
+   badge's is; the neutral fill is its own text color at 14%. A capsule unless the host sets
+   --kit-pill-radius on its own class (this default has no specificity, so any class wins). */
+:where(.kit-pill[data-size="xs"]) {
+  --kit-pill-radius: var(--ds-radius-full);
+}
+.kit-pill[data-size="xs"] {
+  height: auto;
+  min-height: var(--grid-icon-box);
+  padding-inline: var(--grid-base);
+  border-radius: var(--kit-pill-radius);
+  font-size: var(--text-detail);
+  line-height: inherit;
+  letter-spacing: inherit;
+}
+.kit-pill[data-size="xs"][data-tone="neutral"] {
+  background: color-mix(in srgb, currentColor 14%, transparent);
 }
 .kit-pill[data-tone="accent"] {
   background: var(--ds-color-accent);
@@ -225,4 +252,10 @@ button.kit-row:focus-visible {
 }
 .kit-field-note[data-error] {
   color: var(--ds-color-danger);
+}
+
+/* GLASS: a region on the page's glass at a level (Glass.tsx; ui/glass/glass.css "PUBLIC GLASS
+   LEVELS"). The card radius unless the caller gives one; paint only, so no padding of its own. */
+.kit-glass {
+  border-radius: var(--ds-radius-lg);
 }

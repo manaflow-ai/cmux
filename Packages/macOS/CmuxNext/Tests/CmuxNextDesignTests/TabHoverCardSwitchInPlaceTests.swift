@@ -35,7 +35,9 @@ import Testing
             return CGVector(dx: from.m41, dy: from.m42)
         }
 
-        var crossfade: CAAnimation? { panel.glass.contentView.layer?.animation(forKey: HoverCardPanel.crossfadeKey) }
+        /// The content crossfade in flight. Core Animation files every transition under `kCATransition`,
+        /// whatever key it is added with, so that is where it is read.
+        var crossfade: CAAnimation? { panel.glass.contentView.layer?.animation(forKey: kCATransition) }
 
         func tearDown() {
             panel.closeAfterTest()
@@ -56,8 +58,11 @@ import Testing
 
     private static func fixture() -> Fixture {
         _ = NSApplication.shared
-        let parent = NSWindow(contentRect: NSRect(x: 100, y: 200, width: 1000, height: 500), styleMask: [.borderless],
-                              backing: .buffered, defer: false)
+        // On the screen's visible frame: the card stays on screen, so a far tab's card on a narrow host
+        // screen (a 1024-point virtual display) was pushed 40 points in from its tab.
+        let visible = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        let parent = NSWindow(contentRect: NSRect(x: visible.minX + 10, y: visible.minY + 100, width: min(1000, visible.width - 20),
+                                                  height: 500), styleMask: [.borderless], backing: .buffered, defer: false)
         parent.isReleasedWhenClosed = false
         parent.orderFrontRegardless()
         let clock = Clock()
@@ -117,7 +122,10 @@ import Testing
 
     /// The pointer left the last tab and its card started to fade out; reaching the next tab in the reshow
     /// window shows that tab's card at that tab, fading back in from where the fade was, never a slide.
-    @Test func theNextTabDuringTheFadeOutSwitchesInPlace() throws {
+    /// A host that draws no frames (no display, a sleeping one) ends the fade-out at once, so there is
+    /// no fade-out to reach.
+    @Test(.enabled("needs an awake display that can advance animations") { await GUIAnimationTestSupport.animatesHere() })
+    func theNextTabDuringTheFadeOutSwitchesInPlace() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let f = Self.fixture()
@@ -145,7 +153,8 @@ import Testing
     }
 
     /// `.crossfade`: the card is at the next tab at once; only its content fades over the last.
-    @Test func crossfadeSwitchesInPlaceWithItsContentFading() throws {
+    @Test(.enabled("needs an awake display that can advance animations") { await GUIAnimationTestSupport.animatesHere() })
+    func crossfadeSwitchesInPlaceWithItsContentFading() throws {
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let f = Self.fixture()
@@ -158,6 +167,26 @@ import Testing
         #expect(f.panel.activeMorph == nil, "the card resized on a spring")
         #expect(abs(f.panel.cardFrame.minX - f.tab(1).minX) < 0.5, "the card is not under its tab")
         #expect(f.crossfade != nil, "the content did not crossfade")
+    }
+
+    /// A sweep stops the content crossfade a `.crossfade` move started: the next tab's card shows only its
+    /// own content, never the last tabs' still fading under it (msg 15501: doubled text trailing the
+    /// pointer). The sweep removed the crossfade by its own key, but Core Animation files every transition
+    /// under `kCATransition`, so the crossfade ran on.
+    @Test(.enabled("needs an awake display that can advance animations") { await GUIAnimationTestSupport.animatesHere() })
+    func aSweepStopsTheLastCrossfade() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let f = Self.fixture()
+        defer { f.tearDown() }
+        let a = Self.body(width: 240, height: 60), b = Self.body(width: 240, height: 60)
+
+        f.present(tab: 0, body: a, retarget: .crossfade)
+        f.present(tab: 1, body: b, retarget: .crossfade)
+        try #require(f.crossfade != nil, "the .crossfade move started no crossfade")
+        f.present(tab: 2, body: a, after: 0.016)
+        #expect(f.crossfade == nil, "the last move's crossfade still runs under the next tab's card")
+        try Self.expectSwitchedInPlace(f, tab: 2, last: b, next: a, size: CGSize(width: 240, height: 60), "after a crossfade")
     }
 
     /// A sidebar row's card (`.beside`, `.besideRow`) keeps its own short slide between rows (msg 15501).

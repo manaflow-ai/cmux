@@ -132,22 +132,29 @@ await requireBrowserLane("agent-pane-chat-width.test.ts", async () => {
     return pane - 2 * Math.max(16, (pane - span) / 2);
   };
 
-  const widths = { standard: 800, narrow: 640, wide: 960 } as const;
+  // The rows tuck to the composer's + (#50920, conversation.css --cv-lead): a row's 16 px icon box
+  // centers on the + glyph's center, 22 px into the card, so every row starts 22 - 16 / 2 = 14 px in
+  // from the composer's left edge and keeps its right edge. Chat Text Width is the composer card's
+  // width; the transcript rows are that column less the lead.
+  const lead = 14;
+  const widths = { standard: 800, narrow: 640, medium: 800, wide: 960 } as const;
   for (const width of [900, 1440, 1920]) {
     for (const [variant, cap] of Object.entries(widths))
       test(`${variant} draws its ${cap}px Chat Text Width at ${width}`, async () => {
         const m = await at(variant, width);
-        expect(m.column.width).toBeCloseTo(column(m.pane, cap), -0.3);
+        expect(m.composer.width).toBeCloseTo(column(m.pane, cap), -0.3);
         // The column is the setting wherever the pane fits it, never a share of the pane.
-        if (m.pane >= cap + 32) expect(Math.abs(m.column.width - cap)).toBeLessThan(8);
-        expect(m.composer.left).toBeCloseTo(m.column.left, -0.3);
+        if (m.pane >= cap + 32) expect(Math.abs(m.composer.width - cap)).toBeLessThan(8);
+        expect(m.column.left - m.composer.left).toBeCloseTo(lead, -0.3);
+        expect(m.column.left + m.column.width).toBeCloseTo(m.composer.left + m.composer.width, -0.3);
         expect(m.prose).toBeCloseTo(m.column.width, -0.3);
       });
 
     test(`full width fills the pane at ${width}`, async () => {
       const m = await at("full-width", width);
-      expect(m.column.width).toBeCloseTo(m.pane - 32, -0.3);
-      expect(m.composer.left).toBeCloseTo(m.column.left, -0.3);
+      expect(m.composer.width).toBeCloseTo(m.pane - 32, -0.3);
+      expect(m.column.left - m.composer.left).toBeCloseTo(lead, -0.3);
+      expect(m.column.left + m.column.width).toBeCloseTo(m.composer.left + m.composer.width, -0.3);
     });
   }
 });

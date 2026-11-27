@@ -1,11 +1,14 @@
 // The Feed's shared pieces: a row (FeedRowCells), its glyph and poster line (FeedGlyph), the empty
 // state, the disconnected banner (FeedView), a request card (FeedListView's FeedRequestCard), the
 // prompt summary (FeedPromptSummary) and the list that virtualizes past 200 rows (FeedRowsView).
-import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import { memo, useMemo, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import { sameJson } from "../../agent-session/acpmux/sameJson";
+import { ConnectionChip } from "../../ui/ConnectionChip";
 import { cx } from "../../ui/cx";
 import type { Strings } from "../shared/i18n";
 import { VirtualList } from "../../ui/VirtualList";
 import { AnswerControls } from "./AnswerControls";
+import { DiffLines, shownLine } from "./DiffLines";
 import { FeedIcon, type FeedIconSize } from "./icons";
 import {
   diffAttachment,
@@ -22,7 +25,8 @@ import {
   VIRTUALIZE_AFTER,
   type FeedLine,
 } from "./model";
-import { isPending, plain, type FeedProps } from "./context";
+import { plain, type AnswerState } from "./context";
+import type { FeedStore } from "./store";
 import type { FeedAttachment, ViewItem } from "./types";
 
 // MARK: - Small pieces
@@ -39,14 +43,16 @@ export function UnreadDot({ visible }: { visible: boolean }) {
   return <span className="feed-dot" data-visible={visible ? "" : undefined} aria-hidden="true" />;
 }
 
-/** "Claude Code · api-server · 3m", the local mark, "×2" (PosterLine). */
-export function PosterLine({ item, strings, now }: { item: ViewItem; strings: Strings; now: number }) {
+/** "Claude Code · api-server · 3m", the local mark, "×2" (PosterLine). `time`: `relativeTime` of the
+ * item's creation (the caller's clock; this never reads one). */
+export function PosterLine({ item, strings, time }: { item: ViewItem; strings: Strings; time: string }) {
   return (
     <span className="feed-poster">
       <span className="feed-poster-label">{posterLabel(item)}</span>
       <span aria-hidden="true">·</span>
+      {/* tooltip-allow: the shown time is relative; the tooltip is the one place its date shows. */}
       <time className="feed-num" title={fullDate(item.created_at, strings.language)}>
-        {relativeTime(item.created_at, now, strings.language)}
+        {time}
       </time>
       {isLocal(item) ? (
         <span className="feed-local" title={strings.t("item.thisMac")}>
@@ -67,14 +73,10 @@ export function EmptyState({ text, size = 32 }: { text: string; size?: 32 | 44 }
   );
 }
 
-/** A line above the content: the owner is unreachable. */
+/** The owner is unreachable: a mark in the page's corner (ui/ConnectionChip.tsx), out of flow, so the
+ *  list under it never moves when it comes or goes. Its sentence is the tooltip. */
 export function Banner({ text }: { text: string }) {
-  return (
-    <output className="feed-banner">
-      <span className="feed-banner-dot" aria-hidden="true" />
-      {text}
-    </output>
-  );
+  return <ConnectionChip text={text} />;
 }
 
 // MARK: - A row
@@ -82,10 +84,13 @@ export function Banner({ text }: { text: string }) {
 export interface RowProps {
   line: Extract<FeedLine, { type: "row" }>;
   strings: Strings;
-  now: number;
+  /** The row's time, `relativeTime` of its item at the page's clock: a new clock that leaves the text
+   * as it was renders no row. */
+  time: string;
   style?: CSSProperties;
-  onSelect: () => void;
-  onOpen: () => void;
+  /** The list's handlers, called with the row's item id: the same functions for every row. */
+  onSelect: (id: string) => void;
+  onOpen: (id: string) => void;
   compact?: boolean;
 }
 
@@ -96,7 +101,15 @@ const revealOnSelect = (node: HTMLDivElement | null) => node?.scrollIntoView?.({
  *         Ran swift test --filter FeedModelTests: 42 passed.
  *         Claude Code · api-server › Fix login redirect · ×2
  */
-export function FeedRow({ line, strings, now, style, onSelect, onOpen, compact = false }: RowProps) {
+export const FeedRow = memo(function FeedRow({
+  line,
+  strings,
+  time,
+  style,
+  onSelect,
+  onOpen,
+  compact = false,
+}: RowProps) {
   const item = line.entry.item;
   const { row } = item;
   const meta = metaLine(item, line.threadCount, strings);
@@ -124,14 +137,13 @@ export function FeedRow({ line, strings, now, style, onSelect, onOpen, compact =
       data-detail={detail ? "" : undefined}
       style={style}
       ref={line.selected && !style ? revealOnSelect : undefined}
-      title={row.headline}
-      onClick={onSelect}
-      onDoubleClick={onOpen}
+      onClick={() => onSelect(item.id)}
+      onDoubleClick={() => onOpen(item.id)}
       onKeyDown={(event) => {
         if (event.key !== "Enter" || !plain(event)) return;
         event.preventDefault();
         event.stopPropagation();
-        onOpen();
+        onOpen(item.id);
       }}
     >
       {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the row's one cell, laid on its grid */}
@@ -139,8 +151,9 @@ export function FeedRow({ line, strings, now, style, onSelect, onOpen, compact =
         <UnreadDot visible={unread} />
         <Glyph item={item} />
         <span className="feed-row-headline">{row.headline}</span>
+        {/* tooltip-allow: the shown time is relative; the tooltip is the one place its date shows. */}
         <time className="feed-row-time feed-num" title={fullDate(item.created_at, strings.language)}>
-          {relativeTime(item.created_at, now, strings.language)}
+          {time}
         </time>
         {detail ? <span className={cx("feed-row-detail", row.detail_is_code && "code")}>{detail}</span> : null}
         <span className="feed-row-meta">
@@ -154,6 +167,40 @@ export function FeedRow({ line, strings, now, style, onSelect, onOpen, compact =
       </span>
     </div>
   );
+}, sameRow);
+
+/** A row draws the same: the same line (the owner sends every item again on each change, so its
+ * item is compared by content), time, handlers and place. */
+function sameRow(a: RowProps, b: RowProps): boolean {
+  return (
+    a.strings === b.strings &&
+    a.time === b.time &&
+    a.compact === b.compact &&
+    a.onSelect === b.onSelect &&
+    a.onOpen === b.onOpen &&
+    sameStyle(a.style, b.style) &&
+    sameLine(a.line, b.line)
+  );
+}
+
+function sameLine(a: RowProps["line"], b: RowProps["line"]): boolean {
+  return (
+    a === b ||
+    (a.id === b.id &&
+      a.selected === b.selected &&
+      a.pending === b.pending &&
+      a.threadCount === b.threadCount &&
+      sameJson(a.entry.item, b.entry.item))
+  );
+}
+
+/** A virtual list's row style is a new object each render; the same values place the row the same. */
+function sameStyle(a: CSSProperties | undefined, b: CSSProperties | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const keys = Object.keys(a) as Array<keyof CSSProperties>;
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => a[key] === b[key]);
 }
 
 export function GroupHeader({ title, count, style }: { title: string; count: number; style?: CSSProperties }) {
@@ -179,6 +226,7 @@ export interface LinesProps {
   compact?: boolean;
   /** The scroller the list sits in (cards above it); none: the list scrolls itself. */
   scrollParent?: string;
+  /** Called with the row's item id; pass the same functions each render (context.ts `rowActions`). */
   onSelect: (id: string) => void;
   onOpen: (id: string) => void;
   onKeyDown: (event: KeyboardEvent) => void;
@@ -205,11 +253,11 @@ export function FeedLines({
         key={line.id}
         line={line}
         strings={strings}
-        now={now}
+        time={relativeTime(line.entry.item.created_at, now, strings.language)}
         style={style}
         compact={compact}
-        onSelect={() => onSelect(line.entry.item.id)}
-        onOpen={() => onOpen(line.entry.item.id)}
+        onSelect={onSelect}
+        onOpen={onOpen}
       />
     );
   const active = lines.findIndex((line) => line.type === "row" && line.selected);
@@ -257,29 +305,34 @@ function lineTone(line: string): string | undefined {
   return undefined;
 }
 
-/** A plain unified diff: added lines green, removed lines red, hunks dim. */
+/** A plain unified diff: added lines green, removed lines red, hunks dim. With `maxLines` (a row's
+ *  preview) its first lines; without (the Inbox detail) every line, of which only those near the
+ *  viewport mount (DiffLines.tsx): an attachment's diff has no length cap. */
 export function DiffPreview({ attachment, maxLines }: { attachment: FeedAttachment; maxLines?: number }) {
-  const lines = (attachment.text ?? "").split("\n");
-  const shown = maxLines === undefined ? lines : lines.slice(0, maxLines);
+  const lines = useMemo(() => (attachment.text ?? "").split("\n"), [attachment.text]);
   return (
     <div className="feed-diff">
       <span className="feed-diff-name">
         <FeedIcon name="file.text" size={12} />
         {attachment.name}
       </span>
-      <div className="feed-diff-lines">
-        {shown.map((line, index) => (
-          // oxlint-disable-next-line react/no-array-index-key -- diff lines repeat; their order is their identity
-          <span key={index} className="feed-diff-line" data-tone={lineTone(line)}>
-            {line || " "}
-          </span>
-        ))}
-        {shown.length < lines.length ? (
-          <span className="feed-diff-line" data-tone="meta">
-            …
-          </span>
-        ) : null}
-      </div>
+      {maxLines === undefined ? (
+        <DiffLines key={attachment.id} lines={lines} tone={lineTone} />
+      ) : (
+        <div className="feed-diff-lines">
+          {lines.slice(0, maxLines).map((line, index) => (
+            // oxlint-disable-next-line react/no-array-index-key -- diff lines repeat; their order is their identity
+            <span key={index} className="feed-diff-line" data-tone={lineTone(line)}>
+              {shownLine(line)}
+            </span>
+          ))}
+          {maxLines < lines.length ? (
+            <span className="feed-diff-line" data-tone="meta">
+              …
+            </span>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
@@ -348,21 +401,46 @@ export function PromptSummary({ item, full = false }: { item: ViewItem; full?: b
   );
 }
 
-/** An open request in the list: what it asks and how to answer, inline. */
-export function RequestCard({ item, store, snap, strings }: FeedProps & { item: ViewItem }) {
+/** Its answer controls' part of the snapshot (context.ts `answerState`), and what the card draws. */
+export interface RequestCardProps extends AnswerState {
+  item: ViewItem;
+  store: FeedStore;
+  strings: Strings;
+  /** `relativeTime` of the item at the page's clock. */
+  time: string;
+}
+
+/** An open request in the list: what it asks and how to answer, inline. It gets its own part of the
+ * snapshot only, so a change to another item, a draft in another card or the selection renders it not. */
+export const RequestCard = memo(function RequestCard({
+  item,
+  store,
+  strings,
+  time,
+  pending,
+  ...answer
+}: RequestCardProps) {
   return (
-    <div className={cx("feed-card", isPending(snap, item) && "pending")} data-item={item.id}>
+    <div className={cx("feed-card", pending && "pending")} data-item={item.id}>
       <div className="feed-card-head">
         <Glyph item={item} />
         <div className="feed-card-titles">
           <span className="feed-card-title">{item.title}</span>
-          <PosterLine item={item} strings={strings} now={snap.now} />
+          <PosterLine item={item} strings={strings} time={time} />
         </div>
       </div>
       <div className="feed-card-body">
         <PromptSummary item={item} />
-        <AnswerControls item={item} store={store} snap={snap} strings={strings} density="inline" />
+        <AnswerControls item={item} store={store} strings={strings} density="inline" pending={pending} {...answer} />
       </div>
     </div>
   );
+}, sameCard);
+
+function sameCard(a: RequestCardProps, b: RequestCardProps): boolean {
+  for (const key in a) {
+    if (key === "item") continue;
+    if (!Object.is(a[key as keyof RequestCardProps], b[key as keyof RequestCardProps])) return false;
+  }
+  return Object.keys(a).length === Object.keys(b).length && sameJson(a.item, b.item);
 }

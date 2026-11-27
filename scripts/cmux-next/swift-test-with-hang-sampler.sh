@@ -554,6 +554,22 @@ if ! wait "$tee_pid" 2>/dev/null; then
     sleep 0.05
   done
 fi
+# A shard that was cut short can leave SwiftPM's package state briefly held while
+# the next isolated process starts. SwiftPM then reports a package-save or binary
+# artifact-mapping error before any test runs. That is infrastructure contention,
+# not a test result: retry this exact no-test signature twice, with bounded backoff.
+# Keep genuine manifest, artifact, and test failures red.
+swiftpm_retry_count="${CMUX_NEXT_TEST_SWIFTPM_RETRY_COUNT:-0}"
+if (( status != 0 && swiftpm_retry_count < 2 )) \
+  && ! grep -q '^◇ Test' "$log" \
+  && grep -qE 'couldn.*be saved in the folder|binary target .* could not be mapped to an artifact with expected name|unable to attach DB: database is locked' "$log"; then
+  retry_delay=$(( swiftpm_retry_count == 0 ? 5 : 20 ))
+  echo "::warning title=cmux-next swift test::SwiftPM failed before any test ran; retrying package state in ${retry_delay}s"
+  sleep "$retry_delay"
+  rm -f "$log" "$log".*
+  trap - EXIT
+  CMUX_NEXT_TEST_SWIFTPM_RETRY_COUNT=$((swiftpm_retry_count + 1)) exec bash "$0" "$@"
+fi
 
 # Prints the ::error lines and the step summary for the run's log. Exits 3 when
 # the run was truncated: no "Test run with" summary line, or a summary that

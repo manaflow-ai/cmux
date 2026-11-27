@@ -73,8 +73,12 @@ import Testing
         sidebar.list.reload(animated: false)
         let row = try #require(sidebar.list.rowViews[.workspace(id)] as? WorkspaceRowView)
         #expect(!row.mutedMark.isHidden)
-        #expect(row.mutedMark.themedToolTip == Strings.notificationsMuted)
+        // A row carries no tooltip (a1315's cut 3); its hover card and its accessibility label say it.
+        #expect(row.mutedMark.themedToolTip == nil)
         #expect(row.accessibilityLabel()?.contains(Strings.notificationsMuted) == true)
+        let workspace = SidebarWorkspace(id: id, title: "api", lastActivity: Date(), muted: true)
+        let facts = WorkspaceHoverCardContent.make(workspace, machine: nil, now: Date()).facts
+        #expect(facts.contains { $0.kind == "muted" && $0.text == Strings.notificationsMuted })
     }
 
     // MARK: Priority bell

@@ -31,7 +31,7 @@
 }
 .cv-lane-batch__toggle:hover,
 .cv-lane-batch__toggle:focus-visible {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }
 .cv-lane-batch__body {
   padding-inline-start: var(--ds-space-5);
@@ -49,5 +49,5 @@
   background: none;
 }
 .cv-received.cv-lane-notice .cv-disclosure__toggle:is(:hover, :focus-visible) {
-  background: var(--ds-color-hover);
+  background: var(--ds-surface-hover);
 }

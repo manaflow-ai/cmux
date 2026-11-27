@@ -107,14 +107,22 @@
   ); /* theme-fixed: red's complement, the other side of the split; never the accent */
 }
 
-/* Plain glass: today's blur glass, the default (any root that is not lens or spectrum). */
+/* Plain glass: today's blur glass, the default (any root that is not lens or spectrum).
+   THE ONE EDGE (design/glass-system.md, rule 4): the host's hairline ring (--glass-edge, the card
+   rim, transparent with borders off) and one lit hairline along the top, --cmux-tone-light at the
+   design scale's --ds-glass-edge-top (60% light, 24% dark). No second border; the specular sheen is
+   the composer's alone (.ui-glass-material). Reduce Transparency and Liquid Glass off keep the ring
+   only (below). */
 :root:not([data-glass="lens"], [data-glass="spectrum"]) {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chrome-tint), transparent);
   --glass-backdrop: var(--surface-blur);
 }
 :root:not([data-glass="lens"], [data-glass="spectrum"]),
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .ui-glass {
-  --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+  --glass-edge-top: color-mix(in srgb, var(--cmux-tone-light, #fff) calc(var(--ds-glass-edge-top) * var(--glass-rim)), transparent);
+  --glass-rim-shadow:
+    inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-edge-top),
+    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
 }
 
 /* The lens draws the bend and its frost behind the glass; the surface keeps only a light frost
@@ -144,19 +152,52 @@
    The popover level stays for glass in the page that is not a popup (the composer, Session Info,
    the running tray, side tabs). While the lens draws, every level takes the lens's clearer tint and
    frost (the mode, below). */
+/* .ui-glass-transient: a floating surface that is neither a Base UI popup nor a card (a hover preview,
+   a suggestion list, a hover action bar) takes the same level without their layout rules (Leo
+   2026-10-21: "WHERE IS THE GLASS EVERYWHERE ALL THESE STUPID FUCKIGN HOVER TOOLTIPS AND HOVER
+   PREVIEW SHIT"). */
 .ui-popup.ui-glass,
-.ui-card.ui-glass {
+.ui-card.ui-glass,
+.ui-glass.ui-glass-transient {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
   --glass-backdrop: blur(var(--ds-transient-web-blur)) saturate(var(--ds-transient-web-saturation));
   /* On the App's glass (HOST GLASS, below) a popup or card lays no veil of its own: the App draws its
      whole native surface there, veil and rim included (Glass.makeHostSurface: a menu the native menu
-     panel with its 40% veil, a popover or hover card the native popovers' transient material), so the
+     panel with the theme's veil, GlassMenuMaterial.veil(for:), a popover or hover card the native popovers' transient material), so the
      web surface is the native one to the pixel (the Liquid Glass Parity playground, Lawrence
      2026-11-18). Before, the page laid the menu veil over a veil-less glass under every popup
      (cmux#37794), which matched native menus and no native popover. */
   --host-glass-fill: transparent;
 }
-:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) :is(.ui-popup, .ui-card, .ui-dialog).ui-glass {
+/* A look's menu fill (--menu-fill, ui/README.md "Menu tokens a look sets"): a menu's and popover's
+   tint, on the page's glass and on the App's. Unset: the level's own, above. */
+.ui-popup.ui-glass {
+  --glass-tint: var(--menu-fill, color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent));
+  --host-glass-fill: var(--menu-fill, transparent);
+}
+/* A MENU'S OWN GLASS FOLLOWS THE THEME'S VEIL (design/glass-system.md, rule 5). A native menu raises its veil
+   per theme until the theme's text reads over its glass on its own window, white and black
+   (GlassMenuMaterial.veil(for:): 40% in most of the old numbers, up to the 90% cap); on the App's glass a web
+   menu is that native panel already (HOST GLASS, below). Where the page draws a menu's glass itself, its tint
+   lets through the same share less: WebTheme's --cmux-menu-clear, (1 - veil) / (1 - 40%), 1 where the theme
+   keeps 40%. Rose Pine Dawn's text read 2.6:1 on the 80% glass over a black page. The old numbers
+   (previous glass: --glass-menu-clear 1), the lens and glass off keep their own tints. A look's --menu-fill
+   (above) still wins here. */
+:root {
+  --glass-menu-clear: var(--cmux-menu-clear, 1);
+}
+:root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency], [data-glass="off"])
+  .ui-popup.ui-glass[data-host-glass="menu"] {
+  --glass-tint: var(
+    --menu-fill,
+    color-mix(
+      in srgb,
+      var(--glass-surface) calc(100% - (100% - var(--ds-transient-web-tint)) * var(--glass-menu-clear)),
+      transparent
+    )
+  );
+}
+:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) :is(.ui-popup, .ui-card, .ui-dialog, .ui-glass-transient).ui-glass {
   --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-lens-tint), transparent);
   --glass-backdrop: var(--ds-glass-lens-blur);
 }
@@ -167,16 +208,161 @@
   --glass-gloss: 0;
 }
 
+/* THE CONTRAST EDGE (light glass over a light wallpaper; fs-agent-lane-17's readback on cmux#59205:
+   "with the light theme over a light (snow) photo, the hover card almost disappears. It is white glass
+   over white with no visible edge"). The hairline ring sits inside the glass, over its own white tint,
+   and elevation 2 is a 6 px blur at 11%, so over snow nothing marks where the glass ends. Every
+   floating glass (a popup, menu, hover card, tooltip, dialog, a transient surface) adds one outer
+   ring of the theme's ink and a soft lift under it, on the backdrop side of its edge. Both are dark
+   and translucent, so they adapt to what is behind on their own: a dark ink at 12% over white reads
+   as a line, over a dark or busy photo it is a shade on pixels that are already dark and does not
+   show. In dark they are transparent, so the dark theme draws exactly as before. Docked chrome and
+   content cards keep their one hairline (design-system-decisions B2: docked surfaces cast no shadow).
+   The gallery's ui.glass-contrast-edge compares the candidates (ring, lift, floor, ring + lift). */
+:root {
+  --glass-contrast-ring: light-dark(color-mix(in srgb, var(--cmux-text, CanvasText) 12%, transparent), transparent);
+  --glass-contrast-lift: light-dark(color-mix(in srgb, black 14%, transparent), transparent);
+  --glass-contrast-edge: 0 0 transparent;
+}
+:is(.ui-popup, .ui-card, .ui-dialog, .ui-tooltip, .ui-title-tooltip, .ui-hint, .ui-glass-transient, .cu-tooltip).ui-glass,
+.ui-glass:is([data-glass-level="popover"], [data-glass-level="menu"], [data-glass-level="chip"]) {
+  --glass-contrast-edge:
+    0 0 0 var(--cmux-hairline, 0.5px) var(--glass-contrast-ring),
+    0 4px 14px -4px var(--glass-contrast-lift);
+}
+:root[data-borders="none"] {
+  --glass-contrast-ring: transparent;
+}
+
 .ui-glass {
   background: var(--glass-tint);
   -webkit-backdrop-filter: var(--glass-backdrop);
   backdrop-filter: var(--glass-backdrop);
-  box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
+  box-shadow: var(--glass-rim-shadow), var(--glass-elevation), var(--glass-contrast-edge);
+}
+/* CONTENT LAYER (design/glass-system.md, rule 2: glass is for floating things; a card in the
+   content layer gets a near-solid surface). A card that sits in the content layer (a permission ask
+   or a turn error in the transcript, a Settings card, a changelog figure, the cloud progress card)
+   keeps .ui-glass for its shape and its Liquid Glass off and Reduce Transparency path, and adds
+   .ui-glass-content: the design scale's content tint (--ds-glass-content-tint, 88% light and 86%
+   dark) with no backdrop-filter, since it scrolls with the content (rule 7), and the hairline ring
+   alone, with no lit top edge. It reads solid over the page and lets a wallpaper behind a
+   see-through page show only faintly. Never opaque (the glass rule's 90% cap,
+   check-glass-never-opaque.ts); off and Reduce Transparency still draw the opaque surface (below). */
+.ui-glass.ui-glass-content {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-content-tint), transparent);
+  --glass-backdrop: none;
+  --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
+}
+/* The page's status hues, resolved on the root, for the status inks on glass (below): a custom
+   property cannot read its own inherited value, so the glass mixes from these. */
+:root {
+  --glass-hue-failure: var(--agent-status-failure);
+  --glass-hue-warning: var(--agent-status-warning);
+  --glass-hue-success: var(--agent-status-success);
+  --glass-hue-agent-danger: var(--agent-danger);
+  --glass-hue-danger: var(--ds-color-danger);
+  --glass-hue-attention: var(--ds-color-attention);
+  --glass-hue-ds-success: var(--ds-color-success);
+  --glass-hue-merged: var(--agent-status-merged);
+  --glass-hue-agent-warning: var(--agent-warning);
+  --glass-hue-link: var(--agent-link);
+  --glass-hue-add: var(--acpmux-add);
+  --glass-hue-del: var(--acpmux-del);
+}
+/* THE SECONDARY INK ON GLASS (design/glass-system.md, rule 5): a hint, a detail line or a
+   placeholder on glass keeps 3:1 over the glass laid on pure black, pure white and a busy wallpaper.
+   The page's own secondary ink is fitted to the opaque page, so on a level that lets a white page
+   through under dark glass (or a black one under light glass) it fell to 1.9-2.8:1. Rather than
+   raise any tint, every glass surface reads one secondary ink: the theme's text at the design
+   scale's --ds-glass-ink-secondary (68% on both sides; 64% in light read Rose Pine Dawn's menu icons at 2.96:1) over the glass, so it moves with whatever
+   the glass lets through. The page's secondary tokens point at it inside .ui-glass, so the
+   composer's placeholder and dim words, a tooltip's detail and hint, and a hover card's muted rows
+   are one recipe (--agent-soft too: a permission ask's command). Reduce Transparency (an opaque
+   surface) and the previous glass keep the page's ink; Increase Contrast keeps the full text, as
+   on the page. */
+@media (not (prefers-reduced-transparency: reduce)) and (not (prefers-contrast: more)) {
+  /* The onboarding import cards (onboarding/styles.css) and the Chief dock (acpmux styles.css) are
+     glass levels on classes of their own. */
+  :root:not([data-reduce-transparency], [data-glass-levels="previous"])
+    :is(
+      .ui-glass,
+      .onb-import .onb-import-list,
+      .onb-import .onb-import-options,
+      .onb-import .onb-express-ask,
+      .acpmux-chief-dock
+    ) {
+    --glass-ink-text: var(--agent-text, var(--cmux-text, CanvasText));
+    --glass-ink-secondary: color-mix(in srgb, var(--glass-ink-text) var(--ds-glass-ink-secondary), transparent);
+    --cmux-text-secondary: var(--glass-ink-secondary);
+    --agent-muted: var(--glass-ink-secondary);
+    --agent-soft: var(--glass-ink-secondary);
+    --acpmux-composer-placeholder: var(--glass-ink-secondary);
+    --acpmux-composer-dim: var(--glass-ink-secondary);
+    --cmux-text-tertiary: var(--glass-ink-secondary);
+    --page-text-2: var(--glass-ink-secondary);
+    --page-text-3: var(--glass-ink-secondary);
+    /* THE STATUS INKS ON GLASS (design/glass-system.md, rule 5): a red, amber, green or purple word
+       on glass ("Checks failed" or "Merged" on a hover card, "Needs input", a failed step in Session
+       Info, a destructive menu row). The
+       page's status hues are fitted to the opaque page (AgentPaneTheme lifts the ANSI slots to 4.5:1
+       over it), so under dark glass on a white page the red fell to 2.2:1. Each takes the design
+       scale's --ds-glass-ink-status share of its hue and the rest the theme's text (glassInk.status:
+       65% in light, deepened toward the dark text; 55% in dark, lifted toward the light text), so
+       it stays the same hue family and moves with the text. The hues are the page's, kept on :root (below),
+       so a glass inside a glass is not lifted twice. A solid destructive button keeps the hue
+       (controls.css reads --glass-hue-danger). */
+    --agent-status-failure: color-mix(in srgb, var(--glass-hue-failure) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --agent-status-warning: color-mix(in srgb, var(--glass-hue-warning) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --agent-status-success: color-mix(in srgb, var(--glass-hue-success) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --agent-danger: color-mix(in srgb, var(--glass-hue-agent-danger) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --agent-diff-add: var(--agent-status-success);
+    --agent-diff-del: var(--agent-status-failure);
+    --ds-color-danger: color-mix(in srgb, var(--glass-hue-danger) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --ds-color-attention: color-mix(in srgb, var(--glass-hue-attention) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --ds-color-success: color-mix(in srgb, var(--glass-hue-ds-success) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --agent-status-merged: color-mix(in srgb, var(--glass-hue-merged) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --agent-warning: color-mix(in srgb, var(--glass-hue-agent-warning) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --acpmux-needs-you-mark: var(--agent-warning, var(--agent-accent, var(--agent-text)));
+    /* A link and a diff count are status inks too: a PR card's or the minimap card's blue link fell
+       to 1.5-2.9:1 and a tooltip's +/- counts to 1.5-1.8:1 under dark glass on a white page. */
+    --agent-link: color-mix(in srgb, var(--glass-hue-link) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --acpmux-add: color-mix(in srgb, var(--glass-hue-add) var(--ds-glass-ink-status), var(--glass-ink-text));
+    --acpmux-del: color-mix(in srgb, var(--glass-hue-del) var(--ds-glass-ink-status), var(--glass-ink-text));
+    /* For a status ink a rule mixes on the spot (the unread blue, startedSessions.css): the share on
+       glass, none off it. */
+    --glass-ink-status-share: var(--ds-glass-ink-status);
+  }
+  /* A field on glass with no placeholder colour of its own takes the glass's secondary ink, not the
+     browser's grey (#757575, 1.4:1 under dark glass on a white page). :where keeps any field's own. */
+  :where(:root:not([data-reduce-transparency], [data-glass-levels="previous"]) .ui-glass) ::placeholder {
+    color: var(--glass-ink-secondary);
+  }
+  /* A tooltip's tint is fitted so its text sits at 4.5:1 over pure black and pure white
+     (TooltipSurface.swift), which leaves an ink dimmer than the text little room: a status word
+     there keeps less hue (glassInk.chipStatus, 35%: the changes tooltip's +/- counts reach 3:1), and
+     the shortcut's keycap hint takes the text at glassInk.keycap (84%) on its plate, not the
+     secondary ink (2.6:1 under a dark tooltip on a white page). */
+  :root:not([data-reduce-transparency], [data-glass-levels="previous"])
+    :is(.ui-tooltip.ui-glass:not(.ui-card), .ui-hint.ui-card.ui-glass, .ui-title-tooltip.ui-glass, .cu-tooltip.ui-glass) {
+    --ds-glass-ink-status: var(--ds-glass-ink-chip-status);
+  }
+  :root:not([data-reduce-transparency], [data-glass-levels="previous"]) .ui-glass .ui-tooltip-hint {
+    color: color-mix(in srgb, var(--cmux-tooltip-ink, var(--glass-ink-text)) var(--ds-glass-ink-keycap), transparent);
+  }
 }
 /* A popup's own sheet often paints the solid popup surface on its class (`background:
    var(--surface-popup)`); as glass that hides the blur, so the glass tint wins over one class. */
 .ui-popup.ui-glass {
   background: var(--glass-tint);
+}
+/* A hover card the same way: desktop.css's bare .ui-card is the solid popup surface with no blur, one
+   class, so whichever sheet loads last won a .ui-card.ui-glass that is not also a tooltip (the chat
+   header's tool preview drew solid where desktop.css came after this sheet). */
+.ui-card.ui-glass {
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
 }
 
 /* GLASS MATERIAL (Leo 2026-11-05, the Dock beside our composer: "the glass is a pretty big deal ...
@@ -192,8 +378,15 @@
    rim. Reduce Transparency keeps the opaque fill and the hairline rim (below), and
    appearance.borders none clears the rim and the sheen (--glass-rim 0); the shadow stays. */
 :root {
-  --glass-material-blur: var(--ds-glass-popover-radius); /* the popover level's radius; the material keeps its own vivid saturation */
-  --glass-material-saturate: 1.8;
+  /* The sheen's share in dark: 3.5%, the composer's own (composerStates.css, half of 7% under its
+     glint). The sheen is a white band 16 px into the top, under a first line of text; at 7% on dark
+     glass over a white page it lifted the glass toward the page and took the text from 5.25:1 to
+     about 4.5:1 (4.48 on a dimmer theme ink), the band touching the text floor (design/glass-system.md,
+     rule 5). At 3.5% the text keeps about 4.9:1 there and the band still reads. Light keeps 34% (a
+     white band under dark text only adds contrast). The previous glass brings back the 7% (below). */
+  --glass-material-sheen-dark: 3.5%;
+  --glass-material-blur: var(--ds-glass-popover-radius); /* the popover level's radius and its saturation */
+  --glass-material-saturate: var(--ds-glass-saturation); /* the one saturation (design/glass-system.md); 1.8 until the one glass system */
   --glass-material-backdrop: blur(var(--glass-material-blur)) saturate(var(--glass-material-saturate));
 }
 :root,
@@ -208,7 +401,7 @@
   );
   --glass-material-sheen: light-dark(
     color-mix(in srgb, var(--cmux-tone-light, #fff) calc(34% * var(--glass-rim)), transparent),
-    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(7% * var(--glass-rim)), transparent)
+    color-mix(in srgb, var(--cmux-tone-light, #fff) calc(var(--glass-material-sheen-dark) * var(--glass-rim)), transparent)
   );
   --glass-material-rim:
     inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-material-specular),
@@ -219,26 +412,65 @@
   --glass-material-depth:
     0 12px 32px -12px light-dark(color-mix(in srgb, black 22%, transparent), color-mix(in srgb, black 55%, transparent)),
     0 2px 6px -2px light-dark(color-mix(in srgb, black 12%, transparent), color-mix(in srgb, black 35%, transparent));
-  /* The agent composer's depth (composerStates.css) and its twins' (composerMaterial.css): the same
-     two steps at about half the reach and half the dark (Leo 2026-11-06, the composer: "Is there a
-     way to make this less glass, or maybe less shadow? ... Probably just a little bit more subtle."). */
-  --glass-material-depth-composer:
-    0 6px 18px -8px light-dark(color-mix(in srgb, black 10%, transparent), color-mix(in srgb, black 28%, transparent)),
-    0 1px 3px -1px light-dark(color-mix(in srgb, black 7%, transparent), color-mix(in srgb, black 20%, transparent));
+  /* The agent composer's depth (composerStates.css) and its twins' (composerMaterial.css): the popups'
+     one drop, --elevation-2 (popupSurface.css --ui-popup-drop), so the composer and the pickers it
+     opens are one material (Leo 2026-11-21: "our shitty multi layer glass + web view. we need to
+     properly do that once and for all."). It stays subtle (Leo 2026-11-06, the composer: "maybe less
+     shadow? ... Probably just a little bit more subtle."): 0 2px 6px at 11% black, 16% in dark.
+     Before, a two-step shadow of its own (0 6px 18px -8px at 10%/28% and 0 1px 3px -1px at 7%/20%). */
+  --glass-material-depth-composer: var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent));
 }
 /* Under the system's Reduce Transparency as under the host's: none of the material, the solid card. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass.ui-glass-material {
+  :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency], [data-glass="off"]) .ui-glass.ui-glass-material {
     --glass-rim-shadow: var(--glass-material-rim), inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
     --glass-elevation: var(--glass-material-depth);
     --glass-backdrop: var(--glass-material-backdrop);
   }
 }
 
+/* WALLPAPER LIGHTING (appearance.wallpaperLighting, off by default; Leo 2026-11-17: "what if you almost
+   treat the background wallpaper like a light source? lighting inside cmux!?"). The host reads the
+   wallpaper once per picture into a light field (cmux-motion light.rs, in linear light) and sends it
+   with the theme (WebTheme.swift), never per frame:
+   - data-wallpaper-light on the root while it is on;
+   - --wl-rim, --wl-rim-alpha: the key light's hue at a fixed brightness, and how much it stands out;
+   - --wl-dx, --wl-dy: the unit direction from the window's center toward the key light (y down);
+   - --wl-bloom, --wl-bloom-alpha: the picture's most colorful dominant color, for the composer's glow;
+   - --wl-tint, --wl-tint-share: the picture's mean color and how far the glass surface leans to it.
+   The material rim (above) keeps its white top-left specular and gains a colored line and a soft wash
+   on the edge that faces the light; the glass surface leans toward the picture's color (mixed in
+   Oklab, which keeps the hue between the two). The colors are theme colors, so a new picture crossfades them with the theme's own
+   transition (appearance.colorTransition, off with motion off); the numbers move at once. Reduce
+   Transparency, Liquid Glass off and the lens keep their own looks. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-wallpaper-light]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency], [data-glass="off"]) {
+    --glass-surface: color-mix(
+      in oklab,
+      var(--cmux-surface-solid, Canvas),
+      var(--wl-tint) calc(100% * var(--wl-tint-share))
+    );
+  }
+  :root[data-wallpaper-light]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency], [data-glass="off"]),
+  :root[data-wallpaper-light]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency], [data-glass="off"]) .ui-glass {
+    --wl-lit: color-mix(in srgb, var(--wl-rim) calc(100% * var(--wl-rim-alpha) * var(--glass-rim)), transparent);
+    --wl-lit-soft: color-mix(in srgb, var(--wl-rim) calc(45% * var(--wl-rim-alpha) * var(--glass-rim)), transparent);
+    /* An inset shadow shows on the side opposite its offset, so the offset points away from the light. */
+    --glass-material-rim:
+      inset 0 var(--cmux-hairline, 0.5px) 0 0 var(--glass-material-specular),
+      inset 1px 1.5px 1px -1px var(--glass-material-specular),
+      inset -1px -1px 1px -1px var(--glass-material-return),
+      inset 0 calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--glass-material-return),
+      inset 0 16px 20px -16px var(--glass-material-sheen),
+      inset calc(-1.5px * var(--wl-dx)) calc(-1.5px * var(--wl-dy)) 1px -0.5px var(--wl-lit),
+      inset calc(-18px * var(--wl-dx)) calc(-18px * var(--wl-dy)) 24px -16px var(--wl-lit-soft);
+  }
+}
+
 /* SVG REFRACTION (svgRefraction.ts; the gallery's and the latency harness's comparison, never set by a
    shipped page): Chromium runs the SVG filter as the backdrop, bending the page's own pixels. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root[data-glass-refract="svg"]:not([data-reduce-transparency]) .ui-glass {
+  :root[data-glass-refract="svg"]:not([data-reduce-transparency], [data-glass="off"]) .ui-glass {
     -webkit-backdrop-filter: url(#cmux-glass-refract) saturate(1.3);
     backdrop-filter: url(#cmux-glass-refract) saturate(1.3);
   }
@@ -263,7 +495,7 @@
 }
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
-    :root:not([data-reduce-transparency]) .ui-glass.ui-glass-fisheye {
+    :root:not([data-reduce-transparency], [data-glass="off"]) .ui-glass.ui-glass-fisheye {
       /* The color alone, so a surface's own background-image (a hover wash) still draws. */
       background-color: var(--glass-fisheye-tint);
       backdrop-filter: var(--glass-fisheye) var(--glass-fisheye-frost);
@@ -272,7 +504,8 @@
         inset -0.75px -1px 1px -0.5px var(--glass-shade),
         inset 0 0 3px 0 var(--glass-shade),
         inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge),
-        var(--glass-elevation);
+        var(--glass-elevation),
+        var(--glass-contrast-edge);
     }
   }
 }
@@ -291,24 +524,56 @@
    (chromiumUnderlay.experiment.ts, which desktop.ts puts on <html>). A surface whose page blurs
    itself under it (seeThroughBlur.ts, below) needs no underlay and draws none. */
 :root {
-  --glass-underlay: 70%;
+  /* The design scale's underlay (design/glass-system.md, rule 6): a menu's 80% over 40% covers
+     88% of the text under it, and in dark its 72% over 57% covers the same. 70% (93%, a grey slab with no blur) until the one glass system. */
+  --glass-underlay: var(--ds-glass-underlay);
 }
 :root[data-glass-underlay="none"] {
   --glass-underlay: 0%;
 }
 :root[data-glass-underlay="light"] {
-  --glass-underlay: 50%;
+  --glass-underlay: 25%;
 }
 :root[data-glass-underlay="heavy"] {
-  --glass-underlay: 85%;
+  --glass-underlay: 70%;
+}
+/* A covered element's own filter list (seeThroughBlur.ts writes it on the element's inline style).
+   Not inherited: no descendant reads it, and as an inherited property its every write (the rail's
+   preview card showing, moving or going) restyled every row in the transcript's scroller. */
+@property --glass-under-filter {
+  syntax: "*";
+  inherits: false;
+}
+@property --glass-under-filter-hover-card {
+  syntax: "*";
+  inherits: false;
+}
+@property --glass-under-filter-summary {
+  syntax: "*";
+  inherits: false;
+}
+/* TEXT ON GLASS KEEPS ITS FLOOR (Leo, 2026-11-20: "WHERE IS THE GLASS EVERYWHERE ALL THESE STUPID
+   F***ING HOVER TOOLTIPS AND HOVER PREVIEW SHIT"; the composer's Model menu let the chat read through
+   its list, hq#15378). A popup, tooltip or hover card carries text over whatever is under it, so where
+   nothing blurs that content (no in-place blur and no App glass: over the composer, or before the App
+   draws) its underlay is never less than --surface-text-min (desktop.css), whatever the
+   chromium-glass-underlay arm. A surface the page blurs under (data-glass-over, below) or the App
+   draws (HOST GLASS, below) needs no floor: the blur hides what is under it. In-page glass
+   (.ui-glass-floats: the composer, Session Info) keeps the arm's underlay, so the input box stays as
+   glassy as the arm makes it. */
+:root {
+  --glass-text-floor: 0%;
+}
+:is(.ui-popup, .ui-tooltip, .ui-title-tooltip, .ui-card).ui-glass {
+  --glass-text-floor: var(--surface-text-min, 92%);
 }
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
-    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency])
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency], [data-glass="off"])
       :is(.ui-popup, .ui-tooltip, .ui-title-tooltip, .ui-card, .ui-glass-floats).ui-glass {
       background:
         linear-gradient(var(--glass-tint), var(--glass-tint)),
-        color-mix(in srgb, var(--glass-surface) var(--glass-underlay), transparent);
+        color-mix(in srgb, var(--glass-surface) max(var(--glass-underlay), var(--glass-text-floor)), transparent);
     }
     /* THE PAGE BLURS ITSELF UNDER THE GLASS (Leo 2026-10-30, on the Summary popover: "I don't like
        the non-glassness"). A surface that uses seeThroughBlur.ts (data-glass-over) makes what it
@@ -316,11 +581,12 @@
        (data-glass-under) draws through its own SVG filter. The text under the glass is then
        blurred in place, as WebKit's backdrop draws it, so the surface needs no underlay to hide it:
        its tint and that blur carry the legibility (design/overlay-surfaces.md). */
-    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) [data-glass-under] {
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency], [data-glass="off"]) [data-glass-under] {
       filter: var(--glass-under-filter);
     }
-    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency]) .ui-glass[data-glass-over] {
+    :root[data-cmux-see-through]:not([data-glass-lens], [data-reduce-transparency], [data-glass="off"]) .ui-glass[data-glass-over] {
       --glass-underlay: 0%;
+      --glass-text-floor: 0%;
     }
     /* HOST GLASS (hostGlass.ts; Leo 2026-11-06: "why the f*** is this not glass? Like the way the
        native menus are"). A surface marked data-host-glass has the App's own glass under the page:
@@ -333,14 +599,19 @@
        a surface closing, which fades out with its content on the page's glass) keeps the page's glass above, as does one over the composer (data-glass-keeps-underlay,
        seeThroughBlur.ts): no filter may blur the composer, so its underlay hides it there. A cover
        surface (data-host-glass-cover: menus, popovers) goes clear only where the page under it blurs
-       in place (data-glass-over), so no text reads crisp through it. --host-glass-fill is the one
+       in place (data-glass-over), so no text reads crisp through it. One that keeps the page's glass is
+       not reported, so the App draws none under it (one glass, never two), and it keeps that glass
+       (data-host-glass-own, hostGlass.ts) until the App answers a report that has it. So does a surface
+       over another surface's App glass (a hover card, a menu or a tooltip over Session Info; hostGlass.ts
+       stackedHostGlass): the App's glasses all lie under the page, so two that overlap were two native
+       glasses on top of each other. --host-glass-fill is the one
        veil every popup and card lays on the App's glass (GLASS LEVELS, above); --host-glass-edge is
        the gallery's knob (HostGlass.gallery.tsx), none shipped. */
     :root[data-host-glass-on] [data-host-glass]:not([data-host-glass-drawn]) {
       filter: opacity(0);
     }
     :root[data-host-glass-on][data-cmux-see-through]
-      [data-host-glass][data-host-glass-drawn="1"]:not([data-glass-keeps-underlay]):is(
+      [data-host-glass][data-host-glass-drawn="1"]:not([data-glass-keeps-underlay], [data-host-glass-own]):is(
         :not([data-host-glass-cover]),
         [data-glass-over]
       ).ui-glass.ui-glass {
@@ -348,6 +619,9 @@
       -webkit-backdrop-filter: none;
       backdrop-filter: none;
       box-shadow: var(--host-glass-edge, none);
+      /* The App's surface draws the rim (a tooltip's separator ring included): no felt liner of the
+         page's own on it (Leo, 2026-11-19: "you throw on a felt liner overtop of the glass"). */
+      border-color: transparent;
     }
   }
 }
@@ -364,7 +638,7 @@
   filter: opacity(0);
 }
 :root[data-host-glass-engines="all"][data-host-glass-on][data-cmux-see-through]
-  [data-host-glass][data-host-glass-drawn="1"]:not([data-glass-keeps-underlay]):is(
+  [data-host-glass][data-host-glass-drawn="1"]:not([data-glass-keeps-underlay], [data-host-glass-own]):is(
     :not([data-host-glass-cover]),
     [data-glass-over]
   ):is(.ui-glass, .ui-tooltip) {
@@ -383,7 +657,7 @@
    Its own filters only: another surface's kept holes (the Summary's while Find hides it) stay off. */
 @media not (prefers-reduced-transparency: reduce) {
   @supports not (-webkit-backdrop-filter: none) {
-    :root:not([data-glass-lens], [data-reduce-transparency]) [data-glass-under~="hover-card"] {
+    :root:not([data-glass-lens], [data-reduce-transparency], [data-glass="off"]) [data-glass-under~="hover-card"] {
       filter: var(--glass-under-filter-hover-card);
     }
   }
@@ -405,7 +679,15 @@
   background: var(--glass-tint);
   -webkit-backdrop-filter: var(--glass-backdrop);
   backdrop-filter: var(--glass-backdrop);
-  box-shadow: var(--glass-rim-shadow), var(--glass-elevation);
+  box-shadow: var(--glass-rim-shadow), var(--glass-elevation), var(--glass-contrast-edge);
+}
+/* A hover card that is not a tooltip popup (the header icons' preview, the thread minimap's card) is
+   the same glass: desktop.css's solid .ui-card fill never wins over it, whichever sheet loads last. */
+.ui-card.ui-glass {
+  background: var(--glass-tint);
+  -webkit-backdrop-filter: var(--glass-backdrop);
+  backdrop-filter: var(--glass-backdrop);
+  box-shadow: var(--glass-rim-shadow), var(--glass-elevation), var(--glass-contrast-edge);
 }
 /* A hover card's own class may set its border's width (a session card's hairline ring); its colour
    stays clear over one class more. */
@@ -445,16 +727,29 @@
     --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge) !important;
   }
 }
-:root[data-reduce-transparency] {
+:root:is([data-reduce-transparency], [data-glass="off"]) {
   --glass-tint: var(--glass-surface);
   --glass-backdrop: none;
   --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge);
   --glass-dispersion: 0;
 }
-:root[data-reduce-transparency] .ui-glass {
+:root:is([data-reduce-transparency], [data-glass="off"]) .ui-glass {
   --glass-tint: var(--glass-opaque) !important;
   --glass-backdrop: none !important;
   --glass-rim-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--glass-edge) !important;
+}
+
+/* GLASS ENGINE (ui/glass/engine/, opt-in: the Debug choice Liquid Glass > Glass Engine, or the
+   glass-engine experiment). While it draws (data-glass-engine-draws, set with data-glass-lens), the
+   canvas adds the theme surface under each glass only where the wallpaper under it would fight the
+   text (its adaptive veil), so the fixed tint every glass lays on top comes down: clear glass over a
+   calm wallpaper, a denser one over a busy or text-colored one. Its rim light comes from the canvas,
+   brighter, and the middle zooms the wallpaper a little. Reduce Transparency never reaches here (no
+   lens), and with the engine off nothing below applies. */
+:root[data-glass-engine-draws][data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) {
+  --ds-glass-lens-tint: 26%;
+  --glass-gloss: 0.85;
+  --glass-magnify: 0.025;
 }
 
 /* surface-roles:begin. Follows schemas/surface-roles/surface-roles.json (scripts/cmux-next/check-surface-roles.py checks it). */
@@ -465,21 +760,233 @@
    material, the design scale's (--ds-material-neutral-*, --ds-material-rim-*), at the role's opacities. */
 :root {
   --surface-near-opaque: 90%;
+  --surface-hairline: var(--glass-edge); /* the one stroke of every role: the glass's ring, resolved here so a surface can name it without a cycle */
+  --surface-elevation-flat: 0 0 transparent; /* the content roles: no shadow */
+  --surface-popover-radius: var(--ds-radius-popup); /* popovers, pickers, hover cards, find and prompt bars, page info and the palette */
+  --surface-popover-material: floating;
+  --surface-popover-fill: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
+  --surface-popover-stroke: var(--surface-hairline);
+  --surface-popover-elevation: var(--elevation-2);
+  --surface-popover-pad: var(--ds-space-3);
+  --surface-popover-gap: var(--ds-space-2);
+  --surface-popover-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-popover-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-popover-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
+  --surface-menu-radius: var(--ds-radius-popup); /* menus, context menus and dropdowns */
+  --surface-menu-material: floating;
+  --surface-menu-fill: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
+  --surface-menu-stroke: var(--surface-hairline);
+  --surface-menu-elevation: var(--elevation-2);
+  --surface-menu-pad: var(--ds-space-1);
+  --surface-menu-gap: var(--ds-space-1);
+  --surface-menu-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-menu-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-menu-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
   --surface-card-radius: 10px; /* the sidebar's cards (Update Ready, the Updated card, notices and tips) over the sidebar's own glass */
   --surface-card-veil: light-dark(color-mix(in srgb, var(--ds-material-neutral-light) 45%, transparent), color-mix(in srgb, var(--ds-material-neutral-dark) 42%, transparent));
   --surface-card-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 80%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 22%, transparent));
   --surface-card-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 8%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 4%, transparent));
+  --surface-card-material: content;
+  --surface-card-fill: color-mix(in srgb, var(--glass-surface) var(--ds-glass-content-tint), transparent);
+  --surface-card-stroke: var(--surface-hairline);
+  --surface-card-elevation: var(--surface-elevation-flat);
+  --surface-card-pad: var(--ds-space-3);
+  --surface-card-gap: var(--ds-space-2);
+  --surface-card-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-card-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-card-enter: var(--cmux-motion-standard) var(--cmux-ease-out);
   --surface-group-radius: 6px; /* the sidebar's group headers and a group's pane behind its members, over the sidebar's own glass: the group's color tints the veil */
   --surface-group-veil: light-dark(color-mix(in srgb, var(--ds-material-neutral-light) 20%, transparent), color-mix(in srgb, var(--ds-material-neutral-dark) 6%, transparent));
   --surface-group-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 75%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 24%, transparent));
   --surface-group-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 8%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 4%, transparent));
+  --surface-group-material: window;
+  --surface-group-fill: var(--surface-group-veil);
+  --surface-group-stroke: var(--surface-hairline);
+  --surface-group-elevation: var(--surface-elevation-flat);
+  --surface-group-pad: var(--ds-space-2);
+  --surface-group-gap: var(--ds-space-1);
+  --surface-group-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-group-body-font: var(--weight-regular) var(--text-detail)/var(--text-detail--line-height) var(--font-ui);
+  --surface-group-enter: var(--cmux-motion-standard) var(--cmux-ease-out);
   --surface-toast-radius: 9px; /* toasts: a rounded rect, never a capsule, even on one line */
   --surface-toast-veil: light-dark(color-mix(in srgb, var(--glass-surface) 55%, transparent), color-mix(in srgb, var(--glass-surface) 42%, transparent));
   --surface-toast-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 85%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 30%, transparent));
   --surface-toast-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 6%, transparent));
+  --surface-toast-material: floating;
+  --surface-toast-fill: var(--surface-toast-veil);
+  --surface-toast-stroke: var(--surface-hairline);
+  --surface-toast-elevation: var(--elevation-2);
+  --surface-toast-pad: var(--ds-space-3);
+  --surface-toast-gap: var(--ds-space-2);
+  --surface-toast-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-toast-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-toast-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
   --surface-sheet-radius: 14px; /* dialogs, confirms, prompt bars and sheets: a little denser veil for longer text */
   --surface-sheet-veil: light-dark(color-mix(in srgb, var(--ds-material-neutral-light) 62%, transparent), color-mix(in srgb, var(--ds-material-neutral-dark) 48%, transparent));
   --surface-sheet-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 85%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 28%, transparent));
   --surface-sheet-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 5%, transparent));
+  --surface-sheet-material: floating;
+  --surface-sheet-fill: var(--surface-sheet-veil);
+  --surface-sheet-stroke: var(--surface-hairline);
+  --surface-sheet-elevation: var(--elevation-2);
+  --surface-sheet-pad: var(--ds-space-4);
+  --surface-sheet-gap: var(--ds-space-3);
+  --surface-sheet-title-font: var(--weight-emphasis) var(--text-title)/var(--text-title--line-height) var(--font-ui);
+  --surface-sheet-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-sheet-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
+  --surface-prompt-radius: 14px; /* prompts that float over every app (a device asking to see or control this Mac, the join consent, Computer use acting as me): the theme's tint at a denser veil, since any app's pixels show through */
+  --surface-prompt-veil: light-dark(color-mix(in srgb, var(--glass-surface) 80%, transparent), color-mix(in srgb, var(--glass-surface) 74%, transparent));
+  --surface-prompt-rim-top: light-dark(color-mix(in srgb, var(--ds-material-rim-lit) 85%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 30%, transparent));
+  --surface-prompt-rim-bottom: light-dark(color-mix(in srgb, var(--ds-material-rim-shade) 10%, transparent), color-mix(in srgb, var(--ds-material-rim-lit) 6%, transparent));
+  --surface-prompt-material: floating;
+  --surface-prompt-fill: var(--surface-prompt-veil);
+  --surface-prompt-stroke: var(--surface-hairline);
+  --surface-prompt-elevation: var(--elevation-2);
+  --surface-prompt-pad: var(--ds-space-4);
+  --surface-prompt-gap: var(--ds-space-3);
+  --surface-prompt-title-font: var(--weight-emphasis) var(--text-title)/var(--text-title--line-height) var(--font-ui);
+  --surface-prompt-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-prompt-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
+  --surface-tooltip-radius: var(--ds-radius-popup); /* tooltips: the frost (TooltipSurface), the popup surface at the least alpha that keeps 4.5:1 over a blur */
+  --surface-tooltip-material: floating;
+  --surface-tooltip-fill: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
+  --surface-tooltip-stroke: var(--surface-hairline);
+  --surface-tooltip-elevation: var(--elevation-1);
+  --surface-tooltip-pad: var(--ds-space-1) var(--ds-space-2);
+  --surface-tooltip-gap: var(--ds-space-1);
+  --surface-tooltip-title-font: var(--weight-regular) var(--text-caption)/var(--text-caption--line-height) var(--font-ui);
+  --surface-tooltip-body-font: var(--weight-regular) var(--text-caption)/var(--text-caption--line-height) var(--font-ui);
+  --surface-tooltip-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
+  --surface-hoverCard-radius: var(--ds-radius-popup); /* hover cards: a link's, a session's or the context ring's preview beside what it describes */
+  --surface-hoverCard-material: floating;
+  --surface-hoverCard-fill: color-mix(in srgb, var(--glass-surface) var(--ds-transient-web-tint), transparent);
+  --surface-hoverCard-stroke: var(--surface-hairline);
+  --surface-hoverCard-elevation: var(--elevation-2);
+  --surface-hoverCard-pad: var(--ds-space-3);
+  --surface-hoverCard-gap: var(--ds-space-2);
+  --surface-hoverCard-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-hoverCard-body-font: var(--weight-regular) var(--text-detail)/var(--text-detail--line-height) var(--font-ui);
+  --surface-hoverCard-enter: var(--cmux-motion-micro) var(--cmux-ease-out);
+  --surface-ask-radius: var(--grid-cards-radius); /* the ask card: a permission prompt, a question or a plan the agent waits on, in the transcript's content layer */
+  --surface-ask-material: content;
+  --surface-ask-fill: color-mix(in srgb, var(--glass-surface) var(--ds-glass-content-tint), transparent);
+  --surface-ask-stroke: var(--surface-hairline);
+  --surface-ask-elevation: var(--surface-elevation-flat);
+  --surface-ask-pad: var(--ds-space-4);
+  --surface-ask-gap: var(--ds-space-2);
+  --surface-ask-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-ask-body-font: var(--weight-regular) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-ask-enter: var(--cmux-motion-standard) var(--cmux-ease-out);
+  --surface-pill-radius: var(--ds-radius-control); /* pills and chips: a short status or filter label in a control-height box */
+  --surface-pill-material: content;
+  --surface-pill-fill: color-mix(in srgb, var(--glass-surface) var(--ds-glass-content-tint), transparent);
+  --surface-pill-stroke: var(--surface-hairline);
+  --surface-pill-elevation: var(--surface-elevation-flat);
+  --surface-pill-pad: 0 var(--ds-space-2);
+  --surface-pill-gap: var(--ds-space-1);
+  --surface-pill-title-font: var(--weight-emphasis) var(--text-body)/var(--text-body--line-height) var(--font-ui);
+  --surface-pill-body-font: var(--weight-regular) var(--text-detail)/var(--text-detail--line-height) var(--font-ui);
+  --surface-pill-enter: var(--cmux-motion-standard) var(--cmux-ease-out);
 }
 /* surface-roles:end */
+
+/* PUBLIC GLASS LEVELS. A region a page or a customize scene asks to put on glass (kit/Glass.tsx, a
+   scene node's `glass` prop) names a level of the design scale with data-glass-level: chrome,
+   popover, menu or chip, the same levels as the App's material (CmuxNextDesign GlassLevel). In plain
+   glass the region takes that level's tint and frost; the lens draws its own; Reduce Transparency
+   keeps the opaque surface (no level override applies there). Paint only: no box changes. */
+@media not (prefers-reduced-transparency: reduce) {
+  :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass[data-glass-level="chrome"] {
+    --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chrome-tint), transparent);
+    --glass-backdrop: var(--ds-glass-chrome-blur);
+  }
+  :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass[data-glass-level="popover"] {
+    --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-popover-tint), transparent);
+    --glass-backdrop: var(--ds-glass-popover-blur);
+  }
+  :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass[data-glass-level="menu"] {
+    /* The theme's menu veil, as on a menu (A MENU'S OWN GLASS, above). */
+    --glass-tint: color-mix(
+      in srgb,
+      var(--glass-surface) calc(100% - (100% - var(--ds-glass-menu-tint)) * var(--glass-menu-clear)),
+      transparent
+    );
+    --glass-backdrop: var(--ds-glass-menu-blur);
+  }
+  :root:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency]) .ui-glass[data-glass-level="chip"] {
+    --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chip-tint), transparent);
+    --glass-backdrop: var(--ds-glass-chip-blur);
+  }
+}
+
+/* PREVIOUS GLASS (appearance.previousGlass; WebTheme sends glassLevels "previous", which sets
+   data-glass-levels="previous" on <html>): the glass numbers from before the one glass system
+   (design/glass-system.md, cmux#48174), for people who want the old look back. One tint for light
+   and dark (chrome 60%, popover 70%, menu 78%), the old saturations (chrome 1.4, popover 1.25, the
+   composer material 1.8, the selection reply 1.4), the material's 7% sheen in dark, no lit top
+   edge, the 70% see-through underlay, content cards as chrome glass, and the
+   private tints the system folded into its levels (Jump to latest and the since pill 72%, the pill
+   under the chrome blur; the Chief dock 64% with its 8% text wash, its own rims and the chrome blur;
+   the onboarding import cards 62% with the old popover blur). The same numbers as the `now` arm of
+   scripts/gallery/glass-system.capture.json;
+   test/previous-glass.test.ts checks the two agree. Reduce Transparency still draws every glass
+   solid: its rules above hold the surface with !important, and the per-surface tints below stand
+   down under it. Every value here is a token or a tint, never an opaque fill. */
+:root[data-glass-levels="previous"][data-glass-levels] {
+  --glass-menu-clear: 1;
+  --ds-glass-chrome-tint: 60%;
+  /* glass-raw-blur-allow: the chrome level's own blur before the one glass system (appearance.previousGlass) */
+  --ds-glass-chrome-blur: blur(20px) saturate(1.4);
+  --ds-glass-popover-tint: 70%;
+  /* glass-raw-blur-allow: the popover level's own blur before the one glass system (appearance.previousGlass) */
+  --ds-glass-popover-blur: blur(24px) saturate(1.25);
+  --ds-glass-menu-tint: 78%;
+  --ds-transient-web-tint: 78%;
+  --ds-transient-web-tint-dark: 78%;
+  --ds-glass-underlay: 70%;
+  --ds-glass-saturation: 1.4;
+  --ds-glass-edge-top: 0%;
+  --glass-material-saturate: 1.8;
+  --glass-material-sheen-dark: 7%;
+}
+:root[data-glass-levels="previous"] .ui-glass.ui-glass-content {
+  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--ds-glass-chrome-tint), transparent);
+  --glass-backdrop: var(--ds-glass-chrome-blur);
+}
+@media not (prefers-reduced-transparency: reduce) {
+  :root[data-glass-levels="previous"]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency])
+    :is(.acpmux-jump-latest, .acpmux-since-jump) {
+    --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
+  }
+  :root[data-glass-levels="previous"]:not([data-glass="lens"], [data-glass="spectrum"], [data-reduce-transparency])
+    .acpmux-since-jump {
+    --glass-backdrop: var(--ds-glass-chrome-blur);
+  }
+  /* The Chief dock's rail and cards are .ui-glass at the popover level; the old look is tokens on them. */
+  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock :is(.acpmux-chief-dock-rail, .acpmux-chief-card).ui-glass {
+    --glass-tint: color-mix(
+      in srgb,
+      var(--agent-text) 8%,
+      color-mix(in srgb, var(--acpmux-base, var(--agent-page-bg)) 64%, transparent)
+    );
+    --glass-backdrop: var(--ds-glass-chrome-blur);
+    --glass-rim-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--agent-text) 30%, transparent),
+      inset 0 -1px 0 color-mix(in srgb, var(--acpmux-base, var(--agent-page-bg)) 20%, transparent);
+  }
+  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock {
+    --chief-glass-edge: color-mix(in srgb, var(--agent-text) 26%, transparent);
+  }
+  :root[data-glass-levels="previous"]:not([data-reduce-transparency]) .acpmux-chief-dock .acpmux-chief-dock-rail.ui-glass {
+    --chief-glass-edge: color-mix(in srgb, var(--agent-text) 28%, transparent);
+    --glass-rim-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--agent-text) 30%, transparent),
+      inset 0 -1px 0 color-mix(in srgb, var(--acpmux-base, var(--agent-page-bg)) 22%, transparent);
+  }
+  :root[data-glass-levels="previous"]:not([data-reduce-transparency])
+    .onb-import
+    :is(.onb-import-list, .onb-import-options, .onb-express-ask).ui-glass {
+    --glass-tint: color-mix(in srgb, var(--ds-color-surface) 62%, transparent);
+    --glass-backdrop: var(--ds-glass-popover-blur);
+  }
+}

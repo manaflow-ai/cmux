@@ -37,6 +37,8 @@ public final class SettingsHarnesses {
     private(set) var problem: String?
     /// `_acpmux/accounts` (SettingsHarnesses+Accounts.swift); nil from a daemon without it.
     var accounts: [SettingsProviderAccount]?
+    /// `_acpmux/account/readiness`'s answer as sent (SettingsHarnesses+AccountSignIn.swift); nil from a daemon without it.
+    var signInReadiness: JSONValue?
     /// Each account's plan usage limits read at rest, by id (SettingsHarnesses+AccountUsage.swift).
     var accountUsage: [String: JSONValue] = [:]
     /// Accounts whose usage read is running: a refresh meanwhile starts no second Codex for one.
@@ -65,6 +67,12 @@ public final class SettingsHarnesses {
     @ObservationIgnored private(set) var generation = 0
     /// The refusal text when this app cannot run updates (the App's localized string).
     @ObservationIgnored private let unsupported: (@MainActor () -> String)?
+    /// Opens a provider's sign-in page beside the code in the app's own browser (`LinkOpener.openSignInPage`);
+    /// its answer, run once that sign-in ended, shows the code's page again and closes the page's own tab while it is still on
+    /// one of the hosts given (the daemon's `pageHosts`). Nil opens nothing (SettingsHarnesses+AccountSignIn.swift).
+    @ObservationIgnored let openSignInPage: (@MainActor (URL, [String]) async -> (@MainActor () -> Void)?)?
+    /// Each open sign-in page's end (back to the code's page, its own tab closed), by the daemon's `loginId`.
+    @ObservationIgnored var signInPageBack: [String: @MainActor () -> Void] = [:]
 
     public init(environment: @escaping @MainActor () -> AcpmuxEnvironment?,
          // nil, resolved below: an async function as a default argument is compiled again into every
@@ -80,7 +88,8 @@ public final class SettingsHarnesses {
          accountsCall: (@Sendable (AcpmuxEnvironment, AcpmuxHarnessMethod, [String: any Sendable]) async throws -> Data)? = nil,
          claudeStatus: (@Sendable (String, String?) async -> Data?)? = nil,
          userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
-         unsupported: (@MainActor () -> String)? = nil) {
+         unsupported: (@MainActor () -> String)? = nil,
+         openSignInPage: (@MainActor (URL, [String]) async -> (@MainActor () -> Void)?)? = nil) {
         self.environment = environment
         self.fetch = fetch ?? { try await AcpmuxEnvironment.settingsHarnessRows($0) }
         self.fetchHealth = fetchHealth ?? { try await AcpmuxEnvironment.harnessHealth($0, refresh: $1) }
@@ -92,6 +101,7 @@ public final class SettingsHarnesses {
         self.claudeStatus = claudeStatus
         self.userHome = userHome
         self.unsupported = unsupported
+        self.openSignInPage = openSignInPage
     }
 
     /// The page's `cmux.settings.harnesses.state` (webviews/src/pages/settings/ops.ts `HarnessesState`).
@@ -112,6 +122,9 @@ public final class SettingsHarnesses {
                     "source": .string(row.source), "problem": row.problem.map(JSONValue.string) ?? .null,
                     "version": health?["version"]?.stringValue.map(JSONValue.string) ?? .null,
                     "latest": health?["latest"]?.stringValue.map(JSONValue.string) ?? .null,
+                    // Which install it is: two profiles of one binary get one update card.
+                    "path": health?["path"]?.stringValue.map(JSONValue.string) ?? .null,
+                    "package": health?["package"]?.stringValue.map(JSONValue.string) ?? .null,
                     "outdated": .bool(health?["outdated"]?.boolValue ?? false),
                     "auth": .string(health?["auth"]?.stringValue ?? "unknown"),
                     "update": update ?? .null,

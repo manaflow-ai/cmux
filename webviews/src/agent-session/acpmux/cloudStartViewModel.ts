@@ -5,6 +5,7 @@ import {
   type CloudStartupSetup,
 } from "./cloudStartProgress";
 import { fileSizeLabel } from "./fileAttachmentModel";
+import { githubFolderRepo } from "./githubRepos";
 import { paneLanguage, type StringKey, type Translate } from "./i18n";
 
 type ChecklistStatus = "done" | "running" | "pending" | "skipped" | "error";
@@ -19,13 +20,23 @@ export type ChecklistStep = {
   link?: { href: string; label: string };
 };
 
+/// A Cloud start step's clock: whole seconds under a minute ("42s"), then minutes and seconds
+/// ("1:05"), then hours ("1:02:03"). Rounded down, so it never reads more than has passed
+/// (Austin, 2026-11-24: "show the seconds", in place of how long a step usually takes).
+export function stageClock(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  if (total < 60) return `${total}s`;
+  const s = String(total % 60).padStart(2, "0");
+  const minutes = Math.floor(total / 60);
+  if (minutes < 60) return `${minutes}:${s}`;
+  return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}:${s}`;
+}
+
 function elapsed(startedAt: number | undefined, finishedAt: number | undefined, now = Date.now()): string | undefined {
   if (startedAt === undefined) return undefined;
   const ms = Math.max(0, (finishedAt ?? now) - startedAt);
-  if (ms < 1000) return "<1s";
-  if (ms < 60_000) return `${Math.round(ms / 100) / 10}s`;
-  const seconds = Math.round(ms / 1000);
-  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  // A finished step that took under a second reads "<1s", not a floored "0s".
+  return finishedAt !== undefined && ms < 1000 ? "<1s" : stageClock(ms);
 }
 
 function operationStatus(operation: CloudStartupOperation | undefined): ChecklistStatus | undefined {
@@ -128,6 +139,7 @@ function cloneDetail(operation: CloudStartupOperation | undefined, t: Translate,
 
 const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
   "cloudStartup.machine": "Set up a Cloud machine",
+  "cloudStartup.waking": "Waking machine",
   "cloudStartup.clone": "Clone repository",
   "cloudStartup.setup": "Run setup script",
   "cloudStartup.setupHint": "Add a setup script to install dependencies and configure your environment.",
@@ -157,15 +169,20 @@ const DEFAULT_STARTUP_STRINGS: Record<string, string> = {
   "cloudStartup.phase.checkout": "Checking out files",
   "cloudStartup.phase.submodules": "Getting submodules",
   "cloudStartup.phase.lfs": "Getting large files",
+  "cloudStart.stage.machine": "Starting your Cloud machine",
+  "cloudStart.stage.clone": "Copying your project",
+  "cloudStart.stage.setup": "Running your setup script",
+  "cloudStart.eta.longer": "taking longer than usual",
   "cloudStartup.leftOnMac": "{count} files stayed on this Mac",
   "cloudStartup.leftOnMac#one": "{count} file stayed on this Mac",
 };
+const defaultTranslate: Translate = (key, values = {}) =>
+  (DEFAULT_STARTUP_STRINGS[values.n === 1 ? `${key}#one` : key] ?? DEFAULT_STARTUP_STRINGS[key] ?? key)
+    .replace("{harness}", String(values.harness ?? "Harness"))
+    .replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole));
 export function startupChecklist(
   start: CloudStartProgress,
-  t: Translate = (key, values = {}) =>
-    (DEFAULT_STARTUP_STRINGS[values.n === 1 ? `${key}#one` : key] ?? DEFAULT_STARTUP_STRINGS[key] ?? key)
-      .replace("{harness}", String(values.harness ?? "Harness"))
-      .replace(/\{(\w+)\}/g, (whole, name: string) => (name in values ? String(values[name]) : whole)),
+  t: Translate = defaultTranslate,
   now = Date.now(),
   language: string = paneLanguage(),
 ): ChecklistStep[] {
@@ -198,6 +215,8 @@ export function startupChecklist(
             : "pending",
     duration: elapsed(start.machineStartedAt, start.machineFinishedAt, now),
   };
+  if (start.waking && (machine.status === "running" || machine.status === "pending"))
+    machine.detail = t("cloudStartup.waking");
   const hasRepository =
     start.hasRepository ?? (Boolean(start.repository || start.folder || start.clone) && !start.home);
   const cloneStatus = operationStatus(start.clone);
@@ -258,4 +277,101 @@ export function startupChecklist(
     duration: elapsed(start.harnessStartedAt, start.harnessFinishedAt, now),
   };
   return [machine, clone, setup, harness];
+}
+
+/// The one line the quiet start view shows while a Cloud start is on its way: the stage it is on
+/// and a live clock of how long it has run, never a bare "Thinking" (Leo, 2026-11-09: "the
+/// ergonomic part is super big for us.") and never a guess at how long it usually takes (Austin,
+/// 2026-11-24: "show the seconds, dont need to show usually under a minute that stuff"). `step` and
+/// `steps` count the stages this start runs (a skipped clone or setup is not one), for a progress hint.
+export type QuietStage = {
+  id: ChecklistStep["id"];
+  /// What the start does now: "Starting your Cloud machine".
+  label: string;
+  /// The copy's own progress ("1,200 of 3,000 files"), when the host reports it.
+  detail?: string;
+  /// When this stage began (ms since epoch), when the host said: the line's clock counts from it.
+  /// Without it the view counts from when it first showed the stage (`useStageSince`).
+  since?: number;
+  step: number;
+  steps: number;
+};
+
+/// The stage a start on its way is at, from the same rows the checklist shows (`startupChecklist`):
+/// the running row, else the first that has not run after the last that finished. Setup counts only
+/// once the host reports it, so a host that sends only the older `step` never reads as running a
+/// setup script. None once the agent has started or the start failed: the view falls back to its
+/// Thinking line or its failure.
+export function quietStage(
+  start: CloudStartProgress,
+  rows: ChecklistStep[] = startupChecklist(start),
+  t: Translate = defaultTranslate,
+): QuietStage | undefined {
+  if (start.state === "failed" || start.initialized) return undefined;
+  const counted = rows.filter((row) => row.status !== "skipped" && (row.id !== "setup" || start.setup !== undefined));
+  // A host that reports only timestamps leaves an earlier row pending after a later one finished
+  // (a machine with no `step` once its clone is done): the stage is the first pending row after the
+  // last finished one.
+  const lastDone = counted.reduce((last, row, index) => (row.status === "done" ? index : last), -1);
+  const current =
+    counted.find((row) => row.status === "running") ??
+    counted.find((row, index) => index > lastDone && row.status === "pending");
+  if (!current) return undefined;
+  const detail =
+    current.id === "clone" && current.status === "running" && current.detail && !start.clone?.error
+      ? current.detail
+      : undefined;
+  const since =
+    current.id === "machine"
+      ? start.machineStartedAt
+      : current.id === "clone"
+        ? // A copy whose lines carry no start time began when the machine was done.
+          (start.clone?.startedAt ?? start.machineFinishedAt)
+        : current.id === "setup"
+          ? start.setup?.startedAt
+          : start.harnessStartedAt;
+  const label =
+    current.id === "machine"
+      ? (current.detail ?? t("cloudStart.stage.machine"))
+      : current.id === "clone"
+        ? // A GitHub repository is cloned on the machine, nothing of this Mac copied: the line says so (cmux#53226).
+          githubFolderRepo(start.cwd)
+          ? t("cloudStartup.phase.clone")
+          : t("cloudStart.stage.clone")
+        : current.id === "setup"
+          ? t("cloudStart.stage.setup")
+          : current.label;
+  return {
+    id: current.id,
+    label,
+    ...(detail ? { detail } : {}),
+    ...(since !== undefined ? { since } : {}),
+    step: counted.indexOf(current) + 1,
+    steps: counted.length,
+  };
+}
+
+/// How long an agent usually takes to start on a Cloud machine before its line says the start is
+/// taking longer than usual.
+export const AGENT_START_SLOW_MS = 30_000;
+
+/// The line a Cloud chat's first prompt shows on the machine's own chat page while that agent
+/// starts: the same "Starting Claude Code" and clock the Mac's start view ended on,
+/// never a bare "Thinking" (Leo, 2026-11-24: "what would a new user be seeing here?"). Past
+/// `AGENT_START_SLOW_MS` the usual wait gives way to "taking longer than usual".
+export function agentStartStage(
+  agent: string,
+  since: number | undefined,
+  now: number,
+  t: Translate = defaultTranslate,
+): QuietStage {
+  const slow = since !== undefined && now - since >= AGENT_START_SLOW_MS;
+  return {
+    id: "harness",
+    label: t("cloudStartup.harnessStarting", { harness: agent }),
+    ...(slow ? { detail: t("cloudStart.eta.longer") } : {}),
+    since,
+    step: 1,
+    steps: 1,
+  };
 }

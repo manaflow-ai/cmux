@@ -10,12 +10,19 @@ transport's own tests.
 LEGACY is the urlopen calls that were there when the detector came in, per file. Those scripts set a
 per-wait timeout and act on no whole-call deadline; they move to deadline_http one by one, and the list
 only shrinks: a file not listed, or a listed file with more calls than its count, fails; a listed file with
-fewer calls fails too, until its count is lowered.
+fewer calls fails too, until its count is lowered. (The 22 files added on 2026-11-26 came in while this
+check ran in no required job; they are listed at their counts so the list can shrink from there.)
+
+A GitHub API read also outlasts a passing refusal: GH_HTTP_READERS read api.github.com through
+scripts/ci/gh_http.py (deadline_http.request, asked again on a 403 rate limit, 429, 5xx or a network error;
+cmux run 45900200033's false red, cmuxterm-hq#30529). A file that names api.github.com and calls
+deadline_http.request itself, beyond DIRECT_GITHUB's count, fails: call gh_http.request instead.
 """
 
 from __future__ import annotations
 
 import ast
+import re
 import socket
 import sys
 import tempfile
@@ -36,29 +43,41 @@ import deadline_http  # noqa: E402
 TRANSPORT = "deadline_http.py"
 LEGACY = {
     "actions_artifact_prune.py": 1,
+    "app_build_bisect.py": 1,
+    "app_ffi_linux.py": 2,
     "asc_developer_id_app.py": 1,
     "auto_triage.py": 1,
     "base_red_excuse.py": 1,
     "ci_health_report.py": 1,
+    "ci_steps.py": 3,
     "ci_timing_readout.py": 1,
     "cleanup-stale-runs.py": 1,
     "cloud_overflow_switch.py": 1,
     "cmux_binaries_prune.py": 1,
+    "cmux_machine_channel_latency.py": 1,
+    "cmux_machine_channel_pr_head.py": 1,
     "cmux_tui_artifacts_retry.py": 1,
+    "cmux_tui_channel_heal.py": 1,
+    "cmux_tui_channel_keeper.py": 1,
     "cmux_tui_superseded_push.py": 1,
     "fast_linux_gate.py": 1,
     "finalize-release.py": 1,
+    "fleet-test-products.py": 3,
+    "fleet_compile_result.py": 1,
+    "fleet_fast_tier_result.py": 1,
+    "git_bundle_list.py": 1,
     "guard_attribution.py": 1,
-    "hosted_light_rescue.py": 1,
     "hosted_queue_wait.py": 1,
     "ios_internal_builder.py": 1,
     "ios_internal_notes.py": 1,
     "job_reuse.py": 2,
+    "machine_channel_cargo_seed_due.py": 1,
     "manual_dispatch_guard.py": 1,
     "media_app_cache.py": 1,
     "next_macos_cascade.py": 1,
     "nightly_builder.py": 1,
     "nightly_ghostty_helper_reuse.py": 1,
+    "nightly_interaction_latency.py": 2,
     "nightly_next_artifact_check.py": 1,
     "nightly_next_canary_mode.py": 2,
     "nightly_next_feed_watch.py": 2,
@@ -67,18 +86,24 @@ LEGACY = {
     "nightly_next_ring.py": 1,
     "nightly_next_train.py": 1,
     "nightly_publish_guard.py": 1,
-    "nightly_sign_yield.py": 2,
+    "nightly_speed.py": 1,
     "nightly_version.py": 1,
     "notify-indexnow.py": 1,
     "owned_pool_rescue.py": 1,
+    "package-test-lane/swift_suite_outcomes.py": 1,
+    "pinned_files_mirror.py": 1,
     "poll-notary-submission.py": 1,
-    "pr_red_checks_comment.py": 1,
     "pr_status.py": 1,
+    "protocol_skew_check.py": 1,
     "publish-nightly-next-r2.py": 3,
+    "published_in_comments.py": 1,
     "queue_janitor.py": 1,
     "r2-canary-cloudflare.py": 1,
+    "receipt_signed.py": 2,
     "required_status_checks.py": 1,
+    "screen_sharing_helper_release.py": 1,
     "seed_derived_data.py": 1,
+    "side_lane_placement.py": 1,
     "simple_pool_picker.py": 1,
     "stop_if_publish_doomed.py": 1,
     "submodule_forward_only.py": 1,
@@ -88,7 +113,53 @@ LEGACY = {
     "update-release-tag.py": 1,
     "warm_model_refit.py": 1,
     "web_test_failure_census.py": 1,
+    "workflow_liveness_audit.py": 1,
 }
+
+# Scripts whose GitHub reads go through gh_http.request: a refusal that can change is asked again.
+GH_HTTP_READERS = (
+    "ci_pool_tokens.py",
+    "ci_receipt.py",
+    "cmux_machine_channel_head_built.py",
+    "pr_red_checks_comment.py",
+    "tooling_reuse.py",
+)
+# Files that name api.github.com and call deadline_http.request themselves (one try per read), per file, on
+# 2026-11-26. Shrink-only like LEGACY: each moves to gh_http.request. ci_receipt.py's is the artifact
+# redirect's read (a signed blob URL, not the API).
+DIRECT_GITHUB = {
+    "app_ffi_rescue.py": 1,
+    "base_red_excuse.py": 2,
+    "base_red_skip.py": 1,
+    "cancel_superseded_pr_runs.py": 1,
+    "ci_receipt.py": 1,
+    "cmux_next_tree_notify.py": 2,
+    "cmux_tui_feat_supersede.py": 1,
+    "delta_since_green.py": 1,
+    "dev_release_product_reuse.py": 1,
+    "docs_only_paths.py": 1,
+    "download-run-artifact.py": 1,
+    "ffi_build_supersede.py": 1,
+    "github_release_asset.py": 1,
+    "head_fail_fast.py": 1,
+    "head_tier.py": 3,
+    "ios_gate_screen_diff.py": 1,
+    "ios_macos_leg.py": 1,
+    "nightly_next_signer_pick.py": 1,
+    "pr_runner_pool.py": 3,
+    "shed_superseded_runs.py": 1,
+    "stable_next_slack.py": 2,
+}
+GITHUB_API = ("api.github.com", "GITHUB_API_URL")
+
+
+def deadline_http_calls(path: Path) -> list[int]:
+    """The lines of PATH that call deadline_http.request (or an imported request from it)."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    return sorted(node.lineno for node in ast.walk(tree)
+                  if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                  and node.func.attr == "request" and isinstance(node.func.value, ast.Name)
+                  and node.func.value.id == "deadline_http")
 
 
 def urlopen_calls(path: Path) -> list[int]:
@@ -125,6 +196,56 @@ class NoBareUrlopen(unittest.TestCase):
                                 f"lower its count in tests/test_ci_no_bare_urlopen.py")
         for relative in sorted(set(LEGACY) - seen):
             problems.append(f"scripts/ci/{relative} has no urlopen call left: drop it from LEGACY")
+        self.assertEqual(problems, [], "\n".join(problems))
+
+    def test_github_readers_ask_again_through_gh_http(self):
+        problems = []
+        seen = set()
+        for path in sorted(CI.rglob("*.py")):
+            relative = path.relative_to(CI).as_posix()
+            if relative in (TRANSPORT, "gh_http.py"):
+                continue
+            text = path.read_text(encoding="utf-8")
+            if not any(name in text for name in GITHUB_API):
+                continue
+            lines = deadline_http_calls(path)
+            if not lines:
+                continue
+            seen.add(relative)
+            allowed = DIRECT_GITHUB.get(relative, 0)
+            where = ", ".join(f"scripts/ci/{relative}:{line}" for line in lines)
+            if len(lines) > allowed:
+                problems.append(f"GitHub read at {where} is tried once: call gh_http.request() instead")
+            elif len(lines) < allowed:
+                problems.append(f"scripts/ci/{relative} has {len(lines)} deadline_http.request calls, DIRECT_GITHUB "
+                                f"says {allowed}: lower its count in tests/test_ci_no_bare_urlopen.py")
+        for relative in sorted(set(DIRECT_GITHUB) - seen):
+            problems.append(f"scripts/ci/{relative} has no direct deadline_http.request left: drop it from "
+                            f"DIRECT_GITHUB")
+        for relative in GH_HTTP_READERS:
+            text = (CI / relative).read_text(encoding="utf-8")
+            if "import gh_http" not in text or "gh_http.request(" not in text:
+                problems.append(f"scripts/ci/{relative} is a GH_HTTP_READER but does not call gh_http.request")
+        self.assertEqual(problems, [], "\n".join(problems))
+
+    def test_every_sparse_checkout_of_a_gh_http_reader_has_gh_http(self):
+        # A sparse checkout that names a reader without gh_http.py and deadline_http.py fails on its import.
+        problems = []
+        for workflow in sorted((ROOT / ".github" / "workflows").glob("*.yml")):
+            blocks = re.split(r"\n(?=\s*sparse-checkout:)", workflow.read_text(encoding="utf-8"))
+            for block in blocks[1:]:
+                listed = block.split("\n")[1:]
+                names = []
+                for line in listed:
+                    entry = line.strip()
+                    if not entry or entry.endswith(":") or " " in entry:
+                        break
+                    names.append(entry.lstrip("/"))
+                for reader in GH_HTTP_READERS:
+                    if f"scripts/ci/{reader}" in names:
+                        for need in ("scripts/ci/gh_http.py", "scripts/ci/deadline_http.py"):
+                            if need not in names:
+                                problems.append(f"{workflow.name}: a sparse checkout of {reader} lacks {need}")
         self.assertEqual(problems, [], "\n".join(problems))
 
     def test_the_transport_itself_never_calls_urlopen(self):
@@ -202,7 +323,7 @@ class Transport(unittest.TestCase):
         real = socket.getaddrinfo
 
         def lookup(*args, **kwargs):
-            time.sleep(seconds)
+            time.sleep(seconds)  # sleep-ok: a simulated slow name lookup, what the deadline is tested against
             return real(*args, **kwargs)
 
         socket.getaddrinfo = lookup
@@ -228,6 +349,28 @@ class Transport(unittest.TestCase):
         self.assertEqual(raised.exception.headers.get("Retry-After"), "7")
         self.assertEqual(raised.exception.read(), b"slow")
 
+    SHORT = b"HTTP/1.1 200 OK\r\nContent-Length: 50\r\n\r\n" + b"x" * 10
+
+    def test_a_short_body_is_read_again_once(self):
+        answers = iter([self.SHORT, self.OK])
+        server = self.serve(lambda _request: next(answers))
+        status, body, _ = deadline_http.request(server.url, 2)
+        self.assertEqual((status, body, len(server.requests)), (200, b'{"ok": true}', 2))
+
+    def test_a_short_body_twice_is_a_url_error_not_a_traceback(self):
+        server = self.serve(self.SHORT)
+        with self.assertRaises(deadline_http.BrokenAnswer) as raised:
+            deadline_http.request(server.url, 2)
+        self.assertIsInstance(raised.exception, urllib.error.URLError)
+        self.assertIsInstance(raised.exception, OSError)
+        self.assertEqual(len(server.requests), 2)
+
+    def test_a_write_broken_off_is_not_sent_again(self):
+        server = self.serve(self.SHORT)
+        with self.assertRaises(deadline_http.BrokenAnswer):
+            deadline_http.request(urllib.request.Request(server.url, data=b"{}", method="POST"), 2)
+        self.assertEqual(len(server.requests), 1)
+
     def test_trickled_headers_end_at_the_deadline(self):
         slow = b"HTTP/1.1 204 No Content\r\nX-Trickle: " + b"a" * 40 + b"\r\nContent-Length: 0\r\n\r\n"
         server = self.serve(slow, 0.03)
@@ -250,13 +393,19 @@ class Transport(unittest.TestCase):
         request = urllib.request.Request(server.url, data=b"{}", method="POST")
         with self.assertRaises(deadline_http.RequestTimeout):
             deadline_http.request(request, self.BOUND)
-        time.sleep(self.BOUND)
+        # Until the late lookup has returned: past it nothing is left that could send.
+        for thread in threading.enumerate():
+            if thread.name == "deadline-http-resolve":
+                thread.join(10)
+                self.assertFalse(thread.is_alive(), "the slow lookup never returned")
         self.assertEqual(server.requests, [])
 
     def test_one_deadline_shared_by_calls_counts_time_already_spent(self):
         server = self.serve(self.OK)
-        deadline = deadline_http.Deadline(self.BOUND)
-        time.sleep(self.BOUND * 1.1)
+        # A clock moved past the bound, as if earlier calls had spent it all.
+        now = [time.monotonic()]
+        deadline = deadline_http.Deadline(self.BOUND, clock=lambda: now[0])
+        now[0] += self.BOUND * 1.1
         with self.assertRaises(deadline_http.RequestTimeout):
             deadline_http.request(server.url, deadline=deadline)
         self.assertEqual(server.requests, [])
@@ -290,7 +439,7 @@ class Transport(unittest.TestCase):
 
         def start(thread):
             if thread.name == "deadline-http-resolve":
-                time.sleep(0.8 * self.BOUND)
+                time.sleep(0.8 * self.BOUND)  # sleep-ok: a simulated slow thread start, measured against the bound
             return real_start(thread)
 
         threading.Thread.start = start

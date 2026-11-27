@@ -102,6 +102,7 @@ pub fn reclaim(
         submodules: facts.submodules.clone(),
         dropped: facts.build_output.clone(),
         reason: reason.to_string(),
+        parked: action == Action::Park,
         freed: 0,
         restored_ms: None,
     };
@@ -151,6 +152,17 @@ pub fn reclaim(
     ) {
         discard(&wt, store, &manifest);
         return Err(format!("{why}; it stays"));
+    }
+    if action == Action::Park {
+        // Preserve even a late write that Git status could never see, such as
+        // an ignored file created after the final open-file check.
+        let parked = crate::park::destination(store, &id);
+        let result = crate::park::park(&wt, store, &manifest, &parked);
+        if result.is_err() && !parked.exists() {
+            discard(&wt, store, &manifest);
+        }
+        result?;
+        return Ok(manifest);
     }
     let before = available(&anchor);
     let main = WriteGit { root: &anchor, overrides: &repo.overrides, hooks: &hooks };
@@ -330,7 +342,9 @@ pub fn expire(store: &Store, now: u64, keep_ms: u64) -> Result<Vec<String>, Stri
     let hooks = empty_hooks(store)?;
     let mut dropped = Vec::new();
     for manifest in store.list() {
-        if now.saturating_sub(manifest.created_ms) < keep_ms {
+        if (manifest.parked && manifest.restored_ms.is_none())
+            || now.saturating_sub(manifest.created_ms) < keep_ms
+        {
             continue;
         }
         let anchor = manifest.main_root.clone().unwrap_or_else(|| manifest.common_dir.clone());
@@ -369,20 +383,5 @@ impl Drop for Remove {
 }
 
 #[cfg(test)]
-mod care_tests {
-    use super::*;
-
-    #[test]
-    fn long_path_lists_split_inside_the_argument_limit() {
-        let paths: Vec<String> = (0..10_000).map(|i| format!("some/longer/path/{i:05}")).collect();
-        let groups = chunks(&paths);
-        assert!(groups.len() > 1);
-        assert_eq!(groups.iter().map(|g| g.len()).sum::<usize>(), paths.len());
-        assert!(
-            groups
-                .iter()
-                .all(|g| g.iter().map(|p| p.len() + 1).sum::<usize>() <= MAX_ARGUMENT_BYTES)
-        );
-        assert!(chunks(&[]).is_empty());
-    }
-}
+#[path = "archive_care_tests.rs"]
+mod care_tests;

@@ -3,7 +3,8 @@
 //! (acpmux peers and pairings, remote hosting), with the overlay network
 //! behind one seam (`network.rs`). `cmux device add` with no `--yes` is the
 //! app's Add Device card (the app action `device.add`); with `--yes` it is
-//! the headless enroll on a machine with no app.
+//! the direct ssh enroll, and with `--yes --hub` the one-command hub join
+//! over ssh (acpmux `cli/ssh_join.rs`).
 
 use cmux_json::JsonSet as _;
 
@@ -11,7 +12,7 @@ use cmux_json::JsonSet as _;
 mod credential_env_tests;
 mod model;
 mod network;
-mod reach;
+pub(crate) mod reach;
 #[cfg(test)]
 mod reach_tests;
 mod removal;
@@ -19,6 +20,7 @@ pub(crate) mod removed;
 pub(crate) mod setup;
 #[cfg(test)]
 mod tests;
+mod this_mac;
 
 use std::io::{BufRead as _, IsTerminal as _, Write as _};
 use std::path::PathBuf;
@@ -33,7 +35,7 @@ use network::{Choice, TailscaleNetwork, WeftNetwork};
 
 const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
        cmux device list [--json [--probe]] [--no-probe] [--network auto|tailscale|weft] [--platform URL] [--cloud-token-file PATH | --cloud-token-stdin]
-       cmux device add HOST --yes [--name NAME] [--json]
+       cmux device add HOST --yes [--name NAME] [--hub] [--json]
        cmux device invite [--role client|read-only] [--ttl 15m] [--label TEXT] [--json]
        cmux device remove ID|NAME|ADDRESS [--yes] [--json]
        cmux device audit [--limit N] [--json]
@@ -48,7 +50,9 @@ const USAGE: &str = "usage: (every verb takes --json, --jsonl or --quiet)
        cmux device revoke|rotate ID|NAME       (a machine that joined with a pasted line)
        cmux device doctor [MACHINE] [--fix]    (check an SSH machine and fix what it can)
 
-  cmux device add HOST (no --yes) opens Add Device in the cmux app.
+  cmux device add HOST (no --yes) opens Add Device in the cmux app. With --yes it adds HOST as a
+  direct ssh peer, which copies this cmux. With --yes --hub, signed in to cmux, it joins HOST
+  through the hub over key-only ssh instead (macOS or Linux, any arch, from any computer).
   `cmux machine` is the old name of `cmux device`; `cmux machine add` still prints a join line.
   Cloud VMs (new, run, pause, resume, rm) are `cmux vm`: `cmux vm --help`.";
 
@@ -321,6 +325,17 @@ pub(crate) const CREDENTIAL_ENV: &[&str] = &[
     "CMUX_PANE_APP_CREDENTIAL",
     "WEFT_ADMIN_TOKEN",
     "WEFT_TICKET_SEED",
+    // Cloud VM providers' credentials (cmux-vm-pool gce.rs, freestyle.rs): `cmux vm` reads them in
+    // its own process; no child this module starts makes a VM.
+    "CLOUDSDK_AUTH_ACCESS_TOKEN",
+    "GOOGLE_OAUTH_ACCESS_TOKEN",
+    "FREESTYLE_API_KEY",
+    // This machine's hub credential: acpmux reads it from its own store, never from the environment
+    // (joined_model_plane.rs), so an inherited copy is only a leak.
+    "CMUX_MACHINE_CREDENTIAL",
+    // Automation secrets' example names (cli/automation_secret.rs): a value under them is a secret.
+    "CMUX_PRO_KEY",
+    "MODELS_CATALOG_TOKEN",
 ];
 
 /// This program as `cmux` (argv[0]), so the `host` verbs, which exist only on the `cmux`
@@ -553,6 +568,16 @@ fn state_words(state: State) -> &'static str {
     }
 }
 
+/// A device row's detail as the CLI prints it: the plain detail every surface shows, and for a
+/// parked peer the command that removes it, which only a terminal can run.
+fn cli_detail(d: &model::Device) -> Option<String> {
+    let detail = d.detail.clone()?;
+    if !d.parked {
+        return Some(detail);
+    }
+    Some(format!("{detail} If it is gone for good: cmux device remove {}", shell_word(&d.name)))
+}
+
 fn print_listing(listing: &Listing, notes: &[String]) {
     let net = &listing.network;
     match (&net.this, net.up) {
@@ -569,7 +594,7 @@ fn print_listing(listing: &Listing, notes: &[String]) {
         for d in &listing.devices {
             let roles: Vec<&str> = d.roles.iter().copied().map(role_words).collect();
             println!("  {:<28} {:<22} {}", d.name, state_words(d.state), roles.join(", "));
-            if let Some(detail) = &d.detail {
+            if let Some(detail) = cli_detail(d) {
                 println!("  {:<28} {detail}", "");
             }
         }
@@ -676,13 +701,191 @@ pub(crate) fn record(event: &str, fields: Value) {
     audit::append(&entry);
 }
 
+/// `cmux device add HOST --yes`: the direct ssh enroll that copies this binary, as before. With
+/// `--hub`, the hub join over key-only ssh (`hub_join`: the join script downloads the far
+/// machine's own build, so a Mac sets up a Linux box), which needs a cmux sign-in.
 fn add(args: &[String]) -> anyhow::Result<()> {
-    let flags = Flags::parse(args, &["name"], &["json", "yes"])?;
+    // The whole command's time, from before the sign-in token is read (the app may mint one).
+    let started = std::time::Instant::now();
+    let flags = Flags::parse(
+        args,
+        &["name", JOIN_VALUES[0], JOIN_VALUES[1]],
+        &["json", "yes", "hub", "cloud-token-stdin"],
+    )?;
     let [host] = flags.positional.as_slice() else {
         return Err(usage("needs exactly one HOST (a name, an address or user@host)"));
     };
+    match AddRoute::of(flags.has("hub")) {
+        AddRoute::Enroll => enroll(host, &flags),
+        AddRoute::HubJoin => match access_token(&flags)? {
+            Some(access) => hub_join(host, &flags, access, started),
+            None => bail!(
+                "not signed in to cmux here, so {host} cannot join through the hub\nnext: cmux login, then add it again, or drop --hub to add it as a direct ssh peer"
+            ),
+        },
+    }
+}
+
+/// Which way `cmux device add HOST --yes` adds a machine. The direct ssh enroll is the default
+/// (interim-coord, 2026-11-20: no default flip); the hub join only with `--hub`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AddRoute {
+    /// `cmux acp host enroll`: this binary copied to HOST, a peer of this computer's daemon.
+    Enroll,
+    /// The hub join over key-only ssh (acpmux `cli/ssh_join.rs`); needs a cmux sign-in.
+    HubJoin,
+}
+
+impl AddRoute {
+    fn of(hub: bool) -> Self {
+        if hub { Self::HubJoin } else { Self::Enroll }
+    }
+}
+
+/// The person's cmux access token: `--cloud-token-file`, `--cloud-token-stdin` or
+/// `CMUX_CLOUD_ACCESS_TOKEN`, else one the signed-in app mints; `None` when there is neither.
+#[cfg(unix)]
+fn access_token(flags: &Flags) -> anyhow::Result<Option<zeroize::Zeroizing<String>>> {
+    let auth = JoinAuth::read(flags)?;
+    let token = match auth.credential {
+        Some(credential) => Some(credential),
+        None => crate::cli::app_access_token().ok(),
+    };
+    Ok(token.map(zeroize::Zeroizing::new))
+}
+
+#[cfg(not(unix))]
+fn access_token(_flags: &Flags) -> anyhow::Result<Option<zeroize::Zeroizing<String>>> {
+    Ok(None)
+}
+
+/// The hub join (acpmux `cli/ssh_join.rs`, the same steps the app's `_acpmux/machine_join_ssh`
+/// runs): each step as it goes, then the machine or the failure's next step.
+fn hub_join(
+    host: &str,
+    flags: &Flags,
+    access: zeroize::Zeroizing<String>,
+    started: std::time::Instant,
+) -> anyhow::Result<()> {
+    use acpmux::cli::ssh_join;
+    #[cfg(unix)]
+    let hub = Some(
+        crate::cli::platform_origin(flags.value("platform"), &|key: &str| std::env::var(key).ok())
+            .map_err(usage)?,
+    );
+    #[cfg(not(unix))]
+    let hub = flags.value("platform").map(str::to_owned);
+    let request = ssh_join::Request {
+        host: host.to_owned(),
+        name: flags.value("name").map(str::to_owned),
+        hub,
+    };
+    let json_out = flags.has("json");
+    // `started`: the whole command's time: the join, then this Mac's own join and the wait for the
+    // hub to list the machine (Door A timing run: "Added doora-vm-1 in 12 s" after 33.3 s).
+    let mut emit = |p: ssh_join::Progress| {
+        if json_out {
+            let mut line = serde_json::to_value(&p).unwrap_or_default();
+            line.set("event", json!("progress"));
+            println!("{line}");
+        } else if p.state == "running" && p.detail.is_empty() {
+            println!("  {:<8} {:>3} s  {}", p.step.as_str(), p.seconds, p.step.doing());
+        } else {
+            println!("  {:<8} {:>3} s  {}", p.step.as_str(), p.seconds, p.detail);
+        }
+        let _ = std::io::stdout().flush();
+    };
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("cannot start the join")?;
+    #[cfg(unix)]
+    let mac_access = zeroize::Zeroizing::new(access.as_str().to_owned());
+    let outcome = runtime.block_on(ssh_join::join_as(&request, access, &mut emit));
+    let name = outcome.machine.as_ref().map_or(host, |m| m.name.as_str());
+    // This Mac on the hub mesh too, as the same person: the far machine's join grants the
+    // person's own machines, and a grant reaches only a machine on the mesh (this_mac.rs).
+    #[cfg(unix)]
+    let this_mac = match (&outcome.machine, request.hub.as_deref()) {
+        (Some(machine), Some(origin)) => {
+            let mut acp = |words: &[&str], stdin: Option<&str>| {
+                crate::cli::acp_json(words, stdin, std::time::Duration::from_secs(60))
+            };
+            if json_out {
+                println!(
+                    "{}",
+                    json!({"event": "progress", "step": "this_mac", "state": "running",
+                           "seconds": started.elapsed().as_secs()})
+                );
+            } else {
+                println!(
+                    "  {:<8} {:>3} s  putting this Mac on the mesh",
+                    "this-mac",
+                    started.elapsed().as_secs()
+                );
+            }
+            let _ = std::io::stdout().flush();
+            // The hub lists it by its joined name, else by the host name an older acpmux on it
+            // heartbeats with.
+            Some(this_mac::run(
+                origin,
+                &mac_access,
+                &machine.name,
+                machine.hostname.as_deref(),
+                this_mac::LISTED_WITHIN,
+                &mut acp,
+            ))
+        }
+        _ => None,
+    };
+    #[cfg(not(unix))]
+    let this_mac: Option<this_mac::Done> = None;
+    let seconds = started.elapsed().as_secs();
+    record(
+        if outcome.ok { "device.added" } else { "device.add_failed" },
+        json!({
+            "device": format!("joined:{name}"),
+            "host": host,
+            "method": "hub-join",
+            "seconds": seconds,
+            "joinSeconds": outcome.seconds,
+            "failure": outcome.failure.as_ref().map(|f| f.kind),
+        }),
+    );
+    if json_out {
+        let mut line = outcome.to_value();
+        line.set("event", json!("done"));
+        line.set("seconds", json!(seconds));
+        line.set("joinSeconds", json!(outcome.seconds));
+        if let Some(done) = &this_mac {
+            line.set("thisMac", done.to_value());
+        }
+        println!("{line}");
+    }
+    match (&outcome.machine, &outcome.failure) {
+        (Some(machine), _) => {
+            if !json_out {
+                if outcome.already_joined {
+                    // Door A re-add: the machine kept its record, and no join line was minted.
+                    println!(
+                        "{} was already joined to your account: kept its record {}",
+                        machine.name, machine.machine_id
+                    );
+                }
+                println!("{}", this_mac::added_line(&machine.name, seconds, this_mac.as_ref()));
+            }
+            Ok(())
+        }
+        (None, Some(failure)) => bail!("{}\nnext: {}", failure.message, failure.next),
+        (None, None) => bail!("{host} was not added"),
+    }
+}
+
+/// The direct ssh enroll (`cmux acp host enroll`): this binary copied to HOST, which then runs
+/// as a peer of this computer's daemon.
+fn enroll(host: &str, flags: &Flags) -> anyhow::Result<()> {
     let mut enroll =
-        vec!["acp".to_owned(), "host".into(), "enroll".into(), host.clone(), "--json".into()];
+        vec!["acp".to_owned(), "host".into(), "enroll".into(), host.to_owned(), "--json".into()];
     if let Some(name) = flags.value("name") {
         enroll.extend(["--name".into(), name.to_owned()]);
     }

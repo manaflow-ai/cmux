@@ -19,6 +19,11 @@
   --nt-widget-card: var(--agent-surface, var(--acpmux-base, var(--agent-page-bg, Canvas)));
   --nt-widget-card-edge: var(--agent-border);
 }
+/* An opaque card shows nothing through it: no blur behind it (glass is never opaque, test/support/accentGlassScan.ts). */
+.nt-widgets[data-look="solid"] .nt-widget-card {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 .nt-widgets[data-look="tinted"] {
   --nt-widget-card: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 16%, transparent);
   --nt-widget-card-edge: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 22%, transparent);
@@ -60,24 +65,29 @@
   overflow: hidden;
   border-radius: var(--nt-widget-radius); /* concentric-allow: Apple's widget corner (22 pt continuous), the card holds an app's scene, not buttons */
   corner-shape: superellipse(1.6);
-  background: var(--nt-widget-card);
-  box-shadow: inset 0 0 0 0.5px var(--nt-widget-card-edge);
   color: var(--agent-text);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  backdrop-filter: blur(24px) saturate(1.4);
+  /* One material (ui/glass/glass.css): the card is .ui-glass and sets only tokens: its own wash as the
+     tint, the popover level's 24 px blur, and the Reduce Transparency fill. */
+  --glass-tint: var(--nt-widget-card);
+  --glass-edge: var(--nt-widget-card-edge);
+  --glass-backdrop: var(--ds-glass-popover-blur);
+  /* glass-opaque-allow: Reduce Transparency's fill only (glass.css applies it under that setting) */
+  --glass-opaque: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
 }
-/* Reduce Transparency: an opaque card, no blur. */
+/* A preview in the Add Widget gallery sits on the gallery sheet's glass: the card's wash and edge with
+   no blur of its own, so the sheet stays the one material (design/glass-system.md R5). Reduce
+   Transparency: the opaque card. */
+.nt-widget-card--preview {
+  background: var(--nt-widget-card);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--nt-widget-card-edge);
+}
 @media (prefers-reduced-transparency: reduce) {
-  .nt-widget-card {
+  .nt-widget-card--preview {
     background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
   }
 }
-:root[data-reduce-transparency] .nt-widget-card {
+:root:is([data-reduce-transparency], [data-glass="off"]) .nt-widget-card--preview {
   background: color-mix(in srgb, var(--agent-text) 8%, var(--acpmux-base, var(--agent-page-bg, Canvas)));
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 .nt-widget-card > .cmux-app-scene-root,
 .nt-widget-card > * {
@@ -191,7 +201,9 @@
   height: var(--ds-control-compact);
   border: 0;
   border-radius: 50%; /* radius-allow: Apple's round badge on a widget's corner, as the minus badge */
-  background: color-mix(in srgb, var(--agent-text) 14%, transparent);
+  /* The wash over the opaque page surface, not over whatever is behind: over a see-through window's busy picture the
+     clear wash read its glyph at 2.97:1 (control-contrast-11, widget-edit over the busy picture). */
+  background: color-mix(in srgb, var(--agent-text) 14%, var(--ds-color-surface));
   color: var(--agent-text);
 }
 .nt-widget-corner {

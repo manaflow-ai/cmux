@@ -23,6 +23,7 @@ SCRIPT = ROOT / "scripts/ci/webviews_test_history.py"
 WORKFLOW = ROOT / ".github/workflows/ci-web.yml"
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import webviews_test_history as history  # noqa: E402
+import one_linux_label  # noqa: E402
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
@@ -68,7 +69,9 @@ EVENTS = {
     "fork pull request": event("pull_request", head=FORK),
     "fork repository": event("push", owner="someone"),
 }
-VCPU = {"blacksmith-2vcpu-ubuntu-2404": 2, "blacksmith-4vcpu-ubuntu-2404": 4, "blacksmith-16vcpu-ubuntu-2404": 16,
+# cmux-linux, the one Linux label (scripts/ci/one_linux_label.py), sizes itself by load; its smallest member is
+# taken as 4 vCPU, so the minutes below hold even when a shard lands on one.
+VCPU = {"cmux-linux": 4, "blacksmith-2vcpu-ubuntu-2404": 2, "blacksmith-4vcpu-ubuntu-2404": 4, "blacksmith-16vcpu-ubuntu-2404": 16,
         "ubuntu-24.04": 4}
 
 
@@ -91,19 +94,33 @@ class ShardSize(unittest.TestCase):
         self.shard = self.jobs["react-apps-check-shard"]
         self.test_step = next(s for s in self.shard["steps"] if s["name"] == "Test webviews")
 
-    def test_the_webview_jobs_read_the_4_vcpu_pool_not_linux_16(self):
+    def test_the_webview_jobs_take_the_one_linux_label(self):
+        # Leo, 2026-11-20: no workflow sizes its CI; every own-branch run takes cmux-linux, a fork GitHub-hosted Ubuntu.
         for name in WEBVIEW_JOBS:
             runs_on = self.jobs[name]["runs-on"]
             self.assertNotIn("linux_16", runs_on, name)
-            self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_4 }}"), name)
-            small = evaluate(runs_on, EVENTS["push"], {"linux_4": "blacksmith-2vcpu-ubuntu-2404"})
-            self.assertEqual(small, "blacksmith-2vcpu-ubuntu-2404", f"{name} follows the pool")
-            self.assertEqual(evaluate(runs_on, EVENTS["push"]), "blacksmith-4vcpu-ubuntu-2404", name)
-            self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "blacksmith-4vcpu-ubuntu-2404", name)
-            self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "blacksmith-16vcpu-ubuntu-2404", name)
+            # #50078 (Leo, 2026-11-23): the React shards read CI_REACT_SHARD_RUNNER first; unset, they take cmux-linux.
+            self.assertEqual(runs_on, one_linux_label.CANONICAL.replace("|| 'cmux-linux'", "|| vars.CI_REACT_SHARD_RUNNER || 'cmux-linux'"), name)
+            for kind in ("push", "same-repository pull request"):
+                knob = {**EVENTS[kind], "vars.CI_REACT_SHARD_RUNNER": "cmux-linux-react"}
+                self.assertEqual(evaluate(runs_on, knob), "cmux-linux-react", f"{name} {kind}")
+            for kind in ("fork pull request", "fork repository"):
+                knob = {**EVENTS[kind], "vars.CI_REACT_SHARD_RUNNER": "cmux-linux-react"}
+                self.assertEqual(evaluate(runs_on, knob), "ubuntu-24.04", f"{name} {kind}")
+            self.assertEqual(evaluate(runs_on, EVENTS["push"]), "cmux-linux", name)
+            self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "cmux-linux", name)
+            self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "ubuntu-24.04", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork repository"]), "ubuntu-24.04", name)
-            owned = {**EVENTS["push"], "vars.CI_LINUX_GATE_OWNED_RUNNER": "glaeda-linux-gate"}
-            self.assertEqual(evaluate(runs_on, owned), "glaeda-linux-gate", name)
+
+    def test_a_post_merge_batch_shard_reads_the_owned_runner(self):
+        """Run 44990794651's batch shards read linux_4 (a workflow_dispatch is neither a push nor a pull request) and
+        ran 39-71 min of tests each on 4 vCPU, about 722 runner-minutes a run; they read the owned gate runner, and
+        since scripts/ci/one_linux_label.py every same-repository run takes the one owned Linux label, cmux-linux."""
+        runs_on = self.shard["runs-on"]
+        for mode in ("batch", "probe", ""):
+            dispatch = event("workflow_dispatch", **{"github.event.inputs.mode": mode,
+                                                    "vars.CI_LINUX_GATE_OWNED_RUNNER": "glaeda-linux-gate"})
+            self.assertEqual(evaluate(runs_on, dispatch), "cmux-linux", mode)
 
     def test_each_runner_gets_minutes_for_its_share_of_the_work(self):
         for label, context in EVENTS.items():
@@ -112,7 +129,7 @@ class ShardSize(unittest.TestCase):
             vcpu = VCPU[runner]
             need = self.TESTS_AT_16 * max(1, 16 / vcpu) + self.SETUP
             self.assertGreaterEqual(minutes * 60, need * 1.25, f"{label} on {runner}: {minutes} min")
-        self.assertEqual(evaluate(self.shard["timeout-minutes"], EVENTS["fork pull request"]), 40)
+        self.assertEqual(evaluate(self.shard["timeout-minutes"], EVENTS["fork pull request"]), 90)
         # While the pool holds 2 vCPU, a shard runs 1 file at a time and gets the minutes for that.
         small = {"linux_4": "blacksmith-2vcpu-ubuntu-2404"}
         for label in ("push", "same-repository pull request"):
@@ -245,6 +262,78 @@ class Known(unittest.TestCase):
         self.assertEqual((base, replay), ({TEST: True, f"{FILE} > new test": True}, [other]))
 
 
+class HeldRedFiles(unittest.TestCase):
+    """A pull request's shards leave files red on the base for a day to the batch runs (ci-web.yml, held-red-files)."""
+
+    def pushes(self, *verdicts, start=0, step=3600 * 6):
+        out = []
+        for i, verdict in enumerate(verdicts):
+            out = history.record(out, f"sha{i}", start + i * step, {TEST: False} if verdict is False else {FILE: True}, f"k{i}")
+        return out
+
+    def test_a_file_red_on_every_push_for_a_day_is_held(self):
+        pushes = self.pushes(True, False, False, False, False, False)  # red from 6 h to 30 h
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 24),
+                         [{"file": FILE, "first": "sha1", "hours": 24.0}])
+        # Under a day red, a green on the newest push, off (0 h), or the change edits the file: it runs.
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 25), [])
+        self.assertEqual(history.held_red_files(self.pushes(False, False, False, False, False, True), 30 * 3600, 24), [])
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 0), [])
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 24, {FILE}), [])
+
+    def test_a_history_older_than_the_hours_holds_nothing(self):
+        pushes = self.pushes(False, False, False, False, False, False)
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600 + 25 * 3600, 24), [])
+        # Pushes newer than the merge parent are not read.
+        self.assertEqual(history.held_red_files(pushes, 3 * 3600, 24), [])
+
+    def test_the_command_writes_the_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path, out, changed = Path(tmp) / "h.json", Path(tmp) / "held", Path(tmp) / "changed"
+            path.write_text(json.dumps({"runs": self.pushes(True, False, False, False, False, False)}), encoding="utf-8")
+            changed.write_text("src/other.ts\n", encoding="utf-8")
+            done = subprocess.run([sys.executable, str(SCRIPT), "held-red-files", str(path), "--before", str(30 * 3600),
+                                   "--hours", "24", "--changed", str(changed), "--out", str(out)],
+                                  capture_output=True, text=True, check=False)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(out.read_text(encoding="utf-8"), FILE + "\n")
+            self.assertIn(f"HELD RED {FILE} since sha1", done.stdout)
+
+
+class KnownHeldRed(unittest.TestCase):
+    """A red no push at the merge parent's key answers, held red on the base's last pushes at any inputs, is a base red
+    without a replay (job 137269052440: 0 answered at its key, 168 files replayed for 55 min)."""
+
+    NOW = 1001 + 3600
+
+    def test_red_on_the_last_two_pushes_at_other_inputs_is_a_base_red(self):
+        pushes = runs(False, False, keys=["a", "b"])
+        self.assertEqual(history.known(pushes, "same", {TEST: False}, now=self.NOW), ({TEST: False}, []))
+        # A file that crashed on the base (a file-level red) holds red for the head's file-level red too.
+        self.assertEqual(history.known(runs(None, None, keys=["a", "b"]), "same", {FILE: False}, now=self.NOW),
+                         ({FILE: False}, []))
+
+    def test_one_red_a_green_after_it_or_an_old_red_still_replays(self):
+        for pushes in (runs(False, keys=["a"]), runs(False, True, keys=["a", "b"]), runs(True, False, keys=["a", "b"])):
+            self.assertEqual(history.known(pushes, "same", {TEST: False}, now=self.NOW), ({}, [FILE]), pushes)
+        # The newest red over a day before now: the base may have fixed it since.
+        old = self.NOW + history.HELD_RED_AGE_S
+        self.assertEqual(history.known(runs(False, False, keys=["a", "b"]), "same", {TEST: False}, now=old), ({}, [FILE]))
+
+    def test_a_file_crash_says_nothing_for_a_named_test_and_a_new_red_keeps_the_file_whole(self):
+        # The crash run is skipped: the two named reds around it hold.
+        pushes = runs(False, None, False, keys=["a", "b", "c"])
+        self.assertEqual(history.known(pushes, "same", {TEST: False}, now=self.NOW + 2), ({TEST: False}, []))
+        head = {TEST: False, f"{FILE} > new test": False}
+        self.assertEqual(history.known(runs(False, False, keys=["a", "b"]), "same", head, now=self.NOW), ({}, [FILE]))
+
+    def test_the_exact_key_still_decides_first(self):
+        # Green twice at the merge parent's key: the change's red, whatever older pushes held.
+        pushes = runs(False, False, keys=["a", "b"]) + [dict(r, sha=f"x{i}", time=2000 + i)
+                                                        for i, r in enumerate(runs(True, True))]
+        self.assertEqual(history.known(pushes, "same", {TEST: False}, now=2001), ({TEST: True}, []))
+
+
 class KnownReds(unittest.TestCase):
     """A head shard skips the alone retry of a file whose every first-run red its base's newest recorded push has red
     (run-webviews-tests.sh, CMUX_WEB_TEST_BASE_REDS)."""
@@ -272,6 +361,15 @@ class KnownReds(unittest.TestCase):
                          [FILE, "test/gone.test.ts"])
         self.assertEqual(history.base_red_files(set(), head), [])
         self.assertEqual(history.base_red_files({TEST}, {FILE: True}), [])
+
+    def test_a_file_red_on_the_base_by_its_bare_name_covers_every_red_the_head_names_in_it(self):
+        """Shard 1 of run 44987019885: 29 of the 46 red files it retried alone were red on the base push by file name
+        only (a timeout there), while the head named a test; all 29 failed again alone."""
+        other = "test/other.test.ts"
+        head = {TEST: False, f"{FILE} > green": True, f"{other} > a": False}
+        self.assertEqual(history.base_red_files({FILE}, head), [FILE])
+        # A bare name says nothing about another file, and a passing head file is never listed.
+        self.assertEqual(history.base_red_files({FILE}, {f"{other} > a": False, FILE: True}), [])
 
     def test_the_commands_write_and_read_the_base_reds_and_fail_safe(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -469,6 +567,52 @@ class OneBaseCheck(unittest.TestCase):
                                    str(tmp / "out" / history.HEAD_RESULTS)], capture_output=True, text=True)
             self.assertNotEqual(done.returncode, 0)  # read as one shard's unreadable results were: every red replays
 
+    def test_the_lone_picked_shard_lands_in_the_download_root_itself(self):
+        """What refused #48267 and #50979 on 2026-11-22: both change only Swift, so web-subarea-scope picked one
+        shard, and react-apps-base-check failed with "react-apps-head-results-shard1 has no
+        webviews-head-results.json" while shard 1 had uploaded its 165 files and the download verified the same
+        digest. actions/download-artifact (pinned 37930b1c) extracts into the download root, with no folder of the
+        artifact's name, whenever `artifacts.length === 1`, so the folder this join read never exists for a pull
+        request that ran one shard. A shard's own folder still wins wherever there is one."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            flat = tmp / "in"
+            flat.mkdir()
+            (flat / history.HEAD_RESULTS).write_text(json.dumps({TEST: False}))
+            (flat / "runner").mkdir()
+            (flat / "runner/run-webviews-tests.sh").write_text("# shard 1\n")
+            (flat / "raw-logs").mkdir()
+            (flat / "raw-logs/summary").write_text("FAIL x /r/test_agent.log\n")
+            matrix = json.dumps([{"shard": 1, "shard_count": 8}])
+            done = subprocess.run([sys.executable, str(SCRIPT), "heads", str(flat), "--matrix", matrix, "--out",
+                                   str(tmp / "out")], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(json.loads((tmp / "out" / history.HEAD_RESULTS).read_text()), {TEST: False})
+            self.assertEqual(json.loads((tmp / "out/shards.json").read_text()), {FILE: 1})
+            self.assertEqual((tmp / "out/runner/run-webviews-tests.sh").read_text(), "# shard 1\n")
+            self.assertEqual((tmp / "out/raw-logs/summary").read_text(), "FAIL x /r/test_agent.log\n")
+            # One shard with a folder of its own (the artifact was not alone in the download): that folder is read,
+            # never a stale map lying beside it in the root.
+            self.shard(tmp / "two", 1, {TEST: True})
+            (tmp / "two" / history.HEAD_RESULTS).write_text(json.dumps({"test/stale.test.ts": False}))
+            self.assertIsNone(history.join_heads(tmp / "two", [1], tmp / "out3"))
+            self.assertEqual(json.loads((tmp / "out3" / history.HEAD_RESULTS).read_text()), {TEST: True})
+
+    def test_a_pull_request_joins_only_the_shards_it_ran(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            self.shard(tmp / "in", 1, {TEST: False})
+            self.shard(tmp / "in", 4, {"test/b.test.ts > y": False})
+            matrix = json.dumps([{"shard": 1, "shard_count": 12}, {"shard": 4, "shard_count": 12}])
+            done = subprocess.run([sys.executable, str(SCRIPT), "heads", str(tmp / "in"), "--matrix", matrix, "--out",
+                                   str(tmp / "out")], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(json.loads((tmp / "out/shards.json").read_text()), {FILE: 1, "test/b.test.ts": 4})
+            for bad in ("[]", "{not json", '[{"no": 1}]'):
+                done = subprocess.run([sys.executable, str(SCRIPT), "heads", str(tmp / "in"), "--matrix", bad, "--out",
+                                       str(tmp / "out2")], capture_output=True, text=True)
+                self.assertEqual(done.returncode, 1, bad)
+
     def test_the_rerun_cap_holds_per_head_shard(self):
         where = {f"test/s1-{i}.test.ts": 1 for i in range(25)} | {f"test/s2-{i}.test.ts": 2 for i in range(26)}
         one = [f"test/s1-{i}.test.ts" for i in range(25)]
@@ -502,7 +646,11 @@ class OneBaseCheck(unittest.TestCase):
         self.assertEqual(download["pattern"], "react-apps-head-results-shard*")
         self.assertNotIn("merge-multiple", download)
         join = steps["Join the head shards' results"]
-        self.assertEqual(int(join["env"]["HEAD_SHARDS"]), len(jobs["react-apps-check-shard"]["strategy"]["matrix"]["include"]))
+        # The join reads the very matrix the head shards ran (a pull request's picked shards, webviews_pr_shards.py).
+        self.assertEqual(join["env"]["HEAD_SHARDS"], "${{ needs.web-subarea-scope.outputs.react_shards }}")
+        self.assertEqual(jobs["react-apps-check-shard"]["strategy"]["matrix"]["include"],
+                         "${{ fromJSON(needs.web-subarea-scope.outputs.react_shards) }}")
+        self.assertIn('--matrix "$HEAD_SHARDS"', join["run"])
         self.assertIn('--out "$RUNNER_TEMP/head-results"', join["run"])
         self.assertNotIn("continue-on-error", join)
         self.assertLess(names.index("Join the head shards' results"), names.index("Use the merge parent as the base"))
@@ -565,6 +713,32 @@ class Inputs(unittest.TestCase):
             self.assertNotEqual(history.inputs(repo), second)
             # From a subfolder (the push shards run from webviews/), the key is the top's.
             self.assertEqual(history.inputs(repo / "webviews"), history.inputs(repo))
+
+    def test_the_key_follows_paths_a_webview_test_reads_at_runtime(self):
+        # one-spinner.test.ts reads the Swift sources and theme-ink-vectors.test.ts a schema by path, not by import: a
+        # base break there must not read as green at an older push's key. A path no test names stays out.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            self.git(repo, "init", "-q")
+            for path, text in (("webviews/test/spin.test.ts", 'readdir(resolve(repo, "Packages/macOS/Sources"));\n'),
+                               ("webviews/test/support/ink.ts", "read(`${root}/schemas/theme/ink.json`);\n"),
+                               ("Packages/macOS/Sources/A.swift", "1\n"), ("schemas/theme/ink.json", "{}\n"),
+                               ("Packages/macOS/Other/B.swift", "1\n")):
+                (repo / path).parent.mkdir(parents=True, exist_ok=True)
+                (repo / path).write_text(text)
+            self.git(repo, "add", "-A")
+            self.git(repo, "commit", "-qm", "one")
+            first = history.inputs(repo)
+            (repo / "Packages/macOS/Other/B.swift").write_text("2\n")
+            self.git(repo, "commit", "-qam", "unnamed")
+            self.assertEqual(history.inputs(repo), first)
+            (repo / "Packages/macOS/Sources/A.swift").write_text("2\n")
+            self.git(repo, "commit", "-qam", "named folder")
+            second = history.inputs(repo)
+            self.assertNotEqual(second, first)
+            (repo / "schemas/theme/ink.json").write_text('{"a": 1}\n')
+            self.git(repo, "commit", "-qam", "named file")
+            self.assertNotEqual(history.inputs(repo), second)
 
     def test_a_tree_with_no_webview_inputs_has_no_key(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -799,6 +973,32 @@ class Fetch(unittest.TestCase):
         get, _ = self.serve(listed(item(1, "2026-11-08T10:00:00Z")), {1: artifact_zip("nope")})
         self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=get)[::2], ([], False))
 
+    def test_a_rate_limited_list_is_listed_again_after_its_reset_within_the_wait(self):
+        # Ticks 45026611875 and 45037396919 (2026-11-22): a 403 with no quota left saved no history for a day.
+        flaky_runs = runs(True, False)
+        get, calls = self.serve(listed(item(1, "2026-11-08T10:00:00Z")), {1: artifact_zip(flaky_runs)})
+        limited = {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1600"}
+        answers = [(403, limited, b"")]
+
+        def first_limited(url, token):
+            if answers:
+                calls.append((url, token))
+                return answers.pop()
+            return get(url, token)
+        slept = []
+        found, _, read = history.fetch("o/r", "feat-cmux-next", None, get=first_limited, wait=900,
+                                       sleep=slept.append, clock=lambda: 1000)
+        self.assertEqual((found, read, slept), (flaky_runs, True, [600 + history.RATE_WAIT_SLACK_S]))
+        # A reset past the wait, no wait, or a 403 that is not a rate limit: no sleep, unread.
+        for wait, headers in ((300, limited), (0, limited), (900, {})):
+            answers[:] = [(403, headers, b"")]
+            slept.clear()
+            self.assertEqual(history.fetch("o/r", "feat-cmux-next", None, get=first_limited, wait=wait,
+                                           sleep=slept.append, clock=lambda: 1000)[::2], ([], False))
+            self.assertEqual(slept, [])
+        self.assertEqual(history.rate_wait(429, {"Retry-After": "30"}, 0), 30.0)
+        self.assertIsNone(history.rate_wait(404, limited, 0))
+
     def test_the_command_always_writes_a_history_and_exits_zero(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "h" / "history.json"
@@ -826,6 +1026,129 @@ class Fetch(unittest.TestCase):
         self.assertIn("steps.history-restore.outcome == 'success'", record[:record.index("run: |")])
 
 
+class PassedBefore(unittest.TestCase):
+    """A newer head's shard reads the files its previous head passed (ci-web.yml reuses those its change cannot reach)."""
+
+    def test_the_newest_earlier_run_on_the_branch_is_read_and_forks_and_this_run_are_not(self):
+        def art(id, at, run, branch="lane/x", head_repo=7):
+            return {"id": id, "name": "react-apps-passed-shard3", "created_at": at, "expired": False,
+                    "archive_download_url": f"https://api.example/artifacts/{id}/zip",
+                    "workflow_run": {"id": run, "head_branch": branch, "repository_id": 7, "head_repository_id": head_repo}}
+
+        def zipped(commit, files):
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, "w") as archive:
+                archive.writestr("commit", commit + "\n")
+                archive.writestr("files", files)
+            return buf.getvalue()
+
+        listing = json.dumps({"artifacts": [art(1, "2026-11-22T01:00:00Z", 11), art(2, "2026-11-22T02:00:00Z", 12),
+                                            art(3, "2026-11-22T03:00:00Z", 13, head_repo=9),
+                                            art(4, "2026-11-22T04:00:00Z", 14, branch="other"),
+                                            art(5, "2026-11-22T05:00:00Z", 99)]}).encode()
+        calls = []
+
+        def get(url, token):
+            calls.append((url, token))
+            if "/actions/artifacts?" in url:
+                return 200, {}, listing
+            if url == "https://api.example/artifacts/2/zip":
+                return 302, {"Location": "https://blob.example/2"}, b""
+            if url == "https://blob.example/2":
+                return 200, {}, zipped("a" * 40, "test/a.test.ts\n")
+            return 404, {}, b""
+
+        out = Path(self.enterContext(tempfile.TemporaryDirectory())) / "before"
+        said = history.passed_before("o/r", "lane/x", 3, 99, out, get=get)
+        self.assertIn("from run 12", said)
+        self.assertEqual((out / "commit").read_text().strip(), "a" * 40)
+        self.assertEqual((out / "files").read_text(), "test/a.test.ts\n")
+        self.assertEqual(len(calls), 3)
+        self.assertIsNone(calls[2][1])  # the storage host never gets the token
+
+    def test_a_failed_read_writes_nothing(self):
+        out = Path(self.enterContext(tempfile.TemporaryDirectory())) / "before"
+        said = history.passed_before("o/r", "lane/x", 1, 99, out, get=lambda url, token: (403, {}, b""))
+        self.assertIn("403", said)
+        self.assertFalse(out.exists())
+
+
+class SharedBaseReplay(unittest.TestCase):
+    """A base check reads the base replays other pull requests' base checks shared at its merge parent's inputs key."""
+
+    @staticmethod
+    def art(id, at, run, name="webviews-base-replay-k-t", head_repo=7, expired=False):
+        return {"id": id, "name": name, "created_at": at, "expired": expired,
+                "archive_download_url": f"https://api.example/artifacts/{id}/zip",
+                "workflow_run": {"id": run, "head_branch": f"lane/{run}", "repository_id": 7,
+                                 "head_repository_id": head_repo}}
+
+    @staticmethod
+    def zipped(runs):
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as archive:
+            archive.writestr("history.json", json.dumps({"runs": runs}))
+        return buf.getvalue()
+
+    def test_another_pull_requests_replay_answers_known_and_forks_this_run_and_other_keys_do_not(self):
+        name = "webviews-base-replay-k-t"
+        listing = json.dumps({"artifacts": [
+            self.art(1, "2026-11-22T01:00:00Z", 11), self.art(2, "2026-11-22T02:00:00Z", 12, head_repo=9),
+            self.art(3, "2026-11-22T03:00:00Z", 99), self.art(4, "2026-11-22T04:00:00Z", 14, name="webviews-base-replay-x-t"),
+            self.art(5, "2026-11-22T05:00:00Z", 15, expired=True)]}).encode()
+        shared = history.record([], "b" * 40, 1000.0, {"test/a.test.ts > a": False, "test/b.test.ts > b": True}, "k")
+        wrong_key = history.record([], "c" * 40, 1001.0, {"test/c.test.ts > c": False}, "other")
+        calls = []
+
+        def get(url, token):
+            calls.append(url)
+            if "/actions/artifacts?" in url:
+                return 200, {}, listing
+            if url == "https://api.example/artifacts/1/zip":
+                return 302, {"Location": "https://blob.example/1"}, b""
+            if url == "https://blob.example/1":
+                return 200, {}, self.zipped(shared + wrong_key)
+            return 404, {}, b""
+
+        runs, said = history.fetch_shared("o/r", name, "k", 99, "tok", get=get)
+        self.assertEqual([r["sha"] for r in runs], ["b" * 40])  # only run 11's, and only its runs at key k
+        self.assertIn("1 shared base replays from 1", said)
+        self.assertNotIn("https://api.example/artifacts/2/zip", calls)
+        head = {"test/a.test.ts > a": False, "test/b.test.ts > b": False}
+        base, replay = history.known(history.with_shared([], runs), "k", head)
+        # A red answers from one replay; a green needs GREEN_SAMPLES runs, so b's file still replays.
+        self.assertEqual(base, {"test/a.test.ts > a": False})
+        self.assertEqual(replay, ["test/b.test.ts"])
+
+    def test_a_failed_listing_reads_nothing_and_says_why(self):
+        runs, said = history.fetch_shared("o/r", "webviews-base-replay-k-t", "k", 1, None,
+                                          get=lambda url, token: (403, {}, b""))
+        self.assertEqual(runs, [])
+        self.assertIn("403", said)
+
+    def test_the_tools_key_moves_with_the_runner_and_the_workflow(self):
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        runner = folder / "runner"
+        runner.mkdir()
+        (runner / "run-webviews-tests.sh").write_text("a\n")
+        workflow = folder / "ci-web.yml"
+        workflow.write_text("w\n")
+        first = history.tools_key(runner, workflow)
+        self.assertEqual(first, history.tools_key(runner, workflow))
+        (runner / "run-webviews-tests.sh").write_text("b\n")
+        second = history.tools_key(runner, workflow)
+        self.assertNotEqual(first, second)
+        workflow.write_text("w2\n")
+        self.assertNotEqual(second, history.tools_key(runner, workflow))
+
+    def test_the_base_check_reads_known_from_the_shared_history_and_uploads_its_own_replay(self):
+        text = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('known "$history.shared"', text)
+        self.assertIn("fetch-shared", text)
+        self.assertIn("name: ${{ steps.history.outputs.shared }}", text)
+        self.assertIn("github.event.pull_request.head.repo.full_name == github.repository", text.split("- name: Share this base replay", 1)[1].split("run:", 1)[0])
+
+
 class Workflow(unittest.TestCase):
     def job(self, name):
         text = WORKFLOW.read_text(encoding="utf-8")
@@ -833,16 +1156,82 @@ class Workflow(unittest.TestCase):
         end = re.search(r"\n  [a-z][a-z0-9-]*:\n", text[start + 1:])
         return text[start:start + 1 + end.start()] if end else text[start:]
 
+    def test_cache_only_history_stays_out_of_the_artifact_across_pushes(self):
+        import yaml
+        steps = {s["name"]: s for s in yaml.safe_load(WORKFLOW.read_text())["jobs"]["webviews-test-history"]["steps"]}
+        restore = steps["Restore the history"]["run"]
+        stage = steps["Stage the history for the cache"]
+        self.assertIn("steps.history-restore.outputs.fresh", stage["env"]["CACHE_ONLY"])
+        self.assertIn("steps.history-restore.outputs.fresh != 'true'", steps["Save the history"]["if"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            history_file = root / "webviews-test-history/history.json"
+            cached = root / ".webviews-test-history-cache/history.json"
+            env = git_fixture_env.fixture_env({"RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(output),
+                                               "BRANCH": "base", "GITHUB_REPOSITORY": "o/r"})
+            # The fourth push restores the complete, unmarked cache saved after the artifact recovered.
+            pushes = [
+                ("cold cache", [], True),
+                ("cache after bootstrap", [0], True),
+                ("artifact recovered", ["canonical"], False),
+                ("complete cache", ["canonical", 2], False),
+            ]
+            for push, (source, expected_runs, cache_only) in enumerate(pushes):
+                with self.subTest(source=source):
+                    output.write_text("")
+                    fetch = "return 1"
+                    if source == "artifact recovered":
+                        fetch = """printf '%s' '{"runs":["canonical"]}' > "$3" """
+                    subprocess.run(["bash", "-eu", "-c", "python3() { " + fetch + "; }\n" + restore],
+                                   cwd=root, env=env, check=True)
+                    fresh = output.read_text().strip() == "fresh=true"
+                    self.assertEqual(fresh, cache_only)
+                    runs = json.loads(history_file.read_text())["runs"]
+                    self.assertEqual(runs, expected_runs)
+                    # The record command serializes the runs, dropping any cache metadata.
+                    history_file.write_text(json.dumps({"runs": runs + [push]}))
+                    subprocess.run(["bash", "-eu", "-c", stage["run"]], cwd=root,
+                                   env={**env, "CACHE_ONLY": str(fresh).lower()}, check=True)
+                    self.assertEqual(json.loads(cached.read_text()).get("cache_only", False), fresh)
+
     def test_pushes_save_the_history_and_pull_requests_only_read_it(self):
         upkeep = self.job("webviews-test-history")
         self.assertIn("github.event_name == 'push'", upkeep)
         self.assertIn("webviews_test_history.py record", upkeep)
-        self.assertIn('webviews_test_history.py fetch "$RUNNER_TEMP/webviews-test-history/history.json"', upkeep)
+        self.assertIn('history="$RUNNER_TEMP/webviews-test-history/history.json"', upkeep)
+        self.assertIn('webviews_test_history.py fetch "$history"', upkeep)
         self.assertIn('--branch "$BRANCH"', upkeep)
         self.assertIn("name: webviews-test-history\n", upkeep)
         self.assertIn("timeout-minutes: 5", upkeep)
-        # The cache the history used to live in was never restored by the next push (2026-11-08).
-        self.assertNotIn("actions/cache", upkeep)
+        # One fixed cache key was never replaced, so the next push restored a stale history (2026-11-08): every save
+        # takes a key of its own and every restore takes the newest by prefix. The path is relative to the workspace
+        # in both, since the cache version hashes the path as written and runner.temp differs between runners.
+        scope = self.job("web-subarea-scope")
+        # The base check read the history over the API alone, and a 403 there replayed every red file (2026-11-21).
+        base_check = self.job("react-apps-base-check")
+        for text, key in ((upkeep, "webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}"),
+                          (scope, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}"),
+                          (base_check, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}")):
+            self.assertIn(f"key: {key}\n", text)
+            paths = re.findall(r"path: ([^\n]+)\n\s+key: webviews-test-history-", text)
+            self.assertTrue(paths)
+            # r2-cache.sh saves directories. Passing history.json itself quietly skips the upload.
+            self.assertEqual(set(paths), {".webviews-test-history-cache"})
+            self.assertIn("cached=.webviews-test-history-cache/history.json", text)
+        self.assertIn("restore-keys: webviews-test-history-${{ github.ref_name }}-\n", upkeep)
+        self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", scope)
+        self.assertIn("uses: ./.github/actions/cache-save\n", upkeep)
+        self.assertNotIn("cache-save", scope)
+        self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", base_check)
+        self.assertNotIn("cache-save", base_check)
+        self.assertIn("webview test history: the Actions cache's copy", base_check)
+        # R2, not the GitHub cache: that store is over its 10 GB cap and evicted the base's history before pull
+        # requests read it (2026-11-25), so base comparisons missed. Every save and restore of it names the backend.
+        for text in (upkeep, scope, base_check):
+            self.assertNotIn("actions/cache/", text.split("webviews-test-history-")[0][-400:])
+            self.assertEqual(len(re.findall(r"backend: r2\n\s+path: \.webviews-test-history-cache\n", text)),
+                             len(re.findall(r"path: \.webviews-test-history-cache\n\s+key:", text)))
         # Optional upkeep: every step keeps going, so a stalled download or save never reddens a push. Only the last
         # step, which names reds stuck on the base, may turn the job red, and it runs after the history is saved.
         steps = upkeep.split("\n      - name: ")[1:]
@@ -869,7 +1258,11 @@ class Workflow(unittest.TestCase):
         self.assertIn('webviews_test_history.py" fetch', restore)
         self.assertIn('--branch "$BASE_REF"', restore)
         self.assertIn("continue-on-error: true", restore)
-        self.assertNotIn("upload-artifact", base.split("Restore the base's webview test history")[1].split("Fail on the change")[0])
+        # A pull request never writes the base's push history: its only upload is its own replay, under the shared name.
+        span = base.split("Restore the base's webview test history")[1].split("Fail on the change")[0]
+        self.assertEqual(span.count("upload-artifact"), 1)
+        self.assertNotIn("name: webviews-test-history", span)
+        self.assertIn("name: ${{ steps.history.outputs.shared }}", span)
         self.assertNotIn("actions/cache/save", base)  # a pull request never writes the base's history
         self.assertIn('webviews_test_history.py" flaky', base)
 
@@ -888,13 +1281,13 @@ class Workflow(unittest.TestCase):
         block = job[job.index("    permissions:\n"):].split("\n    ", 3)
         self.assertEqual(block[1:3], ["  contents: read", "  actions: read"])
 
-    def test_only_the_history_jobs_ask_for_actions_read(self):
-        # The history is an artifact: listing and downloading it takes actions: read, nothing more.
-        for name in ("webviews-test-history", "react-apps-base-check"):
+    def test_only_the_artifact_reading_jobs_ask_for_actions_read(self):
+        # The history and a shard's passes at the previous head (passed-before) are artifacts: listing and downloading
+        # them takes actions: read, nothing more.
+        for name in ("webviews-test-history", "react-apps-base-check", "react-apps-check-shard"):
             job = self.job(name)
             block = job[job.index("    permissions:\n"):].split("\n    ", 3)
             self.assertEqual(block[1:3], ["  contents: read", "  actions: read"], name)
-        self.assertNotIn("permissions:", self.job("react-apps-check-shard"))
 
     def test_the_replay_fetches_the_history_unless_the_head_results_say_no_reds(self):
         # Head results it cannot read are unknown, not "no reds": skipping the fetch then left the flaky list empty.
@@ -1023,10 +1416,14 @@ class Workflow(unittest.TestCase):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         early, check = jobs["react-apps-base-early"], jobs["react-apps-base-check"]
         self.assertEqual(early["needs"], "web-subarea-scope")  # alongside the head shards, not after them
-        self.assertIn("react-apps-base-early", check["needs"])
+        # Off pull requests unless labelled full-ci (1.10% of PR runner-minutes, no red caught, 11-13..19), and never
+        # a need of the base check: a skipped need would skip the required replay.
+        self.assertNotIn("react-apps-base-early", check["needs"])
         self.assertIn("react-apps-check-shard", check["needs"])
         self.assertIs(early["continue-on-error"], True)
-        self.assertEqual(early["if"], check["if"])
+        self.assertEqual(early["if"], check["if"].replace(
+            "github.event_name == 'pull_request' && ",
+            "github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'full-ci') && ", 1))
         sys.path.insert(0, str(ROOT / "tests"))
         import workflow_jobs  # noqa: PLC0415
         self.assertEqual(workflow_jobs.runs_on(early), workflow_jobs.runs_on(check))
@@ -1052,6 +1449,14 @@ class Workflow(unittest.TestCase):
         self.assertLess(pick.index("cp scripts/ci/run-webviews-tests.sh"), pick.index("git checkout -q --detach HEAD^1"))
         self.assertLess(pick.index("webviews_affected.py --base HEAD^1 --head HEAD"), pick.index("git checkout -q --detach HEAD^1"))
         self.assertIn("early-files", pick)
+        # A narrowed pick hands the early job its shards' files (RFD 0023 item 3); they replace the affected list.
+        # The manifest path is a file name, not a timing; its index is read once for both order checks.
+        shard_files_at = pick.index("webviews-durations/pr-shard-files")
+        self.assertLess(pick.index("webviews_affected.py --base HEAD^1 --head HEAD"), shard_files_at)
+        self.assertLess(shard_files_at, pick.index('only=(--only'))
+        scope = {s["name"]: s for s in jobs["web-subarea-scope"]["steps"]}
+        self.assertIn("--files-of", scope["Pick the react-apps-check shards"]["run"])
+        self.assertIn("webviews-durations/pr-shard-files", scope["Upload the duration manifest"]["with"]["path"])
         self.assertEqual(steps["Upload the early base results"]["with"]["name"], "react-apps-base-early-shard${{ matrix.shard }}")
         download = next(s for s in check["steps"] if s["name"] == "Download the early base results")
         self.assertEqual(download["with"]["pattern"], "react-apps-base-early-shard*")
@@ -1233,6 +1638,20 @@ class Workflow(unittest.TestCase):
         self.assertEqual(compare["env"]["KNOWN_REPLAY"], "${{ steps.history.outputs.replay }}")
         self.assertIn('base-replay-files', compare["run"])
         self.assertIn('base-known.json', compare["run"])
+
+    def test_every_run_the_history_job_records_writes_the_inputs_key(self):
+        # Keyed on push alone, batch ticks wrote no key and their history job failed "no single inputs key"
+        # (run 44980099868), so the base reds froze and pull request shards alone-retried base reds to the deadline.
+        import yaml
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        steps = jobs["react-apps-check-shard"]["steps"]
+        test = next(s for s in steps if s.get("id") == "webview-tests")
+        upload = next(s for s in steps if s.get("id") == "history-upload")
+        recorded = upload["if"].removeprefix("${{ !cancelled() && ").removesuffix(" }}")
+        self.assertEqual(test["env"]["CMUX_WEB_TEST_RECORD_HISTORY"], "${{ " + recorded + " && '1' || '0' }}")
+        self.assertIn(recorded, jobs["webviews-test-history"]["if"])
+        self.assertIn('if [ "${CMUX_WEB_TEST_RECORD_HISTORY:-0}" = 1 ]; then\n'
+                      '  python3 ../scripts/ci/webviews_test_history.py inputs >', test["run"])
 
     def test_the_history_job_records_the_key_the_shards_computed_and_never_an_empty_one(self):
         # The history job's checkout is sparse; inputs() reads routed files it does not have (#40223 review).

@@ -56,6 +56,11 @@ public final class GlassParityPlayground {
     }
 
     /// Everything a capture depends on that the playground sets itself.
+    /// How the text on the glass is rasterized: `standard` is what the app ships (AppKit's own text beside
+    /// the pages', which follow it under `appearance.fontSmoothing` `auto`); `flat` draws both with font
+    /// smoothing off; `smooth` both with it on.
+    nonisolated enum TextRendering: String, Sendable { case standard, flat, smooth }
+
     nonisolated struct Scenario: Equatable, Sendable {
         var backdrop: Backdrop = .wallpaper
         var mode: Mode = .host
@@ -69,6 +74,8 @@ public final class GlassParityPlayground {
         var active = true
         /// The menu's highlighted row (``menuRow``): none, hovered or pressed.
         var row: RowState = .rest
+        /// How the text is rasterized on each side (``TextRendering``).
+        var text: TextRendering = .standard
 
         var stem: String {
             var parts = [backdrop.rawValue]
@@ -78,6 +85,7 @@ public final class GlassParityPlayground {
             parts.append(mode.rawValue)
             parts.append(active ? "active" : "inactive")
             if row != .rest { parts.append(row.rawValue) }
+            if text != .standard { parts.append("text-\(text.rawValue)") }
             return parts.joined(separator: "-")
         }
     }
@@ -151,7 +159,7 @@ public final class GlassParityPlayground {
     var pages: [Column: PageWebView] = [:]
     var hosts: [Column: GlassParityHostLayer] = [:]
     private var backdropView: GlassParityBackdropView?
-    private var nativeLayer: NSView?
+    private(set) var nativeLayer: NSView?
     /// The native menu's row highlight (``Scenario/row``).
     private var menuRowView: GlassParityRowFill?
     private var ready: Set<Column> = []
@@ -179,7 +187,7 @@ public final class GlassParityPlayground {
             ]
         }
         let row = Self.menuRow
-        return ["mode": .string(scenario.mode.rawValue), "cells": .array(cells),
+        return ["mode": .string(scenario.mode.rawValue), "text": .string(scenario.text.rawValue), "cells": .array(cells),
                 "menu_row": ["left": .number(row.minX), "top": .number(row.minY), "width": .number(row.width),
                              "height": .number(row.height), "radius": .number(Self.menuRowRadius)]]
     }
@@ -467,7 +475,8 @@ public final class GlassParityPlayground {
             ])
             menuRowView = row
         }
-        let text = GlassParityTextView(frame: CGRect(origin: .zero, size: surface.frame.size), title: Self.title(kind), detail: Self.detail(kind))
+        let text = GlassParityTextView(frame: CGRect(origin: .zero, size: surface.frame.size), title: Self.title(kind), detail: Self.detail(kind),
+                                       smoothing: scenario.text != .flat)
         text.translatesAutoresizingMaskIntoConstraints = false
         surface.contentView.addSubview(text)
         NSLayoutConstraint.activate([
@@ -537,6 +546,10 @@ public final class GlassParityPlayground {
         if let name = params["row"]?.stringValue {
             guard let row = RowState(rawValue: name) else { return ["error": .string("unknown row \(name)")] }
             next.row = row
+        }
+        if let name = params["text"]?.stringValue {
+            guard let text = TextRendering(rawValue: name) else { return ["error": .string("unknown text \(name)")] }
+            next.text = text
         }
         let scale = params["scale"]?.doubleValue.map { CGFloat($0) }
         let shown = await show(next, scale: scale)

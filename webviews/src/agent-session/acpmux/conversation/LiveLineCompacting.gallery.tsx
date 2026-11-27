@@ -24,12 +24,6 @@ type Phase = "before" | "thinking" | "compacting" | "compacted";
 type Props = { phase: Phase; arm?: "own" | "turn" | "calm"; accountSwitch?: boolean };
 
 const counts: WorkingCounts = {
-  agents: 0,
-  commands: 0,
-  sessions: 0,
-  openAgents: () => {},
-  openCommands: () => {},
-  openSessions: () => {},
   tokens: 1_800,
 };
 
