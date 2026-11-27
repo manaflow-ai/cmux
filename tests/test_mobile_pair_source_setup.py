@@ -12,6 +12,9 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", ROOT / "tests/git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(fixture_spec)
+fixture_spec.loader.exec_module(git_fixture_env)
 spec = importlib.util.spec_from_file_location("matrix_sources", ROOT / "scripts/ci/mobile_pair_matrix.py")
 matrix = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(matrix)
@@ -63,7 +66,7 @@ transitive.workspace=true
         def git(*args):
             return subprocess.check_output(["git", "-C", str(repo), *args], text=True,
                                            stderr=subprocess.DEVNULL).strip()
-        git("init")
+        git_fixture_env.init_repo(repo)
         git("config", "user.name", "Fixture")
         git("config", "user.email", "fixture@example.invalid")
         git("config", "core.hooksPath", "/dev/null")

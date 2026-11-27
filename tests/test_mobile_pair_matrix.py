@@ -102,6 +102,8 @@ class MatrixReceipts(unittest.TestCase):
             with patch.object(sys, "argv", ["matrix", str(window), "--head", str(root)]), \
                  patch.dict(os.environ, {"SKEW_LOG_DIR": str(logs), "GITHUB_OUTPUT": str(output)}), \
                  patch.object(matrix.subprocess, "run", side_effect=run), \
+                 patch.object(matrix, "run_source", side_effect=run), \
+                 patch.object(matrix, "source_paths", return_value=["cmux-next-ios/rust"]), \
                  patch.object(matrix.subprocess, "check_output", return_value="c" * 40 + "\n"):
                 try:
                     matrix.main()
