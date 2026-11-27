@@ -366,6 +366,18 @@ jobs:
     permissions:
       contents: read
 
+  compile-preflight:
+    # The build a change can break, on every tier (Leo, 2026-11-27: "surely we can just have legit build fail
+    # preflight checks"). No tier rule and no `start` gate: the land tier's cheap and none tiers skip every other
+    # build, and cmux#57269 landed a web bundle build break through them. The callee's first step skips the build
+    # for a change that reaches no web bundle, so its check always reports a verdict, never "skipped".
+    name: compile preflight
+    needs: route
+    if: ${{ !cancelled() && needs.route.result == 'success' }}
+    uses: ./.github/workflows/cmux-next-compile-preflight.yml
+    permissions:
+      contents: read
+
   fast-gates:
     # The cmux-next/fast-gates status (merge_hold, next-autoland). A head the router starts nothing for starts none of
     # its jobs; its jobs' own `if:`s keep their tier rules. The merger dispatches the workflow when a head has no status.
