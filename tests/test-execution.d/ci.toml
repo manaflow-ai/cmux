@@ -107,6 +107,10 @@ path = "tests/test_ci_cargo_affected.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_cargo_delta_matched_entry.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_cdn_user_agent.py"
 lane = "linux-guard"
 
@@ -537,6 +541,10 @@ path = "tests/test_ci_media_module_cache_stamp.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_merge_live_base_jobs.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_merge_main.py"
 lane = "linux-guard"
 
@@ -743,6 +751,10 @@ path = "tests/test_ci_post_merge_batch.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_post_merge_call_concurrency.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_post_merge_checks.py"
 lane = "linux-guard"
 
@@ -771,6 +783,10 @@ path = "tests/test_ci_pr_receipt.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pr_router_handoff_queue.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_runner_pool.py"
 lane = "linux-guard"
 
@@ -788,8 +804,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_private_names_fetch_wait.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ci_private_names_fetch_wait.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_process_tree_reaping.py"
@@ -1096,6 +1111,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_sparse_checkout_imports.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_spec_checks.py"
 lane = "linux-guard"
 
 [[test]]

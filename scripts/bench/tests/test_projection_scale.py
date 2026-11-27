@@ -11,6 +11,10 @@ import unittest
 from pathlib import Path
 
 BENCH_DIR = Path(__file__).resolve().parents[1]
+fixture_spec = importlib.util.spec_from_file_location("git_fixture_env", BENCH_DIR.parents[1] / "tests" / "git_fixture_env.py")
+git_fixture_env = importlib.util.module_from_spec(fixture_spec)
+fixture_spec.loader.exec_module(git_fixture_env)
+
 sys.path.insert(0, str(BENCH_DIR))
 
 from benchlib.bench import BenchError, Context  # noqa: E402
@@ -75,7 +79,7 @@ class ProjectionScaleTest(unittest.TestCase):
                 (repo / "a" / f"{i}.txt").write_text("the quick brown fox\n" * 50)
                 (repo / "b" / f"{i}.txt").write_text("jumps over the dog\n" * 50)
             git = ["git", "-C", str(repo), "-c", "user.name=m", "-c", "user.email=m@example.com"]
-            subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+            git_fixture_env.init_repo(repo, "-b", "main")
             subprocess.run(git + ["add", "-A"], check=True)
             subprocess.run(git + ["commit", "-qm", "one"], check=True)
             out = Path(tmp) / "out"
