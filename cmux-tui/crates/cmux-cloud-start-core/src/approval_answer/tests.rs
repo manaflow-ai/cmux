@@ -181,3 +181,75 @@ fn an_empty_team_never_matches_an_item() {
     r.team = String::new();
     assert_eq!(done(next(&r)), Outcome::Mismatch { reason: CLOSED_ITEM.into() });
 }
+
+/// Runs one whole answer through `memo` at `now`, the replies in order, as the app does (every reply so far each call).
+fn answer_with(memo: &mut Memo, now: u64, replies: &[Value]) -> (Vec<String>, Outcome) {
+    let mut steps = Vec::new();
+    let mut ops = Vec::new();
+    loop {
+        match memo.next(&request(steps.clone()), now) {
+            Next::Call { body, .. } => {
+                ops.push(body["op"].as_str().unwrap_or_default().to_owned());
+                steps.push(replies[steps.len()].clone());
+            }
+            Next::Done { outcome } => return (ops, outcome),
+        }
+    }
+}
+
+#[test]
+fn a_team_whose_backend_refused_the_one_call_skips_it_on_the_next_approval() {
+    let off = json!({"ok": false, "error": {"code": "approval.one_call_off"}});
+    let open = json!({"value": {"items": [item("team_a", "dg_1")]}});
+    let three = [held("pending"), open, json!({"ok": true})];
+    let mut memo = Memo::default();
+    // First approval: the one call, refused, then the three calls.
+    let first = [vec![off], three.to_vec()].concat();
+    let (ops, outcome) = answer_with(&mut memo, 1_000, &first);
+    assert_eq!(
+        ops,
+        ["integration.approval.approve", "integration.approval.get", "feed.list", "feed.answer"]
+    );
+    assert_eq!(outcome, Outcome::Approved { reply: None });
+    // The next one goes straight to the three calls, with every check kept.
+    let (ops, outcome) = answer_with(&mut memo, 2_000, &three);
+    assert_eq!(ops, ["integration.approval.get", "feed.list", "feed.answer"]);
+    assert_eq!(outcome, Outcome::Approved { reply: None });
+    let mut other_params = held("pending");
+    other_params["value"]["params"] = json!({"name": "other"});
+    assert_eq!(
+        answer_with(&mut memo, 2_500, &[other_params]).1,
+        Outcome::Mismatch { reason: "params".into() }
+    );
+    // An approval already on the three calls keeps reading its steps as theirs when the team's entry ends meanwhile.
+    let r = request(vec![]);
+    assert_eq!(call(memo.next(&r, 3_000)).1["op"], "integration.approval.get");
+    let late = 1_000 + ONE_CALL_OFF_MS + 1;
+    assert_eq!(call(memo.next(&request(vec![held("pending")]), late)).1["op"], "feed.list");
+    // Past its bound the team is asked the one call again, so a backend that turned it on is used.
+    let (_, body) = call(memo.next(&request(vec![]), late));
+    assert_eq!(body["op"], ONE_CALL_OP);
+}
+
+#[test]
+fn a_backend_with_the_one_call_keeps_it_and_another_team_is_not_skipped() {
+    let off = json!({"ok": false, "error": {"code": "approval.one_call_off"}});
+    let ok = json!({"ok": true, "value": {"request": REQ, "answered": "here", "state": "done",
+        "reply": {"ok": true, "value": {"machine": {"id": "vm_1"}}}}});
+    let mut memo = Memo::default();
+    for now in [1, 2] {
+        let (ops, outcome) = answer_with(&mut memo, now, std::slice::from_ref(&ok));
+        assert_eq!(ops, [ONE_CALL_OP]);
+        assert_eq!(outcome, Outcome::Approved { reply: Some(json!({"machine": {"id": "vm_1"}})) });
+    }
+    // An unknown op (an older backend, or a malformed call) is not remembered: only the flag's own refusal is.
+    let invalid = json!({"ok": false, "error": {"code": "validation.invalid"}});
+    let _ = memo.next(&request(vec![invalid]), 3);
+    assert_eq!(call(memo.next(&request(vec![]), 4)).1["op"], ONE_CALL_OP);
+    // team_a's refusal leaves team_b on the one call.
+    let _ = memo.next(&request(vec![off]), 5);
+    let mut b = request(vec![]);
+    b.team = "team_b".into();
+    assert_eq!(call(memo.next(&b, 6)).1["op"], ONE_CALL_OP);
+    assert_eq!(call(memo.next(&request(vec![]), 6)).1["op"], "integration.approval.get");
+}
