@@ -323,6 +323,28 @@ def generate_strings(webviews: Path) -> None:
         subprocess.run(["bun", "scripts/pages/gen-strings.mjs", "--best-effort"], cwd=webviews, capture_output=True)
 
 
+def bun_install(cwd: Path) -> int:
+    """bun install --frozen-lockfile in CWD. bun unpacks into a temporary directory ($BUN_TMPDIR, else the system
+    one) and answers `error: EACCES accessing temporary directory. set $BUN_TMPDIR or $BUN_INSTALL` when it cannot
+    write there: cmux-next fast gates run 46038329362 (hetzner-1-23, 2026-11-27 17:01Z) and run 46050092532
+    (hetzner-2-17, 18:33Z) failed so, a gate red on a base nobody had changed (cmux#60053 stopped on it). A
+    first failure is asked again once with BUN_TMPDIR in a directory this process makes under the runner's own
+    temp ($RUNNER_TEMP), which it owns."""
+    code = subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=cwd).returncode
+    if code == 0 or os.environ.get("BUN_TMPDIR"):
+        return code
+    try:
+        tmp = tempfile.mkdtemp(prefix="bun-tmp-", dir=os.environ.get("RUNNER_TEMP") or None)
+    except OSError:
+        return code
+    try:
+        print(f"webviews checks: bun install failed ({code}); asking again with BUN_TMPDIR={tmp}", flush=True)
+        return subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=cwd,
+                              env={**os.environ, "BUN_TMPDIR": tmp}).returncode
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 class BaseTree:
     """A worktree of BASE, made on first use. Its webviews/node_modules is the merge's only when the two install
     the same thing (web_lint_prepush.shares_deps: package.json, bun.lock, file: dependencies); otherwise it installs
@@ -344,7 +366,7 @@ class BaseTree:
             modules = self.repo / "webviews" / "node_modules"
             if modules.is_dir() and shares_deps(self.repo, self.base, "webviews"):
                 (holder / "base" / "webviews" / "node_modules").symlink_to(modules.resolve())
-            elif subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=holder / "base" / "webviews").returncode:
+            elif bun_install(holder / "base" / "webviews"):
                 print(f"webviews checks: bun install failed on the base {self.base}", flush=True)
                 subprocess.run(["git", "-C", str(self.repo), "worktree", "remove", "--force", str(holder / "base")],
                                capture_output=True)
@@ -381,7 +403,7 @@ def main(argv: list[str] | None = None) -> int:
         checks = [c for c in checks if c != "check:bundle-matrix"]
     repo = args.repo.resolve()
     webviews = repo / "webviews"
-    if not args.no_install and subprocess.run(["bun", "install", "--frozen-lockfile"], cwd=webviews).returncode != 0:
+    if not args.no_install and bun_install(webviews) != 0:
         print("webviews checks: bun install --frozen-lockfile failed", flush=True)
         return 1
     base = BaseTree(repo, args.base) if args.base else None

@@ -79,6 +79,21 @@ class CacheSeedMatchesRestores(unittest.TestCase):
         self.assertEqual(kit, {fleet, mac})
         self.assertEqual(self.saves, {fleet, mac})
 
+    def test_the_ios_fast_verdict_reads_the_fleet_entry_on_a_hosted_mac(self):
+        # cmux#61812 (2026-11-27): the hosted fallback built the FFI for 286 s of a 645 s verdict build.
+        fast = {(t, x) for wf, job, _, t, x in self.restores if wf == "pr-pipeline.yml" and job == "ios-fast"}
+        self.assertEqual(fast, {("cmux-next-ios-link-ffi-xcf-fleet-v1-${inputs}", True)})
+        steps = load(WORKFLOWS / "pr-pipeline.yml")["jobs"]["ios-fast"]["steps"]
+        names = [s.get("name") for s in steps]
+        mark = names.index("Mark the restored CmuxMobileLinkFFI.xcframework as this job's copy")
+        self.assertLess(names.index("Restore the fleet-built CmuxMobileLinkFFI.xcframework"), mark)
+        self.assertLess(mark, names.index("Build the changed iOS target and run its tests"))
+        key_step = next(s for s in steps if s.get("id") == "xcf-key")
+        self.assertIn('"${RUNNER_NAME:-}" == blacksmith*', key_step["run"])  # an owned Mac keeps its warm copy
+        mark_run = steps[mark]["run"]
+        self.assertIn(".ios-fast-verdict-ffi", mark_run)  # scripts/ci/ios_fast_verdict.sh's stamp
+        self.assertIn("$RUNNER_TEMP/link-ffi-fleet.key", mark_run)  # scripts/ci/ios_link_ffi.sh's mark
+
     def test_runs_on_the_base_push_and_builds_only_on_a_miss(self):
         on = self.seed.get("on") or self.seed.get(True)
         self.assertEqual(on["push"]["branches"], ["feat-cmux-next"])
