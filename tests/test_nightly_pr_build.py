@@ -9,6 +9,7 @@ differ by arch and are stable; the Swift job runs check-release-compile.sh with 
 
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import sys
@@ -101,7 +102,8 @@ class Keys(unittest.TestCase):
     def test_keys_differ_by_arch_and_are_stable(self) -> None:
         first = npb.keys("HEAD")
         self.assertEqual(sorted(first), sorted([*npb.ARCHS, "helpers"]))
-        self.assertNotEqual(first["arm64"], first["x86_64"])
+        self.assertTrue(first["arm64"].startswith("nightly-pr-build-arm64-"))
+        self.assertEqual(len(set(first.values())), len(first))
         self.assertEqual(first, npb.keys("HEAD"))
 
     def test_source_head_can_predate_the_merge_ref_recipe(self) -> None:
@@ -130,17 +132,34 @@ class Keys(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
+    def test_archs_are_slices_the_default_ffi_release_builds(self) -> None:
+        # The app links the pinned CCmuxAppFFI xcframework; an arch it lacks fails every link
+        # (run 46060630916 job 140714069102: x86_64 against the arm64-only pin). The default
+        # release's arch list is the `|| '...'` side of CMUX_APP_FFI_ARCHS (universal=false).
+        release = (ROOT / ".github/workflows/app-ffi-release.yml").read_text()
+        match = re.search(r"CMUX_APP_FFI_ARCHS: \$\{\{ inputs.universal && '[^']*' \|\| '([^']*)' \}\}", release)
+        self.assertIsNotNone(match, "app-ffi-release.yml CMUX_APP_FFI_ARCHS no longer has its universal-or-default shape")
+        built = set(match.group(1).split(","))
+        self.assertLessEqual(set(npb.ARCHS), built, f"nightly_pr_build.ARCHS asks for an arch the pinned FFI lacks: {built}")
+
+    def test_keys_prints_the_matrix_archs(self) -> None:
+        out = subprocess.run([sys.executable, str(ROOT / "scripts/ci/nightly_pr_build.py"), "keys", "--rev", "HEAD"],
+                             cwd=ROOT, check=True, capture_output=True, text=True).stdout
+        archs = [line for line in out.splitlines() if line.startswith("archs=")]
+        self.assertEqual(archs, ["archs=" + json.dumps(list(npb.ARCHS), separators=(",", ":"))])
+
     def test_swift_job_is_the_nightly_compile_as_a_fleet_job(self) -> None:
         text = (ROOT / npb.WORKFLOW).read_text()
         self.assertIn("--script scripts/cmux-next/check-release-compile.sh", text)
         self.assertIn("--arg=--nightly", text)
-        self.assertIn("arch: [arm64, x86_64]", text)
+        self.assertIn("arch: ${{ fromJSON(needs.route.outputs.archs) }}", text)
+        self.assertIn("archs: ${{ steps.keys.outputs.archs }}", text)
         # One arch's red cancels the other arch's wait (the reds are arch-independent).
         self.assertIn("fail-fast: true", text)
         # A cancelled arch cancels its fleet step too, so it does not build for nobody.
         self.assertIn("if: ${{ cancelled() && steps.cache.outputs.cache-hit != 'true' }}", text)
         self.assertIn('"$client" cancel "$step" --reason "nightly pr build: job cancelled"', text)
-        self.assertEqual(sorted(npb.ARCHS), ["arm64", "x86_64"])
+        self.assertIn("arm64", npb.ARCHS)
         # The gateway runner refuses any job whose id does not end in -fleet.
         gateway = re.findall(r"^  ([a-z0-9_-]+):\n(?:    .*\n)*?    runs-on: \$\{\{ vars.CI_EVAL_STEP_GATEWAY", text, re.M)
         self.assertTrue(gateway)
