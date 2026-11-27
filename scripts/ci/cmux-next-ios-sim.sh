@@ -47,6 +47,7 @@
 #           argument pattern has no spaces, so lists are comma-separated):
 #             only=TARGET/SUITE[,TARGET/SUITE...]   run only those kit tests
 #               (-only-testing), e.g. only=CmuxMobileLiveTests/LinkRecoveryTests
+#               (only= naming ResumeMatrixBenchTests or ResumeStagesBenchTests turns it on)
 #               (a suite, or TARGET/SUITE/test for an XCTest method).
 #               A filter naming TickHarnessCellsTests also sets
 #               CMUX_TICK_HARNESS=1, the suite's opt-in (it allocates and
@@ -459,14 +460,25 @@ if [[ "$mode" == test && $# -gt 1 ]]; then
         for item in "${items[@]}"; do
           [[ "$item" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+){0,2}$ ]] ||
             { echo "cmux-next-ios-sim.sh: only= wants TARGET/SUITE names, got '$item'" >&2; exit 2; }
+          # The first part is a CmuxMobileKit test target: a wrong one ran every other test and matched none,
+          # found only after a full build (dd16fd89, 2026-11-27). Refuse it here, before anything is built.
+          [[ ! -d cmux-next-ios/CmuxMobileKit/Tests || -d "cmux-next-ios/CmuxMobileKit/Tests/${item%%/*}" ]] ||
+            { echo "cmux-next-ios-sim.sh: only= '$item': '${item%%/*}' is not a CmuxMobileKit test target (one of: $(ls cmux-next-ios/CmuxMobileKit/Tests | tr '\n' ' '); UI suites go in ui=)" >&2; exit 2; }
           kit_only+=("-only-testing:$item")
-          [[ "$item" == */TickHarnessCellsTests* ]] && kit_env=(TEST_RUNNER_CMUX_TICK_HARNESS=1)
+          [[ "$item" == */TickHarnessCellsTests* ]] && kit_env+=(TEST_RUNNER_CMUX_TICK_HARNESS=1)
+          [[ "$item" == */Resume*BenchTests* ]] && kit_env+=(TEST_RUNNER_CMUX_RESUME_LIVE_BENCH=1)
         done ;;
       ui=?*)
         IFS=',' read -r -a items <<< "${sel#ui=}"
         for item in "${items[@]}"; do
+          item="${item#CmuxMobileAppUITests/}"
           [[ "$item" =~ ^[A-Za-z0-9_]+(/[A-Za-z0-9_]+)?$ ]] ||
             { echo "cmux-next-ios-sim.sh: ui= wants CmuxMobileAppUITests suite names, got '$item'" >&2; exit 2; }
+          # ui= names SUITE or SUITE/test in the one UI target; a leading CmuxMobileAppUITests/ is dropped. Any other
+          # first part must be a suite class in cmux-next-ios/UITests: a target name there (CmuxMobileUITests/X) was
+          # read as a suite, ran the whole target and matched no test, after a full build (dd16fd89, 2026-11-27).
+          [[ ! -d cmux-next-ios/UITests ]] || grep -rqE "^(final )?class ${item%%/*}\b" cmux-next-ios/UITests ||
+            { echo "cmux-next-ios-sim.sh: ui= '$item': no UI test suite class ${item%%/*} in cmux-next-ios/UITests (ui= takes SUITE or SUITE/test of CmuxMobileAppUITests; kit tests go in only=)" >&2; exit 2; }
           # A suite named *ColdUITests or *ColdLiveUITests (SUITE or SUITE/test) runs each of its
           # test*Cold methods on a freshly booted simulator, CMUX_LAUNCH_COLD_RUNS times (default 10):
           # one cold launch per run.
@@ -735,14 +747,21 @@ cleanup() {
   # Cloud routing payloads contain machine/team/session ids; remove this exact
   # file even when SIGTERM/INT interrupts the Python leg before its finally.
   if [[ -n "${work:-}" ]]; then rm -f "$work/cloud-routing-push.json" || true; fi
-  if [[ "$mode" == release-build ]]; then
-    # Keep failure evidence too, including FFI or project-generation failures.
+  # Every run leaves evidence, a failed one most of all: a build or test that exits early used to upload
+  # nothing, so "0 tests ran" or "BUILD FAILED" could not be read back (cmux-ci serves no artifact from a failed
+  # step's missing zip). Copy the logs it made and zip, unless a success path already zipped.
+  if [[ -n "${out:-}" && -d "${out:-}" && -n "${work:-}" ]]; then
     local log
-    for log in ffi xcodegen build; do
-      if [[ -f "$work/$log.log" ]]; then cp "$work/$log.log" "$out/$log.log" || result=1; fi
+    for log in ffi xcodegen spm-resolve build build-base build-device mac-build ui-build test ui-test; do
+      if [[ -f "$work/$log.log" && ! -f "$out/$log.log" ]]; then cp "$work/$log.log" "$out/$log.log" || true; fi
     done
-    note "- exit status: $result" || result=1
-    (cd "$out" && zip -qr evidence.zip . -x evidence.zip) || result=1
+    if [[ "$result" -ne 0 && -f "$work/build.log" ]] && grep -q "BUILD FAILED" "$work/build.log"; then
+      grep -m 5 "error:" "$work/build.log" | sed 's/^/- build error: /' | tee -a "$summary" >&2 || true
+    fi
+    if [[ "$mode" == release-build || "$result" -ne 0 || ! -f "$out/evidence.zip" ]]; then
+      note "- exit status: $result" || true
+      (cd "$out" && rm -f evidence.zip && zip -qr evidence.zip . -x evidence.zip) || result=1
+    fi
   fi
   if [[ -n "${CMUX_IOS_CLOUD_PROOF_FILE:-}" || "${CMUX_IOS_OWNER_ACCESS_PROOF:-0}" == 1 ]]; then
     python3 -I scripts/ci/cmux_next_cloud_pair_proof.py --export-out "$out" --status "$result" || result=1
