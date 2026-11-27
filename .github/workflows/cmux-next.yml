@@ -3545,6 +3545,8 @@ jobs:
           bash scripts/ci/tests/cargo-target-delta.test.sh
           # The delta with rustc's incremental state is over a single PUT's 5 GiB (seed run 45982767555).
           bash scripts/ci/tests/r2-cache-multipart.test.sh
+          # A restore killed by its step timeout left half a cargo target in place (machine channel run 46003645716).
+          bash scripts/ci/tests/r2-cache-restore.test.sh
 
       # Why: 2026-11-24-fast-tier-cargo-4.md
       - name: Mount the warm cargo target (feat-cmux-next push, commits)
@@ -3575,6 +3577,8 @@ jobs:
         env:
           DISK_MOUNTED: ${{ steps.warm-next.outcome == 'success' || steps.warm-read.outcome == 'success' }}
           WARM_WRITES: ${{ steps.warm-next.outcome == 'success' }}
+          # Why: 2026-11-27-fast-tier-pool-miss-r2.md (repo var CI_FAST_TIER_POOL_MISS_R2=0 restores the old link)
+          CMUX_POOL_WARM_TARGET_MISS_R2: ${{ format('{0}', vars.CI_FAST_TIER_POOL_MISS_R2) != '0' && '1' || '' }}
         run: bash -e scripts/ci/cmux-next-steps/fast-tier-cargo-link-this-runner-s-warm-cargo-target.sh
 
       # Why: 2026-11-24-fast-tier-cargo-6.md, note-210
@@ -5447,6 +5451,8 @@ jobs:
           SEEN: ${{ needs.compile-status.outputs.state }}
           # Why: note-554 (undo: vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE = '0')
           SUPERSEDED_GATE: ${{ vars.CMUX_NEXT_SUPERSEDED_COMPILE_GATE || '1' }}
+          # Why: 2026-11-27-release-compile-stale-push.md (undo: vars.CMUX_NEXT_STALE_PUSH_MAC_FALLBACK = '0')
+          STALE_PUSH_GATE: ${{ vars.CMUX_NEXT_STALE_PUSH_MAC_FALLBACK || '1' }}
         run: bash -e scripts/ci/cmux-next-steps/fast-fleet-compile-check.sh
 
   # Why: 2026-11-24-release-compile-fast-1.md, note-65
