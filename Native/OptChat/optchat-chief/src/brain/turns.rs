@@ -1383,11 +1383,13 @@ impl Brain {
         // Who ended a cancelled turn: the Chief itself (`stop`, `sleep`, after
         // it replied by send), the owner, or neither (a lost session).
         let by_chief = self.tool_stopped || self.denial_stopped.is_some();
+        // An accepted tool stop owns the outcome even if the harness's
+        // normal completion wins the race with the cancellation request.
         let status = if superseded {
             "superseded"
         } else if outcome.refused && outcome.reply.is_none() {
             "refused"
-        } else if outcome.cancelled && by_chief {
+        } else if by_chief {
             "stopped"
         } else if outcome.cancelled && self.owner_stopped {
             "owner_stopped"
