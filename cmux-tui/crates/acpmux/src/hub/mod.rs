@@ -356,6 +356,7 @@ pub(crate) mod session_auth;
 pub(crate) mod session_budget_watch;
 pub(crate) mod session_hold;
 pub(crate) mod session_pages;
+mod session_usage;
 mod settings_watch;
 pub(crate) mod settled_view;
 #[cfg(test)]
