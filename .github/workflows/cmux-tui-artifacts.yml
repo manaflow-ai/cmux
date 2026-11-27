@@ -259,7 +259,7 @@ jobs:
   # or slow gate answers "not superseded": tree-preflight then runs and checks again.
   push-gate:
     name: cmux-tui superseded push gate
-    if: ${{ github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
+    if: ${{ github.event_name == 'push' && github.repository == 'manaflow-ai/cmux' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/feat-cmux-next' && github.ref != 'refs/heads/nightly-next' && github.ref != 'refs/heads/release-next' && !startsWith(github.ref, 'refs/heads/feat-cmux-next-') && !startsWith(github.ref, 'refs/heads/next-batch/') && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/cmux-tui-pin-') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/nightly-next' || github.ref == 'refs/heads/feat-cmux-next') && 'cmux-gcp-nightly-x64' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The superseded check takes seconds; the branch-inputs check fetches commit history and one tree (seconds; it ran
     # into its 60 s git timeout until its fetches passed --no-recurse-submodules, 2026-11-23).
