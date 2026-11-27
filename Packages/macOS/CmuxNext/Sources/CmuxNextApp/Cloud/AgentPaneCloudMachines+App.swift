@@ -9,6 +9,8 @@ extension AgentPaneCloudMachines {
         let inventory: @MainActor (Duration) async -> Inventory = { [weak self, weak services] age in
             guard let services, services.cloud.isSignedIn else { return Inventory(signedIn: false, loaded: false, machines: []) }
             self?.readTeamsIfOld { [weak services] in await services?.cloud.auth.activeTeam.refresh() }
+            // A cold start shows the list last answered, marked last seen, while the read runs behind it (never the recovery list).
+            if age != .zero, !services.cloud.hasLoadedCurrentMachines, let kept = services.cloud.lastSeen.inventory(for: services.cloud.account, team: TeamRowText.paneTeam(services.cloud.auth), teams: TeamRowText.paneTeams(services.cloud.auth), refresh: { [weak services] in _ = await services?.cloud.refresh(ifOlderThan: age) }) { return kept }
             // Complete only when this read's own refresh landed (the recovery list), or the store holds a server answer
             // within `age` (the picker): a superseded or failed refresh leaves the earlier registry, so a machine absent may exist.
             let complete = age == .zero ? await services.cloud.refresh() : await services.cloud.refresh(ifOlderThan: age)
@@ -20,6 +22,7 @@ extension AgentPaneCloudMachines {
                 session.effectiveStatus == .destroyed ? nil : Machine(id: session.machineID, name: session.machine.title, stage: session.stage.name, evictAt: session.machine.evictAt,
                                                                        size: Machine.Size(session.machine.size))
             }
+            if complete { services.cloud.lastSeen.keep(machines, for: services.cloud.account) } // only a whole server answer
             return Inventory(signedIn: true, loaded: true, machines: machines, account: services.cloud.account, complete: complete, team: TeamRowText.paneTeam(services.cloud.auth), teams: TeamRowText.paneTeams(services.cloud.auth), plan: await self?.planReads.read(account: services.cloud.account) { try await services.cloud.appOps("cloud.plan.get", .object([:]), nil, .script) } ?? .unknown) // cloud.plan.get, else unknown
         }
         teamWatch = TeamRowText.follow(services.cloud.auth) { [weak self] in self?.publishTeamChange() }

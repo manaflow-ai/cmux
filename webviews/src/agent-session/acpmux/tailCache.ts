@@ -96,6 +96,12 @@ export function keptTail(sessionId: string): KeptTail | undefined {
   return keptTails.get(sessionId) ?? readAheadTails.get(sessionId);
 }
 
+/// The tail read ahead of `sessionId`, only while no tail of an open of it is kept (the one
+/// `rememberReadAhead` would replace): what a read ahead of a chat that ran on adds its records to.
+export function readAheadTail(sessionId: string): KeptTail | undefined {
+  return keptTails.has(sessionId) ? undefined : readAheadTails.get(sessionId);
+}
+
 /// Keeps a tail read ahead of any open of the chat, in this page only. A chat this page read itself
 /// keeps that tail, which is the newer one.
 export function rememberReadAhead(sessionId: string, tail: KeptTail): void {
