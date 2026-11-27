@@ -1931,6 +1931,10 @@ fn restored_transcript(session: &Session, transcript: &str) -> Value {
 mod close_why_tests;
 
 #[cfg(test)]
+#[path = "exit_notify_tests.rs"]
+mod exit_notify_tests;
+
+#[cfg(test)]
 #[path = "first_acceptance_tests.rs"]
 mod first_acceptance_tests;
 
