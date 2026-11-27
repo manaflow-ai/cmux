@@ -911,6 +911,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_docs_only_prs.py
 
+      - name: Check that a direct feat-cmux-next push compiles inside a taken coalesce window
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_base_coalesce_direct_push.py
+
       - name: Check that a cmux-rd-host change runs its macOS clippy and tests
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_rd_host_macos_route.py

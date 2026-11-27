@@ -505,6 +505,21 @@ def trace_steps(steps):
     return dict(sorted(out.items(), key=lambda kv: kv[1]))
 
 
+# A start trace's power call split (cmux-platform CloudCore.ts createTrace `power`, GuardedCloudDriver.power): `find`,
+# `call` and `verify` are our VM API calls' wall time, `provider` the provider's own ms when the VM API names it. Without
+# it a slow start reads only `power` (production 2026-11-26 22:42-23:42Z: 121058, 36714 and 32351 ms, all `power`), and
+# whether cmux-vm or the provider held the time cannot be told apart.
+POWER_SPLIT = ("find_ms", "call_ms", "verify_ms", "provider_ms")
+
+
+def power_split(power):
+    """{listed key: ms} from a trace's power split; a non-int or unlisted key is dropped. None when nothing is left."""
+    if not isinstance(power, dict):
+        return None
+    out = {k: power[k] for k in POWER_SPLIT if base.typed(INT, power.get(k)) is not None}
+    return out or None
+
+
 # cloud.machine.start_overdue's bind_probe (cmux-platform NeverBoundProbe.ts): the guest's own read of why it never
 # bound. Its `out` holds addresses, hosts and curl's words, so only typed facts leave: whether the bind file is there,
 # an uptime band, whether the API host and the coderouter edge resolved, and each HTTPS try's status or curl error.
@@ -840,6 +855,9 @@ def public_log(j):
         steps = trace_steps(j.get("steps"))
         if steps is not None:
             out["steps"] = steps
+        power = power_split(j.get("power"))
+        if power is not None:
+            out["power"] = power
     if msg == "cloud.machine.bind_late" and j.get("kicked") in BIND_LATE_KICKED:
         out["kicked"] = j["kicked"]
     if msg in SPARE_COUNT_MSGS:
