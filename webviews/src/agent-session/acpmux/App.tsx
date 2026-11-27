@@ -580,7 +580,7 @@ import {
   RunElsewhereStore,
 } from "./conversation/runElsewhereModel";
 import { NewestSteerContext, SteerChatContext } from "./conversation/pendingSteerModel";
-import { CapacityWaitContext } from "./capacityWait";
+import { CapacityWaitContext, waitsFor } from "./capacityWait";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { CloudAgentStartContext } from "./conversation/CloudAgentStartLine";
 import type { TranscriptView } from "./conversation/transcriptView";
@@ -2916,6 +2916,26 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     snapshot.canLoadNewer,
     shownSessionId,
   ]);
+  // Count only groups in this pane's displayed transcript: a different child view must keep its
+  // own capacity notice. acpmux owns the hold; this only chooses its one visible location.
+  const groupedCapacityHelpers = useMemo(
+    () =>
+      transcriptRows.some(
+        (row) =>
+          (row.kind === "subagents" || row.kind === "subagentStarted") &&
+          row.subagents?.some((agent) => agent.capacityWait !== undefined),
+      ),
+    [transcriptRows],
+  );
+  const capacityInTranscript =
+    groupedCapacityHelpers ||
+    transcriptRows.some(
+      (row) => row.kind === "turnSummary" && !row.recovered && waitsFor(snapshot.capacityWait, row.turnId),
+    );
+  const presentedCapacityWait = useMemo(
+    () => (snapshot.capacityWait ? { ...snapshot.capacityWait, groupedHelpers: groupedCapacityHelpers } : undefined),
+    [snapshot.capacityWait, groupedCapacityHelpers],
+  );
   // Failed prompts in a row with one cause share one card (sendFailure.ts); a trust failure's card
   // offers Trust folder while the folder is not trusted, and its Retry waits while the folder's
   // question is open, which acpmux would refuse again.
@@ -10159,7 +10179,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     <PresentationContext.Provider value={chatPresentation}>
       <ThinkingVerbsContext.Provider value={thinkingVerbs}>
         <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>
-          <CapacityWaitContext.Provider value={snapshot.capacityWait}>
+          <CapacityWaitContext.Provider value={presentedCapacityWait}>
             <CloudAgentStartContext.Provider value={cloudAgentStart}>
               {transcriptContent}
             </CloudAgentStartContext.Provider>
@@ -10717,6 +10737,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     );
   }, [newTabHybridShown, autoPicked, sandbox.mode]);
   const composer = drawPaneComposer({
+    capacityInTranscript,
     markDockEdge,
     composerTurnQueue,
     hostOverload,

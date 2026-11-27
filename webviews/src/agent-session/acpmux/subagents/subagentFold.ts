@@ -1197,6 +1197,8 @@ export class SubagentFold {
     }
     // A subagent that runs again, or finished, gave nothing up.
     if (agent.state === "running" || agent.state === "completed") delete agent.retriedOut;
+    // A hold belongs to the interrupted attempt, never to its resumed or ended run.
+    if (agent.state !== "failed") delete agent.capacityWait;
     this.touch(agent);
   }
 
