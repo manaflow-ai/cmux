@@ -372,10 +372,12 @@ class RateLimitTest(unittest.TestCase):
         # A bisect probe's suite judges its reds against `good` (gallery-health's `base`): a standing red
         # there too is not the probed merge's, so the bisect hunts only the red that is new.
         for good, base in (("c" * 40, "c" * 40), ("", "")):
-            with tempfile.TemporaryDirectory() as tmp:
+            # Planning also checks for reusable verdicts; keep this CLI regression offline.
+            with tempfile.TemporaryDirectory() as tmp, mock.patch.object(pmb, "list_runs", return_value=[]) as runs:
                 out = Path(tmp) / "out"
                 pmb.main(["plan", "--github-output", str(out), "--summary", str(Path(tmp) / "s"), "--mode", "probe",
                           "--suite", "drill", "--probe-sha", "a" * 40, "--good", good])
+                runs.assert_called_once()
                 self.assertIn(f"base={base}\n", out.read_text())
 
 class BisectTest(unittest.TestCase):
@@ -458,6 +460,8 @@ class WiringTest(unittest.TestCase):
                              {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}, key)
             for k, v in job["with"].items():
                 self.assertEqual(v, f"${{{{ needs.plan.outputs.{k} }}}}", f"{key}: {k}")
+            if key == "gallery-health":
+                self.assertEqual(job["with"]["base"], "${{ needs.plan.outputs.base }}")
             self.assertNotIn("name", job, f"{key}: the caller job's name must be the suite key")
         self.assertEqual(set(jobs["judge"]["needs"]), {"plan", *self.suites})
 

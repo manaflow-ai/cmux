@@ -9,8 +9,8 @@ A record is a JSON object (version 1):
 
   kind "cmux-proof-record", version 1, suite (ios-flows | mac-flows | web-flows | gui-flows), repo, pr, head_sha
   (the commit the runs built, the PR's head when it was posted), base_ref, base_sha (the base commit under the head),
-  selection (the suite's selector output: flows and the tests behind them), runs ([{name, step, worker, args,
-  result, seconds}]), captures ([{name, sha256, verdict, diff_ratio}] against baseline), baseline ({source, sha,
+  selection (the suite's selector output: flows and the tests behind them), runs ([{name, step, args, result,
+  seconds}]; no worker: PR text names no fleet host), captures ([{name, sha256, verdict, diff_ratio}] against baseline), baseline ({source, sha,
   pr, step} or null), video, verdict ("pass" | "fail"), timing ({pushed_at, proof_at, push_to_proof_s}), tool.
 
 On the PR it is one comment whose first line is the marker `<!-- cmux-proof-record SUITE HEAD_SHA -->` and whose body
@@ -33,9 +33,13 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Callable, Iterable, TypeVar
 
 T = TypeVar("T")
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_http  # noqa: E402
 
 KIND = "cmux-proof-record"
 VERSION = 1
@@ -150,8 +154,10 @@ def pr_comments(repo: str, pr: int | str, token: str, pages: int = 10) -> list[d
             f"https://api.github.com/repos/{repo}/issues/{pr}/comments?per_page=100&page={page}",
             headers={"Accept": "application/vnd.github+json", "Authorization": f"Bearer {token}",
                      "X-GitHub-Api-Version": "2022-11-28"})
-        with urllib.request.urlopen(req, timeout=20) as resp:
-            got = json.loads(resp.read())
+        # A passing refusal (429, rate-limit 403, 5xx, a dropped connection) is asked again (gh_http): one
+        # blip used to turn a passed build into "proof record not read (HTTPError): rerun this job".
+        _, body, _ = gh_http.request(req, 20, raise_errors=True)
+        got = json.loads(body or b"[]")
         out += got
         if len(got) < 100:
             break
@@ -207,6 +213,11 @@ def read_error(error: Exception) -> str:
     return kind
 
 
+# Exit status of `gate` when the record could not be read: the caller fails its job (rerunnable) rather than post
+# the printed `error` for a build that passed, which no sanctioned path could refresh.
+UNREAD = 3
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -227,13 +238,13 @@ def main(argv: list[str] | None = None) -> int:
     tokens = read_tokens()
     if not (repo and pr and sha and tokens):
         print("error\tproof record not read: REPO, PR, SHA and GH_TOKEN are needed")
-        return 0
+        return UNREAD
     try:
         comments = with_tokens(lambda token: pr_comments(repo, pr, token), tokens)
         record = find(comments, a.suite, sha, [b for b in a.bots.split(",") if b])
     except Exception as e:  # noqa: BLE001 - an unread record is an error state, never a pass
         print(f"error\tproof record not read ({read_error(e)}): see job log")
-        return 0
+        return UNREAD
     state, desc = gate(record, a.suite)
     print(f"{state}\t{desc}")
     return 0
