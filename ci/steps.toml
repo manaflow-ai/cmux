@@ -217,6 +217,14 @@ inputs = [
 ]
 run = "python3 tests/test_indexnow_notification.py"
 
+[step.update-replay-diagnostics]
+job = "linux"
+timeout = 60
+title = "Signed update replay diagnostics"
+about = "staging failures retain bounded status and check-response evidence without changing the replay verdict"
+inputs = ["scripts/cmux-next/update-e2e.py", "tests/test_update_e2e_diagnostics.py"]
+run = "python3 tests/test_update_e2e_diagnostics.py"
+
 # A local reusable workflow that asks for more than its caller grants fails the caller at startup: no job runs.
 # The guard lived only in ci-guards.yml's `ci` group, which a feat-cmux-next pull request skips unless labeled
 # full-ci, so #55503 (base-coalesce.yml asks `actions: read`) landed at 19:08Z on 2026-11-25 with two callers
@@ -3272,6 +3280,9 @@ inputs = [
   "scripts/cmux-next/check-cef-objc-contract.py",
   "scripts/cmux-next/chromium-objc-contract.json",
   "scripts/cmux-next/cef-manifest.json",
+  "scripts/cmux-next/check-bridge-on-main.py",
+  "scripts/cmux-next/bridge-on-main-baseline.json",
+  "tests/test_check_bridge_on_main.py",
   ".github/workflows/cmux-next-crash-class.yml",
 ]
 run = '''
@@ -3282,6 +3293,7 @@ scripts/ci/crash-class-gate.sh "${scope[@]}" || status=1
 python3 -I tests/test_check_concurrency_generic_deinit.py || status=1
 python3 -I tests/test_check_concurrency_pipe_reads.py || status=1
 python3 -I tests/test_check_concurrency_caller_isolated.py || status=1
+python3 -I tests/test_check_bridge_on_main.py || status=1
 python3 -I scripts/cmux-next/check-objc-selectors.py || status=1
 python3 -I scripts/cmux-next/check-cef-objc-contract.py || status=1
 exit "$status"
@@ -3758,8 +3770,10 @@ inputs = [
   "cmux-tui/crates/cmux-egress/**",
   "cmux-tui/crates/cmux-felt/**",
   "cmux-tui/crates/cmux-follow-cam/**",
+  "cmux-tui/crates/cmux-local-url/**",
   "cmux-tui/crates/cmux-mobile-core/**",
   "cmux-tui/crates/cmux-mobile-last-place/**",
+  "cmux-tui/crates/cmux-proxy/**",
   "cmux-tui/crates/cmux-process/**",
   "cmux-tui/crates/cmux-rd-core/**",
   "cmux-tui/crates/cmux-rd-ffi/**",
