@@ -55,6 +55,7 @@ mod bg_folder;
 #[cfg(all(test, unix))]
 mod bg_folder_bench;
 mod bg_notify;
+mod bg_registry;
 mod bg_tasks;
 pub(crate) mod book_tee;
 mod bookmarks;

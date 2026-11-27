@@ -84,7 +84,20 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<
             let result_line = params.get("resultLine").and_then(Value::as_bool).unwrap_or(false);
             // The Claude Code subagent whose MCP call starts it (`subagent_call.rs`), `{id, type}`:
             // a label its commands carry, as its Bash calls do; the session's token is the proof.
-            hub.bg_start(&session, command, cwd, description, notify, result_line, subagent).await
+            // The Bash call acpmux's hook rewrote into this start (`bg_hook.rs`): the process
+            // registry lists the task under it.
+            let tool_call = str_param(params, "toolCallId").map(str::to_owned);
+            hub.bg_start(
+                &session,
+                command,
+                cwd,
+                description,
+                notify,
+                result_line,
+                subagent,
+                tool_call,
+            )
+            .await
         }
         method::MUX_BG_LIST => Ok(hub.bg_list_as(&session, &scope("all")?)),
         // The chat's own agent reading a task's end (`bg_output`, or `run_wait` given a task)

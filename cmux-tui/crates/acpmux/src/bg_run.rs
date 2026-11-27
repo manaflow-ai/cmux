@@ -124,6 +124,10 @@ pub struct Spec {
     /// its end goes to that subagent while it runs (`hub/bg_notify.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent: Option<serde_json::Value>,
+    /// The harness tool call that started it (Claude Code's Bash call the hook rewrote,
+    /// `bg_hook.rs`): the process registry lists the task under that call (`hub/bg_registry.rs`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 /// `<id>.json`, written whole (to a temporary file, then renamed) each time it changes.
@@ -160,6 +164,9 @@ pub struct Record {
     /// [`Spec::subagent`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent: Option<serde_json::Value>,
+    /// [`Spec::tool_call_id`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 fn file(dir: &Path, id: &str, ext: &str) -> PathBuf {
@@ -671,6 +678,7 @@ pub fn main() -> anyhow::Result<()> {
             notify: spec.notify,
             result_line: spec.result_line,
             subagent: spec.subagent.clone(),
+            tool_call_id: spec.tool_call_id.clone(),
             ..Record::default()
         };
         // A closed answer pipe is an error here, never a SIGPIPE (ignored since the start).

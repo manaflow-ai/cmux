@@ -39,6 +39,8 @@ const START_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 struct BgSpawn<'a> {
     fixed_id: Option<&'a str>,
     subagent: Option<Value>,
+    /// The harness tool call that started it (`bg_run::Spec::tool_call_id`).
+    tool_call_id: Option<String>,
 }
 
 /// Whose tasks a list or a stop acts on. Incident 2026-11-14: a Claude Code subagent listed
@@ -104,7 +106,10 @@ impl Hub {
     /// one message when it ends ([`Hub::bg_notify`]). With `subagent` (`{id, type}`, plain words:
     /// the Claude Code subagent whose MCP call starts it, `subagent_call.rs`), it runs as that
     /// subagent's Bash would (`cli::sender::SUBAGENT_ENV`), so an `acpmux send` in it names that
-    /// subagent, and its end goes to that subagent while it runs (`bg_notify.rs`).
+    /// subagent, and its end goes to that subagent while it runs (`bg_notify.rs`). With
+    /// `tool_call_id` (the Bash call acpmux's hook rewrote), the process registry lists the task
+    /// under that call (`bg_registry.rs`).
+    #[allow(clippy::too_many_arguments)]
     pub async fn bg_start(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -114,8 +119,9 @@ impl Hub {
         notify: bool,
         result_line: bool,
         subagent: Option<Value>,
+        tool_call_id: Option<String>,
     ) -> Result<Value, RpcError> {
-        let spawn = BgSpawn { fixed_id: None, subagent };
+        let spawn = BgSpawn { fixed_id: None, subagent, tool_call_id };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 
@@ -134,7 +140,7 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        let spawn = BgSpawn { fixed_id, subagent };
+        let spawn = BgSpawn { fixed_id, subagent, tool_call_id: None };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 
@@ -148,7 +154,7 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        let BgSpawn { fixed_id, subagent } = spawn;
+        let BgSpawn { fixed_id, subagent, tool_call_id } = spawn;
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
         }
@@ -236,6 +242,7 @@ impl Hub {
             notify,
             result_line,
             subagent,
+            tool_call_id: tool_call_id.filter(|c| !c.trim().is_empty()),
         };
         bg_spawn(&runner, &spec).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
         // A stop or purge that came meanwhile missed it: it ends here.
@@ -245,9 +252,10 @@ impl Hub {
         }
         let record = bg_run::read_record(&dir, &id)
             .ok_or_else(|| RpcError::internal("the task's runner wrote no record"))?;
-        if record.notify {
-            self.bg_watch(&dir, &record);
-        }
+        // Every task is watched: its end reaches the process registry's clients, and with
+        // `notify` its chat (`bg_notify.rs`).
+        self.bg_watch(&dir, &record);
+        self.bg_publish(session, &dir, &record);
         Ok(bg_view(&dir, &record, LIST_TAIL))
     }
 
@@ -424,7 +432,11 @@ impl Hub {
         Ok(view)
     }
 
-    fn bg_record(&self, session: &Session, id: &str) -> Result<(PathBuf, Record), RpcError> {
+    pub(super) fn bg_record(
+        &self,
+        session: &Session,
+        id: &str,
+    ) -> Result<(PathBuf, Record), RpcError> {
         let dir = self.bg_dir(session);
         let known = !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
         let generation = bg_generation(&dir, false).ok();
@@ -805,6 +817,8 @@ pub(super) fn bg_view_at(
         "outputError": r.output_error,
         // The Claude Code subagent that started it (`{id, type}`); null: the lead agent.
         "startedBy": r.subagent,
+        // The harness tool call that started it (the Bash call acpmux's hook rewrote); null: none.
+        "toolCallId": r.tool_call_id,
     });
     if r.result_line {
         let end = bg_run::read_output_at(dir, &r.id, None, LIST_TAIL, segments).unwrap_or_default();
