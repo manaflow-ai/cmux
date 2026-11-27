@@ -20,7 +20,7 @@ import Testing
         tab.setFocused(true)
         #expect(FocusSpyShim.granted.isEmpty, "a page that does not show takes no focus")
 
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         #expect(FocusSpyShim.granted.isEmpty, "a page shown in this turn took focus in this turn")
@@ -34,7 +34,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 8)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn()
@@ -61,7 +61,7 @@ import Testing
         FocusSpyShim.granted = []
 
         // The tab is selected: its view enters the window and the focus applier asks, in one turn.
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         tab.setFocused(true)
@@ -74,6 +74,278 @@ import Testing
         #expect(reported() == 2, "the grant did not report the page ready: the key hold waits for its bound (reported \(reported()))")
     }
 
+    /// #55174: a grant made while the page's cmux window was not on screen yet (Restart to Update shows its windows one
+    /// per frame) made the page window key before its cmux window showed, and the app lost its key window. The page shows
+    /// in its window, but the window is not on screen: the ask is kept, and granted once, after the window comes on screen.
+    @Test func focusAskedWhileTheWindowIsNotOnScreenIsGrantedOnceItIs() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 49)
+        let window = Self.offScreenWindow(runtime)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
+
+        tab.setFocused(true)
+        #expect(FocusSpyShim.granted.isEmpty, "the page took focus while its cmux window was not on screen")
+        Self.endTurn()
+        #expect(FocusSpyShim.granted.isEmpty, "a frame commit granted the kept ask while the window was still not on screen")
+
+        window.onScreen = true
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [49], "the kept ask was not granted after the window came on screen")
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [49], "the kept ask was granted more than once")
+    }
+
+    /// A window can come on screen many frames after its page asked (Restart to Update shows one window per frame). The
+    /// kept ask was re-asked after frame commits at most 120 times, and those re-asks ran back to back within one turn
+    /// (each commit wakes the run loop), so a window shown a few milliseconds later never got its grant. The ask waits for
+    /// the window, through occlusion changes that leave it off screen, and is granted once.
+    @Test func aWindowShownManyFramesAfterTheAskGetsExactlyOneGrant() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 52)
+        let window = Self.offScreenWindow(runtime)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
+
+        tab.setFocused(true)
+        for _ in 0..<3 { Self.endTurn() }
+        // Covered or uncovered while still off screen (another window over it): no grant.
+        window.occlusionChanged?(window)
+        for _ in 0..<3 { Self.endTurn() }
+        try #require(FocusSpyShim.granted.isEmpty, "the page took focus while its cmux window was not on screen")
+
+        window.onScreen = true // 300 ms, about 18 frames, after the ask
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [52], "the window came on screen 18 frames after the ask, and its page got no grant")
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [52], "the kept ask was granted more than once")
+    }
+
+    /// A window that comes on screen and goes off again before the grant's frame commit keeps the ask: the grant finds it
+    /// off screen and waits again, and the ask is granted when the window comes back. A window that goes off screen and
+    /// comes back after its page has the focus grants nothing more.
+    @Test func aWindowOffScreenAgainBeforeTheGrantGetsItWhenItComesBack() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 53)
+        let window = Self.offScreenWindow(runtime)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
+
+        tab.setFocused(true)
+        Self.endTurn()
+        window.onScreen = true
+        window.onScreen = false
+        Self.endTurn()
+        #expect(FocusSpyShim.granted.isEmpty, "the page took focus while its cmux window was off screen again")
+
+        window.onScreen = true
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [53], "the window came back on screen, and its page got no grant")
+
+        window.onScreen = false
+        Self.endTurn()
+        window.onScreen = true
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [53], "a window that left the screen and came back after the grant granted again")
+    }
+
+    /// Restart to Update shows its windows one per frame. Each window's page asked before its window showed, and each is
+    /// granted once, when its own window comes on screen.
+    @Test func pagesOfWindowsShownInSuccessiveFramesEachGetOneGrant() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (first, _) = try createdTab(runtime, browser: 54)
+        let (second, _) = try createdTab(runtime, browser: 55)
+        let firstWindow = Self.offScreenWindow(runtime)
+        let secondWindow = Self.offScreenWindow(runtime)
+        defer {
+            firstWindow.closeAfterTest()
+            secondWindow.closeAfterTest()
+        }
+        try #require(firstWindow.contentView).addSubview(first.contentView)
+        try #require(secondWindow.contentView).addSubview(second.contentView)
+        Self.endTurn()
+
+        first.setFocused(true)
+        second.setFocused(true)
+        Self.endTurn()
+        try #require(FocusSpyShim.granted.isEmpty, "a page took focus while its cmux window was not on screen")
+
+        firstWindow.onScreen = true
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [54], "the first window came on screen, and its page got no grant")
+        secondWindow.onScreen = true
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [54, 55], "the second window came on screen a frame later, and its page got no grant")
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [54, 55], "a kept ask was granted more than once")
+    }
+
+    /// An ask taken back (focus moved on) while the page's cmux window was not on screen is not granted when it comes on
+    /// screen.
+    @Test func focusTakenBackWhileTheWindowIsNotOnScreenIsNotGrantedWhenItComesOnScreen() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 56)
+        let window = Self.offScreenWindow(runtime)
+        defer { window.closeAfterTest() }
+        try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
+
+        tab.setFocused(true)
+        Self.endTurn()
+        tab.setFocused(false)
+        window.onScreen = true
+        Self.endTurn()
+        #expect(FocusSpyShim.granted.isEmpty, "an ask taken back while the window was off screen was granted when it came on screen")
+    }
+
+    /// The user's window switch in an active app (Cmd-` to a window restored behind the key one): AppKit reports the
+    /// window on screen before it reports it key. The kept ask, re-asked when the window came on screen, waits while
+    /// another window has the keys, and is granted once, when its own window becomes key.
+    @Test func anAskHeldWhileAnotherWindowIsKeyIsGrantedWhenItsWindowBecomesKey() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 57)
+        let window = Self.offScreenWindow(runtime)
+        let other = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer {
+            window.closeAfterTest()
+            other.closeAfterTest()
+        }
+        let keys = KeyRecorder(key: other)
+        tab.keyWindows = keys.seam
+        try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
+
+        tab.setFocused(true)
+        Self.endTurn()
+        window.onScreen = true // on screen first, still behind the key window
+        Self.endTurn()
+        #expect(FocusSpyShim.granted.isEmpty, "the page took focus while another window had the keys")
+
+        Self.becomeKey(window, keys, runtime)
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [57], "its window became key, and the page that waited for it got no grant")
+        Self.becomeKey(other, keys, runtime)
+        Self.becomeKey(window, keys, runtime)
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [57], "the kept ask was granted more than once")
+    }
+
+    /// The window can get the keys back through one of its page windows, never becoming key itself: Cmd-` back to a
+    /// window whose page window had the keys makes that page window key, a child of the cmux window. The hold counts a
+    /// key child as its window having the keys (a page window of the same cmux window, the Cmd-N case), so the ask that
+    /// waited while another window was key is granted then, once.
+    @Test func anAskHeldWhileAnotherWindowIsKeyIsGrantedWhenAPageWindowOfItsWindowBecomesKey() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 61)
+        let window = Self.offScreenWindow(runtime)
+        let other = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let child = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 150), styleMask: .borderless, backing: .buffered, defer: true)
+        defer {
+            window.removeChildWindow(child)
+            child.closeAfterTest()
+            window.closeAfterTest()
+            other.closeAfterTest()
+        }
+        window.addChildWindow(child, ordered: .above) // another page's window in the same cmux window
+        let keys = KeyRecorder(key: other)
+        tab.keyWindows = keys.seam
+        try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
+
+        tab.setFocused(true)
+        Self.endTurn()
+        window.onScreen = true // on screen, still behind the key window
+        Self.endTurn()
+        #expect(FocusSpyShim.granted.isEmpty, "the page took focus while another window had the keys")
+
+        Self.becomeKey(child, keys, runtime)
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [61], "its window got the keys through a page window of it, and the page that waited got no grant")
+        Self.becomeKey(other, keys, runtime)
+        Self.becomeKey(child, keys, runtime)
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [61], "the kept ask was granted more than once")
+    }
+
+    /// The other order: the window becomes key while it is still off screen (AppKit reports the key change first). The
+    /// ask waits on, and is granted once, when the window comes on screen.
+    @Test func aWindowKeyBeforeItIsOnScreenGetsItsGrantWhenItIs() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (tab, _) = try createdTab(runtime, browser: 58)
+        let window = Self.offScreenWindow(runtime)
+        let other = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer {
+            window.closeAfterTest()
+            other.closeAfterTest()
+        }
+        let keys = KeyRecorder(key: other)
+        tab.keyWindows = keys.seam
+        try #require(window.contentView).addSubview(tab.contentView)
+        Self.endTurn()
+
+        tab.setFocused(true)
+        Self.endTurn()
+        Self.becomeKey(window, keys, runtime) // key, still off screen
+        Self.endTurn()
+        #expect(FocusSpyShim.granted.isEmpty, "the page took focus while its cmux window was not on screen")
+
+        window.onScreen = true
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [58], "its window came on screen after it became key, and its page got no grant")
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [58], "the kept ask was granted more than once")
+    }
+
+    /// A key change grants only the asks that wait for that window: a window whose page has the focus already, or that
+    /// has no page waiting, becoming key grants nothing; the page that waits gets its grant when its own window does.
+    @Test func aKeyChangeToAWindowWithNoAskWaitingGrantsNothing() throws {
+        let (runtime, root) = try FocusSpyShim.runtime()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (waiting, _) = try createdTab(runtime, browser: 59)
+        let (focused, _) = try createdTab(runtime, browser: 60)
+        let window = Self.offScreenWindow(runtime)
+        let other = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let empty = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        defer {
+            window.closeAfterTest()
+            other.closeAfterTest()
+            empty.closeAfterTest()
+        }
+        let keys = KeyRecorder(key: other)
+        waiting.keyWindows = keys.seam
+        focused.keyWindows = keys.seam
+        try #require(window.contentView).addSubview(waiting.contentView)
+        try #require(other.contentView).addSubview(focused.contentView)
+        Self.endTurn()
+
+        focused.setFocused(true)
+        waiting.setFocused(true)
+        Self.endTurn()
+        window.onScreen = true
+        Self.endTurn()
+        try #require(FocusSpyShim.granted == [60], "the page of the key window got no grant, or the other page took focus")
+
+        Self.becomeKey(empty, keys, runtime)
+        Self.becomeKey(other, keys, runtime)
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [60], "a key change to a window with no ask waiting granted a page")
+
+        Self.becomeKey(window, keys, runtime)
+        Self.endTurn()
+        #expect(FocusSpyShim.granted == [60, 59], "its window became key, and the page that waited for it got no grant")
+    }
+
     /// An ask taken back (focus moved on) before the page showed is not granted later.
     @Test func focusTakenBackBeforeThePageShowsIsNotGranted() throws {
         let (runtime, root) = try FocusSpyShim.runtime()
@@ -82,7 +354,7 @@ import Testing
 
         tab.setFocused(true)
         tab.setFocused(false)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn()
@@ -98,7 +370,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 10)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         // Hidden first in AppKit's walk, as Chromium's view was: it asks for focus mid-hide.
@@ -126,7 +398,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 11)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         try #require(window.contentView).addSubview(workspace)
@@ -450,7 +722,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 12)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
@@ -471,7 +743,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 13)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
@@ -501,7 +773,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 15)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
@@ -525,7 +797,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 14)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn() // shown before the ask's turn (a page shown in it takes focus after its commit)
@@ -559,7 +831,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 15)
         tab.contentView.frame = .zero
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
 
@@ -583,7 +855,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, _) = try createdTab(runtime, browser: 17)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         workspace.addSubview(tab.contentView)
@@ -603,6 +875,38 @@ import Testing
         FocusSpyShim.granted = []
         tab.setFocused(true)
         #expect(FocusSpyShim.granted == [17])
+    }
+
+    /// The cmux window that shows a test's page, as on screen unless a test says it is not (``onScreen``). A grant waits
+    /// while its window is not on screen (`CEFTab.grantFocus`, #55174: Restart to Update shows its windows one per frame),
+    /// and these windows are never ordered in, so each test's grant was kept and never ran.
+    final class ShownWindow: NSWindow {
+        /// Whether the window is on screen. A change is reported to ``occlusionChanged``, as AppKit reports a window
+        /// ordered in or out, covered or uncovered.
+        var onScreen = true {
+            didSet { if onScreen != oldValue { occlusionChanged?(self) } }
+        }
+        /// Where the window's occlusion changes go (``offScreenWindow(_:)``: the runtime's window guard).
+        var occlusionChanged: ((NSWindow) -> Void)?
+
+        override var isVisible: Bool { onScreen }
+        override var occlusionState: NSWindow.OcclusionState { onScreen ? .visible : [] }
+    }
+
+    /// A cmux window not on screen yet whose occlusion changes reach `runtime` as AppKit's reach it in the app: through
+    /// its window guard, the app's one observer of every window's occlusion (``CEFRuntime/windowGuard``).
+    static func offScreenWindow(_ runtime: CEFRuntime) -> ShownWindow {
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        window.occlusionChanged = { runtime.windowGuard.onOcclusionChanged?($0) }
+        window.onScreen = false
+        return window
+    }
+
+    /// `window` becomes the app's key window, reported to `runtime` as AppKit's key changes reach it in the app: through
+    /// its window guard, the app's one observer of every window's key changes (``CEFRuntime/windowGuard``).
+    static func becomeKey(_ window: NSWindow, _ keys: KeyRecorder, _ runtime: CEFRuntime) {
+        keys.key = window
+        runtime.windowGuard.onBecameKey?(window)
     }
 
     /// Lets the main run loop end this turn: its frame commit, and the work queued after it (`AfterFrameCommit`).
@@ -628,7 +932,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, host) = try createdTab(runtime, browser: 12)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn()
@@ -668,7 +972,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, host) = try createdTab(runtime, browser: 19)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         let workspace = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
         workspace.addSubview(tab.contentView)
@@ -717,7 +1021,7 @@ import Testing
         let (runtime, root) = try FocusSpyShim.runtime()
         defer { try? FileManager.default.removeItem(at: root) }
         let (tab, host) = try createdTab(runtime, browser: 23)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: .borderless, backing: .buffered, defer: true)
         defer { window.closeAfterTest() }
         try #require(window.contentView).addSubview(tab.contentView)
         Self.endTurn()

@@ -36,12 +36,14 @@ extension CEFDeferredFocusTests {
         #expect(FocusSpyShim.granted.isEmpty, "a kept ask was granted in an agent render window: \(FocusSpyShim.granted)")
     }
 
-    /// An agent render window as `AgentRenderPanel` makes it: left of and below every screen.
+    /// An agent render window as `AgentRenderPanel` makes it: left of and below every screen. It reports itself as on
+    /// screen (``ShownWindow``) so these tests prove the render-window guard (`CEFTab.isShown`): a window that is not
+    /// on screen keeps every ask anyway (#55174), and a plain test window is never ordered in.
     static func renderWindow() -> NSWindow {
         let screens = NSScreen.screens.reduce(NSRect.null) { $0.union($1.frame) }
         let origin = screens.isNull ? NSPoint(x: -20_000, y: -20_000) : NSPoint(x: screens.minX - 11_280, y: screens.minY - 10_800)
-        let window = NSWindow(contentRect: NSRect(origin: origin, size: NSSize(width: 400, height: 300)),
-                              styleMask: .borderless, backing: .buffered, defer: true)
+        let window = ShownWindow(contentRect: NSRect(origin: origin, size: NSSize(width: 400, height: 300)),
+                                 styleMask: .borderless, backing: .buffered, defer: true)
         window.identifier = .agentRenderWindow
         return window
     }
