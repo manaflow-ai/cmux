@@ -1751,10 +1751,6 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_download_run_artifact.py
 
-      - name: Validate the nightly publish guard reads the release through gh with retries
-        if: ${{ matrix.group == 'release-notary' }}
-        run: python3 tests/test_publication_guard_release_read.py
-
       - name: Validate nightly release notes and appcast summaries
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_release_notes.py

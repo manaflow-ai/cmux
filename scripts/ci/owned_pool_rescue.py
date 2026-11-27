@@ -535,6 +535,7 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/cmux-next-fast-tier-batch.yml",  # feat-cmux-next only; swift-fleet names a glaeda-* label
     # feat-cmux-next only; their ios job takes the pool picker's output (the second calls pr-pipeline.yml).
     ".github/workflows/cmux-next-pr-pipeline-ios-batch.yml",
+    ".github/workflows/cmux-next-split-table.yml",  # feat-cmux-next only; measure-fleet names a glaeda-* label
     ".github/workflows/ios-fast-verdict-dispatch.yml",
     # feat-cmux-next only; its Computer Use helper check takes the side label on attempt 1.
     ".github/workflows/cmux-next-cua-helper-identity.yml",

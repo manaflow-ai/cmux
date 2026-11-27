@@ -1,7 +1,6 @@
 {
   "schema": "warm-sources/v1",
   "sources": {
-    "cloud-mvp-nightly-readback.yml:readback": {"class": "mac-run-product", "warm": [], "exempt": "downloads the published NEXT NIGHTLY and drives it in the app; compiles nothing"},
     "deriveddata-reuse": {"what": "Per-runner build state kept between runs: an owned Mac's admission DerivedData (scripts/ci/owned_build_state.py), the nightly DerivedData seed (scripts/ci/seed_derived_data.py), the scheme and Release compiles' worker-local tree, a tour's claimed warm slot (media_tag_lock.py), the Chief's per-runner cargo target, or a controller warm slot's DerivedData generation", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#deriveddata-reuse"},
     "spm-shared": {"what": "The per-mini SwiftPM scratch shared across a mini's slots, so a job resolves and builds packages from what another slot already fetched and built", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#spm-shared"},
     "ssd-cas": {"what": "glaeda's fleet compiler-CAS node on each owned mini (fleet-cas socket and settings under /Users/Shared/cmux-build-fleet/xcode); its store moves to the controller mini's SSD", "runbook": "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/build-fleet/WARM-RESOURCES.md#ssd-cas"},
@@ -47,6 +46,7 @@
     "cloud-journey-prod.yml:journey": {"class": "linux-rust", "warm": ["actions-cache"]},
     "cloud-journey-prod.yml:preclaim": {"class": "linux-rust", "warm": [], "exempt": "cold: a dispatch-only cargo build of cmux-tui from an empty target directory; no warm source wired yet"},
     "cloud-machine-tests.yml:lifecycle": {"class": "mac-test", "warm": [], "exempt": "cold: swift build or test into a fresh .build; no warm source wired yet"},
+    "cloud-mvp-nightly-readback.yml:readback": {"class": "mac-run-product", "warm": [], "exempt": "downloads the published NEXT NIGHTLY and drives it in the app; compiles nothing"},
     "cloud-task-local-tests.yml:lifecycle": {"class": "mac-build", "warm": [], "exempt": "cold: compiles on a Mac from a clean tree; no warm source wired yet"},
     "cloud-vm-env-audit.yml:audit": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
     "cloud-vm-guest-install.yml:guest-install": {"class": "linux-js", "warm": [], "exempt": "cold: bun or npm install and TypeScript checks or tests with no dependency cache; no warm source wired yet"},
