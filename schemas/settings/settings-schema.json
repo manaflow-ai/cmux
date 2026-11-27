@@ -1068,6 +1068,7 @@
               "agentPane.display.compactShortTurns",
               "agentPane.display.statusVerbs.mode",
               "agentPane.display.statusVerbs.custom",
+              "agentPane.display.streaming",
               "agentPane.display.thinking.shimmer",
               "agentPane.display.thinking.shimmerPeriod",
               "agentPane.display.thinking.shimmerBand",
@@ -1231,7 +1232,6 @@
               "agents.codexPersonality",
               "agents.commitAttribution",
               "agents.claudeCodeInboxRelay",
-              "agents.modelRouter.model",
               "app.warnBeforeClosingAgentSession"
             ],
             "title" : {
@@ -1759,6 +1759,7 @@
             "rows" : [
               "cloud.newWorkspacesInCloud",
               "cloud.newWorkspaceFolder",
+              "cloud.useMyGitHubLogin",
               "cloud.defaultImage",
               "cloud.agentsStartWithoutAsking",
               "cloud.turnCheckpoints",
@@ -2589,6 +2590,7 @@
               "labs.agentCustomization",
               "labs.commentThreads",
               "labs.previousBuild",
+              "labs.teamCompute",
               "labs.hostsSidebar",
               "labs.connectionsUpcoming",
               "appearance.experimentalControls",
@@ -2641,7 +2643,8 @@
               "experiments.foldSummaryCounts",
               "experiments.cloudDiskBar",
               "experiments.browserProfileCard",
-              "experiments.appStoreFeatures"
+              "experiments.appStoreFeatures",
+              "experiments.compactionThresholdInsight"
             ],
             "title" : {
               "key" : "settings.group.experiments",
@@ -17827,6 +17830,144 @@
       "title" : {
         "key" : "settings.cloud.newWorkspaceFolder",
         "text" : "New Cloud Workspaces Start In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cloudWorkspaces",
+        "text" : "Cloud Workspaces"
+      },
+      "help" : {
+        "key" : "settings.cloud.useMyGitHubLogin.help",
+        "text" : "Cloud machines use the cmux GitHub App by default. Turn this on to share this Mac’s personal GitHub CLI login with machines you start. To remove a shared login, run cmux github login forget on that machine."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "cloud.useMyGitHubLogin",
+      "keywords" : [
+        "cloud",
+        "github",
+        "gh",
+        "login",
+        "git",
+        "clone",
+        "push",
+        "token",
+        "repository",
+        "sign in",
+        "account"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "cloud",
+        "useMyGitHubLogin"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:cloud.useMyGitHubLogin"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.cloud.useMyGitHubLogin",
+        "text" : "Use My GitHub Login on Cloud Machines"
       },
       "validation" : "portable"
     },
@@ -72676,6 +72817,172 @@
     },
     {
       "accepts" : [
+        "words",
+        "lines",
+        "instant"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.streamingWords",
+            "text" : "Word by Word"
+          },
+          "value" : "words"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.streamingLines",
+            "text" : "Line by Line"
+          },
+          "value" : "lines"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.streamingInstant",
+            "text" : "Instant"
+          },
+          "value" : "instant"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "words",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.streaming.help",
+        "text" : "How an agent's reply text appears as it arrives."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.streaming",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "streaming",
+        "reveal",
+        "fade",
+        "words",
+        "lines",
+        "instant",
+        "animation",
+        "typing"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "streaming"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.streaming"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.streaming",
+        "text" : "Reply Streaming"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "cadenced",
         "continuous"
       ],
@@ -85838,7 +86145,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -130158,6 +130465,143 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.teamCompute.help",
+        "text" : "Show your team's compute allotment and each member's use in Settings > Cloud."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.teamCompute",
+      "keywords" : [
+        "labs",
+        "team",
+        "compute",
+        "allotment",
+        "usage",
+        "cloud",
+        "members",
+        "spend"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "teamCompute"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:labs.teamCompute"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.labs.teamCompute",
+        "text" : "Team Compute"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -136399,6 +136843,140 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.compactionThresholdInsight.help",
+        "text" : "Show when Claude automatically compacted a chat and how to lower the context it carries between turns."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.compactionThresholdInsight",
+      "keywords" : [
+        "usage",
+        "efficiency",
+        "compaction",
+        "context",
+        "tokens"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "compactionThresholdInsight"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.compactionThresholdInsight"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.compactionThresholdInsight",
+        "text" : "Compaction Threshold Insight"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "click",
         "never",
         "always"
@@ -140741,177 +141319,6 @@
       "title" : {
         "key" : "settings.agents.claudeCodeInboxRelay",
         "text" : "Add Message Relay to Claude Code"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "deepseek/deepseek-v4.1-flash-1017",
-        "deepseek/deepseek-v4.1-flash",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.modelRouterDeepSeekV41Flash1017",
-            "text" : "DeepSeek V4.1 Flash 1017 (Images)"
-          },
-          "value" : "deepseek/deepseek-v4.1-flash-1017"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.modelRouterDeepSeekV41Flash",
-            "text" : "DeepSeek V4.1 Flash"
-          },
-          "value" : "deepseek/deepseek-v4.1-flash"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.modelRouterDeepSeekV4Flash",
-            "text" : "DeepSeek V4 Flash"
-          },
-          "value" : "deepseek/deepseek-v4-flash"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.modelRouterDeepSeekV4Pro",
-            "text" : "DeepSeek V4 Pro"
-          },
-          "value" : "deepseek/deepseek-v4-pro"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "deepseek/deepseek-v4.1-flash-1017",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.agentChat",
-        "text" : "Agent Chat"
-      },
-      "help" : {
-        "key" : "settings.agents.modelRouter.model.help",
-        "text" : "The model new cmux model router chats start on."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agents.modelRouter.model",
-      "keywords" : [
-        "model",
-        "router",
-        "cmux router",
-        "deepseek",
-        "vision",
-        "images",
-        "inference",
-        "default model",
-        "new chat"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "agents",
-        "modelRouter",
-        "model"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:agents.modelRouter.model"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.agents.modelRouter.model",
-        "text" : "cmux Model Router Model"
       },
       "validation" : "portable"
     },

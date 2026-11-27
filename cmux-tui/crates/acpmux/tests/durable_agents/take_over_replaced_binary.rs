@@ -40,7 +40,6 @@ async fn a_take_over_after_an_update_keeps_an_agent_at_work_alive_and_attached()
     let session = new_session(&daemon).await;
     // Its turn ends; the background subagent it started runs on.
     prompt(&daemon, &session, "background-subagent").await;
-    eprintln!("DBG first record");
     let record = daemon.host_record(&session);
     let host = record["host_pid"].as_i64().unwrap();
     let harness = record["harness_pid"].as_i64().unwrap();

@@ -347,10 +347,6 @@ impl Daemon {
 
     fn host_record(&self, session: &str) -> Value {
         let path = self.home.join("hosts").join(format!("{session}.json"));
-        if !path.exists() {
-            let ls = |d: &Path| std::fs::read_dir(d).map(|r| r.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect::<Vec<_>>());
-            eprintln!("DBG no host record {}: home {:?} hosts {:?}\nDBG events {:?}\nDBG log {}", path.display(), ls(&self.home), ls(&self.home.join("hosts")), self.events(session), std::fs::read_to_string(self.home.join("daemon.log")).unwrap_or_default());
-        }
         serde_json::from_slice(&std::fs::read(&path).expect("host record")).unwrap()
     }
 }

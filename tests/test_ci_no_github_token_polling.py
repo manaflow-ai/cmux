@@ -136,7 +136,8 @@ ALLOWED: dict[str, str] = {
         'every 10 min: watches its probe job, one jobs read every 15 s for at most CI_CLOUD_PROBE_MINUTES + 5 (7 to 25 min); a candidate for an App token',
     'cmux-next-hot-verify.yml: Dispatch the look':
         'retry only (#45104): a look dispatch that failed for a reason other than a rate limit is tried again, at '
-        'most 3 tries, 30 s doubling; a rate limit moves to the cmux-bot spare pool (gh_budget_wait.sh) at once',
+        'most 3 tries, 30 s doubling; a rate limit moves to the cmux-bot spare pool (gh_budget_wait.sh) at once and '
+        'waits at most 120 s when every pool is spent',
     'ci-macos.yml: Try parallel GitHub artifact transport':
         'retry only: an artifact download is retried after a failure, at most 4 tries, 1-8 s apart',
     'ci-owned-pool-rescue.yml: Watch runs on persistent pools':
@@ -159,6 +160,30 @@ ALLOWED: dict[str, str] = {
         'retry only: base_red_skip.py get_json tries again only after a timeout, a dropped connection or a 429/5xx, 3 tries inside a 90 s deadline',
     'pr-pipeline.yml: Tooling tests red on the base right now?':
         'retry only: base_red_skip.py get_json tries again only after a timeout, a dropped connection or a 429/5xx, 3 tries inside a 90 s deadline',
+    'app-ffi-repin.yml: Start the re-pin workflow when this re-pin failed':
+        'bounded retry: starts the re-pin workflow only while the failed run is current, with a finite retry budget',
+    'app-ffi-release.yml: Start the re-pin workflow when this re-pin failed':
+        'bounded retry: one workflow dispatch, retried after a failure on a 0/60/120/180/180 s backoff (5 tries), as app-ffi-repin.yml',
+    'auto-resume-nightly-notarization.yml: Reject stale continuation before publication':
+        'bounded retry: checks the continuation once per guarded attempt and stops before publication when stale',
+    'cloud-vm-dogfood.yml: Verify the public-installed cmux-tui binary':
+        'bounded retry: verifies the public-installed binary while the dogfood VM is settling, with a finite attempt cap',
+    'cmux-cas-replay.yml: Replay':
+        'bounded retry: replays the CAS item with a finite attempt cap while the external artifact settles',
+    'cmux-next-hot-verify.yml: Dispatch one more look':
+        'bounded retry: dispatches one follow-up verification look with a finite attempt cap',
+    "cmux-next-ios-kit.yml: The build fleet's simulator test build":
+        'fleet polling: waits for the dispatched simulator build with a finite timeout and attempt cap',
+    'cmux-next-pr-pipeline-linux-batch.yml: Tooling tests red on the base right now?':
+        'retry only: base-red inspection retries transient GitHub reads inside its finite 90 s deadline',
+    "cmux-tui-artifacts.yml: Verify the publishing commit's attested manifest":
+        'bounded retry: verifies the attested manifest while publication settles, with a finite attempt cap',
+    "cmux-tui-tree-request.yml: Dispatch cmux-tui artifacts on the pull request's branch":
+        'bounded retry: dispatches and checks the artifact request with a finite attempt cap',
+    'docs-only-fallback.yml: List the workflows that should have started and did not':
+        'bounded retry: checks the expected workflow list with a finite retry budget',
+    'nightly.yml: Ask the push group for the newest head':
+        'bounded retry: asks the push group for its newest head with a finite retry budget',
 }
 
 
