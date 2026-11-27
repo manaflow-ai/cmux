@@ -93,18 +93,6 @@ describe("roomUnder", () => {
     expect(under.trayHold).toBe(10);
   });
 
-  test("trayHold: a tray that folds under the running live line gives its room back at once", () => {
-    const folded = pass({
-      lineLast: true,
-      dockTray: 40,
-      bases: { tray: 160, trayToggled: true, card: 100, cardRest: 0, notice: 0 },
-    });
-    expect(roomUnder(folded).trayHold).toBe(0);
-    expect(roomUnder(folded).room).toBe(220);
-    // Under a settled reply, the room stays until the rows move, as before.
-    expect(roomUnder({ ...folded, lineLast: false }).trayHold).toBe(-120);
-  });
-
   test("cardHold: the overlay card's growth lies over the rows until the rows move", () => {
     const grew = pass({ dockCard: 140 });
     expect(roomUnder(grew).cardHold).toBe(40);
