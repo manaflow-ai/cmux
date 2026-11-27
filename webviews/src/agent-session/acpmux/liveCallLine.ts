@@ -51,6 +51,8 @@ let stamp = 0;
 /// The snapshot the pane last drew (`redraw`).
 let basis: AcpmuxSnapshot | undefined;
 let drawn: Drawn | undefined;
+/// Debug (replay bench RENDERS=1): why `drawn` was last let go.
+let lost = "init";
 let entry: Entry | undefined;
 /// A call went around the pane since it last drew: its rows are older than the client's.
 let ahead = false;
@@ -69,6 +71,7 @@ export const liveCallLine = {
     liveTurnShapes.stamp(stamp);
     basis = next;
     drawn = undefined;
+    lost = "redraw";
     ahead = false;
   },
   /// What draws the client's newest snapshot at once; returns the unregister.
@@ -82,13 +85,13 @@ export const liveCallLine = {
   /// command's output, the usage numbers): the turn's rows move on with it, or the line is told again.
   follow(previous: AcpmuxSnapshot | undefined, next: AcpmuxSnapshot): void {
     if (!drawn) return;
-    if (drawn.basis !== previous) return void (drawn = undefined);
+    if (drawn.basis !== previous) return void ((drawn = undefined), (lost = "follow-basis"));
     if (next.rows === previous.rows) return void (drawn = { ...drawn, basis: next });
     const index = oneRowChangeFrom(next.rows, previous.rows);
     const was = index === undefined ? undefined : previous.rows[index];
     const now = index === undefined ? undefined : next.rows[index];
     const at = was ? drawn.shape.turn.lastIndexOf(was) : -1;
-    if (!was || !now) return void (drawn = undefined);
+    if (!was || !now) return void ((drawn = undefined), (lost = "follow-multi"));
     if (at < 0) {
       // A row not in the turn's rows (an earlier turn's, a held one): the turn is as it was.
       drawn = { ...drawn, basis: next };
@@ -150,6 +153,7 @@ export function drewLiveLine(rows: readonly AcpmuxRow[] | undefined): void {
   if (ahead) {
     if (line && line === entry?.from && (closed ? !drawn?.open : drawn?.open && sameRows(drawn.open, open))) return;
     drawn = undefined;
+    lost = `ahead-flush(${!line ? "noline" : line !== entry?.from ? "line" : "open"})`;
     ahead = false;
     flush?.();
     return;
@@ -172,6 +176,8 @@ export function drewLiveLine(rows: readonly AcpmuxRow[] | undefined): void {
       turnOf(shape.turn, basis.rows)
         ? { shape, line, basis, open }
         : undefined;
+    if (!drawn)
+      lost = `open:${!line ? "noline" : !basis ? "nobasis" : !shape ? "noshape" : shape.stamp !== stamp ? "stamp" : !drewShaped(shape.shaped, open) ? `drewShaped/${shapedMiss(shape.shaped, open)}` : "turnOf"}`;
     return;
   }
   // The transcript draws the line `steadyRows` kept (turns.ts): an equal line drawn before stands
@@ -186,6 +192,7 @@ export function drewLiveLine(rows: readonly AcpmuxRow[] | undefined): void {
     turnOf(shape.turn, basis.rows)
       ? { shape, line, basis }
       : undefined;
+  if (!drawn) lost = `closed:${!line ? "noline" : !closed ? "notclosed" : "other"}`;
 }
 
 /// The running turn's rows `rows` holds (back to its prompt), by id.
@@ -217,11 +224,25 @@ function drewShaped(shaped: readonly AcpmuxRow[], open: ReadonlyMap<string, Acpm
   return count === open.size;
 }
 
+/// Debug (replay bench RENDERS=1): where `drewShaped` failed.
+function shapedMiss(shaped: readonly AcpmuxRow[], open: ReadonlyMap<string, AcpmuxRow>): string {
+  let count = 0;
+  for (const row of shaped) {
+    if (row.kind === "user") continue;
+    const drew = open.get(row.id);
+    if (!drew) return `absent:${row.kind}${row.id === LIVE_THINKING ? "(line)" : ""}`;
+    if (!sameShape(drew, row, COMPARE_DEPTH)) return `differs:${row.kind}`;
+    count += 1;
+  }
+  return `count:${count}/${open.size}`;
+}
+
 /// A row of the open turn drew `row`: while calls are ahead of the pane, a row they moved that is not
 /// the one they moved on from draws the pane's older state, so the pane draws the newest at once.
 function drewOpenRow(row: AcpmuxRow): void {
   if (!ahead || !openIds.has(row.id) || openEntries.has(row)) return;
   drawn = undefined;
+  lost = "openrow-flush";
   ahead = false;
   flush?.();
 }
@@ -231,6 +252,7 @@ function drewOpenRow(row: AcpmuxRow): void {
 function drewLineRow(row: AcpmuxRow): void {
   if (!ahead || row === entry?.from) return;
   drawn = undefined;
+  lost = "linerow-flush";
   ahead = false;
   flush?.();
 }
@@ -306,7 +328,7 @@ export function callOnly(
   next: AcpmuxSnapshot,
   followed = false,
 ): { line: AcpmuxRow; rows: readonly (readonly [AcpmuxRow, AcpmuxRow])[] } | undefined {
-  if (!drawn) return missed(`nodrawn(${closedNow() ? "closed" : "open"})`);
+  if (!drawn) return missed(`nodrawn(${closedNow() ? "closed" : "open"}:${lost})`);
   if (drawn.open && !followed) return missed("open/unfollowed");
   if (drawn.basis !== previous) return missed("basis");
   const index = oneRowChangeFrom(next.rows, previous.rows);
