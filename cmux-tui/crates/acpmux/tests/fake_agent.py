@@ -389,6 +389,18 @@ def is_attribution(block):
 # `<cmux-card-context>`: the "where you are" card (agent_card.rs), hidden context like the rest.
 GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>",
                  "<cmux-card-context>")
+# The files acpmux prefetched into the prompt (`hub/prefetch.rs`): hidden unless FAKE_ECHO_PREFETCH=1.
+PREFETCH_TAG = "<cmux-prefetch-context>"
+# Blocks the agent must read, so the fake agent echoes them and their tests read the echo:
+# a side question's chat (btw.rs), the forum's rules (forum.rs, the `gate:` path), the app's
+# workspace note and @-tool notes (prompt_context.rs), a message's attachments.
+ECHOED_CONTEXT_TAGS = ("<cmux-btw-context>", "<cmux-rules-context>", "<cmux-workspace-context>",
+                       "<cmux-tools-context>", "<cmux-attachments-context>")
+# Hidden context the fake agent still echoes, and no test reads in an echo: this list only
+# shrinks. Move a tag to GUIDANCE_TAGS (and its source to is_cmux_guidance) or, once a test
+# reads it, to ECHOED_CONTEXT_TAGS. tests/fake_agent_context_tags.rs checks every tag acpmux
+# emits is in one of these four.
+NOT_YET_HIDDEN_CONTEXT_TAGS = ("<cmux-folder-context>", "<cmux-left-on-mac-context>")
 
 
 def guidance_text(text):
@@ -402,7 +414,7 @@ def is_cmux_guidance(block):
         return False
     # The files acpmux prefetched into the prompt (`hub/prefetch.rs`): left out of fixture
     # commands and echoes unless FAKE_ECHO_PREFETCH=1.
-    if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
+    if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith(PREFETCH_TAG):
         return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
     if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card"}:

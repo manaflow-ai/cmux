@@ -333,3 +333,73 @@ fn a_fork_keeps_the_rules_only_when_cut_after_the_turn_that_carried_them() {
     meta.cmux_rules_seq = None;
     assert!(fork_keeps_rules(meta.cmux_rules_in_transcript, meta.cmux_rules_seq, 0));
 }
+
+/// Every hidden `<cmux-X-context>` block acpmux sends is one the test agent knows what to do
+/// with. A tag the fake agent does not know reaches its fixture commands and echoes: #56020's
+/// "where you are" card turned 10 session-move matrix cells red (cmux#61028). The tags are the
+/// literals under `src/`, the `"cmux-X-context"` names (btw.rs, forum.rs), and every
+/// `…SOURCE: &str = "cmux-X"` part [`override_block`] wraps as `<cmux-X-context>`.
+#[test]
+fn every_hidden_context_tag_is_one_the_fake_agent_hides_or_echoes() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let literal = regex::Regex::new(r"<cmux-([a-z][a-z-]*?)-context>").unwrap();
+    let named = regex::Regex::new(r#""cmux-([a-z][a-z-]*?)-context""#).unwrap();
+    let source = regex::Regex::new(r#"SOURCE: &str = "cmux-([a-z][a-z-]*)";"#).unwrap();
+    let mut emitted = std::collections::BTreeMap::<String, String>::new();
+    let mut dirs = vec![root.join("src")];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(path);
+                continue;
+            }
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if !name.ends_with(".rs") || name.ends_with("_tests.rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            let rel = path.strip_prefix(root).unwrap().display().to_string();
+            for re in [&literal, &named, &source] {
+                for cap in re.captures_iter(&text) {
+                    emitted
+                        .entry(format!("<cmux-{}-context>", &cap[1]))
+                        .or_insert_with(|| rel.clone());
+                }
+            }
+        }
+    }
+    for known in ["<cmux-card-context>", "<cmux-btw-context>", "<cmux-folder-context>"] {
+        assert!(emitted.contains_key(known), "the scan lost {known}: {emitted:?}");
+    }
+    let fake = std::fs::read_to_string(root.join("tests/fake_agent.py")).unwrap();
+    let set = |name: &str| -> Vec<String> {
+        let start = fake
+            .find(&format!("\n{name} = "))
+            .unwrap_or_else(|| panic!("tests/fake_agent.py has no {name}"));
+        let rest = &fake[start + name.len() + 4..];
+        let end = if rest.trim_start().starts_with('(') {
+            rest.find(')').unwrap()
+        } else {
+            rest.find('\n').unwrap()
+        };
+        literal.find_iter(&rest[..end]).map(|m| m.as_str().to_owned()).collect()
+    };
+    let known: Vec<String> =
+        ["GUIDANCE_TAGS", "PREFETCH_TAG", "ECHOED_CONTEXT_TAGS", "NOT_YET_HIDDEN_CONTEXT_TAGS"]
+            .into_iter()
+            .flat_map(set)
+            .collect();
+    let unknown: Vec<String> = emitted
+        .iter()
+        .filter(|(tag, _)| !known.contains(tag))
+        .map(|(tag, file)| format!("{tag} (from {file})"))
+        .collect();
+    assert!(
+        unknown.is_empty(),
+        "acpmux sends hidden context the fake agent does not know: {unknown:?}. Add each to \
+         cmux-tui/crates/acpmux/tests/fake_agent.py: GUIDANCE_TAGS (and its source to \
+         is_cmux_guidance) when fixtures must not see it, or ECHOED_CONTEXT_TAGS when a test reads \
+         it in the echo"
+    );
+}
