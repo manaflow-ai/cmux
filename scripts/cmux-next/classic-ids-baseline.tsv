@@ -63,7 +63,6 @@ cmux-tui/crates/acpmux/src/codex_auth_file.rs	.config/cmux/	1	move	lane A: Class
 cmux-tui/crates/acpmux/src/codex_cloud_auth.rs	.config/cmux"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/computer_use/daemon_socket.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/daemon/app_orphan.rs	com.cmuxterm.appx	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/acpmux/src/hub/route_switch.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/hub/stale_host_respawn.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/hub/turn_shots.rs	join("cmux")	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/login_env.rs	.config/cmux/	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
@@ -87,7 +86,6 @@ cmux-tui/crates/cmux-classic-import/src/ghostty.rs	join("cmux")	1	keep	the Class
 cmux-tui/crates/cmux-classic-import/src/source.rs	.local/state/cmux"	2	keep	the Classic importer's own reads
 cmux-tui/crates/cmux-classic-import/src/source.rs	com.cmuxterm.app"	1	keep	the Classic importer's own reads
 cmux-tui/crates/cmux-classic-import/src/source.rs	join("cmux")	2	keep	the Classic importer's own reads
-cmux-tui/crates/cmux-cloud-config/src/auth.rs	.config/cmux/	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-cloud-environment/src/client_config.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-computer-use/src/platform/linux/mod.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-config/src/managed/mod.rs	com.cmuxterm.app"	1	keep	MDM forced prefs from the legacy domain
@@ -124,18 +122,14 @@ cmux-tui/crates/cmux-tui/src/cli/app/try_cmd.rs	join("cmux")	1	move	lane A: Clas
 cmux-tui/crates/cmux-tui/src/cli/app/try_cmd/app_build.rs	join("cmux")	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/app/try_cmd/daemon_updates.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/app/try_cmd/live.rs	join("cmux")	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/cmux-tui/src/cli/app/try_cmd/share.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/app/version.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/chat_start/local_repo.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/cmux-tui/src/cli/ext/dev.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/ext/source.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/inference_setup.rs	.cache/cmux/	7	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/inference_setup.rs	.cache/cmux\	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/inference_setup.rs	.config/cmux/	3	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/mcp/transport.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/cli/mcp/upstream_listing.rs	join("cmux")	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/cmux-tui/src/cli/theme_file.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/cmux-tui/src/localization/app_control.rs	.config/cmux/	4	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/localization/remote_client.rs	/tmp/cmux-debug-<tag>.sock	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/machine_identity.rs	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui/src/plugin_manager.rs	join("cmux")	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
@@ -252,7 +246,6 @@ scripts/cmux-next/clickthrough-live.py	join(XDG, "cmux")	1	move	lane A: harness 
 scripts/cmux-next/clipboard-read-live-check.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/close-question-click-live.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/close-toast-live.py	/tmp/cmux-debug-%s.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
-scripts/cmux-next/cloud-chat-matrix.py	.config/cmux/	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
 scripts/cmux-next/cloud-chat-matrix.py	/tmp/cmux-debug-{args.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/cloud-chat-proof.py	/tmp/cmux-debug-{args.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/cloud-chief-check.ts	.config/cmux 	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
@@ -279,7 +272,6 @@ scripts/cmux-next/downloads-live.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev h
 scripts/cmux-next/downloads-relaunch-live.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/drag-lag-live.py	/tmp/cmux-debug-{TAG}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/error-pages-live.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
-scripts/cmux-next/every-action-sweep.py	.config/cmux/	2	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
 scripts/cmux-next/every-action-sweep.py	.local/state/cmux/	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
 scripts/cmux-next/every-action-sweep.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/evicted-terminal-frame-live.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
@@ -343,7 +335,6 @@ scripts/cmux-next/legacy-session-adopt-live.py	.local/state/cmux/	2	move	lane A:
 scripts/cmux-next/legacy-session-adopt-live.py	/tmp/cmux-staging.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/link-app-ensure-gui.py	/tmp/cmux-debug-{TAG}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/link-routing-live.py	/tmp/cmux-debug-%s.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
-scripts/cmux-next/live-apply.py	.config/cmux/	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
 scripts/cmux-next/mac-screen-live.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/mac-screen-rd-rig/mini.py	/tmp/cmux-debug-{tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/malloc-zone-race/run.sh	Library/Caches/cmux/	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
@@ -380,7 +371,6 @@ scripts/cmux-next/perceived-speed-slot.sh	.local/state/cmux"	1	move	lane A: harn
 scripts/cmux-next/perceived-speed-slot.sh	/tmp/cmux-debug-$btag-capslot$slot.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/perceived-speed.py	.local/state/cmux/	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
 scripts/cmux-next/perf-gate.py	/tmp/cmux-debug-{self.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
-scripts/cmux-next/perf-stress-session.py	.config/cmux/	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
 scripts/cmux-next/perf-stress-session.py	/tmp/cmux-debug-<tag>.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/permission-prompts-live.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/phone-simulator-live.py	/tmp/cmux-debug-{opts.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
@@ -468,12 +458,6 @@ webviews/src/pages/settings/mockDoctor.ts	.config/cmux/	8	move	lane A: Classic-n
 webviews/src/pages/settings/mockDoctor.ts	.local/state/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 webviews/src/pages/settings/mockProvider.ts	.config/cmux/	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 webviews/src/pages/settings/settings.gallery.ts	.config/cmux/	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitchTarget.swift	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/cmux-agent-pane-policy/src/build_identity.rs	.local/state/cmux"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
-cmux-tui/crates/cmux-cloud-config/src/handoff.rs	com.cmuxterm.app"	2	keep	reviewed: recognizes and names every cmux app bundle id (Classic included) for handoff, not a state root
-scripts/cmux-next/cloud-journey.ts	join(bin, "cmux")	1	keep	harness: puts the cmux CLI on PATH under its command name, not a state root
-scripts/cmux-next/codex-login-hang.py	com.cmuxterm.app*	1	keep	harness: collects hang reports every cmux build writes, Classic ids included
-scripts/cmux-next/quit-leaves-no-helpers-live.py	/tmp/cmux-debug-{tag}.sock	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
 cmux-tui/crates/cmux-cloud-environment/src/lib.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-computer-use/src/policy.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/cmux-tui-core/src/computer_use_host/macos.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
@@ -484,3 +468,12 @@ cmux-tui/crates/acpmux/src/login_env.rs	.config/cmux"	1	move	lane A: Classic-nam
 cmux-tui/crates/acpmux/src/claude_cloud_auth.rs	.config/cmux/	2	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/codex_cloud_auth.rs	.config/cmux/	4	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
 cmux-tui/crates/acpmux/src/daemon/app_orphan.rs	com.cmuxterm.app"	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitchTarget.swift	com.cmuxterm.app"	1	keep	the channel switcher names the stable Classic bundle id as a switch target; no read or write under it
+cmux-tui/crates/cmux-agent-pane-policy/src/build_identity.rs	.local/state/cmux"	1	keep	read-only fallback that reaches a NEXT app from before the socket move (SOCKET_STATE_DIR_BEFORE); never written
+cmux-tui/crates/cmux-cloud-config/src/handoff.rs	com.cmuxterm.app"	2	keep	names Classic's bundle id to recognize it as a cmux app for handoff; no read or write under it
+scripts/cmux-next/cloud-journey.ts	join(bin, "cmux")	1	keep	harness: links the CLI as `cmux` in a temp PATH folder
+scripts/cmux-next/codex-login-hang.py	com.cmuxterm.app*	1	keep	harness: copies hang reports out of the logs folder
+scripts/cmux-next/every-action-sweep.py	.config/cmux/	1	move	lane A: harness assumes the shared state root; changes with the roots (lane/next-own-state-roots)
+scripts/cmux-next/quit-leaves-no-helpers-live.py	/tmp/cmux-debug-{tag}.sock	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+scripts/cmux-next/terminal-scroll-integrity-live.py	/tmp/cmux-debug-{args.tag}.sock	1	move	lane A: Classic-named root, socket or id in a resolver or writer (lane/next-own-state-roots)
+cmux-tui/crates/cmux-computer-use/src/platform/macos/roles.rs	com.cmuxterm.app"	1	keep	computer use: matches any cmux build's bundle id as a Chromium embedder to read its UI tree; names no path, writes nothing

@@ -48,7 +48,6 @@ import {
   restRoom,
   rowFrameKey,
   SINCE_DIVIDER,
-  layoutGeometry,
 } from "./model";
 import { RowFrameCache } from "./conversation/rowFrameCache";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
@@ -2233,6 +2232,8 @@ function TranscriptView({
   if (sessionChanged) olderRows.clear();
   /// The room above the rows for history not loaded yet, and the row it is held against.
   const olderRoom = useRef<OlderReserve | undefined>(undefined);
+  /// The room under the view's top that keeps a short first page at the view's foot (the placement pass).
+  const footRoom = useRef(0);
   const olderDragPending = useRef(false);
   const [scrollbarRange, setScrollbarRange] = useState<{ session: string; height: number } | undefined>(undefined);
   const draggedHeight = scrollbarRange?.session === sessionKey ? scrollbarRange.height : undefined;
@@ -3905,7 +3906,16 @@ function TranscriptView({
             : undefined,
         });
     olderRoom.current = reserved.state;
-    const layout = placedWithOrigin(placed, reserved.reserve);
+    // A first page shorter than the view, with older history still to load, sits at the view's foot
+    // from its first paint, where the view pinned to the end puts it once the older room arrives:
+    // drawn from the top, every visible row dropped by the slack when the room came (22 px in
+    // chat-open-breakpoint-harness; Leo, 2026-11-12: nothing visible moves after the first paint).
+    // A chat with nothing older (a new chat) keeps its rows at the top.
+    const rowsHeight = placed.totalHeight - placedOrigin;
+    const footFill = canLoadOlder && height > 0 ? Math.max(0, height - rowsHeight) : 0;
+    // Only the part over the held room is the foot's: `giveRoomNearTop` never gives it up.
+    footRoom.current = Math.max(0, footFill - reserved.reserve);
+    const layout = placedWithOrigin(placed, Math.max(reserved.reserve, footFill));
     lastPlaced.current = {
       rows,
       drawn,
@@ -3935,6 +3945,7 @@ function TranscriptView({
     attachmentView,
     scaledRowWidth,
     canLoadOlder,
+    height,
     earlier,
     promptCount,
     roomGone,
@@ -5850,7 +5861,8 @@ function TranscriptView({
   /// infinitely :("; test/transcript-older-pages-anchor.test.ts).
   const giveRoomNearTop = () => {
     const node = ref.current;
-    const room = layout.origin ?? 0;
+    // Room that only keeps a short first page at the view's foot is no history to give up.
+    const room = footRoom.current > 0.5 ? 0 : (layout.origin ?? 0);
     const first = rows[0];
     if (!node || !first || !canLoadOlder || room <= 0.5 || !didOpenAtLatest.current || node.clientHeight === 0) return;
     if (userScrollIntent(node).isScrollbarDragging()) return;
@@ -7571,6 +7583,7 @@ function TranscriptView({
     earlier,
     canLoadNewer,
     canLoadOlder,
+    footRoom: footRoom.current,
     loading,
     later,
     promptCount,
