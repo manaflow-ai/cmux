@@ -2276,6 +2276,7 @@ class IosJobTest(unittest.TestCase):
         paths = [f"{pkg}/{leaf}" for pkg in packages for leaf in ("Cargo.toml", "src/lib.rs")]
         paths += [f"{root}/{name}" for root in roots for name in ("Cargo.toml", "Cargo.lock")]
         paths += ["cmux-tui/.cargo/config.toml", "cmux-next-ios/rust/.cargo/config.toml",
+                  "cmux-next-ios/rust/rust-toolchain.toml",
                   ".cargo/config.toml", "cmux-tui/rust-toolchain.toml", "ci/steps.toml",
                   "scripts/ci/ios_link_ffi_key.py", "tests/test_ci_step_table.py",
                   "cmux-next-ios/rust/crates/cmux-mobile-host/tests/support/pairing_paths.rs"]

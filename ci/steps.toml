@@ -3517,6 +3517,7 @@ inputs = [
   "cmux-next-ios/rust/crates/cmux-mobile-host/**",
   "cmux-next-ios/rust/crates/cmux-mobile-link/**",
   "cmux-next-ios/rust/Cargo.*",
+  "cmux-next-ios/rust/rust-toolchain.toml",
   "cmux-next-ios/rust/.cargo/**",
   "cmux-tui/Cargo.toml",
   "cmux-tui/Cargo.lock",
