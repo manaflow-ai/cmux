@@ -61,6 +61,9 @@ on:
         value: ${{ jobs.ios-fast-runner.outputs.run }}
       ios_fast_summary:
         value: ${{ jobs.ios-fast-runner.outputs.summary }}
+      # false when the plan builds only to test the fast verdict's own files: no ios-flows proof applies.
+      ios_fast_proof:
+        value: ${{ jobs.ios-fast-runner.outputs.proof }}
       ios_fast_verdict:
         value: ${{ jobs.ios-fast.outputs.verdict }}
     secrets:
@@ -789,6 +792,7 @@ jobs:
     outputs:
       run: ${{ steps.plan.outputs.run }}
       plan: ${{ steps.plan.outputs.plan }}
+      proof: ${{ steps.plan.outputs.proof }}
       summary: ${{ steps.plan.outputs.summary }}
       runs_on: ${{ steps.pool.outputs.runs_on }}
       retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
