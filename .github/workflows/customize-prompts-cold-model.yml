@@ -60,6 +60,14 @@ jobs:
             --attest-signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-artifacts.yml"
           echo "$bundle/Contents/Resources/bin" >> "$GITHUB_PATH"
           "$bundle/Contents/Resources/bin/cmux" customize prompts >/dev/null
+      - name: Verify the command prompts against the installed client and app host
+        env:
+          CMUX_TEST_PROMPT_CLI: "1"
+        run: |
+          command -v cmux-app-host
+          python3 tests/test_ext_prompt_checks.py
+          python3 tests/test_ext_prompt_composer.py
+          python3 tests/test_ext_prompt_palette.py
       - name: Install Claude Code
         run: npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284
       - name: Paste every prompt into a cold agent
