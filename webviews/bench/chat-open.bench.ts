@@ -366,6 +366,11 @@ try {
     });
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
+    const consoleErrors: string[] = [];
+    page.on("console", (message) => {
+      if ((message.type() === "error" || message.type() === "warning") && consoleErrors.length < 30)
+        consoleErrors.push(message.text().slice(0, 1000));
+    });
     await page.addInitScript((rail) => {
       localStorage.setItem("cmux.experiments", JSON.stringify({ "thread-minimap-layout": rail }));
     }, rail);
@@ -748,6 +753,10 @@ try {
           const scroll = document.querySelector(".acpmux-scroll");
           return {
             expectedRow,
+            url: location.href,
+            body: document.body.innerText.slice(0, 3000),
+            hostHandlers: Object.keys(window.webkit?.messageHandlers ?? {}),
+            parked: (window as unknown as { __cmuxPageParked?: unknown }).__cmuxPageParked,
             now: performance.now(),
             open: state.__open,
             remote: state.__remoteTail,
@@ -760,7 +769,10 @@ try {
           };
         }, LATEST_ROW)
         .catch((cause) => ({ evaluationError: String(cause) }));
-      console.error("chat-open failed", JSON.stringify({ diagnostic, pageErrors, calls }));
+      console.error(
+        "chat-open failed",
+        JSON.stringify({ diagnostic, pageErrors, consoleErrors, socketOpenedAt, calls }),
+      );
       throw error;
     }
     const got = await page.evaluate(() => {
