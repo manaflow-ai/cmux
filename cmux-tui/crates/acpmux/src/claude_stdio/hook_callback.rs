@@ -203,7 +203,10 @@ pub(super) async fn bounded_sync_answer(
         }
         Some(Err(error)) => denial(&error.to_string()),
         None => {
-            tracing::warn!(?hard, "repo-sync hook: the readiness check passed its bound; the tool is denied");
+            tracing::warn!(
+                ?hard,
+                "repo-sync hook: the readiness check passed its bound; the tool is denied"
+            );
             denial("it did not finish inside the hook's timeout")
         }
     }
