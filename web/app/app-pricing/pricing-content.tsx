@@ -410,8 +410,18 @@ export function AppPricingContent({
         style={appPricingStyle(theme)}
       >
         <div className="mx-auto w-full max-w-6xl">
-          {personalization?.banner ??
-            (banner ? <BillingBanner banner={banner} /> : null)}
+          <div className="mb-8 grid">
+            {/* Account state can resolve after the cards paint. Size the slot
+                with the signed-out notice at the actual viewport width. */}
+            <div
+              aria-hidden="true"
+              className={`invisible pointer-events-none ${billingBannerClassName}`}
+            >
+              {pricing.signedOutNotice} {pricing.signedOutSignIn}
+            </div>
+            {personalization?.banner ??
+              (banner ? <BillingBanner banner={banner} /> : null)}
+          </div>
 
           <>
             <h1 className="text-2xl font-medium tracking-tight">
@@ -655,11 +665,14 @@ function pricingMessage(
   });
 }
 
+const billingBannerClassName =
+  "col-start-1 row-start-1 border border-border bg-code-bg px-4 py-3 text-sm";
+
 function BillingBanner({ banner }: { banner: BillingBannerModel }) {
   return (
     <div
       role="status"
-      className="mb-8 border border-border bg-code-bg px-4 py-3 text-sm"
+      className={billingBannerClassName}
     >
       {banner.message}
       {banner.action ? (
