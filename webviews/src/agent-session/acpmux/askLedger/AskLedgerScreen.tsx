@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { intl } from "../../../ui/intl";
 import { useT } from "../i18n";
 import "./askLedger.css";
 
@@ -13,15 +14,15 @@ type AskLedgerEntry = {
 };
 
 function formatTime(createdAt: number): string {
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(createdAt);
+  return intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(createdAt);
 }
 
 export function AskLedgerScreen({ load }: { load(): Promise<unknown> }) {
   const t = useT();
   const [entries, setEntries] = useState<AskLedgerEntry[]>();
   const [failed, setFailed] = useState(false);
+  // The page loads once, on mount, with the loader it mounted with.
   const loadRef = useRef(load);
-  loadRef.current = load;
   useEffect(() => {
     let active = true;
     void loadRef.current().then(
