@@ -386,9 +386,6 @@
   "required-checks-drift.yml": {
    "reconcile": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
   },
-  "risk-tier-tests.yml": {
-   "tests": "below break-even: no run on the last 52 merged PRs, so reuse saves nothing a receipt write would pay for"
-  },
   "rust-workspaces.yml": {
    "receipt": "its outputs feed later jobs; a skipped run leaves them empty; needed by plan, summary: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.pull_request.base.sha, github.event.pull_request.body, github.event.pull_request.head.sha), not only the tree; checks out ${{ github.event.pull_request.base.sha }}, not the run's commit",
    "plan": "its outputs feed later jobs; a skipped run leaves them empty; needed by summary, workspace: a skip would skip them or read as no verdict; reads pull request metadata or the base (github.event.before), not only the tree",

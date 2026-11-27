@@ -620,7 +620,8 @@ exit "$rc"
 
 # Checks that run bun or node, each of which had a workflow, a runner and a checkout of its own (app-platform.yml,
 # ci-artifact-transport.yml, cloud-vm-image-lock.yml, mux.yml, automation-bench.yml). Those workflows keep their
-# push and dispatch runs; a pull request runs them here. `inputs` is each one's former pull_request path filter.
+# push and dispatch runs where needed; automation-bench and cloud-vm-image-lock now live only here.
+# `inputs` is each one's former pull_request path filter.
 [step.app-platform]
 job = "linux"
 timeout = 300
@@ -3088,7 +3089,7 @@ cargo test -p cmux-config --locked --test published_keys cmux_next_
 # the shared wave bound. helm-chart.yml (helm, which no tool supplies, on an ephemeral runner for untrusted chart
 # input) and cloud-vm-guest-install.yml (a Postgres service container) stay in their workflows.
 
-# risk-tier-tests.yml ran on pull requests into feat-cmux-next only; it now runs on dispatch alone.
+# The risk-tier-tests dispatch wrapper is retired; this step is the single test entry point.
 # 6 s on an 8-CPU lane machine; the job's bound was 5 min.
 [step.risk-tier-tests]
 job = "linux"
@@ -3100,7 +3101,6 @@ inputs = [
   "tests/test_risk_tier.py",
   "tests/git_fixture_env.py",
   "tests/fleet_test_host.py",
-  ".github/workflows/risk-tier-tests.yml",
 ]
 run = '''
 python3 tests/test_risk_tier.py -v

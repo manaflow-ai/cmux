@@ -25,10 +25,10 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 DISPATCH_ONLY = {"workflow_dispatch", "workflow_call"}
 
 REGISTERED = frozenset({
-    "acpmux-sim-sweep.yml", "auto-journey.yml", "automation-bench.yml", "billing-e2e.yml", "billing-nightly.yml",
+    "acpmux-sim-sweep.yml", "auto-journey.yml", "billing-e2e.yml", "billing-nightly.yml",
     "build-ghosttykit.yml", "ci-artifact-canary.yml", "cloud-capture-provision.yml", "cloud-chat-proof.yml",
     "cloud-composer-journey.yml", "cloud-rd-link-readback.yml", "cloud-vm-dogfood.yml", "cloud-vm-image-bake.yml",
-    "cloud-vm-image-lock.yml", "cloud-vm-image-promote.yml", "cloud-vm-migrate.yml", "cmux-actions.yml",
+    "cloud-vm-image-promote.yml", "cloud-vm-migrate.yml", "cmux-actions.yml",
     "cmux-api-prod-logs.yml", "cmux-next-daemon-macos-shadow.yml", "cmux-next-dev-daily.yml",
     "cmux-next-fast-gates.yml", "cmux-next-frame-pacing.yml", "cmux-next-notices.yml", "cmux-next-perf-bench.yml",
     "cmux-next-perf-budgets.yml", "cmux-next-tip-test-compile.yml", "cmux-next-web-bundles.yml",

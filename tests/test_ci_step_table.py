@@ -1158,7 +1158,8 @@ class PipelineTest(unittest.TestCase):
 
     def test_the_replaced_workflows_are_gone(self) -> None:
         for name in ("indexnow-tests.yml", "vendored-agent-cursor.yml", "r2-upload-tests.yml",
-                     "cmux-skill-contract.yml", "ci-cache-receipts.yml"):
+                     "cmux-skill-contract.yml", "ci-cache-receipts.yml", "automation-bench.yml",
+                     "cloud-vm-image-lock.yml", "risk-tier-tests.yml"):
             self.assertFalse((ROOT / ".github/workflows" / name).exists(), f"{name}: the step table runs it")
 
     def test_the_moved_pull_request_triggers_are_gone(self) -> None:
