@@ -39,7 +39,7 @@
 //! machine signs in through the vendor's own flow on that machine.
 
 use std::future::Future;
-use std::io::{BufRead, IsTerminal as _, Write};
+use std::io::{IsTerminal as _, Write};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
