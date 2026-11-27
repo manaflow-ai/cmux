@@ -211,6 +211,7 @@ on:
       - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
       - "Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/include/cmux_screen_kit.h"
+      - "schemas/sidebar-region-layout/vectors.json"
       - "schemas/settings/source/notifications.json"
       - "schemas/settings/source/page-layout.json"
       - "docs/mdm/cmux-example.mobileconfig"
@@ -414,6 +415,7 @@ on:
       - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
       - "Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/include/cmux_screen_kit.h"
+      - "schemas/sidebar-region-layout/vectors.json"
       - "schemas/settings/source/notifications.json"
       - "schemas/settings/source/page-layout.json"
       - "docs/mdm/cmux-example.mobileconfig"
@@ -815,6 +817,7 @@ jobs:
             -p cmux-sidebar \
             --all-targets \
             --locked \
+            --keep-going \
             -- -D warnings
           # Embedders such as Chromium build without sha2 (socket-path-hash).
           cargo test -p cmux-sdk --all-targets --locked --no-default-features

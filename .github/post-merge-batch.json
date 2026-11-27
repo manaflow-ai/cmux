@@ -634,6 +634,7 @@
         "schemas/sidebar-hover-card-rules/vectors.json",
         "schemas/sidebar-item-info/vectors.json",
         "schemas/sidebar-drag-geometry/vectors.json",
+        "schemas/sidebar-region-layout/vectors.json",
         "backend/catalog/cloud-relay-operations.json",
         "Packages/Shared/CmuxScreenKit/Sources/CCmuxScreenKit/include/cmux_screen_kit.h",
         "schemas/settings/source/notifications.json",
