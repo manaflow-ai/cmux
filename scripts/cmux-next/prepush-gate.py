@@ -507,6 +507,15 @@ SIDEBAR_NOTE = "plans/cmux-next/sidebar-owner.md"
 SIDEBAR_ENTRIES = "plans/cmux-next/sidebar-owner/"
 SIDEBAR_TRAILER = re.compile(r"^Sidebar-Look:[ \t]*(\S.*)$", re.MULTILINE)
 SIDEBAR_NO_VISUAL = re.compile(r"^no visual change\b", re.IGNORECASE)
+# A new kind of sidebar row (a case added to `SidebarRowKey`, or to a fold's `SidebarDoneFoldID.Kind`) needs words in the
+# Sidebar-Look quote that name it. #49506 added an "Automatic (N)" fold row, shown by default, under a Leo quote
+# that asked for fewer sessions in the sidebar and named no row (Leo 2026-11-27: "what the hell is automatic!? ...
+# WE NEED TO NOT HAVE THOSE THINGS MERGE"); #55721 removed it. The file -> the enum whose cases are row kinds.
+SIDEBAR_ROW_KINDS = {f"{SIDEBAR_CODE}Logic/SidebarRow.swift": "SidebarRowKey",
+                     f"{SIDEBAR_CODE}Logic/SidebarLayout+DoneFold.swift": "Kind"}
+SIDEBAR_QUOTED = re.compile(r"[\"“]([^\"“”]{3,})[\"”]")
+# Words of a case name that say nothing about which row it is.
+SIDEBAR_KIND_GENERIC = frozenset(("fold", "row", "rows"))
 # The chrome layer (sidebar, footer, titlebar) keeps its colour unless Leo asks (#39984 laid a 20% black dim on the
 # sidebar for a non-Leo issue; Leo 2026-11-11: "bro why is the sidebar now a different color?", reverted by #41047).
 # ChromeLayerColorTests holds the colours each region paints in the default dark and light themes, plain and over a
@@ -3573,7 +3582,59 @@ def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | Non
               and not any(f.startswith(SIDEBAR_ENTRIES) for f in files)):
             found.append((sha, f"{where}: a visual change (`Sidebar-Look: {trailer.group(1).strip()[:60]}`) must add its "
                                f"entry under {SIDEBAR_ENTRIES} in the same commit: the target look and the commit log."))
+        for kind in sidebar_new_row_kinds(repo, sha, files):
+            if not row_kind_named(kind, SIDEBAR_TRAILER.findall(message)):
+                found.append((sha, f"{sha[:11]} {subject[:70]}: adds a new kind of sidebar row (`{kind}`) with no "
+                                   "`Sidebar-Look:` quote that names it. A new row ships only when someone asked for "
+                                   "that row: quote their words naming it (`Sidebar-Look: Leo <date> \"<his words>\"`), "
+                                   f"or leave {', '.join(sorted(SIDEBAR_ROW_KINDS.values()))} as they are."))
     return found
+
+
+def enum_cases(text: str, name: str) -> set[str]:
+    """The case names of enum NAME in Swift TEXT (its own level only, not a nested type's)."""
+    lines = text.split("\n")
+    start = next((i for i, line in enumerate(lines) if re.search(rf"\benum\s+{re.escape(name)}\b", line)), None)
+    if start is None:
+        return set()
+    cases: set[str] = set()
+    depth, opened = 0, False
+    for line in lines[start:]:
+        code = line.split("//", 1)[0]
+        if depth == 1 and (m := re.match(r"\s*case\s+(.+)", code)):
+            # `case a, b(X)` and `case a(Y, Z)`: drop payloads, then split on commas.
+            names = re.sub(r"\([^()]*\)", "", m.group(1))
+            cases.update(n.strip().split("=")[0].strip() for n in names.split(",") if n.strip())
+        depth += code.count("{") - code.count("}")
+        opened = opened or "{" in code
+        if opened and depth <= 0:
+            break
+    return {c for c in cases if re.fullmatch(r"[A-Za-z_]\w*", c)}
+
+
+def sidebar_new_row_kinds(repo: Path, sha: str, files: list[str]) -> list[str]:
+    """Row kinds commit SHA adds: cases of a SIDEBAR_ROW_KINDS enum at SHA that its first parent lacks."""
+    added: list[str] = []
+    for path, name in sorted(SIDEBAR_ROW_KINDS.items()):
+        if path not in files:
+            continue
+        head = git(repo, "show", f"{sha}:{path}", check=False).decode(errors="replace")
+        base = git(repo, "show", f"{sha}^:{path}", check=False).decode(errors="replace")
+        before = enum_cases(base, name)
+        # A commit that makes the enum (or moves it here) adds no row: its cases were rows before it.
+        if before:
+            added += sorted(enum_cases(head, name) - before)
+    return added
+
+
+def row_kind_named(kind: str, trailers: list[str]) -> bool:
+    """Whether the quote of a Sidebar-Look trailer (its first quoted span: the words that asked) names row KIND: a
+    word of its camelCase name (`automatic`, `doneFold` -> done), stem-matched so `archive` finds "archived". Only
+    the first span, so the commit's own description of the row later in the line ("Settled (N)") does not count."""
+    words = [w.lower() for w in re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])", kind)]
+    words = [w for w in words if len(w) >= 3 and w not in SIDEBAR_KIND_GENERIC]
+    quotes = " ".join(m.group(1) for t in trailers if (m := SIDEBAR_QUOTED.search(t)))
+    return any(re.search(rf"\b{re.escape(w[:max(4, len(w) - 2)])}", quotes, re.IGNORECASE) for w in words)
 
 
 def chrome_hunks(repo: Path, sha: str, sources: list[str]) -> list[str]:
