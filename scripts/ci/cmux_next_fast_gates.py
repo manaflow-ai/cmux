@@ -91,6 +91,13 @@ DEEPEN_FILTER = "--filter=tree:0"
 # 138890366419, 138894346038). The same deepen with blob:none brings more trees but gets through, so it is the
 # fallback for that one failure.
 DEEPEN_FALLBACK_FILTER = "--filter=blob:none"
+# That abort is this runner's own git, not GitHub's: no "remote:" prefix, and on 2026-11-27 it ended "fatal: could not
+# finish pack-objects to repack local links" (#61818, job 140700979838, git 2.56.1 on an fsr- VM). A filtered fetch
+# into a partial clone runs `index-pack --promisor`, which repacks every object the new pack links to that is here
+# but not in a promisor pack; objects borrowed from an alternate store (the VM's git mirror) count, and pack-objects
+# aborts on them. Both filters take that path, so blob:none failed the same way 3 s later. Without the alternate for
+# that one fetch nothing borrowed is linked; the alternate goes back right after (the gates read through it).
+LOCAL_REPACK_ABORT = "repack local links"
 
 
 def log(message: str) -> None:
@@ -227,15 +234,53 @@ def deep_enough(repo: Path, head: str, base: str) -> bool:
     return not cuts.intersection(git(repo, "rev-list", head, base, *behind).stdout.split())
 
 
+def fetch_once(repo: Path, remote: str, filt: str, how: str, wants: list[str]) -> subprocess.CompletedProcess:
+    return git(repo, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", filt, "--refmap=", how, remote, *wants, check=False)
+
+
+def fetch_without_alternates(repo: Path, remote: str, filt: str, how: str, wants: list[str]) -> subprocess.CompletedProcess | None:
+    """The same fetch with the alternate store set aside, so `index-pack --promisor` finds no borrowed object to
+    repack (LOCAL_REPACK_ABORT); None when this checkout borrows no store."""
+    alternates = Path(git(repo, "rev-parse", "--path-format=absolute", "--git-path",
+                          "objects/info/alternates").stdout.strip())
+    if not alternates.is_file() or not alternates.read_text().strip():
+        return None
+    aside = alternates.with_name(alternates.name + ".fast-gates")
+    alternates.replace(aside)
+    try:
+        return fetch_once(repo, remote, filt, how, wants)
+    finally:
+        aside.replace(alternates)
+
+
 def deepen_fetch(repo: Path, remote: str, how: str, wants: list[str]) -> None:
-    """One deepen fetch, commits only; when the server's pack-objects aborts on it, the same fetch with blob:none."""
-    result = git(repo, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", DEEPEN_FILTER, "--refmap=", how, remote, *wants, check=False)
+    """One deepen fetch, commits only. When pack-objects aborts on it: this runner's local-links repack
+    (LOCAL_REPACK_ABORT) gets the same fetch without the alternate store; any other abort the same fetch with
+    blob:none."""
+    result = fetch_once(repo, remote, DEEPEN_FILTER, how, wants)
     if result.returncode == 0:
         return
     if "pack-objects" not in result.stderr:
         raise SystemExit(f"fast-gates: git fetch {DEEPEN_FILTER} {how} failed: {result.stderr.strip()}")
-    log(f"fast-gates: {DEEPEN_FILTER} {how} aborted in the server's pack-objects; again with {DEEPEN_FALLBACK_FILTER}")
-    git(repo, "fetch", "--no-tags", "--no-recurse-submodules", "--quiet", DEEPEN_FALLBACK_FILTER, "--refmap=", how, remote, *wants)
+    if LOCAL_REPACK_ABORT in result.stderr:
+        log(f"fast-gates: {DEEPEN_FILTER} {how} aborted in this runner's local-links repack; again without the alternate store")
+        retried = fetch_without_alternates(repo, remote, DEEPEN_FILTER, how, wants)
+        if retried is not None:
+            if retried.returncode == 0:
+                return
+            raise SystemExit(f"fast-gates: git fetch {DEEPEN_FILTER} {how} without the alternate store failed: "
+                             f"{retried.stderr.strip()}")
+    log(f"fast-gates: {DEEPEN_FILTER} {how} aborted in pack-objects; again with {DEEPEN_FALLBACK_FILTER}")
+    result = fetch_once(repo, remote, DEEPEN_FALLBACK_FILTER, how, wants)
+    if result.returncode == 0:
+        return
+    if LOCAL_REPACK_ABORT in result.stderr:
+        retried = fetch_without_alternates(repo, remote, DEEPEN_FALLBACK_FILTER, how, wants)
+        if retried is not None and retried.returncode == 0:
+            return
+        if retried is not None:
+            result = retried
+    raise SystemExit(f"fast-gates: git fetch {DEEPEN_FALLBACK_FILTER} {how} failed: {result.stderr.strip()}")
 
 
 def unshallow_from_alternates(repo: Path, head: str, base: str) -> bool:
@@ -574,6 +619,24 @@ def sweep_dead_holders(prefix: str, grace_seconds: float = 600.0) -> int:
     return removed
 
 
+def ensure_bun_tmpdir(env: dict) -> Path | None:
+    """Give every gate a writable BUN_TMPDIR (set in ENV, which the gates inherit); the directory made, or None when
+    the caller already set one or none could be made. bun unpacks into a temporary directory and fails `error: EACCES
+    accessing temporary directory. set $BUN_TMPDIR or $BUN_INSTALL` when it cannot write its default: fast gates run
+    46034085535 (cmux#59800, 2026-11-27 16:29Z), 46038329362 and 46050092532 failed web lint so, on bases nobody had
+    changed. The directory is made under the runner's own $RUNNER_TEMP, which the job owns."""
+    if env.get("BUN_TMPDIR"):
+        return None
+    for parent in (env.get("RUNNER_TEMP"), None):
+        try:
+            made = Path(tempfile.mkdtemp(prefix="fast-gates-bun-tmp-", dir=parent or None))
+        except OSError:
+            continue
+        env["BUN_TMPDIR"] = str(made)
+        return made
+    return None
+
+
 def run(args: argparse.Namespace) -> int:
     repo = args.repo.resolve()
     if not SHA.match(args.base) or not rev(repo, args.base):
@@ -586,6 +649,7 @@ def run(args: argparse.Namespace) -> int:
     sweep_dead_holders("fast-gates-base-")
     holder = Path(tempfile.mkdtemp(prefix="fast-gates-base-"))
     (holder / ".owner-pid").write_text(str(os.getpid()))
+    bun_tmp = ensure_bun_tmpdir(os.environ)
     rows: list[tuple[str, str, float]] = []
     deadline = None if args.budget_seconds is None else time.monotonic() + args.budget_seconds
     try:
@@ -631,6 +695,8 @@ def run(args: argparse.Namespace) -> int:
             rows.append((name, outcome, seconds))
     finally:
         shutil.rmtree(holder, ignore_errors=True)
+        if bun_tmp:
+            shutil.rmtree(bun_tmp, ignore_errors=True)
     failed = [name for name, outcome, _ in rows if outcome.startswith("failed")]
     timed = [(name, seconds) for name, outcome, seconds in rows
              if outcome not in {"skipped", "failed (no time left)"}]
