@@ -6,7 +6,7 @@
 // the follow chase: it wears a translate, and the row over it is clipped where the line is drawn
 // (pinnedLiveLine.ts). A reader who scrolls up in that motion takes the view, and the line and the
 // clip hold where they are drawn until the view follows again. A fold above it (the reader opens a
-// finished run) then moved the rows under the run by translate (foldRide.ts), the live line among
+// finished run) then moved the rows under the run by translate (a fold ride, since removed), the live line among
 // them: the ride wrote over the held translate and took it off at the fold's end. The line went to
 // its layout place, the row over it kept the clip made for the held place, and a blank band showed
 // between them.
