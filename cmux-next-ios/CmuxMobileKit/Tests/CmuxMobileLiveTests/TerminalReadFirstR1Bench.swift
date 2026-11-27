@@ -43,7 +43,7 @@ import UIKit
 /// Opt-in: CMUX_READ_FIRST_R1=1, or the CMUX_TICK_HARNESS=1 the simulator step sets for an only=
 /// naming `*/TickHarnessCellsTests*`:
 /// `cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg test
-///   --arg only=CmuxMobileShellTests/TerminalReadFirstR1Bench,CmuxMobileLiveTests/TickHarnessCellsTests/none`.
+///   --arg only=CmuxMobileLiveTests/TerminalReadFirstR1Bench,CmuxMobileLiveTests/TickHarnessCellsTests/none`.
 @MainActor
 @Suite(.serialized, .enabled(if: ["CMUX_READ_FIRST_R1", "CMUX_TICK_HARNESS"].contains { ProcessInfo.processInfo.environment[$0] == "1" },
                              "opt-in bench: CMUX_READ_FIRST_R1=1"))
