@@ -1626,6 +1626,15 @@ jobs:
             left=$(( job_started + CMUX_WEB_TEST_JOB_MINUTES * 60 - 480 - now ))
             export CMUX_WEB_TEST_RETRY_DEADLINE=$(( left > 0 ? left : 0 ))
             export CMUX_WEB_TEST_RETRY_BUDGET="$CMUX_WEB_TEST_RETRY_DEADLINE"
+            # A push or dispatch (the post-merge batch at 45 min) also stops its first pass there: no file starts, and
+            # none runs, past the same point, so the step ends with what it finished and the uploads (Upload this
+            # push's webview results, the history job) still run. Without it, 5 of 8 post-merge shards a tick were
+            # still in their first pass at 45 min and GitHub cancelled them with no result at all (11-26 13:15Z to
+            # 11-27 01:47Z: 44 shards, 1,998 job-min, 0 passes), while shards 2, 3 and 7 ended at 37 min with a
+            # verdict. A pull request's shard keeps its first pass whole (90 min; react-apps-base-check reads it).
+            if [ "${GITHUB_EVENT_NAME:-}" != pull_request ]; then
+              export CMUX_WEB_TEST_STOP_AT=$(( job_started + CMUX_WEB_TEST_JOB_MINUTES * 60 - 480 ))
+            fi
           fi
           mkdir -p "$RUNNER_TEMP/webviews-head-results/runner"
           # A recorded run (a push, a batch tick, a post-merge batch run) records its webview inputs key with its
