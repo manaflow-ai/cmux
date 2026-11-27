@@ -22,7 +22,9 @@
 //!   never takes every core).
 //!   CPU classes (RFD 0182 B2), off unless `ACPMUX_SESSION_CPU_CLASSES=1`: the harness scope and
 //!   `acpmuxsessions.slice` at [`SESSION_CLASS_WEIGHT`] (400), background task and agent host
-//!   scopes at [`TASK_CLASS_WEIGHT`] (100), so a session's builds yield to its agent.
+//!   scopes at [`TASK_CLASS_WEIGHT`] (100), so a session's builds yield to its agent; a task
+//!   started as filler (`bg_start` `class: "filler"`, [`TaskClass::Filler`]) at `CPUWeight=idle`
+//!   (cgroup `cpu.idle`), so it runs only on CPU no one else wants.
 //! - IO: `ACPMUX_SESSION_IO_WEIGHT` (default 50). It takes effect only where the user manager
 //!   has the `io` controller delegated (`Delegate=` on `user@.service`) and a block device runs a
 //!   weight policy (iocost `enable=1` in the root `io.cost.qos`, or the `bfq` scheduler); else
@@ -101,6 +103,30 @@ fn class_weight(get: &dyn Fn(&str) -> Option<String>, class_weight: u64) -> Opti
 /// siblings in the user manager at 100: builds and CI started outside any session); None off.
 pub(crate) fn sessions_slice_weight(get: &dyn Fn(&str) -> Option<String>) -> Option<u64> {
     class_weight(get, SESSION_CLASS_WEIGHT)
+}
+
+/// The CPU class a background task asks for (`bg_start`'s `class`). Under CPU classes a
+/// [`TaskClass::Filler`] scope runs at `CPUWeight=idle` (cgroup v2 `cpu.idle=1`, systemd 252+):
+/// it takes CPU only when nothing at a weight wants it (an index rebuild, a cache warm, a soak),
+/// so filler never slows a build or an agent. Measured 2026-11-27, 2 v 2 busy loops on 2 CPUs: the
+/// idle scope got 0.35% against a `CPUWeight=100` scope (weight 1, the lowest, would get 1%).
+/// Off, it is a plain task.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum TaskClass {
+    #[default]
+    Task,
+    Filler,
+}
+
+impl TaskClass {
+    /// `class` as a request spells it: absent or `task`, or `filler`.
+    pub(crate) fn parse(word: Option<&str>) -> Result<Self, String> {
+        match word.map(|w| w.trim().to_ascii_lowercase()).as_deref() {
+            None | Some("" | "task") => Ok(Self::Task),
+            Some("filler") => Ok(Self::Filler),
+            Some(other) => Err(format!("class must be task or filler, not {other:?}")),
+        }
+    }
 }
 pub(crate) const IO_WEIGHT: u64 = 50;
 /// The default ceiling of every agent host scope together, a percent of the RAM (the sessions
@@ -235,6 +261,8 @@ pub(crate) struct Budget {
     pub swap_max: u64,
     pub tasks_max: Option<u64>,
     pub cpu_weight: u64,
+    /// `CPUWeight=idle` (cgroup `cpu.idle`) in place of [`Budget::cpu_weight`]: a filler task.
+    pub cpu_idle: bool,
     /// Percent of one CPU (`CPUQuota=`), so 1200 is 12 cores.
     pub cpu_quota: u64,
     pub io_weight: u64,
@@ -291,6 +319,7 @@ impl Budget {
             swap_max,
             tasks_max: crate::session_scope::tasks_max(get),
             cpu_weight,
+            cpu_idle: false,
             cpu_quota,
             io_weight,
             disk,
@@ -307,7 +336,7 @@ impl Budget {
             ("MemoryHigh", on(self.memory_high)),
             ("MemorySwapMax", on(self.swap_max)),
             ("TasksMax", self.tasks_max.map(|n| n.to_string())),
-            ("CPUWeight", on(self.cpu_weight)),
+            ("CPUWeight", if self.cpu_idle { Some("idle".into()) } else { on(self.cpu_weight) }),
             ("CPUQuota", on(self.cpu_quota).map(|p| format!("{p}%"))),
             ("IOWeight", on(self.io_weight)),
         ];
@@ -337,6 +366,8 @@ impl Budget {
                     ["CPUQuotaPerSecUSec".into(), "t".into(), (pct * 10_000).to_string()]
                 }
                 _ if value == "infinity" => [key.into(), "t".into(), u64::MAX.to_string()],
+                // systemd's bus spelling of `CPUWeight=idle` is 0 (`CGROUP_WEIGHT_IDLE`).
+                "CPUWeight" if value == "idle" => [key.into(), "t".into(), "0".into()],
                 _ => [key.into(), "t".into(), value],
             })
             .collect();
@@ -356,6 +387,7 @@ impl Budget {
             "swapMaxBytes": self.swap_max,
             "tasksMax": self.tasks_max,
             "cpuWeight": self.cpu_weight,
+            "cpuIdle": self.cpu_idle,
             "cpuQuotaPercent": self.cpu_quota,
             "ioWeight": self.io_weight,
             "diskBytes": self.disk,
@@ -488,12 +520,23 @@ pub(crate) fn daemon_budget() -> (Budget, Host) {
 /// reaches `MemoryMax` (gcp-agent-lane-8, 2026-11-24: a 6 GB hog under MemoryMax=2G and
 /// MemoryHigh=1.8G sat at 1.79 GB under 96% memory pressure until it was ended; without the
 /// throttle it was OOM-killed at 2G in 0.7 s). A set `ACPMUX_SESSION_MEMORY_HIGH_MB` still wins.
-pub(crate) fn task_budget() -> (Budget, Host) {
+pub(crate) fn task_budget(class: TaskClass) -> (Budget, Host) {
     let host = this_host();
     let empty = std::collections::BTreeMap::new();
     let limits = crate::session_scope::daemon_limits();
     let get = crate::session_scope::knob_reader(&empty, limits);
-    (task_budget_from(&get, &host), host)
+    (class_budget_from(&get, &host, class), host)
+}
+
+/// [`task_budget_from`] for `class`: a filler task under CPU classes at `CPUWeight=idle`.
+pub(crate) fn class_budget_from(
+    get: &dyn Fn(&str) -> Option<String>,
+    host: &Host,
+    class: TaskClass,
+) -> Budget {
+    let mut budget = task_budget_from(get, host);
+    budget.cpu_idle = class == TaskClass::Filler && cpu_classes_on(get);
+    budget
 }
 
 /// [`task_budget`] from a knob reader.

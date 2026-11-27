@@ -450,3 +450,37 @@ fn a_set_cpu_weight_wins_over_cpu_classes() {
     assert_eq!(task_budget_from(&set, &lane_host()).cpu_weight, 70);
     assert_eq!(sessions_slice_weight(&set), None, "the slice is left as it is");
 }
+
+#[test]
+fn a_filler_task_runs_at_idle_weight_only_under_cpu_classes() {
+    let on = reader(&[("ACPMUX_SESSION_CPU_CLASSES", "1")]);
+    let filler = class_budget_from(&on, &lane_host(), TaskClass::Filler);
+    assert!(filler.cpu_idle);
+    assert!(filler.properties().contains(&("CPUWeight", "idle".to_owned())), "{filler:?}");
+    // systemd's bus spelling of idle is weight 0.
+    let bus = filler.bus_properties();
+    assert!(bus.contains(&["CPUWeight".into(), "t".into(), "0".into()]), "{bus:?}");
+    // Only the CPU class moves: memory, tasks and IO are a task's.
+    let task = class_budget_from(&on, &lane_host(), TaskClass::Task);
+    assert_eq!(task, task_budget_from(&on, &lane_host()));
+    assert_eq!(Budget { cpu_idle: false, ..filler }, task);
+    assert!(task.properties().contains(&("CPUWeight", "100".to_owned())));
+    // Classes off: a filler task is a plain task.
+    let off = reader(&[]);
+    assert_eq!(
+        class_budget_from(&off, &lane_host(), TaskClass::Filler),
+        task_budget_from(&off, &lane_host())
+    );
+    // A set weight does not take filler out of idle: the task asked for it.
+    let set = reader(&[("ACPMUX_SESSION_CPU_CLASSES", "1"), ("ACPMUX_SESSION_CPU_WEIGHT", "70")]);
+    assert!(class_budget_from(&set, &lane_host(), TaskClass::Filler).cpu_idle);
+}
+
+#[test]
+fn a_task_class_parses_task_and_filler_and_refuses_the_rest() {
+    assert_eq!(TaskClass::parse(None), Ok(TaskClass::Task));
+    assert_eq!(TaskClass::parse(Some("")), Ok(TaskClass::Task));
+    assert_eq!(TaskClass::parse(Some("task")), Ok(TaskClass::Task));
+    assert_eq!(TaskClass::parse(Some(" Filler ")), Ok(TaskClass::Filler));
+    assert!(TaskClass::parse(Some("idle")).unwrap_err().contains("task or filler"));
+}
