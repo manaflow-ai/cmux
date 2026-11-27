@@ -84,6 +84,7 @@ import {
   peerStatesFromStatus,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
+import { readComposerStatus } from "./composerStatusModel";
 import { peerResourcesFromStatus } from "./machineResources";
 import { type ChatUnavailable, chatUnavailable, type PeerStatus, peerStatusFromStatus } from "./chatUnavailable";
 import { resolvedTarget } from "./conversation/sessionRefs";
@@ -314,6 +315,7 @@ import {
   mergeEventRecords,
   prependOlderEventRecords,
   sessionUpdate,
+  heldBySeq,
 } from "./direct/records";
 import {
   OLDER_PAGE_RECORDS,
@@ -6047,6 +6049,18 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/draft_set", { sessionId, text });
   }
 
+  /// The session's unsent chips as acpmux keeps them, in order with their contents
+  /// (`{sessionId, draft, attachments}`); an older daemon answers no `attachments`.
+  readDraftAttachments(sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/draft_get", { sessionId, attachments: true });
+  }
+
+  /// Keeps the session's unsent chips in acpmux (`[]` forgets them). A chip named without its
+  /// contents keeps the ones acpmux holds for its id; answers `{held}`. An older daemon refuses it.
+  writeDraftAttachments(sessionId: string, attachments: unknown[]): Promise<unknown> {
+    return this.request("_acpmux/draft_set", { sessionId, attachments });
+  }
+
   /// The session's prompt bookmarks (`{bookmarks: [seq...]}`), kept in acpmux (threadMinimap/bookmarks.ts).
   readBookmarks(sessionId: string): Promise<unknown> {
     return this.request("_acpmux/bookmark_get", { sessionId });
@@ -6227,7 +6241,10 @@ export class AcpmuxDirectClient {
       !!(
         this.browserIdentity &&
         browserDeviceIsCurrent(this.browserIdentity) &&
-        (this.browserDeviceReady || method === "_acpmux/device_enroll" || method === "_acpmux/device_hello")
+        (this.browserDeviceReady ||
+          method === "_acpmux/device_enroll" ||
+          method === "_acpmux/device_challenge" ||
+          method === "_acpmux/device_hello")
       )
     );
   }
@@ -7535,7 +7552,14 @@ export class AcpmuxDirectClient {
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
       this.retryOwedLagRead();
-      this.summary = { ...this.summary, ...session, loopEpisode: session.loopEpisode ?? null };
+      // Session changes are complete summaries. Keep the projection in sync even when an older
+      // daemon omits composerStatus: omission means there are no status items to publish.
+      this.summary = {
+        ...this.summary,
+        ...session,
+        composerStatus: readComposerStatus(session.composerStatus),
+        loopEpisode: session.loopEpisode ?? null,
+      };
       // Built when sent, after the record it follows: it settles the turn the records folded.
       this.settleTurnWithHost();
       // The chat may run now (a prompt sent elsewhere), or rest: its quiet is watched while it runs.
@@ -9113,9 +9137,9 @@ export class AcpmuxDirectClient {
         events = thinned;
       }
     } else {
-      if (this.replayThrough === undefined)
-        this.events = thinStreamedOutputs([...this.events].sort((a, b) => a.seq - b.seq));
-      events = this.events.filter((event) => event.seq <= through).sort((a, b) => a.seq - b.seq);
+      // In `seq` order, a copy: the held log already is, so neither is a sort (`heldBySeq`).
+      if (this.replayThrough === undefined) this.events = thinStreamedOutputs(heldBySeq(this.events));
+      events = heldBySeq(this.events, through);
     }
     // The rows of the records before the cut, which stay as drawn.
     const frozenBefore = cut > 0 ? events[0]!.seq : undefined;
@@ -12056,6 +12080,7 @@ export class AcpmuxDirectClient {
           machine: text(summary.machine),
           peer: text(summary.peer),
           hostKind: hostKind(summary.hostKind),
+          composerStatus: readComposerStatus(summary.composerStatus),
           // Auto (autoSession/autoSession.ts): the same object while acpmux's row says the same.
           ...((this.publishedAuto = autoSessionOf(summary.autoSession, this.publishedAuto)) && {
             autoSession: this.publishedAuto,

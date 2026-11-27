@@ -31,11 +31,9 @@ import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in
 ROOT = Path(__file__).resolve().parents[1]
 
 
-# A provenance publish job runs on the provenance pool (GitHub-hosted: npm provenance and attestations need it) and says
-# why. #47603 routed the literal `ubuntu-latest` through RUNNER_POOLS; a fork still gets ubuntu-latest.
-PROVENANCE_RUNS_ON = (
-    "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-latest' || fromJSON(vars.RUNNER_POOLS).provenance }}"
-)
+# A provenance publish job runs on GitHub-hosted Ubuntu (npm provenance and attestations need it) and says why. #47603
+# routed `ubuntu-latest` through RUNNER_POOLS.provenance; scripts/ci/one_linux_label.py froze that read back to the label.
+PROVENANCE_RUNS_ON = "runs-on: ubuntu-latest"
 
 def load_tests(
     loader: unittest.TestLoader,
