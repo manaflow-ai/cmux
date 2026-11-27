@@ -162,10 +162,9 @@ jobs:
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          path: web-bundles-out
+          path: ${{ runner.temp }}/web-bundles-out
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
-          lookup-only: true
 
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
