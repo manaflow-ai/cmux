@@ -74,6 +74,7 @@ pub mod memory;
 pub(crate) mod owned_child;
 pub mod scorecard;
 pub mod standing_grant;
+pub mod watchdog_hold;
 pub(crate) use crate::machine_consent;
 pub mod machine_deps;
 pub mod machine_hypervisor;
