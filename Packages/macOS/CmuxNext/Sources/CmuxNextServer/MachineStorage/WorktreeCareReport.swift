@@ -46,3 +46,9 @@ nonisolated struct WorktreeCareReportReply: Decodable, Equatable, Sendable {
     let report: WorktreeCareReport
     let last: WorktreeCareReport?
 }
+
+extension Decodable where Self: Sendable {
+    /// The daemon's JSON answer, for a caller that runs it off the main thread (a report lists
+    /// every worktree).
+    nonisolated static func decoded(from data: Data) throws -> Self { try JSONDecoder().decode(Self.self, from: data) }
+}

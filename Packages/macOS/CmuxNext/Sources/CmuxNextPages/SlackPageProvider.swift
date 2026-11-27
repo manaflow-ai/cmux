@@ -13,11 +13,15 @@ public final class SlackPageProvider: PageProvider {
     /// read/write for the default Chief (`nil`: read; `.some(nil)`: the default allowance; `.some(n)`: n seconds).
     public init(request: @escaping @MainActor (String, SlackOwnBot?) async throws -> Data,
          open: @escaping @MainActor (URL) -> Void,
-         awake: @escaping @MainActor (Int??) async throws -> Data = { _ in throw PageError.unavailable("no Chief") }) {
+         awake: @escaping @MainActor (Int??) async throws -> Data = SlackPageProvider.noChief) {
         self.request = request
         self.open = open
         self.awake = awake
     }
+
+    /// The awake-time read/write with no Chief to ask; a named function, not a closure literal
+    /// default (an async closure default can overrun its async context across modules, cx-bsue).
+    @MainActor static func noChief(_: Int??) async throws -> Data { throw PageError.unavailable("no Chief") }
 
     /// The most a non-owner may keep the Chief awake a day (the API's `SLACK_ALLOWANCE_MAX_SECONDS`).
     public static let maxAllowanceSeconds = 86_400
