@@ -65,6 +65,8 @@ import type { SessionInfoCloudControl } from "../hybrid/SessionInfoCloud";
 
 import { SessionInfoSectionList, type SessionInfoCompactLook } from "./SessionInfoGroup";
 import { sectionOrder, tuckedSections } from "./sectionOrder";
+import { withoutHiddenSections } from "./shownSections";
+import { useSessionInfoLayout, useSessionInfoHiddenSections } from "../chatDisplay";
 import { SessionInfoSection } from "./SessionInfoSection";
 import { SourcesSection } from "./SourcesSection";
 import {
@@ -119,7 +121,6 @@ import {
 import { tooltipProps } from "../shortcuts";
 import { RESIZE_HANDLE_PROPS } from "../../../scrollers";
 import { useLiveSummary } from "../liveSummary";
-import { useSessionInfoLayout } from "../chatDisplay";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
 /// A chat with no folders beside its own (one shared empty list, so the section's props keep their identity).
@@ -182,6 +183,9 @@ export function SessionInfoPanel({
   // Pushed beside the chat, or in the empty gutter, its sections sit on the pane with no card behind
   // them, as the native panel draws it (#32661; Leo, 2026-11-02: "we still HAVE AN ASININE BACKGROUND").
   const glass = placement === "overlay" && (foot !== undefined || onDismiss !== undefined);
+  // Inline (a band atop the transcript, in the chat's flow): the column's width, no drag handle (CSS), no
+  // glass and no cut out of the transcript, which runs under it, not behind it.
+  const inline = placement === "inline";
   // Floating over the chat (the narrow pane's Summary popover), the chat under it blurs itself there in
   // a see-through Chromium page (ui/glass/seeThroughBlur.ts), as WebKit's backdrop draws it, so its
   // text never reads through the glass (Leo 2026-10-30: "I don't like the non-glassness"). Pushing,
@@ -190,7 +194,11 @@ export function SessionInfoPanel({
   // The transcript leaves the panel's box out while it shows (chatCut.ts), so nothing scrolls under
   // it: its pixels hold still while the chat scrolls (Leo, 2026-11-03: "the session info thing not
   // flicker EVER when im scrolling"). Its place re-measures when it moves.
-  useChatCut(frame, !presence?.leaving, `${placement}:${width}:${foot ?? ""}:${side}:${overlap}:${under ?? ""}`);
+  useChatCut(
+    frame,
+    !inline && !presence?.leaving,
+    `${placement}:${width}:${foot ?? ""}:${side}:${overlap}:${under ?? ""}`,
+  );
   // The foot animates only once it has been drawn at its first measure: the open draws it at once.
   const footKnown = foot !== undefined && foot > 0;
   // Only a foot that goes down (the composer's stack shrank) glides. One that rises (the stack grew: the
@@ -254,7 +262,7 @@ export function SessionInfoPanel({
       data-foot-moves={footKnown && footSettled && !footRises ? "" : undefined}
       style={
         {
-          width,
+          width: inline ? undefined : width,
           // Pushing, its enter and exit run its right margin from minus this (sessionInfo.css).
           "--acpmux-session-info-width": `${width}px`,
           ...(under ? { "--acpmux-session-info-top": under } : {}),
@@ -550,6 +558,8 @@ export function SessionInfo({
   const sessionInfoState = useSessionInfoState();
   const settingLayout = useSessionInfoLayout();
   const layout: RailLayout = layoutProp ?? settingLayout;
+  // The sections the person turned off in Settings (shownSections.ts): never drawn.
+  const hiddenSections = useSessionInfoHiddenSections();
   const showMore = more ?? sessionInfoState.more;
   const setMore = onMore ?? setSessionInfoMore;
   const stored = sessionInfoState.sections;
@@ -939,7 +949,7 @@ export function SessionInfo({
         chatId={chatId}
         onOpen={onOpenChat}
         onCompact={onCompact}
-        onShowSubagents={subagentsSection ? showSubagents : undefined}
+        onShowSubagents={subagentsSection && !hiddenSections.includes("subagents") ? showSubagents : undefined}
         locale={language}
         ownRowLayout={usageOwnRowLayout}
         cacheLayout={usageCacheLayout}
@@ -956,19 +966,22 @@ export function SessionInfo({
         look={compactLook}
         more={compactLook !== "more" || showMore}
         onMoreChange={compactLook === "more" ? setMore : undefined}
-        sections={{
-          environment,
-          context,
-          usage: usageSection,
-          connectors,
-          carried,
-          changes,
-          sources: sourcesSection,
-          outputs: outputsSection,
-          subagents: subagentsSection,
-          tasks,
-          ...appNodes,
-        }}
+        sections={withoutHiddenSections(
+          {
+            environment,
+            context,
+            usage: usageSection,
+            connectors,
+            carried,
+            changes,
+            sources: sourcesSection,
+            outputs: outputsSection,
+            subagents: subagentsSection,
+            tasks,
+            ...appNodes,
+          },
+          hiddenSections,
+        )}
       />
       {gallery && (
         <GalleryDialog
