@@ -80,9 +80,11 @@ pub(super) fn print_nothing(delivery: Option<Delivery>) {
 }
 
 fn print_output(value: &Value) {
-    let mut stdout = io::stdout().lock();
-    let _ = writeln!(stdout, "{value}");
-    let _ = stdout.flush();
+    super::answer_deadline::answer(|| {
+        let mut stdout = io::stdout().lock();
+        let _ = writeln!(stdout, "{value}");
+        let _ = stdout.flush();
+    });
 }
 
 pub(super) fn deliver(delivery: Delivery, socket: &Path, terminal: Option<&str>) {
@@ -90,7 +92,7 @@ pub(super) fn deliver(delivery: Delivery, socket: &Path, terminal: Option<&str>)
         print_nothing(Some(delivery));
         return;
     };
-    let deadline = Instant::now() + DEADLINE;
+    let deadline = super::answer_deadline::within(DEADLINE);
     if delivery == Delivery::ContinueTurn {
         let _ = acknowledge_delivered(socket, terminal, deadline);
     }

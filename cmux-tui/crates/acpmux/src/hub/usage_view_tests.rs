@@ -323,6 +323,82 @@ async fn a_claude_sr2_chat_is_read_as_claude_code() {
     assert_eq!(transcript_family("gemini"), None);
 }
 
+/// A chat on a profile that declares `no_model = true` (the `benchecho` bench agent
+/// `acpmux cli-agent` wraps) reads zero tokens, stamped by the pass, with no agent session id
+/// or transcript; a chat on a profile that declares nothing still reads as unmeasured (no
+/// stats), and a no-model chat closed two days ago is not read.
+#[tokio::test]
+async fn a_no_model_profiles_chat_reads_zero_tokens_not_null() {
+    let dir = tempfile::tempdir().unwrap();
+    let toml = "schema = 1\nid = \"benchecho\"\nname = \"Bench Echo\"\nprotocol = \"acp\"\n\
+                command = \"acpmux\"\nargs = [\"cli-agent\", \"--\", \"bench-echo-agent\"]\n\
+                no_model = true\n";
+    std::fs::write(dir.path().join("benchecho.toml"), toml).unwrap();
+    let echo = toml.replace("benchecho", "echo").replace("no_model = true\n", "");
+    std::fs::write(dir.path().join("echo.toml"), echo).unwrap();
+    #[cfg(unix)]
+    for file in ["benchecho.toml", "echo.toml"] {
+        // A group-writable profile is refused, whatever the umask that wrote it.
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(dir.path().join(file), perms).unwrap();
+    }
+    let sources = crate::config::profiles::ProfileSources {
+        user_dir: Some(dir.path().to_path_buf()),
+        ..Default::default()
+    };
+    let loaded = crate::config::profiles::load(&sources);
+    assert!(loaded.diagnostics.is_empty(), "{:?}", loaded.diagnostics);
+    let mut cfg = Config::default();
+    for (id, (profile, meta)) in loaded.profiles {
+        cfg.harnesses.insert(id.clone(), profile);
+        cfg.profile_meta.insert(id, meta);
+    }
+    // The built-in Chief (`cmux-tui chief acp`) only posts prompts into the Chief
+    // conversation; its model turns are metered on their own optchat chats.
+    let chief = crate::config::CHIEF_PROFILE.to_string();
+    cfg.harnesses.insert(chief.clone(), cfg.harnesses["echo"].clone());
+    cfg.discovered.insert(chief.clone());
+    assert!(cfg.runs_no_model(&chief) && cfg.runs_no_model("benchecho"));
+    assert!(cfg.profile_meta["benchecho"].no_model);
+    assert!(!cfg.profile_meta["echo"].no_model, "never inferred from `cli-agent`");
+    let hub = Hub::new(cfg, Box::new(crate::store::MemoryStore::default()));
+    let now = crate::store::now_ms();
+    for (id, harness, status, at) in [
+        ("bench", "benchecho", "idle", now - 1_000),
+        ("bench-old", "benchecho", "closed", now - 2 * DAY_MS),
+        ("echo", "echo", "idle", now - 1_000),
+        ("chief-chat", crate::config::CHIEF_PROFILE, "idle", now - 1_000),
+    ] {
+        let mut m = meta(id, harness, None, status, at);
+        m.harness = harness.into();
+        hub.store.save(&m).unwrap();
+        hub.insert_test_session(m);
+    }
+    hub.refresh_usage_stats().await;
+    let stats = |id: &str| {
+        let session = hub.session_by_id(id).unwrap();
+        hub.usage_stats_of(&session, &session.meta())
+    };
+    let bench = stats("bench").expect("a no-model chat has stats");
+    assert_eq!(bench.tokens_by_model_previous_utc_hour, Some(Default::default()));
+    assert_eq!(bench.tokens_by_model1h, Some(Default::default()));
+    assert_eq!((bench.tokens24h, bench.calls24h), (Some(0), Some(0)));
+    assert!(bench.updated_at >= now, "stamped by this pass");
+    let chief_stats = stats("chief-chat").expect("the built-in Chief chat has stats");
+    assert_eq!(chief_stats.tokens_by_model_previous_utc_hour, Some(Default::default()));
+    assert!(stats("echo").is_none(), "a profile that declares nothing stays unmeasured");
+    assert!(stats("bench-old").is_none(), "closed two days ago: not read");
+    let rows = crate::cli::harness::list_rows(&*hub.config.read().await);
+    let no_model = |id: &str| {
+        let row = rows.iter().find(|r| r.id == id).unwrap();
+        serde_json::to_value(row).unwrap()["noModel"].clone()
+    };
+    assert_eq!(no_model("benchecho"), json!(true));
+    assert_eq!(no_model(crate::config::CHIEF_PROFILE), json!(true));
+    assert_eq!(no_model("echo"), json!(false), "always written: the capability marker");
+}
+
 /// Every turn's end reads its chat's usage: the catalog's prices are built once for the catalog
 /// in use, not again per read, and are the ones a fresh build gives.
 #[tokio::test]

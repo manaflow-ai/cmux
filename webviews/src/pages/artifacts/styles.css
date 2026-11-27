@@ -9,6 +9,9 @@ html[data-cmux-page="artifacts"] body { overflow: hidden; }
   --artifacts-side-track: clamp(180px, var(--artifacts-side-width), 100% - 320px);
   display: grid;
   grid-template-columns: var(--artifacts-side-track, minmax(200px, 28%)) minmax(0, 1fr);
+  /* The row is the window's height, never its content's: an auto row measured every box's content
+     again (a long file's whole preview text) whenever a diff line mounted as the history scrolled. */
+  grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   color: var(--page-text);
 }
@@ -191,11 +194,18 @@ html[data-cmux-page="artifacts"] body { overflow: hidden; }
   line-height: var(--text-caption--line-height);
 }
 
-.artifacts-hunk + .artifacts-hunk { border-top: var(--cmux-hairline) dashed var(--page-separator); }
-
 .artifacts-line {
+  position: relative;
   padding-inline: var(--ds-space-2);
   white-space: pre;
+}
+
+/* A hunk's dashed rule sits over its first line rather than adding to it: every line is one height. */
+.artifacts-line.is-hunk-start::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  border-top: var(--cmux-hairline) dashed var(--page-separator);
 }
 
 .artifacts-diff {
