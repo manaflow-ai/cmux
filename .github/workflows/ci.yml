@@ -1380,6 +1380,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
     uses: ./.github/workflows/ci-web.yml
     with:
       web: ${{ needs.changes.outputs.web }}

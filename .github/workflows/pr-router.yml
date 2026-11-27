@@ -52,10 +52,12 @@ jobs:
     name: pr router
     # A title or description edit routes only when a callee reads what changed: the size budget's
     # `size:` line, the classic API guard's `Classic API change:` line, the Swift logic ratchet's
-    # `Swift-growth:` line or the base (its diff moved).
+    # `Swift-growth:` line, the UI proof gate's `Visual: none (WHY)` or `Visible-UI:` line (the route posts
+    # cmux/ui-proof and its ui-proof-status job re-reads the body; before this an added `Visual: none` never
+    # re-ran it and the head stayed pending until a push) or the base (its diff moved).
     # Every other edit skips here with no runner. Each callee's own job `if:` still skips the edits it
     # does not read, so an edit routed for one callee starts no runner in another.
-    if: ${{ (github.event.action != 'edited' || github.event.changes.base || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:') || contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:') || contains(github.event.pull_request.body, 'Swift-growth:') || contains(github.event.changes.body.from, 'Swift-growth:')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    if: ${{ (github.event.action != 'edited' || github.event.changes.base || (github.event.changes.body && (contains(github.event.pull_request.body, 'size:') || contains(github.event.changes.body.from, 'size:') || contains(github.event.pull_request.body, 'Classic API change:') || contains(github.event.changes.body.from, 'Classic API change:') || contains(github.event.pull_request.body, 'Swift-growth:') || contains(github.event.changes.body.from, 'Swift-growth:') || contains(github.event.pull_request.body, 'Visual:') || contains(github.event.changes.body.from, 'Visual:') || contains(github.event.pull_request.body, 'Visible-UI:') || contains(github.event.changes.body.from, 'Visible-UI:')))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -427,11 +429,16 @@ jobs:
 
   size-budget:
     name: cmux-next size budget
-    needs: route
+    needs: [route, compile-preflight]
     if: ${{ contains(fromJSON(needs.route.outputs.start || '[]'), 'cmux-next-size-budget.yml') }}
     uses: ./.github/workflows/cmux-next-size-budget.yml
+    with:
+      web_bundle_key: ${{ needs.compile-preflight.outputs.web_bundle_key }}
+      web_bundle_transport: ${{ needs.compile-preflight.outputs.web_bundle_transport }}
+      web_bundle_artifact: ${{ needs.compile-preflight.outputs.web_bundle_artifact }}
     permissions:
       contents: read
+      id-token: write
 
   swift-logic-ratchet:
     name: Swift logic ratchet
@@ -511,8 +518,12 @@ jobs:
     uses: ./.github/workflows/cmux-next-compile-preflight.yml
     with:
       web: ${{ needs.route.outputs.preflight_web || 'true' }}
+      source_ref: ${{ github.sha }}
+      validate_live_base: true
+      force_web: ${{ contains(fromJSON(needs.route.outputs.table || '[]'), 'web-browser') }}
     permissions:
       contents: read
+      id-token: write
 
   fast-gates:
     # The cmux-next/fast-gates status (merge_hold, next-autoland). A head the router starts nothing for starts none of
@@ -545,8 +556,32 @@ jobs:
     if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml') }}
     uses: ./.github/workflows/pr-pipeline.yml
     with:
+      defer_web_browser: true
       jobs: ${{ needs.route.outputs.table || '' }}
       only: ${{ needs.route.outputs.only || '' }}
+    secrets:
+      GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+      CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
+    permissions:
+      contents: read
+      # The ios job's picker reads the queue and its runs (scripts/ci/ios_runner_pool.py).
+      actions: read
+      # ci/run's step-result store on the controller's public route (pr-pipeline.yml); GitHub mints none for a fork.
+      id-token: write
+
+  web-pipeline:
+    name: pr web pipeline
+    # Cheap gate: starts after fast gates and not when they failed (fast-gates-fail-fast never cancels this run).
+    # Why: docs/ci/cmux-next-workflow-notes.md#note-cheap-gate
+    needs: [route, fast-gates, compile-preflight]
+    if: ${{ !cancelled() && needs.route.result == 'success' && (needs.fast-gates.result != 'failure' || github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci') || format('{0}', vars.CI_HEAD_FAIL_FAST) == '0') && needs.compile-preflight.result == 'success' && contains(fromJSON(needs.route.outputs.start || '[]'), 'pr-pipeline.yml') && contains(fromJSON(needs.route.outputs.table || '[]'), 'web-browser') }}
+    uses: ./.github/workflows/pr-pipeline.yml
+    with:
+      jobs: '["web-browser"]'
+      web_browser_only: true
+      web_bundle_key: ${{ needs.compile-preflight.outputs.web_bundle_key }}
+      web_bundle_transport: ${{ needs.compile-preflight.outputs.web_bundle_transport }}
+      web_bundle_artifact: ${{ needs.compile-preflight.outputs.web_bundle_artifact }}
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
@@ -617,7 +652,10 @@ jobs:
             state=error; desc="No verdict: the ios fast verdict did not finish (no Mac, or the pipeline was cancelled or skipped); rerun it"
           fi
           if [ "$state" = success ] && [ "$RUN" != false ] && [ "$NEED_PROOF" = true ]; then
-            IFS=$'\t' read -r pstate pdesc < <(python3 -I scripts/ci/proof_record.py gate --suite ios-flows)
+            # An unread record (gate exits 3) fails this job instead of posting `error` for a passed build: a
+            # passed job cannot be rerun, so that status would stay until a new head.
+            gated=$(python3 -I scripts/ci/proof_record.py gate --suite ios-flows) || { echo "::error::proof record not read; failing so this job can be rerun"; exit 1; }
+            IFS=$'\t' read -r pstate pdesc <<< "$gated"
             if [ "$pstate" != success ]; then state="${pstate:-error}"; desc="Build passed; ${pdesc}"; fi
           fi
           python3 -I scripts/ci/ios_fast_verdict.py status "$state" "$desc"

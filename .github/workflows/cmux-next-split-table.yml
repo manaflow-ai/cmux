@@ -46,25 +46,17 @@ env:
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
 
 jobs:
+  # The id ends in -fleet: the gateway runner's hook admits thin cmux-ci client jobs by that suffix.
   measure-fleet:
     if: >-
       ${{ github.repository == 'manaflow-ai/cmux' && vars.CI_EVAL_STEP_GATEWAY != ''
       && (github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository
       && !github.event.pull_request.draft)) }}
-    # Only drives the fleet client and waits; the bench Mac builds and measures, so the job runs on Linux.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: mac-gateway # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
     timeout-minutes: 120
-    permissions:
-      contents: read
+    permissions: {}
     steps:
-      # Only the client action: the bench Mac checks the sha out itself.
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          persist-credentials: false
-          sparse-checkout: .github/actions/fleet-client
-      - uses: ./.github/actions/fleet-client
-        with:
-          controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
+      # No checkout: the gateway runner takes only thin cmux-ci clients. The bench Mac checks the sha out itself.
       - name: split-scale (quick) on the bench Mac
         env:
           SHA: ${{ inputs.ref || github.event.pull_request.head.sha }}

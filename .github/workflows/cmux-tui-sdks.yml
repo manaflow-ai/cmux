@@ -211,6 +211,7 @@ on:
       - "schemas/sidebar-hover-card-rules/vectors.json"
       - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/sidebar-region-layout/vectors.json"
       - "schemas/settings/source/notifications.json"
       - "schemas/settings/source/page-layout.json"
       - "docs/mdm/cmux-example.mobileconfig"
@@ -218,6 +219,9 @@ on:
       - "docs/mdm/com.manaflow.cmux.json"
       - "docs/mdm/com.manaflow.cmux.plist"
       - "docs/mdm/managed-preferences.md"
+      - "schemas/settings/source/row-facts.json"
+      - "schemas/settings/source/samples.json"
+      - "schemas/window-registry/vectors.json"
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
@@ -414,6 +418,7 @@ on:
       - "schemas/sidebar-hover-card-rules/vectors.json"
       - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/sidebar-region-layout/vectors.json"
       - "schemas/settings/source/notifications.json"
       - "schemas/settings/source/page-layout.json"
       - "docs/mdm/cmux-example.mobileconfig"
@@ -421,6 +426,9 @@ on:
       - "docs/mdm/com.manaflow.cmux.json"
       - "docs/mdm/com.manaflow.cmux.plist"
       - "docs/mdm/managed-preferences.md"
+      - "schemas/settings/source/row-facts.json"
+      - "schemas/settings/source/samples.json"
+      - "schemas/window-registry/vectors.json"
   workflow_dispatch:
 
 concurrency:
@@ -815,6 +823,7 @@ jobs:
             -p cmux-sidebar \
             --all-targets \
             --locked \
+            --keep-going \
             -- -D warnings
           # Embedders such as Chromium build without sha2 (socket-path-hash).
           cargo test -p cmux-sdk --all-targets --locked --no-default-features

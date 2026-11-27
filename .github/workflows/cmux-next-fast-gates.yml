@@ -513,6 +513,8 @@ jobs:
             /Packages/
             /cmux-tui/
             /webviews/
+            # Webviews checks load the gallery and setup JSON directly from examples/.
+            /examples/
             # webviews/vite.config.ts loads the markdown host plugin, which resolves this folder: without it the
             # webviews type check fails on ENOENT before it checks a file (14 files, 6.7 MB).
             /Resources/markdown-viewer/

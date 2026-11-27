@@ -39,10 +39,13 @@ on:
       - "scripts/cmux-next/cmux-tui-tree-inputs.txt"
       - "webviews/**"
       - ".github/workflows/cas-replay.yml"
+      - "scripts/ci/verify_cas_replay_artifact.py"
       - "tests/test_cas_web_ota_replay.py"
       - "tests/test_cas_derived_data_replay.py"
       - "tests/test_cas_mac_update_replay.py"
       - "tests/test_cas_acpmux_update_replay.py"
+      - "tests/test_cas_replay_workflow.py"
+      - "tests/test_verify_cas_replay_artifact.py"
   pull_request:
     paths:
       - "cmux-tui/crates/cmux-cas/**"
@@ -51,10 +54,13 @@ on:
       - "scripts/ci/cmux_tui_tree_key.py"
       - "scripts/cmux-next/cmux-tui-tree-inputs.txt"
       - ".github/workflows/cas-replay.yml"
+      - "scripts/ci/verify_cas_replay_artifact.py"
       - "tests/test_cas_web_ota_replay.py"
       - "tests/test_cas_derived_data_replay.py"
       - "tests/test_cas_mac_update_replay.py"
       - "tests/test_cas_acpmux_update_replay.py"
+      - "tests/test_cas_replay_workflow.py"
+      - "tests/test_verify_cas_replay_artifact.py"
   workflow_dispatch:
     inputs:
       count:
@@ -80,13 +86,124 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  cas_replay_build:
+    name: Build cas-replay once
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      artifact_name: ${{ steps.artifact_name.outputs.name }}
+      artifact_transport: ${{ steps.artifact-transport.outputs.transport }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Verify CAS replay artifact validation
+        run: python3 tests/test_verify_cas_replay_artifact.py
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
+          cache-bin: false
+          workspaces: cmux-tui -> target
+          shared-key: cas-replay-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+
+      - name: Build cas-replay
+        working-directory: cmux-tui
+        run: cargo build --release --locked -p cmux-cas --bin cas-replay
+
+      - name: Stage cas-replay and provenance manifest
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/cas-replay-artifact"
+          mkdir -p "$stage"
+          cp cmux-tui/target/release/cas-replay "$stage/cas-replay"
+          chmod +x "$stage/cas-replay"
+          source_sha=$(git rev-parse HEAD)
+          test "$source_sha" = "$SOURCE_SHA"
+          toolchain_sha=$(sha256sum cmux-tui/rust-toolchain.toml | awk '{print $1}')
+          binary_sha=$(sha256sum "$stage/cas-replay" | awk '{print $1}')
+          python3 - "$stage/manifest.json" "$source_sha" "$toolchain_sha" "$binary_sha" <<'PY'
+          import json
+          import os
+          import sys
+
+          output, source_sha, toolchain_sha, binary_sha = sys.argv[1:]
+          manifest = {
+              "schema_version": 1,
+              "source_sha": source_sha,
+              "runner_os": os.environ["RUNNER_OS"],
+              "runner_arch": os.environ["RUNNER_ARCH"],
+              "build_profile": "release",
+              "cargo_package": "cmux-cas",
+              "cargo_bin": "cas-replay",
+              "rust_toolchain_sha256": toolchain_sha,
+              "binary_sha256": binary_sha,
+          }
+          with open(output, "w", encoding="utf-8") as fh:
+              json.dump(manifest, fh, sort_keys=True)
+              fh.write("\n")
+          PY
+
+      # R2 is authoritative when this job has an OIDC identity. A fork pull request
+      # without that identity is the only case that uses GitHub's artifact service.
+      - name: Select the run artifact transport
+        id: artifact-transport
+        env:
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            echo "transport=r2" >> "$GITHUB_OUTPUT"
+          elif [ "$GITHUB_EVENT_NAME" = pull_request ] && [ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ]; then
+            echo "transport=github" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::R2 artifact transport requires GitHub OIDC; only fork pull requests may use GitHub artifacts"
+            exit 1
+          fi
+
+      - name: Name run-scoped cas-replay artifact
+        id: artifact_name
+        run: echo "name=cas-replay-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload cas-replay executable to R2
+        if: steps.artifact-transport.outputs.transport == 'r2'
+        uses: ./.github/actions/r2-artifact/upload
+        with:
+          name: ${{ steps.artifact_name.outputs.name }}
+          path: ${{ runner.temp }}/cas-replay-artifact
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload cas-replay executable without OIDC
+        if: steps.artifact-transport.outputs.transport == 'github'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.artifact_name.outputs.name }}
+          path: ${{ runner.temp }}/cas-replay-artifact
+          if-no-files-found: error
+          retention-days: 1
+
   w1:
     name: cas/1 replay, row W1 (web update bytes per merge)
+    needs: cas_replay_build
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # About 7 s per 54 MB bundle tree to hash and compress, plus a cold build of one small crate.
     timeout-minutes: 30
     permissions:
       contents: read
+      id-token: write
       # The publish runs' list and their bundle artifacts.
       actions: read
     steps:
@@ -108,15 +225,33 @@ jobs:
           cache-bin: false
           workspaces: cmux-tui -> target
           shared-key: cas-replay-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+          # The producer is the only writer for this run's Cargo cache.
+          save-if: false
 
       - name: cargo test -p cmux-cas
         working-directory: cmux-tui
         run: cargo test -p cmux-cas --locked
 
-      - name: Build cas-replay
-        working-directory: cmux-tui
-        run: cargo build --release --locked -p cmux-cas --bin cas-replay
+      - name: Download cas-replay executable from R2
+        if: needs.cas_replay_build.outputs.artifact_transport == 'r2'
+        uses: ./.github/actions/r2-artifact/download
+        with:
+          name: ${{ needs.cas_replay_build.outputs.artifact_name }}
+          path: ${{ runner.temp }}/cas-replay-artifact
+
+      - name: Download cas-replay executable without OIDC
+        if: needs.cas_replay_build.outputs.artifact_transport == 'github'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.cas_replay_build.outputs.artifact_name }}
+          path: ${{ runner.temp }}/cas-replay-artifact
+
+      - name: Verify cas-replay provenance and install it
+        run: |
+          python3 scripts/ci/verify_cas_replay_artifact.py "$RUNNER_TEMP/cas-replay-artifact" \
+            --source-sha "$(git rev-parse HEAD)" \
+            --toolchain cmux-tui/rust-toolchain.toml \
+            --install-to cmux-tui/target/release/cas-replay
 
       - name: Replay the newest web bundle publishes (W1)
         env:
@@ -140,12 +275,14 @@ jobs:
 
   b1:
     name: cas/1 replay, row B1 (DerivedData seed restore bytes)
+    needs: cas_replay_build
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Two seeds of ~9.2 GiB (1.52 GB archives): about 10 min each to stream and unpack, then
     # about 8 min per tree to hash and compress (measured on a lane VM, 2026-11-26).
     timeout-minutes: 90
     permissions:
       contents: read
+      id-token: write
       # The newest seed-derived-data.yml run's job log names the seed key prefix.
       actions: read
     steps:
@@ -156,23 +293,26 @@ jobs:
       - name: Test the replay driver
         run: python3 tests/test_cas_derived_data_replay.py
 
-      - name: Set up pinned Rust
-        uses: ./.github/actions/setup-cmux-tui-rust
-
-      - name: Cache cargo build
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Download cas-replay executable from R2
+        if: needs.cas_replay_build.outputs.artifact_transport == 'r2'
+        uses: ./.github/actions/r2-artifact/download
         with:
-          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
-          add-rust-environment-hash-key: false
-          cache-bin: false
-          workspaces: cmux-tui -> target
-          shared-key: cas-replay-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
-          # W1 saves the shared cache; this job only reads it.
-          save-if: false
+          name: ${{ needs.cas_replay_build.outputs.artifact_name }}
+          path: ${{ runner.temp }}/cas-replay-artifact
 
-      - name: Build cas-replay
-        working-directory: cmux-tui
-        run: cargo build --release --locked -p cmux-cas --bin cas-replay
+      - name: Download cas-replay executable without OIDC
+        if: needs.cas_replay_build.outputs.artifact_transport == 'github'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.cas_replay_build.outputs.artifact_name }}
+          path: ${{ runner.temp }}/cas-replay-artifact
+
+      - name: Verify cas-replay provenance and install it
+        run: |
+          python3 scripts/ci/verify_cas_replay_artifact.py "$RUNNER_TEMP/cas-replay-artifact" \
+            --source-sha "$(git rev-parse HEAD)" \
+            --toolchain cmux-tui/rust-toolchain.toml \
+            --install-to cmux-tui/target/release/cas-replay
 
       - name: Replay main's newest DerivedData seeds (B1)
         env:
@@ -196,6 +336,7 @@ jobs:
 
   u2:
     name: cas/1 replay, row U2 (Mac update bytes, 20 NIGHTLYs behind)
+    needs: cas_replay_build
     # U2's input is the published NIGHTLYs, not this repo's paths. A schedule would run only from the
     # default branch (main), so every feat-cmux-next push that runs W1 also asks the feed for its
     # newest NIGHTLY. A push replays only when that build has no replay yet (a cache marker keyed
@@ -208,6 +349,7 @@ jobs:
     timeout-minutes: 60
     permissions:
       contents: read
+      id-token: write
       # The nightly.yml runs list, which names the published builds.
       actions: read
     steps:
@@ -250,25 +392,27 @@ jobs:
           tar -xJf "$d/7z.tar.xz" -C "$d" 7zz
           echo "$d" >> "$GITHUB_PATH"
 
-      - name: Set up pinned Rust
-        if: steps.seen.outputs.cache-hit != 'true'
-        uses: ./.github/actions/setup-cmux-tui-rust
-
-      - name: Cache cargo build
-        if: steps.seen.outputs.cache-hit != 'true'
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Download cas-replay executable from R2
+        if: steps.seen.outputs.cache-hit != 'true' && needs.cas_replay_build.outputs.artifact_transport == 'r2'
+        uses: ./.github/actions/r2-artifact/download
         with:
-          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
-          add-rust-environment-hash-key: false
-          cache-bin: false
-          workspaces: cmux-tui -> target
-          shared-key: cas-replay-linux-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
-          save-if: false
+          name: ${{ needs.cas_replay_build.outputs.artifact_name }}
+          path: ${{ runner.temp }}/cas-replay-artifact
 
-      - name: Build cas-replay
+      - name: Download cas-replay executable without OIDC
+        if: steps.seen.outputs.cache-hit != 'true' && needs.cas_replay_build.outputs.artifact_transport == 'github'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ needs.cas_replay_build.outputs.artifact_name }}
+          path: ${{ runner.temp }}/cas-replay-artifact
+
+      - name: Verify cas-replay provenance and install it
         if: steps.seen.outputs.cache-hit != 'true'
-        working-directory: cmux-tui
-        run: cargo build --release --locked -p cmux-cas --bin cas-replay
+        run: |
+          python3 scripts/ci/verify_cas_replay_artifact.py "$RUNNER_TEMP/cas-replay-artifact" \
+            --source-sha "$(git rev-parse HEAD)" \
+            --toolchain cmux-tui/rust-toolchain.toml \
+            --install-to cmux-tui/target/release/cas-replay
 
       - name: Replay N-20, N-1 and N (U2)
         if: steps.seen.outputs.cache-hit != 'true'
