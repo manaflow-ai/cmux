@@ -202,6 +202,7 @@ PLATFORM_MSGS = frozenset({
     "cloud.pool.refused",
     "cloud.pool.spend_limit_set",
     "cloud.pool.warning",
+    "cloud.prune_probe.long",
     "cloud.quota.vm_limit",
     "cloud.record.reconcile_failed",
     "cloud.record.stale",
@@ -472,11 +473,13 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "queued_ms": INT, "admit_ms": INT, "delivery_ms": INT, "run_ms": INT,
                  # machines.spare.fill's refill timing (cmux-platform lane/spare-fill-log-timing, hq#31487): the create
                  # call, claim to fill start, the fill's age; and how many spares a claim could take.
-                 "reserve_ms": INT, "claim_to_fill_ms": INT, "fill_age_ms": INT, "claimable": INT}
+                 "reserve_ms": INT, "claim_to_fill_ms": INT, "fill_age_ms": INT, "claimable": INT,
+                 # cloud.prune_probe.long (cmux-platform#2391): ledger rows pruneAt walked on one commit, and how many abandoned.
+                 "walked": INT, "abandoned": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
-PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running", "recycled")
+PUBLIC_BOOLS = ("lacks", "shared", "host", "create_running", "call_running", "recycled", "found")
 
 # The step names a create or start trace marks (cmux-platform CloudCore.ts `trace.mark("...")`), each kept with its
 # ms. Any other name is dropped, so a step a newer platform adds prints nothing until it is listed here.
