@@ -187,6 +187,8 @@ pub async fn serve_with_upload_timeout(
                 .map_err(|(code, reason)| Refusal::new(code, reason))
         }
         Some(HostService::Appearance) => crate::appearance::serve(&sender, receiver, &peer.device_id).await,
+        // Swift live code patches for a cmux Dev app on this phone (live_code.rs).
+        Some(HostService::LiveCode) => crate::live_code::serve(&sender, receiver).await,
         Some(HostService::AppearanceWallpaper) => crate::appearance::serve_wallpaper(&sender, &args).await,
         Some(HostService::Browser) => {
             crate::browser::serve(&config.browser, &*config, &peer, &args, &sender, receiver).await
@@ -195,6 +197,9 @@ pub async fn serve_with_upload_timeout(
             crate::surface::serve(&config.surface, &*config, &peer, &args, &sender, receiver).await
         }
         Some(HostService::Localhost) => crate::localhost::serve(&args, &sender, receiver).await,
+        Some(HostService::PhonePage) => {
+            crate::phone_page::serve(&peer.device_id, &args, &sender, receiver).await
+        }
         Some(HostService::PhoneFrames) => {
             let route = peer.route.clone();
             crate::phone_frames::serve_on(
@@ -294,12 +299,14 @@ const UPLOAD_PART_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(
 /// logged to `phone-frames.jsonl`, `phone_frames.rs`).
 /// `tab-snapshots-v1`: the `tabs` service (every tab's title, favicon, thumbnail or screen text,
 /// with deltas and content-addressed blobs, `tab_snapshots.rs`).
+/// `phone-page-v1`: the `phone-page` service (agents' `browser.page.*` calls on a tab the
+/// phone shows itself, `phone_page.rs`).
 /// `mailbox-send-v1`: the mailbox takes `send` and `compose` items, held up to 24 hours and
 /// applied once in each phone's `seq` order (`mailbox.rs`, PROTOCOL.md "Store and forward").
 /// `bundle-v1`: the `bundle` service (attachment `put` and file `get` as sealed
 /// content-defined chunks, `bundle.rs`).
 /// The names are declared once in `cmux_mobile_link::names`.
-pub const CAPABILITIES: [&str; 12] = [
+pub const CAPABILITIES: [&str; 13] = [
     names::REMOVAL,
     names::FILE_PREVIEW,
     names::LOCALHOST_FORWARD,
@@ -310,6 +317,7 @@ pub const CAPABILITIES: [&str; 12] = [
     names::PAIR_REQUESTS,
     names::PHONE_FRAMES,
     names::TAB_SNAPSHOTS,
+    names::PHONE_PAGE,
     names::MAILBOX_SEND,
     names::BUNDLE,
 ];
@@ -3492,6 +3500,7 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
+                "phone-page-v1",
                 "mailbox-send-v1",
                 "bundle-v1"
             ]
@@ -3513,6 +3522,7 @@ mod tests {
                 "pair-requests-v1",
                 "phone-frames-v1",
                 "tab-snapshots-v1",
+                "phone-page-v1",
                 "mailbox-send-v1",
                 "bundle-v1",
                 BROWSER_STREAM,

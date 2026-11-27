@@ -265,6 +265,7 @@
     "service:echo",
     "service:file",
     "service:lan",
+    "service:live-code",
     "service:machine",
     "service:upload",
     "service:version"
@@ -384,6 +385,10 @@
       "field:phone-frames/tui#rows",
       "field:phone-frames/tui#rtt_ms",
       "service:phone-frames"
+    ],
+    "phone-page-v1": [
+      "param:phone-page#name",
+      "service:phone-page"
     ],
     "reliable": [
       "frame:ack=8",

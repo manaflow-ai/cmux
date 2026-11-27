@@ -24,6 +24,7 @@ pub mod effective;
 pub mod home_table;
 pub mod jsonc;
 pub mod looks;
+pub mod notifications;
 pub mod schema;
 pub mod shortcut;
 pub mod snapshot;
@@ -48,6 +49,7 @@ const AREAS: &[AreaCall] = &[
     effective::call,
     home_table::call,
     looks::call,
+    notifications::call,
     schema::call,
     shortcut::call,
     snapshot::call,
