@@ -98,6 +98,8 @@ fn private_dir(dir: &Path) -> std::io::Result<()> {
     crate::home_fs::private_dir(dir)
 }
 
+// test-hook-allow: keyed by peer name and never cleared: each test registers its own peer
+// names (peer_ssh_master_tests.rs), so no test can replace or clear another's entry
 #[cfg(test)]
 // test-hook-allow: keyed by peer name, and each test names its own peer, so no test replaces another's
 static OVERRIDES: std::sync::Mutex<Option<std::collections::HashMap<String, SshMux>>> =
