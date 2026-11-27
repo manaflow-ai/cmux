@@ -107,6 +107,9 @@ const admitSend = (admission: CreateAdmissionClient | undefined, holder: string,
   );
 };
 
+/** How long a create's provider call may run, its background polls included: under the 300 s a caller's create waits. */
+const CREATE_BUDGET_MS = 240_000;
+
 export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: SizeRequest | undefined) => string | null): UpstreamClientService["createVm"] => {
   const http = makeUpstreamHttp(config);
   const decode = (body: unknown) => Schema.decodeUnknown(Receipt)(body).pipe(Effect.mapError(() => new UpstreamError({ operation: "createVm", status: null })));
@@ -261,7 +264,11 @@ export const makeDurableCreate = (config: UpstreamConfig, baseImageFor: (size: S
       // nothing and the same key's retry starts clean, like a failed image read above.
       const release = yield* admitSend(config.createAdmission, spec.cmuxId, phases);
       const token = yield* journal.beginSend().pipe(Effect.onError(() => release));
-      return yield* timedPhase(phases, "createMs", http.json("createVm", "POST", "/v5/vms", sent, { timeoutMs: 120_000 }).pipe(
+      // Staging, 2026-11-27 05:51-06:01Z: in a burst of creates the provider held POST /v5/vms past the 120 s cut, 13
+      // creates failed at createMs 120000 with no VM yet under the slug to recover, and the caller's retries ran a
+      // journey's create past its 300 s bound. As a background request it answers 202 after 60 s and the stored
+      // answer (the VM) is polled, so a slow create is still one create with its answer.
+      return yield* timedPhase(phases, "createMs", http.json("createVm", "POST", "/v5/vms", sent, { timeoutMs: 120_000, backgroundUntil: Date.now() + CREATE_BUDGET_MS }).pipe(
         Effect.tap(keep),
         Effect.tap((body) => Effect.sync(() => { if (phases !== undefined) Object.assign(phases, providerTimings(body)); })),
         Effect.flatMap(decode), Effect.flatMap(checkedSent),
