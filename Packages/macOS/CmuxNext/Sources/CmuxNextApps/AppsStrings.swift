@@ -6,7 +6,6 @@ nonisolated enum AppsStrings {
         String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
-
     // The sidebar's Apps section (RFD 0003 E-C, ``AppsTierSectionView``).
     static var tierTitle: String { t("appsTier.sidebar.title", "Apps") }
     static var tierPublishRow: String { t("appsTier.sidebar.publishRow", "+ Publish preview…") }
