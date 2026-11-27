@@ -448,19 +448,19 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     #[cfg(unix)]
     let handed = listener_handover::take_received();
     #[cfg(unix)]
-    let unix_listener = match handed.unix {
-        Some(l)
-            if listener_handover::serves_path(&l, &socket_path())
-                && socket_path().exists()
-                && l.set_nonblocking(true).is_ok() =>
-        {
+    let unix_listener = match handed.unix.map(|l| listener_handover::usable(l, &socket_path())) {
+        Some(Ok(l)) => {
             tracing::info!(
                 "serving {} handed over by the previous daemon",
                 socket_path().display()
             );
             tokio::net::UnixListener::from_std(l)?
         }
-        _ => crate::server::bind_unix(&socket_path()).await?,
+        Some(Err(why)) => {
+            tracing::warn!("the handed-over listener is not served ({why}); binding instead");
+            crate::server::bind_unix(&socket_path()).await?
+        }
+        None => crate::server::bind_unix(&socket_path()).await?,
     };
     #[cfg(not(unix))]
     let unix_listener = crate::server::bind_unix(&socket_path()).await?;

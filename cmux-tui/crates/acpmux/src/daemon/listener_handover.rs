@@ -325,6 +325,20 @@ pub(crate) fn take_received() -> Received {
     RECEIVED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take().unwrap_or_default()
 }
 
+/// The received unix listener, ready to serve `socket`; else why not.
+pub(crate) fn usable(listener: UnixListener, socket: &Path) -> Result<UnixListener, String> {
+    if !serves_path(&listener, socket) {
+        let bound =
+            listener.local_addr().map(|a| format!("{a:?}")).unwrap_or_else(|e| e.to_string());
+        return Err(format!("it is bound at {bound}, not {}", socket.display()));
+    }
+    if !socket.exists() {
+        return Err(format!("{} is gone", socket.display()));
+    }
+    listener.set_nonblocking(true).map_err(|e| format!("set_nonblocking: {e}"))?;
+    Ok(listener)
+}
+
 /// A received unix listener serves `socket` only when it is bound at that path.
 pub(crate) fn serves_path(listener: &UnixListener, socket: &Path) -> bool {
     listener
