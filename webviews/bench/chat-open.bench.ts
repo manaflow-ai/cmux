@@ -695,6 +695,7 @@ try {
     calls = [];
     socketOpenedAt = 0;
     const started = Date.now();
+    if (process.env.COVOUT) await page.coverage.startJSCoverage({ resetOnNavigation: false });
     // COMPOSER=1: the letter goes in as soon as the field exists, while the page still loads.
     const typed = COMPOSER
       ? page.goto(url, { waitUntil: "commit" }).then(async () => {
@@ -722,6 +723,7 @@ try {
       REMOTE_TAIL,
       { timeout: 120_000, polling: 100 },
     );
+    if (process.env.COVOUT) fs.writeFileSync(process.env.COVOUT, JSON.stringify((await page.coverage.stopJSCoverage()).map((e) => ({ url: e.url, len: e.source?.length ?? 0, fns: e.functions.map((f) => [f.ranges[0]!.startOffset, f.ranges[0]!.endOffset, f.ranges[0]!.count]) }))));
     const got = await page.evaluate(() => {
       const state = (
         window as unknown as {
@@ -922,7 +924,6 @@ try {
         timeDeltas: number[];
       };
     };
-    if (process.env.RAWPROF) fs.writeFileSync(process.env.RAWPROF, JSON.stringify(profile));
     const mapper = sourceMapper(out);
     const byId = new Map(profile.nodes.map((node) => [node.id, node]));
     const self = new Map<string, number>();
