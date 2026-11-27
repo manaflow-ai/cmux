@@ -135,9 +135,10 @@ export function chiefStartAuth(env: Record<string, string | undefined>): ChiefSt
   };
 }
 
-/** Wait for a fresh, exact echo or the Chief's turn failure (which can follow a partial reply). */
+/** Wait for a fresh echo (allow surrounding punctuation/Markdown) or the Chief's turn failure. */
 export async function chiefReply(api: Pick<Api, "read">, conversation: string, chief: string, seen: Set<string>, expected: string, deadlineMs: number, secrets: string[] = []): Promise<{ text: string } | null> {
   const until = Date.now() + deadlineMs;
+  const echo = new RegExp(`^[\\s\\p{P}]*${expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\p{P}]*$`, "u");
   for (;;) {
     const snap = await api.read("conversation.snapshot", { conversation, tail: 50 });
     const rows = (snap?.rows?.rows ?? []).map((r: any) => r?.row ?? r);
@@ -149,7 +150,7 @@ export async function chiefReply(api: Pick<Api, "read">, conversation: string, c
       const failure = /^\(turn failed(?: on [^:\n]+)?:/m.exec(text);
       if (failure) throw new Error(scrub(text.slice(failure.index), secrets).slice(0, 600));
       if (/not signed in|not logged in/i.test(text)) throw new Error("the Chief answered without a model: not signed in");
-      if (text.trim() !== expected) continue;
+      if (!echo.test(text)) continue;
       seen.add(id);
       return { text };
     }

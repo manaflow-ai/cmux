@@ -105,8 +105,10 @@ jobs:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
           PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
-          # Exercise the same default SR2/CodeRouter route as cloud-claude-matrix.yml; no direct Claude quota.
-          CHIEF_START_AUTH: sr2
+          # Staging has no shared SR2 route. Exercise the owner's credential and old-unit drop-in.
+          CHIEF_START_AUTH: owner
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CMUX_JOURNEY_CLAUDE_CODE_OAUTH_TOKEN || secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           bun scripts/cmux-next/cloud-chief-start-check.ts --target staging \
             --call "${{ steps.build.outputs.call }}" --binary "${{ steps.build.outputs.chief }}" \
