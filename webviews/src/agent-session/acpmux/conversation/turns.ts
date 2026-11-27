@@ -426,6 +426,14 @@ export const endsOnWork = (row: AcpmuxRow) => (row.turnCopy?.length ?? 0) > 0;
 
 const isEditTool = (tool: { kind?: string } | undefined) => tool?.kind === "edit" || tool?.kind === "fileChange";
 const isEdit = (row: AcpmuxRow) => row.kind === "activity" && (row.items ?? []).some((item) => isEditTool(item.tool));
+/// An edit row as the turn's edited-files card holds it: its file changes alone. A harness that sends
+/// a whole turn's calls with no message between them (Antigravity) gives one row of reads, commands,
+/// thoughts and edits; whole, that row drew every call beside the closed "Worked for", under the answer.
+const editsOnly = (row: AcpmuxRow): AcpmuxRow => {
+  const items = row.items ?? [];
+  const kept = items.filter((item) => isEditTool(item.tool));
+  return kept.length === items.length ? row : { ...row, items: kept, toolCount: kept.length };
+};
 
 /// A completed whole-file tool diff proves a file changed only when both before and after text are
 /// known. A path-only or unknown-old write can be a no-op (even when its replacement text is
@@ -2530,8 +2538,9 @@ function shapeTurn(
           (row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool)))));
     const work = [...before, ...after].filter((row) => !out(row));
     // A row drawn beside the closed fold is not in the card too: the card takes its first row's id.
-    // A file change that never got its input changed nothing (toolGroups.ts `isDraftCall`).
-    edits.push(...work.flatMap(withoutDrafts).filter(isEdit));
+    // A file change that never got its input changed nothing (toolGroups.ts `isDraftCall`). The card
+    // takes only a row's edits: the row's other calls are work the fold hides (`editsOnly`).
+    edits.push(...work.flatMap(withoutDrafts).filter(isEdit).map(editsOnly));
     // A turn of nothing but the agent's replies and the person's own steers did no work to fold:
     // it stays drawn as it ran, the steer between the replies (agent-pane-steer-split.test.ts).
     // Reports received from other agents fold like work.
