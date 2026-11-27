@@ -187,7 +187,7 @@ const GROUPS: &[Group] = &[
             ),
             verb(
                 "start-session",
-                "({target} | --name NAME) --agent AGENT [--model MODEL] [--cwd DIR | --from-folder PATH] [--no-focus]",
+                "[{target} | --name NAME] --agent AGENT [--model MODEL] [--cwd DIR | --from-folder PATH] [--no-focus]",
                 "Start an agent session (claude, codex, ...) there",
                 "エージェントセッション（claude、codex など）を開始",
             ),
@@ -642,6 +642,7 @@ MODEL CONNECTIONS (what a Cloud session runs on; secrets go into this Mac's Keyc
   cmux cloud connect chatgpt [--no-wait] [--timeout SECONDS]
 claude runs `claude setup-token` and captures its token without showing it; api-key reads
 the key from a hidden prompt or stdin; chatgpt prints a link to open in a browser on this Mac.
+For sign-in on a Cloud machine, open `cmux://settings/cloud/claude`.
 
 TEAM KEYS (one shared key per agent for the team; owners and admins)
   cmux cloud team-keys status --team TEAM_ID --json
@@ -684,6 +685,7 @@ set は値を非表示の入力プロンプトまたは標準入力から読み�
   cmux cloud connect chatgpt [--no-wait] [--timeout SECONDS]
 claude は `claude setup-token` を実行し、トークンを表示せずに取り込みます。api-key はキーを
 非表示の入力プロンプトまたは標準入力から読み取ります。chatgpt はこの Mac のブラウザで開くリンクを表示します。
+`cmux://settings/cloud/claude` から Cloud マシン上の Claude Code にサインインします。
 
 チームキー（チームでエージェントごとに 1 つの共有キー、オーナーと管理者）
   cmux cloud team-keys status --team TEAM_ID --json
