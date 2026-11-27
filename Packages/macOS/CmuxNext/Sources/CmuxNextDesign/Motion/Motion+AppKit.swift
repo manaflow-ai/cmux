@@ -398,6 +398,23 @@ extension MotionGate {
         return set(layer, keyPath, to: value, fade: token, from: from)
     }
 
+    /// An additive slide of `keyPath` from `offset` back to zero over `duration` seconds on an ease-out curve,
+    /// filled backwards: for a layer whose model value is already its end, as a split's snapshot picture sliding in
+    /// from the split pane's edge. Nil when movement does not animate in `window` (Reduce Motion, speed "off"):
+    /// the layer shows at its end at once.
+    public func additiveSlide(_ keyPath: String, from offset: CGFloat, duration: CFTimeInterval,
+                              in window: NSWindow?) -> CAAnimation? {
+        guard animatesMovement(in: window), duration > 0 else { return nil }
+        let slide = CABasicAnimation(keyPath: keyPath)
+        slide.fromValue = offset
+        slide.toValue = 0
+        slide.isAdditive = true
+        slide.duration = duration
+        slide.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        slide.fillMode = .backwards
+        return slide
+    }
+
     /// A continuous clockwise rotation for a busy spinner, or nil when loops are off. Clockwise
     /// only: every spinner turns the same way.
     public func spinAnimation() -> CAAnimation? {

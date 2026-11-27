@@ -51,9 +51,11 @@ public final class FirstRunImportCardView: NSView {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Metrics.space2
-        stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        // The card is concentric with its Not Now and Import buttons, 16 in from its edge.
+        let container = Metrics.buttonContainer(padding: 16)
+        stack.edgeInsets = NSEdgeInsets(top: container.padding, left: container.padding, bottom: container.padding, right: container.padding)
         stack.translatesAutoresizingMaskIntoConstraints = false
-        let glass = Glass.makeSurface(.card, cornerRadius: Metrics.surfaceCornerRadius)
+        let glass = Glass.makeSurface(.card, cornerRadius: container.outerRadius)
         addSubview(glass)
         addSubview(stack)
         NSLayoutConstraint.activate([

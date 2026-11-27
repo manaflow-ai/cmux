@@ -30,7 +30,7 @@ struct ChiefWelcomeRulesSmokeTests {
         let owner = Owner()
         let at = Date(timeIntervalSince1970: 1_793_404_800.25)
         try await ChiefWelcome(conversation: "conv", owner: owner, showsTyping: true, text: "About.")
-            .play(now: { at }, wait: { await owner.waited($0) })
+            .play(now: { at }, pause: { await owner.waited($0) })
         let beats = ChiefWelcome.beats(about: "About.")
         #expect(beats.count == 3)
         #expect(beats[1].text == "About.")

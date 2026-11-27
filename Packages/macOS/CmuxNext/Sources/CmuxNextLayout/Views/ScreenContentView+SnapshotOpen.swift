@@ -33,9 +33,9 @@ final class SplitSnapshotOpen {
     /// Both happened: the picture goes.
     var done: Bool { liveShown && landed }
 
-    /// Adds `slide` to `layer` in a transaction of its own; when the compositor ran it, marks the slide landed and calls
+    /// Adds `slide` (nil: none, so it lands at once) to `layer` in a transaction of its own; when the compositor ran it, marks the slide landed and calls
     /// `landed` (the owner drops the picture if the live change showed by then).
-    func run(_ slide: CAAnimation, on layer: CALayer?, landed: @escaping @MainActor (SplitSnapshotOpen) -> Void) {
+    func run(_ slide: CAAnimation?, on layer: CALayer?, landed: @escaping @MainActor (SplitSnapshotOpen) -> Void) {
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
             MainActor.assumeIsolated { // main-proof: a transaction begun on the main thread completes there
@@ -44,7 +44,7 @@ final class SplitSnapshotOpen {
                 landed(self)
             }
         }
-        layer?.add(slide, forKey: "splitSnapshotOpen")
+        if let slide { layer?.add(slide, forKey: "splitSnapshotOpen") }
         CATransaction.commit()
     }
 }
@@ -104,13 +104,9 @@ extension ScreenContentView {
         clip.addSubview(picture)
         addSubview(clip, positioned: .above, relativeTo: nil)
         // From the split pane's right edge to the fixed end: additive on x, so the model value is the end throughout.
-        let slide = CABasicAnimation(keyPath: "position.x")
-        slide.fromValue = giver.frame.width - picture.frame.minX
-        slide.toValue = 0
-        slide.isAdditive = true
-        slide.duration = SplitSnapshotOpen.slide
-        slide.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        slide.fillMode = .backwards
+        // Nil under Reduce Motion or speed "off": the picture shows at its end and the slide lands at once.
+        let slide = Motion.panes.additiveSlide("position.x", from: giver.frame.width - picture.frame.minX,
+                                               duration: SplitSnapshotOpen.slide, in: window)
         let state = SplitSnapshotOpen(view: clip, end: end)
         snapshotOpen = state
         state.run(slide, on: picture.layer) { [weak self] state in

@@ -13,11 +13,16 @@ public final class SlackPageProvider: PageProvider {
     /// read/write for the default Chief (`nil`: read; `.some(nil)`: the default allowance; `.some(n)`: n seconds).
     public init(request: @escaping @MainActor (String, SlackOwnBot?) async throws -> Data,
          open: @escaping @MainActor (URL) -> Void,
-         awake: @escaping @MainActor (Int??) async throws -> Data = { _ in throw PageError.unavailable("no Chief") }) {
+         awake: @escaping @MainActor (Int??) async throws -> Data = SlackPageProvider.noChief) {
         self.request = request
         self.open = open
         self.awake = awake
     }
+
+    /// The awake read/write when the host has no Chief. A named function, not a closure literal default: Swift emits an
+    /// async closure default in every calling module under one weak symbol (crash class async_closure_default_arg).
+    @MainActor
+    public static func noChief(_: Int??) async throws -> Data { throw PageError.unavailable("no Chief") }
 
     /// The most a non-owner may keep the Chief awake a day (the API's `SLACK_ALLOWANCE_MAX_SECONDS`).
     public static let maxAllowanceSeconds = 86_400

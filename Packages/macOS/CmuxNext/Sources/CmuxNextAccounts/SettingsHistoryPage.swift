@@ -53,7 +53,7 @@ public final class SettingsHistoryPage: PageProvider {
         guard Self.ops.contains(op) else { throw PageError.unknownOp(op) }
         if op == "cmux.settings.history" {
             guard let data = try await read() else { throw PageError.unknownOp(op) }
-            return try JSONDecoder().decode(JSONValue.self, from: data)
+            return try await Self.decodeOffMain(data)
         }
         let writer = self.writer(context)
         guard writer == .user else { throw personOnly }
@@ -77,12 +77,12 @@ public final class SettingsHistoryPage: PageProvider {
         let answer: Data?
         do {
             answer = try await write("settings." + op.dropFirst("cmux.settings.".count),
-                                    JSONEncoder().encode(JSONValue.object(fields)), key)
+                                    JSONEncoder().encode(JSONValue.object(fields)), key) // main-actor-ok: two fields (revision, group)
         } catch {
             throw PageError.failed(error, code: "cmux.settings.history_refused")
         }
         guard let answer else { throw PageError.unknownOp(op) }
-        let written = try JSONDecoder().decode(JSONValue.self, from: answer)
+        let written = try await Self.decodeOffMain(answer)
         // The page reads the scope next; this load makes it current, as reset_all does.
         await settings.reload()
         return reply(keys: written["keys"] ?? .array([]), revision: written["history_revision"] ?? .null)
@@ -92,6 +92,11 @@ public final class SettingsHistoryPage: PageProvider {
     /// and the daemon's revision of the recorded change, which `cmux.settings.restore` takes.
     private func reply(keys: JSONValue, revision: JSONValue) -> JSONValue {
         ["value": ["keys": keys], "revision": .string(String(settings.loadCount)), "history_revision": revision, "replayed": false]
+    }
+
+    /// The daemon's history answer grows with the recorded changes, so it decodes off the main actor.
+    @concurrent nonisolated private static func decodeOffMain(_ data: Data) async throws -> JSONValue {
+        try JSONDecoder().decode(JSONValue.self, from: data)
     }
 }
 

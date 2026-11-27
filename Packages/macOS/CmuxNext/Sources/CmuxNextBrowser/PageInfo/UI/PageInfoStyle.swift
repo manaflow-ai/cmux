@@ -26,7 +26,6 @@ enum PageInfoStyle {
     /// How far left of the omnibar chip the bubble opens (its anchor, unchanged by the menu grid).
     static var anchorInset: CGFloat { Metrics.panelInset }
     static var cornerRadius: CGFloat { GlassMenuMaterial.cornerRadius }
-    static var buttonCornerRadius: CGFloat { MenuMetrics.highlightRadius }
     static var spacing: CGFloat { MenuMetrics.iconGap }
     /// A switch that fits a 28 row at every density (the agent pane's small switch).
     static var toggleSize: CGSize { CGSize(width: 32, height: 18) }

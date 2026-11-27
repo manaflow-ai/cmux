@@ -17,10 +17,11 @@ final class PageInfoIconButton: NSButton {
         image = PageInfoStyle.symbol(symbol, size: PageInfoStyle.iconSize - 2)
         setAccessibilityLabel(label)
         wantsLayer = true
-        layer?.cornerRadius = PageInfoStyle.buttonCornerRadius
+        let side = PageInfoStyle.rowHeight - 4
+        // Every button rounds as a tab (Metrics' one button token), at this button's size.
+        layer?.cornerRadius = Metrics.buttonCornerRadius(proportionalTo: side)
         target = self
         action = #selector(press)
-        let side = PageInfoStyle.rowHeight - 4
         NSLayoutConstraint.activate([widthAnchor.constraint(equalToConstant: side), heightAnchor.constraint(equalToConstant: side)])
     }
 
