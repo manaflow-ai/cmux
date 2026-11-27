@@ -3026,6 +3026,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-braid-class",
+ "schemars 1.2.2",
  "serde",
  "serde_json",
  "uuid",
@@ -9084,6 +9085,7 @@ dependencies = [
  "schemars_derive 1.2.2",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]

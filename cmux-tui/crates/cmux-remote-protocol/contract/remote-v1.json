@@ -1,0 +1,5365 @@
+{
+  "$defs": {
+    "ComputerUseAction": {
+      "oneOf": [
+        {
+          "properties": {
+            "display": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "screenshot",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "root": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "accessibility-tree",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "action": {
+              "$ref": "#/$defs/PointerAction"
+            },
+            "type": {
+              "const": "pointer",
+              "type": "string"
+            },
+            "x": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "y": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "x",
+            "y",
+            "action"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "action": {
+              "$ref": "#/$defs/KeyAction"
+            },
+            "key": {
+              "type": "string"
+            },
+            "modifiers": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "keyboard",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "key",
+            "action"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "text": {
+              "type": "string"
+            },
+            "type": {
+              "const": "text-input",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "text"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "delta_x": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "delta_y": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "type": {
+              "const": "scroll",
+              "type": "string"
+            },
+            "x": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "y": {
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "x",
+            "y",
+            "delta_x",
+            "delta_y"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ComputerUseCapability": {
+      "properties": {
+        "feature": {
+          "$ref": "#/$defs/ComputerUseFeature"
+        },
+        "version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "feature",
+        "version"
+      ],
+      "type": "object"
+    },
+    "ComputerUseFeature": {
+      "enum": [
+        "screenshot",
+        "accessibility-tree",
+        "pointer",
+        "keyboard",
+        "text-input",
+        "scroll"
+      ],
+      "type": "string"
+    },
+    "ComputerUseInvocation": {
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/ComputerUseAction"
+        },
+        "id": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "timeout_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "workspace": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "action"
+      ],
+      "type": "object"
+    },
+    "ComputerUseOutput": {
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "acknowledged",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "height": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "mime_type": {
+              "type": "string"
+            },
+            "type": {
+              "const": "screenshot",
+              "type": "string"
+            },
+            "width": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "mime_type",
+            "data",
+            "width",
+            "height"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "format": {
+              "type": "string"
+            },
+            "type": {
+              "const": "accessibility-tree",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "format",
+            "data"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ComputerUseResult": {
+      "properties": {
+        "invocation": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "output": {
+          "$ref": "#/$defs/ComputerUseOutput"
+        }
+      },
+      "required": [
+        "invocation",
+        "output"
+      ],
+      "type": "object"
+    },
+    "DiffFormat": {
+      "oneOf": [
+        {
+          "enum": [
+            "unified",
+            "structured-v1"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "structured",
+          "type": "string"
+        }
+      ]
+    },
+    "DirectoryEntry": {
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/FileKind"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "size": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "kind",
+        "size"
+      ],
+      "type": "object"
+    },
+    "FileKind": {
+      "enum": [
+        "file",
+        "directory",
+        "symlink",
+        "other"
+      ],
+      "type": "string"
+    },
+    "FilePrecondition": {
+      "oneOf": [
+        {
+          "enum": [
+            "any",
+            "missing"
+          ],
+          "type": "string"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "content-hash": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "content-hash"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FileStat": {
+      "properties": {
+        "content_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "executable": {
+          "type": "boolean"
+        },
+        "kind": {
+          "$ref": "#/$defs/FileKind"
+        },
+        "modified_unix_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "size": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "size",
+        "executable"
+      ],
+      "type": "object"
+    },
+    "GitChange": {
+      "properties": {
+        "index_status": {
+          "maxLength": 1,
+          "minLength": 1,
+          "type": "string"
+        },
+        "original_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "worktree_status": {
+          "maxLength": 1,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "index_status",
+        "worktree_status"
+      ],
+      "type": "object"
+    },
+    "GitStatus": {
+      "properties": {
+        "branch": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "changes": {
+          "items": {
+            "$ref": "#/$defs/GitChange"
+          },
+          "type": "array"
+        },
+        "head": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "changes"
+      ],
+      "type": "object"
+    },
+    "KeyAction": {
+      "enum": [
+        "down",
+        "up",
+        "press"
+      ],
+      "type": "string"
+    },
+    "PatchFileAction": {
+      "enum": [
+        "created",
+        "modified",
+        "deleted",
+        "renamed"
+      ],
+      "type": "string"
+    },
+    "PatchFileResult": {
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/PatchFileAction"
+        },
+        "new_content_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "old_content_hash": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "type": "string"
+        },
+        "previous_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path",
+        "action"
+      ],
+      "type": "object"
+    },
+    "PointerAction": {
+      "enum": [
+        "move",
+        "left-down",
+        "left-up",
+        "right-down",
+        "right-up"
+      ],
+      "type": "string"
+    },
+    "ProcessDescriptor": {
+      "properties": {
+        "command_label": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "display_argv": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "display_argv_truncated": {
+          "type": "boolean"
+        },
+        "io": {
+          "$ref": "#/$defs/ProcessIoKind"
+        },
+        "lifetime": {
+          "$ref": "#/$defs/ProcessLifetime"
+        },
+        "operation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pid": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "process": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "pty_size": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProcessTerminalSize"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "replay": {
+          "$ref": "#/$defs/ProcessReplayRange"
+        },
+        "state": {
+          "$ref": "#/$defs/ProcessState"
+        },
+        "workspace": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "process",
+        "workspace",
+        "command_label",
+        "display_argv",
+        "display_argv_truncated",
+        "cwd",
+        "lifetime",
+        "io",
+        "state",
+        "replay"
+      ],
+      "type": "object"
+    },
+    "ProcessEnvironment": {
+      "enum": [
+        "inherit",
+        "clean"
+      ],
+      "type": "string"
+    },
+    "ProcessEvent": {
+      "oneOf": [
+        {
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "sequence": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "stdout",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process",
+            "sequence",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "sequence": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "stderr",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process",
+            "sequence",
+            "data"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/$defs/ProcessOutputTruncationReason"
+            },
+            "sequence": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "output-truncated",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process",
+            "sequence",
+            "reason"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "range": {
+              "$ref": "#/$defs/ProcessReplayRange"
+            },
+            "requested_after": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "replay-gap",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process",
+            "requested_after",
+            "range"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "code": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "signal": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "exit",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProcessIo": {
+      "oneOf": [
+        {
+          "properties": {
+            "stdin": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "pipes",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "stdin"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "cols": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "eof": {
+              "$ref": "#/$defs/PtyEofPolicy"
+            },
+            "rows": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "term": {
+              "type": "string"
+            },
+            "type": {
+              "const": "pty",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "cols",
+            "rows",
+            "term"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProcessIoKind": {
+      "enum": [
+        "pipes",
+        "pty"
+      ],
+      "type": "string"
+    },
+    "ProcessLifetime": {
+      "enum": [
+        "operation",
+        "workspace",
+        "detached"
+      ],
+      "type": "string"
+    },
+    "ProcessOutputStream": {
+      "enum": [
+        "stdout",
+        "stderr",
+        "pty"
+      ],
+      "type": "string"
+    },
+    "ProcessOutputTruncationReason": {
+      "oneOf": [
+        {
+          "properties": {
+            "idle_timeout_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "drain-idle-timeout",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "idle_timeout_ms"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "total_timeout_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "drain-total-timeout",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "total_timeout_ms"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "stream": {
+              "$ref": "#/$defs/ProcessOutputStream"
+            },
+            "type": {
+              "const": "read-error",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "stream",
+            "message"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "message": {
+              "type": "string"
+            },
+            "type": {
+              "const": "reader-task-failed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "message"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProcessReplayRange": {
+      "properties": {
+        "exited": {
+          "type": "boolean"
+        },
+        "first_available": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "last_produced": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "last_produced",
+        "exited"
+      ],
+      "type": "object"
+    },
+    "ProcessSignal": {
+      "enum": [
+        "interrupt",
+        "terminate",
+        "kill",
+        "hangup"
+      ],
+      "type": "string"
+    },
+    "ProcessState": {
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "running",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "code": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "signal": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "exited",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProcessTerminalColor": {
+      "properties": {
+        "b": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "g": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "r": {
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "r",
+        "g",
+        "b"
+      ],
+      "type": "object"
+    },
+    "ProcessTerminalCursor": {
+      "properties": {
+        "blink": {
+          "type": "boolean"
+        },
+        "color": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProcessTerminalColor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "style": {
+          "$ref": "#/$defs/ProcessTerminalCursorStyle"
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "x": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "y": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "style",
+        "blink",
+        "visible"
+      ],
+      "type": "object"
+    },
+    "ProcessTerminalCursorStyle": {
+      "enum": [
+        "bar",
+        "block",
+        "underline"
+      ],
+      "type": "string"
+    },
+    "ProcessTerminalRow": {
+      "properties": {
+        "row": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "runs": {
+          "items": {
+            "$ref": "#/$defs/ProcessTerminalStyledRun"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "row",
+        "runs"
+      ],
+      "type": "object"
+    },
+    "ProcessTerminalSize": {
+      "properties": {
+        "cols": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rows": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "cols",
+        "rows"
+      ],
+      "type": "object"
+    },
+    "ProcessTerminalSnapshot": {
+      "properties": {
+        "cursor": {
+          "$ref": "#/$defs/ProcessTerminalCursor"
+        },
+        "default_bg": {
+          "$ref": "#/$defs/ProcessTerminalColor"
+        },
+        "default_fg": {
+          "$ref": "#/$defs/ProcessTerminalColor"
+        },
+        "process": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/ProcessTerminalRow"
+          },
+          "type": "array"
+        },
+        "scrollback_rows": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "size": {
+          "$ref": "#/$defs/ProcessTerminalSize"
+        },
+        "through_sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "process",
+        "size",
+        "rows",
+        "cursor",
+        "default_fg",
+        "default_bg",
+        "scrollback_rows",
+        "through_sequence"
+      ],
+      "type": "object"
+    },
+    "ProcessTerminalStyledRun": {
+      "properties": {
+        "attrs": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "bg": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProcessTerminalColor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fg": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProcessTerminalColor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "underline": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProcessTerminalUnderline"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "width_hint": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "text",
+        "attrs"
+      ],
+      "type": "object"
+    },
+    "ProcessTerminalUnderline": {
+      "enum": [
+        "single",
+        "double",
+        "curly",
+        "dotted",
+        "dashed"
+      ],
+      "type": "string"
+    },
+    "PtyEofPolicy": {
+      "enum": [
+        "reject",
+        "control-d",
+        "hangup"
+      ],
+      "type": "string"
+    },
+    "RemoteCapability": {
+      "anyOf": [
+        {
+          "enum": [
+            "mux-control-v9",
+            "workspace-files-v1",
+            "workspace-search-v1",
+            "workspace-patch-v1",
+            "workspace-diff-v1",
+            "process-pipes-v1",
+            "process-pty-v1",
+            "tcp-routes-v1",
+            "computer-use-negotiation-v1",
+            "workspace-pagination-v1",
+            "workspace-patch-v2",
+            "workspace-patch-v3",
+            "structured-diff-v1",
+            "process-lifecycle-v2",
+            "process-replay-v1",
+            "process-handles-v2",
+            "process-catalog-v1",
+            "process-terminal-snapshot-v1",
+            "request-control-v1",
+            "computer-use-v1"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "terminal-viewer-size-priority-v1",
+          "type": "string"
+        },
+        {
+          "const": "secrets-v1",
+          "type": "string"
+        },
+        {
+          "const": "git-host-tokens-v1",
+          "type": "string"
+        },
+        {
+          "const": "paused-reads-v1",
+          "type": "string"
+        },
+        {
+          "const": "describe-v1",
+          "type": "string"
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "RequestId": {
+      "format": "uuid",
+      "type": "string"
+    },
+    "Result_of_WorkspaceResponse_or_RpcError": {
+      "oneOf": [
+        {
+          "properties": {
+            "Ok": {
+              "$ref": "#/$defs/WorkspaceResponse"
+            }
+          },
+          "required": [
+            "Ok"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "Err": {
+              "$ref": "#/$defs/RpcError"
+            }
+          },
+          "required": [
+            "Err"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RoutePolicy": {
+      "enum": [
+        "loopback-only",
+        "private-network",
+        "any"
+      ],
+      "type": "string"
+    },
+    "RpcError": {
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "details": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RpcErrorDetails"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "type": "object"
+    },
+    "RpcErrorDetails": {
+      "oneOf": [
+        {
+          "properties": {
+            "failed_paths": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "patch-rollback",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "failed_paths"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "range": {
+              "$ref": "#/$defs/ProcessReplayRange"
+            },
+            "requested_after": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "process-replay-gap",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "requested_after",
+            "range"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "RpcEvent": {
+      "properties": {
+        "event": {
+          "$ref": "#/$defs/ProcessEvent"
+        },
+        "sequence": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "sequence",
+        "event"
+      ],
+      "type": "object"
+    },
+    "RpcRequest": {
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "request": {
+          "$ref": "#/$defs/WorkspaceRequest"
+        },
+        "timeout_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "request"
+      ],
+      "type": "object"
+    },
+    "RpcResponse": {
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "result": {
+          "$ref": "#/$defs/Result_of_WorkspaceResponse_or_RpcError"
+        }
+      },
+      "required": [
+        "id",
+        "result"
+      ],
+      "type": "object"
+    },
+    "SealedSecret": {
+      "properties": {
+        "ciphertext": {
+          "type": "string"
+        },
+        "enc": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nonce": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "nonce",
+        "enc",
+        "ciphertext"
+      ],
+      "type": "object"
+    },
+    "SearchMatch": {
+      "properties": {
+        "after": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "before": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "column": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "line": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "path": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "line",
+        "column",
+        "text",
+        "before",
+        "after"
+      ],
+      "type": "object"
+    },
+    "StructuredDiffHunkV1": {
+      "properties": {
+        "header": {
+          "type": "string"
+        },
+        "lines": {
+          "items": {
+            "$ref": "#/$defs/StructuredDiffLineV1"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "header",
+        "lines"
+      ],
+      "type": "object"
+    },
+    "StructuredDiffLineKind": {
+      "enum": [
+        "context",
+        "add",
+        "delete",
+        "metadata"
+      ],
+      "type": "string"
+    },
+    "StructuredDiffLineV1": {
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/StructuredDiffLineKind"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "text"
+      ],
+      "type": "object"
+    },
+    "StructuredDiffV1": {
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/$defs/StructuredFileDiffV1"
+          },
+          "type": "array"
+        },
+        "version": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "version",
+        "files"
+      ],
+      "type": "object"
+    },
+    "StructuredFileDiffV1": {
+      "properties": {
+        "hunks": {
+          "items": {
+            "$ref": "#/$defs/StructuredDiffHunkV1"
+          },
+          "type": "array"
+        },
+        "metadata": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "new_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "old_path": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "hunks"
+      ],
+      "type": "object"
+    },
+    "WorkspaceRequest": {
+      "oneOf": [
+        {
+          "properties": {
+            "type": {
+              "const": "capabilities",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "describe",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "root": {
+              "type": "string"
+            },
+            "type": {
+              "const": "open-workspace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "root"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "list-workspaces",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "follow_symlinks": {
+              "type": "boolean"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "const": "stat",
+              "type": "string"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "workspace",
+            "path",
+            "follow_symlinks"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "limit": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "offset": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "const": "read-file",
+              "type": "string"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "workspace",
+            "path",
+            "offset",
+            "limit"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "create_parents": {
+              "type": "boolean"
+            },
+            "data": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "precondition": {
+              "$ref": "#/$defs/FilePrecondition"
+            },
+            "type": {
+              "const": "write-file",
+              "type": "string"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "workspace",
+            "path",
+            "data",
+            "precondition",
+            "create_parents"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "include_hidden": {
+              "type": "boolean"
+            },
+            "limit": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "path": {
+              "type": "string"
+            },
+            "type": {
+              "const": "list-directory",
+              "type": "string"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "workspace",
+            "path",
+            "include_hidden",
+            "limit"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "globs": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "include_hidden": {
+              "type": "boolean"
+            },
+            "max_results": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "paths": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "query": {
+              "type": "string"
+            },
+            "type": {
+              "const": "search",
+              "type": "string"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "workspace",
+            "query",
+            "paths",
+            "globs",
+            "include_hidden",
+            "max_results"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "dry_run": {
+              "type": "boolean"
+            },
+            "patch": {
+              "type": "string"
+            },
+            "preconditions": {
+              "additionalProperties": {
+                "$ref": "#/$defs/FilePrecondition"
+              },
+              "type": "object"
+            },
+            "type": {
+              "const": "apply-patch",
+              "type": "string"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "workspace",
+            "patch",
+            "dry_run"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "git-status",
+              "type": "string"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "workspace"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "context": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "format": {
+              "$ref": "#/$defs/DiffFormat"
+            },
+            "max_bytes": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "paths": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "staged": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "diff",
+              "type": "string"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "workspace",
+            "paths",
+            "staged",
+            "context",
+            "format"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "argv": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "env": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "environment": {
+              "$ref": "#/$defs/ProcessEnvironment"
+            },
+            "io": {
+              "$ref": "#/$defs/ProcessIo",
+              "default": {
+                "stdin": true,
+                "type": "pipes"
+              }
+            },
+            "lifetime": {
+              "$ref": "#/$defs/ProcessLifetime"
+            },
+            "operation": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "retained_output_bytes": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "timeout_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "spawn-process",
+              "type": "string"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "workspace",
+            "argv",
+            "env",
+            "lifetime"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "argv": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "env": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "environment": {
+              "$ref": "#/$defs/ProcessEnvironment"
+            },
+            "io": {
+              "$ref": "#/$defs/ProcessIo",
+              "default": {
+                "stdin": true,
+                "type": "pipes"
+              }
+            },
+            "lifetime": {
+              "$ref": "#/$defs/ProcessLifetime"
+            },
+            "operation": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "output_drain_idle_timeout_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "output_drain_total_timeout_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "retained_output_bytes": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "timeout_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "spawn-process-with-handle",
+              "type": "string"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process",
+            "workspace",
+            "argv",
+            "env",
+            "lifetime"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "eof": {
+              "type": "boolean"
+            },
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": {
+              "const": "write-process",
+              "type": "string"
+            },
+            "write_id": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "process",
+            "write_id",
+            "data",
+            "eof"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "cols": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "rows": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "resize-process",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process",
+            "cols",
+            "rows"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "signal": {
+              "$ref": "#/$defs/ProcessSignal"
+            },
+            "type": {
+              "const": "signal-process",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process",
+            "signal"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": {
+              "const": "wait-process",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "after_sequence": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "limit": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": {
+              "const": "read-process-events",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process",
+            "after_sequence",
+            "limit"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "list-processes",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": {
+              "const": "snapshot-process-terminal",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "operation": {
+              "type": "string"
+            },
+            "type": {
+              "const": "finish-operation",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "operation"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "close-workspace",
+              "type": "string"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "workspace"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "request": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "type": {
+              "const": "cancel-request",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "request"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "host": {
+              "type": "string"
+            },
+            "policy": {
+              "$ref": "#/$defs/RoutePolicy"
+            },
+            "port": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "create-route",
+              "type": "string"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "workspace",
+            "host",
+            "port",
+            "policy"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "route": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "close-route",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "route"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "computer-use-capabilities",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "computer-use-capabilities-v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "invocation": {
+              "$ref": "#/$defs/ComputerUseInvocation"
+            },
+            "type": {
+              "const": "invoke-computer-use",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "invocation"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "invocation": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": {
+              "const": "cancel-computer-use",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "invocation"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "items": {
+              "items": {
+                "$ref": "#/$defs/SealedSecret"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "replace-machine-secrets",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "items"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "host": {
+              "type": "string"
+            },
+            "item": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SealedSecret"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "const": "replace-git-host-token",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "host"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "WorkspaceResponse": {
+      "oneOf": [
+        {
+          "properties": {
+            "capabilities": {
+              "items": {
+                "$ref": "#/$defs/RemoteCapability"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "capabilities",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "capabilities"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "root": {
+              "type": "string"
+            },
+            "type": {
+              "const": "workspace",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id",
+            "root"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "workspaces",
+              "type": "string"
+            },
+            "workspaces": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "type",
+            "workspaces"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "stat": {
+              "$ref": "#/$defs/FileStat"
+            },
+            "type": {
+              "const": "stat",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "stat"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "content_hash": {
+              "type": "string"
+            },
+            "data": {
+              "type": "string"
+            },
+            "eof": {
+              "type": "boolean"
+            },
+            "offset": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "file",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data",
+            "offset",
+            "eof",
+            "content_hash"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "bytes": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "content_hash": {
+              "type": "string"
+            },
+            "type": {
+              "const": "written",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "bytes",
+            "content_hash"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "entries": {
+              "items": {
+                "$ref": "#/$defs/DirectoryEntry"
+              },
+              "type": "array"
+            },
+            "next_cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "truncated": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "directory",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "entries",
+            "truncated"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "matches": {
+              "items": {
+                "$ref": "#/$defs/SearchMatch"
+              },
+              "type": "array"
+            },
+            "next_cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "truncated": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "search",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "matches",
+            "truncated"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "applied": {
+              "type": "boolean"
+            },
+            "changed_paths": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "files": {
+              "items": {
+                "$ref": "#/$defs/PatchFileResult"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "patch",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "changed_paths",
+            "applied"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "status": {
+              "$ref": "#/$defs/GitStatus"
+            },
+            "type": {
+              "const": "git-status",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "status"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "format": {
+              "$ref": "#/$defs/DiffFormat"
+            },
+            "next_cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "diff",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "data",
+            "format"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "diff": {
+              "$ref": "#/$defs/StructuredDiffV1"
+            },
+            "next_cursor": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "structured-diff",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "diff"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "operation": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pid": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": {
+              "const": "process-started",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": {
+              "const": "process-write-accepted",
+              "type": "string"
+            },
+            "write_id": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "process",
+            "write_id"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "cols": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "rows": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "process-resized",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process",
+            "cols",
+            "rows"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "signal": {
+              "$ref": "#/$defs/ProcessSignal"
+            },
+            "type": {
+              "const": "process-signaled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process",
+            "signal"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "code": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "signal": {
+              "format": "int32",
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "process-exit",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "events": {
+              "items": {
+                "$ref": "#/$defs/RpcEvent"
+              },
+              "type": "array"
+            },
+            "next_cursor": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "range": {
+              "$ref": "#/$defs/ProcessReplayRange"
+            },
+            "type": {
+              "const": "process-events",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process",
+            "range",
+            "events"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "process": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "range": {
+              "$ref": "#/$defs/ProcessReplayRange"
+            },
+            "requested_after": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "process-replay-gap",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "process",
+            "requested_after",
+            "range"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "processes": {
+              "items": {
+                "$ref": "#/$defs/ProcessDescriptor"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "processes",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "processes"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "snapshot": {
+              "$ref": "#/$defs/ProcessTerminalSnapshot"
+            },
+            "type": {
+              "const": "process-terminal-snapshot",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "snapshot"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "operation": {
+              "type": "string"
+            },
+            "processes_signaled": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "operation-finished",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "operation",
+            "processes_signaled"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "workspace-closed",
+              "type": "string"
+            },
+            "workspace": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "workspace"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "accepted": {
+              "type": "boolean"
+            },
+            "request": {
+              "$ref": "#/$defs/RequestId"
+            },
+            "type": {
+              "const": "request-canceled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "request",
+            "accepted"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "host": {
+              "type": "string"
+            },
+            "port": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "route": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "route-created",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "route",
+            "host",
+            "port"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "type": {
+              "const": "closed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "capabilities": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "computer-use-capabilities",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "capabilities"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "capabilities": {
+              "items": {
+                "$ref": "#/$defs/ComputerUseCapability"
+              },
+              "type": "array"
+            },
+            "type": {
+              "const": "computer-use-capabilities-v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "capabilities"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "invocation": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": {
+              "const": "computer-use-accepted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "invocation"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "result": {
+              "$ref": "#/$defs/ComputerUseResult"
+            },
+            "type": {
+              "const": "computer-use-result",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "accepted": {
+              "type": "boolean"
+            },
+            "invocation": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "type": {
+              "const": "computer-use-canceled",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "invocation",
+            "accepted"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "count": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "const": "machine-secrets-replaced",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "count"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "host": {
+              "type": "string"
+            },
+            "present": {
+              "type": "boolean"
+            },
+            "type": {
+              "const": "git-host-token-replaced",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "host",
+            "present"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "capabilities": {
+              "items": {
+                "$ref": "#/$defs/RemoteCapability"
+              },
+              "type": "array"
+            },
+            "contract": true,
+            "type": {
+              "const": "contract",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "contract",
+            "capabilities"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  },
+  "capabilities": [
+    "mux-control-v9",
+    "workspace-files-v1",
+    "workspace-search-v1",
+    "workspace-patch-v1",
+    "workspace-diff-v1",
+    "process-pipes-v1",
+    "process-pty-v1",
+    "tcp-routes-v1",
+    "computer-use-negotiation-v1",
+    "workspace-pagination-v1",
+    "workspace-patch-v2",
+    "workspace-patch-v3",
+    "structured-diff-v1",
+    "process-lifecycle-v2",
+    "process-replay-v1",
+    "process-handles-v2",
+    "process-catalog-v1",
+    "process-terminal-snapshot-v1",
+    "request-control-v1",
+    "computer-use-v1",
+    "terminal-viewer-size-priority-v1",
+    "secrets-v1",
+    "git-host-tokens-v1",
+    "paused-reads-v1",
+    "describe-v1"
+  ],
+  "envelopes": {
+    "event": {
+      "$ref": "#/$defs/RpcEvent"
+    },
+    "request": {
+      "$ref": "#/$defs/RpcRequest"
+    },
+    "response": {
+      "$ref": "#/$defs/RpcResponse"
+    }
+  },
+  "events": [
+    {
+      "name": "stdout",
+      "schema": {
+        "properties": {
+          "data": {
+            "type": "string"
+          },
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "sequence": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "stdout",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process",
+          "sequence",
+          "data"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "stderr",
+      "schema": {
+        "properties": {
+          "data": {
+            "type": "string"
+          },
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "sequence": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "stderr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process",
+          "sequence",
+          "data"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "output-truncated",
+      "schema": {
+        "properties": {
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "reason": {
+            "$ref": "#/$defs/ProcessOutputTruncationReason"
+          },
+          "sequence": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "output-truncated",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process",
+          "sequence",
+          "reason"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "replay-gap",
+      "schema": {
+        "properties": {
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "range": {
+            "$ref": "#/$defs/ProcessReplayRange"
+          },
+          "requested_after": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "replay-gap",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process",
+          "requested_after",
+          "range"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "exit",
+      "schema": {
+        "properties": {
+          "code": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "signal": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "type": {
+            "const": "exit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process"
+        ],
+        "type": "object"
+      }
+    }
+  ],
+  "format": "cmux.remote.contract/1",
+  "methods": [
+    {
+      "capability": null,
+      "name": "capabilities",
+      "request_schema": {
+        "properties": {
+          "type": {
+            "const": "capabilities",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "capabilities"
+      ]
+    },
+    {
+      "capability": "describe-v1",
+      "name": "describe",
+      "request_schema": {
+        "properties": {
+          "type": {
+            "const": "describe",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "contract"
+      ]
+    },
+    {
+      "capability": null,
+      "name": "open-workspace",
+      "request_schema": {
+        "properties": {
+          "root": {
+            "type": "string"
+          },
+          "type": {
+            "const": "open-workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "root"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "workspace"
+      ]
+    },
+    {
+      "capability": null,
+      "name": "list-workspaces",
+      "request_schema": {
+        "properties": {
+          "type": {
+            "const": "list-workspaces",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "workspaces"
+      ]
+    },
+    {
+      "capability": "workspace-files-v1",
+      "name": "stat",
+      "request_schema": {
+        "properties": {
+          "follow_symlinks": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "const": "stat",
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "workspace",
+          "path",
+          "follow_symlinks"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "stat"
+      ]
+    },
+    {
+      "capability": "workspace-files-v1",
+      "name": "read-file",
+      "request_schema": {
+        "properties": {
+          "limit": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "offset": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "const": "read-file",
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "workspace",
+          "path",
+          "offset",
+          "limit"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "file"
+      ]
+    },
+    {
+      "capability": "workspace-files-v1",
+      "name": "write-file",
+      "request_schema": {
+        "properties": {
+          "create_parents": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "precondition": {
+            "$ref": "#/$defs/FilePrecondition"
+          },
+          "type": {
+            "const": "write-file",
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "workspace",
+          "path",
+          "data",
+          "precondition",
+          "create_parents"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "written"
+      ]
+    },
+    {
+      "capability": "workspace-files-v1",
+      "name": "list-directory",
+      "request_schema": {
+        "properties": {
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "include_hidden": {
+            "type": "boolean"
+          },
+          "limit": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "type": {
+            "const": "list-directory",
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "workspace",
+          "path",
+          "include_hidden",
+          "limit"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "directory"
+      ]
+    },
+    {
+      "capability": "workspace-search-v1",
+      "name": "search",
+      "request_schema": {
+        "properties": {
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "globs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "include_hidden": {
+            "type": "boolean"
+          },
+          "max_results": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "query": {
+            "type": "string"
+          },
+          "type": {
+            "const": "search",
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "workspace",
+          "query",
+          "paths",
+          "globs",
+          "include_hidden",
+          "max_results"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "search"
+      ]
+    },
+    {
+      "capability": "workspace-patch-v1",
+      "name": "apply-patch",
+      "request_schema": {
+        "properties": {
+          "dry_run": {
+            "type": "boolean"
+          },
+          "patch": {
+            "type": "string"
+          },
+          "preconditions": {
+            "additionalProperties": {
+              "$ref": "#/$defs/FilePrecondition"
+            },
+            "type": "object"
+          },
+          "type": {
+            "const": "apply-patch",
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "workspace",
+          "patch",
+          "dry_run"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "patch"
+      ]
+    },
+    {
+      "capability": "workspace-diff-v1",
+      "name": "git-status",
+      "request_schema": {
+        "properties": {
+          "type": {
+            "const": "git-status",
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "workspace"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "git-status"
+      ]
+    },
+    {
+      "capability": "workspace-diff-v1",
+      "name": "diff",
+      "request_schema": {
+        "properties": {
+          "context": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "format": {
+            "$ref": "#/$defs/DiffFormat"
+          },
+          "max_bytes": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "staged": {
+            "type": "boolean"
+          },
+          "type": {
+            "const": "diff",
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "workspace",
+          "paths",
+          "staged",
+          "context",
+          "format"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "diff",
+        "structured-diff"
+      ]
+    },
+    {
+      "capability": "process-pipes-v1",
+      "name": "spawn-process",
+      "request_schema": {
+        "properties": {
+          "argv": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "environment": {
+            "$ref": "#/$defs/ProcessEnvironment"
+          },
+          "io": {
+            "$ref": "#/$defs/ProcessIo",
+            "default": {
+              "stdin": true,
+              "type": "pipes"
+            }
+          },
+          "lifetime": {
+            "$ref": "#/$defs/ProcessLifetime"
+          },
+          "operation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retained_output_bytes": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "timeout_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "type": {
+            "const": "spawn-process",
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "workspace",
+          "argv",
+          "env",
+          "lifetime"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "process-started"
+      ]
+    },
+    {
+      "capability": "process-handles-v2",
+      "name": "spawn-process-with-handle",
+      "request_schema": {
+        "properties": {
+          "argv": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "cwd": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "env": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "environment": {
+            "$ref": "#/$defs/ProcessEnvironment"
+          },
+          "io": {
+            "$ref": "#/$defs/ProcessIo",
+            "default": {
+              "stdin": true,
+              "type": "pipes"
+            }
+          },
+          "lifetime": {
+            "$ref": "#/$defs/ProcessLifetime"
+          },
+          "operation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "output_drain_idle_timeout_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "output_drain_total_timeout_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "retained_output_bytes": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "timeout_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "type": {
+            "const": "spawn-process-with-handle",
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process",
+          "workspace",
+          "argv",
+          "env",
+          "lifetime"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "process-started"
+      ]
+    },
+    {
+      "capability": "process-pipes-v1",
+      "name": "write-process",
+      "request_schema": {
+        "properties": {
+          "data": {
+            "type": "string"
+          },
+          "eof": {
+            "type": "boolean"
+          },
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": {
+            "const": "write-process",
+            "type": "string"
+          },
+          "write_id": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "process",
+          "write_id",
+          "data",
+          "eof"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "process-write-accepted"
+      ]
+    },
+    {
+      "capability": "process-pty-v1",
+      "name": "resize-process",
+      "request_schema": {
+        "properties": {
+          "cols": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "rows": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "resize-process",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process",
+          "cols",
+          "rows"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "process-resized"
+      ]
+    },
+    {
+      "capability": "process-pipes-v1",
+      "name": "signal-process",
+      "request_schema": {
+        "properties": {
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "signal": {
+            "$ref": "#/$defs/ProcessSignal"
+          },
+          "type": {
+            "const": "signal-process",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process",
+          "signal"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "process-signaled"
+      ]
+    },
+    {
+      "capability": "process-pipes-v1",
+      "name": "wait-process",
+      "request_schema": {
+        "properties": {
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": {
+            "const": "wait-process",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "process-exit"
+      ]
+    },
+    {
+      "capability": "process-replay-v1",
+      "name": "read-process-events",
+      "request_schema": {
+        "properties": {
+          "after_sequence": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "limit": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": {
+            "const": "read-process-events",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process",
+          "after_sequence",
+          "limit"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "process-events",
+        "process-replay-gap"
+      ]
+    },
+    {
+      "capability": "process-catalog-v1",
+      "name": "list-processes",
+      "request_schema": {
+        "properties": {
+          "type": {
+            "const": "list-processes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "processes"
+      ]
+    },
+    {
+      "capability": "process-terminal-snapshot-v1",
+      "name": "snapshot-process-terminal",
+      "request_schema": {
+        "properties": {
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": {
+            "const": "snapshot-process-terminal",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "process-terminal-snapshot"
+      ]
+    },
+    {
+      "capability": null,
+      "name": "finish-operation",
+      "request_schema": {
+        "properties": {
+          "operation": {
+            "type": "string"
+          },
+          "type": {
+            "const": "finish-operation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "operation"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "operation-finished"
+      ]
+    },
+    {
+      "capability": null,
+      "name": "close-workspace",
+      "request_schema": {
+        "properties": {
+          "type": {
+            "const": "close-workspace",
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "workspace"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "workspace-closed"
+      ]
+    },
+    {
+      "capability": "request-control-v1",
+      "name": "cancel-request",
+      "request_schema": {
+        "properties": {
+          "request": {
+            "$ref": "#/$defs/RequestId"
+          },
+          "type": {
+            "const": "cancel-request",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "request"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "request-canceled"
+      ]
+    },
+    {
+      "capability": "tcp-routes-v1",
+      "name": "create-route",
+      "request_schema": {
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/$defs/RoutePolicy"
+          },
+          "port": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "create-route",
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "workspace",
+          "host",
+          "port",
+          "policy"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "route-created"
+      ]
+    },
+    {
+      "capability": "tcp-routes-v1",
+      "name": "close-route",
+      "request_schema": {
+        "properties": {
+          "route": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "close-route",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "route"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "closed"
+      ]
+    },
+    {
+      "capability": "computer-use-negotiation-v1",
+      "name": "computer-use-capabilities",
+      "request_schema": {
+        "properties": {
+          "type": {
+            "const": "computer-use-capabilities",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "computer-use-capabilities"
+      ]
+    },
+    {
+      "capability": "computer-use-v1",
+      "name": "computer-use-capabilities-v1",
+      "request_schema": {
+        "properties": {
+          "type": {
+            "const": "computer-use-capabilities-v1",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "computer-use-capabilities-v1"
+      ]
+    },
+    {
+      "capability": "computer-use-v1",
+      "name": "invoke-computer-use",
+      "request_schema": {
+        "properties": {
+          "invocation": {
+            "$ref": "#/$defs/ComputerUseInvocation"
+          },
+          "type": {
+            "const": "invoke-computer-use",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "invocation"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "computer-use-accepted",
+        "computer-use-result"
+      ]
+    },
+    {
+      "capability": "computer-use-v1",
+      "name": "cancel-computer-use",
+      "request_schema": {
+        "properties": {
+          "invocation": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": {
+            "const": "cancel-computer-use",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "invocation"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "computer-use-canceled"
+      ]
+    },
+    {
+      "capability": "secrets-v1",
+      "name": "replace-machine-secrets",
+      "request_schema": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/$defs/SealedSecret"
+            },
+            "type": "array"
+          },
+          "type": {
+            "const": "replace-machine-secrets",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "items"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "machine-secrets-replaced"
+      ]
+    },
+    {
+      "capability": "git-host-tokens-v1",
+      "name": "replace-git-host-token",
+      "request_schema": {
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "item": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/SealedSecret"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": {
+            "const": "replace-git-host-token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "host"
+        ],
+        "type": "object"
+      },
+      "responses": [
+        "git-host-token-replaced"
+      ]
+    }
+  ],
+  "protocol": {
+    "max": 5,
+    "min": 5
+  },
+  "responses": [
+    {
+      "name": "capabilities",
+      "schema": {
+        "properties": {
+          "capabilities": {
+            "items": {
+              "$ref": "#/$defs/RemoteCapability"
+            },
+            "type": "array"
+          },
+          "type": {
+            "const": "capabilities",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "capabilities"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "workspace",
+      "schema": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "root": {
+            "type": "string"
+          },
+          "type": {
+            "const": "workspace",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "root"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "workspaces",
+      "schema": {
+        "properties": {
+          "type": {
+            "const": "workspaces",
+            "type": "string"
+          },
+          "workspaces": {
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "type",
+          "workspaces"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "stat",
+      "schema": {
+        "properties": {
+          "stat": {
+            "$ref": "#/$defs/FileStat"
+          },
+          "type": {
+            "const": "stat",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "stat"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "file",
+      "schema": {
+        "properties": {
+          "content_hash": {
+            "type": "string"
+          },
+          "data": {
+            "type": "string"
+          },
+          "eof": {
+            "type": "boolean"
+          },
+          "offset": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "file",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "data",
+          "offset",
+          "eof",
+          "content_hash"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "written",
+      "schema": {
+        "properties": {
+          "bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "content_hash": {
+            "type": "string"
+          },
+          "type": {
+            "const": "written",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "bytes",
+          "content_hash"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "directory",
+      "schema": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/$defs/DirectoryEntry"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "type": {
+            "const": "directory",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "entries",
+          "truncated"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "search",
+      "schema": {
+        "properties": {
+          "matches": {
+            "items": {
+              "$ref": "#/$defs/SearchMatch"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "type": {
+            "const": "search",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "matches",
+          "truncated"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "patch",
+      "schema": {
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "changed_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/$defs/PatchFileResult"
+            },
+            "type": "array"
+          },
+          "type": {
+            "const": "patch",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "changed_paths",
+          "applied"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "git-status",
+      "schema": {
+        "properties": {
+          "status": {
+            "$ref": "#/$defs/GitStatus"
+          },
+          "type": {
+            "const": "git-status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "status"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "diff",
+      "schema": {
+        "properties": {
+          "data": {
+            "type": "string"
+          },
+          "format": {
+            "$ref": "#/$defs/DiffFormat"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "const": "diff",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "data",
+          "format"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "structured-diff",
+      "schema": {
+        "properties": {
+          "diff": {
+            "$ref": "#/$defs/StructuredDiffV1"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "type": {
+            "const": "structured-diff",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "diff"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "process-started",
+      "schema": {
+        "properties": {
+          "operation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pid": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": {
+            "const": "process-started",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "process-write-accepted",
+      "schema": {
+        "properties": {
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": {
+            "const": "process-write-accepted",
+            "type": "string"
+          },
+          "write_id": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "process",
+          "write_id"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "process-resized",
+      "schema": {
+        "properties": {
+          "cols": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "rows": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "process-resized",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process",
+          "cols",
+          "rows"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "process-signaled",
+      "schema": {
+        "properties": {
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "signal": {
+            "$ref": "#/$defs/ProcessSignal"
+          },
+          "type": {
+            "const": "process-signaled",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process",
+          "signal"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "process-exit",
+      "schema": {
+        "properties": {
+          "code": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "signal": {
+            "format": "int32",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "type": {
+            "const": "process-exit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "process-events",
+      "schema": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/$defs/RpcEvent"
+            },
+            "type": "array"
+          },
+          "next_cursor": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "range": {
+            "$ref": "#/$defs/ProcessReplayRange"
+          },
+          "type": {
+            "const": "process-events",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process",
+          "range",
+          "events"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "process-replay-gap",
+      "schema": {
+        "properties": {
+          "process": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "range": {
+            "$ref": "#/$defs/ProcessReplayRange"
+          },
+          "requested_after": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "process-replay-gap",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "process",
+          "requested_after",
+          "range"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "processes",
+      "schema": {
+        "properties": {
+          "processes": {
+            "items": {
+              "$ref": "#/$defs/ProcessDescriptor"
+            },
+            "type": "array"
+          },
+          "type": {
+            "const": "processes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "processes"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "process-terminal-snapshot",
+      "schema": {
+        "properties": {
+          "snapshot": {
+            "$ref": "#/$defs/ProcessTerminalSnapshot"
+          },
+          "type": {
+            "const": "process-terminal-snapshot",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "snapshot"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "operation-finished",
+      "schema": {
+        "properties": {
+          "operation": {
+            "type": "string"
+          },
+          "processes_signaled": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "operation-finished",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "operation",
+          "processes_signaled"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "workspace-closed",
+      "schema": {
+        "properties": {
+          "type": {
+            "const": "workspace-closed",
+            "type": "string"
+          },
+          "workspace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "workspace"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "request-canceled",
+      "schema": {
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "request": {
+            "$ref": "#/$defs/RequestId"
+          },
+          "type": {
+            "const": "request-canceled",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "request",
+          "accepted"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "route-created",
+      "schema": {
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "route": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "route-created",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "route",
+          "host",
+          "port"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "closed",
+      "schema": {
+        "properties": {
+          "type": {
+            "const": "closed",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "computer-use-capabilities",
+      "schema": {
+        "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": {
+            "const": "computer-use-capabilities",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "capabilities"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "computer-use-capabilities-v1",
+      "schema": {
+        "properties": {
+          "capabilities": {
+            "items": {
+              "$ref": "#/$defs/ComputerUseCapability"
+            },
+            "type": "array"
+          },
+          "type": {
+            "const": "computer-use-capabilities-v1",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "capabilities"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "computer-use-accepted",
+      "schema": {
+        "properties": {
+          "invocation": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": {
+            "const": "computer-use-accepted",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "invocation"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "computer-use-result",
+      "schema": {
+        "properties": {
+          "result": {
+            "$ref": "#/$defs/ComputerUseResult"
+          },
+          "type": {
+            "const": "computer-use-result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "result"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "computer-use-canceled",
+      "schema": {
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "invocation": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "type": {
+            "const": "computer-use-canceled",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "invocation",
+          "accepted"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "machine-secrets-replaced",
+      "schema": {
+        "properties": {
+          "count": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "machine-secrets-replaced",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "count"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "git-host-token-replaced",
+      "schema": {
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "present": {
+            "type": "boolean"
+          },
+          "type": {
+            "const": "git-host-token-replaced",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "host",
+          "present"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "contract",
+      "schema": {
+        "properties": {
+          "capabilities": {
+            "items": {
+              "$ref": "#/$defs/RemoteCapability"
+            },
+            "type": "array"
+          },
+          "contract": true,
+          "type": {
+            "const": "contract",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "contract",
+          "capabilities"
+        ],
+        "type": "object"
+      }
+    }
+  ]
+}

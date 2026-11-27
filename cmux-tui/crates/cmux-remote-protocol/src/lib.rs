@@ -20,11 +20,15 @@
     )
 )]
 
+pub mod contract;
 mod frame;
 mod relay;
 pub mod reliable;
 mod rpc;
 
+pub use contract::{
+    CONTRACT_METHODS, ContractMethod, REMOTE_CONTRACT_FORMAT, REMOTE_CONTRACT_JSON, remote_contract,
+};
 pub use frame::{
     FrameDecodeError, FrameFlags, Lane, LanePolicy, MAX_FRAME_PAYLOAD, MAX_WIRE_FRAME_BYTES,
     REMOTE_PROTOCOL_VERSION, SessionId, WireFrame,

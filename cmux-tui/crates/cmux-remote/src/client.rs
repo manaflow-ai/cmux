@@ -664,6 +664,7 @@ fn rpc_traffic_class(request: &WorkspaceRequest) -> RpcTrafficClass {
         | WorkspaceRequest::ListProcesses
         | WorkspaceRequest::SnapshotProcessTerminal { .. } => RpcTrafficClass::Bulk,
         WorkspaceRequest::Capabilities
+        | WorkspaceRequest::Describe
         | WorkspaceRequest::OpenWorkspace { .. }
         | WorkspaceRequest::ListWorkspaces
         | WorkspaceRequest::Stat { .. }

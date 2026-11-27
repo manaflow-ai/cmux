@@ -442,6 +442,43 @@ impl WorkspaceService {
         }
     }
 
+    /// The capabilities this daemon grants, for `capabilities` and `describe`.
+    fn capabilities(&self) -> Vec<RemoteCapability> {
+        let capabilities = vec![
+            RemoteCapability::WorkspaceFilesV1,
+            RemoteCapability::WorkspaceSearchV1,
+            RemoteCapability::WorkspacePatchV1,
+            RemoteCapability::WorkspaceDiffV1,
+            RemoteCapability::ProcessPipesV1,
+            RemoteCapability::TcpRoutesV1,
+            RemoteCapability::ComputerUseNegotiationV1,
+            RemoteCapability::WorkspacePaginationV1,
+            RemoteCapability::WorkspacePatchV2,
+            RemoteCapability::WorkspacePatchV3,
+            RemoteCapability::StructuredDiffV1,
+            RemoteCapability::ProcessLifecycleV2,
+            RemoteCapability::ProcessReplayV1,
+            RemoteCapability::ProcessHandlesV2,
+            RemoteCapability::ProcessCatalogV1,
+            RemoteCapability::RequestControlV1,
+            RemoteCapability::DescribeV1,
+        ];
+        #[cfg(unix)]
+        let capabilities = {
+            let mut capabilities = capabilities;
+            capabilities.push(RemoteCapability::ProcessPtyV1);
+            capabilities.push(RemoteCapability::ProcessTerminalSnapshotV1);
+            capabilities.push(RemoteCapability::TerminalViewerSizePriorityV1);
+            capabilities
+        };
+        let mut capabilities = capabilities;
+        if self.inner.secrets.is_some() {
+            capabilities.push(RemoteCapability::SecretsV1);
+            capabilities.push(RemoteCapability::GitHostTokensV1);
+        }
+        capabilities
+    }
+
     async fn handle_plain_request_for(
         &self,
         scope: &ClientScope,
@@ -449,39 +486,12 @@ impl WorkspaceService {
     ) -> Result<WorkspaceResponse, RpcError> {
         match request {
             WorkspaceRequest::Capabilities => {
-                let capabilities = vec![
-                    RemoteCapability::WorkspaceFilesV1,
-                    RemoteCapability::WorkspaceSearchV1,
-                    RemoteCapability::WorkspacePatchV1,
-                    RemoteCapability::WorkspaceDiffV1,
-                    RemoteCapability::ProcessPipesV1,
-                    RemoteCapability::TcpRoutesV1,
-                    RemoteCapability::ComputerUseNegotiationV1,
-                    RemoteCapability::WorkspacePaginationV1,
-                    RemoteCapability::WorkspacePatchV2,
-                    RemoteCapability::WorkspacePatchV3,
-                    RemoteCapability::StructuredDiffV1,
-                    RemoteCapability::ProcessLifecycleV2,
-                    RemoteCapability::ProcessReplayV1,
-                    RemoteCapability::ProcessHandlesV2,
-                    RemoteCapability::ProcessCatalogV1,
-                    RemoteCapability::RequestControlV1,
-                ];
-                #[cfg(unix)]
-                let capabilities = {
-                    let mut capabilities = capabilities;
-                    capabilities.push(RemoteCapability::ProcessPtyV1);
-                    capabilities.push(RemoteCapability::ProcessTerminalSnapshotV1);
-                    capabilities.push(RemoteCapability::TerminalViewerSizePriorityV1);
-                    capabilities
-                };
-                let mut capabilities = capabilities;
-                if self.inner.secrets.is_some() {
-                    capabilities.push(RemoteCapability::SecretsV1);
-                    capabilities.push(RemoteCapability::GitHostTokensV1);
-                }
-                Ok(WorkspaceResponse::Capabilities { capabilities })
+                Ok(WorkspaceResponse::Capabilities { capabilities: self.capabilities() })
             }
+            WorkspaceRequest::Describe => Ok(WorkspaceResponse::Contract {
+                contract: cmux_remote_protocol::remote_contract(),
+                capabilities: self.capabilities(),
+            }),
             WorkspaceRequest::OpenWorkspace { root } => self.open_workspace(scope, &root).await,
             WorkspaceRequest::ListWorkspaces => self.list_workspaces(scope).await,
             WorkspaceRequest::Stat { workspace, path, follow_symlinks } => {
@@ -985,6 +995,7 @@ pub(crate) fn request_supports_cancellation(request: &WorkspaceRequest) -> bool 
     matches!(
         request,
         WorkspaceRequest::Capabilities
+            | WorkspaceRequest::Describe
             | WorkspaceRequest::ListWorkspaces
             | WorkspaceRequest::Stat { .. }
             | WorkspaceRequest::ReadFile { .. }
@@ -1028,5 +1039,34 @@ mod open_tests {
             assert!(matches!(response, Ok(WorkspaceResponse::Workspace { .. })), "{response:?}");
         }
         assert_eq!(service.inner.catalog.read().await.workspaces.len(), 300);
+    }
+}
+
+#[cfg(test)]
+mod describe_tests {
+    use super::*;
+
+    /// `describe` serves the golden contract and the same grants as `capabilities`,
+    /// and `capabilities` advertises `describe-v1` so clients know to ask.
+    #[tokio::test]
+    async fn describe_serves_the_contract_and_live_capabilities() {
+        let service = WorkspaceService::new();
+        let Ok(WorkspaceResponse::Capabilities { capabilities: granted }) =
+            service.handle_request(WorkspaceRequest::Capabilities).await
+        else {
+            panic!("capabilities failed");
+        };
+        assert!(granted.contains(&RemoteCapability::DescribeV1));
+        let Ok(WorkspaceResponse::Contract { contract, capabilities }) =
+            service.handle_request(WorkspaceRequest::Describe).await
+        else {
+            panic!("describe failed");
+        };
+        assert_eq!(capabilities, granted);
+        assert_eq!(contract, cmux_remote_protocol::remote_contract());
+        assert_eq!(contract["format"], cmux_remote_protocol::REMOTE_CONTRACT_FORMAT);
+        let methods = contract["methods"].as_array().unwrap();
+        assert_eq!(methods.len(), cmux_remote_protocol::CONTRACT_METHODS.len());
+        assert!(request_supports_cancellation(&WorkspaceRequest::Describe));
     }
 }
