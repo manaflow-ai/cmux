@@ -2133,9 +2133,20 @@ const TickList = memo(function TickList({
     const initial = !entrance || entrance.sessionId !== sessionId;
     const tail = initial ? undefined : entrance!.ticks.at(-1)?.key;
     const after = tail === undefined ? -1 : (ticks.keyIndex(tail) ?? -1);
-    const pending = new Set(initial ? [] : entrance!.pending);
+    // Only the newest ENTRANCE_TAIL prompts can still enter. Every appended prompt was kept here until its tick
+    // was drawn, so a chat growing in an open tab, with its rail drawn elsewhere or not at all (a hidden chat),
+    // kept every prompt it ever took, and copied them all on each new prompt: 68k keys, 4 MB of a 100k-row chat's
+    // heap (chat-100k-flat grown_x2). A tick that far from the tail mounts later only on a scroll back, which
+    // paints at its final geometry like any virtualized mount (above).
+    const floor = ticks.length - ENTRANCE_TAIL;
+    const pending = new Set<string>();
+    if (!initial)
+      for (const key of entrance!.pending) {
+        const at = ticks.keyIndex(key);
+        if (at !== undefined && at >= floor) pending.add(key);
+      }
     if (!initial && (after >= 0 || entrance!.ticks.length === 0)) {
-      for (let index = Math.max(ticks.pendingCount, after + 1); index < ticks.length; index++)
+      for (let index = Math.max(ticks.pendingCount, after + 1, floor); index < ticks.length; index++)
         pending.add(ticks.at(index)!.key);
     }
     entrance = { sessionId, ticks, pending };
@@ -2317,6 +2328,9 @@ const Tick = memo(function Tick({
     </MinimapTick>
   );
 }, tickPropsEqual);
+
+/// The newest prompts whose ticks can still enter (TickList `pending`): about twice the rows a tall rail draws.
+const ENTRANCE_TAIL = 256;
 
 const MOUNT_ONLY = new Set(["place", "entering"]);
 
