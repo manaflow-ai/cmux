@@ -74,10 +74,10 @@ fn is_git_pack(path: &str) -> bool {
         })
 }
 
-/// The most files one readahead batch asks for.
-const BATCH_FILES: usize = 256;
-/// The most bytes one readahead batch asks for.
-const BATCH_BYTES: u64 = 16 * 1024 * 1024;
+/// The most files one readahead batch asks for, by default ([`crate::tune::readahead_files`]).
+const BATCH_FILES: usize = crate::tune::DEFAULT_READAHEAD_FILES;
+/// The most bytes one readahead batch asks for, by default ([`crate::tune::readahead_bytes`]).
+const BATCH_BYTES: u64 = crate::tune::DEFAULT_READAHEAD_BYTES;
 /// The most entries one readahead pick looks at, skipped ones included, so a fault never walks a
 /// big folder for nothing.
 const BATCH_SCAN: usize = 4096;
@@ -639,7 +639,7 @@ struct Pick<'a, F> {
 
 impl<F: Fn(u32, &Entry) -> bool> Pick<'_, F> {
     fn full(&self) -> bool {
-        self.picked.len() + 1 >= BATCH_FILES || self.scanned >= BATCH_SCAN
+        self.picked.len() + 1 >= crate::tune::readahead_files() || self.scanned >= BATCH_SCAN
     }
 
     /// Looks at the children of `folder` in name order and takes its small files.
@@ -655,7 +655,7 @@ impl<F: Fn(u32, &Entry) -> bool> Pick<'_, F> {
             if child.kind == Kind::File
                 && other != self.index
                 && child.size <= CHUNK
-                && self.bytes + child.size <= BATCH_BYTES
+                && self.bytes + child.size <= crate::tune::readahead_bytes()
             {
                 self.bytes += child.size;
                 self.picked.push(other);
