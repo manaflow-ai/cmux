@@ -158,7 +158,8 @@ fn wire_shape() {
             "recovery": "restartedSafely",
             "watchesForLoop": true,
             "crashedPages": ["t"],
-            "startsUpdaterBeforeWindows": true
+            "startsUpdaterBeforeWindows": true,
+            "likelyOom": false
         })
     );
 }
