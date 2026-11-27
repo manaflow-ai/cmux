@@ -131,10 +131,7 @@ async fn registered_pre_tool_callback_waits_and_failed_sync_returns_denial() {
     let reply = reply_for(&t, "sync-2", std::time::Duration::from_secs(10), &mut others).await;
     let reply = reply.expect("answered");
     assert!(reply.pointer("/response/response/hookSpecificOutput/updatedInput").is_none());
-    assert_eq!(
-        reply["response"]["response"]["hookSpecificOutput"]["permissionDecision"],
-        "deny"
-    );
+    assert_eq!(reply["response"]["response"]["hookSpecificOutput"]["permissionDecision"], "deny");
     assert_eq!(
         outbound::initialize_request(false)["hooks"]["PreToolUse"][0]["hookCallbackIds"][0],
         hook_callback::SYNC_CALLBACK

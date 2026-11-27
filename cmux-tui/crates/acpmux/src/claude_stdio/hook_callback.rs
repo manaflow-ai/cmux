@@ -61,7 +61,8 @@ impl Translator {
             let input = req.get("input").cloned().unwrap_or(Value::Null);
             let (rid, replies, ready) =
                 (rid.to_owned(), self.stdin_replies.clone(), self.replies_ready.clone());
-            let (home, session) = (self.plugin_hook_home.get().cloned(), self.acp_session_id.clone());
+            let (home, session) =
+                (self.plugin_hook_home.get().cloned(), self.acp_session_id.clone());
             // Ends within SYNC_HARD_BOUND; its blocking check ends by SYNC_BUDGET.
             self.scope.spawn_until_cancelled("repo-sync-hook-answer", async move {
                 let check = input.clone();
