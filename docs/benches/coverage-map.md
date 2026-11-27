@@ -160,7 +160,6 @@ whether it fails on a number.
 | `AgentPaneBridgeHopBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneBridgeHopBench.swift` | `CMUX_PANE_TRANSPORT_BENCH` | no |
 | `AgentPaneTransportBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneTransportBench.swift` | `CMUX_PANE_TRANSPORT_BENCH` | no |
 | `AgentPaneTransportBenchParse` | `Packages/macOS/CmuxNext/Tests/CmuxNextAgentPaneTests/AgentPaneTransportBenchParse.swift` | `CMUX_PANE_TRANSPORT_BENCH` | no |
-| `AnimationFrameBenchUITests` | `cmux-next-ios/UITests/AnimationFrameBenchUITests.swift` | UI test plan | no |
 | `BrowserChromeMemoryBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/BrowserChromeMemoryBench.swift` | none | no |
 | `BrowserChromeSwitchBench` | `Packages/macOS/CmuxNext/Tests/CmuxNextBrowserTests/BrowserChromeSwitchBench.swift` | none | one render per switch |
 | `ChiefFaceFlushBenchTests` | pending lane/main-thread-sync-bridge (CmuxNextAppTests) | none | one flush under 250 ms at 1,104 rows × 5 Chiefs, 160 KB |
@@ -189,6 +188,7 @@ whether it fails on a number.
 | `ResumeLiveBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | yes |
 | `ResumeMatrixBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | no |
 | `ResumeStagesBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | no |
+| `AnimationFrameBenchUITests` | `cmux-next-ios/UITests/AnimationFrameBenchUITests.swift` | UI test plan | no |
 | `RotateBenchUITests` | `cmux-next-ios/UITests/RotateBenchUITests.swift` | UI test plan | no |
 | `SentryScrubCostBench` | `Packages/Shared/CmuxSentryTelemetry/Tests/CmuxSentryScrubbingTests/SentryScrubCostBench.swift` | `CMUX_SENTRY_SCRUB_BENCH` | no |
 | `SidebarHoverCardRetargetBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarHoverCardRetargetBenchTests.swift` | `CMUX_HOVER_RETARGET_BENCH` | p95 under 8 ms scaled |
@@ -231,11 +231,6 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 | glob | area | on PR |
 |---|---|---|
 | `webviews/bench/chat-*.bench.ts` | agent chat open, switch, scroll, 100k flat | chat-open: report only |
-| `webviews/bench/inline-text-hasmarks.bench.ts` | markdown inline text | no |
-| `webviews/bench/subsession-reply-height.bench.ts` | transcript height estimate | no |
-| `webviews/bench/terminal-history-offscreen.bench.ts` | terminal history viewer | no |
-| `webviews/bench/renderer-idle-growth.bench.ts` | renderer idle memory growth (RFD 0062) | no |
-| `webviews/bench/webkit-push-growth.bench.ts` | WebKit growth per pushed script (RFD 0062) | no |
 | `webviews/bench/transcript-*.bench.ts` | transcript scroll, resize, replay, turn end | no |
 | `webviews/bench/million-event-chat.bench.ts` | 1M-event chat | no |
 | `webviews/bench/degenerate-chat-frames.bench.ts` | degenerate chats | smoke on its own paths, no fail |
@@ -249,13 +244,17 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 | `webviews/bench/all-chats-list.bench.ts` | all chats list | no |
 | `webviews/bench/session-*.bench.ts` | session scale | no |
 | `webviews/bench/project-picker-open.bench.ts` | project picker | no |
+| `webviews/bench/inline-text-hasmarks.bench.ts` | inline text marks | no |
+| `webviews/bench/subsession-reply-height.bench.ts` | subsession reply height | no |
+| `webviews/bench/terminal-history-offscreen.bench.ts` | terminal history, offscreen turns | no |
+| `webviews/bench/renderer-idle-growth.bench.ts` | renderer idle memory growth (RFD 0062) | no |
+| `webviews/bench/webkit-push-growth.bench.ts` | WebKit growth per pushed script (RFD 0062) | no |
 | `webviews/bench/cloud-*.bench.ts` | cloud feed | no |
 | `webviews/bench/cloud-page-first-row.bench.tsx` | cloud page | no |
 | `webviews/bench/daemon-gate-relink.bench.tsx` | daemon relink | no |
 | `webviews/bench/diff-*.bench.ts*` | diff viewer | no (perf cron) |
-| `webviews/bench/diff-stream.bench.ts` (`diff-stream`) | diff stream, the Diff view area's `run` | via `for-paths --run` |
-| `webviews/test/diff-find-scale.test.ts` (`diff-find-scale`) | diff find op counts, oracle, budgets | webviews tests |
-| `webviews/bench/model-picker-search.bench.ts` (`model-picker-search`) | model picker keystroke at 5,000 models | via `for-paths --run` |
+| `webviews/bench/diff-stream.bench.ts` | diff stream (`diff-stream`), the Diff view area's `run`; its find op counts, oracle and budgets are the test `webviews/test/diff-find-scale.test.ts` (`diff-find-scale`, run in webviews tests) | via `for-paths --run` |
+| `webviews/bench/model-picker-search.bench.ts` | model picker keystroke at 5,000 models (`model-picker-search`) | via `for-paths --run` |
 | `webviews/bench/new-tab-*.bench.ts*` | new tab | no |
 | `webviews/bench/*-visible-only.bench.ts` | page virtualization | no |
 | `webviews/bench/apps-catalog-*.bench.ts` | apps catalog | no |
