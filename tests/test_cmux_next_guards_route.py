@@ -143,13 +143,13 @@ class CmuxNextGuardsRouteTests(unittest.TestCase):
         self.assertIn(  # then the land tier (tests/test_head_tier.py)
                         "((github.event.action != 'ready_for_review') && (!cancelled() && needs.coalesce.outputs.run != 'false' && "
                         "needs.fast-check-route.outputs.ci_guard_group != 'false' && "
-                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || contains(github.event.pull_request.labels.*.name, 'full-ci')))) && ",
+                        "(github.event_name != 'pull_request' || !startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || (contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))))) && ",
                         group["if"])
         # The route feeds only the group and own-change-checks, both skipped on a pull request into feat-cmux-next
         # without full-ci, so the route skips there too (1,115 runner starts in 5.1 h of 11-25 no job read).
         self.assertIn("(github.event_name == 'pull_request' && (github.event_name != 'pull_request' || "
                       "!startsWith(github.event.pull_request.base.ref, 'feat-cmux-next') || "
-                      "contains(github.event.pull_request.labels.*.name, 'full-ci')))",
+                      "(contains(github.event.pull_request.labels.*.name, 'full-ci') && (github.event.pull_request.base.ref != 'feat-cmux-next' || (github.event.action == 'labeled' && github.event.label.name == 'full-ci') || (vars.CI_FULL_CI_ONE_SHOT || '1') == '0'))))",
                       jobs["fast-check-route"]["if"])
         steps = {step.get("name"): step for step in group["steps"]}
         script = steps["Run the ci guard group and the routed groups"]["run"]

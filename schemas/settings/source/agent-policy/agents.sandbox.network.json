@@ -1,0 +1,4 @@
+{
+  "agent": "userOnly",
+  "why": "What every agent's process gets in its environment and which folders every chat may read and write and the sandbox it runs in: an agent must not widen its own or other agents' access."
+}

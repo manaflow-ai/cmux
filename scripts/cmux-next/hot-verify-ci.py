@@ -248,6 +248,13 @@ def stage(out: Path, pr: int, head: str, staging: Path, text_path: Path) -> dict
     step = read_json(out / "step.json")
     if step.get("needs_build") or receipt.get("plan", {}).get("needs_build"):
         return {"needs_build": True, "staged": [], "withheld": []}
+    # The worker's plan found nothing to look at (hq hot_verify_run.py `nothing`: e.g. "the app already contains
+    # SHA", a merge look whose NIGHTLY already ships the merge): a result, not a missing receipt. It failed `post the
+    # look` as "the receipt has no hot-verify marker" (runs 46054808380, 46008620288, 46007530167, 2026-11-27).
+    if step.get("nothing") and not receipt.get("marker"):
+        notes = (read_json(out / "plan.json").get("notes") or [])
+        reason = "; ".join(str(note) for note in notes if isinstance(note, str))[:300] or "nothing to look at"
+        return {"needs_build": False, "nothing": True, "reason": reason, "staged": [], "withheld": []}
     if not receipt.get("marker") and step.get("error"):
         raise NoReceipt(worker_stop(step))
     check_marker(receipt, head)
