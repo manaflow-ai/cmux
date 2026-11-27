@@ -29,15 +29,23 @@ pub fn find_in_lines<S: AsRef<str>>(
     let mut out = Vec::new();
     for (index, line) in lines.iter().enumerate().rev() {
         let line = line.as_ref();
-        let found: Vec<(usize, usize)> = matcher.ranges(line).collect();
-        for &(start, end) in found.iter().rev() {
+        // Each match's UTF-16 offset, counted on from the previous match's end: one pass over
+        // the line, not a count from the line's start per match (quadratic on a long line).
+        let mut found: Vec<(usize, usize, u32)> = Vec::new();
+        let (mut counted_to, mut offset) = (0usize, 0u32);
+        for (start, end) in matcher.ranges(line) {
+            offset = offset.saturating_add(utf16_len(&line[counted_to..start]));
+            counted_to = start;
+            found.push((start, end, offset));
+        }
+        for &(start, end, start16) in found.iter().rev() {
             if out.len() == max_matches {
                 return (out, true);
             }
             let (snippet, snippet_start, snippet_len) = snippet(line, start, end);
             out.push(LineMatch {
                 line: index,
-                start: utf16_len(&line[..start]),
+                start: start16,
                 len: utf16_len(&line[start..end]),
                 snippet,
                 snippet_start,
@@ -60,10 +68,13 @@ pub(crate) fn snippet(line: &str, start: usize, end: usize) -> (String, u32, u32
     let room = SNIPPET_CHARS.saturating_sub(matched.chars().count());
     // A third of the room before the match, the rest after it: what follows a hit reads on.
     let before_room = room / 3;
-    let before: Vec<char> = line[..start].chars().collect();
-    let take_before = before.len().min(before_room);
+    // Walk back from the match at most `before_room` characters: the snippet costs its own
+    // length, never the line's (a find over a long soft-wrapped line reports many matches).
+    let lead_start =
+        line[..start].char_indices().rev().take(before_room).last().map_or(start, |(at, _)| at);
+    let lead = &line[lead_start..start];
+    let take_before = lead.chars().count();
     let after_room = room - take_before;
-    let lead: String = before[before.len() - take_before..].iter().collect();
     let lead = lead.trim_start();
     let tail: String = line[end..].chars().take(after_room).collect();
     let tail = tail.trim_end();
