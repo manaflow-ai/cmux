@@ -31,7 +31,8 @@ import { rowKind } from "../virtualTranscriptModel";
 import { type QueueDrawn } from "./drawnHeight";
 import { OlderRowFade } from "./OlderRowFade";
 import { rowDomId, RowFrame, RowContent } from "./RowFrame";
-import { mountsOffscreen, skipsOffscreenRows } from "../conversation/offscreenRows";
+import { entersUnseen, mountsOffscreen, skipsOffscreenRows } from "../conversation/offscreenRows";
+import { shelvedHeight } from "../conversation/shelvedRows";
 
 /// A row drawn as tool rows: tool calls and thoughts, a background task's or a subagent's end, a
 /// compaction, a failover, a policy the harness cannot keep, and the one-line
@@ -103,6 +104,9 @@ type RowFramesView = {
   /// (conversation/offscreenRows.ts). `viewHeight` 0 skips none.
   viewTop: number;
   viewHeight: number;
+  /// Rows that end above this offset (the geometry's) are shelved (conversation/shelvedRows.ts);
+  /// -Infinity shelves none.
+  shelfAbove: number;
   frameKey: string;
   registry: NativeRegistry;
   setSizeRef: React.MutableRefObject<string>;
@@ -209,6 +213,7 @@ export function drawRowFrames(
       inputs.sendThinking = row.kind === THINKING && row.verbKey !== undefined && view.sentPromptIds.has(row.verbKey);
       inputs.enter = entering?.has(frameId) ?? false;
       inputs.loadFade = loadFade?.fades(row.id) ?? false;
+      inputs.shelved = shelvedHeight(inputs.top, geometry.heightAt(absoluteIndex), view.shelfAbove);
       inputs.older = older?.has(row.id) ? older : undefined;
       inputs.repository = view.githubRepository ?? view.rowRepositories?.(absoluteIndex);
       inputs.scope = view.scopeAt(absoluteIndex);
@@ -257,6 +262,7 @@ export function drawRowFrames(
           enter={inputs.enter}
           onEntered={view.onEntered}
           loadFade={inputs.loadFade}
+          shelved={inputs.shelved}
           onLoadFaded={view.onLoadFaded}
           older={inputs.older as OlderRowFade | undefined}
           onOlderShown={view.onOlderShown}
@@ -278,6 +284,10 @@ export function drawRowFrames(
             mountsOffscreen(inputs.top, geometry.heightAt(absoluteIndex), view.viewTop, view.viewHeight, windowHeight)
           }
           placedHeight={geometry.heightAt(absoluteIndex)}
+          // An arrival out of view draws in place (read on the first mount only, like `offscreen`).
+          enterUnseen={
+            inputs.enter && entersUnseen(inputs.top, geometry.heightAt(absoluteIndex), view.viewTop, view.viewHeight)
+          }
         >
           <RowContent
             Component={Component}

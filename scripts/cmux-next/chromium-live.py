@@ -56,6 +56,7 @@ import sys
 import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+import live_frames  # noqa: E402  (a frame of each swapped engine in the chat, RFD 0152)
 
 FRAMEWORK_REL = Path("Contents/Frameworks/Chromium Embedded Framework.framework")
 BINARY_NAME = "Chromium Embedded Framework"
@@ -422,6 +423,7 @@ def cycle(cfg: dict, state: Path, builder: Builder, rels: list[str], saved_at: f
         result = swap(app, built, cfg.get("gpu", False))
         t.update(result.pop("seconds"))
         entry["respawn"] = result
+        live_frames.built("chromium")  # the pages reloaded on the new engine: the chat's frame shows it
     t["save_to_reloaded"] = time.time() - saved_at
     entry["seconds"] = {k: round(v, 3) for k, v in t.items()}
     record(state, entry)

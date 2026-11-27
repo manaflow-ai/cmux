@@ -39,7 +39,7 @@ const REMEMBERED: [&str; 5] = [
     "HOME",
     BASE_URL,
     "SHELL",
-    crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW.0,
+    crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW_ENV,
 ];
 
 /// What one environment gives Claude Code.
@@ -431,6 +431,26 @@ pub fn is_gateway_fallback(error: &str) -> bool {
     error.starts_with("Claude is not signed in here") && error.contains(GATEWAY_FALLBACK)
 }
 
+/// The words that say the chat's agent had started before this Cloud machine's model route
+/// resolved, and restarts on it now ([`route_arrived_text`]); its first send goes again on them
+/// (`first_send.rs`), so no Sign in shows for a route that was only late.
+pub const ROUTE_ARRIVED: &str = "model route is ready now";
+
+/// The failure of a chat whose Claude started on a Cloud machine before its model route resolved
+/// (`cloud_model_plane::route_arrives`), and whose agent restarts on the route. `original` is
+/// Claude's own text, kept at the end.
+pub fn route_arrived_text(original: &str) -> String {
+    format!(
+        "Claude is not signed in here yet: this Cloud machine's {ROUTE_ARRIVED}, so the agent restarts on it and the message goes again. (Claude said: {})",
+        original.trim()
+    )
+}
+
+/// Whether `error` is a failure the late model route answered ([`route_arrived_text`]).
+pub fn is_route_arrived(error: &str) -> bool {
+    error.starts_with("Claude is not signed in here") && error.contains(ROUTE_ARRIVED)
+}
+
 /// The explanation for a Claude agent's sign-in failure, or None when this
 /// session is not a Claude agent acpmux started (or the text says another
 /// thing). `original` is Claude's own text, kept at the end. `cloud`: this
@@ -489,7 +509,7 @@ fn compose_cloud(agent: &Found, original: &str, gateway: bool) -> String {
     let mut out = String::from("Claude is not signed in here.");
     if agent.endpoint.is_none() {
         out.push_str(&format!(
-            " This Cloud machine's Claude has no model route (Claude home {}); start a new machine to get the current image.",
+            " This Cloud machine's Claude has no model route (Claude home {}): your account has no Claude account or model gateway for Cloud yet. Click Sign in to Claude (Claude's own sign-in, on this machine), then send the message again.",
             tilde(&agent.home)
         ));
     } else {

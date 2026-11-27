@@ -8,6 +8,10 @@ public struct CloudMoveStrings {
     public static var moving: String {
         String(localized: "cloud.move.moving", defaultValue: "Moving this chat to Cloud…", table: "Cloud", bundle: .localizedModule)
     }
+    /// A moving chat's sidebar row before the move's first step line (``ChatMoves``).
+    public static var movingRow: String {
+        String(localized: "cloud.move.movingRow", defaultValue: "Moving…", table: "Cloud", bundle: .localizedModule)
+    }
     public static func moved(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.moved", defaultValue: "This chat now runs on %@.", table: "Cloud", bundle: .localizedModule), machine)
     }
@@ -22,6 +26,13 @@ public struct CloudMoveStrings {
         default: String(localized: "cloud.move.vmCouldNotStart", defaultValue: "Its Cloud VM could not start.", table: "Cloud", bundle: .localizedModule)
         }
     }
+    /// The palette's place and Evacuate actions while Settings > Experiments' Cloud Toggle (`experiments.cloudToggle`) is off.
+    public static var placeExperimentOff: String {
+        String(localized: "cloud.place.experimentOff", defaultValue: "Turn on Cloud Toggle in Settings > Experiments first.", table: "Cloud", bundle: .localizedModule)
+    }
+    /// Why the palette's place and Evacuate actions are refused while Settings > Experiments' Cloud Toggle
+    /// (`experiments.cloudToggle`, default off) is off, as the page's controls are hidden; nil while it is on.
+    public static func placeOff(_ switches: [String: Bool]?) -> String? { switches?["cloudToggle"] == true ? nil : placeExperimentOff }
     public static var retry: String { String(localized: "cloud.move.retry", defaultValue: "Retry", table: "Cloud", bundle: .localizedModule) }
     /// An agent's or a socket's run of a chat place action (Local, Cloud, Auto, Evacuate, Bring Back All, Cancel, Retry).
     public static var placeIsPersons: String {
@@ -117,6 +128,19 @@ public struct CloudMoveStrings {
     public static let outdatedCode = CloudOutdatedMachine.code
     public static func unknownMachine(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.unknownMachine", defaultValue: "cmux can't confirm who owns %@, so the chat stays on this Mac.",
+                              table: "Cloud", bundle: .localizedModule), machine)
+    }
+    /// The machine's chat service was restarting (`agent_transfer.unavailable`): the CLI waited to its
+    /// deadline and gave the chat back, so nothing moved and the same move may work again.
+    /// The folder's last changes did not reach the other machine (`sync_failed`: it did not answer
+    /// in time, say), so the chat stayed frozen where it was; a Retry moves it again.
+    public static var lastChangesFailed: String {
+        String(localized: "cloud.move.lastChangesFailed", defaultValue: "The folder's last changes didn't copy, so the chat stayed where it was. Retry to move it.",
+               table: "Cloud", bundle: .localizedModule)
+    }
+
+    public static func restarting(_ machine: String) -> String {
+        String(format: String(localized: "cloud.move.restarting", defaultValue: "%@ is restarting, so the chat stayed where it was. Retry in a moment.",
                               table: "Cloud", bundle: .localizedModule), machine)
     }
     public static func unreachable(_ machine: String) -> String {

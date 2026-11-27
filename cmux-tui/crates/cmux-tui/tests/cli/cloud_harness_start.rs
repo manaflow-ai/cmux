@@ -19,10 +19,11 @@ use super::*;
 
 /// The harnesses a Cloud chat's picker offers a sign-in for: the app's
 /// `LOGIN_AGENTS` (webviews/src/agent-session/acpmux/cloudAgentLogin.ts), mirrored in
-/// cmux-tui-core's `login_request` (server/agent_session_attach.rs). opencode is in the
-/// picker too (no sign-in of its own there): it must start or say the same. A harness added
-/// to the picker gets a row here.
-const PICKER_HARNESSES: &[&str] = &["claude", "codex", "gemini", "grok", "cursor", "opencode"];
+/// cmux-tui-core's `login_request` (server/agent_session_attach.rs). opencode and
+/// antigravity are in the picker too (antigravity signs in with Gemini's key): each must
+/// start or say the same. A harness added to the picker gets a row here.
+const PICKER_HARNESSES: &[&str] =
+    &["claude", "codex", "gemini", "grok", "cursor", "opencode", "antigravity"];
 
 /// acpmux's config with every picker harness as the test agent under its own id (a
 /// config.json entry takes the id over from PATH discovery), each with `env`.

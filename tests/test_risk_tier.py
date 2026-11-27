@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 # tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
 import importlib.util as _git_fixture_importlib  # noqa: E402
@@ -285,9 +286,18 @@ class ClassifyTests(unittest.TestCase):
             NEXT + "CmuxNextApp/AppOnboardingServices+ClassicMigration.swift",
             "cmux-tui/crates/acpmux/src/hub/place_migrate.rs", "web/drizzle/0001_x.sql",
             NEXT + "CmuxNextDaemon/Conversations/ChiefSecureStore.swift",
+            # The measure and repo-archive exemptions name files: a new release script there stays high.
+            "scripts/measure/sign-release.sh", "scripts/measure/nightly-notarize.sh",
+            "scripts/measure/publish-nightly.sh", "scripts/repo-archive/sign.sh", "scripts/repo-archive/deploy.sh",
+            # Each branch of the auth word: at the path start, a file-name word, a directory.
+            "auth/x.ts", "cmux-tui/crates/x/src/oauth_callback.rs", "web/app/sign-in/page.tsx",
+            "cmux-tui/crates/x/src/login/mod.rs",
         ):
             with self.subTest(path=path):
                 self.assertEqual(self.tier(path), "high")
+        # Only an image is spared the auth word; the word inside a longer word is not the auth word.
+        self.assertNotEqual(self.tier("web/auth.png"), "high")
+        self.assertNotEqual(self.tier("cmux-tui/crates/x/src/author.rs"), "high")
 
     def test_harness_code_and_own_temp_file_cleanup_are_not_new_deletes(self):
         cases = {
@@ -849,6 +859,30 @@ class RecentRevertTests(unittest.TestCase):
             unread = []
             self.assertEqual(risk.recent_reverts([stale], repo, base, own=21194, now=now, unread=unread, budget=0), {})
             self.assertEqual(unread, ["App.tsx"])
+
+
+    def test_a_registry_split_into_one_file_per_entry_takes_nothing_back(self):
+        # cmux#56291 (2026-11-25) moved agent-policy.json into agent-policy/<key>.json: its deleted lines live on in
+        # the new files, and the check named 56 pull requests as taken back.
+        now = time.time()
+        with tempfile.TemporaryDirectory() as repo:
+            self.git(repo, "init", "-q")
+            path = os.path.join(repo, "policy.json")
+            open(path, "w").write('"a": 1\n')
+            self.git(repo, "add", ".")
+            self.git(repo, "commit", "-qm", "feat: old (#100)", when=now - 30 * 86400)
+            open(path, "w").write('"a": 1\n"b": 2\n')
+            self.git(repo, "commit", "-qam", "feat: add b (#200)", when=now - 86400)
+            base = self.git(repo, "rev-parse", "HEAD").strip()
+            removed = {"filename": "policy.json", "status": "removed",
+                       "patch": '@@ -1,2 +0,0 @@\n-"a": 1\n-"b": 2'}
+            split = [removed, {"filename": "policy/a.json", "status": "added", "patch": "@@ -0,0 +1 @@\n+{}"},
+                     {"filename": "policy/b.json", "status": "added", "patch": "@@ -0,0 +1 @@\n+{}"}]
+            self.assertEqual(risk.recent_reverts(split, repo, base, own=300, now=now), {})
+            catalog = [dict(removed, filename="policy.json"), {"filename": "policy.json.d/b.json", "status": "added"}]
+            self.assertEqual(risk.recent_reverts(catalog, repo, base, own=300, now=now), {})
+            # Deleting it with no directory in its place still takes #200's line back.
+            self.assertEqual(risk.recent_reverts([removed], repo, base, own=300, now=now), {200: ["policy.json"]})
 
 
 class MergeBaseTests(unittest.TestCase):
@@ -1424,118 +1458,162 @@ class mock_sleep(contextlib.ContextDecorator):
 
 
 class RateLimitedPrModeTests(unittest.TestCase):
-    """#49215's "risk evidence" went red on `gh api pulls/49215/files` exiting 1 with "API rate limit exceeded for
-    installation": no verdict on the pull request, yet a red a lander had to override. Now it ends green and
-    ungraded with the reason, and RISK_TIER_RATE_LIMIT_FAILS=1 turns it red again."""
-
-    def run_pr(self, env=None):
+    def test_quota_failure_is_red_ungraded_and_not_ready(self):
+        error = risk.RateLimited(1, ["gh", "api", "repos/o/r/pulls/7/files"],
+                                 endpoint="repos/o/r/pulls/7/files", status=403, reset=2000000000,
+                                 stderr="provider refused")
         saved = risk.gh_items
-
         def limited(endpoint):
-            raise risk.RateLimited(1, ["gh", "api", endpoint], output="",
-                                   stderr="gh: API rate limit exceeded for installation ID 1.")
+            raise error
         risk.gh_items = limited
         self.addCleanup(lambda: setattr(risk, "gh_items", saved))
-        old = os.environ.pop(risk.RATE_LIMIT_FAILS_ENV, None)
-        self.addCleanup(lambda: os.environ.__setitem__(risk.RATE_LIMIT_FAILS_ENV, old) if old is not None
-                        else os.environ.pop(risk.RATE_LIMIT_FAILS_ENV, None))
-        os.environ.update(env or {})
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        out, summary = Path(tmp.name) / "out", Path(tmp.name) / "summary"
-        with contextlib.redirect_stdout(io.StringIO()):
-            code = risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
-                              "--summary", str(summary)])
-        return code, out.read_text(), summary.read_text()
+        with tempfile.TemporaryDirectory() as tmp:
+            out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                code = risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
+                                  "--summary", str(summary)])
+            self.assertEqual(code, 1)
+            self.assertIn("ready=false\n", out.read_text())
+            self.assertIn("tier=ungraded\n", out.read_text())
+            self.assertNotIn("takes_back=", out.read_text())
+            self.assertIn("not a verdict", summary.read_text())
+            self.assertNotIn("provider refused", summary.read_text())
+            markers = [line for line in stdout.getvalue().splitlines()
+                       if line.startswith("risk-evidence.rate-limited ")]
+            self.assertEqual(len(markers), 1)
+            self.assertEqual(json.loads(markers[0].split(" ", 1)[1]), error.marker)
 
-    def test_a_rate_limit_ends_ungraded_green_with_the_reason(self):
-        code, out, summary = self.run_pr()
-        self.assertEqual(code, 0)
-        for line in ("tier=ungraded", "label=", "ready=true", "takes_back=false"):
-            self.assertIn(line + "\n", out)
-        self.assertIn("API rate limit exceeded", summary)
-        self.assertIn("not a verdict", summary)
+    def test_known_unowned_takeback_survives_later_quota_refusal(self):
+        pull = {"body": "", "head": {"sha": HEAD}, "base": {"sha": "b" * 40}}
+        error = risk.RateLimited(1, ["gh", "api", "repos/o/r/pulls/7/reviews"],
+                                 endpoint="repos/o/r/pulls/7/reviews", status=429, reset=2000000000)
+        with tempfile.TemporaryDirectory() as tmp:
+            out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+            stdout = io.StringIO()
+            with mock.patch.object(risk, "gh_items", return_value=[{"filename": "scripts/ci/risk_tier.py", "patch": ""}]), \
+                    mock.patch.object(risk, "gh_json", return_value=pull), \
+                    mock.patch.object(risk, "merge_base_of", return_value="b" * 40), \
+                    mock.patch.object(risk, "recent_reverts", return_value={57000: ["docs/note.md"]}), \
+                    mock.patch.object(risk, "human_ok_by", side_effect=error), contextlib.redirect_stdout(stdout):
+                code = risk.main(["pr", "--repo", "o/r", "--number", "7", "--repo-dir", tmp,
+                                  "--github-output", str(out), "--summary", str(summary)])
+            self.assertEqual(code, 1)
+            self.assertEqual(error.takeback_numbers, [57000])
+            self.assertIn("Takes back #57000:", stdout.getvalue())
+            self.assertIn("Takes back #57000:", summary.read_text())
+            self.assertNotIn("takes_back=false", out.read_text())
 
-    def test_the_off_switch_turns_a_rate_limit_red_again(self):
-        with self.assertRaises(risk.RateLimited):
-            self.run_pr({risk.RATE_LIMIT_FAILS_ENV: "1"})
 
 
 class GhFailureTests(unittest.TestCase):
-    """A gh call that fails names its reason on the job's log, and a rate limit stops the retries.
+    def setUp(self):
+        self.saved_run, self.saved_sleep, self.saved_time = subprocess.run, time.sleep, time.time
+        self.saved_waited = risk._rate_waited
+        self.addCleanup(self.restore)
+        risk._rate_waited = 0
+        risk.time.time = lambda: 1000
+        self.calls, self.slept = [], []
+        risk.time.sleep = self.slept.append
 
-    #50881's "risk evidence" job was red with nothing in the log but "CalledProcessError ... returned non-zero
-    exit status 1": gh's stderr went into capture_output and was dropped, so neither a person nor
-    base_red_excuse.py could tell a drained API budget from a graded pull request."""
+    def restore(self):
+        risk.subprocess.run, risk.time.sleep, risk.time.time = self.saved_run, self.saved_sleep, self.saved_time
+        risk._rate_waited = self.saved_waited
 
-    def run_gh(self, returncode, stderr, attempts=3):
-        calls, slept = [], []
-        saved_run, saved_sleep = subprocess.run, time.sleep
+    def response(self, status, headers, body="{}", code=1, stderr="quota words are not evidence"):
+        def run(args, **kwargs):
+            self.calls.append(args)
+            return subprocess.CompletedProcess(args, code, stdout=f"HTTP/2.0 {status} X\r\n" +
+                "\r\n".join(f"{k}: {v}" for k, v in headers.items()) + "\r\n\r\n" + body, stderr=stderr)
+        risk.subprocess.run = run
 
-        def fake_run(args, **kwargs):
-            calls.append(args)
-            return subprocess.CompletedProcess(args, returncode, stdout="", stderr=stderr)
+    def call(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            return risk.gh_run(["gh", "api", "repos/o/r/pulls/7/files"])
 
-        risk.subprocess.run, risk.time.sleep = fake_run, lambda s: slept.append(s)
-        self.addCleanup(lambda: (setattr(risk.subprocess, "run", saved_run),
-                                 setattr(risk.time, "sleep", saved_sleep)))
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err):
-            with self.assertRaises(subprocess.CalledProcessError):
-                risk.gh_run(["gh", "api", "repos/o/r/pulls/7/files"], attempts=attempts)
-        return calls, slept, err.getvalue()
+    def test_primary_limit_far_from_reset_stops_without_retry(self):
+        self.response(403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "2800"})
+        with self.assertRaises(risk.RateLimited) as caught:
+            self.call()
+        self.assertEqual(caught.exception.marker, dict(endpoint="repos/o/r/pulls/7/files", status=403,
+                                                       reset=2800, graded=False))
+        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(self.slept, [])
+        self.assertIn("--include", self.calls[0])
 
-    def test_a_rate_limit_far_from_its_reset_stops_at_once_and_says_it_is_not_a_verdict(self):
-        risk._rate_waited = 0.0
-        saved = risk.rate_limit_reset_in
-        risk.rate_limit_reset_in = lambda why: 1800.0
-        self.addCleanup(lambda: setattr(risk, "rate_limit_reset_in", saved))
-        calls, slept, err = self.run_gh(1, "gh: API rate limit exceeded for installation ID 1.")
-        self.assertEqual(len(calls), 1, "no retry inside this job outlasts an hourly reset")
-        self.assertEqual(slept, [])
-        self.assertIn("API rate limit exceeded", err)
-        self.assertIn("not a verdict", err)
+    def test_near_reset_waits_once_and_job_budget_includes_padding(self):
+        self.response(403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "1050"})
+        with self.assertRaises(risk.RateLimited):
+            self.call()
+        self.assertEqual((len(self.calls), self.slept), (2, [51]))
+        self.calls.clear(); self.slept.clear()
+        with self.assertRaises(risk.RateLimited):
+            self.call()
+        self.assertEqual((len(self.calls), self.slept), (1, []))
 
-    def test_a_rate_limit_that_resets_soon_waits_once_then_raises_rate_limited(self):
-        risk._rate_waited = 0.0
-        saved = risk.rate_limit_reset_in
-        risk.rate_limit_reset_in = lambda why: 50.0
-        self.addCleanup(lambda: setattr(risk, "rate_limit_reset_in", saved))
-        calls, slept, err = self.run_gh(1, "gh: API rate limit exceeded for installation ID 1.")
-        self.assertEqual(len(calls), 2, "one wait for the budget, then no more")
-        self.assertEqual(slept, [51.0])
-        self.assertIn("waiting 50s", err)
-        # The wait is bounded across the whole job (50 s spent of 90): another 50 s wait would pass it, so the next
-        # limit raises at once.
-        calls, slept, _ = self.run_gh(1, "gh: API rate limit exceeded for installation ID 1.")
-        self.assertEqual((len(calls), slept), (1, []))
+    def test_retry_after_takes_precedence_on_403_and_429(self):
+        for status in (403, 429):
+            with self.subTest(status=status):
+                self.response(status, {"Retry-After": "3600", "X-RateLimit-Reset": "1001"})
+                with self.assertRaises(risk.RateLimited) as caught:
+                    self.call()
+                self.assertEqual(caught.exception.marker["reset"], 4600)
+        self.assertEqual(self.slept, [])
 
-    def test_a_rate_limit_raises_rate_limited_and_another_failure_does_not(self):
-        risk._rate_waited = risk.RATE_LIMIT_WAIT_SECONDS
-        saved_run = subprocess.run
-        self.addCleanup(lambda: setattr(risk.subprocess, "run", saved_run))
-        for stderr, kind in (("gh: API rate limit exceeded", risk.RateLimited), ("gh: Not Found (HTTP 404)", None)):
-            risk.subprocess.run = lambda args, **kw: subprocess.CompletedProcess(args, 1, stdout="", stderr=stderr)
-            with contextlib.redirect_stderr(io.StringIO()), mock_sleep():
+    def test_only_structured_quota_is_classified(self):
+        for status, headers in ((403, {}), (429, {}), (404, {"Retry-After": "60"}),
+                                (503, {"x-ratelimit-remaining": "0"})):
+            with self.subTest(status=status):
+                self.response(status, headers, stderr="gh: API rate limit exceeded; secondary rate; abuse detection")
                 with self.assertRaises(subprocess.CalledProcessError) as caught:
-                    risk.gh_run(["gh", "api", "x"])
-            self.assertEqual(isinstance(caught.exception, risk.RateLimited), kind is not None, stderr)
+                    self.call()
+                self.assertNotIsInstance(caught.exception, risk.RateLimited)
 
-    def test_another_failure_retries_and_still_prints_gh_s_words(self):
-        calls, slept, err = self.run_gh(1, "gh: Not Found (HTTP 404)")
-        self.assertEqual(len(calls), 3)
-        self.assertEqual(slept, [2, 4])
-        self.assertIn("Not Found (HTTP 404)", err)
-        self.assertNotIn("not a verdict", err)
+    def test_raw_and_json_success_strip_only_http_envelope(self):
+        for body in ('[{"number": 7}]', 'fn main() {\n    // HTTP/2 403\n}\n'):
+            self.response(200, {"Content-Type": "text/plain"}, body=body, code=0, stderr="")
+            self.assertEqual(self.call(), body)
+        self.assertEqual(self.slept, [])
 
-    def test_a_successful_call_prints_nothing(self):
-        saved = subprocess.run
-        risk.subprocess.run = lambda args, **kwargs: subprocess.CompletedProcess(args, 0, stdout="[]", stderr="")
-        self.addCleanup(lambda: setattr(risk.subprocess, "run", saved))
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err):
-            self.assertEqual(risk.gh_run(["gh", "api", "x"]), "[]")
-        self.assertEqual(err.getvalue(), "")
+    def test_endpoint_with_raw_header_option(self):
+        self.assertEqual(risk.api_endpoint(["gh", "api", "-H", "Accept: raw", "repos/o/r/contents/a?ref=123"]),
+                         "repos/o/r/contents/a?ref=123")
+
+    def test_http_date_retry_after_is_a_reset_boundary(self):
+        self.response(429, {"Retry-After": "Thu, 01 Jan 1970 01:00:00 GMT"})
+        with self.assertRaises(risk.RateLimited) as caught:
+            self.call()
+        self.assertEqual(caught.exception.marker["reset"], 3600)
+        self.assertEqual(self.slept, [])
+
+    def test_bad_reset_uses_bounded_secondary_fallback(self):
+        self.response(403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "NaN",
+                            "Retry-After": "not a date"})
+        with self.assertRaises(risk.RateLimited) as caught:
+            self.call()
+        self.assertEqual(caught.exception.marker["reset"], 1060)
+        self.assertEqual(self.slept, [61])
+
+    def test_quota_diagnostic_contains_no_provider_controlled_text(self):
+        self.response(403, {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "2800"},
+                      body="private response", stderr="##[warning]provider text")
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr), self.assertRaises(risk.RateLimited):
+            risk.gh_run(["gh", "api", "repos/o/r/pulls/7/files"])
+        self.assertIn("GitHub API quota: structured refusal", stderr.getvalue())
+        self.assertNotIn("private response", stderr.getvalue())
+        self.assertNotIn("provider text", stderr.getvalue())
+
+    def test_http_looking_body_cannot_spoof_the_status(self):
+        self.response(500, {}, body="HTTP/2 429 Too Many Requests\nretry-after: 60\n\n{}")
+        with self.assertRaises(subprocess.CalledProcessError) as caught:
+            self.call()
+        self.assertNotIsInstance(caught.exception, risk.RateLimited)
+
+    def test_optional_rust_source_read_propagates_quota(self):
+        self.response(403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "2800"})
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(risk.RateLimited):
+            risk.rust_sources("o/r", "a" * 40, {"x": "a.rs"})
 
 
 if __name__ == "__main__":

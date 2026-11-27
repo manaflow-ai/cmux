@@ -28,13 +28,16 @@
 //! feat-cmux-next-apps-store; they move to the IR crate (with schemars) when
 //! it lands.
 
+use std::collections::HashMap;
+use std::sync::PoisonError;
+
 use cmux_json::JsonSet as _;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::catalog::Package;
 use super::mirror::{Origin, Record, SetOp, Source, Tier};
-use super::supervisor::{ApiError, Supervisor};
+use super::supervisor::{ApiError, Out, Supervisor};
 
 /// The App Store never lists itself.
 pub(super) const APP_STORE: &str = "cmux/app-store";
@@ -64,8 +67,8 @@ struct CatalogListParams {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum Shelf {
-    /// Discover: the first-party apps cmux ships as default apps (Cloud,
-    /// CodeRouter), cmux's own store apps (the `cmux/` packages the build
+    /// Discover: the first-party apps cmux ships as default apps (Cloud),
+    /// cmux's own store apps (the `cmux/` packages the build
     /// writes to `AppPlatform/store` from a `first-party-apps/<name>/STORE`
     /// marker: the clock, weather, calendar and to-do widgets), and later a
     /// cloud catalog's listings.
@@ -467,6 +470,21 @@ fn annotate(inner: &super::supervisor::Inner, app: &str, state: Option<&mut Inst
     }
 }
 
+/// A setting-backed entry's cmux setting (the manifest's `setting`, first-party only): its
+/// dotted key and its default. The entry's enabled switch is that setting (the App Store's Auto
+/// cleanup is `worktrees.autoCleanup`, read by acpmux before each automatic pass).
+fn setting_of(package: &Package) -> Option<(String, bool)> {
+    let setting = package.manifest.get("setting").filter(|_| package.tier == Tier::FirstParty)?;
+    Some((setting["key"].as_str()?.to_string(), setting["default"].as_bool().unwrap_or(true)))
+}
+
+/// Shows a setting-backed entry's switch as its setting says (`switches`).
+fn switch(switches: &HashMap<String, bool>, app: &str, state: Option<&mut InstallState>) {
+    if let (Some(state), Some(on)) = (state, switches.get(app)) {
+        state.enabled = *on;
+    }
+}
+
 fn installed_app(app: &str, record: &Record, package: Option<&Package>) -> InstalledApp {
     InstalledApp {
         app: app.to_string(),
@@ -580,6 +598,7 @@ impl Supervisor {
             Some(cursor) => cursor.parse::<usize>().map_err(|_| bad_request("bad cursor"))?,
         };
         let limit = p.limit.map_or(DEFAULT_LIMIT, |l| l as usize).clamp(1, MAX_LIMIT);
+        let switches = self.setting_switches();
         let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let rows: Vec<&Package> = inner
             .catalog
@@ -604,6 +623,7 @@ impl Supervisor {
             .map(|package| {
                 let mut row = listing(package, inner.mirror.apps.get(&package.id));
                 annotate(&inner, &package.id, row.install.as_mut());
+                switch(&switches, &package.id, row.install.as_mut());
                 row
             })
             .collect();
@@ -619,6 +639,7 @@ impl Supervisor {
     }
 
     fn catalog_get(&self, p: CatalogGetParams) -> Result<AppDetail, ApiError> {
+        let switches = self.setting_switches();
         let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let package = inner
             .catalog
@@ -639,6 +660,7 @@ impl Supervisor {
         }
         let mut listing = listing(package, inner.mirror.apps.get(&p.app));
         annotate(&inner, &p.app, listing.install.as_mut());
+        switch(&switches, &p.app, listing.install.as_mut());
         let package = package.clone();
         // The catalog fragment and What's New are file reads: never under the supervisor lock.
         drop(inner);
@@ -655,6 +677,7 @@ impl Supervisor {
     }
 
     fn installed_list(&self) -> InstalledListResult {
+        let switches = self.setting_switches();
         // A file read and the community lock: before the supervisor lock.
         let updates = self.community_updates_cached();
         let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -666,6 +689,7 @@ impl Supervisor {
             .map(|(app, record)| {
                 let mut row = installed_app(app, record, inner.catalog.packages.get(app));
                 annotate(&inner, app, Some(&mut row.state));
+                switch(&switches, app, Some(&mut row.state));
                 row.state.update = updates.get(app).map(|update| AvailableUpdate {
                     version: update.version.clone(),
                     commit: update.commit.clone(),
@@ -680,19 +704,59 @@ impl Supervisor {
     /// The app's state after a commit, as `set`, `install` and `uninstall`
     /// answer it.
     pub(super) fn set_result(&self, app: &str) -> Result<Value, ApiError> {
+        let switches = self.setting_switches();
         let inner = self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let fallback = super::mirror::absent(Source::User, None);
         let record = inner.mirror.apps.get(app).unwrap_or(&fallback);
         let mut row = installed_app(app, record, inner.catalog.packages.get(app));
         annotate(&inner, app, Some(&mut row.state));
+        switch(&switches, app, Some(&mut row.state));
         row.instance = self.instance_json(app);
         let result = SetResult { revision: inner.mirror.revision, app: row };
         to_value(result)
     }
 
+    /// Each setting-backed entry's switch, from the settings owner (`OpRouter::setting_get`),
+    /// read outside the supervisor lock: the settings owner tells apps of its changes and must
+    /// never wait on this lock while one of these reads waits on it.
+    fn setting_switches(&self) -> HashMap<String, bool> {
+        let settings: Vec<(String, String, bool)> = {
+            let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            inner
+                .catalog
+                .packages
+                .values()
+                .filter_map(|package| {
+                    setting_of(package).map(|(key, on)| (package.id.clone(), key, on))
+                })
+                .collect()
+        };
+        settings
+            .into_iter()
+            .map(|(app, key, default)| {
+                let on = self.router.setting_get(&key).and_then(|v| v.as_bool()).unwrap_or(default);
+                (app, on)
+            })
+            .collect()
+    }
+
     fn store_set(&self, client: u64, p: SetParams, origin: Origin) -> Result<Value, ApiError> {
+        // A setting-backed entry's enabled switch is a cmux setting: only the person turns it,
+        // in both directions, like every enabled change (APPS-ENABLE-ORIGIN).
+        let setting = {
+            let inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            inner.catalog.packages.get(&p.app).and_then(setting_of)
+        }
+        .zip(p.enabled)
+        .map(|((key, _), on)| (key, on));
+        if setting.is_some() && origin != Origin::User {
+            return Err(ApiError::new(
+                "apps.origin",
+                "this switch changes a cmux setting; it needs a user action",
+            ));
+        }
         let op = SetOp {
-            key: p.idempotency_key,
+            key: p.idempotency_key.clone(),
             app: p.app.clone(),
             origin,
             enabled: p.enabled,
@@ -701,6 +765,19 @@ impl Supervisor {
             ..SetOp::default()
         };
         self.set(client, op)?;
+        if let Some((key, on)) = setting {
+            self.router.setting_set(&key, Value::Bool(on))?;
+            // The record may not have changed (the setting was edited elsewhere): every page
+            // reads the entry again.
+            let revision =
+                self.inner.lock().unwrap_or_else(PoisonError::into_inner).mirror.revision;
+            self.emit(vec![Out::Broadcast(json!({
+                "event": "apps-changed",
+                "revision": revision,
+                "transaction": p.idempotency_key,
+                "app": p.app,
+            }))]);
+        }
         self.set_result(&p.app)
     }
 

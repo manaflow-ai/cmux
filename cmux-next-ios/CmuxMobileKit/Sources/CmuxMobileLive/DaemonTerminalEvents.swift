@@ -44,6 +44,9 @@ enum DaemonTerminalInbound: Sendable, Equatable {
     /// frame: the session attaches again for a full resync, or in bytes mode
     /// (``DaemonTerminalSession``), so the phone never shows a wrong screen it cannot see is wrong.
     case hybridFallback(reason: String)
+    /// `phone-open-link` (`phone-open-link-v1`): a program in terminal `terminalID` asked a
+    /// browser for `url` while this phone drove it, and the Mac's daemon sent it here.
+    case openLink(URL, terminalID: String?)
     /// The Mac stamped this line's redraw (`pseq`, hostd): after its bytes, with the time the
     /// phone read the line (epoch ms), so the screen can say when it painted it.
     case stamped(seq: Int, receivedMs: Double)
@@ -194,6 +197,12 @@ struct DaemonTerminalEventParser: Sendable {
             accept(frame, into: &out)
         case "detached":
             out.append(.detached(reason: object["reason"] as? String))
+        case "phone-open-link":
+            // A program in this terminal asked a browser for a public page while this phone
+            // drove it: the Mac's daemon sent it here instead of opening it on the Mac.
+            if let text = object["url"] as? String, let url = URL(string: text) {
+                out.append(.openLink(url, terminalID: object["terminal_id"] as? String))
+            }
         case "size-state":
             if let state = TerminalSizeState.decode(object["state"]) {
                 out.append(.sizeState(state, selfParticipant: object["self_participant"] as? String))

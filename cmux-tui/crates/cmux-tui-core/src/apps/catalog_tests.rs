@@ -29,8 +29,8 @@ fn catalog_fragments_give_exports_and_palette_commands() {
         vec![
             json!({ "op": "notes.export", "title": { "en": "Export" }, "when": "paneFocused:editor",
                     "keys": [{ "key": "cmd+shift+e", "when": "browserFocused" }],
-                    "page_keys": ["f", "shift+f"],
-                    "page_key_when": { "f": "browserFocused", "shift+f": "browserFocused && !readOnly" } })
+                    "page_keys": ["f"],
+                    "page_key_when": { "f": "browserFocused" } })
         ],
         "keys ride on palette commands only; a page key (`f`) stays out of the app layer"
     );
@@ -122,4 +122,35 @@ fn setup_layers_load_from_the_index_in_its_order_only() {
     assert!(catalog.packages.contains_key(CUSTOMIZE_APP), "the person's own app stays");
     assert!(impostor_refused, "a setup layer id outside the setups folder is refused");
     assert!(escape_refused, "a row naming a folder outside the setups folder is refused");
+}
+
+#[test]
+fn contributed_keybindings_list_in_keybindings_json_form() {
+    let package = Package {
+        id: "local/branchy".into(),
+        version: "1.0.0".into(),
+        tier: Tier::Unverified,
+        source: Source::Local,
+        dir: std::env::temp_dir(),
+        manifest: json!({ "activation": ["onKeybinding"], "contributes": { "keybindings": [
+            { "key": "Cmd+Shift+B", "command": "local.branchy.copy_branch", "when": "terminalFocused" },
+            { "key": "ctrl+k s", "command": "newTab", "args": { "name": "scratch" } },
+            { "key": "b", "command": "newTab" }
+        ] } }),
+        fragment: None,
+    };
+    assert_eq!(
+        package.keybindings(),
+        vec![
+            json!({ "key": "cmd+shift+b", "command": "app.command.run",
+                    "args": { "app": "local/branchy", "command": "local.branchy.copy_branch" }, "when": "terminalFocused" }),
+            json!({ "key": "ctrl+k s", "command": "newTab", "args": { "name": "scratch" } }),
+        ],
+        "a bare first stroke the validator refuses is left out"
+    );
+    assert_eq!(
+        super::super::activation::Activation::of(&package),
+        Default::default(),
+        "onKeybinding keeps no host up"
+    );
 }

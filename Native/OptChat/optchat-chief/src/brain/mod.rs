@@ -392,6 +392,12 @@ pub enum Input {
     PeerChiefNote {
         text: String,
     },
+    /// A background spawn's start lines (`Spawner::background_start`):
+    /// steered into the running main turn; after it, only logged (the view
+    /// shows each subagent), so it never starts a turn of its own.
+    SpawnStartNote {
+        text: String,
+    },
     /// `escalate_auth` from subagent `agent` (control.rs): an urgent note.
     EscalateAuth {
         agent: String,
@@ -892,6 +898,9 @@ pub(crate) struct MachineLimit {
     pub(crate) load: Box<dyn Fn() -> Option<String> + Send + Sync>,
 }
 
+/// A running turn's keep check (`Brain::keep_pending`): its key, session shape, and view identity.
+type KeepPending = (String, u64, Vec<(optchat_core::NodeId, bool)>);
+
 pub struct Brain {
     chat: Arc<OptChat>,
     agents: Arc<dyn AgentPort>,
@@ -1001,8 +1010,8 @@ pub struct Brain {
     prewarm_ours: Option<bool>,
     /// The turn session the last turn kept (`Settings::keep_turn_session`).
     kept: Option<turns::KeptTurn>,
-    /// The running turn's keep check: its key and the session shape.
-    keep_pending: Option<(String, u64)>,
+    /// The running turn's keep check: its key, session shape, and view identity.
+    keep_pending: Option<KeepPending>,
     /// This turn's TTL differs from `prewarm_ttl` (cache.ttl changed).
     ttl_stale: Arc<std::sync::atomic::AtomicBool>,
 
@@ -1983,6 +1992,14 @@ impl Brain {
             }
             Input::WatchFired(fired) => self.watch_fired(*fired),
             Input::PeerChiefNote { text } => self.peer_chief_note(text),
+            Input::SpawnStartNote { text } => {
+                if self.phase == Phase::Running && self.turn_side().is_none() {
+                    self.queue(text, Source::Note);
+                    self.interrupt_for_newer();
+                } else {
+                    (self.log)(&format!("spawn start note after its turn: {text}"));
+                }
+            }
             Input::EscalateAuth {
                 agent,
                 request,

@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sidebar.detailedStatusIcons.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Icons for working, waiting, error and done. Off: a spinner and a dot."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "أيقونات لقيد العمل والانتظار والخطأ والاكتمال. عند الإيقاف: مؤشر دوران ونقطة."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikone za rad, čekanje, grešku i završeno. Isključeno: indikator i tačka."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikoner for arbejder, venter, fejl og færdig. Fra: en spinner og en prik."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Symbole für „arbeitet“, „wartet“, „Fehler“ und „fertig“. Aus: ein Spinner und ein Punkt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Iconos para trabajando, esperando, error y terminado. Desactivado: un indicador giratorio y un punto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Icônes pour en cours, en attente, erreur et terminé. Désactivé : un indicateur rotatif et un point."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Icone per in corso, in attesa, errore e completato. Disattivato: un indicatore rotante e un punto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "作業中、入力待ち、エラー、完了のアイコン。オフ: スピナーと点。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "រូបតំណាងសម្រាប់កំពុងធ្វើការ រង់ចាំ កំហុស និងរួចរាល់។ បិទ៖ សញ្ញាបង្វិល និងចំណុចមួយ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "작업 중, 대기, 오류, 완료 아이콘을 표시합니다. 끄면 스피너와 점을 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikoner for arbeider, venter, feil og ferdig. Av: en spinner og en prikk."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ikony dla stanów: w toku, oczekiwanie, błąd i gotowe. Wyłączone: wskaźnik obrotowy i kropka."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ícones para trabalhando, aguardando, erro e concluído. Desativado: um indicador giratório e um ponto."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Значки для состояний «работает», «ждёт», «ошибка» и «готово». Выкл.: индикатор и точка."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไอคอนสำหรับกำลังทำงาน รอ ข้อผิดพลาด และเสร็จสิ้น ปิด: ตัวหมุนและจุด"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Çalışıyor, bekliyor, hata ve bitti için simgeler. Kapalı: bir döner gösterge ve bir nokta."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Значки для станів «працює», «чекає», «помилка» і «готово». Вимкнено: індикатор і крапка."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Biểu tượng cho đang làm việc, chờ, lỗi và hoàn tất. Tắt: vòng xoay và một chấm."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "为工作中、等待、错误和完成显示图标。关闭：加载指示器和圆点。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "為工作中、等待、錯誤和完成顯示圖示。關閉：載入指示器和圓點。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
