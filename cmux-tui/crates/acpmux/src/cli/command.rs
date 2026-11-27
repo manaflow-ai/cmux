@@ -970,12 +970,21 @@ pub enum Command {
         session: String,
         #[arg(long)]
         purge: bool,
+        /// With `--purge`: delete now, with no grace to restore it.
+        #[arg(long, requires = "purge")]
+        now: bool,
         /// Set from `session stop --if-idle`; the hidden spelling takes no condition.
         #[arg(skip)]
         condition: StopIf,
         #[command(flatten)]
         close: CloseArgs,
     },
+    /// `session undelete`.
+    #[command(hide = true)]
+    Undelete { session: String },
+    /// `session deleted`.
+    #[command(hide = true)]
+    Deleted,
     #[command(hide = true)]
     RestartAgent { session: String },
     #[command(hide = true)]
@@ -1630,9 +1639,11 @@ pub fn flatten(c: Command) -> Command {
         Command::Session(sc) => match sc {
             SessionCmd::Info { session, fields } => Command::Info { session, fields },
             SessionCmd::Cancel { session } => Command::Cancel { session },
-            SessionCmd::Stop { session, purge, mesh, condition, close } if !mesh.mesh => {
-                Command::Kill { session, purge, condition, close }
+            SessionCmd::Stop { session, purge, now, mesh, condition, close } if !mesh.mesh => {
+                Command::Kill { session, purge, now, condition, close }
             }
+            SessionCmd::Undelete { session } => Command::Undelete { session },
+            SessionCmd::Deleted => Command::Deleted,
             SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Route { facts } => Command::RouteDeath { facts },
             SessionCmd::Pause { session } => Command::PauseAgent { session },
