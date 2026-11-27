@@ -97,9 +97,10 @@ pub fn reply_for(answer: &Answer, machine: &str) -> Value {
         Answer::Http { status, body } => {
             json!({ "ok": true, "status": status, "body": body, "machine": machine })
         }
-        Answer::Transport => refusal(
+        // A repeatable call already waited out a short outage (`CloudClient::apps_call`).
+        Answer::Transport => super::github::transient_refusal(
             "integration.unreachable",
-            "Check this machine's connection and retry the apps request.",
+            "This Cloud machine could not reach cmux Cloud for the apps request.",
         ),
     }
 }
