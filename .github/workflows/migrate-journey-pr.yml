@@ -22,6 +22,7 @@ on:
       - cmux-tui/crates/cmux-tui/src/cli/cloud_journey*
       - cmux-tui/crates/cmux-tui/src/cli/cloud_journey/**
       - scripts/cmux-next/migrate-journey-ci.sh
+      - scripts/cmux-next/tests/migrate-journey-ci.test.sh
       - .github/workflows/migrate-journey-pr.yml
 
 permissions:
@@ -59,6 +60,9 @@ jobs:
         with:
           persist-credentials: false
           submodules: false
+      # Seconds, before the build: the cases still run at once, a red still fails, rows still in order.
+      - name: The journey script runs its cases at once (stub cmux)
+        run: bash scripts/cmux-next/tests/migrate-journey-ci.test.sh
       - name: Initialize Ghostty protocol submodules
         run: git submodule update --init --depth 1 ghostty ghostty-next
       - name: Install Linux cmux-tui build dependencies
