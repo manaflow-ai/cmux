@@ -178,38 +178,55 @@ pub(crate) fn git_dirs(folder: &Path) -> Vec<PathBuf> {
     out
 }
 
-/// Whether Claude Code's own Bash sandbox is on for this launch: its `--settings`, the managed
-/// settings, the user's and the folder's settings files (`sandbox.enabled`).
-pub(crate) fn claude_sandbox_on(args: &[String], cwd: &Path, agent_home: &Path) -> bool {
-    let enabled = |v: &Value| v.pointer("/sandbox/enabled") == Some(&Value::Bool(true));
-    let from_text = |t: &str| serde_json::from_str::<Value>(t).ok().is_some_and(|v| enabled(&v));
+/// Whether Claude Code's own Bash sandbox is on for this launch. Claude applies the highest
+/// precedence setting for this one key: managed settings, the last `--settings` value, project
+/// local settings, project settings, then the configured Claude home (or `~/.claude`).
+pub(crate) fn claude_sandbox_on(
+    args: &[String],
+    cwd: &Path,
+    agent_home: &Path,
+    claude_config_dir: Option<&Path>,
+) -> bool {
+    let value = |text: &str| {
+        serde_json::from_str::<Value>(text)
+            .ok()
+            .and_then(|v| v.pointer("/sandbox/enabled").and_then(Value::as_bool))
+    };
+    let file = |path: &Path| std::fs::read_to_string(path).ok().and_then(|text| value(&text));
+    let settings_value = |setting: &str| {
+        if setting.trim_start().starts_with('{') {
+            value(setting)
+        } else {
+            file(&cwd.join(setting))
+        }
+    };
+
+    let mut last_settings = None;
     let mut words = args.iter();
     while let Some(word) = words.next() {
-        let value = if word == "--settings" {
-            words.next().cloned()
-        } else {
-            word.strip_prefix("--settings=").map(str::to_owned)
-        };
-        if let Some(value) = value {
-            let text = if value.trim_start().starts_with('{') {
-                Some(value)
-            } else {
-                std::fs::read_to_string(cwd.join(&value)).ok()
-            };
-            if text.as_deref().is_some_and(from_text) {
-                return true;
-            }
+        if word == "--settings" {
+            last_settings = words.next().map(String::as_str).map(str::to_owned);
+        } else if let Some(setting) = word.strip_prefix("--settings=") {
+            last_settings = Some(setting.to_owned());
         }
     }
+
     [
-        PathBuf::from("/Library/Application Support/ClaudeCode/managed-settings.json"),
-        agent_home.join(".claude/settings.json"),
-        agent_home.join(".claude/settings.local.json"),
-        cwd.join(".claude/settings.json"),
-        cwd.join(".claude/settings.local.json"),
+        "/Library/Application Support/ClaudeCode/managed-settings.json",
+        "/etc/claude-code/managed-settings.json",
     ]
     .iter()
-    .any(|p| std::fs::read_to_string(p).ok().is_some_and(|t| from_text(&t)))
+    .map(Path::new)
+    .find_map(file)
+    .or_else(|| last_settings.as_deref().and_then(settings_value))
+    .or_else(|| file(&cwd.join(".claude/settings.local.json")))
+    .or_else(|| file(&cwd.join(".claude/settings.json")))
+    .or_else(|| {
+        let config_dir =
+            claude_config_dir.map(Path::to_path_buf).unwrap_or_else(|| agent_home.join(".claude"));
+        file(&config_dir.join("settings.json"))
+    })
+    .unwrap_or(false)
 }
 
 /// The port of an `ANTHROPIC_BASE_URL` that the profile does not already open (443, 80, 22 or
@@ -252,7 +269,9 @@ pub(crate) fn prefix(
         return None;
     }
     let bound = bound(args, cwd, env)?;
-    if claude_sandbox_on(args, &bound.cwd, &bound.agent_home) {
+    let claude_config_dir =
+        env.get("CLAUDE_CONFIG_DIR").filter(|dir| !dir.is_empty()).map(Path::new);
+    if claude_sandbox_on(args, &bound.cwd, &bound.agent_home, claude_config_dir) {
         if !CLAUDE_OWN_LOGGED.swap(true, Ordering::Relaxed) {
             tracing::info!(
                 "Claude Code's own sandbox is on: its chats keep it (Seatbelt does not nest)"

@@ -22,6 +22,7 @@
 ;; Seatbelt applies the last rule that matches.
 (version 1)
 (allow default)
+(deny file-link)
 
 ;; Writes: the chat's folders, the temporary folders, the harness's own state
 ;; and the toolchains' caches. Never the rest of home (shell startup files,
@@ -46,7 +47,6 @@
   (subpath (string-append (param "HOME") "/Library/Keychains"))
   ;; cmux's own settings and state (the customization flow edits them)
   (subpath (string-append (param "AGENT_HOME") "/.config/cmux"))
-  (subpath (string-append (param "AGENT_HOME") "/.config/cmux-next"))
   (subpath (string-append (param "AGENT_HOME") "/Library/Application Support/cmux"))
   ;; toolchains: package caches and build outputs
   (subpath (string-append (param "AGENT_HOME") "/.cargo"))
@@ -82,6 +82,8 @@
   (subpath (string-append (param "HOME") "/.gnupg"))
   (subpath (string-append (param "AGENT_HOME") "/.gnupg"))
   (subpath (string-append (param "HOME") "/.kube"))
+  (subpath (string-append (param "HOME") "/.config/gh"))
+  (subpath (string-append (param "AGENT_HOME") "/.config/gh"))
   (subpath (string-append (param "HOME") "/.config/gcloud"))
   (subpath (string-append (param "HOME") "/.azure"))
   (literal (string-append (param "HOME") "/.netrc"))

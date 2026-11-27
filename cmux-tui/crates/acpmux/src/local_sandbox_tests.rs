@@ -73,6 +73,9 @@ fn the_profile_denies_credentials_writes_and_other_ports() {
         "(deny file-write* (subpath \"/\"))",
         "(subpath (string-append (param \"HOME\") \"/.ssh\"))",
         "(subpath (string-append (param \"HOME\") \"/.aws\"))",
+        "(subpath (string-append (param \"HOME\") \"/.config/gh\"))",
+        "(subpath (string-append (param \"AGENT_HOME\") \"/.config/gh\"))",
+        "(deny file-link)",
         "(deny network-outbound)",
         "(remote ip \"*:443\")",
     ] {
@@ -130,21 +133,33 @@ fn claude_codes_own_sandbox_is_seen_from_any_settings_source() {
     let (cwd, home) = (t.path().join("cwd"), t.path().join("home"));
     std::fs::create_dir_all(cwd.join(".claude")).unwrap();
     std::fs::create_dir_all(home.join(".claude")).unwrap();
-    assert!(!claude_sandbox_on(&[], &cwd, &home));
+    assert!(!claude_sandbox_on(&[], &cwd, &home, None));
     let on = r#"{"sandbox":{"enabled":true}}"#;
-    assert!(claude_sandbox_on(&s(&["--settings", on]), &cwd, &home));
-    assert!(claude_sandbox_on(&[format!("--settings={on}")], &cwd, &home));
-    // The remote chain's own `--settings` turns it off: no skip.
+    assert!(claude_sandbox_on(&s(&["--settings", on]), &cwd, &home, None));
+    assert!(claude_sandbox_on(&[format!("--settings={on}")], &cwd, &home, None));
+    // Claude applies the last --settings value, so an earlier true cannot suppress our wrapper.
+    assert!(!claude_sandbox_on(
+        &s(&["--settings", on, "--settings", r#"{"sandbox":{"enabled":false}}"#]),
+        &cwd,
+        &home,
+        None
+    ));
+    // The final false wins, even when the first value enabled Claude's sandbox.
     assert!(!claude_sandbox_on(
         &s(&["--settings", r#"{"sandbox":{"enabled":false}}"#]),
         &cwd,
-        &home
+        &home,
+        None
     ));
     std::fs::write(cwd.join(".claude/settings.local.json"), on).unwrap();
-    assert!(claude_sandbox_on(&[], &cwd, &home));
+    assert!(claude_sandbox_on(&[], &cwd, &home, None));
     std::fs::remove_file(cwd.join(".claude/settings.local.json")).unwrap();
     std::fs::write(home.join(".claude/settings.json"), on).unwrap();
-    assert!(claude_sandbox_on(&[], &cwd, &home));
+    assert!(claude_sandbox_on(&[], &cwd, &home, None));
+    let configured = t.path().join("configured-claude");
+    std::fs::create_dir_all(&configured).unwrap();
+    std::fs::write(configured.join("settings.json"), on).unwrap();
+    assert!(claude_sandbox_on(&[], &cwd, &home, Some(&configured)));
 }
 
 #[test]
