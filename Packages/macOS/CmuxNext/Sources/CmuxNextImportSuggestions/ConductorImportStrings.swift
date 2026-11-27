@@ -12,7 +12,7 @@ public nonisolated struct ConductorImportStrings: Sendable {
         String(localized: "conductorImport.preview.title", defaultValue: "Import these workspaces?", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var agentPreviewTitle: String {
-        String(localized: "conductorImport.preview.agentTitle", defaultValue: "Import these agent workspaces?", table: "ImportSuggestions", bundle: .module)
+        String(localized: "conductorImport.preview.agentTitle", defaultValue: "Import these agent workspaces?", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var previewButton: String {
         String(localized: "conductorImport.preview.button", defaultValue: "Import", table: "ImportSuggestions", bundle: .localizedModule)
@@ -62,19 +62,19 @@ public nonisolated struct ConductorImportStrings: Sendable {
         String(localized: "conductorImport.toast.opened", defaultValue: "Your imported workspaces are open.", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var agentOpened: String {
-        String(localized: "conductorImport.toast.agentOpened", defaultValue: "Your agent workspaces are open.", table: "ImportSuggestions", bundle: .module)
+        String(localized: "conductorImport.toast.agentOpened", defaultValue: "Your agent workspaces are open.", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var allHere: String {
         String(localized: "conductorImport.toast.allHere", defaultValue: "Every workspace is already open here.", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var agentAllHere: String {
-        String(localized: "conductorImport.toast.agentAllHere", defaultValue: "Every agent workspace is already open here.", table: "ImportSuggestions", bundle: .module)
+        String(localized: "conductorImport.toast.agentAllHere", defaultValue: "Every agent workspace is already open here.", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var failed: String {
         String(localized: "conductorImport.toast.failed", defaultValue: "Couldn’t import your workspaces.", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var agentFailed: String {
-        String(localized: "conductorImport.toast.agentFailed", defaultValue: "Couldn’t import the agent workspaces.", table: "ImportSuggestions", bundle: .module)
+        String(localized: "conductorImport.toast.agentFailed", defaultValue: "Couldn’t import the agent workspaces.", table: "ImportSuggestions", bundle: .localizedModule)
     }
 
     private static func format(_ template: String, _ count: Int) -> String {

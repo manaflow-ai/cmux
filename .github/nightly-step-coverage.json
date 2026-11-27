@@ -502,6 +502,9 @@
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Ask the push group for the newest head": {"nightly_only": "dispatches nightly.yml with nightly_next_loop_retry after a failed nightly-next run whose commit is still the head (tests/test_nightly_next_single_loop.py)"}},
       "nightly-next-deltas": {
+        "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"plumbing": true, "note": "sets checkout authentication before reused-workspace git operations; tests/test_nightly_git_token_env.py"},
+        "Isolate the downloaded artifact": {"plumbing": true, "note": "creates a fresh artifact directory outside signing tooling; tests/test_nightly_next_one_job.py"},
+        "Stage only the expected DMG": {"plumbing": true, "note": "copies only the expected regular non-symlink DMG into the delta workspace; tests/test_nightly_next_one_job.py exercises hostile artifact contents"},
         "Check the published feed offers deltas": {"nightly_only": "reads the live nightly-next feed and fails when the published build lists no served delta (tests/test_nightly_next_delta_check.py)"},
         "Refuse stray processes before secrets (deltas)": {"plumbing": true, "note": "refuse_stray_processes.py before the signing key meets the post-feed delta build; tests/test_nightly_next_one_job.py"},
         "Build the nightly-next deltas after the feed": {"nightly_only": "BinaryDelta from the nearest earlier DMGs and signing with the nightly-next Sparkle key after the feed write (docs/ci/nightly-workflow-notes.md#note-31; tests/test_nightly_next_delta_check.py, tests/test_nightly_next_one_job.py)"},
@@ -694,6 +697,7 @@
         "Install ffmpeg": {"plumbing": true},
         "Build and publish the reel": {"nightly_only": "publishes reel with media secrets (reel.py tested by tests/test_cmux_next_reel.py)"}},
       "report-nightly-failure": {
+        "Give git this job's token (self-hosted Macs get 403 on anonymous reads)": {"plumbing": true, "note": "sets checkout authentication before reused-workspace git operations; tests/test_nightly_git_token_env.py"},
         "Open or update the nightly failure issue": {"nightly_only": "writes the nightly failure issue"}},
       "close-nightly-failure-issue": {
         "Close the nightly failure issue": {"nightly_only": "closes the nightly failure issue"}},

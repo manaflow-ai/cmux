@@ -22,10 +22,13 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
         String(localized: "importSuggestions.facts.workspaces", defaultValue: "\(count) saved workspaces", table: "ImportSuggestions", bundle: .localizedModule)
     }
     public static var agentWorktreesTitle: String {
-        String(localized: "importSuggestions.agentWorktrees.title", defaultValue: "Agent worktrees", table: "ImportSuggestions", bundle: .module)
+        String(localized: "importSuggestions.agentWorktrees.title", defaultValue: "Agent worktrees", table: "ImportSuggestions", bundle: .localizedModule)
     }
     static var agentWorktrees: String {
-        String(localized: "importSuggestions.facts.agentWorktrees", defaultValue: "Agent worktrees found", table: "ImportSuggestions", bundle: .module)
+        String(localized: "importSuggestions.facts.agentWorktrees", defaultValue: "Agent worktrees found", table: "ImportSuggestions", bundle: .localizedModule)
+    }
+    static func checkouts(_ count: Int) -> String {
+        String(localized: "importSuggestions.facts.checkouts", defaultValue: "\(count) projects", table: "ImportSuggestions", bundle: .localizedModule)
     }
     /// cmux Classic's saved session, all of it here already.
     static var classicAllHere: String {
@@ -82,7 +85,16 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     static var agentWorktreesBenefit: String {
         String(localized: "importSuggestions.benefit.agentWorktrees",
                defaultValue: "Open existing agent worktrees in cmux, on their branches.",
-               table: "ImportSuggestions", bundle: .module)
+               table: "ImportSuggestions", bundle: .localizedModule)
+    }
+    /// The Move this Mac to AutoCloud card's title.
+    static var moveToAutoCloud: String {
+        String(localized: "importSuggestions.title.moveToAutoCloud", defaultValue: "Move This Mac to AutoCloud", table: "ImportSuggestions", bundle: .localizedModule)
+    }
+    static var autoCloud: String {
+        String(localized: "importSuggestions.benefit.autoCloud",
+               defaultValue: "Each project gets its own cloud machine with its setup, your uncommitted changes and your settings. Nothing on this Mac changes.",
+               table: "ImportSuggestions", bundle: .localizedModule)
     }
     static var classicAgain: String {
         String(localized: "importSuggestions.benefit.classicAgain",
@@ -118,6 +130,7 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     static var importWorkspaces: String { String(localized: "importSuggestions.button.importWorkspaces", defaultValue: "Import Workspaces", table: "ImportSuggestions", bundle: .localizedModule) }
     static var importAgain: String { String(localized: "importSuggestions.button.importAgain", defaultValue: "Import Again", table: "ImportSuggestions", bundle: .localizedModule) }
     static var importColors: String { String(localized: "importSuggestions.button.importColors", defaultValue: "Import Colors", table: "ImportSuggestions", bundle: .localizedModule) }
+    static var review: String { String(localized: "importSuggestions.button.review", defaultValue: "Review", table: "ImportSuggestions", bundle: .localizedModule) }
     static var notNow: String { String(localized: "importSuggestions.button.notNow", defaultValue: "Not Now", table: "ImportSuggestions", bundle: .localizedModule) }
     static var resume: String { String(localized: "importSuggestions.button.resume", defaultValue: "Resume", table: "ImportSuggestions", bundle: .localizedModule) }
     // retry-prompt-ok: running an import again reads another app's data and may ask for Full Disk Access or a keychain password
@@ -149,6 +162,10 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     static var doneClassic: String { String(localized: "importSuggestions.status.doneClassic", defaultValue: "Your Classic workspaces are open.", table: "ImportSuggestions", bundle: .localizedModule) }
 
     static var doneConductor: String { String(localized: "importSuggestions.status.doneConductor", defaultValue: "Your workspaces are open.", table: "ImportSuggestions", bundle: .localizedModule) }
+    /// A Move to AutoCloud run's end: the projects that got machines.
+    static func movedProjects(_ count: Int) -> String {
+        String(localized: "importSuggestions.status.movedProjects", defaultValue: "Moved \(count) projects to AutoCloud", table: "ImportSuggestions", bundle: .localizedModule)
+    }
     /// A cmux Classic import's end: the workspaces this run opened.
     static func importedSessions(_ count: Int) -> String {
         String(localized: "importSuggestions.status.importedSessions", defaultValue: "Imported \(count) sessions", table: "ImportSuggestions", bundle: .localizedModule)
