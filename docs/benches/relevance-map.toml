@@ -1838,6 +1838,10 @@ name = "backend:scripts"
 paths = ["backend/scripts/**"]
 
 [[unit]]
+name = "ci:proof-record"
+paths = ["ci/proof-record/**"]
+
+[[unit]]
 name = "swift:CmuxMobileAgentChat"
 paths = ["cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileAgentChat/**"]
 tests = ["swift test --package-path cmux-next-ios/CmuxMobileKit --filter CmuxMobileAgentChatTests"]
@@ -3398,6 +3402,10 @@ name = "docs:assets"
 paths = ["docs/assets/**"]
 
 [[unit]]
+name = "docs:benches"
+paths = ["docs/benches/**"]
+
+[[unit]]
 name = "docs:chrome-parity"
 paths = ["docs/chrome-parity/**"]
 
@@ -3734,6 +3742,10 @@ name = "schemas:cloud-machine-power"
 paths = ["schemas/cloud-machine-power/**"]
 
 [[unit]]
+name = "schemas:component-tokens"
+paths = ["schemas/component-tokens/**"]
+
+[[unit]]
 name = "schemas:composer-status"
 paths = ["schemas/composer-status/**"]
 
@@ -3876,6 +3888,10 @@ paths = ["schemas/sidebar-doc-target/**"]
 [[unit]]
 name = "schemas:sidebar-drag-geometry"
 paths = ["schemas/sidebar-drag-geometry/**"]
+
+[[unit]]
+name = "schemas:sidebar-item-info"
+paths = ["schemas/sidebar-item-info/**"]
 
 [[unit]]
 name = "schemas:sidebar-item-order"
