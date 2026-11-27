@@ -153,7 +153,7 @@ impl RamLoad {
         if target == 0 {
             self.trace.note("heal ram");
         } else {
-            self.trace.note(format!("fault ram {} MiB held", target));
+            self.trace.note(format!("fault ram {target} MiB held"));
         }
         self.chunks.truncate(target);
         while self.chunks.len() < target {
