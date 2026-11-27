@@ -39,6 +39,8 @@ export interface UpstreamCall {
   readonly search: URLSearchParams;
   readonly json: unknown;
   readonly bytes: Uint8Array | null;
+  /** The request's x-freestyle-background-after-secs, or null. */
+  readonly backgroundAfter: string | null;
 }
 
 export type UpstreamOperation =
@@ -500,7 +502,7 @@ export function makeFakeUpstream(apiKey: string) {
     const raw = request.body === null ? null : new Uint8Array(await request.clone().arrayBuffer());
     let json: unknown = null;
     if (raw !== null && contentType.includes("application/json")) json = JSON.parse(new TextDecoder().decode(raw));
-    calls.push({ method: request.method, path: url.pathname, search: url.searchParams, json, bytes: raw });
+    calls.push({ method: request.method, path: url.pathname, search: url.searchParams, json, bytes: raw, backgroundAfter: request.headers.get("x-freestyle-background-after-secs") });
     if (request.headers.get("authorization") !== `Bearer ${apiKey}`) {
       return Response.json({ code: "UNAUTHORIZED", message: "bad key" }, { status: 401 });
     }
