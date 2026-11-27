@@ -19,6 +19,8 @@ Wire rules (the same JSON the hand-written types sent):
 - `encode: if_true` on an optional boolean whose schema default is false makes a plain `Bool`, false by
   default, encoded (as `true`) only when true: a daemon without the field's capability sees the request it
   always saw;
+- `encode: decimal` on an optional string the schema formats as a `decimal uint64` makes a `UInt64?`,
+  sent as its decimal string when set: the caller cannot send a string that is not one;
 - `with: FIELD` on an optional field sends it only when FIELD (another field of the request, an `if_true`
   flag or an Optional) is true or set: a value meaningless alone stays off the wire, as the hand-written
   types left it;
@@ -94,6 +96,8 @@ _REQUEST_KEYS = frozenset({
 _FIELD_KEYS = frozenset({"name", "type", "doc", "default", "optional", "encode", "update", "with"})
 _ENCODE_MODES = {"always": True, "if_present": False}
 IF_TRUE = "if_true"
+DECIMAL = "decimal"
+_DECIMAL_FORMAT = {"format": "decimal uint64"}
 MUTATION = "mutation"
 _MUTATION_WIRE = ("origin", "mutation_id", "expected_generation", "expected_revision")
 WORKSPACE_REF = "workspace"
@@ -227,6 +231,8 @@ class _Field:
     prefer: str | None = None
     # Encoded only when true (`encode: if_true`): a plain Bool, false by default.
     if_true: bool = False
+    # A UInt64 sent as its decimal string (`encode: decimal`).
+    decimal: bool = False
     # Encoded only when this Swift condition on another field holds (`with`).
     condition: str | None = None
     # Encoded flat, not under its own key: the encoder expression's encode(to:) writes the wire fields.
@@ -255,6 +261,8 @@ class _Field:
             return f"        if {self.name} {{ try container.encode(true, forKey: .{_bare(self.name)}) }}"
         method = "encode" if self.always_encoded or self.update else "encodeIfPresent"
         line = f"try container.{method}({self.name}, forKey: .{_bare(self.name)})"
+        if self.decimal:
+            line = f"try container.encodeIfPresent({self.name}.map(String.init), forKey: .{_bare(self.name)})"
         if self.condition is not None:
             return f"        if {self.condition} {{ {line} }}"
         return f"        {line}"
@@ -370,7 +378,7 @@ class _Renderer:
                 spec["type"], where=f"{where}.{wire}", wire=wire, nested=nested
             )
             required = spec["presence"] == "required"
-            if_true = False
+            if_true = decimal = False
             # A JSONValue carries null itself, so a required nullable JSON field is not an Optional.
             optional = not required or (spec["nullable"] and swift_type != JSON_VALUE)
             if read:
@@ -399,6 +407,16 @@ class _Renderer:
                             f"{where}.{wire}: encode if_true is for an optional boolean whose schema default is false"
                         )
                     optional, always, swift_type = False, False, "Bool"
+                elif override.get("encode") == DECIMAL:
+                    decimal = True
+                    if (spec["type"] != {"kind": "scalar", "name": "string"} or required or update
+                            or _DECIMAL_FORMAT not in spec.get("constraints", ()) or "type" in override
+                            or "optional" in override or "default" in override):
+                        raise BindingError(
+                            f"{where}.{wire}: encode decimal is for an optional string the schema formats as a"
+                            " decimal uint64"
+                        )
+                    swift_type = "UInt64"
                 elif "encode" in override:
                     if override["encode"] not in _ENCODE_MODES or update:
                         raise BindingError(f"{where}.{wire}: encode is always or if_present, and not with update")
@@ -448,6 +466,7 @@ class _Renderer:
                 prefer=override.get("prefer"),
                 update=update,
                 if_true=if_true,
+                decimal=decimal,
             ))
             made = result[-1]
             if made.lenient and not made.optional and made.default is None:

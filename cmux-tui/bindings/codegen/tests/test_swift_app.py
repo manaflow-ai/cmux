@@ -435,6 +435,35 @@ class SentWithTests(unittest.TestCase):
                 self.source(**fields)
 
 
+class DecimalTests(unittest.TestCase):
+    """`encode: decimal`: a UInt64 the wire carries as a decimal string."""
+
+    def source(self, constraints: list[Any] | None = None, **override: Any) -> str:
+        document = layout_document()
+        document["commands"]["set-split-ratio"]["request"]["fields"]["revision"] = _field(
+            {"kind": "scalar", "name": "string"}, required=False, nullable=True,
+            constraints=[{"format": "decimal uint64"}] if constraints is None else constraints,
+        )
+        bindings = layout_bindings()
+        request = bindings["families"]["Layout"]["requests"]["set-split-ratio"]
+        request["fields"] = {"revision": {"encode": "decimal", **override}}
+        return rendered(document, bindings)["Layout/SetSplitRatioRequest.generated.swift"]
+
+    def test_decimal_is_a_uint64_sent_as_its_string(self) -> None:
+        source = self.source()
+        self.assertIn("public var revision: UInt64?\n", source)
+        self.assertIn("try container.encodeIfPresent(revision.map(String.init), forKey: .revision)", source)
+
+    def test_decimal_is_refused_without_the_schema_format(self) -> None:
+        for name, (constraints, override) in {
+            "no format": ([], {}),
+            "with type": (None, {"type": "Int"}),
+            "with optional": (None, {"optional": True}),
+        }.items():
+            with self.subTest(name), self.assertRaisesRegex(BindingError, "encode decimal"):
+                self.source(constraints, **override)
+
+
 def mutation_document() -> dict[str, Any]:
     """A write command carrying the four mutation identity fields."""
     document = layout_document()
