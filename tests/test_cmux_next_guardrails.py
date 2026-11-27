@@ -213,6 +213,29 @@ class RuleTests(Fixture):
                 hits = [h for r, hs in self.check()[0] if r.id == "phone-width" for h in hs]
                 self.assertEqual(len(hits), refused, [h.text for h in hits])
 
+    def test_expect_keypath_call_reads_tests_and_only_an_expanded_call(self):
+        # Xcode 26.6 fails the expansion of `#expect(xs.allSatisfy(\\.a))` (HoverCardBodyHandOffTests, 2026-11-26).
+        path = f"{PKG}/Tests/CmuxNextDesignTests/AddedTests.swift"
+        cases = (
+            ('#expect(f.fresh.edgeConstraints.allSatisfy(\\.isActive), "pins")', 1),
+            ("let x = try #require(rows.first(where: \\.isSelected))", 1),
+            ('#expect(f.fresh.edgeConstraints.allSatisfy { $0.isActive }, "pins")', 0),
+            ("#expect(rows.map(\\.id) == [1, 2])", 0),
+            ("#expect(rows.count == 2 && rows.allSatisfy(\\.dead))", 0),
+            ("let ids = try #require(start.first?.workspaces.map(\\.id))", 0),
+        )
+        for line, refused in cases:
+            with self.subTest(line=line):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(path, f"import Testing\n@Test func added() throws {{\n    {line}\n}}\n")
+                self.commit("a test")
+                hits = [h for r, hs in self.check()[0] if r.id == "expect-keypath-call" for h in hs]
+                self.assertEqual(len(hits), refused, [h.text for h in hits])
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(f"{KIT}/Added.swift", "func f(_ xs: [Bool]) {\n    precondition(xs.allSatisfy(\\.self))\n}\n")
+        self.commit("not a test")
+        self.assertNotIn("expect-keypath-call", [r.id for r, _ in self.check()[0]])
+
     def test_raw_observation_is_allowed_in_the_tracked_wrappers_only(self):
         wrapper = "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/SingleArmedTracking.swift"
         self.git("reset", "--quiet", "--hard", self.base)

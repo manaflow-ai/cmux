@@ -482,6 +482,26 @@ else
          CMUX_MOBILE_SERVICE_EXTENSION_PROFILE="$svc_profile_uuid"
          CMUX_MOBILE_ASSOCIATED_DOMAINS="$associated_domains")
 fi
+# Swift packages: resolve on their own, with bounded backoff, then archive with
+# no package fetch. On 11-26 GitHub answered a fleet Mac's clones of
+# apple/swift-asn1 and swift-crypto with 403 (runs 45733165601, 45752138226),
+# so the archive failed after its 65 min xcframework build. A 403 or 429 there
+# refuses the machine's address for a while; it says nothing about the commit.
+log "swift packages: resolve"
+resolve_waits=(0 60 180 300)
+for i in "${!resolve_waits[@]}"; do
+  [[ ${resolve_waits[$i]} == 0 ]] || { echo "swift packages: GitHub refused the fetch; trying again in ${resolve_waits[$i]} s"; sleep "${resolve_waits[$i]}"; }
+  if xcodebuild -resolvePackageDependencies -project CmuxMobileApp.xcodeproj -scheme CmuxMobileApp \
+       -clonedSourcePackagesDirPath "$cache/spm" > "$out/logs/resolve.log" 2>&1; then
+    break
+  fi
+  if ! grep -Eq "returned error: (403|429|5[0-9][0-9])|badResponseStatusCode\((403|429|5[0-9][0-9])\)|Could not resolve host|Connection (reset|refused|timed out)" "$out/logs/resolve.log" \
+     || (( i == ${#resolve_waits[@]} - 1 )); then
+    grep -E "error:|fatal:" "$out/logs/resolve.log" | sort -u | head -20
+    die "swift package resolve failed (logs/resolve.log)"
+  fi
+done
+args+=(-disableAutomaticPackageResolution)
 log "xcodebuild archive"
 xcodebuild archive "${args[@]}" > "$out/logs/archive.log" 2>&1 \
   || { grep -E "error:|ARCHIVE FAILED" "$out/logs/archive.log" | sort -u | head -20; die "archive failed (logs/archive.log)"; }

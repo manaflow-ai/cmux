@@ -211,7 +211,8 @@ def build_graph(manifest: dict) -> dict:
     targets: dict[str, dict] = {}
     for target in sorted(manifest["targets"], key=lambda t: t["name"]):
         kind = target["type"]
-        default = ("Tests/" if kind == "test" else "Sources/") + target["name"]
+        # SwiftPM looks for a plugin target under Plugins/, a test under Tests/, the rest under Sources/.
+        default = {"test": "Tests/", "plugin": "Plugins/"}.get(kind, "Sources/") + target["name"]
         path = target.get("path") or (default if kind != "binary" else None)
         local_targets: set[str] = set()
         used_packages: set[str] = set()

@@ -6,6 +6,7 @@ checkout, 285 s of a ~350 s build phase on an AWS M4 Pro, though the FFI's input
 1846 feat-cmux-next commits over three days. Run: python3 -I THIS.
 """
 import json
+import re
 import os
 import pathlib
 import subprocess
@@ -106,6 +107,7 @@ class FFICacheTest(unittest.TestCase):
         manifest = json.loads((entry / "manifest.json").read_text())
         self.assertEqual(manifest["key"], key)
         self.assertEqual(manifest["trusted"]["branch"], "feat-cmux-next")
+        self.assertIs(manifest["landed"], True)
         # A later step on the same sources: a hit installs exactly the stored build.
         sh(self.checkout, "git", "checkout", "-q", "--", ".")
         sh(self.checkout, "rm", "-rf", "cmux-next-ios/CmuxMobileKit/Frameworks")
@@ -135,15 +137,38 @@ class FFICacheTest(unittest.TestCase):
         p = self.run_helper("key", str(self.checkout), str(self.work / "inputs.json"))
         self.assertEqual(p.returncode, 3)
 
-    def test_pull_request_that_changes_the_ffi_stores_nothing(self):
-        write(self.checkout / "cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn evil() {}\n")
-        self.commit(self.checkout, "pr")
+    def test_branch_build_is_stored_under_its_own_key_and_serves_only_its_inputs(self):
+        landed_key = self.key()
+        write(self.checkout / "cmux-tui/crates/cmux-wg/src/lib.rs", "pub fn branch() {}\n")
+        self.commit(self.checkout, "branch")
         key = self.key()
-        self.build("pr")
+        self.assertNotEqual(key, landed_key)
+        self.build("branch")
         p = self.probe_and_store()
-        self.assertIn("not stored", p.stdout)
+        self.assertIn("stored %s (branch build, inputs differ from feat-cmux-next" % key[:12], p.stdout,
+                      p.stdout + p.stderr)
         self.assertIn("cmux-tui/crates/cmux-wg", p.stdout)
-        self.assertFalse((self.cache / "ios-ffi" / key).exists())
+        entry = self.cache / "ios-ffi" / key
+        manifest = json.loads((entry / "manifest.json").read_text())
+        self.assertIs(manifest["landed"], False)
+        self.assertIsNone(manifest["trusted"])
+        # The same branch rebuilt: a hit installs the branch's own build.
+        sh(self.checkout, "rm", "-rf", "cmux-next-ios/CmuxMobileKit/Frameworks")
+        sh(self.checkout, "git", "checkout", "-q", "--", ".")
+        self.assertEqual(self.key(), key)
+        p = self.run_helper("restore", str(self.checkout), key)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual((self.checkout / XCF / "ios-arm64-simulator/F.framework/F").read_text(), "branch")
+        # Other inputs (the landed ones) never get the branch's build: their key misses.
+        self.assertEqual(self.run_helper("restore", str(self.checkout), landed_key).returncode, 1)
+
+    def test_branch_build_without_a_tip_is_still_stored(self):
+        key = self.key()
+        self.build()
+        p = self.run_helper("store", str(self.checkout), str(self.work / "inputs.json"), str(self.work / "no-tip.json"))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("stored %s (branch build, no feat-cmux-next tip" % key[:12], p.stdout)
+        self.assertIs(json.loads((self.cache / "ios-ffi" / key / "manifest.json").read_text())["landed"], False)
 
     def test_failed_publish_is_an_error_not_a_quiet_success(self):
         key = self.key()
@@ -246,8 +271,9 @@ class FFICacheTest(unittest.TestCase):
         root.mkdir(parents=True)
         now = __import__("time").time()
         ages = {}
-        for i in range(9):
-            name = ("%x" % (i + 1)) * 64
+        keep = int(re.search(r"^KEEP_ENTRIES = (\d+)", HELPER.read_text(), re.M).group(1))
+        for i in range(keep + 3):
+            name = "%064x" % (i + 1)
             entry = root / name[:64]
             (entry / "payload").mkdir(parents=True)
             (entry / "manifest.json").write_text("{}")
@@ -273,8 +299,8 @@ class FFICacheTest(unittest.TestCase):
         self.assertIn(key, left)
         self.assertIn(busy.name, left)
         self.assertNotIn(stale.name, left)
-        # The new entry, the busy one, and the four most recently used of the rest.
-        newest = sorted(ages, key=ages.get)[:4]
+        # The new entry, the busy one, and the KEEP_ENTRIES - 2 most recently used of the rest.
+        newest = sorted(ages, key=ages.get)[:keep - 2]
         self.assertEqual(sorted(left), sorted([key, busy.name] + newest))
 
     def test_simulator_step_uses_the_cache(self):
@@ -285,7 +311,7 @@ class FFICacheTest(unittest.TestCase):
             self.assertTrue(word in text, "cmux-next-ios-sim.sh lacks " + word)
         # A hit is the only path that skips the build.
         hit = text.index('"${ffi_cache[@]}" restore ')
-        self.assertLess(hit, text.index("build-xcframework.sh >"))
+        self.assertLess(hit, text.index('"${ffi_cache[@]}" build '))
 
     def ffi_block(self):
         text = SCRIPT.read_text()
@@ -336,12 +362,16 @@ class FFICacheTest(unittest.TestCase):
         self.assertIn("restore reported a hit but left no", summary)
 
     def test_failed_probe_is_loud(self):
-        helper = ("import sys\nif sys.argv[1] == 'key': print('a' * 64)\n"
-                  "elif sys.argv[1] == 'probe': sys.exit(1)\nelse: sys.exit(1)\n")
+        helper = ("import os, sys\nif sys.argv[1] == 'key': print('a' * 64)\n"
+                  "elif sys.argv[1] == 'probe': sys.exit(1)\n"
+                  "elif sys.argv[1] == 'store': open(os.environ['OUT'], 'a').write('store %s\\n' % os.path.exists(sys.argv[4]))\n"
+                  "else: sys.exit(1)\n")
         p, calls, summary = self.run_block(helper)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("built", calls)
-        self.assertIn("probe of the feat-cmux-next tip failed", summary)
+        self.assertIn("probe of the feat-cmux-next tip failed, stored as a branch build", summary)
+        # The build is still stored, with no tip file: the helper records it as a branch build.
+        self.assertIn("store False", calls)
 
     def test_dropped_entry_and_tool_failure_are_loud(self):
         for code, word in ((6, "restore failed (exit 6)"), (4, "key failed (exit 4)")):
@@ -353,11 +383,84 @@ class FFICacheTest(unittest.TestCase):
             self.assertIn(word, summary)
 
     def test_no_key_builds_quietly(self):
-        p, calls, summary = self.run_block("import sys; sys.exit(3)\n")
+        # The real helper's build runs the command and writes its exit code; a no-key step is quiet.
+        p, calls, summary = self.run_block(
+            "import subprocess, sys\nif sys.argv[1] != 'build': sys.exit(3)\n"
+            "rc = subprocess.call(sys.argv[4:]); open(sys.argv[3], 'w').write('%d\\n' % rc); sys.exit(rc)\n")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("built", calls)
         self.assertNotIn("warning", p.stderr + summary)
         self.assertIn("HOW=built", p.stdout)
+
+    def test_warm_build_runs_in_a_slot_and_its_failure_fails_the_step(self):
+        helper = HELPER.read_text()
+        build = 'mkdir -p "$(dirname "$0")/../../CmuxMobileKit/Frameworks"; echo "built in $CARGO_TARGET_DIR" >> "$OUT"'
+        p, calls, summary = self.run_block(helper, build)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("built in %s" % (self.cache / "ios-ffi-target/0"), calls)
+        self.assertIn("ios-ffi target: slot 0 (cold)", summary)
+        p, calls, summary = self.run_block(helper, build_body="exit 5")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("CmuxMobileLinkFFI.xcframework build failed", p.stderr)
+
+    def test_build_slots_trim_and_toolchain(self):
+        import importlib.util as iu
+        spec = iu.spec_from_file_location("ios_ffi_cache_t", HELPER)
+        m = iu.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        os.environ["CMUX_IOS_FFI_PATH_PACKAGES"] = self.env["CMUX_IOS_FFI_PATH_PACKAGES"]
+        self.addCleanup(os.environ.pop, "CMUX_IOS_FFI_PATH_PACKAGES", None)
+        write(self.checkout / "cmux-tui/crates/cmux-wg/Cargo.toml", '[package]\nname = "cmux-wg"\n')
+        self.assertEqual(m.local_crates(self.checkout), {"cmux_wg"})
+        self.assertEqual(m.crate_of("libcmux_wg-0123abcd.rlib"), "cmux_wg")
+        self.assertEqual(m.crate_of("cmux-wg-0123abcd"), "cmux_wg")
+        self.assertEqual(m.crate_of(".cargo-lock"), "")
+        slot = self.tmp / "slot"
+        deps = slot / "aarch64-apple-ios/release/deps"
+        fp = slot / "aarch64-apple-ios/release/.fingerprint"
+        for f in ("libcmux_wg-old.rlib", "libcmux_wg-new.rlib", "libtokio-aaaa.rlib"):
+            write(deps / f, "x")
+        (fp / "cmux-wg-old").mkdir(parents=True)
+        (fp / "cmux-wg-new").mkdir(parents=True)
+        old = 1000.0
+        for f in (deps / "libcmux_wg-old.rlib", deps / "libtokio-aaaa.rlib", fp / "cmux-wg-old"):
+            os.utime(f, (old, old))
+        removed, _ = m.trim_target(slot, self.checkout, started=2000.0)
+        self.assertEqual(removed, 2)
+        self.assertEqual(sorted(os.listdir(deps)), ["libcmux_wg-new.rlib", "libtokio-aaaa.rlib"])
+        self.assertEqual(os.listdir(fp), ["cmux-wg-new"])
+        # A crate this build did not rebuild keeps its artifacts.
+        os.utime(deps / "libcmux_wg-new.rlib", (old, old))
+        self.assertEqual(m.trim_target(slot, self.checkout, started=2000.0)[0], 0)
+        # Past the cap the slot is emptied, its toolchain stamp kept.
+        write(slot / "toolchain.txt", "tc")
+        m.TARGET_CAP_BYTES = 1
+        m.trim_target(slot, self.checkout, started=2000.0)
+        self.assertEqual(os.listdir(slot), ["toolchain.txt"])
+        # A new toolchain empties the slot; a busy slot sends the next build to slot 1.
+        os.environ["CMUX_CI_CACHE_DIR"] = str(self.cache)
+        self.addCleanup(os.environ.pop, "CMUX_CI_CACHE_DIR", None)
+        os.environ["CMUX_IOS_FFI_TOOLCHAIN"] = "tc1"
+        self.addCleanup(os.environ.pop, "CMUX_IOS_FFI_TOOLCHAIN", None)
+        m.TARGET_CAP_BYTES = 1 << 40
+        rc_file = self.tmp / "rc"
+        s0 = self.cache / "ios-ffi-target/0"
+        self.assertEqual(m.build(self.checkout, str(rc_file), ["sh", "-c", 'touch "$CARGO_TARGET_DIR/artifact"']), 0)
+        self.assertTrue((s0 / "artifact").exists())
+        self.assertEqual(rc_file.read_text(), "0\n")
+        os.environ["CMUX_IOS_FFI_TOOLCHAIN"] = "tc2"
+        self.assertEqual(m.build(self.checkout, str(rc_file), ["sh", "-c", "exit 4"]), 4)
+        self.assertEqual(rc_file.read_text(), "4\n")
+        self.assertFalse((s0 / "artifact").exists())
+        self.assertEqual((s0 / "toolchain.txt").read_text(), "tc2")
+        import fcntl
+        with open(self.cache / "ios-ffi-target/0.lock", "a") as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            out = subprocess.run([sys.executable, "-I", str(HELPER), "build", str(self.checkout), str(rc_file),
+                                  "sh", "-c", 'echo "dir=$CARGO_TARGET_DIR"'], env=dict(self.env, CMUX_IOS_FFI_TOOLCHAIN="tc2"),
+                                 capture_output=True, text=True).stdout
+        self.assertIn("slot 1 (cold)", out)
+        self.assertIn("dir=%s" % (self.cache / "ios-ffi-target/1"), out)
 
     def test_failed_build_fails_the_step(self):
         p, calls, summary = self.run_block("import sys; sys.exit(3)\n", build_body="exit 5")

@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useReducer, useRef, useState, useSyncExternalStore, useLayoutEffect } from "react";
+import React, { memo, useEffect, useRef, useState, useSyncExternalStore, useLayoutEffect, useReducer } from "react";
 import { Icon } from "../icons/Icon";
 import { useT, type StringKey } from "../i18n";
 import { ArrowRight } from "./icons";
@@ -322,6 +322,7 @@ export const NextStepCard = memo(function NextStepCard({
           />
         </label>
       )}
+      {/* retry-prompt-ok: the person's pick did not send; sending it again is their paid model request. */}
       {failed && <output className="acpmux-next-step__detail">{t("prompt.notSentAgain")}</output>}
     </fieldset>
   );

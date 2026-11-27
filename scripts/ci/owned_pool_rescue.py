@@ -332,9 +332,13 @@ UNRESCUED_WORKFLOW_PATHS = {
         "attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or refused leg ends at its 120-minute timeout "
         "and a person's re-run lands on Blacksmith",
     ".github/workflows/cloud-chat-proof.yml":
-        "a manual proof that never takes an owned pool: pick-proof-runner runs e2e_runner_pool.py with --owned 0 and "
-        "keeps only a Blacksmith macOS 26 label, because each proof job holds a Stack account pair; a re-run takes "
-        "the declared macos_26 pool, and the person re-dispatches",
+        "a manual feat-cmux-next proof: both proof jobs take the owned gui pool (glaeda-gui-std) on attempt 1 while "
+        "CI_PR_POOL_OWNED is 1, and a re-run takes pick-proof-runner's Blacksmith macOS 26 label or the declared "
+        "macos_26 pool, so a stuck or refused job ends at its 120-minute timeout and the person re-runs it there",
+    ".github/workflows/cloud-rd-link-readback.yml":
+        "a manual feat-cmux-next readback: its one job takes the owned side label on attempt 1 while "
+        "CI_PR_POOL_OWNED is 1 and the declared macos_26 pool on a re-run, so a stuck or refused job ends at its "
+        "75-minute timeout and the person re-runs it on Blacksmith",
     ".github/workflows/gateway-e2e.yml":
         "a manual proof (the inference gateway on an owned Mac on the tailnet): its mac job holds the dev stack pair "
         "and must stay on an owned Mac to reach the subscription router, so a Blacksmith rescue could only fail it; "

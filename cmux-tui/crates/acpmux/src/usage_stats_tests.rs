@@ -478,8 +478,9 @@ fn acpmux_sets_the_claude_window_only_when_the_person_set_none() {
     source.env.insert("CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(), "auto".into());
     assert!(!claude_autocompact_unset(&source), "the env's window");
     source.env.remove("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
-    let (key, value) = crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
-    source.env.insert(key.into(), value.into());
+    // The window acpmux adds when the settings name one (`harness_limits::lift_claude`).
+    let key = crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW_ENV;
+    source.env.insert(key.into(), "400000".into());
     assert_eq!(autocompact(&source, None), (Autocompact::Capped, Some(400_000)));
     source.argv = None;
     assert!(!claude_autocompact_unset(&source), "a chat this daemon did not start");

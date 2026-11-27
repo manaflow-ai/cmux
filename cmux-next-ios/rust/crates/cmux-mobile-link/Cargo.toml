@@ -26,6 +26,7 @@ cmux-braid-class.workspace = true
 cmux-braid-path.workspace = true
 cmux-build-space.workspace = true
 cmux-bundle.workspace = true
+cmux-egress.workspace = true
 cmux-rd-core.workspace = true
 cmux-rd-proto.workspace = true
 # The phone's viewport sync receiver (src/viewport.rs) renders its screens as VT bytes.
@@ -78,6 +79,8 @@ core-foundation-sys = "0.8"
 
 [dev-dependencies]
 cmux-fault.workspace = true
+# Seeded-secret tests (tests/seeded_secret.rs): gated clients send to a local capture server.
+cmux-egress = { workspace = true, features = ["capture"] }
 # The Mac's relay publisher for the pair matrix's `relay-cache` path (tests/pair_matrix_mac_asleep.rs). A
 # dev-dependency cycle: cmux-mobile-host depends on this crate, which Cargo allows for tests.
 cmux-mobile-host = { path = "../cmux-mobile-host" }

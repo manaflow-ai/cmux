@@ -28,6 +28,7 @@ extension DaemonLanePolicy {
         "close-screen": ["end_terminals", "screen"],
         "close-surface": ["surface"],
         "close-tab-group": ["end_terminals", "group"],
+        "close-tabs": ["end_terminals", "expected_generation", "expected_revision", "mutation_id", "origin", "reason", "surfaces", "transaction"],
         "close-terminal": ["expected_generation", "expected_revision", "mutation_id", "origin", "terminal_id", "terminal_incarnation"],
         "close-workspace": ["end_terminals", "expected_generation", "expected_revision", "if_empty", "key", "mutation_id", "origin", "reason", "report_closed_ids", "workspace"],
         "copy": ["mode", "surface"],

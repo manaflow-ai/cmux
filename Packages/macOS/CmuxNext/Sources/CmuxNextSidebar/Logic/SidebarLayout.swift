@@ -413,17 +413,20 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 continue
             }
             // Group by Folder: groups as they were, then a header per folder
-            // over its loose rows, folders in first-seen order, "no folder" last.
+            // over its loose rows, folders in first-seen order, "no folder" last. With
+            // `sidebar.folderlessUngrouped` the "no folder" rows draw with no header.
             for (index, entry) in nodes.enumerated() where isGroup(entry) { emit(index, entry) }
             let (folders, members) = Self.folderBuckets(nodes.map(\.node))
             for folder in folders {
                 let indices = members[folder] ?? []
-                rows.append(SidebarRow(
-                    key: .folder(section.id, folder), y: y, height: m.groupHeaderHeight, section: section.id,
-                    group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
-                    isCollapsed: false, childCount: indices.count, groupColor: nil
-                ))
-                y += m.groupHeaderHeight + m.rowSpacing
+                if !(folder.isEmpty && o.grouping.folderlessUngrouped) {
+                    rows.append(SidebarRow(
+                        key: .folder(section.id, folder), y: y, height: m.groupHeaderHeight, section: section.id,
+                        group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
+                        isCollapsed: false, childCount: indices.count, groupColor: nil
+                    ))
+                    y += m.groupHeaderHeight + m.rowSpacing
+                }
                 guard !o.settled.isEmpty || !o.automatic.isEmpty else {
                     for index in indices { emit(index, nodes[index]) }
                     continue

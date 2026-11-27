@@ -41,3 +41,5 @@ cmux-tui/crates/acpmux/src/hub/prefetch.rs	1	keep	a folder-name deny list (secre
 cmux-tui/crates/acpmux-tui/src/actions.rs	1	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux-tui/src/session_ops.rs	2	move	unreviewed at S7 (cx-is1kf.8)
 cmux-tui/crates/acpmux-tui/src/skills.rs	2	move	unreviewed at S7 (cx-is1kf.8)
+cmux-tui/crates/acpmux/src/memory_mount.rs	1	move	unreviewed at S7 (cx-is1kf.8)
+cmux-tui/crates/acpmux/src/memory_mount/link.rs	1	move	unreviewed at S7 (cx-is1kf.8)

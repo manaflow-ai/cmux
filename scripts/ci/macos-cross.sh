@@ -501,7 +501,12 @@ cmd_parity_ffi() {
   LLVM_NM="$(cd "$repo_root/cmux-tui" && rustc --print sysroot)/lib/rustlib/$(cd "$repo_root/cmux-tui" && rustc -vV | awk '/^host:/{print $2}')/bin/llvm-nm"
   export LLVM_NM
   for t in "${TARGETS[@]}"; do
-    "$LLVM_BIN/llvm-lipo" -thin "$(arch_of "$t")" "$mac" -output "$out/mac-$t.a"
+    # The Mac build is arm64 alone unless a stable release asked for universal: a thin archive is its one slice.
+    if [[ "$("$LLVM_BIN/llvm-lipo" -archs "$mac")" == "$(arch_of "$t")" ]]; then
+      cp "$mac" "$out/mac-$t.a"
+    else
+      "$LLVM_BIN/llvm-lipo" -thin "$(arch_of "$t")" "$mac" -output "$out/mac-$t.a"
+    fi
     python3 "$repo_root/scripts/ci/macho_parity.py" "app-ffi-$t" "$out/mac-$t.a" "$out/slices/$t.a" \
       > "$reports/app-ffi-$t.json" || status=1
     report_line "$reports/app-ffi-$t.json"

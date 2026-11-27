@@ -320,4 +320,22 @@ mod tests {
             assert_eq!(error.details.as_ref(), Some(&details), "{op}");
         }
     }
+
+    /// 2026-11-25: `cmux vm new` failed with "cloud.machine.create answered
+    /// cloud.machine.not_found, which it does not declare". A create whose machine is gone
+    /// before it answers is a typed not-found now, never a protocol error.
+    #[test]
+    fn a_create_whose_machine_is_gone_is_a_typed_not_found() {
+        let error = CloudError::from_wire_for(
+            "cloud.machine.create",
+            &WireError {
+                code: "cloud.machine.not_found".into(),
+                message: "machine vm_57a7e6bc0337b978d609 not found".into(),
+                details: None,
+                retryable: false,
+            },
+        );
+        assert_eq!(error.code, codes::NOT_FOUND);
+        assert!(!error.message.contains("does not declare"), "{}", error.message);
+    }
 }

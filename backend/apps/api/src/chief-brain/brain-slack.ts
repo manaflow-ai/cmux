@@ -3,14 +3,21 @@ import { formatSlackMessage, isOwnSlackMessage, postSlackMessage, slackEnabled, 
 import { sha256Hex } from "../ingress/verify.ts"
 import type { ChiefBrainDO } from "./brain-do.ts"
 import { declared } from "../do-stub.ts"
+import { SLACK_ALLOWANCE_MAX_SECONDS, SLACK_METER_SCHEMA, SLACK_NON_OWNER_DAILY_AWAKE_SECONDS, recordSlackSender, setSlackAllowance, slackAllowance, slackMayWake, slackSpend, validSlackAllowance, type SlackSender } from "./slack-meter.ts"
 
-export interface SlackWake { readonly agent: string; readonly conversation: string; readonly inbound: SlackInbound }
+/**
+ * `senderIsOwner`: whether the Slack sender is the Chief's owner, as cmux-platform said. `inbound.isOwner` here is
+ * whether the message may authorize effects (platform-chief.ts slackMayAct), which a channel without `run` turns off.
+ * It decides who the awake time counts against (slack-meter.ts); absent, `inbound.isOwner`.
+ */
+export interface SlackWake { readonly agent: string; readonly conversation: string; readonly inbound: SlackInbound; readonly senderIsOwner?: boolean }
 export interface SlackOutbound { readonly root: string; readonly message: string; readonly text: string }
 
 export const SLACK_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS cb_slack_threads (slack_team TEXT NOT NULL, channel TEXT NOT NULL, thread_ts TEXT NOT NULL, root TEXT UNIQUE NOT NULL, PRIMARY KEY (slack_team, channel, thread_ts))`,
   `CREATE TABLE IF NOT EXISTS cb_slack_sent (message TEXT PRIMARY KEY)`,
-  `CREATE TABLE IF NOT EXISTS cb_slack_bot_messages (slack_team TEXT NOT NULL, channel TEXT NOT NULL, ts TEXT NOT NULL, PRIMARY KEY (slack_team, channel, ts))`
+  `CREATE TABLE IF NOT EXISTS cb_slack_bot_messages (slack_team TEXT NOT NULL, channel TEXT NOT NULL, ts TEXT NOT NULL, PRIMARY KEY (slack_team, channel, ts))`,
+  ...SLACK_METER_SCHEMA
 ]
 
 export async function slackInbound(b: ChiefBrainDO, w: SlackWake) {
@@ -36,12 +43,32 @@ export async function slackInbound(b: ChiefBrainDO, w: SlackWake) {
   const committedRoot = committed.thread_root ?? committed.id
   const authorized = committed.slack.isOwner
   const text = formatSlackMessage(committed)
+  // RFD 0123, Plan and billing: who this message's awake time counts against; a non-owner past the day's allowance
+  // still reaches the conversation (the owner sees it) and rides along with the next turn, but wakes nothing.
+  const sender: SlackSender = { slackTeamId: i.slackTeamId, slackUserId: i.slackUserId, senderIsOwner: w.senderIsOwner ?? i.isOwner, cmuxTeamId: i.cmuxTeamId, ownerUserId: i.ownerUserId }
+  recordSlackSender(b.sql, value.message_id, sender)
+  const wake = slackMayWake(b.sql, sender, Date.now())
   // Preserve provenance even if an ordinary wake already loaded this message as context.
-  const fresh = b.sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, 'slack', ?, ?, ?, 1) ON CONFLICT (message) DO NOTHING RETURNING n`, value.message_id, w.conversation, value.seq, committedRoot, text, authorized ? 1 : 0).toArray()
+  const fresh = b.sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, 'slack', ?, ?, ?, ?) ON CONFLICT (message) DO NOTHING RETURNING n`, value.message_id, w.conversation, value.seq, committedRoot, text, authorized ? 1 : 0, wake ? 1 : 0).toArray()
+  if (!wake) {
+    console.log(JSON.stringify({ msg: "chief_slack.awake_allowance_spent" }))
+    return { ok: true as const, conversation: w.conversation, thread: committedRoot, queued: false, allowance: "spent" as const }
+  }
   b.sql.exec(`UPDATE cb_inbox SET woke = 1, kind = 'slack', thread_root = ?, effect_authorized = ? WHERE message = ? AND state = 'queued'`, committedRoot, authorized ? 1 : 0, value.message_id)
   if (fresh.length && b.turnLive && b.turnId && b.turnConversation === w.conversation) await b.steerQueued(w.conversation)
   b.kick()
   return { ok: true as const, conversation: w.conversation, thread: committedRoot, queued: fresh.length > 0 }
+}
+
+/** The owner's Slack awake-time page: the allowance (after `set`, when given) and each sender's spend per day. */
+export async function slackAwake(b: ChiefBrainDO, o: { set?: number | null; days: number }) {
+  await b.lifecycle.start()
+  if (o.set !== undefined) {
+    if (o.set !== null && !validSlackAllowance(o.set)) return { ok: false as const, code: "validation.invalid" }
+    setSlackAllowance(b.sql, o.set)
+  }
+  const days = Math.min(Math.max(Math.floor(o.days), 1), 31)
+  return { ok: true as const, allowance_seconds: slackAllowance(b.sql), default_seconds: SLACK_NON_OWNER_DAILY_AWAKE_SECONDS, max_seconds: SLACK_ALLOWANCE_MAX_SECONDS, days, senders: slackSpend(b.sql, Date.now(), days) }
 }
 
 /** Called after ConversationDO committed an owner/Chief reply. Claim before sending: no replay can resend it. */

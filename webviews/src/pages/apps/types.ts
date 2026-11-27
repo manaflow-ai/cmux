@@ -239,6 +239,9 @@ export const AppsOps = {
   updatesList: "cmux.apps.updates.list",
   update: "cmux.apps.update",
   logs: "cmux.apps.logs",
+  /** Built-in features as switches (cmux-tui server/app_features.rs): each is an existing setting. */
+  featuresList: "cmux.apps.features.list",
+  featuresSet: "cmux.apps.features.set",
   /** The daemon's `apps-changed` on the page relay (page-router.json `events`; DaemonPageRelay). */
   watch: "cmux.apps.changed",
 } as const;
@@ -252,3 +255,28 @@ export const CUSTOMIZE_ACTION = {
   action: "openSettings",
   args: { setting: "card.customizeChecklist" },
 } as const;
+
+/** One built-in feature on the Features tab (`cmux.apps.features.list`): an existing settings key
+ * the switch reads and writes, never a key of its own. */
+export interface FeatureRow {
+  id: string;
+  /** The heading it is listed under (Backgrounds, Chief, Music, ..., Labs, Experiments). */
+  group: string;
+  /** The settings key it writes (Settings shows the same row). */
+  key: string;
+  kind: "toggle" | "choice";
+  on: boolean;
+  default_on: boolean;
+  /** An organization manages the key: the switch shows its value and cannot change it. */
+  managed: boolean;
+  title: { key?: string | null; text: string };
+  summary?: { key?: string | null; text: string } | null;
+}
+
+export interface FeaturesList {
+  revision: number;
+  /** Whether `experiments.appStoreFeatures` is on (off by default): off lists no features and the
+   * page draws no Features tab. */
+  enabled?: boolean;
+  features: FeatureRow[];
+}

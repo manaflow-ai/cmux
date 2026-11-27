@@ -137,12 +137,12 @@ import Testing
         #expect(source.applied.isEmpty, "nothing picked, nothing written")
         step.setWorkStyle(.gui)
         #expect(step.setDensity("comfortable"))
-        #expect(step.setBackground("hogai-nio"))
+        #expect(step.setBackground("hokusai-great-wave"))
         step.revert()
         #expect(source.current == opening)
         #expect(step.choices == opening)
         #expect(source.applied.count == 4, "three picks and one write back")
-        #expect(source.applied.last?.old == FirstRunChoices(workStyle: .gui, density: "comfortable", background: "hogai-nio"))
+        #expect(source.applied.last?.old == FirstRunChoices(workStyle: .gui, density: "comfortable", background: "hokusai-great-wave"))
     }
 
     @Test func skippingTheStepPutsBackTheOpeningChoices() async {

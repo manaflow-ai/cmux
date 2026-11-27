@@ -324,9 +324,13 @@ pub(super) fn listed(
     below: &Path,
     operation: &'static str,
 ) -> Result<Paths, ResourceError> {
-    let Some(prefix) = below.to_str() else {
-        // A folder whose name is not UTF-8 has no name in the listing: list
-        // it on its own, as before the cache.
+    // The home folder's repository is never listed whole from its top
+    // folder, which is the whole home folder (`cmux_git::home`).
+    let prefix = below.to_str().filter(|_| repository.lists_untracked());
+    let Some(prefix) = prefix else {
+        // The asked folder lists on its own, only what is below it, as before
+        // the cache: in the home folder's repository, and for a folder whose
+        // name is not UTF-8, which has no name in the listing.
         let (paths, cut) = super::files::listed(repository, directory, operation)?;
         let end = paths.len();
         return Ok(Paths { source: Source::Read(paths, cut), start: 0, end, strip: 0 });

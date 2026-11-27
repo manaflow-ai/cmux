@@ -472,11 +472,8 @@ fi
 # to it (--all would also format its path dependencies).
 if (( fmt )) && [[ -f "$repo/cmux-tui/Cargo.toml" ]]; then
   before="$(git -C "$repo" status --porcelain -- cmux-tui)"
-  # A crate whose tests/ files are modules of one `it` binary (tests/it/main.rs, #56677) reaches them
-  # through a generated list cargo fmt cannot follow, so they are named to rustfmt.
-  (cd "$repo/cmux-tui" && fmt_tests=() &&
-    for it_main in crates/*/tests/it/main.rs; do [[ -f "$it_main" ]] && fmt_tests+=("${it_main%/it/main.rs}"/*.rs); done &&
-    cargo fmt --all ${fmt_tests[@]+-- "${fmt_tests[@]}"})
+  # The it-binary crates' test files are formatted per crate, with that crate's edition.
+  (cd "$repo/cmux-tui" && bash "$script_dir/../ci/cmux-tui-fmt.sh")
   after="$(git -C "$repo" status --porcelain -- cmux-tui)"
   [[ "$before" == "$after" ]] || echo "fixed: cargo fmt in cmux-tui"
 fi

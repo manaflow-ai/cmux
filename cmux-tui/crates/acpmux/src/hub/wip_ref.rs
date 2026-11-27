@@ -75,10 +75,10 @@ pub(super) fn save_blocking(cwd: &Path, session_id: &str) -> Saved {
         return Saved::Skipped;
     };
     let index = Path::new(&gitdir).join(format!("cmux-wip-{session_id}.index"));
-    let _ = std::fs::remove_file(&index);
+    let _ = crate::home_fs::remove_file(&index);
     let tree = git(&top, Some(&index), &["add", "-A", "--", "."])
         .and_then(|_| git(&top, Some(&index), &["write-tree"]));
-    let _ = std::fs::remove_file(&index);
+    let _ = crate::home_fs::remove_file(&index);
     let Some(tree) = tree else { return Saved::Skipped };
     let kept = git(&top, None, &["rev-parse", "--verify", "-q", &format!("{name}^{{tree}}")]);
     if kept.as_deref() == Some(tree.as_str()) {

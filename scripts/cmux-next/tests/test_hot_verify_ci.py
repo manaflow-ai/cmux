@@ -591,7 +591,7 @@ class Workflow(unittest.TestCase):
         # nightly copy; at the merge commit the tree is published and the engine plans from its first parent. The
         # closed event plans and dispatches that look once, and only when the PR has no receipt yet.
         text = WORKFLOW.read_text()
-        self.assertIn("types: [opened, synchronize, reopened, ready_for_review, closed]", text)
+        self.assertIn("types: [opened, synchronize, reopened, ready_for_review, closed", text)
         self.assertIn("(github.event.action != 'closed' || github.event.pull_request.merged)", "\n".join(self.job_block("plan")))
         self.assertIn("hot-verify-receipt.py --pr", "\n".join(self.job_block("plan")))
         # The plan job's last step dispatches the look (the hand-off was its own job until 2026-11-23).

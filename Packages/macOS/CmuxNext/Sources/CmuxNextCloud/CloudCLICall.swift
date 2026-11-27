@@ -46,16 +46,28 @@ public struct CloudCLICall: Sendable {
             case let .success(found): credential = found
             case let .failure(error): return Self.unreachable(String(describing: error))
             }
-            // The request is parsed and re-encoded inside the envelope, so its bytes can never add a field of their own.
-            let parsed = (try? JSONSerialization.jsonObject(with: request, options: .fragmentsAllowed)) ?? NSNull()
-            let envelope: [String: Any] = ["api": api, "credential": credential.map { $0 as Any } ?? NSNull(), "request": parsed]
-            guard let stdin = try? JSONSerialization.data(withJSONObject: envelope) else { return Self.unreachable("the request is not JSON") }
+            guard let stdin = await Self.relayEnvelope(api: api, credential: credential, request: request) else {
+                return Self.unreachable("the request is not JSON")
+            }
             do {
                 return try await run(["cloud", "automation-relay"], stdin: stdin, timeout: .seconds(25))
             } catch {
                 return Self.unreachable(String(describing: error))
             }
         }
+    }
+
+    /// The automation relay's stdin: the caller's request (any size) parsed and re-encoded inside the
+    /// envelope, so its bytes can never add a field of their own. Off the main actor.
+    @concurrent private static func relayEnvelope(api: String, credential: String?, request: Data) async -> Data? {
+        let parsed = (try? JSONSerialization.jsonObject(with: request, options: .fragmentsAllowed)) ?? NSNull()
+        let envelope: [String: Any] = ["api": api, "credential": credential.map { $0 as Any } ?? NSNull(), "request": parsed]
+        return try? JSONSerialization.data(withJSONObject: envelope)
+    }
+
+    /// One `cmux cloud api` answer line (the child's whole last stdout line), decoded off the main actor.
+    @concurrent private static func answer<Answer: Decodable & Sendable>(_ type: Answer.Type, from line: Data) async -> Answer? {
+        try? JSONDecoder().decode(type, from: line)
     }
 
     /// `cmux cloud api` (cmux-tui `cli/cloud_api.rs`, the cmux-cloud-api crate behind the daemon's
@@ -67,12 +79,14 @@ public struct CloudCLICall: Sendable {
     func cloudAPI(_ call: String, args: [String: any Sendable], signedIn auth: CloudAuth, socket: String,
                   timeout: Duration = .seconds(60), tail: Data? = nil) async -> Data {
         let failed = { (kind: String, message: String) in
+            // main-actor-ok: a two-key failure object with a kind and one message.
             (try? JSONSerialization.data(withJSONObject: ["ok": false, "error": ["kind": kind, "message": message]])) ?? Data()
         }
         guard auth.isSignedIn, let credential = try? await auth.tokens().access else { return failed("not_signed_in", "") }
         var request: [String: Any] = ["call": call, "api": auth.configuration.relayAPIBaseURL().absoluteString, "auth": "worker",
                                       "credential": credential, "args": args]
         if let team = auth.teamID { request["team"] = team }
+        // main-actor-ok: a call name, the API origin, one token and the caller's few scalar args (ids, names); the tail is appended as bytes.
         guard var stdin = try? JSONSerialization.data(withJSONObject: request) else { return failed("transport", "the request is not JSON") }
         if let tail { stdin.append(0x0A); stdin.append(tail) }
         do {
@@ -91,13 +105,13 @@ public struct CloudCLICall: Sendable {
     public func shareChatWithMe(machine: String, signedIn auth: CloudAuth, socket: String?) async -> (code: String, message: String)? {
         guard let user = auth.platformUserID else { return ("not_signed_in", "") }
         guard let socket else { return ("transport", "") }
-        struct Answer: Decodable {
-            struct Failure: Decodable { var kind: String?; var code: String?; var message: String? }
+        struct Answer: Decodable, Sendable {
+            struct Failure: Decodable, Sendable { var kind: String?; var code: String?; var message: String? }
             var ok: Bool
             var error: Failure?
         }
         let line = await cloudAPI("machine.share_chat", args: ["machine": machine, "user": user, "me": true], signedIn: auth, socket: socket)
-        guard let answer = try? JSONDecoder().decode(Answer.self, from: line) else { return ("transport", "") }
+        guard let answer = await Self.answer(Answer.self, from: line) else { return ("transport", "") }
         return answer.ok ? nil : (answer.error?.code ?? answer.error?.kind ?? "transport", answer.error?.message ?? "")
     }
 
@@ -112,18 +126,19 @@ public struct CloudCLICall: Sendable {
     public func startChiefOnMachine(key: String, name: String, signedIn auth: CloudAuth,
                                     socket: String?, turnEnv: [String: String]? = nil) async -> Result<String, CloudCallRefusal> {
         guard let socket else { return .failure(CloudCallRefusal(code: "transport", message: "")) }
-        struct Answer: Decodable {
-            struct Body: Decodable { var conversation: String? }
-            struct Failure: Decodable { var kind: String?; var code: String?; var message: String? }
+        struct Answer: Decodable, Sendable {
+            struct Body: Decodable, Sendable { var conversation: String? }
+            struct Failure: Decodable, Sendable { var kind: String?; var code: String?; var message: String? }
             var ok: Bool
             var body: Body?
             var error: Failure?
         }
         // The Rust call bounds itself (machine boot, pairing, the host); this outlasts it.
+        // main-actor-ok: the owner's Claude connection env, a few variables.
         let tail = turnEnv.flatMap { try? JSONSerialization.data(withJSONObject: ["env": $0]) }
         let line = await cloudAPI("machine.chief_start", args: ["key": key, "name": name], signedIn: auth, socket: socket,
                                   timeout: .seconds(1_560), tail: tail)
-        guard let answer = try? JSONDecoder().decode(Answer.self, from: line) else {
+        guard let answer = await Self.answer(Answer.self, from: line) else {
             return .failure(CloudCallRefusal(code: "transport", message: ""))
         }
         if answer.ok, let conversation = answer.body?.conversation { return .success(conversation) }

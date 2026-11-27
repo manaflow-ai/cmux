@@ -175,3 +175,41 @@ fn a_listed_model_takes_no_levels_from_a_sibling_model() {
     );
     assert!(efforts.is_empty(), "{efforts:?}");
 }
+
+/// Image roll 45732114266: cursor-agent probes ran on minutes after their 60 s bound. A probe
+/// dropped before it ended its agent (the bound's timeout, a stopping daemon) left the agent
+/// running, since the agent's exit watcher holds it and `kill_on_drop` never fired.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_dropped_probe_ends_its_agent() {
+    let dir = tempfile::tempdir().unwrap();
+    let pid_file = dir.path().join("pid");
+    // An ACP agent that never answers `initialize`, as a harness waiting on its sign-in does.
+    let script = format!("echo $$ > '{}'; exec sleep 30", pid_file.display());
+    let hub = hub(&["sh", "-c", &script]);
+    let profile = hub.config.read().await.harnesses["acme"].clone();
+    let probe = hub.probe_one("acme", &profile);
+    let pid = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        tokio::pin!(probe);
+        loop {
+            tokio::select! {
+                _ = &mut probe => panic!("the probe ended before it was dropped"),
+                () = tokio::time::sleep(std::time::Duration::from_millis(20)) => {}
+            }
+            if let Some(pid) =
+                std::fs::read_to_string(&pid_file).ok().and_then(|s| s.trim().parse::<i32>().ok())
+            {
+                return pid;
+            }
+        }
+    })
+    .await
+    .expect("the probe's agent never started");
+    // The probe was dropped with the timeout above, its agent still waiting.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    // SAFETY: signal 0 only checks that the process exists.
+    while unsafe { libc::kill(pid, 0) } == 0 && std::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert_ne!(unsafe { libc::kill(pid, 0) }, 0, "the dropped probe's agent still runs");
+}

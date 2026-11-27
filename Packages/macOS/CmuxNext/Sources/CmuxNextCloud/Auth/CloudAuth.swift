@@ -325,6 +325,12 @@ public final class CloudAuth {
     public func start() { coordinator.start() }
 
     public func awaitRestored() async { await coordinator.awaitBootstrapped() }
+    /// The signed-in user once the stored session has restored, for code that binds an install to it: before
+    /// the restore ``user`` is the cached account, which can differ from the stored token's.
+    public func restoredUserID() async -> String? {
+        await awaitRestored()
+        return user?.id
+    }
 
     /// The signed-in person's access token once the stored session has restored (a cold launch asks before it
     /// has); nil signed out.

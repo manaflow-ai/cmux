@@ -10,7 +10,6 @@ import {
   isTeamMachineSignIn,
   limitResetsAt,
   limitResetWords,
-  offersOwnRoute,
 } from "./failureCopy";
 import { currentLanguage, STRING_TABLES, type Translate, translatorFor } from "./i18n";
 import { resetTime } from "./usageLimits";
@@ -170,7 +169,6 @@ test("an own key's account out of credit reads as no-credit, not a rate limit", 
   }
   expect(failureKind(undefined, claude, "insufficient_quota")).toBe("no-credit");
   expect(failureRecovery("no-credit")).toBe("switch-model");
-  expect(offersOwnRoute("no-credit", claude)).toBe(true);
   expect(t("turn.failure.noCredit", { harness: "Claude Code" })).toContain("Add credit and retry");
   // The cmux model router's free-tier and daily limits are 429s typed `insufficient_quota`
   // (backend inference/free.ts, Router.ts): they are rate limits, waiting helps.
@@ -372,7 +370,6 @@ test("the team's spending cap on a model call reads as its own kind, never the c
   // acpmux's typed reason alone would read as the key's credit: the message names the cap first.
   expect(failureKind(body, undefined, "insufficient_quota")).toBe("team-cap");
   expect(failureRecovery("team-cap")).toBe("switch-model");
-  expect(offersOwnRoute("team-cap")).toBe(false);
   const copy = failureCopy(translatorFor("en"), body, { name: "Claude Code" });
   expect(copy).toContain("spending cap");
   expect(copy).toContain("Ask an admin to raise it");
@@ -439,8 +436,7 @@ test("an account out of usage or turned off says so, with its reset and the ways
     expect(isAccountLimit(kind)).toBe(true);
     expect(failureRecovery(kind)).toBe("switch-model");
   }
-  // Never a Cloud chat's CodeRouter, and the router's own limits stay its rate limits.
-  expect(offersOwnRoute("usage-limit", claude)).toBe(false);
+  // The router's own limits stay its rate limits.
   expect(failureKind('{"error":{"code":"usage.included_reached","message":"usage limit reached"}}', claude)).toBe(
     "rate-limited",
   );

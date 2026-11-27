@@ -50,6 +50,10 @@ const SECONDS = Number(flag("--seconds") ?? 60);
 const WARM = Number(flag("--warm") ?? 5);
 const OUT = flag("--out");
 const PROFILE = argv.includes("--profile");
+/// --trace FILE: a Chrome trace of the measured window (toplevel tasks, style, layout, paint, GC, compile) and the CPU
+/// profile beside it, as {trace, profile} JSON, for scripts/measure/replay-attribution.py to attribute every main-thread
+/// task over 8 ms to its owner. Tracing costs the page time of its own, so a traced run's busy % reads high.
+const TRACE = flag("--trace");
 /// Fewer gaps than this in the window is no frame p95 (the goal's sensor holds the same floor, perf_sensor.py).
 const MIN_FRAMES = 60;
 /// frameTally.ts BUCKET_MS and BUCKETS: bucket i holds gaps in [i * 0.1, (i + 1) * 0.1) ms; BUCKETS holds 100 ms+.
@@ -59,7 +63,7 @@ const BUCKETS = 1000;
 const FLUSH_WAIT_MS = 6_000;
 if (![RATE, SECONDS, WARM].every((n) => Number.isFinite(n) && n > 0)) {
   console.error(
-    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile]",
+    "usage: bun bench/replay-under-load.bench.ts [--log FILE] [--rate 40] [--seconds 60] [--warm 5] [--out FILE] [--profile] [--trace FILE]",
   );
   process.exit(2);
 }
@@ -181,7 +185,7 @@ async function run(): Promise<Reading> {
     const { build } = await import("vite");
     await build({
       configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
-      build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
+      build: { outDir: out, emptyOutDir: true, ...(PROFILE || TRACE ? { minify: false } : {}) },
       logLevel: "error",
     });
     const statics = Bun.serve({
@@ -206,7 +210,7 @@ async function run(): Promise<Reading> {
     });
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Performance.enable");
-    if (PROFILE) {
+    if (PROFILE || TRACE) {
       await cdp.send("Profiler.enable");
       await cdp.send("Profiler.setSamplingInterval", { interval: 200 });
       await cdp.send("Profiler.start");
@@ -249,13 +253,37 @@ async function run(): Promise<Reading> {
     await page.waitForTimeout(WARM * 1000);
     if (served >= log.events.length) throw new Error(`${log.name}: the log ran out in the warm-up; lower --rate`);
     measuring = true;
+    if (TRACE)
+      await browser.startTracing(page, {
+        categories: [
+          "toplevel",
+          "devtools.timeline",
+          "disabled-by-default-devtools.timeline",
+          "v8",
+          "v8.execute",
+          "blink.user_timing",
+          "disabled-by-default-v8.gc",
+        ],
+      });
     const pageStart = await page.evaluate(() => performance.now());
     const taskBefore = await taskSeconds(cdp);
     const wallBefore = performance.now();
     await page.waitForTimeout(SECONDS * 1000);
     const taskAfter = await taskSeconds(cdp);
     const wallMs = performance.now() - wallBefore;
-    if (PROFILE) printProfile(((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile, "replay", wallMs);
+    if (PROFILE || TRACE) {
+      const profile = ((await cdp.send("Profiler.stop")) as { profile: CpuProfile }).profile;
+      if (PROFILE) printProfile(profile, "replay", wallMs);
+      if (TRACE) {
+        // The trace's bytes go to the file as they came (no parse and re-stringify: a minute's trace is hundreds of
+        // MB), after the profile, so replay-attribution.py reads the profile first and streams the trace's events.
+        const fd = fs.openSync(TRACE, "w");
+        fs.writeSync(fd, `{"profile":${JSON.stringify(profile)},"trace":`);
+        fs.writeSync(fd, await browser.stopTracing());
+        fs.writeSync(fd, "}");
+        fs.closeSync(fd);
+      }
+    }
     const pageEnd = await page.evaluate(() => performance.now());
     clearInterval(timer);
     // The tally's last flush (at most FLUSH_MS after the window's last frames) still counts.

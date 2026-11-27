@@ -5,6 +5,15 @@ for menu, focus, positioning, and dialog semantics. Base UI is already in the bu
 the direction-aware keyboard and VoiceOver behavior used by the existing pages; React Aria can be
 adopted behind these APIs later without changing callers.
 
+## For agents
+
+Run `bun run gen:component-manifest` to write `src/ui/llms.txt`, which lists every component with a
+one-line summary and links to a page per component in `src/ui/docs/` (props, `data-*` attributes,
+gallery entries, an example); `src/ui/components.generated.json` is the same data for tools. They are
+read from the source, never committed (gitignored): generate them where you read them.
+`bun run check:component-manifest` fails when the source no longer generates. Put `@status experimental`
+(or `deprecated`) in a component's JSDoc to set its status.
+
 ## Menu
 
 ```tsx

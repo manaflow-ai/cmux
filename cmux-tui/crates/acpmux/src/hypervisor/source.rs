@@ -112,11 +112,11 @@ impl SpoolSource {
             "command id {id:?}: use a-z, A-Z, 0-9, - and _"
         );
         let envelope = Envelope { id, command };
-        std::fs::create_dir_all(self.inbox())?;
+        crate::home_fs::create_dirs(self.inbox())?;
         let path = self.inbox().join(format!("{}.json", envelope.id));
         let tmp = self.inbox().join(format!(".{}.tmp", envelope.id));
-        std::fs::write(&tmp, serde_json::to_vec(&envelope)?)?;
-        std::fs::rename(&tmp, &path)?;
+        crate::home_fs::write(&tmp, serde_json::to_vec(&envelope)?)?;
+        crate::home_fs::rename(&tmp, &path)?;
         Ok(envelope)
     }
 }
@@ -146,13 +146,16 @@ impl CommandSource for SpoolSource {
                 Ok(env) => out.push(env),
                 // An unreadable command is set aside with its error, never retried forever.
                 Err(e) => {
-                    std::fs::create_dir_all(self.done())?;
+                    crate::home_fs::create_dirs(self.done())?;
                     let name = path
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_default();
-                    std::fs::write(self.done().join(format!("{name}.error")), format!("{e:#}\n"))?;
-                    std::fs::rename(&path, self.done().join(name))?;
+                    crate::home_fs::write(
+                        self.done().join(format!("{name}.error")),
+                        format!("{e:#}\n"),
+                    )?;
+                    crate::home_fs::rename(&path, self.done().join(name))?;
                 }
             }
         }
@@ -160,13 +163,13 @@ impl CommandSource for SpoolSource {
     }
 
     fn ack(&mut self, envelope: &Envelope, outcome: &Outcome) -> Result<()> {
-        std::fs::create_dir_all(self.done())?;
+        crate::home_fs::create_dirs(self.done())?;
         let record = serde_json::json!({"command": envelope, "outcome": outcome});
-        std::fs::write(
+        crate::home_fs::write(
             self.done().join(format!("{}.json", envelope.id)),
             serde_json::to_vec_pretty(&record)?,
         )?;
-        match std::fs::remove_file(self.inbox().join(format!("{}.json", envelope.id))) {
+        match crate::home_fs::remove_file(self.inbox().join(format!("{}.json", envelope.id))) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(e.into()),

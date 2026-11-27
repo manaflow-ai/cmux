@@ -377,6 +377,7 @@ fn a_read_ahead_gives_way_to_a_store_behind_and_costs_the_peer_no_copy() {
 }
 
 /// Process CPU time (user and system) so far.
+#[cfg(unix)]
 fn cpu_time() -> Duration {
     // SAFETY: an all-zero rusage is valid, and getrusage only fills the struct it is given.
     let usage = unsafe {
@@ -406,6 +407,7 @@ struct Phase {
 /// (25 links' replays, on the Mac) hold all but a few bytes of its queue. `old`: the read ahead
 /// as before this change (a store behind reads as no copy, and its pages are admitted as a
 /// forwarded page is, so a full queue costs the peer every copy); else as now.
+#[cfg(unix)]
 fn warm_rounds(peers: usize, old: bool) -> [Phase; 3] {
     use crate::peer::PeerNotice;
     const ROUNDS: u64 = 20;
@@ -509,6 +511,7 @@ fn warm_rounds(peers: usize, old: bool) -> [Phase; 3] {
 /// is measured beside it, by the same harness, for the PR's numbers. Two peers: more copies are
 /// past the test build's bounds on them (`TOTAL_BYTES`), which would evict copies either way.
 #[test]
+#[cfg(unix)]
 fn a_read_ahead_gives_way_while_the_store_is_behind_and_then_reads_what_changed() {
     let old = warm_rounds(2, true);
     let new = warm_rounds(2, false);
@@ -566,6 +569,7 @@ async fn a_daemon_with_no_client_reads_ahead_the_peers_whose_copies_it_keeps() {
 /// `cargo test -p acpmux --release --lib peer_copies_follow_bench -- --ignored --nocapture`
 #[test]
 #[ignore = "bench: prints records paged and CPU per read"]
+#[cfg(unix)]
 fn peer_copies_follow_bench() {
     use crate::peer::PeerNotice;
     let (peers, per_round, rounds) = (26usize, 20u64, 20u64);

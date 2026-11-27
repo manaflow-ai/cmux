@@ -73,7 +73,7 @@ public final class AuthCoordinator {
 
     let client: any AuthClient
     let sessionCache: CMUXAuthSessionCache
-    private let userCache: CMUXAuthIdentityStore
+    let userCache: CMUXAuthIdentityStore
     private let teamSelection: CMUXAuthTeamSelectionStore
     private let anchor: any AuthPresentationAnchoring
     private let config: AuthConfig

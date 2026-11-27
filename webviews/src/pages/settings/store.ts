@@ -252,6 +252,8 @@ export class SettingsStore {
   private readonly listeners = new Set<() => void>();
   private readonly unsubscribers: Array<() => void> = [];
   private readonly commandListeners = new Set<(command: PageCommand) => void>();
+  /** Settings > Extensions cards waiting for `cmux.settings.extensions.changed`. */
+  private readonly extensionListeners = new Set<() => void>();
   private disposed = false;
   private openingThemeFile = false;
   private themeColorsRequested = false;
@@ -319,6 +321,10 @@ export class SettingsStore {
       this.listen("cmux.settings.models.changed", (models) =>
         this.queryClient.setQueryData(settingsKeys.models, models),
       ),
+      // An extension was installed, removed or saved (hot reload): Settings > Extensions reads again.
+      this.listen("cmux.settings.extensions.changed", () => {
+        for (const listener of this.extensionListeners) listener();
+      }),
       // A key request arrived or ended: Settings > Keys reads its list again (the event has no values).
       this.listen("cmux.settings.keys.changed", () =>
         this.queryClient.invalidateQueries({ queryKey: [...settingsKeys.all, "keys"] }),
@@ -1056,6 +1062,13 @@ export class SettingsStore {
     return { apps: readExtensionSettings(reply.value), error: null, unavailable: false };
   }
 
+  /** Runs `listener` each time the installed extensions change: an install, a removal, a hide, or a
+   * save of an extension's manifest that the daemon reloaded. */
+  onExtensionsChanged(listener: () => void): () => void {
+    this.extensionListeners.add(listener);
+    return () => this.extensionListeners.delete(listener);
+  }
+
   /** Changes settings of one extension (`null` resets a key): the values it now runs with, or the
    * daemon's refusal text. The running extension hears the change at once. */
   async setExtensionSettings(
@@ -1283,6 +1296,7 @@ export class SettingsStore {
     for (const unsubscribe of this.unsubscribers.splice(0)) unsubscribe();
     this.listeners.clear();
     this.commandListeners.clear();
+    this.extensionListeners.clear();
     this.queryClient.clear();
   }
 

@@ -150,6 +150,14 @@ async function render(arms?: Record<string, string>) {
   );
   const scroller = host.querySelector<HTMLElement>(".acpmux-scroll")!;
   expect(scroller).not.toBeNull();
+  // A cold open of a chat this long draws its history at rough heights and lays it out whole a frame and a task
+  // later (VirtualTranscript.tsx `coldOpenRoughAbove`); each reply-only turn's Worked for line (turns.ts
+  // `holdsHeader`, #51896) brought 30 turns to it. Each arm is read once laid out whole.
+  await act(async () => {
+    await nextFrame();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextFrame();
+  });
   await act(async () => {
     scroller.scrollTop = 900;
     scroller.dispatchEvent(new dom.window.Event("scroll"));

@@ -96,6 +96,11 @@ pub struct SessionCfg {
     /// Linux: how the screen is captured (X11, or the portal on a Wayland session).
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     pub capture: crate::capture_backend::CaptureBackend,
+    /// The viewer negotiated `video.sharp_text` (Settings > Customize "Sharper Linux Screen
+    /// Text"): a Linux OpenH264 encoder codes this session in screen usage. Never set from
+    /// the command line; [`session_cfg`] sets it from the viewer's caps.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub sharp_text: bool,
 }
 
 pub struct MediaSession {
@@ -331,19 +336,35 @@ pub fn offers_h264_baseline(codec: &str) -> bool {
     !matches!(codec, "vp9" | "av1")
 }
 
+/// Whether this host offers cap `video.sharp_text`: a Linux host whose encoder may be
+/// OpenH264 (`auto` falls back to it without a GPU), the one that codes screen content in
+/// camera usage.
+pub fn offers_sharp_text(codec: &str) -> bool {
+    cfg!(target_os = "linux") && matches!(codec, "auto" | "openh264")
+}
+
 /// The session's settings with the viewer's caps applied: a viewer that negotiated
 /// `h264.baseline` (OpenH264, which shows a High-profile stream as wrong pictures with no
-/// error, cmux#50591) gets Constrained Baseline whatever `--profile` says.
+/// error, cmux#50591) gets Constrained Baseline whatever `--profile` says, and one that
+/// negotiated `video.sharp_text` gets OpenH264's screen usage.
 fn session_cfg<'a>(
     cfg: &'a SessionCfg,
     negotiated_caps: &[String],
 ) -> std::borrow::Cow<'a, SessionCfg> {
-    let baseline = negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::H264_BASELINE);
-    if baseline && cfg.profile != "baseline" {
-        std::borrow::Cow::Owned(SessionCfg { profile: "baseline".into(), ..cfg.clone() })
-    } else {
-        std::borrow::Cow::Borrowed(cfg)
+    let has = |cap: &str| negotiated_caps.iter().any(|c| c == cap);
+    let baseline = has(cmux_rd_core::service::caps::H264_BASELINE) && cfg.profile != "baseline";
+    let sharp_text = has(cmux_rd_core::service::caps::SHARP_TEXT) && !cfg.sharp_text;
+    if !baseline && !sharp_text {
+        return std::borrow::Cow::Borrowed(cfg);
     }
+    let mut owned = cfg.clone();
+    if baseline {
+        owned.profile = "baseline".into();
+    }
+    if sharp_text {
+        owned.sharp_text = true;
+    }
+    std::borrow::Cow::Owned(owned)
 }
 
 pub(crate) fn wants_cursor(negotiated_caps: &[String]) -> bool {

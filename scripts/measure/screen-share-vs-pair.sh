@@ -5,7 +5,7 @@
 #
 #   cmux-ci run --class exclusive --measurement --label measure --script scripts/measure/screen-share-vs-pair.sh \
 #     --ref SHA --target-worker cmux20 --artifact artifacts/screen-share-vs-pair/report.tgz --timeout 3600 \
-#     --arg=mode=run --arg=partner=cmux17 [--arg=loss=1] [--arg=source=screen] [--arg=fps-trials=3] [--arg=trials=10] \
+#     --arg=mode=run --arg=partner=cmux17 [--arg=loss=1] [--arg=profile=ultra] [--arg=source=screen] [--arg=fps-trials=3] [--arg=trials=10] \
 #     [--arg=inputs=key,click,scroll] [--arg=samples=30] [--arg=host=nightly]
 #
 # mode=probe  prints this Mac's name and LAN address and whether `ssh -o BatchMode=yes` reaches the partner by
@@ -16,6 +16,9 @@
 #             datagrams the host drops after its loss meter counts them sent (no shaper, no sudo); the leg's
 #             --link is `loss<PCT>` then, else `wired`. report.tgz holds run.jsonl (the --out file, which
 #             cmuxterm-hq's screen_share_fast_receipt.py extract reads), run.log and probe.txt.
+# profile=    standard|ultra is --encode-profile (default: none sent, the host runs standard); with
+#             profile=ultra each leg's label gains `-ultra`, so a first p50 from any two reachable Macs
+#             reads as not-the-wired-pair unless the pair is cmux20 -> cmux17.
 # inputs=     the cmux leg's timed presses, one leg per kind (--cmux-input; default key): key,click,scroll
 #             times each through the host's injector, samples= presses per trial (default 30). run.jsonl
 #             holds every leg's rows; the fps trials run with the first kind only.
@@ -36,13 +39,14 @@
 # Exit: 0 measured, 1 the run failed, 2 bad arguments, 3 the partner is unreachable or the tools did not build.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
-mode="" partner="" partner_ip="" loss=0 source=screen fps_trials=3 trials=10 inputs=key samples=30 host=commit role=host peer_token="" hold_s=3600
+mode="" partner="" partner_ip="" loss=0 profile= source=screen fps_trials=3 trials=10 inputs=key samples=30 host=commit role=host peer_token="" hold_s=3600
 for arg in "$@"; do
   case "$arg" in
     mode=probe|mode=run) mode="${arg#mode=}" ;;
     partner=*) partner="${arg#partner=}" ;;
     partner-ip=*) partner_ip="${arg#partner-ip=}" ;;
     loss=*) loss="${arg#loss=}" ;;
+    profile=standard|profile=ultra) profile="${arg#profile=}" ;;
     source=screen|source=synthetic) source="${arg#source=}" ;;
     fps-trials=*) fps_trials="${arg#fps-trials=}" ;;
     trials=*) trials="${arg#trials=}" ;;
@@ -158,7 +162,8 @@ if [[ "$host" == nightly ]]; then
   echo "SSVP host NIGHTLY ${version:-?} $dmg" | tee -a "$work/probe.txt"
 fi
 
-link=wired loss_args=()
+link=wired loss_args=() profile_args=() suffix=
+[[ -n "$profile" ]] && { profile_args=(--encode-profile "$profile"); suffix="-$profile"; }
 if [[ "$loss" != 0 ]]; then
   link="loss${loss}" loss_args=(--host-test-loss "$loss")
 fi
@@ -170,8 +175,8 @@ for kind in ${inputs//,/ }; do
   python3 -I "$vs" run \
     --host "$self" --viewer "$target" --host-ip "$self_ip" --local-mac "$self" "${via_args[@]}" \
     --tools "$work/tools" ${host_args[@]+"${host_args[@]}"} --stacks cmux --source "$source" --link "$link" \
-    ${loss_args[@]+"${loss_args[@]}"} --cmux-input "$kind" --samples "$samples" \
-    --fps-trials "$legfps" --trials "$trials" --label "pair-job-$host-$kind" --rev "$(git rev-parse HEAD)" \
+    ${loss_args[@]+"${loss_args[@]}"} ${profile_args[@]+"${profile_args[@]}"} --cmux-input "$kind" --samples "$samples" \
+    --fps-trials "$legfps" --trials "$trials" --label "pair-job-$host-$kind$suffix" --rev "$(git rev-parse HEAD)" \
     --out "$work/run-$kind.jsonl" 2>&1 | tee -a "$work/run.log"
   leg=${PIPESTATUS[0]}
   cat "$work/run-$kind.jsonl" >>"$work/run.jsonl" 2>/dev/null

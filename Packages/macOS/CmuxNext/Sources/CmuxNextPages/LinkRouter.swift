@@ -38,6 +38,15 @@ public final class LinkRouter {
     /// Opens `url` in the cmux GitHub page whatever the setting, beside `source` (a tab id, nil: the
     /// focused pane); false when it could not, and the caller opens its web page.
     public var openGitHubPage: (_ url: URL, _ source: String?) -> Bool = { _, _ in false }
+    /// Opens a Connect GitHub page (install, account chooser, installation settings, authorize) in the app's own panel,
+    /// whose return the app finishes itself; false when it could not, and the caller opens it as a link. The App sets it.
+    public var openGitHubInstall: (_ url: URL) -> Bool = { _ in false }
+
+    /// Connect GitHub's page: the app's own panel (``openGitHubInstall``), else where a link goes.
+    public func openGitHubConnect(_ url: URL) {
+        if openGitHubInstall(url) { return }
+        open(url)
+    }
 
     #if DEBUG
     /// `CMUX_NEXT_TEST_RECORD_EXTERNAL_OPENS=1` (live scripts): what would go to another app is

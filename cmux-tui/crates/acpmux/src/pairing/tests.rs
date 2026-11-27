@@ -198,6 +198,7 @@ fn the_read_only_gate_allows_reads_and_nothing_else() {
         MUX_HISTORY,
         MUX_SESSION_SEARCH,
         MUX_RESOLVE,
+        SESSION_SIGNATURE,
         MUX_HERE,
         MUX_SYNC_PULL,
     ] {

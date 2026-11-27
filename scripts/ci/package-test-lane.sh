@@ -292,17 +292,16 @@ PY
 
 # The packages this lane tests whole when a pull request changes one of their inputs. A Swift test
 # target no pull request check runs is listed with its reason in the swift-test-targets.json
-# registry, which the Swift test coverage check reads (hq#11644); the rows after CmuxPhonePush
+# registry, which the Swift test coverage check reads (hq#11644); the rows after CmuxUpdater
 # passed `suite` on an owned Mac at ccc9958672bf before they joined (CmuxChiefList at 777eb5a7d77f).
 # Mac-only: a package whose tests pass on Linux runs in swift-linux-packages.yml (the list or a whole-package
-# matrix group), never here as well.
+# matrix group), never here as well. CmuxAuthRuntime and CmuxPhonePush run on Linux; the suites that
+# compile only on Apple platforms run in auth-refresh-tests.yml on a Mac.
 select_packages() {
   PACKAGES=(
-    CmuxAuthRuntime
     CmuxIrohTransport
     CmuxIrxTransport
     CmuxUpdater
-    CmuxPhonePush
     CmuxHomeRender
     CmuxRemote
     CmuxScreenKit

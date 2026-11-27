@@ -70,7 +70,7 @@ const facts: FooterFact[] = [
 const remoteFacts: FooterFact[] = facts.map((fact) => (fact.kind === "machine" ? { ...fact, atRest: true } : fact));
 const quietRemoteFacts = remoteFacts.filter((fact) => !fact.live);
 
-const ACTIONS = new Set(["reconnect", "resumeQueue"] as const);
+const ACTIONS = new Set(["resumeQueue"] as const);
 
 // The composer stands at the pane's foot as in the dock, full width, so the card has the room above
 // it that it opens into (side "top"), and the composer, an inline-size container, is never squeezed

@@ -187,7 +187,10 @@ def record(workflow: str, job: str, root: Path, steps_json: str, out: Path, atte
     document = tooling_steps.load_yaml(root / workflow)
     job_steps = tooling_steps.mapping(tooling_steps.mapping(document.get("jobs")).get(job)).get("steps") or []
     keys = [str(s.get("id")) for s in job_steps if tooling_steps.selectable(s) and s.get("id")]
-    passed = [k for k in keys if isinstance(steps.get(k), dict) and steps[k].get("outcome") == "success"]
+    runner = steps.get("setup-tooling-run") if isinstance(steps.get("setup-tooling-run"), dict) else {}
+    side_by_side = str((runner.get("outputs") or {}).get("passed") or "")  # tooling_steps.py run's passes
+    passed = [k for k in keys if (isinstance(steps.get(k), dict) and steps[k].get("outcome") == "success")
+              or f" {k} " in side_by_side]
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"attempt": attempt, "passed": passed, "tree": tree_of(root)}), encoding="utf-8")
     return passed

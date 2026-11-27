@@ -546,6 +546,44 @@ fn past_deadline() -> bool {
     DEADLINE.with(Cell::get).is_some_and(|at| Instant::now() >= at)
 }
 
+thread_local! {
+    /// The deadline every `systemctl` and `systemd-run` this thread runs ends by
+    /// ([`commands_within`]); none outside it but each command's own 60 s.
+    static COMMANDS_BY: Cell<Option<Instant>> = const { Cell::new(None) };
+}
+
+/// The longest any one `systemctl` or `systemd-run` may take.
+const COMMAND_LIMIT: Duration = Duration::from_secs(60);
+
+/// Runs `f` with every `systemctl` and `systemd-run` it runs ([`systemctl`],
+/// [`arm_guard`], [`restart_others`]) killed at `deadline`, and none started
+/// past it: the restore's step holds the restart gate's flock, which a bind
+/// waits on, at most until `deadline` ([`super::first_ready::RESTORE_BOUND`]).
+pub(super) fn commands_within<T>(deadline: Instant, f: impl FnOnce() -> T) -> T {
+    let before = COMMANDS_BY.with(|d| d.replace(Some(deadline)));
+    let out = f();
+    COMMANDS_BY.with(|d| d.set(before));
+    out
+}
+
+/// The `timeout` argument for the next command, at most [`COMMAND_LIMIT`] and
+/// at most what is left before [`commands_within`]'s deadline (in whole
+/// milliseconds rounded up, never `0`, which is no timeout at all); `None` past
+/// that deadline: the command does not run.
+pub(super) fn command_timeout() -> Option<String> {
+    command_timeout_at(COMMANDS_BY.with(Cell::get), Instant::now())
+}
+
+pub(super) fn command_timeout_at(by: Option<Instant>, now: Instant) -> Option<String> {
+    let left = match by {
+        Some(by) if now >= by => return None,
+        Some(by) => (by - now).min(COMMAND_LIMIT),
+        None => COMMAND_LIMIT,
+    };
+    let ms = left.as_nanos().div_ceil(1_000_000).max(1);
+    Some(format!("{}.{:03}", ms / 1000, ms % 1000))
+}
+
 fn stopped() -> bool {
     let by = match WORKER_GENERATION.with(Cell::get) {
         Some(generation) => Caller::Worker { generation },
@@ -720,10 +758,12 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
     }
     loop {
         // A check during the hold waits it out (a Check message only wakes it
-        // to look again).
+        // to look again), but on a machine never bound to Cloud, where the
+        // hold guards no link yet ([`adopt_before_bind`]).
         hold_after_restore(paths);
         if let Some(left) = held_for(paths) {
-            if !wait_watching(paths, rx, left) {
+            let wait = adopt_before_bind(paths).map_or(left, |next| next.min(left));
+            if !wait_watching(paths, rx, wait) {
                 return;
             }
             continue;
@@ -734,6 +774,66 @@ fn run(paths: &Paths, rx: &Receiver<Msg>) {
             return;
         }
     }
+}
+
+/// The channel's build at once on a machine never bound to Cloud that a
+/// resume hold holds: a new machine is a restore of the image's memory
+/// snapshot, whose `cmux host run` goes on (so `first_ready::run` never
+/// sees it) and whose restore starts that hold ([`hold_after_restore`],
+/// [`hold_if_paused`]). The hold guards a person's first link, and none can
+/// come before the bind, which the step's gate run orders after the flip
+/// ([`super::first_ready::after_restore`]). When to look again, or None
+/// when the machine is bound (or the step is not its to take): it waits the
+/// hold out.
+fn adopt_before_bind(paths: &Paths) -> Option<Duration> {
+    if !paths.is_system_root() || super::first_ready::not_before_bind(paths).is_some() {
+        return None;
+    }
+    let target = channel::local_target()?;
+    // A stopped worker touches nothing more ([`stopped`]).
+    if stopped() {
+        return None;
+    }
+    let started = Instant::now();
+    let deadline = started + super::first_ready::RESTORE_BOUND;
+    // Every GET and every systemctl and systemd-run in the step ends by the
+    // deadline, so the gate's flock, which a bind waits on, is held that long
+    // at most.
+    let first = within(deadline, || {
+        commands_within(deadline, || {
+            super::first_ready::after_restore(
+                paths,
+                target,
+                deadline,
+                &mut super::first_ready::Machine,
+                // As [`check`]'s flip: the commit section from the last
+                // [`stopped`] look through the flip and the queued restarts,
+                // so once a stop returns this worker flips and restarts nothing.
+                || {
+                    let commit = Committing::enter();
+                    if stopped() { Err("the updater stopped".to_owned()) } else { Ok(commit) }
+                },
+                || {
+                    let _ = systemctl(&["restart", "--no-block", HOST_UNIT]);
+                },
+            )
+        })
+    });
+    use super::first_ready::First;
+    let outcome = match first {
+        First::NotFirst(_) => return None,
+        First::Current(commit) => Outcome::Current(commit),
+        First::Flipped(commit) => {
+            log(&format!(
+                "before the first bind: updated in {} ms; restarting the service",
+                started.elapsed().as_millis()
+            ));
+            Outcome::Updating(commit)
+        }
+        First::OnImage(why) => Outcome::Failed(why),
+    };
+    save_outcome(paths, &outcome, "before the first bind: ");
+    Some(next_look(&outcome, jitter_draw()))
 }
 
 /// What one check did.
@@ -1909,8 +2009,12 @@ fn rollback(paths: &Paths, pending: &Pending, why: &str, in_host: bool) -> Optio
 }
 
 fn systemctl(args: &[&str]) -> bool {
+    let Some(limit) = command_timeout() else {
+        log(&format!("systemctl {} not run: past the bound", args.join(" ")));
+        return false;
+    };
     Command::new("timeout")
-        .arg("60")
+        .arg(limit)
         .arg("systemctl")
         .args(args)
         .stdin(Stdio::null())
@@ -1920,11 +2024,16 @@ fn systemctl(args: &[&str]) -> bool {
         .is_ok_and(|s| s.success())
 }
 
-/// `systemctl --user …` in the work user's manager, at most 60 s.
+/// `systemctl --user …` in the work user's manager, at most 60 s ([`command_timeout`]).
 fn user_systemctl(args: &[&str]) -> bool {
     let Some(user) = crate::linux::spawn::lookup_user(WORK_USER) else { return false };
+    let Some(limit) = command_timeout() else {
+        log(&format!("systemctl --user {} not run: past the bound", args.join(" ")));
+        return false;
+    };
     Command::new("timeout")
-        .args(["60", "runuser", "-u", WORK_USER, "--", "env"])
+        .arg(limit)
+        .args(["runuser", "-u", WORK_USER, "--", "env"])
         .arg(format!("XDG_RUNTIME_DIR=/run/user/{}", user.uid))
         .args(["systemctl", "--user"])
         .args(args)
@@ -1951,7 +2060,12 @@ fn arm_guard_with(pending: &Pending, program: &Path) -> Result<(), String> {
         &format!("{GUARD_UNIT}.service"),
         &format!("{GUARD_UNIT}.timer"),
     ]);
-    let status = Command::new("systemd-run")
+    // Bounded as every systemctl is ([`command_timeout`]): systemd-run waits on
+    // the manager, which a loaded boot keeps busy.
+    let limit = command_timeout().ok_or("systemd-run not run: past the bound")?;
+    let status = Command::new("timeout")
+        .arg(limit)
+        .arg("systemd-run")
         .arg(format!("--unit={GUARD_UNIT}"))
         .arg(format!("--on-active={GUARD_AFTER_SECS}"))
         // --collect: the units go once they ran or stopped, failed or not, so
@@ -2069,10 +2183,14 @@ pub(super) fn restart_others(_old: &Path) {
     }
 }
 
-/// `systemctl …`'s standard output, at most 60 s; `None` when it fails.
+/// `systemctl …`'s standard output, at most 60 s ([`command_timeout`]); `None` when it fails.
 fn systemctl_stdout(args: &[&str]) -> Option<String> {
+    let Some(limit) = command_timeout() else {
+        log(&format!("systemctl {} not run: past the bound", args.join(" ")));
+        return None;
+    };
     let output = Command::new("timeout")
-        .arg("60")
+        .arg(limit)
         .arg("systemctl")
         .args(args)
         .stdin(Stdio::null())

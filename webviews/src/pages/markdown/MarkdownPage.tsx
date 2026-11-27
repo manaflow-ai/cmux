@@ -4,7 +4,7 @@
 // come from the app's key dispatcher as page commands, never from page key handlers.
 import { lazy, Suspense, useRef, useState, useSyncExternalStore, type ChangeEvent, type ReactNode } from "react";
 import type { Strings } from "../shared/i18n";
-import { useLasting } from "../../ui/lasting";
+import { useAutoRetry } from "../../agent-session/acpmux/autoRetry";
 import { Toolbar, ToolbarButton, ToolbarGroup, ToolbarToggleGroup } from "../../ui/Toolbar";
 import type { EditorFind } from "../editor/editorFind";
 import { MarkdownFindBar } from "./MarkdownFindBar";
@@ -73,29 +73,39 @@ export function MarkdownPage({
   const [readingOpen, setReadingOpen] = useState(false);
   const readingAnchor = useRef<HTMLSpanElement | null>(null);
   const { t } = strings;
-  // A lost link says so only once it lasts (a launch, a daemon restart: the store reads again when the
-  // link is back, `linkChanged`); until then the page stays blank.
-  const downLasting = useLasting(state.phase === "disconnected");
+  // A lost link or a read that failed is read again on its own (Leo, 2026-11-22: a "try again" is a
+  // vacuous decision), and at once when the link is back (`linkChanged`). A launch or a daemon restart
+  // drops the link for a few seconds, so the page stays blank, and only a failure that lasts the
+  // deadline says so, in one quiet line with no button. A file that cannot open at all (not found, too
+  // large) says so at once; reading again in the background still opens it once it can.
+  const [asking, setAsking] = useState(false);
+  const down = state.phase === "disconnected" || state.phase === "failed";
+  const { stillTrying } = useAutoRetry(
+    down ? state.phase : false,
+    () => {
+      setAsking(true);
+      void store.start().finally(() => setAsking(false));
+    },
+    { busy: asking },
+  );
 
   if (state.phase === "empty" && emptyState) return emptyState();
 
-  if (state.phase === "disconnected" && !downLasting)
-    return <div className="md-page md-page-message" aria-busy="true" />;
-
-  if (state.phase === "disconnected" || state.phase === "failed") {
+  if (state.phase === "failed" && !state.transient)
     return (
       <div className="md-page md-page-message" role="alert">
-        <p>
-          {state.phase === "failed" && state.failure
-            ? state.failure
-            : t(state.phase === "disconnected" ? L.disconnected : L.failed)}
-        </p>
-        <button type="button" className="md-button" onClick={() => void store.start()}>
-          {t(L.retry)}
-        </button>
+        <p>{state.failure ?? t(L.failed)}</p>
       </div>
     );
-  }
+
+  if (down)
+    return (
+      <output className="md-page md-page-message" aria-busy={!stillTrying}>
+        {stillTrying ? (
+          <p>{state.phase === "disconnected" ? t(L.disconnected) : (state.failure ?? t(L.stillOpening))}</p>
+        ) : null}
+      </output>
+    );
 
   // A followed link names its file at once and says it is loading (zero-latency rule a); a file
   // that did not open says so in the same place.
@@ -211,6 +221,7 @@ export function MarkdownPage({
         <div className="md-banner" role="alert">
           <span>{t(state.conflict.deleted ? L.conflictDeleted : L.conflictChanged)}</span>
           {state.conflict.deleted ? null : (
+            // retry-prompt-ok: reading the file from disk again discards the person's unsaved edits; Keep Mine is the other answer.
             <button type="button" className="md-button" onClick={() => store.reloadFromDisk()}>
               {t(L.reload)}
             </button>

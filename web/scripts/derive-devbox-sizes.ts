@@ -33,7 +33,7 @@ import {
 } from "../services/vms/images/sizes";
 import { CMUX_TUI_SESSION, cmuxTuiRunCommand } from "../services/vms/drivers/cmuxTuiDaemon";
 import { DEVBOX_HOSTNAME } from "../services/vms/images/identity";
-import { argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
+import { retryFreestyleOverload, argValue, cmuxTuiWebsocketSmokeCommand, devboxParkDaemonCommand, devboxPrepareTemplateTerminalCommand, devboxSettleBeforeSnapshotCommand, devboxSnapshotClockCommand, devboxWaitForDaemonCommand, hasFlag } from "./devbox-image-common";
 
 const apiKey = process.env.FREESTYLE_API_KEY;
 const stackToken = process.env.FREESTYLE_STACK_ACCESS_TOKEN;
@@ -124,7 +124,7 @@ async function assignSlug(snapshotId: string, slug: string): Promise<string | nu
 const result: Record<string, { imageId: string; slug: string | null; size: VmImageSize; measured: unknown }> = {};
 
 // The master's own shape, so a size it already has is recorded without a copy.
-const probe = await fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} size-probe`, firewall: FIREWALL });
+const probe = await retryFreestyleOverload("size probe", () => fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} size-probe`, firewall: FIREWALL }));
 let masterShape: Awaited<ReturnType<typeof measure>>;
 try {
   masterShape = await measure(probe.vm);
@@ -165,7 +165,7 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
       if (masterShape.cpu > size.cpu || masterShape.memoryMb > size.memoryMb) {
         throw new Error(`${name}: master (${masterShape.cpu} vCPU, ${masterShape.memoryMb} MiB) is larger than the target; resize is grow-only, bake on a smaller base`);
       }
-      const { vm } = await fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} derive ${name}`, firewall: FIREWALL });
+      const { vm } = await retryFreestyleOverload(`${name} derive`, () => fs.vms.create({ snapshotId: master, displayName: `${slugPrefix} derive ${name}`, firewall: FIREWALL }));
       try {
         const clock = await sh(vm, devboxSnapshotClockCommand);
         if (clock.code !== 0) throw new Error(`${name}: snapshot clock is unavailable`);
@@ -206,7 +206,7 @@ async function deriveSize(name: VmImageSizeName): Promise<void> {
     }
 
     // Boot the derived snapshot itself: the shape must survive the round trip.
-    const check = await fs.vms.create({ snapshotId: imageId, displayName: `${slugPrefix} verify ${name}`, firewall: FIREWALL });
+    const check = await retryFreestyleOverload(`${name} verify`, () => fs.vms.create({ snapshotId: imageId, displayName: `${slugPrefix} verify ${name}`, firewall: FIREWALL }));
     let measured: Awaited<ReturnType<typeof measure>>;
     try {
       // The daemon is the last thing to come up on a resumed snapshot, so

@@ -71,6 +71,10 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     private var lastRows: [TerminalFrameKey: String] = [:]
     /// Each tab's composer draft, kept across rebuilds and launches (nil: not kept).
     var drafts: ComposerDraftStore? = .shared
+    /// Where the cards read each tab's last-known picture (`TabCardSnapshots`): the store of the
+    /// tabs source that shows them (`useCardPictures`), never `TabCardSnapshots.shared` behind its
+    /// back, so a source with its own store (a test's, another account's) reads what it kept.
+    private(set) var snapshots: TabCardSnapshots = .shared
     /// The signed-in account that owns the linked Macs. Unscoped frames are
     /// never loaded or saved when auth has not resolved to a stable ID.
     var accountUserIDProvider: (@MainActor () -> String?)?
@@ -565,7 +569,7 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     /// below replaces it with the Mac's screen now.
     private func primeScreenText(for tab: WorkspaceTab, in workspace: Workspace, model: TerminalModel) {
         guard model.cardScreenText == nil, !model.pageStarted,
-              let key = TabCardSnapshots.shared.key(macID: workspace.macID, tabID: tab.id) else { return }
+              let key = snapshots.key(macID: workspace.macID, tabID: tab.id) else { return }
         MacTabCards.shared.whenScreen(key) { [weak model] screen in
             guard let model, model.cardScreenText == nil, !model.pageStarted else { return }
             model.cardScreenText = screen
@@ -581,7 +585,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
 
     private func cardView(_ id: String, slot: TerminalTabSlot) -> AnyView {
         if let cached = cardViews[id], cached.slot == ObjectIdentifier(slot) { return cached.view }
-        let view = AnyView(TerminalTabSlotCard(slot: slot, tabID: id, insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
+        let view = AnyView(TerminalTabSlotCard(slot: slot, tabID: id, snapshots: snapshots,
+                                               insets: EdgeInsets(top: 62, leading: 0, bottom: 98, trailing: 0)))
         cardViews[id] = (ObjectIdentifier(slot), view)
         return view
     }
@@ -693,6 +698,31 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             liveRefreshTask = nil
         }
         wakeLiveRefresh()
+    }
+
+    func captureCard(for tab: WorkspaceTab, fresh: Bool, onlyIfChanged: Bool, keep: @escaping @MainActor (UIImage) -> Void) {
+        guard let model = hosts[tab.id]?.model else { return }
+        // Copied in this call while the page is in a window, composed off the main thread
+        // (`captureSnapshotOffMain`, as the grid's opening does): never rendered in the tap.
+        // `onlyIfChanged` (going to the background): a page that drew nothing since its card was
+        // taken keeps that card, so `keep` hears the same picture and nothing is encoded again.
+        let changed = model.snapshot == nil || model.cardIsBehind
+        if fresh, model.canCaptureCard, !onlyIfChanged || changed { model.captureSnapshotOffMain() }
+        Task { @MainActor [weak model] in
+            guard let model, let image = await model.cardPictureToKeep() else { return }
+            keep(image)
+        }
+    }
+
+    func hostsCard(for tab: WorkspaceTab) -> Bool {
+        hosts[tab.id] != nil
+    }
+
+    func useCardPictures(_ snapshots: TabCardSnapshots) {
+        guard snapshots !== self.snapshots else { return }
+        self.snapshots = snapshots
+        // Cards built for the other store are built again for this one.
+        cardViews = [:]
     }
 
     func observeOutput(_ owner: AnyObject, _ handler: @escaping @MainActor (String?, String) -> Void) {
@@ -928,16 +958,25 @@ struct TerminalTabSlotCard: View {
     let slot: TerminalTabSlot
     /// For the UI tests' face probe (`TabCardFaceRecord`).
     let tabID: String
+    /// Where its last-known picture is read: the store the tabs source keeps pictures in
+    /// (`GhosttyTerminalTabContent.useCardPictures`), so a capture on leaving the tab is the
+    /// picture this card reads.
+    let snapshots: TabCardSnapshots
     let insets: EdgeInsets
+
+    /// The tab's last-known picture in `snapshots`, keyed as the grid keys it (the account, the
+    /// tab's Mac and the tab's id), asked of the disk again if the cache let it go.
+    static func lastKnown(in snapshots: TabCardSnapshots, macID: String?, tabID: String) -> UIImage? {
+        guard let macID, let key = snapshots.key(macID: macID, tabID: tabID) else { return nil }
+        let entry = snapshots.entry(key)
+        if entry.image == nil { snapshots.warm([key]) }
+        return entry.image
+    }
 
     var body: some View {
         // The tab's last-known picture (its Mac's thumbnail, or one this phone drew) stands in for the
         // labeled placeholder, and is asked of the disk again if the cache let it go.
-        let known = slot.host.model.hostMacID.flatMap { TabCardSnapshots.shared.key(macID: $0, tabID: tabID) }.map { key -> UIImage? in
-            let entry = TabCardSnapshots.shared.entry(key)
-            if entry.image == nil { TabCardSnapshots.shared.warm([key]) }
-            return entry.image
-        } ?? nil
+        let known = Self.lastKnown(in: snapshots, macID: slot.host.model.hostMacID, tabID: tabID)
         let card = TerminalTabCard(model: slot.host.model, insets: insets, fallback: known)
         let content = card.content
         card

@@ -782,10 +782,10 @@ async fn execute(
     if let Command::Exec(args) = &mut command {
         args.env_values = exec_env(&args.env_names, env)?;
     }
-    if let Some(target) = vm_target(&mut command) {
-        if !target.starts_with("vm_") {
-            *target = vm_id_named(&client, target).await?;
-        }
+    if let Some(target) = vm_target(&mut command)
+        && !target.starts_with("vm_")
+    {
+        *target = vm_id_named(&client, target).await?;
     }
     match command {
         Command::Run(args) => run::run(&client, args, stdout, stderr).await,

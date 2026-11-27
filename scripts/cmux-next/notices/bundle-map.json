@@ -33,7 +33,7 @@
     },
     {
       "path": "Contents/Frameworks/Chromium Embedded Framework.framework/*",
-      "what": "CEF and Chromium, including libcef_sandbox, SwiftShader and the Vulkan loader",
+      "what": "CEF and Chromium, including libcef_sandbox (SwiftShader and the Vulkan loader are not embedded: scripts/cmux-next/embed-cef.sh)",
       "notices": ["file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html.gz", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {

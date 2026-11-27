@@ -105,7 +105,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var pauseAgentMachines = CmuxConfigSnapshot.pauseAgentMachinesDefault
     /// `customize.fromTheApp`: the Customize Inspector (hold Option) and right-click Customize…; off when unset.
     public var customizeFromTheApp = CmuxConfigSnapshot.customizeFromTheAppDefault
-    /// `customize.doctorNotice`: the toast naming a file or layer that changes the setup (`CustomizeDoctorNotice`); on when unset.
+    /// `customize.doctorNotice`: the toast naming a file or layer that changes the setup (`CustomizeDoctorNotice`); off when unset (Leo 2026-11-25: "make it stop showing the customization not applied/reviewd and shit popup tosts"), Settings' doctor card lists the findings inline.
     public var customizeDoctorNotice = CmuxConfigSnapshot.customizeDoctorNoticeDefault
     /// `labs.agentCustomization`: Settings shows and edits Claude Code's and Codex's own MCP servers, skills and commands (`cmux agent-config`); off when unset.
     public var agentCustomization = CmuxConfigSnapshot.agentCustomizationDefault
@@ -235,6 +235,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var previousGlass: Bool = PreviousGlassSetting.fallback
     /// `appearance.experimentalControls`; off unless explicitly enabled.
     public var experimentalAppearance = false
+    /// `appearance.agentSignature`: each agent's dot glyph; off unless set to true.
+    public var agentSignature = AgentSignatureSetting.fallback
     /// `appearance.glassTransparency`, `appearance.hue` and
     /// `appearance.saturation`; identity values when unset or invalid.
     public var appearanceTuning = AppearanceTuningSetting.fallback
@@ -271,6 +273,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var tabBarPosition: TabBarPosition = ChromePlacementSetting.tabBarPositionDefault
     /// `appearance.paneBackgrounds`: one background for the window or one per pane.
     public var paneBackgrounds: PaneBackgroundMode = .shared
+    /// Theme Flourishes (`appearance.accentGlow.*`, `.tabClose.*`, `.sidebarHeader.*`, `.paneArt.*`).
+    public var flourishes = ThemeFlourishes.none
+    /// `terminal.cursorStyle` and `terminal.cursorBlink`; unset keeps the Ghostty config's.
+    public var terminalCursor = TerminalCursorSetting()
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = ChromePlacementSetting.tabBarOrderDefault
     /// `browser.toolbarPosition`: the omnibar row of browser and Markdown panes.
@@ -490,6 +496,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(FontSmoothingSetting.parse(root), \.fontSmoothing)
         snapshot.take(LiquidGlassSetting.parse(root), \.liquidGlass)
         snapshot.experimentalAppearance = ExperimentalAppearanceSetting().parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.agentSignature = AgentSignatureSetting().parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.appearanceTuning = AppearanceTuningSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         DiffViewerSetting.parse(root, diagnostics: &snapshot.diagnostics)
@@ -524,6 +531,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (paneBackgrounds, paneBackgroundsDiagnostic) = PaneBackgroundsSetting.parse(root)
         snapshot.paneBackgrounds = paneBackgrounds
         if let paneBackgroundsDiagnostic { snapshot.diagnostics.append(paneBackgroundsDiagnostic) }
+        snapshot.flourishes = ThemeFlourishSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.terminalCursor = TerminalCursorSetting.parse(root, diagnostics: &snapshot.diagnostics)
         let (quitBehavior, quitDiagnostic) = QuitBehaviorSetting.parse(root)
         snapshot.quitBehavior = quitBehavior
         if let quitDiagnostic { snapshot.diagnostics.append(quitDiagnostic) }
@@ -638,7 +647,9 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
                             if let range = LayoutMetricSetting.ranges[name], !range.contains(number) {
                                 snapshot.diagnostics.append(SettingsDiagnostic(
                                     kind: .invalidValue, path: path,
-                                    message: "expected a size in points from \(Int(range.lowerBound)) to \(Int(range.upperBound)); clamped"
+                                    message: [MetricKey.spacingScale, .toolbarButtonActiveFill, .headerDivider].map(\.rawValue).contains(name)
+                                        ? "expected a number from \(range.lowerBound) to \(range.upperBound); clamped"
+                                        : "expected a size in points from \(Int(range.lowerBound)) to \(Int(range.upperBound)); clamped"
                                 ))
                             }
                         }

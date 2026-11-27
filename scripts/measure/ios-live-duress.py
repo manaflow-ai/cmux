@@ -136,7 +136,9 @@ def main():
     ref = a.ref or sh("git", "-C", ROOT, "rev-parse", "HEAD").stdout.strip()
     live_root = tempfile.mkdtemp(prefix="ios-live-duress-")
     host = os.path.join(ROOT, "scripts/ios-live/host.sh")
-    env = dict(os.environ, IOS_LIVE_ROOT=live_root)
+    # The scratch root goes at the end; the pinned xcodegen stays in a cache so a run downloads it once.
+    env = dict(os.environ, IOS_LIVE_ROOT=live_root,
+               IOS_LIVE_TOOLS=os.environ.get("IOS_LIVE_TOOLS") or os.path.expanduser("~/Library/Caches/cmux-ios-live/tools"))
     owner = "ios-live-duress"
     udid = None
     started = time.time()

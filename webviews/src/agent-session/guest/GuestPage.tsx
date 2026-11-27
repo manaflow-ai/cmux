@@ -16,6 +16,8 @@
 import "./guest.css";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AvatarContext } from "../../pages/home-channels/avatars";
+import { useAutoRetry } from "../acpmux/autoRetry";
+import { useLasting } from "../../ui/lasting";
 import { useT } from "../acpmux/i18n";
 import type { AcpmuxSnapshot } from "../acpmux/model";
 import type { GuestFeed } from "./GuestTranscript";
@@ -92,7 +94,26 @@ export function startGuestPage(loadSheet?: () => Promise<unknown>): void {
 /** Tries to load the transcript's chunk again after a failed load: 1 s, 2 s, 4 s ... up to 30 s apart. */
 const CHUNK_RETRY_FIRST_MS = 1_000;
 const CHUNK_RETRY_MAX_MS = 30_000;
+/// The failed loads after which the page reloads (once): the browser may keep a failed module fetch
+/// for the page's life (#38101 F1), so asking the same import again cannot land.
+const CHUNK_RELOAD_AFTER = 2;
+/// The tab's last reload for a failed chunk; one within `CHUNK_RELOAD_GAP_MS` keeps asking instead,
+/// so a chunk that cannot load anywhere never reloads the page in a loop.
+const CHUNK_RELOAD_KEY = "cmux.guest.chunkReloadAt";
+const CHUNK_RELOAD_GAP_MS = 5 * 60_000;
 const reloadWindow = () => window.location.reload();
+
+/// Whether this tab may reload for a failed chunk now, and if so records that it did.
+function mayReloadForChunk(): boolean {
+  try {
+    const last = Number(window.sessionStorage.getItem(CHUNK_RELOAD_KEY) ?? 0);
+    if (Date.now() - last < CHUNK_RELOAD_GAP_MS) return false;
+    window.sessionStorage.setItem(CHUNK_RELOAD_KEY, String(Date.now()));
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** The fed client's id for the one chat a guest sees; the room never names the owner's session. */
 const GUEST_SESSION = "guest-chat";
@@ -137,7 +158,47 @@ export function EndedPage({ reason, invite = false }: { reason: GuestEnded; invi
 }
 
 /**
- * What a failed join says: invites name the account's problem; else offline, or try again. `signIn`
+ * A join that failed only because the owner's computer or the network was away (`share.host_offline`,
+ * `failed`): Join's click is asked again on the shared backoff (autoRetry.ts; the redeem's attempt id
+ * makes a repeat the same attempt, redeem.ts), with no "try again" (Leo, 2026-11-22: "vacuous decisions
+ * like that should be just done").
+ */
+function joinsAgain(error: RedeemError | undefined): boolean {
+  return error === "share.host_offline" || error === "failed";
+}
+
+/**
+ * A join card's state: `join` runs the person's Join; a failure `joinsAgain` covers runs it again by
+ * itself, the button reading Joining… meanwhile, and says nothing until it has lasted (`stillTrying`,
+ * one quiet line). Any other failure is `error`, said at once.
+ */
+function useJoin<Args extends unknown[]>(onJoin: (...args: Args) => Promise<RedeemError | undefined>) {
+  const [joining, setJoining] = useState(false);
+  const [failed, setFailed] = useState<RedeemError>();
+  const asked = useRef<Args | undefined>(undefined);
+  const join = (...args: Args) => {
+    asked.current = args;
+    setJoining(true);
+    setFailed(undefined);
+    void onJoin(...args).then((error) => {
+      setJoining(false);
+      setFailed(error);
+    });
+  };
+  const again = joinsAgain(failed) ? failed : undefined;
+  const { stillTrying } = useAutoRetry(
+    again,
+    () => {
+      if (asked.current) join(...asked.current);
+    },
+    { busy: joining },
+  );
+  return { joining: joining || again !== undefined, error: again ? undefined : failed, stillTrying, join };
+}
+
+/**
+ * What a failed join says: invites name the account's problem; else the link's (an away host or a
+ * dropped connection never reaches here: `useJoin` joins again by itself). `signIn`
  * is where to sign in (an invite's own address); a link's join signs in at its own page.
  */
 function JoinError({ error, signIn }: { error: RedeemError; signIn?: string }) {
@@ -176,7 +237,6 @@ function JoinError({ error, signIn }: { error: RedeemError; signIn?: string }) {
       </>
     );
   if (error === "share.unverified") return <>{t("guest.invite.unverified")}</>;
-  if (error === "share.host_offline") return <>{t("guest.join.hostOffline")}</>;
   return <>{t("guest.join.failed")}</>;
 }
 
@@ -194,17 +254,11 @@ export function InviteJoinPage({
   onJoin: () => Promise<RedeemError | undefined>;
 }) {
   const t = useT();
-  const [joining, setJoining] = useState(false);
-  const [error, setError] = useState<RedeemError>();
+  const { joining, error, stillTrying, join } = useJoin(onJoin);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (joining) return;
-    setJoining(true);
-    setError(undefined);
-    void onJoin().then((failed) => {
-      setJoining(false);
-      setError(failed);
-    });
+    join();
   };
   return (
     <main className="guest-card" data-testid="guest-invite">
@@ -215,10 +269,12 @@ export function InviteJoinPage({
           {joining ? t("guest.join.joining") : t("guest.join.button")}
         </button>
       </form>
-      {error && (
+      {error ? (
         <p className="guest-card__error" role="alert">
           <JoinError error={error} signIn={signIn} />
         </p>
+      ) : (
+        stillTrying && <output className="guest-card__detail">{t("guest.join.stillTrying")}</output>
       )}
     </main>
   );
@@ -241,20 +297,15 @@ export function JoinPage({
 }) {
   const t = useT();
   const [typed, setTyped] = useState("");
-  const [joining, setJoining] = useState(false);
-  const [error, setError] = useState<RedeemError>();
+  const { joining, error, stillTrying, join } = useJoin(onJoin);
   const name = joinName(typed);
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!name || joining || !hasSecret) return;
-    setJoining(true);
-    setError(undefined);
-    void onJoin(name).then((failed) => {
-      setJoining(false);
-      setError(failed);
-    });
+    join(name);
   };
   const message = !hasSecret ? t("guest.join.badLink") : error ? <JoinError error={error} /> : undefined;
+  const quiet = !message && stillTrying;
   return (
     <main className="guest-card">
       <h1 className="guest-card__title">{t("guest.join.title")}</h1>
@@ -275,10 +326,12 @@ export function JoinPage({
           {joining ? t("guest.join.joining") : t("guest.join.button")}
         </button>
       </form>
-      {message && (
+      {message ? (
         <p className="guest-card__error" role="alert">
           {message}
         </p>
+      ) : (
+        quiet && <output className="guest-card__detail">{t("guest.join.stillTrying")}</output>
       )}
       {signIn && hasSecret && (
         <p className="guest-card__detail" data-testid="guest-join-sign-in">
@@ -337,8 +390,7 @@ export function JoinAsPage({
     if (editing && !editingAtStart) field.current?.focus();
   }, [editing, editingAtStart]);
   const edit = () => setEditing(true);
-  const [joining, setJoining] = useState(false);
-  const [error, setError] = useState<RedeemError>();
+  const { joining, error, stillTrying, join } = useJoin(onJoin);
   const name = editing ? joinName(typed) : account.name;
   const face: Participant = {
     id: "guest-join-as",
@@ -348,12 +400,7 @@ export function JoinAsPage({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!name || joining) return;
-    setJoining(true);
-    setError(undefined);
-    void onJoin(name).then((failed) => {
-      setJoining(false);
-      setError(failed);
-    });
+    join(name);
   };
   return (
     <main className="guest-card" data-testid="guest-join-as">
@@ -394,10 +441,12 @@ export function JoinAsPage({
           {t("guest.join.editName")}
         </button>
       )}
-      {error && (
+      {error ? (
         <p className="guest-card__error" role="alert">
           <JoinError error={error} />
         </p>
+      ) : (
+        stillTrying && <output className="guest-card__detail">{t("guest.join.stillTrying")}</output>
       )}
     </main>
   );
@@ -438,7 +487,7 @@ export function LiveChat({
   openSocket?: (url: string) => ShareSocketLike;
   /** Loads the transcript's chunk (loadGuestTranscript; tests and the gallery hand in a failing one). */
   loadTranscript?: () => Promise<TranscriptModule>;
-  /** Reloads the page when Retry's load fails too (tests hand in a spy). */
+  /** Reloads the page once a chunk load failed twice (tests hand in a spy). */
   reloadPage?: () => void;
   onEnded: (reason: GuestEnd) => void;
 }) {
@@ -468,20 +517,24 @@ export function LiveChat({
   // The socket opens on the first commit; the records it brings wait for the transcript's chunk,
   // in arrival order, if they come first.
   const [transcript, setTranscript] = useState<TranscriptModule>();
-  // The chunk failed to load: the page says so with Retry, and keeps trying on its own.
+  // The chunk failed to load: the page keeps trying on its own and says nothing until the failure
+  // has lasted (then one quiet line, no Retry: Leo, 2026-11-22, "vacuous decisions like that should
+  // be just done").
   const [loadFailed, setLoadFailed] = useState(false);
-  const retryLoad = useRef<(() => void) | undefined>(undefined);
+  const stillLoading = useLasting(loadFailed);
   useEffect(() => {
     let stopped = false;
     let client: GuestFeed | undefined;
     const waiting: ((client: GuestFeed) => void)[] = [];
     const withClient = (run: (client: GuestFeed) => void) => (client ? run(client) : waiting.push(run));
     // A failed chunk load (a dropped connection) tries again until it lands or the chat goes away.
-    // The browser may keep a failed module fetch for the page's life, so a Retry that fails again
-    // reloads the page (this tab's join is in sessionStorage, so it opens the chat again).
+    // The browser may keep a failed module fetch for the page's life, so a load that failed
+    // `CHUNK_RELOAD_AFTER` times reloads the page once (this tab's join is in sessionStorage, so it
+    // opens the chat again).
     let retry: ReturnType<typeof setTimeout> | undefined;
     let attempt = 0;
-    const load = (delay: number, byRetry = false) => {
+    let failures = 0;
+    const load = (delay: number) => {
       clearTimeout(retry);
       retry = undefined;
       const mine = ++attempt;
@@ -496,18 +549,17 @@ export function LiveChat({
         () => {
           // Only the newest attempt schedules the next one.
           if (stopped || client || mine !== attempt) return;
-          if (byRetry) return reloadPage();
+          failures += 1;
+          if (failures === CHUNK_RELOAD_AFTER && mayReloadForChunk()) return reloadPage();
           setLoadFailed(true);
           retry = setTimeout(() => load(Math.min(delay * 2, CHUNK_RETRY_MAX_MS)), delay);
         },
       );
     };
-    retryLoad.current = () => load(CHUNK_RETRY_FIRST_MS, true);
     load(CHUNK_RETRY_FIRST_MS);
     const stop = () => {
       stopped = true;
       clearTimeout(retry);
-      retryLoad.current = undefined;
       waiting.length = 0;
       client?.dispose();
     };
@@ -633,20 +685,13 @@ export function LiveChat({
               onLoadOlder={loadOlder}
             />
           )}
-          {loadFailed ? (
-            <div className="guest-live__notice guest-live__notice--failed" role="alert">
-              {t("guest.live.loadFailed")}{" "}
-              <button className="guest-live__retry" type="button" onClick={() => retryLoad.current?.()}>
-                {t("retry.action")}
-              </button>
-            </div>
-          ) : (
-            connection !== "live" && (
-              <output className="guest-live__notice">
-                {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
-              </output>
-            )
-          )}
+          {loadFailed
+            ? stillLoading && <output className="guest-live__notice">{t("guest.live.stillLoading")}</output>
+            : connection !== "live" && (
+                <output className="guest-live__notice">
+                  {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
+                </output>
+              )}
         </div>
         {snapshot?.permission && (
           <output className="guest-live__ask">
@@ -701,7 +746,7 @@ export type GuestPageProps = {
   openSocket?: (url: string) => ShareSocketLike;
   /** Loads the transcript's chunk (default loadGuestTranscript). */
   loadTranscript?: () => Promise<TranscriptModule>;
-  /** Reloads the page when Retry's load fails too (default window.location.reload). */
+  /** Reloads the page once a chunk load failed twice (default window.location.reload). */
   reloadPage?: () => void;
   /** Starts on the ended page (the gallery's ended states). */
   ended?: GuestEnded;

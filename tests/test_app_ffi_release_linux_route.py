@@ -42,7 +42,7 @@ class FfiReleaseLinuxRoute(unittest.TestCase):
         for job in (self.jobs["repin"], yaml.safe_load(REPIN.read_text())["jobs"]["repin"]):
             self.assertGreaterEqual(int(job["timeout-minutes"]), 20)
             [step] = [s for s in job["steps"] if "publish-app-ffi-repin.sh" in str(s.get("run", ""))]
-            self.assertEqual(step["env"]["GIT_HTTP_LOW_SPEED_LIMIT"], "1000")
+            self.assertEqual(step["env"]["GIT_HTTP_LOW_SPEED_LIMIT"], "1")
             self.assertEqual(step["env"]["GIT_HTTP_LOW_SPEED_TIME"], "60")
 
     def test_the_compare_only_shadow_stays_off_the_reserved_lane(self) -> None:

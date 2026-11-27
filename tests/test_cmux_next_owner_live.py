@@ -120,10 +120,14 @@ class Holder(unittest.TestCase):
 class Notify(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.env = mock.patch.dict(os.environ, {"CMUX_OWNER_NOTICES": str(Path(self.tmp.name) / "n.json")})
+        self.env = mock.patch.dict(os.environ, {"CMUX_OWNER_NOTICES": str(Path(self.tmp.name) / "n.json"),
+                                                "ACPMUX_SESSION_ID": "id-pusher"})
         self.env.start()
+        self.me = mock.patch.object(live, "sender_name", return_value="host-p/pusher")
+        self.me.start()
 
     def tearDown(self):
+        self.me.stop()
         self.env.stop()
         self.tmp.cleanup()
 
@@ -147,6 +151,44 @@ class Notify(unittest.TestCase):
         with mock.patch.dict(os.environ, {"CMUX_OWNER_NOTIFY": "0"}), mock.patch.object(live.subprocess, "run") as run:
             self.assertEqual(live.notify("h/s", "a", "h", "t"), "CMUX_OWNER_NOTIFY=0")
         run.assert_not_called()
+
+    def test_no_sender_session_sends_nothing(self):
+        # 2026-11-25: a push outside any acpmux session sent "you hold it now" from the bare host, with no Sent-by.
+        env = {k: v for k, v in os.environ.items() if k not in live.SENDER_ENV}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(live.subprocess, "run") as run:
+            self.assertEqual(live.notify("h/s", "a", "h", "t"), live.NO_SENDER)
+        run.assert_not_called()
+
+    def test_the_notice_names_the_pusher_as_host_slash_name(self):
+        # 2026-11-26: notices arrived labelled "gcp-agent-lane-5" (a bare host) and inbox_reply could not answer them.
+        ok = types.SimpleNamespace(returncode=0, stdout="id", stderr="")
+        with mock.patch.object(live.subprocess, "run", return_value=ok) as run:
+            self.assertIsNone(live.notify("h/s", "acpmux", "a" * 40, "you hold it now."))
+        self.assertIn("From host-p/pusher; answer with `lane-gh send host-p/pusher -`", run.call_args.kwargs["input"])
+
+    def test_a_session_acpmux_cannot_name_sends_nothing(self):
+        with mock.patch.object(live, "sender_name", return_value=None), mock.patch.object(live.subprocess, "run") as run:
+            self.assertEqual(live.notify("h/s", "a", "h", "t"), live.NO_SENDER_NAME)
+        run.assert_not_called()
+
+    def test_sender_name_is_host_slash_name_never_a_bare_host(self):
+        self.me.stop()
+        try:
+            info = types.SimpleNamespace(returncode=0, stdout="machine\tgcp-agent-lane-5\nname\tfix-sidebar\n", stderr="")
+            with mock.patch.object(live.subprocess, "run", return_value=info) as run:
+                self.assertEqual(live.sender_name(), "gcp-agent-lane-5/fix-sidebar")
+            self.assertEqual(run.call_args.args[0][:4], ["acpmux", "session", "info", "id-pusher"])
+            host_only = types.SimpleNamespace(returncode=0, stdout="machine\tgcp-agent-lane-5\nname\t\n", stderr="")
+            gone = types.SimpleNamespace(returncode=4, stdout="", stderr="no_session")
+            for out in (host_only, gone):
+                with mock.patch.object(live.subprocess, "run", return_value=out):
+                    self.assertIsNone(live.sender_name())
+            env = {k: v for k, v in os.environ.items() if k not in ("ACPMUX_SESSION_ID", "ACPMUX_SESSION_NAME")}
+            with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(live.subprocess, "run") as run:
+                self.assertIsNone(live.sender_name())
+            run.assert_not_called()
+        finally:
+            self.me.start()
 
     def test_ci_lists_nothing(self):
         with mock.patch.dict(os.environ, {"CI": "true"}):
@@ -211,6 +253,106 @@ class Route(unittest.TestCase):
         with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
             guardrails.owner_route(repo, [own2], (rows, None), "host-a/coordinator")
         self.assertEqual(sent[1][2], sent[0][2])
+
+    def test_a_base_merge_carries_no_owned_files(self):
+        """2026-11-25: lane/port-46285 (webviews only) merged feat-cmux-next, whose new commit touched
+        Packages/iOS/CmuxTabsKit; the push's base was the old remote head, so the two-tree diff counted CmuxTabsKit
+        and the live iOS lane was told it held it. Only the push's own commits count."""
+        guardrails = _load("cmux_next_guardrails_owner_merge_test", "scripts/cmux-next/guardrails.py")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        repo = Path(tmp.name)
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def git(*args, committer="t@t"):
+            return subprocess.run(["git", *args], cwd=repo, env={**env, "GIT_COMMITTER_EMAIL": committer},
+                                  check=True, capture_output=True, text=True).stdout.strip()
+
+        def commit(path, text, message, committer="t@t"):
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (repo / path).write_text(text)
+            git("add", "-A")
+            git("commit", "-qm", message, committer=committer)
+
+        git("init", "-q", "-b", "main")
+        commit("plans/cmux-next/OWNERS.md", "| Area | Paths | Owner | Read first |\n|---|---|---|---|\n"
+               "| iOS tabs | `Packages/iOS/` | lanes ios-* | [AGENTS.md](AGENTS.md) |\n", "base")
+        git("checkout", "-qb", "lane/port")
+        commit("webviews/src/a.tsx", "a\n", "own change")
+        old_remote = git("rev-parse", "HEAD")
+        git("checkout", "-q", "main")
+        # Upstream's squash merge: GitHub is its committer.
+        commit("Packages/iOS/CmuxTabsKit/Tab.swift", "tab\n", "tabs (#1)", committer=guardrails.GITHUB_COMMITTER)
+        git("checkout", "-q", "lane/port")
+        git("merge", "-q", "--no-edit", "main")
+        head = git("rev-parse", "HEAD")
+        own = types.SimpleNamespace(base=old_remote, head=head, before=())
+        rows = [row("host-a/ios-terminal-first-composer", "running")]
+        sent = []
+        with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
+            lines = guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+        self.assertEqual((lines, sent), ([], []))
+        # The lane's own edit to the area after the merge still reaches the holder.
+        commit("Packages/iOS/CmuxTabsKit/Tab.swift", "tab 2\n", "own tabs edit")
+        own = types.SimpleNamespace(base=old_remote, head=git("rev-parse", "HEAD"), before=())
+        with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
+            lines = guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+        self.assertEqual([(to, area) for to, area, *_ in sent], [("host-a/ios-terminal-first-composer", "iOS tabs")])
+
+
+    def test_a_github_update_branch_merge_carries_no_owned_files(self):
+        """2026-11-26: lane/updater-restore-adopt at a2b890f491d4 told the sidebar lane it changed
+        CmuxNextSidebar/Views/WorkspaceRowView+TrailingCloud.swift. Its head's parent c60664bd4f1f was GitHub's
+        "Merge branch 'feat-cmux-next' into ..." (update branch, committer GitHub), and the file came from that
+        merge: `git diff $(git merge-base HEAD origin/feat-cmux-next) HEAD` of it was empty (lane/link-race-warm,
+        cmux#53632, the same through base merge 0accd367). Neither the merge nor what it brought in is the push's,
+        whether upstream's commit was GitHub's squash or a person's push this clone has under refs/remotes."""
+        guardrails = _load("cmux_next_guardrails_owner_update_branch_test", "scripts/cmux-next/guardrails.py")
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        repo = Path(tmp.name)
+        env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+               "GIT_COMMITTER_EMAIL": "t@t"}
+
+        def git(*args, committer="t@t"):
+            return subprocess.run(["git", *args], cwd=repo, env={**env, "GIT_COMMITTER_EMAIL": committer},
+                                  check=True, capture_output=True, text=True).stdout.strip()
+
+        def commit(path, text, message, committer="t@t"):
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (repo / path).write_text(text)
+            git("add", "-A")
+            git("commit", "-qm", message, committer=committer)
+
+        sidebar = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/WorkspaceRowView+TrailingCloud.swift"
+        git("init", "-q", "-b", "feat-cmux-next")
+        commit("plans/cmux-next/OWNERS.md", "| Area | Paths | Owner | Read first |\n|---|---|---|---|\n"
+               "| Sidebar | `Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/` | lanes *sidebar* | "
+               "[AGENTS.md](AGENTS.md) |\n", "base")
+        git("checkout", "-qb", "lane/updater-restore-adopt")
+        commit("Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Restore.swift", "a\n", "own change")
+        old_remote = git("rev-parse", "HEAD")
+        git("checkout", "-q", "feat-cmux-next")
+        commit(sidebar, "cloud\n", "sidebar trailing cloud (#2)", committer=guardrails.GITHUB_COMMITTER)
+        # A person's direct push upstream: not GitHub's, but on a remote-tracking ref this clone fetched.
+        commit(sidebar.replace("TrailingCloud", "Leading"), "lead\n", "sidebar leading", committer="p@p")
+        git("update-ref", "refs/remotes/origin/feat-cmux-next", "HEAD")
+        git("checkout", "-q", "lane/updater-restore-adopt")
+        # GitHub's update-branch merge, then the lane's next commit on top of it.
+        git("merge", "-q", "--no-ff", "--no-edit", "-m", "Merge branch 'feat-cmux-next' into "
+            "lane/updater-restore-adopt", "feat-cmux-next", committer=guardrails.GITHUB_COMMITTER)
+        commit("Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Restore.swift", "b\n", "own change 2")
+        head = git("rev-parse", "HEAD")
+        rows = [row("host-a/sidebar-owner", "running")]
+        for base, before in ((old_remote, ()), (git("merge-base", "HEAD", "feat-cmux-next"), ())):
+            own = types.SimpleNamespace(base=base, head=head, before=before)
+            self.assertEqual(guardrails.owner_route_files(repo, own),
+                             ["Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Restore.swift"])
+            sent = []
+            with mock.patch.object(live, "notify", side_effect=lambda *a: sent.append(a)):
+                lines = guardrails.owner_route(repo, [own], (rows, None), "host-a/coordinator")
+            self.assertEqual((lines, sent), ([], []))
 
 
 if __name__ == "__main__":

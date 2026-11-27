@@ -1,5 +1,8 @@
 import CmuxAgentQuestion
 import Foundation
+#if os(iOS)
+import CmuxMobileLinkFFI
+#endif
 
 /// A Feed row's own UI state: what the person did to this row on this
 /// screen, which changes its layout (the event itself lives in the store).
@@ -65,40 +68,34 @@ struct FeedStacks: Equatable {
     /// `expanded`: the stacks shown open, by their newest event's id. A stack that gets a newer
     /// event stays open (its key moves to the new newest event), and keys of stacks that are gone
     /// are dropped. `open`: rows that never fold (a reply being written under them); one may still lead a stack.
+    #if os(iOS)
+    /// The rules are in Rust (`feed_stacking`, cmux-mobile-link-ffi); this maps the events in and the rows out.
     init(_ items: [FeedItem], expanded: inout Set<String>, open: Set<String> = []) {
-        var live = Set<String>()
-        var index = 0
-        rows.reserveCapacity(items.count)
-        while index < items.count {
-            let head = items[index]
-            var end = index + 1
-            if Self.stacks(head) {
-                while end < items.count, items[end].workspaceID == head.workspaceID, items[end].tabID == head.tabID, items[end].macID == head.macID,
-                      Self.stacks(items[end]), !open.contains(items[end].id) {
-                    end += 1
-                }
-            }
-            rows.append(head)
-            let older = items[(index + 1)..<end]
-            if !older.isEmpty {
-                // The stack was open under an event that is now one of its older ones: it stays open.
-                if !expanded.contains(head.id), let was = older.first(where: { expanded.contains($0.id) }) {
-                    expanded.remove(was.id)
-                    expanded.insert(head.id)
-                }
-                let isExpanded = expanded.contains(head.id)
-                if isExpanded { live.insert(head.id) }
+        let plan = feedStacking(
+            items: items.map {
+                FeedStackItem(id: $0.id, macId: $0.macID, workspaceId: $0.workspaceID, tabId: $0.tabID, keepsOwnRow: !Self.stacks($0))
+            },
+            expanded: Array(expanded), open: Array(open)
+        )
+        rows.reserveCapacity(plan.rows.count)
+        for row in plan.rows {
+            switch row {
+            case .event(let index):
+                rows.append(items[Int(index)])
+            case .fold(let index, let count, let isExpanded):
+                let head = items[Int(index)]
                 let foldID = Self.foldID(head: head.id)
-                heads.insert(head.id)
-                folds[foldID] = FeedFold(count: older.count, expanded: isExpanded)
+                folds[foldID] = FeedFold(count: Int(count), expanded: isExpanded)
                 rows.append(FeedItem(id: foldID, kind: .response, workspaceID: head.workspaceID, tabID: head.tabID, agentName: head.agentName,
                                      harness: "", workspaceTitle: "", markdown: "", quote: nil, createdAt: .distantPast))
-                if isExpanded { rows.append(contentsOf: older) } else { hidden.append(contentsOf: older.map(\.id)) }
             }
-            index = end
         }
-        if expanded.count != live.count { expanded = live }
+        heads = Set(plan.heads)
+        hidden = plan.hidden
+        let live = Set(plan.expanded)
+        if expanded != live { expanded = live }
     }
+    #endif
 }
 
 /// What a row's layout depends on: the event, the row's state, the column
@@ -207,26 +204,20 @@ struct FeedSnapshotEdit: Equatable {
         var ids: [String]
     }
 
+    #if os(iOS)
+    /// The rules are in Rust (`feed_snapshot_edit`).
     init?(old: [String], new: [String]) {
-        let newSet = Set(new), oldSet = Set(old)
-        guard old.filter(newSet.contains) == new.filter(oldSet.contains) else { return nil }
-        removed = old.filter { !newSet.contains($0) }
-        groups = []
-        var buffer: [String] = []
-        for id in new {
-            if oldSet.contains(id) {
-                if !buffer.isEmpty { groups.append(Group(before: id, ids: buffer)); buffer = [] }
-            } else {
-                buffer.append(id)
-            }
-        }
-        tail = buffer
+        guard let edit = feedSnapshotEdit(old: old, new: new) else { return nil }
+        removed = edit.removed
+        groups = edit.groups.map { Group(before: $0.before, ids: $0.ids) }
+        tail = edit.tail
     }
+    #endif
 }
 
 /// The pinned group at the top of the whole Feed: the asks still waiting on the person, which
-/// `FeedStore.pinningNeedsYou` puts before every other event. The list labels the group
-/// ("Needs you · 2") so the place where time order starts again is clear.
+/// `FeedStore.pinningNeedsYou` puts before every other event. An ask that leaves the group (or
+/// joins it again) moves its row, so the list follows it by eye.
 enum FeedPinnedGroup {
     /// How many rows of `items` (in list order) are the pinned group. Only the whole Feed has
     /// one: a filtered Feed is a single list in time order, and its chip already names it.
@@ -234,9 +225,6 @@ enum FeedPinnedGroup {
         guard filter == .all else { return 0 }
         return items.prefix(while: \.needsYou).count
     }
-
-    /// The group's label: the chip's name and how many asks wait.
-    static func title(_ count: Int) -> String { "\(FeedFilter.needsYou.rawValue) · \(count)" }
 }
 
 /// One row order turned into another by moving a few rows (`movers`: an ask that was answered
@@ -256,41 +244,26 @@ struct FeedMoveEdit: Equatable {
     /// From the last row to the first: each step's `before` row is already in its place.
     var steps: [Step]
 
+    #if os(iOS)
+    /// The rules are in Rust (`feed_move_edit`, `feed_move_edit_applied`).
     init?(old: [String], new: [String], movers: Set<String>, limit: Int = 4) {
-        let oldSet = Set(old), newSet = Set(new)
-        let moving = movers.filter { oldSet.contains($0) && newSet.contains($0) }
-        guard !moving.isEmpty, moving.count <= limit else { return nil }
-        let stays: (String) -> Bool = { !moving.contains($0) }
-        guard old.filter({ newSet.contains($0) && stays($0) }) == new.filter({ oldSet.contains($0) && stays($0) }) else { return nil }
-        removed = old.filter { !newSet.contains($0) }
-        steps = []
-        var after: String?
-        for id in new.reversed() {
-            if moving.contains(id) {
-                steps.append(.move(id, before: after))
-            } else if !oldSet.contains(id) {
-                steps.append(.insert(id, before: after))
-            }
-            after = id
-        }
+        guard let edit = feedMoveEdit(old: old, new: new, movers: Array(movers), limit: UInt32(clamping: max(0, limit))) else { return nil }
+        removed = edit.removed
+        steps = edit.steps.map { $0.moved ? .move($0.id, before: $0.before) : .insert($0.id, before: $0.before) }
     }
 
     /// The steps applied to `old` (what the list does to its snapshot).
     func applied(to old: [String]) -> [String] {
-        let gone = Set(removed)
-        var order = old.filter { !gone.contains($0) }
-        func place(_ id: String, before: String?) {
-            if let before, let index = order.firstIndex(of: before) { order.insert(id, at: index) } else { order.append(id) }
-        }
-        for step in steps {
-            switch step {
-            case .move(let id, let before):
-                order.removeAll { $0 == id }
-                place(id, before: before)
-            case .insert(let id, let before):
-                place(id, before: before)
+        let plan = FeedMovePlan(
+            removed: removed,
+            steps: steps.map {
+                switch $0 {
+                case .move(let id, let before): FeedMoveStep(id: id, before: before, moved: true)
+                case .insert(let id, let before): FeedMoveStep(id: id, before: before, moved: false)
+                }
             }
-        }
-        return order
+        )
+        return feedMoveEditApplied(edit: plan, old: old)
     }
+    #endif
 }

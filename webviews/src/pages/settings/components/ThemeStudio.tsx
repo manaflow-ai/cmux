@@ -1,6 +1,6 @@
 // The Theme section (P3, P4): a full preview, then one card of rows. The terminal theme
 // (`appearance.theme`) and the app theme (`appearance.appTheme`: match the terminal theme, or its own
-// pick) each have Match System Appearance for a light and dark pair, and the accent
+// pick) share one Match System Appearance switch for a light and dark pair, and the accent
 // (`appearance.accent`) is a swatch popup. Every theme choice is the same ThemePicker. The card also
 // shows the contrast the derived app tokens reach and the active window's scope overrides inline
 // (no space/workspace/terminal tabs), and ends with the Highlight Color (`appearance.highlightColor`,
@@ -74,7 +74,6 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
     light: useId(),
     dark: useId(),
     app: useId(),
-    appMatch: useId(),
     "app-light": useId(),
     "app-dark": useId(),
     accent: useId(),
@@ -317,11 +316,17 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                 help={t("settingsPage.theme.matchSystemHelp")}
                 menu={themeMenu}
               >
+                {/* One switch for both themes: on when either is a pair; turning it on or off sets
+                    both (an app theme that follows the terminal's has no pair of its own to set). */}
                 <Switch
-                  checked={paired}
+                  checked={paired || appPaired}
                   disabled={disabled}
                   labelId={ids.match}
-                  onToggle={(on) => void write(toggledPair(spec, on, scheme, fallbackName))}
+                  onToggle={(on) => {
+                    if (paired !== on) void write(toggledPair(spec, on, scheme, fallbackName));
+                    if (appSpec && !appDisabled && appPaired !== on)
+                      void writeApp(toggledPair(appSpec, on, scheme, fallbackName));
+                  }}
                 />
               </StudioRow>
               {paired ? (
@@ -369,29 +374,13 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
           {appRow && names.length === 0 && <SettingRow row={appRow} focused={focused === APP_THEME_KEY} />}
           {appRow && names.length > 0 && (
             <>
-              <StudioRow
-                kind="app-match"
-                settingKey={APP_THEME_KEY}
-                state={appState}
-                id={ids.appMatch}
-                title={t("settingsPage.theme.matchSystem")}
-                help={appSpec ? t("settingsPage.theme.matchSystemHelp") : t("settingsPage.theme.appFollowsTerminal")}
-                menu={appMenu}
-              >
-                {/* While the app theme matches the terminal theme it follows the terminal's switch. */}
-                <Switch
-                  checked={appSpec ? appPaired : paired}
-                  disabled={appDisabled || !appSpec}
-                  labelId={ids.appMatch}
-                  onToggle={(on) => void writeApp(toggledPair(appSpec, on, scheme, fallbackName))}
-                />
-              </StudioRow>
               {appSpec?.kind === "pair" ? (
                 (["light", "dark"] as const).map((side) => (
                   <StudioRow
                     key={side}
                     kind={`app-${side}`}
                     settingKey={APP_THEME_KEY}
+                    state={side === "light" ? appState : undefined}
                     reveal={side === "light" && focused === APP_THEME_KEY}
                     onRevealed={markRevealed}
                     id={ids[`app-${side}`]}
@@ -409,6 +398,7 @@ export function ThemeStudio({ focus = null }: { focus?: string | null } = {}) {
                 <StudioRow
                   kind="app"
                   settingKey={APP_THEME_KEY}
+                  state={appState}
                   reveal={focused === APP_THEME_KEY}
                   onRevealed={markRevealed}
                   id={ids.app}

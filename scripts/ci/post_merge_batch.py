@@ -19,6 +19,9 @@ Subcommands (each run by .github/workflows/cmux-next-post-merge.yml, except tick
           commit, no other batch run is in flight, and the tip is at least NEXT_POST_MERGE_EVERY_MERGES
           commits ahead of the newest batch run's commit (one compare call) or that run started at
           least a window ago. Nothing waits or loops; a skipped tick costs seconds.
+          Each tick also starts the hourly full tier (cmux-next-hourly-full-tier.yml, scripts/ci/hourly_full_tier.py)
+          when it is due (hourly_kick): no run in flight, the newest one at least HOURLY_MINUTES old and not at the
+          tip. Its failure never stops the batch tick.
   plan    which suites this run calls: on a batch run, every suite whose paths the commits since
           the last batch run touched (all of them when there is none); on a probe, the one suite.
   judge   after the suites: on a batch run, each red job that was green on the newest earlier
@@ -61,6 +64,14 @@ PROBE = "probe"
 RUNS_PAGE = 100
 # At most this many new reds start a bisect from one batch run; the rest are named only.
 MAX_CHAINS = 4
+# At most this many stuck reds (red on two or more batch runs in a row, see stuck_reds) start a bisect from one batch
+# run, after the new reds. Before 2026-11-26 a red that outlived one batch run was "a known red, no bisect" forever: the
+# 06:29Z batch run 45768539377 skipped 43 of its 48 reds that way, and live base reds went 62 to 91 in 22 h (cmuxterm-hq
+# goals/base-batch-reverts-culprit.md).
+MAX_STUCK_CHAINS = 4
+# A stuck red is bisected again at most this many times after the bisect its first red batch run started, so a red no
+# bisect can pin (an outside service, a red on every commit) costs a bounded number of probe chains.
+MAX_REBISECTS = 2
 # A probe run with no verdict (cancelled, runner lost) is tried again this many times. Two: drill-8 lost two
 # runners within the hour (runs 44966393364 and 44980687386).
 MAX_PROBE_RETRIES = 2
@@ -76,6 +87,26 @@ PIECES_DRILL = "lane/post-merge-drill-pieces-"
 TEAMMATES = frozenset({"austinywang", "azooz2003-bit", "lawrencecchen", "lucasr1b"})
 TEAMMATE_HOLD = ("HOLD: {login}'s merge. This revert is ready for {login} to land or close; no agent merges it "
                  "(a teammate's PR is never merged, labelled or closed by an agent).")
+
+
+# next-autoland's hand-off label (cmuxterm-hq tools/fleet-reconcilers/next_autoland.py LABEL): on it, the PR is
+# ready, is reviewed and lands like any agent PR once its checks pass, and it starts the full CI tier
+# (scripts/ci/head_tier.py LAND_LABEL). Goal base-batch-reverts-culprit: a confirmed culprit's revert lands
+# with no person. A teammate's held revert never gets it (TEAMMATE_HOLD): it waits for them.
+LAND_LABEL = "ready-to-land"
+
+
+def hand_off(repo: str, number: int, author: str, api=None) -> str:
+    """Labels the revert or swap-out pull request `number` LAND_LABEL unless `author` (a teammate) holds it. Returns
+    the line for the run summary. A refused label leaves the pull request open for normal landing: it is the record."""
+    if author:
+        return f"Held for {author}: not labelled {LAND_LABEL}."
+    try:
+        (api or gh_api)(f"repos/{repo}/issues/{number}/labels", method="POST", fields={"labels": [LAND_LABEL]})
+    except RuntimeError as err:
+        print(f"label {LAND_LABEL} on #{number}: {err}", file=sys.stderr)
+        return f"Could not label it {LAND_LABEL} ({str(err)[-160:]}); it waits for normal landing."
+    return f"Labelled {LAND_LABEL}: next-autoland lands it once it is reviewed and green."
 
 
 # ---------------------------------------------------------------------------- GitHub and git
@@ -194,11 +225,12 @@ def publish(args: argparse.Namespace, branch: str, start: str, refspec: str, fil
     push_branch(push_url(args.push_url, token), refspec)
 
 
-def start_branch(repo: str, branch: str, sha: str, api=gh_api, sleep=time.sleep, waits: tuple[int, ...] = (15, 45), token: str = "") -> None:
+def start_branch(repo: str, branch: str, sha: str, api=None, sleep=time.sleep, waits: tuple[int, ...] = (15, 45), token: str = "") -> None:
     """Creates branch at sha, a commit GitHub already has, through the REST API, with the push token. The revert
     then reaches it as an update. With the job token, a git push that creates the branch timed out every time
     (drill-5 run 44897813534, drill-6 run 44906887225, four tries each) and this call got HTTP 502 (drill-7 run
     44932473656). A branch left by an earlier try is reused; a GitHub 5xx is retried."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     for wait in (*waits, None):
         try:
             api(f"repos/{repo}/git/refs", method="POST", fields={"ref": f"refs/heads/{branch}", "sha": sha}, tokens=[token or push_token()])
@@ -284,15 +316,17 @@ def is_batch(run: dict) -> bool:
     return (run.get("display_title") or run.get("name") or "").split(" ", 1)[0] == BATCH
 
 
-def list_runs(repo: str, branch: str, api=gh_api) -> list[dict]:
+def list_runs(repo: str, branch: str, api=None) -> list[dict]:
     """This workflow's runs on branch, newest first (one page)."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     data = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&per_page={RUNS_PAGE}")
     runs = list((data or {}).get("workflow_runs") or [])
     runs.sort(key=lambda r: (r.get("created_at") or "", r.get("id") or 0), reverse=True)
     return runs
 
 
-def run_jobs(repo: str, run_id: int, api=gh_api) -> list[dict]:
+def run_jobs(repo: str, run_id: int, api=None) -> list[dict]:
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     jobs: list[dict] = []
     page = 1
     while True:
@@ -381,8 +415,9 @@ def every_merges(value: str | None) -> int:
     return max(count, 0)
 
 
-def ahead_by(repo: str, base: str, tip: str, api=gh_api) -> int | None:
+def ahead_by(repo: str, base: str, tip: str, api=None) -> int | None:
     """Commits tip has that base has not (one compare call, one commit listed); None when GitHub cannot say."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     if not base or not SHA_RE.match(str(base)):
         return None
     try:
@@ -392,6 +427,43 @@ def ahead_by(repo: str, base: str, tip: str, api=gh_api) -> int | None:
         return None
     count = data.get("ahead_by")
     return count if isinstance(count, int) else None
+
+
+HOURLY_WORKFLOW = "cmux-next-hourly-full-tier.yml"
+HOURLY_MINUTES = 55  # the 30-minute schedule's ticks land at most an hour apart: :11 and :41
+
+
+def hourly_decision(tip: str, runs: list[dict], now: datetime, minutes: int = HOURLY_MINUTES) -> tuple[str, str]:
+    """Whether to start the hourly full tier at TIP. RUNS: its runs, newest first."""
+    if any(r.get("status") != "completed" for r in runs):
+        return "skip", "an hourly full tier run is in flight"
+    if not runs:
+        return "dispatch", "no hourly full tier run yet"
+    newest = runs[0]
+    if newest.get("head_sha") == tip:
+        return "skip", "the tip has not moved since the last hourly full tier run"
+    age = (now - parse_time(newest.get("created_at") or "")).total_seconds() / 60
+    if age < minutes:
+        return "skip", f"the last hourly full tier run is {age:.0f} min old"
+    return "dispatch", f"the tip moved since {str(newest.get('head_sha') or '')[:10]}, {age:.0f} min ago"
+
+
+def hourly_kick(args: argparse.Namespace, tip: str, now: datetime, api=None) -> str:
+    """Start cmux-next-hourly-full-tier.yml on the branch when hourly_decision says so; any API error is a warning."""
+    api = api or gh_api
+    try:
+        data = api(f"repos/{args.repo}/actions/workflows/{HOURLY_WORKFLOW}/runs?branch={args.branch}&per_page=5")
+        runs = sorted((data or {}).get("workflow_runs") or [],
+                      key=lambda r: (r.get("created_at") or "", r.get("id") or 0), reverse=True)
+        action, reason = hourly_decision(tip, runs, now)
+        print(f"hourly full tier: {action}: {reason}")
+        if action == "dispatch" and not args.dry_run:
+            api(f"repos/{args.repo}/actions/workflows/{HOURLY_WORKFLOW}/dispatches", method="POST",
+                fields={"ref": args.branch})
+        return action
+    except (RuntimeError, ValueError, KeyError, TypeError) as err:
+        print(f"::warning::hourly full tier kick skipped: {err}")
+        return "error"
 
 
 def cmd_tick(args: argparse.Namespace) -> int:
@@ -408,6 +480,7 @@ def tick(args: argparse.Namespace) -> int:
     # No web tick: the batch's `web` suite gives the base its web verdict, so cmux-next-web.yml's coalescing
     # tick (#49173) would run the same checks a second time.
     tip = gh_api(f"repos/{args.repo}/commits/{args.branch}")["sha"]
+    hourly_kick(args, tip, datetime.now(timezone.utc))
     runs = list_runs(args.repo, args.branch)
     def judged(run_id: int) -> bool:
         return any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in run_jobs(args.repo, run_id))
@@ -556,6 +629,66 @@ def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], j
     return found, notes
 
 
+def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of,
+               suites: dict[str, "Suite"]) -> list[tuple[str, str, str, str]]:
+    """The reds new_reds calls known that get a bisect anyway: (job name, suite, good sha, bad sha).
+
+    A job red on this batch run and on the newest earlier judged batch run where it finished has a last green batch
+    run further back (good) and a first red one after it (bad): the culprit is in good..bad. It is bisected there,
+    with no confirming probe (two batch runs already agree it is red), unless a probe of the same suite job started
+    after the first red batch run is still running, or it was already bisected MAX_REBISECTS times since. Matrix legs
+    of one suite job with the same good and bad are one bisect (gallery-health's 21 shards were 21 known reds).
+    runs: this workflow's runs, newest first, none newer than the judging run, so a probe's judge reading the same
+    runs (cmd_judge, before its origin) agrees with the batch run that dispatched it."""
+    reds = [name for name, (_, conclusion) in sorted(verdicts.items()) if conclusion == "failure"]
+    earlier = [r for r in runs if is_batch(r) and r.get("status") == "completed" and r.get("head_sha") != sha]
+    probes = [r for r in runs if (r.get("display_title") or "").split(" ", 1)[0] == PROBE]
+    cache: dict[int, object] = {}
+    out: list[tuple[str, str, str, str]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for name in reds:
+        suite = verdicts[name][0]
+        first = green = None
+        red_runs = 0
+        for run in earlier:
+            if run["id"] not in cache:
+                cache[run["id"]] = jobs_of(run["id"])
+            got, judged = cache[run["id"]] if isinstance(cache[run["id"]], tuple) else (cache[run["id"]], True)
+            before = got.get(name)
+            if not before or before[1] not in ("success", "failure"):
+                continue
+            if before[1] == "failure":
+                if judged:
+                    first, red_runs = run, red_runs + 1
+                continue
+            green = run
+            break
+        if first is None or green is None:
+            continue  # a new red (new_reds bisects it) or no green in reach
+        only = suites[suite].job_id(name.partition(" / ")[2]) if suite in suites else ""
+        key = (suite, only, green["head_sha"], first["head_sha"])
+        if key in seen:
+            continue
+        prefix = f"{PROBE} {suite} {only or 'all'} at "
+        mine = [p for p in probes if (p.get("display_title") or "").startswith(prefix)
+                and (p.get("created_at") or "") > (first.get("created_at") or "")]
+        if any(p.get("status") != "completed" for p in mine):
+            continue
+        if mine and red_runs > MAX_REBISECTS:
+            continue
+        seen.add(key)
+        out.append((name, suite, green["head_sha"], first["head_sha"]))
+    return out
+
+
+def stuck_probe(name: str, suite: str, only: str, good: str, bad: str, origin: str, commits: list[str]) -> Probe:
+    """The first probe of a stuck red's bisect: the middle of good..bad (bad itself when that is one commit, which
+    re-confirms it: next_step reads a pass there as a flake)."""
+    span = commits_between(commits, good, bad)
+    mid = span[(len(span) - 1) // 2] if span else bad
+    return Probe(suite, name, only, mid, good, bad, origin)
+
+
 def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, Probe | str | None]:
     """After a probe finished with conclusion: ('probe', next Probe), ('culprit', sha),
     ('flake', None), ('lost', None) or ('retry', Probe). commits: good..bad (or good..sha for the
@@ -565,6 +698,8 @@ def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, P
             return "retry", Probe(**{**probe.__dict__, "tries": probe.tries + 1})
         return "lost", None
     good, bad = probe.good, probe.bad
+    if bad and probe.sha == bad and conclusion == "success":  # a stuck red's one-commit range, re-confirmed: it passed
+        return "flake", None
     if not bad:  # the confirming probe, on the batch's own commit
         if conclusion == "success":
             return "flake", None
@@ -619,8 +754,9 @@ def probe_refusal(probe: Probe, branch: str, origin: dict | None, found: list[tu
     return ""
 
 
-def dispatch_probe(repo: str, branch: str, probe: Probe, api=gh_api) -> None:
+def dispatch_probe(repo: str, branch: str, probe: Probe, api=None) -> None:
     # DISPATCH_TOKEN: the revert job's GITHUB_TOKEN (actions: write), whose GH_TOKEN may be the App's, which has none.
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     token = os.environ.get("DISPATCH_TOKEN") or os.environ.get("GH_TOKEN", "")
     api(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", method="POST", fields={"ref": branch, "inputs": probe.inputs()}, tokens=[token])
 
@@ -691,14 +827,23 @@ def cmd_judge(args: argparse.Namespace) -> int:
     jobs = run_jobs(args.repo, args.run_id)
     verdicts = suite_verdicts(jobs, suites)
     out: dict[str, str] = {"culprit": "", "job": "", "good": "", "origin": "", "pieces": "", "piece": ""}
+    memo: dict[int, tuple[dict[str, tuple[str, str]], bool]] = {}
+
     def jobs_of(rid: int) -> tuple[dict[str, tuple[str, str]], bool]:
-        earlier = run_jobs(args.repo, rid)
-        judged = any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in earlier)
-        return suite_verdicts(earlier, suites), judged
+        # new_reds and stuck_reds walk the same earlier runs: read each run's jobs once.
+        if rid not in memo:
+            earlier = run_jobs(args.repo, rid)
+            judged = any(j.get("name") == "judge" and j.get("conclusion") == "success" for j in earlier)
+            memo[rid] = (suite_verdicts(earlier, suites), judged)
+        return memo[rid]
 
     if args.mode != PROBE:
-        runs = list_runs(args.repo, args.branch)
+        # Only runs older than this one, as a probe's judge reads them (before its origin), so both agree.
+        runs = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < int(args.run_id or 0) or not args.run_id]
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of)
+        stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites)
+        stuck_names = {name for name, *_ in stuck}
+        notes = [n for n in notes if not any(n.startswith(f"`{name}` was already red") for name in stuck_names)]
         for note in notes:
             summary(args.summary, f"- {note}")
         if not found:
@@ -711,6 +856,14 @@ def cmd_judge(args: argparse.Namespace) -> int:
                 dispatch_probe(args.repo, args.branch, probe)
         for name, _, good in found[MAX_CHAINS:]:
             summary(args.summary, f"- New red `{name}` (green on `{good[:11]}`): over the {MAX_CHAINS}-bisect cap, named only.")
+        for name, suite, good, bad in stuck[:MAX_STUCK_CHAINS]:
+            inner = name.partition(" / ")[2]
+            probe = stuck_probe(name, suite, suites[suite].job_id(inner), good, bad, str(args.run_id), first_parent_range(good, bad))
+            summary(args.summary, f"- Stuck red `{name}`: green on `{good[:11]}`, red since `{bad[:11]}`; bisecting there from `{probe.sha[:11]}`.")
+            if not args.dry_run:
+                dispatch_probe(args.repo, args.branch, probe)
+        for name, _, good, bad in stuck[MAX_STUCK_CHAINS:]:
+            summary(args.summary, f"- Stuck red `{name}` (green on `{good[:11]}`, red since `{bad[:11]}`): over the {MAX_STUCK_CHAINS}-bisect cap, named only.")
         write_outputs(args.github_output, out)
         return 0
 
@@ -722,7 +875,9 @@ def cmd_judge(args: argparse.Namespace) -> int:
     found: list[tuple[str, str, str]] = []
     if origin and is_batch(origin):
         before = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < origin["id"]]
-        found, _ = new_reds(origin.get("head_sha") or "", jobs_of(origin["id"])[0], before, jobs_of)
+        origin_verdicts = jobs_of(origin["id"])[0]
+        found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
+        found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)]
     state = None
     if probe.pieces:
         try:
@@ -773,10 +928,11 @@ def revert_title(subject: str, job: str, branch: str) -> str:
     return f'Revert "{subject}" (post-merge batch: {job} red on {branch})'
 
 
-def merged_by_teammate(repo: str, pr: str, api=gh_api) -> str:
+def merged_by_teammate(repo: str, pr: str, api=None) -> str:
     """The culprit PR's author when a core teammate wrote it (their revert opens held), else "". An
     unreadable author counts as a teammate: a held revert costs a human glance, an agent landing a
     teammate's revert breaks the rule."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     if not pr:
         return ""
     try:
@@ -789,8 +945,9 @@ def merged_by_teammate(repo: str, pr: str, api=gh_api) -> str:
 SWAPOUT_MARK = "<!-- post-merge piece swap-out {culprit} {job} -->"
 
 
-def swapouts_opened(repo: str, api=gh_api) -> list[datetime]:
+def swapouts_opened(repo: str, api=None) -> list[datetime]:
     """When each recent swap-out pull request opened (the breaker's count)."""
+    api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     pulls = api(f"repos/{repo}/pulls?state=all&sort=created&direction=desc&per_page=50") or []
     return [parse_time(p["created_at"]) for p in pulls if str((p.get("head") or {}).get("ref") or "").startswith("swapout/")]
 
@@ -891,7 +1048,7 @@ def open_swapout(args: argparse.Namespace, culprit: str, subject: str, pr: str, 
     publish(args, branch, git("rev-parse", "HEAD").strip(), f"+{sha}:refs/heads/{branch}", piece.files,
             f"python3 scripts/ci/piece_swap.py out {culprit} --piece {piece.id} --onto origin/{args.branch}")
     created = gh_api(f"repos/{args.repo}/pulls", method="POST", fields={"head": branch, "base": args.branch, "title": title, "body": body})
-    summary(args.summary, f"Swap-out pull request: {created['html_url']}")
+    summary(args.summary, f"Swap-out pull request: {created['html_url']}. {hand_off(args.repo, created['number'], author)}")
     write_outputs(args.github_output, {"url": created["html_url"]})
     if pr:
         mark = SWAPOUT_MARK.format(culprit=culprit, job=args.job)
@@ -942,7 +1099,8 @@ def cmd_revert(args: argparse.Namespace) -> int:
     land = (
         f"This revert is {author}'s to land or close; no agent lands it."
         if author
-        else "The base-break rule restores the base first: land this through normal landing, then reland the change with its fix."
+        else f"The base-break rule restores the base first: this carries `{LAND_LABEL}`, so it lands with no person once reviewed "
+        "and green; then reland the change with its fix."
     )
     body = "\n\n".join(
         ([TEAMMATE_HOLD.format(login=author)] if author else [])
@@ -950,7 +1108,7 @@ def cmd_revert(args: argparse.Namespace) -> int:
             f"Reverts {who} (`{culprit}`): the post-merge batch run {origin} found `{args.job}` red on {args.branch}; "
             f"it was green at `{args.good}`, and the bisect over the commits between (only that job) names {who} as the first red one ({this}).",
             f"{land} If the red is not this change's (a flake that repeated, an outside service), close this and say so.",
-            "Opened by cmux-next-post-merge.yml (scripts/ci/post_merge_batch.py revert); it never merges a revert.",
+            "Opened by cmux-next-post-merge.yml (scripts/ci/post_merge_batch.py revert); it never merges a revert itself.",
         ]
     )
     title = revert_title(subject, args.job, args.branch)
@@ -962,7 +1120,7 @@ def cmd_revert(args: argparse.Namespace) -> int:
         method="POST",
         fields={"head": branch, "base": args.branch, "title": title, "body": body},
     )
-    summary(args.summary, f"Revert pull request: {created['html_url']}")
+    summary(args.summary, f"Revert pull request: {created['html_url']}. {hand_off(args.repo, created['number'], author)}")
     write_outputs(args.github_output, {"url": created["html_url"]})
     return 0
 

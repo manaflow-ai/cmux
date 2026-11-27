@@ -355,10 +355,13 @@ impl Hub {
                 argv,
                 env,
             };
-            // The window acpmux started it with when the person set none (`harness_limits::lift_claude`).
-            if claude_stdio && crate::usage_stats::claude_autocompact_unset(&source) {
-                let (key, value) = crate::harness_limits::CLAUDE_AUTOCOMPACT_WINDOW;
-                source.env.insert(key.into(), value.into());
+            // The window acpmux started it with when the person set none and the settings name
+            // one (`harness_limits::lift_claude`).
+            if claude_stdio
+                && let Some((key, value)) = crate::harness_limits::claude_autocompact_window()
+                && crate::usage_stats::claude_autocompact_unset(&source)
+            {
+                source.env.insert(key.into(), value);
             }
             sources.push((m.id.clone(), source));
         }

@@ -124,10 +124,20 @@ pub(super) fn reads_ahead(method: &str) -> bool {
     is_cheap_read(method) || is_tool_read(method)
 }
 
-/// The lane of `msg`, the answer to a request whose method is `reply_to` when it is one.
-pub(super) fn reply_lane(msg: &Message, reply_to: Option<&str>) -> Lane {
+/// Whether a request asks its answer in order (`inOrder: true` on `_acpmux/events`): a pane's stall
+/// check compares the newest record with what its stream delivered, so its answer may not pass the
+/// records queued before it. In the read lane it did, and on a loaded Mac, where the page drains the
+/// bulk lane slowly, a stream that was only queued read as stalled and the pane reconnected.
+pub(super) fn asks_in_order(method: &str, params: Option<&serde_json::Value>) -> bool {
+    method == crate::rpc::method::MUX_EVENTS
+        && params.and_then(|p| p.get("inOrder")).and_then(serde_json::Value::as_bool) == Some(true)
+}
+
+/// The lane of `msg`, the answer to a request whose method is `reply_to` when it is one; `in_order`
+/// keeps it behind the lines queued before it ([`asks_in_order`]).
+pub(super) fn reply_lane(msg: &Message, reply_to: Option<&str>, in_order: bool) -> Lane {
     match (msg, reply_to) {
-        (Message::Response { .. }, Some(m)) if reads_ahead(m) => Lane::Read,
+        (Message::Response { .. }, Some(m)) if !in_order && reads_ahead(m) => Lane::Read,
         _ => Lane::Bulk,
     }
 }
@@ -289,6 +299,9 @@ struct State {
     sheds: bool,
     /// Who reads it, for the log: origin, client name, connection id.
     who: String,
+    /// The bulk lane's bytes the transport's channel may hold: [`BULK_WINDOW`], or a peer
+    /// link's own ([`Outbound::set_window`]).
+    window: usize,
 }
 
 impl Drop for State {
@@ -648,6 +661,16 @@ impl Outbound {
         state.sheds = sheds;
     }
 
+    /// Bounds the bulk lane's bytes in the transport's channel at `bytes` (at least one line)
+    /// instead of [`BULK_WINDOW`]: a peer link's send window (`ACPMUX_PEER_SEND_WINDOW_KB`, off
+    /// by default, `requests/initialize.rs`). Lines past it wait here, where a read's answer goes
+    /// ahead of them and a newer row of a watched chat replaces its queued one ([`Row`]),
+    /// instead of in the transport's buffers on a lossy link, where nothing passes them.
+    pub(super) fn set_window(&self, bytes: usize) {
+        self.shared.lock().window = bytes.max(1);
+        self.shared.wake.notify_one();
+    }
+
     /// Queues `line` in the bulk lane; false when the connection overran or its reader is gone.
     pub(super) fn push(&self, line: String) -> bool {
         self.lock().push(line)
@@ -727,11 +750,13 @@ impl Drop for Pump {
 }
 
 impl Pump {
-    /// Takes the read lane's lines, then the bulk lane's that fit [`BULK_WINDOW`] ([module
-    /// docs](self)), into `batch`, waiting until there is one; false once there is nothing more
-    /// to send (every handle is gone and both lanes are empty, or it overran).
+    /// Takes the read lane's lines, then the bulk lane's that fit its window ([`BULK_WINDOW`]
+    /// unless [`Outbound::set_window`] set one, [module docs](self)), into `batch`, waiting until
+    /// there is one; false once there is nothing more to send (every handle is gone and both
+    /// lanes are empty, or it overran).
     pub(super) async fn take(&self, batch: &mut Vec<Line>) -> bool {
-        self.take_within(batch, BULK_WINDOW).await
+        let window = self.shared.lock().window;
+        self.take_within(batch, window).await
     }
 
     pub(super) async fn take_within(&self, batch: &mut Vec<Line>, window: usize) -> bool {
@@ -925,6 +950,7 @@ fn start_with(
             ended: false,
             sheds: false,
             who: String::new(),
+            window: BULK_WINDOW,
         }),
         wake: Notify::new(),
         closed,

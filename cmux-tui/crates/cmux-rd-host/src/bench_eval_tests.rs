@@ -80,6 +80,7 @@ fn viewer(outcome: Outcome) -> (Viewer, TcpStream) {
         want_snapshot: false,
         record: None,
         marker_origin: (0, 0),
+        marker_scale: (1, 1),
         #[cfg(target_os = "macos")]
         vt: None,
         alt: Some((Box::new(FakeDecoder(outcome)), I420::new(2, 2))),

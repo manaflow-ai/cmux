@@ -44,6 +44,8 @@ import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
 import { retryParts, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
 import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
 import type { LiveLinePulse } from "./liveLinePulse";
+import { useAgentSignature } from "./agentSignatureModel";
+import { AgentSignature } from "./AgentSignature";
 import { type LiveWait, subagentsLabel, waitingLabel } from "./liveWait";
 import "../../../ui/motion/motion.css";
 /// False while `key` changed in the last `ms`, true once it held still that long (or there is none).
@@ -722,6 +724,8 @@ export function Thinking({
         : (own ?? turnTime);
   // What follows the time (the page a background command serves); the tray counts the running work.
   const counts = useContext(WorkingCountsContext);
+  // The chat's dot signature (appearance.agentSignature): undefined, and never asked for, while off.
+  const signature = useAgentSignature();
   const parts = counts && !waiting ? workingParts(counts) : [];
   // What follows the words, as text: their time, the turn's clock and counts, for the old line's copy
   // to roll out with them (`useRoll`).
@@ -872,6 +876,7 @@ export function Thinking({
               data-tail={`\u2002${roll.out.tail}`}
             />
           )}
+          {signature && <AgentSignature glyph={signature} />}
           <output
             className={`cv-thinking ${SHIMMER_CLASS}`}
             data-roll={roll.turns === 0 ? undefined : roll.turns % 2 ? "odd" : "even"}

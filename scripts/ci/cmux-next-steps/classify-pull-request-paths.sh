@@ -7,17 +7,17 @@ changed="$RUNNER_TEMP/changed-files.txt"
 labels=""
 if [[ "$EVENT_NAME" == pull_request ]]; then
   git diff --no-renames --name-only HEAD^1 HEAD > "$changed"
-  if [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]; then
+  # Live labels on every attempt (docs/ci/cmux-next-workflow-notes.md#note-97): a late synchronize event carries
+  # the labels from before full-ci was added and, sharing the concurrency group, cancels the labeled run.
+  labels="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name] | join(",")' 2>/dev/null)" || {
+    echo "::warning::could not read the pull request labels; routing on the event's labels (${EVENT_LABELS:-none})"
     labels="$EVENT_LABELS"
-  else
-    labels="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name] | join(",")' 2>/dev/null)" || {
-      echo "::warning::could not read the pull request labels; routing on its paths only"
-      labels=""
-    }
-  fi
+  }
 else
   : > "$changed"
 fi
+# Read by every job's label check as contains(needs.path_route.outputs.labels, ',full-ci,').
+echo "labels=,$labels," >> "$GITHUB_OUTPUT"
 echo "changed files: $(wc -l < "$changed"); labels: ${labels:-none}"
 if [[ "$EVENT_NAME" == workflow_dispatch && "$DEV_DAILY" == true ]]; then
   # Why: docs/ci/cmux-next-workflow-notes.md#note-391
@@ -200,7 +200,7 @@ if [[ "$EVENT_NAME" == pull_request && -f scripts/ci/head_tier.py ]]; then
 fi
 if [[ "$head_tier" == cheap || "$head_tier" == none ]]; then
   printf '%s=false\n' native swift_canary cmuxnext_swift mac_release macos scheme generated swift daemon full fast_tier >> "$GITHUB_OUTPUT"
-  echo "- head tier $head_tier (a draft, a ready head without the ready-to-land label, or a base merge into a PR idle 24 h): path routing only; the cargo fast tier and the Mac tiers run when the ready-to-land or full-ci label is added (the label re-runs this workflow at the same head)." >> "$GITHUB_STEP_SUMMARY"
+  echo "- head tier $head_tier (a draft, a ready head without the ready-to-land label, a ready-to-land head while CI_LAND_FULL_PER_PR is not 1, or a base merge into a PR idle 24 h): path routing only; the cargo fast tier and the Mac tiers run with the full-ci label (or ready-to-land when CI_LAND_FULL_PER_PR=1; the label re-runs this workflow at the same head), and hourly on feat-cmux-next (cmux-next-hourly-full-tier.yml)." >> "$GITHUB_STEP_SUMMARY"
 fi
 # Whether this pull request changes the cmux-tui it would test against:
 # any v2 tree-key input (cmux-tui-tree-inputs.txt), such as cmux-tui/,
@@ -242,11 +242,24 @@ fi
 # vars.CI_PR_FAST_ONLY=0 turns this off. Last, so these lines win over every route above.
 if [[ "$EVENT_NAME" == pull_request && "${PR_BASE_REF:-}" == feat-cmux-next && "${PR_FAST_ONLY:-true}" == true \
   && ",$labels," != *,full-ci,* ]]; then
-  deferred=(swift_canary cmuxnext_swift mac_release macos generated swift daemon full fast_tier fast_tier_cargo)
+  deferred=(swift_canary cmuxnext_swift mac_release macos swift daemon full fast_tier fast_tier_cargo)
+  # Leo, 2026-11-25: "if like... it works on linux and is at least as fast if not faster, then we ought to just go
+  # ahead." Generated files runs on the Linux pool (generated-files-linux), so a pull request keeps it unless
+  # vars.CI_GENERATED_FILES_LINUX=0 sends it back to the Mac.
+  [[ "${GENERATED_LINUX:-true}" == true ]] || deferred+=(generated)
   [[ ",$labels," == *,dev-build,* ]] || deferred+=(scheme)
   printf '%s=false\n' "${deferred[@]}" >> "$GITHUB_OUTPUT"
   echo "::notice title=cmux-next PR fast tier::Mac jobs, the cargo fast tier and web bundles are deferred to the feat-cmux-next push run; add the full-ci label to run them here"
   echo "- PR fast tier (vars.CI_PR_FAST_ONLY): deferred to the feat-cmux-next push run: ${deferred[*]}. The full-ci label runs every tier here." >> "$GITHUB_STEP_SUMMARY"
+  # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-one-hop-verdict.md
+  # Leo, 2026-11-25: "we own the in-between. all of it". The build fleet's Debug app compile (app-compile-fleet,
+  # up to 22 min) was the last check of a head that is not landing, so it was the PR verdict's wall. It moves to the
+  # head handed to land (ready-to-land), the full-ci tier (the Mac compile) and the feat-cmux-next push run.
+  # vars.CI_PR_APP_COMPILE=1 keeps it on every head.
+  if [[ ",$labels," != *,ready-to-land,* && "${PR_APP_COMPILE:-0}" != 1 ]]; then
+    echo "app_compile_pr=false" >> "$GITHUB_OUTPUT"
+    echo "- PR verdict (one hop): the build fleet's app compile runs at the land head (ready-to-land), with full-ci and in the feat-cmux-next push run." >> "$GITHUB_STEP_SUMMARY"
+  fi
 fi
 # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period." The cheap tier skips the
 # cargo fast tier too; the ready-to-land label runs it at the head handed to land.

@@ -41,6 +41,7 @@ final class TerminalThemeSetting {
                       background: ReducedBackgroundsSetting.drawn(snapshot.windowBackground, reduced: snapshot.reducedBackgrounds),
                       terminalOverridden: snapshot.surfaceBackgrounds.overridesTerminal)
             edits = snapshot.themeEdits
+            font.cursorLines = snapshot.terminalCursor.ghosttyLines
             edits.highlight = snapshot.highlightColor
         }
     }

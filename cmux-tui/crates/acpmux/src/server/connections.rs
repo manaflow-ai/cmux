@@ -1334,6 +1334,7 @@ mod tests {
     /// link and a token; the connection holds the stored item's reference, and neither `begin`'s
     /// nor `wait`'s answer nor the route file carries the token.
     #[tokio::test(flavor = "multi_thread")]
+    #[cfg(unix)]
     async fn claude_token_begin_and_wait_add_a_connection_by_reference_only() {
         use crate::claude_token::{self, store};
         const TOKEN: &str = "sk-ant-oat01-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdEfGhIjKlMnOp";

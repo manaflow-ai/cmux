@@ -390,6 +390,34 @@
           }
         },
         {
+          "key": "sidebar.folderlessUngrouped",
+          "note": "Group by Folder's rows with no folder sit at the end of the list with no No Folder header (SidebarLayout's folder loop; customize-app-profiles, the Claude Code app's look). Off by default: the No Folder header shows as before.",
+          "title": {
+            "key": "settings.sidebar.folderlessUngrouped",
+            "text": "Ungroup Rows With No Folder"
+          },
+          "help": {
+            "key": "settings.sidebar.folderlessUngrouped.help",
+            "text": "Under Group by Folder, rows with no folder sit at the end of the list with no No Folder header."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "sidebar",
+            "projects",
+            "chats",
+            "group",
+            "folder",
+            "no folder",
+            "ungrouped",
+            "header"
+          ],
+          "swift_owner": {
+            "type": "SidebarSectionsSetting",
+            "prefixed": true
+          }
+        },
+        {
           "key": "sidebar.nav",
           "note": "The nav block a look puts at the top of the sidebar: plain icon and label rows that run cmux actions. Rust validates it (cmux-layout-reducer sidebar_nav.rs); empty draws no block.",
           "title": {

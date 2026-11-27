@@ -623,6 +623,17 @@ def test_a_null_step_or_annotation_leaves_that_run_to_rest():
     red.prefetch_details(gh, [{"id": i, "node_id": f"n{i}"} for i in (1, 2, 3)], query=lambda q, v: data)
     assert sorted(gh.details) == [3]
 
+def test_ci_and_cmux_next_call_only_after_their_tracked_job_ran():
+    # A call after a skipped tracked job has no red of its own to add; cmux-next-guards.yml's call on every
+    # head writes the `ran` line and clears an older head's red (about 12k runner-min a day, 11-25).
+    import yaml
+    for workflow, need in (("ci.yml", "web"), ("cmux-next.yml", "checks")):
+        job = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())["jobs"]["pr-red-checks"]
+        assert job["needs"] == [need], workflow
+        assert f"needs.{need}.result != 'skipped'" in job["if"], workflow
+    guards = yaml.safe_load((ROOT / ".github/workflows/cmux-next-guards.yml").read_text())["jobs"]["pr-red-checks"]
+    assert "skipped" not in guards["if"]
+
 
 if __name__ == "__main__":
     import traceback
@@ -637,4 +648,5 @@ if __name__ == "__main__":
                 print("FAIL", _name)
                 traceback.print_exc(limit=1)
     sys.exit(1 if bad else 0)
+
 

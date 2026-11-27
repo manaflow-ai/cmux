@@ -595,6 +595,93 @@ fn with_no_theme_file_nothing_changes() {
     assert!(state.theme_file().is_none());
 }
 
+/// A look's proportions (Leo 2026-11-19: "the layout and proportions as well"): the header, the sidebar's width and
+/// rows, the tab bar, the toolbar buttons, the spacing grid and the chat composer are `appearance.metrics.*` keys a
+/// theme file sets, each bounded by the schema's range as `cmux settings set` bounds it; a value outside it is
+/// refused with the range, and the file's other keys still apply.
+#[test]
+fn a_theme_file_sets_the_layout_proportions() {
+    let claude = overlay(
+        r#"{ "appearance.metrics": { "titlebarHeight": 44, "sidebarWidth": 284, "sidebarRowHeight": 26,
+             "sidebarRowInset": 6, "sidebarRowPadding": 10, "sidebarRowGap": 2, "tabStripHeight": 36,
+             "toolbarButtonSize": 21.5, "toolbarButtonGap": 3, "toolbarButtonCornerRadius": 7,
+             "spacingScale": 1.25, "composerPadding": 14, "composerMinHeight": 56,
+             "sidebarRowHeightWithSubtitle": 78, "toolbarButtonActiveFill": 0.14, "headerDivider": 1 } }"#,
+    );
+    assert!(claude.diagnostics.is_empty(), "{:?}", claude.diagnostics);
+    let root = claude.applied(&json!({}), &none());
+    for (key, value) in [
+        ("titlebarHeight", json!(44)),
+        ("sidebarRowInset", json!(6)),
+        ("sidebarRowPadding", json!(10)),
+        ("sidebarRowGap", json!(2)),
+        ("toolbarButtonSize", json!(21.5)),
+        ("toolbarButtonGap", json!(3)),
+        ("toolbarButtonCornerRadius", json!(7)),
+        ("spacingScale", json!(1.25)),
+        ("composerPadding", json!(14)),
+        ("composerMinHeight", json!(56)),
+        ("sidebarRowHeightWithSubtitle", json!(78)),
+        ("toolbarButtonActiveFill", json!(0.14)),
+        ("headerDivider", json!(1)),
+    ] {
+        assert_eq!(at(&root, &format!("appearance.metrics.{key}")), Some(&value), "{key}");
+    }
+
+    for (key, bad) in [
+        ("toolbarButtonSize", "4"),
+        ("toolbarButtonGap", "40"),
+        ("toolbarButtonCornerRadius", "-1"),
+        ("sidebarRowInset", "30"),
+        ("sidebarRowPadding", "25"),
+        ("sidebarRowGap", "13"),
+        ("spacingScale", "3"),
+        ("composerPadding", "\"wide\""),
+        ("composerMinHeight", "8"),
+        ("sidebarRowHeightWithSubtitle", "120"),
+        ("toolbarButtonActiveFill", "0.9"),
+        ("headerDivider", "2"),
+    ] {
+        let file = overlay(&format!(
+            r#"{{ "appearance.metrics.{key}": {bad}, "appearance.metrics.titlebarHeight": 44 }}"#
+        ));
+        let path = format!("appearance.metrics.{key}");
+        assert!(
+            file.diagnostics.iter().any(|d| d.path == path),
+            "{key}={bad}: {:?}",
+            file.diagnostics
+        );
+        let root = file.applied(&json!({}), &none());
+        assert_eq!(at(&root, &path), None, "{key}={bad} applied");
+        assert_eq!(at(&root, "appearance.metrics.titlebarHeight"), Some(&json!(44)));
+    }
+}
+
+/// With no proportion key set, nothing changes: every new key's default is null (the density's value), so a look
+/// without them draws today's layout.
+#[test]
+fn the_layout_proportions_default_to_the_density() {
+    let schema = Schema::embedded();
+    for key in [
+        "sidebarRowInset",
+        "sidebarRowPadding",
+        "sidebarRowGap",
+        "toolbarButtonSize",
+        "toolbarButtonGap",
+        "toolbarButtonCornerRadius",
+        "spacingScale",
+        "composerPadding",
+        "composerMinHeight",
+        "sidebarRowHeightWithSubtitle",
+        "toolbarButtonActiveFill",
+        "headerDivider",
+    ] {
+        let dotted = format!("appearance.metrics.{key}");
+        let row = schema.row(&dotted).unwrap_or_else(|| panic!("{dotted} is no schema row"));
+        assert!(row.default.as_ref().is_none_or(Value::is_null), "{dotted}: {:?}", row.default);
+    }
+}
+
 /// Leo's Claude desktop menu as a theme file fragment (a dark ~#2b2b2b panel, a 12 pt corner, a
 /// subtle edge, 30 pt rows, an 8 pt hover corner, muted shortcuts and section labels, thin
 /// separators, flush submenus, a muted second line, the usage popover's strong header and thicker

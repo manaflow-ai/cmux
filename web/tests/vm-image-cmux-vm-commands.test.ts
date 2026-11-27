@@ -512,16 +512,29 @@ describe("cmux VM image /tmp writer after clean (image roll 42888042827: /tmp/op
       expect(waited.status).toBe(0);
       expect(waited.stdout).toMatch(/acpmux-probes-quiet after [1-9]\d*s/);
       short.kill("SIGKILL");
-      // A probe still running at the bound: fail, naming it.
+      // A probe still running at the bound: named, then stopped, and the step passes.
       const stuck = spawn("sleep", ["300"], { cwd: dir, stdio: "ignore" });
+      const gone = new Promise((r) => stuck.once("exit", (_code, signal) => r(signal)));
       try {
         await new Promise((r) => setTimeout(r, 200));
         const late = await run(2);
-        expect(late.status).not.toBe(0);
-        expect(late.stderr).toContain("model probes still run after 2s");
-        expect(late.stderr).toContain(`probe pid ${stuck.pid}: sleep 300`);
+        expect(late.status).toBe(0);
+        expect(late.stdout).toContain("model probes still run after 2s; stopping them");
+        expect(late.stdout).toContain(`probe pid ${stuck.pid}: sleep 300`);
+        expect(late.stdout).toContain("acpmux-probes-quiet after 2s (stopped the rest)");
+        expect(await gone).toBe("SIGTERM");
       } finally {
         stuck.kill("SIGKILL");
+      }
+      // A probe that ignores TERM is killed too.
+      const deaf = spawn("bash", ["-c", "trap '' TERM; sleep 300 & wait"], { cwd: dir, stdio: "ignore" });
+      try {
+        await new Promise((r) => setTimeout(r, 300));
+        const hard = await run(1);
+        expect(hard.status).toBe(0);
+        expect(hard.stdout).toContain("(stopped the rest)");
+      } finally {
+        deaf.kill("SIGKILL");
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });

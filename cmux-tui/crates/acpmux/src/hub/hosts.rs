@@ -968,10 +968,12 @@ impl Hub {
             && work.turn_carried
             && work.prompt_request.is_none()
         {
-            let mut turn = TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control);
-            if let Some(line) = &work.turn_line {
-                turn.show(line);
-            }
+            let mut turn = match &work.turn_line {
+                Some(line) => {
+                    TurnInfo::prompted_as(&client, &prompt, &turn_id, &prompt_id, control, line)
+                }
+                None => TurnInfo::prompted(&client, &prompt, &turn_id, &prompt_id, control),
+            };
             turn.trigger = work.turn_trigger;
             turn.turn_seq = turn_seq;
             if work.turn_at > 0 {

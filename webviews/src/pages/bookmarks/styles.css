@@ -458,8 +458,3 @@
   filter: brightness(0.94);
 }
 
-/* The keycap (ui/DialogButton) reads one step quieter than its button's label, on both fills. */
-.bm-button .ui-keyhint {
-  color: inherit;
-  opacity: 0.6;
-}

@@ -1,4 +1,4 @@
-import { keycapLegend } from "../../ui/keycapLegend";
+import { KeyHint } from "../../ui/KeyHint";
 import { useWebSwapHold } from "../../pages/shared/useWebSwapHold";
 import { runResumed } from "./composer/resumedSend";
 import { WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
@@ -304,22 +304,12 @@ export function NewTabPage({
   );
   // The kind a prefix switched from, so Backspace in the empty field switches back.
   const [beforePrefix, setBeforePrefix] = useState<TabKind>();
-  const {
-    attachments,
-    setAttachments,
-    pending,
-    originalFailures,
-    unsettled,
-    cancel,
-    retry,
-    attachError,
-    drop,
-    dropLanded,
-  } = useAttachmentIntake({
-    allowImages: snapshot.summary?.promptCapabilities?.image !== false,
-    pasteTarget: (target) => (kind === "agent" && fieldElement()?.contains(target) ? { uploads: false } : undefined),
-    dropZone: () => fieldElement()?.closest(".acpmux-newtab") ?? null,
-  });
+  const { attachments, setAttachments, pending, originalFailures, unsettled, cancel, attachError, drop, dropLanded } =
+    useAttachmentIntake({
+      allowImages: snapshot.summary?.promptCapabilities?.image !== false,
+      pasteTarget: (target) => (kind === "agent" && fieldElement()?.contains(target) ? { uploads: false } : undefined),
+      dropZone: () => fieldElement()?.closest(".acpmux-newtab") ?? null,
+    });
   const holdForAttachments = useSendWhenAttached(unsettled);
   const command = useNewTabCommand(
     text,
@@ -726,7 +716,7 @@ export function NewTabPage({
                 >
                   <KindIcon kind={option} />
                   <span>{t(NEW_TAB_LABELS.kinds[option])}</span>
-                  {hotkeys[option] && <kbd>{hotkeys[option]}</kbd>}
+                  {hotkeys[option] && <KeyHint keys={hotkeys[option]!} />}
                 </button>
               ))}
             </fieldset>
@@ -748,7 +738,6 @@ export function NewTabPage({
               cancel(id);
               field.current?.focus();
             }}
-            onRetry={retry}
             originalFailures={originalFailures}
             onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
@@ -850,7 +839,7 @@ export function NewTabPage({
                   </span>
                   <span className="acpmux-omni-action" data-popup-skip>
                     {row.type === "ask" ? t(NEW_TAB_LABELS.ask, { agent }) : t(NEW_TAB_LABELS.rows[row.type])}
-                    {index === selected && <kbd>{keycapLegend("↩")}</kbd>}
+                    {index === selected && <KeyHint keys="↩" />}
                   </span>
                 </div>
               ))}
@@ -869,6 +858,7 @@ export function NewTabPage({
         <div className="acpmux-newtab-failed" role="alert">
           <p className="acpmux-newtab-failed-message">{t(NEW_TAB_LABELS.openFailedKind[openFailed.kind])}</p>
           <button type="button" className="acpmux-newtab-failed-retry ui-ghost" onClick={openFailed.retry}>
+            {/* retry-prompt-ok: opens the tab again: a chat sends its prompt (a paid model request), a terminal runs its command. */}
             {t(NEW_TAB_LABELS.openRetry)}
           </button>
           {openFailed.detail && <ErrorDetails text={openFailed.detail} className="acpmux-newtab-failed-details" />}

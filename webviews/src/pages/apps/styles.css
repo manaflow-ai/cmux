@@ -1513,3 +1513,116 @@ code {
   width: 100%;
   box-sizing: border-box;
 }
+
+/* The Features tab (FeaturesView.tsx): built-in features as switches, grouped. `list` is the
+   default (Settings' rows); `tiles` and `chips` are DEV variants (`features=`). */
+.apps-features {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 12px var(--page-edge) 24px;
+}
+
+.apps-features-intro {
+  margin: 0;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+}
+
+.apps-features-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.apps-features-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--page-separator);
+  border-radius: 12px;
+}
+
+.apps-feature {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 32px;
+  padding: 4px 12px;
+}
+
+.apps-features[data-features-style="list"] .apps-feature + .apps-feature {
+  border-top: 1px solid var(--page-separator);
+}
+
+.apps-feature-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.apps-feature-title {
+  color: var(--page-text);
+  font-size: var(--text-detail);
+  font-weight: 600;
+}
+
+.apps-feature-summary,
+.apps-feature-managed {
+  color: var(--page-text-2);
+  font-size: var(--text-caption);
+}
+
+.apps-features[data-features-style="tiles"] .apps-features-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  border: 0;
+}
+
+.apps-features[data-features-style="tiles"] .apps-feature {
+  align-items: flex-start;
+  padding: 8px 12px;
+  border: 1px solid var(--page-separator);
+  border-radius: 8px;
+}
+
+.apps-features[data-features-style="tiles"] .apps-feature[data-on] {
+  background: var(--page-selection);
+}
+
+.apps-features[data-features-style="chips"] .apps-features-list {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 4px;
+  border: 0;
+}
+
+.apps-features[data-features-style="chips"] .apps-feature {
+  min-height: 0;
+  padding: 0;
+}
+
+.apps-feature-chip {
+  padding: var(--grid-half-step) 8px;
+  border: 1px solid var(--page-separator);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--page-text-2);
+  font: inherit;
+  font-size: var(--text-caption);
+}
+
+.apps-feature-chip:hover:not(:disabled) {
+  background: var(--page-hover);
+  color: var(--page-text);
+}
+
+.apps-feature-chip[data-on] {
+  border-color: transparent;
+  background: var(--page-selection);
+  color: var(--page-text);
+}

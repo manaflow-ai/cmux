@@ -275,7 +275,7 @@ struct SubagentTranscriptScreen: View {
             }
             .defaultScrollAnchor(.top)
             .background { CmuxMobileChatBackdrop() }
-            .cmuxMobileChatLookStyle(CmuxMobileMacTheme.shared.chatLook)
+            .cmuxMobileChatLookStyle(CmuxMobileChatLook.current)
             .chatDemoReceiver(store: store, surface: surface)
             .navigationTitle(agent.name)
             .navigationBarTitleDisplayMode(.inline)

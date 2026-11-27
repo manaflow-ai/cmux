@@ -635,6 +635,29 @@ fn a_created_cloud_machine_prints_its_target_and_next_steps() {
     );
 }
 
+/// 2026-11-25: `cmux vm new` answered a VM the server made 7 minutes before the call as
+/// "Created". A machine the answer marks `reused` says so, with when it was made.
+#[test]
+fn a_reused_cloud_machine_is_not_called_created() {
+    let params = json!({ "action": "cloud new-machine" });
+    let reused = json!({ "result": {
+        "machine_id": "vm_57a7e6bc0337b978d609", "title": "dev", "status": "running",
+        "target": "machine:vm_57a7e6bc0337b978d609", "reused": true,
+        "created_at": "2026-11-25T10:00:00Z",
+    }});
+    let text = created_line(&params, &reused, &GlobalArgs::default()).unwrap();
+    assert!(text.starts_with("Got Cloud VM dev (vm_57a7e6bc0337b978d609): running."), "{text}");
+    assert!(text.contains("made at 2026-11-25T10:00:00Z, before this request"), "{text}");
+    assert!(!text.contains("Created"), "{text}");
+    assert!(text.contains("cmux vm ssh vm_57a7e6bc0337b978d609"), "{text}");
+    let own = json!({ "result": {
+        "machine_id": "vm-abc", "status": "running", "reused": false,
+        "created_at": "2026-11-25T10:00:00Z",
+    }});
+    let text = created_line(&params, &own, &GlobalArgs::default()).unwrap();
+    assert!(text.starts_with("Created Cloud VM vm-abc: running."), "{text}");
+}
+
 /// #32227 (1): a bootstrap or machine config that ran keeps the full field
 /// table, so a failed setup's status, reason and recovery commands still print.
 #[test]

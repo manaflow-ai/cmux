@@ -232,9 +232,13 @@ function SubsessionStatusRow({ session, onOpen }: { session: SubsessionRow; onOp
       {session.queued ? (
         <span className="acpmux-summary-meta">{t("subsession.queued", { n: session.queued })}</span>
       ) : null}
-      <span className="acpmux-summary-meta acpmux-summary-agent__state">
-        {retry && <Spinner size={12} loading />}
-        {retry ? retryLabel(t, retry) : t(SUBSESSION_STATE_LABEL[session.state])}
+      <span
+        className="acpmux-summary-meta acpmux-summary-agent__state"
+        title={t(SUBSESSION_STATE_LABEL[session.state])}
+      >
+        {(retry || session.state === "working") && <Spinner size={12} loading />}
+        {/* Working is the spinner, no word (Leo, 2026-11-23: "\"running\" doesn't need text"). */}
+        {retry ? retryLabel(t, retry) : session.state === "working" ? null : t(SUBSESSION_STATE_LABEL[session.state])}
       </span>
     </button>
   );

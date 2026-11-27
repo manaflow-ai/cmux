@@ -33,6 +33,7 @@ import {
 } from "./cloudMachines";
 import {
   environmentReady,
+  environmentPickable,
   environmentSections,
   knownMachines,
   orderEnvironments,
@@ -42,7 +43,6 @@ import {
   type EnvironmentKind,
   type OffloadKind,
   type OffloadReasons,
-  environmentPickable,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
 import type { UnavailableGroup } from "./environmentPickerModel";
@@ -183,6 +183,7 @@ export function ComposerContext({
   connectOnlyWhenEmpty = false,
   onOffload,
   placeControl,
+  newTabPlaceControl,
   offloads = NO_OFFLOADS,
   offloadReasons,
   moveTargets,
@@ -279,6 +280,9 @@ export function ComposerContext({
   /// A started chat's place control (place/PlaceControl.tsx: Local, Cloud, Auto), beside the picker's
   /// Move to Cloud and Bring Back Local rows, which stay. None while the app reports no place.
   placeControl?: React.ReactNode;
+  /// The New Tab page's Hybrid control (hybrid/newTabHybrid.ts): Hybrid, Only in Cloud, Only on This Mac for
+  /// the chat Send starts, drawn before the chat exists. None with AutoCloud off.
+  newTabPlaceControl?: React.ReactNode;
   /// The moves the app offers this chat now (its right-click menu's, `pane.tabState` `moves`): the
   /// picker offers only these, whatever the machine's kind.
   offloads?: readonly OffloadKind[];
@@ -486,7 +490,7 @@ export function ComposerContext({
   const pickKey = `${summary?.sessionId ?? ""}\u0000${initialComputer}`;
   const [picked, setPicked] = useState<{ key: string; computer?: string }>({ key: pickKey });
   const [browseError, setBrowseError] = useState<string>();
-  // The browse that failed, so Retry runs the same one.
+  // The browse that failed, so Retry runs the same one. retry-prompt-ok: it opens the folder chooser again.
   const browseRetry = useRef<() => void>(undefined);
   // Counts folder picks: a folder panel's late answer (or failure) after one is dropped.
   const folderPicks = useRef(0);
@@ -733,7 +737,8 @@ export function ComposerContext({
       : undefined;
   // A new chat's Add folder…: the host's folder panel, then the chat's folder. As Add project's dialog
   // did, the panel only answers (deferPick) and the pick commits here, so a folder picked while the
-  // panel was open wins over its late answer; a refused or failed panel says why beside a Retry.
+  // panel was open wins over its late answer; a refused or failed panel says why beside a Retry
+  // (retry-prompt-ok: it raises the folder chooser again, which only the person's click may).
   const browseProject = onBrowseProject
     ? (): Promise<BrowseResult> => {
         const picks = folderPicks.current;
@@ -1372,7 +1377,9 @@ export function ComposerContext({
             />
           )}
           {started && placeControl}
+          {!started && newTabPlaceControl}
         </div>
+        {/* retry-prompt-ok: BrowseFailure's Retry opens the folder chooser again (BrowseFailure.tsx). */}
         {browseError && browseRetry.current && (
           <BrowseFailure
             error={browseError}

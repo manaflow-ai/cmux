@@ -79,8 +79,10 @@ public final class CloudMachineChanges {
         switch kind {
         case "record":
             // The crate's record: timestamps in epoch milliseconds, as every CloudMachineRules reply.
+            // main-actor-ok: one machine's record (a fixed-shape object of ids, names and timestamps).
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .millisecondsSince1970
+            // main-actor-ok: the same single record, re-encoded once to decode it as a CloudMachine.
             guard let value = payload["record"], let data = try? JSONEncoder().encode(value),
                   let shown = try? decoder.decode(CloudMachine.self, from: data) else { return }
             record(shown)
@@ -348,13 +350,18 @@ extension CloudAPIClient {
         guard !sendsStackSession else { return nil }
         let teamID = teamID
         return { machines in
-            // The crate reads timestamps in epoch milliseconds (CloudMachineRules).
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .millisecondsSince1970
-            guard let connection = connection(), let data = try? encoder.encode(machines),
-                  let list = try? JSONDecoder().decode(JSONValue.self, from: data) else { return }
+            guard let connection = connection(), let list = await Self.watchList(machines) else { return }
             let team = await teamID()
             _ = try? await connection.request(AppsMachineStateWatchRequest(machines: list, platform: baseURL.absoluteString, team: team))
         }
+    }
+
+    /// The person's whole machine list as the daemon's JSON, converted off the main actor.
+    @concurrent nonisolated private static func watchList(_ machines: [CloudMachine]) async -> JSONValue? {
+        // The crate reads timestamps in epoch milliseconds (CloudMachineRules).
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .millisecondsSince1970
+        guard let data = try? encoder.encode(machines) else { return nil }
+        return try? JSONDecoder().decode(JSONValue.self, from: data)
     }
 }

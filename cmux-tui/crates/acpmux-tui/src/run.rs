@@ -366,6 +366,8 @@ pub(super) fn make_app(
         dialog_rect: Rect::default(),
         answering: None,
         find: None,
+        seen_items: HashMap::new(),
+        new_line: None,
     })
 }
 

@@ -83,8 +83,36 @@ pub(crate) struct AppControlMessages {
     pub chat_perf: ChatPerfMessages,
     /// `cmux app launch-times` (cli/app/launch_times.rs).
     pub launch_times: LaunchTimesMessages,
+    /// `cmux window record` and `cmux pane record` (cli/app/record.rs).
+    pub record: RecordMessages,
     /// `cmux app health` (cli/app/health.rs).
     pub health: HealthMessages,
+}
+
+/// `cmux window record` / `cmux pane record`: a clip of the app's own window or pane, from its own
+/// screenshots. The JSON keys stay English; `{name}` placeholders are filled by cli/app/record.rs.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RecordMessages {
+    /// `{noun}`: window or pane.
+    pub usage: &'static str,
+    pub seconds: &'static str,
+    pub fps: &'static str,
+    /// `{max}`: the most frames one recording takes.
+    pub too_many_frames: &'static str,
+    /// `{path}`, `{error}`.
+    pub cannot_write: &'static str,
+    /// Every frame failed; `{error}` is the app's first refusal.
+    pub no_frames: &'static str,
+    /// `{frames}`, `{fps}`, `{asked}`, `{seconds}`, `{path}`.
+    pub recorded: &'static str,
+    /// `{areas}`: what the grey areas are.
+    pub masked: &'static str,
+    /// `{dropped}`: ticks skipped because every capture was still running; `{failed}`: captures the app refused.
+    pub skipped: &'static str,
+    /// `{dir}`: no ffmpeg, so the frames and their times are the result.
+    pub no_ffmpeg: &'static str,
+    /// `{error}`, `{dir}`: ffmpeg ran and failed; the frames are kept.
+    pub encode_failed: &'static str,
 }
 
 /// `cmux app health`: the post-update checks. The JSON keys, check names and reason codes stay
@@ -357,6 +385,19 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     cloud_machines_malformed: "the cmux app's cloud.machines reply has no machines list",
     cloud_secret_help: "Store secrets in this Mac's Keychain. set reads a value from a hidden prompt\nor stdin, never a command argument. ls lists names and scopes, never values.\nUse --repo OWNER/NAME with set or rm for a repository-scoped secret.",
     cloud_team_keys_help: "A team's shared key for an agent (claude or codex). Owners and admins set,\nreplace or remove it; it overrides each member's own key on the team's Cloud\nmachines. set reads the key from a hidden prompt, stdin or --secret-file, never a\ncommand argument. status shows whether a key is set, never the key.",
+    record: RecordMessages {
+        usage: "usage: cmux {noun} record [--target <id>] [--seconds <1-60>] [--fps <1-60>] [--out <file.mp4|folder>]\n  Records the app's own {noun} as it shows, with no Screen Recording permission: the frames are the\n  app's own `cmux {noun} screenshot` (browser pages, chats and Home masked in grey, as for every\n  script). Default 5 seconds at 30 fps, at most 1800 frames. --out FILE.mp4 (or .mov, .m4v) encodes\n  with ffmpeg when it is installed; a folder, or no ffmpeg, keeps the PNG frames and frames.json\n  (each frame's time in ms). With no --out it writes to the temporary folder. --json prints the report.",
+        seconds: "--seconds must be a whole number from 1 to 60",
+        fps: "--fps must be a whole number from 1 to 60",
+        too_many_frames: "--seconds times --fps must be at most {max} frames",
+        cannot_write: "cannot write {path}: {error}",
+        no_frames: "recorded no frame: {error}",
+        recorded: "Recorded {frames} frames in {seconds} s ({fps} fps of {asked} asked): {path}",
+        masked: "Masked in grey (pixels scripts never get): {areas}",
+        skipped: "{dropped} frames skipped while captures were still running, {failed} refused by the app",
+        no_ffmpeg: "ffmpeg is not installed, so no movie: the PNG frames, frames.json (their times) and frames.ffconcat are in {dir}. On a Mac with ffmpeg, this makes the movie:",
+        encode_failed: "ffmpeg failed ({error}); the PNG frames and frames.json are kept in {dir}",
+    },
     health: HealthMessages {
         usage: "usage: cmux app health [--since-ms <unix ms>] [--open-chat] [--json]\nChecks the app at the socket the way a person would notice it broken: the app answers, the model picker\nlists models, a chat can start (the default harness runs its session handshake, no model call), the app\nrelay refused no chat page frame since --since-ms (default: 10 minutes ago; --open-chat first opens a new\nchat, without changing focus, so its page handshakes through the relay, then closes it), and a\nthrowaway terminal echoes a nonce (then closes). Each check has a deadline and a reason code. Exit 0 when\nall pass, 1 when one fails, 3 when no app answers. Changes no saved state.",
         app: "App",
@@ -597,6 +638,19 @@ pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     cloud_machines_malformed: "cmux アプリの cloud.machines の応答にマシンの一覧がありません",
     cloud_secret_help: "シークレットをこの Mac のキーチェーンに保存します。set は非表示の入力プロンプト\nまたは標準入力から値を読み取ります。値をコマンドの引数には指定しません。\nls は名前とスコープを一覧表示し、値は表示しません。\nリポジトリ専用のシークレットには set または rm に --repo OWNER/NAME を指定します。",
     cloud_team_keys_help: "エージェント（claude または codex）用のチーム共有キーです。オーナーと管理者が\n設定、置き換え、削除できます。チームの Cloud マシンでは各メンバー自身のキーより優先されます。\nset はキーを非表示の入力プロンプト、標準入力または --secret-file から読み取ります。コマンドの引数には指定しません。\nstatus はキーが設定されているかどうかを表示し、キーそのものは表示しません。",
+    record: RecordMessages {
+        usage: "使い方: cmux {noun} record [--target <ID>] [--seconds <1-60>] [--fps <1-60>] [--out <ファイル.mp4|フォルダ>]\n  アプリ自身の {noun} を表示どおりに録画します。画面収録の許可は不要です: 各フレームはアプリ自身の\n  `cmux {noun} screenshot` です (スクリプトでは常に、ブラウザのページ、チャット、Home は灰色で隠されます)。\n  既定は 5 秒、30 fps、最大 1800 フレーム。--out ファイル.mp4 (.mov、.m4v も可) は ffmpeg があれば\n  動画にします。フォルダを指定した場合や ffmpeg がない場合は、PNG フレームと frames.json (各フレームの ms)\n  を残します。--out がなければ一時フォルダに書き込みます。--json でレポートを表示します。",
+        seconds: "--seconds は 1 から 60 までの整数にしてください",
+        fps: "--fps は 1 から 60 までの整数にしてください",
+        too_many_frames: "--seconds と --fps の積は {max} フレーム以下にしてください",
+        cannot_write: "{path} に書き込めません: {error}",
+        no_frames: "フレームを 1 枚も録画できませんでした: {error}",
+        recorded: "{seconds} 秒で {frames} フレームを録画しました ({asked} fps 指定のうち {fps} fps): {path}",
+        masked: "灰色で隠した領域 (スクリプトには渡さないピクセル): {areas}",
+        skipped: "キャプチャの実行中に {dropped} フレームを飛ばし、{failed} フレームはアプリが拒否しました",
+        no_ffmpeg: "ffmpeg がインストールされていないため動画は作りません: PNG フレーム、frames.json (各フレームの時刻)、frames.ffconcat は {dir} にあります。ffmpeg のある Mac では、次のコマンドで動画になります:",
+        encode_failed: "ffmpeg が失敗しました ({error})。PNG フレームと frames.json は {dir} に残しています",
+    },
     health: HealthMessages {
         usage: "使い方: cmux app health [--since-ms <unix ms>] [--open-chat] [--json]\nソケットの先のアプリを、利用者が不具合に気づく観点で確認します: アプリが応答するか、モデルピッカーにモデルがあるか、\nチャットを開始できるか (既定のハーネスがセッションのハンドシェイクを行います。モデルは呼び出しません)、\n--since-ms 以降 (既定: 10 分前) にアプリのリレーがチャットページのフレームを拒否していないか\n(--open-chat は先にフォーカスを変えずに新しいチャットを開き、そのページにリレー経由のハンドシェイクをさせてから閉じます)、\n使い捨てのターミナルがノンスをエコーするか (その後閉じます)。各確認には期限と理由コードがあります。\nすべて成功で終了コード 0、失敗があれば 1、応答するアプリがなければ 3。保存された状態は変更しません。",
         app: "アプリ",

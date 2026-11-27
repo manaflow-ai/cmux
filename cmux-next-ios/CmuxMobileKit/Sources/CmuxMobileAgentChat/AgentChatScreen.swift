@@ -567,7 +567,7 @@ public struct AgentChatTranscript: View {
 
     public var body: some View {
         // The chat in the light or dark style of the Mac's theme while it follows the Mac.
-        transcript.cmuxMobileChatLookStyle(CmuxMobileMacTheme.shared.chatLook)
+        transcript.cmuxMobileChatLookStyle(CmuxMobileChatLook.current)
     }
 
     private var transcript: some View {

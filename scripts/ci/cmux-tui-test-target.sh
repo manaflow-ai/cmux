@@ -4,6 +4,7 @@
 #
 #   scripts/ci/cmux-tui-test-target.sh restore   before the cargo build (any run; never writes the bucket)
 #   scripts/ci/cmux-tui-test-target.sh save      after it (a feat-cmux-next push with the write credentials only)
+#   scripts/ci/cmux-tui-test-target.sh floor     before any cache restore: make room for the build, or fail fast
 #
 # Why: ci/steps.toml's `cmux-next-daemon-tests` step compiled 626 crates cold on every routed pull request (27 min of a
 # 29 min step, and a slow one hit the step's 65-minute bound), and `agent-pane-real-acpmux` built acpmux cold (6.4 min).
@@ -29,11 +30,17 @@
 # Disk: a restore needs CMUX_TUI_TEST_TARGET_MIN_FREE_GIB (30) free, else it builds cold. A save drops incremental state
 # first, and a target over CMUX_TUI_TEST_TARGET_MAX_GIB (14) keeps only third-party output (scripts/ci/cargo_target_strip.py).
 # A restore that fails or is cut removes the half-unpacked target. A target that already holds a build is kept as is.
+#
+# Floor: the build needs CMUX_TUI_TEST_TARGET_BUILD_FLOOR_GIB (25) free on the target's disk and in TMPDIR. Under it,
+# `floor` drops the target's incremental state, then the whole leftover target (a reused self-hosted workspace keeps
+# it), and fails the step when the disk is still under CMUX_TUI_TEST_TARGET_HARD_FLOOR_GIB (12): the build would die
+# 15 minutes later on "No space left on device" or an ld Bus error (run 45737327859, 2026-11-26), and a failed run is
+# retried (cmux-tui-artifacts-retry.yml) on another runner instead.
 set -euo pipefail
 
 command="${1:-}"
-if [[ "$command" != restore && "$command" != save ]] || (($# != 1)); then
-  echo "usage: $0 restore|save" >&2
+if [[ "$command" != restore && "$command" != save && "$command" != floor ]] || (($# != 1)); then
+  echo "usage: $0 restore|save|floor" >&2
   exit 2
 fi
 
@@ -42,6 +49,8 @@ target="$repo/cmux-tui/target"
 manifest="$target/.cmux-testbox-source-mtimes.tsv"
 min_free_gib="${CMUX_TUI_TEST_TARGET_MIN_FREE_GIB:-30}"
 max_gib="${CMUX_TUI_TEST_TARGET_MAX_GIB:-14}"
+build_floor_gib="${CMUX_TUI_TEST_TARGET_BUILD_FLOOR_GIB:-25}"
+hard_floor_gib="${CMUX_TUI_TEST_TARGET_HARD_FLOOR_GIB:-12}"
 export CI_CACHE_R2_PUBLIC_URL="${CI_CACHE_R2_PUBLIC_URL:-https://ci-cache-next.cmux.com}"
 say() { echo "cmux-tui test target: $*"; }
 
@@ -71,6 +80,34 @@ window="$(date -u +%Y%m%d)h$(( 10#$(date -u +%H) / 4 * 4 ))"
 key="$prefix$window"
 
 free_gib() { df -Pk "$1" | awk 'NR == 2 { printf "%d", $4 / 1048576 }'; }
+
+floor() {
+  local here="$repo/cmux-tui" tmp="${TMPDIR:-/tmp}" free tmp_free
+  free="$(free_gib "$here")"
+  tmp_free="$(free_gib "$tmp")"
+  if ((free >= build_floor_gib && tmp_free >= build_floor_gib)); then
+    say "floor ok: ${free} GiB free here, ${tmp_free} GiB in $tmp (floor $build_floor_gib)"
+    return 0
+  fi
+  say "under the $build_floor_gib GiB build floor: ${free} GiB free here, ${tmp_free} GiB in $tmp"
+  if [[ -d "$target" ]]; then
+    say "the leftover target is $(du -sxh "$target" 2>/dev/null | cut -f1); dropping its incremental state"
+    find "$target" -mindepth 1 -maxdepth 3 -type d -name incremental -prune -exec rm -rf -- {} +
+    free="$(free_gib "$here")"
+    if ((free < build_floor_gib)); then
+      say "still ${free} GiB free; removing the leftover target (cold build)"
+      rm -rf -- "$target"
+    fi
+  fi
+  free="$(free_gib "$here")"
+  tmp_free="$(free_gib "$tmp")"
+  df -Ph "$here" "$tmp" || true
+  if ((free < hard_floor_gib || tmp_free < hard_floor_gib)); then
+    echo "::error title=runner disk under the floor::${free} GiB free here, ${tmp_free} GiB in $tmp, under $hard_floor_gib after removing this workspace's cargo target; the build would die on No space left on device, so this runner is refused (a retry lands elsewhere)" >&2
+    return 1
+  fi
+  say "now ${free} GiB free here, ${tmp_free} GiB in $tmp"
+}
 
 restore() {
   if [[ -d "$target/debug" ]]; then

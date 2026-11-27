@@ -46,6 +46,7 @@ on:
       - "Packages/Shared/CmuxEgress/**"
       - "Packages/Shared/CmuxGhosttyKit/**"
       - "Packages/Shared/CmuxHomeCore/**"
+      - "Packages/Shared/CmuxLiveCode/**"
       - "Packages/Shared/CmuxScreenKit/**"
       - "Packages/Shared/CmuxSpinner/**"
       - "Packages/Shared/CmuxTheme/**"
@@ -66,6 +67,14 @@ on:
       - ".github/workflows/cmux-next-ios-kit.yml"
       - "scripts/ci/ios_app_package_paths.py"
       - "scripts/ci/ios_link_ffi_key.py"
+      # The steps' own scripts: a change to one ran no kit run until an unrelated iOS push (the simulator bound
+      # and the connection-notices lint both gate this run).
+      - "scripts/ci/ios-kit-sim-mac-test.sh"
+      - "scripts/cmux-next/check-connection-notices.py"
+      - "scripts/cmux-next/connection-notices-allowlist.tsv"
+      # The pool phone's runner for the kit's simulator tests (the sim-linux steps run it at this commit).
+      - "scripts/ci/ios-sim-linux-test.sh"
+      - "scripts/ci/ios_sim_logic_xctestrun.py"
       - "!**/*.md"
       - "!cmux-next-ios/verify/**"
       # Except the fixtures the kit's own tests read (AgentCLIHybridProofSupport, AgentCLIHybridFrameTests):
@@ -281,12 +290,15 @@ jobs:
   link-ffi-fleet:
     name: CmuxMobileLinkFFI.xcframework (build fleet)
     needs: runner
-    if: ${{ !cancelled() && needs.runner.result == 'success' && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
-    # The literal fallback never schedules: the job's if: skips outside manaflow-ai and when the variable is unset.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_EVAL_STEP_GATEWAY }}
-    timeout-minutes: 40  # the client waits up to 600 s queued plus 1500 s running
+    if: ${{ !cancelled() && needs.runner.result == 'success' && github.repository_owner == 'manaflow-ai' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && !fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].reuse }}
+    # A Linux runner: the controller's public route builds on the fleet and this job only waits for the answer, so no
+    # Mac sits idle for the build (scripts/ci/fleet_ios_build.py). The hosted fallback never schedules: the job's if:
+    # skips outside manaflow-ai.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 40  # the reader waits up to 600 s queued plus 1500 s running
     permissions:
       contents: read
+      id-token: write  # the route reads the repository and the commit from this job's OIDC token
     steps:
       # The key reads git objects only (scripts/ci/ios_link_ffi_key.py), so a blobless sparse checkout is enough.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -320,18 +332,11 @@ jobs:
       - name: Build CmuxMobileLinkFFI.xcframework on the build fleet
         id: build
         if: steps.restore.outputs.cache-hit != 'true'
-        env:
-          SHA: ${{ github.sha }}
         run: |
           set -uo pipefail
-          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if ! [[ -x "$client" ]]; then
-            echo "::warning title=build fleet::cmux-ci is not installed on runner $RUNNER_NAME; kit-tests builds the xcframework"
-            exit 0
-          fi
           out="$RUNNER_TEMP/link-ffi"
           status=0
-          "$client" ios-build --what ffi --ref "$SHA" --out "$out" --timeout 1500 --queue-timeout 600 || status=$?
+          python3 scripts/ci/fleet_ios_build.py --what ffi --out "$out" --timeout 1500 --queue-timeout 600 || status=$?
           if [[ "$status" != 0 || ! -f "$out/CmuxMobileLinkFFI.xcframework/Info.plist" ]]; then
             echo "::warning title=build fleet::no xcframework from the build fleet (exit $status); kit-tests builds it"
             exit 0
@@ -451,7 +456,7 @@ jobs:
 
       - name: Wait for the fleet-built CmuxMobileLinkFFI.xcframework
         id: xcf-fleet
-        if: ${{ !cancelled() && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != '' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        if: ${{ !cancelled() && steps.xcf-restore.outputs.cache-hit != 'true' && steps.xcf-fleet-restore.outputs.cache-hit != 'true' && github.repository_owner == 'manaflow-ai' && (vars.CI_IOS_FFI_FLEET || '1') != '0' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         continue-on-error: true
         timeout-minutes: 6
         env:
@@ -686,12 +691,14 @@ jobs:
           { echo "verdict=$verdict"; echo "reason=$reason"; } >> "$GITHUB_OUTPUT"
 
       - name: Upload the fleet pool result
-        if: ${{ !cancelled() && steps.sim-linux.outcome == 'success' && hashFiles(format('{0}/sim-linux/result.tgz', runner.temp)) != '' }}
+        # No hashFiles() gate: it sees only the workspace, never runner.temp, so it skipped every upload.
+        if: ${{ !cancelled() && steps.sim-linux.outcome == 'success' }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: kit-sim-linux-result-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/sim-linux/result.tgz
+          if-no-files-found: ignore
           retention-days: 3
 
       - name: Fleet pool verdict
@@ -954,12 +961,14 @@ jobs:
           { echo "verdict=$verdict"; echo "seconds=$seconds"; } >> "$GITHUB_OUTPUT"
 
       - name: Upload the fleet pool result
-        if: ${{ !cancelled() && hashFiles(format('{0}/sim-linux/result.tgz', runner.temp)) != '' }}
+        # No hashFiles() gate: it sees only the workspace, never runner.temp, so it skipped every upload.
+        if: ${{ !cancelled() }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: kit-sim-linux-result-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/sim-linux/result.tgz
+          if-no-files-found: ignore
           retention-days: 3
 
       - name: Fleet pool verdict
