@@ -361,6 +361,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_BG_LIST, Request),
         untyped(method::MUX_BG_OUTPUT, Request),
         untyped(method::MUX_BG_STOP, Request),
+        untyped(method::MUX_BG_REARM, Request),
         untyped(method::MUX_RUN_ELSEWHERE_PLAN, Request),
         untyped(method::MUX_RUN_ELSEWHERE_START, Request),
         untyped(method::MUX_GOAL_SET, Request),
@@ -641,6 +642,7 @@ pub fn registry() -> Vec<MethodDecl> {
         // schema would describe itself.
         request::<ProtocolParams, Value>(method::MUX_PROTOCOL),
         untyped(method::MUX_SHUTDOWN, Request),
+        untyped(method::MUX_WATCHDOG_HOLD, Request),
         untyped(method::MUX_HEAP_PROFILE, Request),
         keyed::<params::PeersParams>("_acpmux/peers", Request),
         untyped("_acpmux/peer_status", Request),
@@ -691,6 +693,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_MACHINE_LEAVE_IF_AUTO, Request),
         untyped(method::MUX_MACHINE_SIGNED_IN, Request),
         untyped(method::MUX_DEVICE_HELLO, Request),
+        untyped(method::MUX_DEVICE_CHALLENGE, Request),
         untyped(method::MUX_DEVICE_ENROLL, Request),
         untyped(method::MUX_BROWSER_SIGN_IN_START, Request),
         untyped(method::MUX_BROWSER_SIGN_IN_COMPLETE, Request),

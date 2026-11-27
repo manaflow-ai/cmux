@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.menu.destructiveInk.help" : {
+      "comment" : "Settings help under appearance.menu.destructiveInk; also the MDM schema's description",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Whether destructive menu rows, such as Delete, are drawn in red."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「削除」などの破壊的なメニュー項目を赤で表示するかどうかです。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ما إذا كانت صفوف القائمة الهدّامة، مثل حذف، تُعرض باللون الأحمر."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Da li se destruktivni redovi menija, poput Izbriši, iscrtavaju crvenom bojom."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Om destruktive menurækker, såsom Slet, tegnes med rødt."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ob destruktive Menüzeilen wie Löschen rot dargestellt werden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Si las filas destructivas del menú, como Eliminar, se dibujan en rojo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Indique si les entrées destructrices des menus, comme Supprimer, s'affichent en rouge."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se le voci distruttive dei menu, come Elimina, appaiono in rosso."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ថាតើជួរម៉ឺនុយដែលបំផ្លាញ ដូចជា លុប ត្រូវបង្ហាញជាពណ៌ក្រហមឬអត់។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "삭제 같은 파괴적인 메뉴 행을 빨간색으로 표시할지 여부입니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Om destruktive menyrader, som Slett, tegnes i rødt."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Czy nieodwracalne elementy menu, takie jak Usuń, są rysowane na czerwono."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Se os itens destrutivos do menu, como Excluir, são desenhados em vermelho."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Выделять ли красным опасные пункты меню, например «Удалить»."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กำหนดว่าจะแสดงแถวเมนูที่ทำลายข้อมูล เช่น ลบ เป็นสีแดงหรือไม่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Sil gibi yıkıcı menü satırlarının kırmızı çizilip çizilmeyeceği."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Чи виділяти червоним небезпечні пункти меню, як-от «Видалити»."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Có hiển thị các hàng menu mang tính phá hủy, như Xóa, bằng màu đỏ hay không."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "是否以红色显示“删除”等破坏性菜单项。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "是否以紅色顯示「刪除」等破壞性選單項目。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
