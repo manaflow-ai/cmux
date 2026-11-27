@@ -73,8 +73,9 @@ import acpmux_disconnect_stress as ds  # noqa: E402  (FakeHub, make_handler, cle
 
 LOG_COUNTERS = {
     "leaseLapsed": re.compile(r"prompt admission lease lapsed"),
-    "mutexHeldLong": re.compile(r"std mutex held long"),
-    "remoteSessionsHeldLong": re.compile(r"std mutex held long.*remote_sessions|remote_sessions.*held long"),
+    # hub/held_lock.rs: "a std mutex was held long on a runtime worker lock=WHAT at=FILE:LINE held_ms=N"
+    "mutexHeldLong": re.compile(r"std mutex (?:was )?held long"),
+    "remoteSessionsHeldLong": re.compile(r"std mutex (?:was )?held long.*remote_sessions|remote_sessions.*std mutex (?:was )?held long"),
     "peerDrops": re.compile(r"peer disconnected|peer stopped answering|peer link (?:dropped|closed|lost)|disconnected from peer|link down", re.I),
     "punch": re.compile(r"punch", re.I),
     "silenceBudget": re.compile(r"silence budget", re.I),
@@ -286,11 +287,27 @@ def tally_stacks(files: list[Path], top: int = 12) -> list[dict]:
     return [{"frame": k, "threads": v} for k, v in sorted(counts.items(), key=lambda kv: -kv[1])[:top]]
 
 
+ANSI = re.compile(r"\x1b\[[0-9;]*m")
+HELD_SITE = re.compile(r"std mutex (?:was )?held long.*?lock=(\S+).*?at=(\S+).*?held_ms=(\d+)")
+LAPSE_STAGE = re.compile(r"prompt admission lease lapsed.*?stage=\"?([A-Za-z_-]+)")
+
+
 def count_log(path: Path, start: int, end: int) -> dict:
     with path.open("rb") as f:
         f.seek(start)
-        text = f.read(max(0, end - start)).decode(errors="replace")
-    return {k: len(rx.findall(text)) for k, rx in LOG_COUNTERS.items()}
+        text = ANSI.sub("", f.read(max(0, end - start)).decode(errors="replace"))
+    out: dict = {k: len(rx.findall(text)) for k, rx in LOG_COUNTERS.items()}
+    sites: dict = {}
+    for lock, at, ms in HELD_SITE.findall(text):
+        s = sites.setdefault(f"{lock} @ {at}", {"n": 0, "maxMs": 0})
+        s["n"] += 1
+        s["maxMs"] = max(s["maxMs"], int(ms))
+    out["heldSites"] = dict(sorted(sites.items(), key=lambda kv: -kv[1]["n"])[:8])
+    stages: dict = {}
+    for st in LAPSE_STAGE.findall(text):
+        stages[st] = stages.get(st, 0) + 1
+    out["lapseStages"] = stages
+    return out
 
 
 # The run ---------------------------------------------------------------------------------------
@@ -497,7 +514,7 @@ class Wedge:
                "daemonCpuPct": round(100 * (cpu1 - cpu0) / dt, 1) if cpu0 is not None and cpu1 is not None else None,
                "threadsMax": max((r.get("threads", 0) for r in ps_rows), default=None),
                "rssMBMax": max((r.get("rssMB", 0) for r in ps_rows), default=None),
-               "log": logc, "logPerMin": {k: round(v / mins, 1) for k, v in logc.items()},
+               "log": logc, "logPerMin": {k: round(v / mins, 1) for k, v in logc.items() if isinstance(v, int)},
                "linksUp": self.links_up(),
                "proxyAccepts": sum(p.accepted for p in self.proxies), "proxyCuts": sum(p.cuts for p in self.proxies),
                "hub": dict(self.hub.counts)}
@@ -640,6 +657,13 @@ def summary_md(res: dict) -> str:
             lines += ["", f"## Top waiting frames during `{ph['phase']}` ({ph.get('stackTool')})", "",
                       "| threads | first acpmux frame above the wait |", "|---|---|"]
             lines += [f"| {w['threads']} | `{w['frame']}` |" for w in ph["topWaits"]]
+    for ph in res["phases"]:
+        if ph["log"].get("heldSites"):
+            lines += ["", f"## Std mutexes held long during `{ph['phase']}` (hub/held_lock.rs)", "",
+                      "| holds | max ms | lock @ site |", "|---|---|---|"]
+            lines += [f"| {v['n']} | {v['maxMs']} | `{k}` |" for k, v in ph["log"]["heldSites"].items()]
+        if ph["log"].get("lapseStages"):
+            lines += ["", f"Lease lapses by stage during `{ph['phase']}`: {ph['log']['lapseStages']}"]
     return "\n".join(lines) + "\n"
 
 
