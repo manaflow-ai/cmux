@@ -2163,6 +2163,9 @@ export class AcpmuxDirectClient {
   private viewSync: Promise<void> = Promise.resolve();
   /// The selection generation whose attach reply has landed; lag resync waits for it.
   private attachedGeneration = -1;
+  /// The kept tail drawn (`drawKeptTail`) ends inside a turn no listed entry said runs (`keptMidTurn`):
+  /// published as the snapshot's `tailMidTurn` until acpmux's list or attach of that chat says whether it runs.
+  private tailMidTurn?: { sessionId: string; generation: number };
   /// What the shown chat's running turn held when it was first drawn and when its attach landed
   /// (`noteReadWork`), while that turn runs.
   private readWork: { session: string; generation: number; attached: boolean; items: Map<string, number> } | undefined;
@@ -3286,6 +3289,7 @@ export class AcpmuxDirectClient {
     this.drewKeptTail = false;
     this.settled = undefined;
     this.earlyTail = undefined;
+    this.tailMidTurn = undefined;
     this.peerCopy = undefined;
     this.copyLive = undefined;
     this.drawnGeneration = undefined;
@@ -3879,6 +3883,7 @@ export class AcpmuxDirectClient {
     if (this.peerCopy?.sessionId === early.sessionId) return;
     connectFailedAfterEarlyTail = early.sessionId;
     this.earlyTail = undefined;
+    this.tailMidTurn = undefined;
     this.events = [];
     this.streamedOutputs.clear();
     this.splits.clear();
@@ -3907,6 +3912,8 @@ export class AcpmuxDirectClient {
       this.drawKeptTail(sessionId, { ...rows, summary: rows.summary && { ...rows.summary, status: undefined } }) === 0
     )
       return false;
+    // Its machine is not here: nothing will say soon whether its turn runs, so it draws as kept, ended.
+    this.tailMidTurn = undefined;
     this.copyLive = undefined;
     this.turnOpen = false;
     this.turnEndSeen = false;
@@ -3947,6 +3954,10 @@ export class AcpmuxDirectClient {
     // A paused queue's failed turn no longer runs, whatever status acpmux last listed (`staleRun`).
     this.turnEndSeen = false;
     this.turnOpen = this.summaryRuns(listed);
+    // No list says yet whether that turn still runs: the transcript draws it as running (`tailMidTurn`)
+    // until acpmux's list or attach says, as the last launch's copy drew it.
+    this.tailMidTurn =
+      keptMidTurn && listed === undefined ? { sessionId, generation: this.selectionGeneration } : undefined;
     // Not a paused queue's failed turn, whose end acpmux draws as a failure, nor a turn the tail
     // cannot name: its result's summary row would have another id.
     if (keptMidTurn && listed && !this.turnOpen && listed.queuePaused !== true && this.runningTurnId)
@@ -6308,6 +6319,13 @@ export class AcpmuxDirectClient {
       this.daemonLivenessTimer = undefined;
     }
     if (wasWaiting && this.daemonWaitingSince === undefined) this.emit("daemon resumed");
+    // The request check's timer is due from the oldest sent request: timed again from the ones
+    // left, so a page whose requests all came back wakes for none (idle wakeups after a switch).
+    if (!this.requestCheck && this.requestCheckTimer !== undefined) {
+      clearTimeout(this.requestCheckTimer);
+      this.requestCheckTimer = undefined;
+      this.armRequestCheck(id);
+    }
   }
 
   /// While a request waits, checks on the socket's daemon (`DAEMON_PROBE_AFTER_MS`,
@@ -6443,15 +6461,16 @@ export class AcpmuxDirectClient {
 
   /// One timer at a time: due `REQUEST_CHECK_MS` after the oldest sent request (or the last
   /// answer), or, with a question out, `DAEMON_PROBE_ANSWER_MS` after the daemon's last sign.
-  private armRequestCheck(): void {
+  /// `settling`: a request whose reply just came, not yet out of `pending`.
+  private armRequestCheck(settling?: number | string): void {
     if (this.requestCheckTimer !== undefined || this.requestCheckOff || this.closed || this.daemonUnprobed()) return;
     let due: number;
     if (this.requestCheck) {
       due = Math.max(this.requestCheck.at, this.daemonFrameAt) + AcpmuxDirectClient.DAEMON_PROBE_ANSWER_MS;
     } else {
       let oldest = Number.POSITIVE_INFINITY;
-      for (const entry of this.pending.values()) {
-        if (this.checkable(entry) && entry.sentAt! < oldest) oldest = entry.sentAt!;
+      for (const [id, entry] of this.pending) {
+        if (id !== settling && this.checkable(entry) && entry.sentAt! < oldest) oldest = entry.sentAt!;
       }
       if (oldest === Number.POSITIVE_INFINITY) return;
       due = Math.max(oldest, this.requestCheckedAt) + AcpmuxDirectClient.REQUEST_CHECK_MS;
@@ -8814,6 +8833,19 @@ export class AcpmuxDirectClient {
         const pending = this.frameSnapshot;
         if (pending !== undefined && !this.closed) this.emit(pending);
       }) ?? undefined;
+  }
+
+  /// Whether the drawn kept tail's open turn still waits for acpmux to say if it runs (`tailMidTurn`):
+  /// the chat is selected in the generation that drew it, its attach has not answered, and no listed
+  /// entry of it says it is not running.
+  private tailMidTurnShown(): boolean {
+    const mid = this.tailMidTurn;
+    if (!mid || mid.sessionId !== this.selectedSessionId || mid.generation !== this.selectionGeneration) return false;
+    if (this.attachedGeneration === this.selectionGeneration) return false;
+    // A listed entry names the chat's status: one that is not running ends the guess (one running keeps
+    // it until the turn's own state draws it, so the rows never flip between the two).
+    const listed = this.sessions.find((session) => session.sessionId === mid.sessionId);
+    return listed === undefined || listed.status === "running";
   }
 
   /// Whether the chat runs a turn, as the snapshot says it (`isWorking`).
@@ -11799,7 +11831,8 @@ export class AcpmuxDirectClient {
     // A page kept in a background workspace cannot paint this snapshot. Keep only its newest
     // reason; showChanged() emits once after the page is visible again. This covers the direct
     // emit callers as well as emitInFrame(), so no hidden page runs snapshot construction work.
-    if (!pageShown()) {
+    // A replay draws only when asked (`seekReplay`): the spare's rehearsal folds one while parked hidden.
+    if (!pageShown() && !this.replayMode) {
       this.observeWorking();
       this.hiddenEmit = connection;
       return;
@@ -12152,6 +12185,7 @@ export class AcpmuxDirectClient {
         ? { sessionsWindowed: true as const }
         : {}),
       ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
+      ...(!working && this.tailMidTurnShown() ? { tailMidTurn: true as const } : {}),
       ...(this.peerCopy
         ? {
             peerCopy: {
@@ -13526,6 +13560,11 @@ export class AcpmuxDirectClient {
     this.unsentKept.delete(promptId);
     void this.unsentStore?.remove(kept.sessionId, promptId).catch(() => undefined);
   }
+  /// Whether the host's store keeps prompt `promptId` (unsentPrompts.ts): its chat, shown again,
+  /// drops it once acpmux has it, or draws it as not sent with Retry (lostPrompt.ts `leftForStore`).
+  keepsUnsentPrompt(promptId: string): boolean {
+    return this.unsentStore !== undefined && this.unsentKept.has(promptId);
+  }
   /// A lost prompt's sender (App.tsx, lostPrompt.ts keepLostPrompt) is done with the stored copy:
   /// the prompt showed on a later connection, or it went back into the composer, which keeps it.
   forgetUnsentPrompt(promptId: string): void {
@@ -14032,6 +14071,12 @@ export class AcpmuxDirectClient {
     if (!sessionId) throw new Error(translate("error.notOpen"));
     await this.request("_acpmux/archive", { sessionId, archived });
     return sessionId;
+  }
+  /// Unsettle chat `sessionId` (a settle toast's Undo, the home's Settled shelf): Unarchive by id,
+  /// which drops acpmux's `settled` reason too (hub/auto_settle.rs). The app's relay takes it only
+  /// for a chat in the pane's scope (AcpmuxPaneMethods `sessionScoped`) and refuses any other.
+  async unsettle(sessionId: string): Promise<void> {
+    await this.request("_acpmux/archive", { sessionId, archived: false });
   }
   /// Compress Chat (`archived`) puts chat `sessionId`'s log in acpmux's cold archive, where the
   /// lists draw it from its preview alone; Decompress Chat brings the log back (acpmux
