@@ -22,8 +22,7 @@ declare global {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
     benchCommitRenders: { mark(): void; since(): number };
-    /** Renames one older revision and has the page read the file and its history again. */
-    benchChangeOne(index?: number): void | Promise<void>;
+    // benchChangeOne (one declaration for every harness: test/support/mountedRowRenders.ts): Renames one older revision and has the page read the file and its history again.
   }
 }
 

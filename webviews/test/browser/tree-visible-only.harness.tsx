@@ -19,8 +19,7 @@ declare global {
   interface Window {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
-    /** Renames one file of the first open folder and has the page list its folders again. */
-    benchChangeOne(index?: number): void | Promise<void>;
+    // benchChangeOne (one declaration for every harness: test/support/mountedRowRenders.ts): Renames one file of the first open folder and has the page list its folders again.
     /** Opens the closed folder at the top. */
     benchExpandOne(): Promise<void>;
   }

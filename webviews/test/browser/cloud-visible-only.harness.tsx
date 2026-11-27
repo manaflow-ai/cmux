@@ -14,8 +14,7 @@ declare global {
   interface Window {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
-    /** Grows one entry near the top and has the page list the folder again. */
-    benchChangeOne(index: number): void | Promise<void>;
+    // benchChangeOne (one declaration for every harness: test/support/mountedRowRenders.ts): Grows one entry near the top and has the page list the folder again.
   }
 }
 

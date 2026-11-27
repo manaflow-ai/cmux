@@ -16,15 +16,10 @@ import {
 test("events go out in one batch with their time, and mounts count", () => {
   const sent: FlickerEvent[][] = [];
   let clock = 1_000;
-  const timers: (() => void)[] = [];
   const ends: (() => void)[] = [];
   const log = new FlickerLog(
     (events) => sent.push(events),
     () => clock,
-    (run) => {
-      timers.push(run);
-      return 0 as unknown as ReturnType<typeof setTimeout>;
-    },
     // The end of the recording task, run when the test says.
     (run) => ends.push(run),
   );
@@ -32,8 +27,7 @@ test("events go out in one batch with their time, and mounts count", () => {
   clock = 1_200;
   log.transcriptMounted();
   log.transcriptMounted();
-  // One batch at the end of the task, and no timer: nothing went out in the second before.
-  expect(timers).toHaveLength(0);
+  // One batch at the end of the task: nothing went out in the second before.
   expect(ends).toHaveLength(1);
   expect(sent).toHaveLength(0);
   ends[0]!();
@@ -227,33 +221,4 @@ test("with the engine's long frames, a change at rest costs two frames, and summ
   expect(summaries.length).toBeLessThanOrEqual(2);
   expect(summaries.every((stats) => stats.p50 === 8)).toBe(true);
   expect(pending()).toBeUndefined();
-});
-
-// Chromium refuses a `setTimeout` called with another receiver ("Illegal invocation"). The log's
-// default timer is called as its own method, so it must not be the bare function: in Chromium the
-// first record threw, and the transcript's mount record then broke the pane's first draw.
-test("the default timer runs with the global receiver, as Chromium requires", async () => {
-  const real = globalThis.setTimeout;
-  const receivers: unknown[] = [];
-  const strict = function (this: unknown, run: () => void, ms?: number) {
-    receivers.push(this);
-    if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
-    return real(run, ms);
-  };
-  globalThis.setTimeout = strict as unknown as typeof setTimeout;
-  try {
-    const sent: FlickerEvent[][] = [];
-    const log = new FlickerLog((events) => sent.push(events));
-    log.transcriptMounted();
-    log.flush();
-    // The batch at the end of that task has run.
-    await Promise.resolve();
-    // A record within a second of that batch waits on the default timer.
-    expect(() => log.transcriptMounted()).not.toThrow();
-    log.flush();
-    expect(sent).toHaveLength(2);
-    expect(receivers).toHaveLength(1);
-  } finally {
-    globalThis.setTimeout = real;
-  }
 });

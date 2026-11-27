@@ -51,3 +51,13 @@ export function mountedRowRenders(elements: () => Iterable<Element>, component?:
   };
   return renders;
 }
+
+declare global {
+  interface Window {
+    /** A visible-only harness's one change (the bench's load). Declared here once, as a property:
+     *  every harness declaring its own as a method merged them into one overload set no single
+     *  function satisfies (a sync one failed `Promise<void>`, TS2322); a second property
+     *  declaration with another type is TS2717 at that line. */
+    benchChangeOne: (index: number) => void | Promise<void>;
+  }
+}

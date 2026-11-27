@@ -15,8 +15,7 @@ declare global {
   interface Window {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
-    /** Retitles the `index`th chat: the host's next block. */
-    benchChangeOne(index: number): void | Promise<void>;
+    // benchChangeOne (one declaration for every harness: test/support/mountedRowRenders.ts): Retitles the `index`th chat: the host's next block.
     /** The host's age tick with no age label moved: the same rows in a new block. */
     benchTick(): void;
   }

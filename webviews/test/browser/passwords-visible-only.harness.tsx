@@ -20,8 +20,7 @@ declare global {
   interface Window {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
-    /** Changes the `index`th login's username (keeping its place) and has the page read the lists again. */
-    benchChangeOne(index: number): void | Promise<void>;
+    // benchChangeOne (one declaration for every harness: test/support/mountedRowRenders.ts): Changes the `index`th login's username (keeping its place) and has the page read the lists again.
   }
 }
 

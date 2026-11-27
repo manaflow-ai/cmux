@@ -24,9 +24,7 @@ declare global {
     benchReady: boolean;
     benchRowSelector: string;
     benchRowRenders: { mark(): void; since(): number };
-    /** Changes the `index`th row's share or key and has the page read the list again. Other
-     * harnesses declare it returning void (one global Window), so this one's promise is optional. */
-    benchChangeOne(index: number): Promise<void> | void;
+    // benchChangeOne (one declaration for every harness: test/support/mountedRowRenders.ts): Changes the `index`th row's share or key and has the page read the list again.
   }
 }
 

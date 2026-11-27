@@ -10,8 +10,7 @@ declare global {
   interface Window {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
-    /** Marks the open item read and back unread: the page reads the feed again, the diff the same. */
-    benchChangeOne(index: number): void | Promise<void>;
+    // benchChangeOne (one declaration for every harness: test/support/mountedRowRenders.ts): Marks the open item read and back unread: the page reads the feed again, the diff the same.
   }
 }
 

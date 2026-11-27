@@ -18,8 +18,7 @@ declare global {
   interface Window {
     benchReady: boolean;
     benchRowRenders: { mark(): void; since(): number };
-    /** Retitles the `index`th row: one `update` op from the host. */
-    benchChangeOne(index: number): void;
+    // benchChangeOne (one declaration for every harness: test/support/mountedRowRenders.ts): Retitles the `index`th row: one `update` op from the host.
   }
 }
 
