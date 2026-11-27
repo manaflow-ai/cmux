@@ -23,14 +23,12 @@ import CmuxNextUpdater
 /// found step's Update; `restart`: the Update Ready card's Restart to Update; `hide`: either card's
 /// Hide), through the sidebar's intents;
 /// `{action: "snooze", press?, at?}`: `UpdaterService.debugSnooze` (UPDATE-CARD-CLOSE).
-/// `{action: "updated", previous?}` records `previous` (default "0.0.1")
-/// as the last seen version, so this launch
+/// `{action: "updated", previous?}` records `previous` (default "0.0.1") as the last seen version, so this launch
 /// shows the "cmux Updated!" card (cx-7py7); `{action: "share"}` opens the
 /// Share cmux modal and `{action: "share-copy"}` presses its Copy Link.
 /// `{action: "newest", pulled?}` shows the "Getting the Newest Build…" card (with `pulled`, its
 /// "This build was pulled." line); `{action: "unstage"}` ends it.
-/// `{action: "push", build}`: the release push for `build` (`UpdaterService.debugReleasePush`; DEV
-/// and bench builds), as the update harness's `--push` sends it.
+/// `{action: "push", build}`: the release push for `build` (`UpdaterService.debugReleasePush`, the harness's `--push`).
 /// `{action: "feedCards"}` posts sample installed-update Feed cards (cmux and Claude Code).
 @MainActor
 enum DebugUpdater {
@@ -47,14 +45,7 @@ enum DebugUpdater {
             let staged = UpdateSimulation.stageSample(services.updater, version: params["version"]?.stringValue, changes: params["changes"]?.doubleValue)
             return .object(["staged": .string(staged.version), "changes": JSONValue(staged.changes)])
         case "simulate": return .object(["simulating": .bool(true), "publishedNotes": .bool(UpdateSimulation(updater: services.updater).simulate())])
-        #if DEBUG || CMUX_BENCH_HOOKS
-        case "push":
-            guard let build = params["build"]?.stringValue.flatMap({ Int64($0) }) ?? params["build"]?.doubleValue.map({ Int64($0) }) else {
-                throw ControlError.invalidParams("debug.updater push: build must be a build number")
-            }
-            services.updater.debugReleasePush(build)
-            return .object(["pushed": .string(String(build))])
-        #endif
+        case "push": return .object(["pushed": .bool(services.updater.debugReleasePush(params["build"]?.stringValue ?? params["build"]?.doubleValue.map { String(Int64($0)) }))])
         case "available":
             services.updater.debugShowFound(version: params["version"]?.stringValue ?? "1.99.0", asked: params["asked"]?.boolValue == true)
             return .object(["notice": .string(services.updater.card?.kind ?? "none"),
