@@ -275,6 +275,8 @@ mod peer_lease;
 mod peer_list_slot_tests;
 #[cfg(test)]
 mod peer_notice_cost_tests;
+#[cfg(test)]
+mod peer_refresh_cost_tests;
 mod peer_row;
 pub(crate) mod peer_snapshot;
 mod peer_table;
@@ -283,6 +285,8 @@ mod permission_groups;
 pub(crate) mod permission_modes;
 mod permissions;
 pub mod person;
+/// Four session states, never unknown (`hub/session_state.rs`).
+pub(crate) mod session_state;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 mod person_prompt_at;
@@ -379,6 +383,7 @@ mod silent_listing;
 mod silent_turn;
 #[cfg(feature = "sim")]
 mod sim_startup;
+pub(crate) mod soft_delete;
 mod spawn;
 mod spoken_handles;
 mod stale_host_respawn;
@@ -1126,6 +1131,8 @@ pub struct Hub {
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// The chats that left memory, each a compact row (`evict.rs`).
     pub(crate) evicted: evict::Tier,
+    /// The deleted chats inside their grace, out of the map (`soft_delete.rs`).
+    pub(crate) deleted: soft_delete::Deleted,
     spoken_handle_renames: StdMutex<()>,
     /// Session ids whose metadata is still live. Closed records remain in `sessions` and on
     /// disk for history, search, export and restore, but list/peer hot paths never walk them.
@@ -1811,6 +1818,7 @@ impl Hub {
             forum_hosted: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
             evicted: Default::default(),
+            deleted: Default::default(),
             spoken_handle_renames: StdMutex::new(()),
             live_session_ids: StdMutex::new(std::collections::HashSet::new()),
             closed_summary_cache: StdMutex::new(Default::default()),
@@ -2267,6 +2275,8 @@ impl Hub {
         }
         // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
         let unsaved = self.settle_legacy_grants(&mut metas);
+        // A deleted chat stays out of the map through its grace (`soft_delete.rs`).
+        self.hold_deleted(&mut metas);
         self.store_load.total.store(metas.len(), Ordering::SeqCst);
         // A first start with no ledger file: each session's running totals (`hub/ledger`).
         if self.ledger.wants_seed() {
