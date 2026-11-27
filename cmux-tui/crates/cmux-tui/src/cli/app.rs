@@ -59,6 +59,7 @@ mod settings;
 mod skew;
 mod space;
 mod try_cmd;
+mod update_status;
 mod version;
 pub(super) mod wait;
 mod web_cas;
@@ -228,6 +229,8 @@ pub(super) enum AppCommand {
     /// `cmux version`: the CLI, the app behind the socket, its updater and
     /// bundled helpers in one report (app/version.rs).
     Version,
+    /// `cmux update [status]`: the automatic updater, paused or running and why (app/update_status.rs).
+    UpdateStatus,
     /// `cmux nightly list|install`: another recent nightly build (app/nightly.rs).
     Nightly(nightly::Command),
     /// `cmux live start|stop|status`: edit cmux's web UI while it runs (app/live.rs).
@@ -294,6 +297,10 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             return Err(UsageError::new(messages.unexpected_argument.replace("{value}", extra)));
         }
         return Ok(Some(AppCommand::Version));
+    }
+    if scope == "update" {
+        update_status::parse(args)?;
+        return Ok(Some(AppCommand::UpdateStatus));
     }
     let tail = args.get(1..).unwrap_or_default();
     match scope.as_str() {
@@ -971,6 +978,7 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
     }
     match &command {
         AppCommand::Version => return Ran::Done(version::run(global)),
+        AppCommand::UpdateStatus => return Ran::Done(update_status::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, command)),
         AppCommand::Live(command) => {
             let command =
@@ -1130,6 +1138,7 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         AppCommand::Settings(command) => return Ran::Done(command.run(global)),
         AppCommand::Right { params, then } => return right::run(global, stream, params, *then),
         AppCommand::Version => return Ran::Done(version::run(global)),
+        AppCommand::UpdateStatus => return Ran::Done(update_status::run(global)),
         AppCommand::Nightly(command) => return Ran::Done(nightly::run(global, &command)),
         AppCommand::Live(command) => {
             let command =

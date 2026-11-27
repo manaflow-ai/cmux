@@ -40,6 +40,8 @@ nonisolated public struct UpdaterStatus: Sendable, Equatable {
     /// The automatic install the moment holds: why, since when, and whether it outlived its bound
     /// (``UpdaterService/relaunchHold``), or nil.
     public var relaunchHold: UpdateRelaunchHoldState?
+    /// What decides whether automatic updates run now (``UpdateAutomationFacts``), read by `cmux update status`.
+    public var automation: UpdateAutomationFacts?
 }
 
 /// The Sparkle flow's phase as a stable name for scripts.
