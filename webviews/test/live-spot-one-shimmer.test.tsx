@@ -1,6 +1,5 @@
 // l10n-allow-file: test fixture prompts and tool titles, not shipped UI.
-// The live spot (the running turn's "Thinking" line, Thinking.tsx, and the activity line under a todo
-// list, ActivityLine.tsx) draws every status under ONE shimmer, and a turn the agent runs on its own
+// The live spot (the running turn's "Thinking" line, Thinking.tsx) draws every status under ONE shimmer, and a turn the agent runs on its own
 // (a helper finished, a message to send) has that line too. Leo, 2026-11-22: "these situations,
 // there's no glimmer because... well shit i dont know. you sending messages or whatever aren't being
 // accounted properly a la the "thinking" thing." and "the "waiting" also shouldnt be special cased as
@@ -10,7 +9,6 @@ import { readFileSync } from "node:fs";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { ActivityLine } from "../src/agent-session/acpmux/conversation/ActivityLine";
 import { SHIMMER_CLASS, Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { liveWait, THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { type LiveWait, subagentsLabel, waitingLabel } from "../src/agent-session/acpmux/conversation/liveWait";
@@ -175,7 +173,7 @@ const asked: AcpmuxRow = { id: "u1", version: 1, at: 1_000, kind: "user", text: 
 
 test("after a call returns, the line waits on the model after that call", () => {
   const ran = tool("completed", { endedAt: 3_000 });
-  expect(liveWait([asked, ran], ran)).toEqual({ kind: "step", step: "Ran bun test" });
+  expect(liveWait([asked, ran], ran)).toEqual({ kind: "step", step: "Ran tests with bun" });
 });
 
 test("after a thought or a reply, the line waits on the model's next step", () => {
@@ -212,7 +210,7 @@ test("a silent live turn's line carries what it waits on, and a subagent wait ca
   const view = turnView([asked, ran], new Set(), { now: 60_000, working: true });
   const line = view.at(-1)!;
   expect(line.kind).toBe(THINKING);
-  expect(line.liveWait).toEqual({ kind: "step", step: "Ran bun test" });
+  expect(line.liveWait).toEqual({ kind: "step", step: "Ran tests with bun" });
 });
 
 for (const [name, node, label] of statuses)
@@ -249,24 +247,6 @@ for (const waiting of ["trust", "trustRemote", "permission", "secret"] as Waitin
     expect(html).toContain(`cv-thinking ${SHIMMER_CLASS} cv-waiting`);
     expect(html).toMatch(/cv-waiting__pill"><span class="cv-shimmer__row"><span class="cv-shimmer__base">/);
   });
-
-test("the activity line shimmers its step, its thinking verb, its wait and a message going out", () => {
-  const base: AcpmuxRow = { id: "activityLine-p", version: 1, at: 0, kind: "activityLine", below: true };
-  const step = renderToStaticMarkup(<ActivityLine row={{ ...base, text: "Edit gen.py" }} now={() => NOW} />);
-  expect(step).toContain(`cv-activity__label cv-thinking ${SHIMMER_CLASS}`);
-  const sending = renderToStaticMarkup(
-    <ActivityLine row={{ ...base, text: "SendMessage", doingSendTo: "tests" }} now={() => NOW} />,
-  );
-  expect(sending).toContain("cv-activity-row is-live");
-  expect(sending).toContain("cv-row-shimmer");
-  const waiting = renderToStaticMarkup(
-    <WaitingOnContext value="permission">
-      <ActivityLine row={{ ...base, text: "Edit gen.py" }} now={() => NOW} />
-    </WaitingOnContext>,
-  );
-  expect(waiting).toContain(`cv-activity__label cv-thinking ${SHIMMER_CLASS}`);
-  expect(waiting).not.toContain("cv-waiting");
-});
 
 test("the Working-for line's wait on the person shimmers too, never plain white words", () => {
   const row: AcpmuxRow = { id: "working-p", version: 1, at: 0, kind: "working", below: true };

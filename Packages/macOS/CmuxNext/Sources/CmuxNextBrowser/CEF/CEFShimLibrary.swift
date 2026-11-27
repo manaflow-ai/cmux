@@ -36,6 +36,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setDefaultSearch: @convention(c) (UnsafePointer<CChar>?) -> Void
     /// The managed preference domain Chromium reads Chrome policies from (`CEFRuntime.chromePolicyIDSetting`).
     let setChromePolicyID: @convention(c) (UnsafePointer<CChar>?) -> Void
+    /// The folder of downloaded Chromium locale paks, read before the framework's (`ChromiumLocalePaks`).
+    let setLocalesDir: @convention(c) (UnsafePointer<CChar>?) -> Void
     /// cmux's own Safe Storage keychain item (`CEFKeychainItem`); nil in a shim without it.
     let setKeychainItem: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32)?
     let setBackgroundColor: @convention(c) (UInt32) -> Void
@@ -176,6 +178,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let downloadControl: @convention(c) (Int32, Int32) -> Int32
     /// Answers PERMISSION_PROMPT: 1 allow, 2 deny, else no answer.
     let permissionContinue: @convention(c) (Int32, Int32) -> Int32
+    /// Answers AUTH_PROMPT: a user and password, or nil user to cancel.
+    let authContinue: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
 
     // Page Info site state (ABI 3).
     let contentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
@@ -288,6 +292,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// Sends every first-party page request to the page host (1) or serves page folders (0): the live
     /// web loop. Nil in an older shim, which always serves the folders.
     let pageSchemeSetLive: (@convention(c) (Int32) -> Void)?
+    /// Names the browser whose agent chat document gets a renderer of its own on its next load
+    /// (`CEFOwnChatRenderer`); 0 for none. Nil in an older shim, where every chat shares one renderer.
+    let pageOwnRenderer: (@convention(c) (Int32) -> Void)?
 
     // Extension UI the app draws (fork API 12; no-ops and 0/NULL before).
     let setNewTabPageURL: @convention(c) (UnsafePointer<CChar>?) -> Void
@@ -366,6 +373,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         setExtensionDeveloperMode = try r("cmux_shim_set_extension_developer_mode")
         setDefaultSearch = try r("cmux_shim_set_default_search")
         setChromePolicyID = try r("cmux_shim_set_chrome_policy_id")
+        setLocalesDir = try r("cmux_shim_set_locales_dir")
         setKeychainItem = r.optional("cmux_shim_set_keychain_item")
         setBackgroundColor = try r("cmux_shim_set_background_color")
         browserSetBackgroundColor = try r("cmux_shim_browser_set_background_color")
@@ -450,6 +458,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         downloadContinue = try r("cmux_shim_download_continue")
         downloadControl = try r("cmux_shim_download_control")
         permissionContinue = try r("cmux_shim_permission_continue")
+        authContinue = try r("cmux_shim_auth_continue")
         contentSetting = try r("cmux_shim_content_setting")
         setContentSetting = try r("cmux_shim_set_content_setting")
         visitCookies = try r("cmux_shim_visit_cookies")
@@ -505,6 +514,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         pageResourceRespondRanged = try r("cmux_shim_page_resource_respond_ranged")
         pageResourceRespondPage = r.optional("cmux_shim_page_resource_respond_page")
         pageSchemeSetLive = r.optional("cmux_shim_page_scheme_set_live")
+        pageOwnRenderer = r.optional("cmux_shim_page_own_renderer")
         setNewTabPageURL = try r("cmux_shim_set_new_tab_page_url")
         addNativeMessagingDir = try r("cmux_shim_add_native_messaging_dir")
         installPromptReply = try r("cmux_shim_install_prompt_reply")

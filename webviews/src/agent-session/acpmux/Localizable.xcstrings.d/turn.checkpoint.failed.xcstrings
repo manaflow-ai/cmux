@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.checkpoint.failed" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "تعذّر تحميل نقطة تحقق هذه الجولة. يتم عرض تعديلات الوكيل."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nije moguće učitati checkpoint ovog kruga. Prikazuju se izmjene agenta."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kunne ikke indlæse denne turs checkpoint. Viser agentens ændringer."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Der Checkpoint dieses Durchgangs konnte nicht geladen werden. Die Änderungen des Agenten werden angezeigt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Couldn't load this turn's checkpoint. Showing the agent's edits."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "No se pudo cargar el checkpoint de este turno. Se muestran las ediciones del agente."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossible de charger le checkpoint de ce tour. Affichage des modifications de l'agent."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Impossibile caricare il checkpoint di questo turno. Vengono mostrate le modifiche dell'agente."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このターンのチェックポイントを読み込めませんでした。エージェントの編集を表示しています。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "មិនអាចផ្ទុកចំណុចត្រួតពិនិត្យរបស់វេននេះបានទេ។ កំពុងបង្ហាញការកែសម្រួលរបស់ភ្នាក់ងារ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 턴의 체크포인트를 불러올 수 없습니다. 에이전트의 편집 내용을 표시합니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Kunne ikke laste sjekkpunktet for denne runden. Viser agentens redigeringer."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Nie udało się wczytać punktu kontrolnego tej tury. Pokazano edycje agenta."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Não foi possível carregar o checkpoint deste turno. Mostrando as edições do agente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не удалось загрузить контрольную точку этого хода. Показаны изменения агента."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ไม่สามารถโหลดจุดตรวจสอบของเทิร์นนี้ กำลังแสดงการแก้ไขของเอเจนต์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu turun kontrol noktası yüklenemedi. Ajanın düzenlemeleri gösteriliyor."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Не вдалося завантажити контрольну точку цього ходу. Показано редагування агента."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Không thể tải điểm kiểm tra của lượt này. Đang hiển thị các chỉnh sửa của tác nhân."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "无法加载此轮的检查点。显示代理的编辑。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "無法載入此輪的檢查點。顯示代理的編輯。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

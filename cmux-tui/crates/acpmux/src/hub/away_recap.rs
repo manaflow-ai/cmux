@@ -205,6 +205,12 @@ impl Hub {
         session.away.lock().unwrap_or_else(|e| e.into_inner()).seen = true;
     }
 
+    /// Whether a person has shown `session` since the daemon started (`recap_person_shows`), not
+    /// only an agent's subscription.
+    pub(super) fn person_has_shown(&self, session: &Session) -> bool {
+        session.away.lock().unwrap_or_else(|e| e.into_inner()).seen
+    }
+
     /// Whether a person has shown chat `id` since the daemon started (`recap_person_shows`).
     #[doc(hidden)]
     pub fn recap_person_seen(&self, id: &str) -> bool {

@@ -1,0 +1,225 @@
+﻿2026-11-25T19:16:17.7211740Z Current runner version: '2.338.2'
+2026-11-25T19:16:17.7218745Z Runner name: 'cmux-runner-pool-w3b-0022-2'
+2026-11-25T19:16:17.7219670Z Runner group name: 'cmux-fleet-linux'
+2026-11-25T19:16:17.7220812Z Machine name: 'cmux-runner-pool-w3b-0022'
+2026-11-25T19:16:17.7223825Z ##[group]GITHUB_TOKEN Permissions
+2026-11-25T19:16:17.7226267Z Contents: read
+2026-11-25T19:16:17.7227055Z Metadata: read
+2026-11-25T19:16:17.7227907Z ##[endgroup]
+2026-11-25T19:16:17.7230100Z Secret source: Actions
+2026-11-25T19:16:17.7231256Z Cache mode: write
+2026-11-25T19:16:17.7232035Z Prepare workflow directory
+2026-11-25T19:16:17.7873435Z Prepare all required actions
+2026-11-25T19:16:17.7927231Z Getting action download info
+2026-11-25T19:16:18.0510194Z Download action repository 'actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd' (SHA:de0fac2e4500dabe0009e67214ff5f5447ce83dd)
+2026-11-25T19:16:18.6111065Z Complete job name: changes
+2026-11-25T19:16:18.6793717Z A job started hook has been configured by the self-hosted runner administrator
+2026-11-25T19:16:18.6951114Z ##[group]Run '/opt/cmux-job-start.sh'
+2026-11-25T19:16:18.6971644Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-25T19:16:18.6972725Z ##[endgroup]
+2026-11-25T19:16:19.1067953Z cmux-ws-clean: ws=/home/runner2/work/cmux/cmux decision=clean head=8841c59da why=stamp
+2026-11-25T19:16:19.1268049Z cmux-ws-clean: ws=/home/runner2/work/cmuxterm-hq/cmuxterm-hq decision=clean head=cab51824 why=stamp
+2026-11-25T19:16:19.2547310Z cmux-ws-clean: at=2026-11-25T19:16:19Z phase=started version=3ec74b2a2dea user=runner2 clean=2 emptied=0 failed=0 lock_wait_s=0 pool_sh=bc65aa30cbdc
+2026-11-25T19:16:19.3553138Z cmux-git-mirror: decision=none why=mirror-not-ready
+2026-11-25T19:16:19.6968551Z cmux-pkg-health: at=2026-11-25T19:16:19Z state=ok why=- waited=0
+2026-11-25T19:16:19.7512688Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+2026-11-25T19:16:19.7514853Z with:
+2026-11-25T19:16:19.7515938Z   persist-credentials: false
+2026-11-25T19:16:19.7517071Z   fetch-depth: 2
+2026-11-25T19:16:19.7518106Z   filter: blob:none
+2026-11-25T19:16:19.7519070Z   sparse-checkout-cone-mode: false
+2026-11-25T19:16:19.7521196Z   sparse-checkout: /.github/workflows/cmux-tui-spec.yml
+/.github/scripts/
+/scripts/ci/*.py
+/scripts/ci/*.json
+
+2026-11-25T19:16:19.7523513Z   repository: manaflow-ai/cmux
+2026-11-25T19:16:19.7534593Z   token: ***
+2026-11-25T19:16:19.7535569Z   ssh-strict: true
+2026-11-25T19:16:19.7536551Z   ssh-user: git
+2026-11-25T19:16:19.7537597Z   clean: true
+2026-11-25T19:16:19.7538504Z   fetch-tags: false
+2026-11-25T19:16:19.7539511Z   show-progress: true
+2026-11-25T19:16:19.7540502Z   lfs: false
+2026-11-25T19:16:19.7541386Z   submodules: false
+2026-11-25T19:16:19.7542372Z   set-safe-directory: true
+2026-11-25T19:16:19.7543491Z env:
+2026-11-25T19:16:19.7544446Z   CI_WARNINGS: soft
+2026-11-25T19:16:19.7555604Z   BASH_ENV: $({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)
+2026-11-25T19:16:19.7567175Z ##[endgroup]
+2026-11-25T19:16:19.8650217Z Syncing repository: manaflow-ai/cmux
+2026-11-25T19:16:19.8653503Z ##[group]Getting Git version info
+2026-11-25T19:16:19.8654974Z Working directory is '/home/runner/work/cmux/cmux'
+2026-11-25T19:16:19.8657144Z [command]/usr/local/bin/git version
+2026-11-25T19:16:19.8717514Z git version 2.56.1
+2026-11-25T19:16:19.8749248Z ##[endgroup]
+2026-11-25T19:16:19.8762429Z Copying '/home/runner/.gitconfig' to '/home/runner/work/_temp/a4b51136-7e8d-4aa9-8dde-a7af9fe04ff6/.gitconfig'
+2026-11-25T19:16:19.8776743Z Temporarily overriding HOME='/home/runner/work/_temp/a4b51136-7e8d-4aa9-8dde-a7af9fe04ff6' before making global git config changes
+2026-11-25T19:16:19.8780417Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-25T19:16:19.8783330Z [command]/usr/local/bin/git config --global --add safe.directory /home/runner/work/cmux/cmux
+2026-11-25T19:16:19.8911095Z [command]/usr/local/bin/git config --local --get remote.origin.url
+2026-11-25T19:16:19.9014424Z https://github.com/manaflow-ai/cmux
+2026-11-25T19:16:19.9034755Z ##[group]Removing previously created refs, to avoid conflicts
+2026-11-25T19:16:19.9040632Z [command]/usr/local/bin/git rev-parse --symbolic-full-name --verify --quiet HEAD
+2026-11-25T19:16:19.9144535Z HEAD
+2026-11-25T19:16:19.9273578Z ##[endgroup]
+2026-11-25T19:16:19.9275641Z [command]/usr/local/bin/git submodule status
+2026-11-25T19:16:19.9734462Z -cb1ef7091cdef0b581ee2cbd83742b653253523e ghostty
+2026-11-25T19:16:19.9838194Z  a84a1c7e4f95edf682920a0782ee914531fd2a15 ghostty-next (a84a1c7)
+2026-11-25T19:16:19.9840930Z -a5f372ecfa5ee3903af6e1faba0eda096b4f5746 homebrew-cmux
+2026-11-25T19:16:19.9859947Z ##[group]Cleaning the repository
+2026-11-25T19:16:19.9865707Z [command]/usr/local/bin/git clean -ffdx
+2026-11-25T19:16:20.1334211Z [command]/usr/local/bin/git reset --hard HEAD
+2026-11-25T19:16:20.3935240Z HEAD is now at 8841c59da Merge ac671da48d221a1f028920858c2d4ca15650224d into b841d74f17586a0cb1a2158322606a52aa39b41b
+2026-11-25T19:16:20.3976451Z ##[endgroup]
+2026-11-25T19:16:20.3978270Z ##[group]Disabling automatic garbage collection
+2026-11-25T19:16:20.3984752Z [command]/usr/local/bin/git config --local gc.auto 0
+2026-11-25T19:16:20.4124790Z ##[endgroup]
+2026-11-25T19:16:20.4125422Z ##[group]Setting up auth
+2026-11-25T19:16:20.4125935Z Removing SSH command configuration
+2026-11-25T19:16:20.4221145Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-25T19:16:20.4245039Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-25T19:16:20.4691124Z Entering 'ghostty-next'
+2026-11-25T19:16:20.4783076Z Removing HTTP extra header
+2026-11-25T19:16:20.4788501Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-25T19:16:20.4892278Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-25T19:16:20.5321074Z Entering 'ghostty-next'
+2026-11-25T19:16:20.5415424Z Removing includeIf entries pointing to credentials config files
+2026-11-25T19:16:20.5422952Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-25T19:16:20.5531168Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-25T19:16:20.5946912Z Entering 'ghostty-next'
+2026-11-25T19:16:20.5977956Z file:/home/runner/work/cmux/cmux/.git/modules/ghostty-next/config	remote.origin.url
+2026-11-25T19:16:20.6052833Z [command]/usr/local/bin/git config --file /home/runner/work/cmux/cmux/.git/modules/ghostty-next/config --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-25T19:16:20.6160196Z [command]/usr/local/bin/git config --file /home/runner/work/_temp/git-credentials-d320045c-628e-4c20-b51e-9f6d31a4923f.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-11-25T19:16:20.6272064Z [command]/usr/local/bin/git config --local includeIf.gitdir:/home/runner/work/cmux/cmux/.git.path /home/runner/work/_temp/git-credentials-d320045c-628e-4c20-b51e-9f6d31a4923f.config
+2026-11-25T19:16:20.6375426Z [command]/usr/local/bin/git config --local includeIf.gitdir:/home/runner/work/cmux/cmux/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-d320045c-628e-4c20-b51e-9f6d31a4923f.config
+2026-11-25T19:16:20.6480220Z [command]/usr/local/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-d320045c-628e-4c20-b51e-9f6d31a4923f.config
+2026-11-25T19:16:20.6583959Z [command]/usr/local/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-d320045c-628e-4c20-b51e-9f6d31a4923f.config
+2026-11-25T19:16:20.6681362Z ##[endgroup]
+2026-11-25T19:16:20.6682172Z ##[group]Fetching the repository
+2026-11-25T19:16:20.6688361Z [command]/usr/local/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --filter=blob:none --depth=2 origin +695fda19eb773989440dd6407125a23b07054e7c:refs/remotes/pull/51655/merge
+2026-11-25T19:16:21.9045015Z From https://github.com/manaflow-ai/cmux
+2026-11-25T19:16:21.9045823Z  * [new ref]             695fda19eb773989440dd6407125a23b07054e7c -> pull/51655/merge
+2026-11-25T19:16:21.9050138Z ##[endgroup]
+2026-11-25T19:16:21.9050681Z ##[group]Determining the checkout info
+2026-11-25T19:16:21.9051267Z ##[endgroup]
+2026-11-25T19:16:21.9051737Z ##[group]Setting up sparse checkout
+2026-11-25T19:16:21.9057781Z [command]/usr/local/bin/git config core.sparseCheckout true
+2026-11-25T19:16:21.9174243Z [command]/usr/local/bin/git rev-parse --git-path info/sparse-checkout
+2026-11-25T19:16:21.9279181Z .git/info/sparse-checkout
+2026-11-25T19:16:21.9289681Z ##[endgroup]
+2026-11-25T19:16:21.9290129Z ##[group]Checking out the ref
+2026-11-25T19:16:21.9295136Z [command]/usr/local/bin/git checkout --progress --force refs/remotes/pull/51655/merge
+2026-11-25T19:16:23.2090547Z Updating files:  51% (36666/71875)
+2026-11-25T19:16:23.2312468Z Updating files:  52% (37375/71875)
+2026-11-25T19:16:23.2519908Z Updating files:  53% (38094/71875)
+2026-11-25T19:16:23.2734390Z Updating files:  54% (38813/71875)
+2026-11-25T19:16:23.2920899Z Updating files:  55% (39532/71875)
+2026-11-25T19:16:23.3103818Z Updating files:  56% (40250/71875)
+2026-11-25T19:16:23.3300777Z Updating files:  57% (40969/71875)
+2026-11-25T19:16:23.3507809Z Updating files:  58% (41688/71875)
+2026-11-25T19:16:23.3694467Z Updating files:  59% (42407/71875)
+2026-11-25T19:16:23.3904442Z Updating files:  60% (43125/71875)
+2026-11-25T19:16:23.4126449Z Updating files:  61% (43844/71875)
+2026-11-25T19:16:23.4330232Z Updating files:  62% (44563/71875)
+2026-11-25T19:16:23.4600507Z Updating files:  63% (45282/71875)
+2026-11-25T19:16:23.4833375Z Updating files:  64% (46000/71875)
+2026-11-25T19:16:23.4886350Z Updating files:  65% (46719/71875)
+2026-11-25T19:16:23.4886886Z warning: unable to rmdir 'ghostty-next': Directory not empty
+2026-11-25T19:16:23.5256895Z Updating files:  66% (47438/71875)
+2026-11-25T19:16:23.5444424Z Updating files:  67% (48157/71875)
+2026-11-25T19:16:23.5617642Z Updating files:  68% (48875/71875)
+2026-11-25T19:16:23.5803856Z Updating files:  69% (49594/71875)
+2026-11-25T19:16:23.5989210Z Updating files:  70% (50313/71875)
+2026-11-25T19:16:23.6185695Z Updating files:  71% (51032/71875)
+2026-11-25T19:16:23.6364062Z Updating files:  72% (51750/71875)
+2026-11-25T19:16:23.6559958Z Updating files:  73% (52469/71875)
+2026-11-25T19:16:23.6756756Z Updating files:  74% (53188/71875)
+2026-11-25T19:16:23.6963138Z Updating files:  75% (53907/71875)
+2026-11-25T19:16:23.7134708Z Updating files:  76% (54625/71875)
+2026-11-25T19:16:23.7428740Z Updating files:  77% (55344/71875)
+2026-11-25T19:16:23.7713851Z Updating files:  78% (56063/71875)
+2026-11-25T19:16:23.7889912Z Updating files:  79% (56782/71875)
+2026-11-25T19:16:23.8072583Z Updating files:  80% (57500/71875)
+2026-11-25T19:16:23.8258801Z Updating files:  81% (58219/71875)
+2026-11-25T19:16:23.8419827Z Updating files:  82% (58938/71875)
+2026-11-25T19:16:23.8575803Z Updating files:  83% (59657/71875)
+2026-11-25T19:16:23.8730881Z Updating files:  84% (60375/71875)
+2026-11-25T19:16:23.8890237Z Updating files:  85% (61094/71875)
+2026-11-25T19:16:23.9078085Z Updating files:  86% (61813/71875)
+2026-11-25T19:16:23.9269340Z Updating files:  87% (62532/71875)
+2026-11-25T19:16:23.9431079Z Updating files:  88% (63250/71875)
+2026-11-25T19:16:23.9642478Z Updating files:  89% (63969/71875)
+2026-11-25T19:16:23.9838128Z Updating files:  90% (64688/71875)
+2026-11-25T19:16:24.0055691Z Updating files:  91% (65407/71875)
+2026-11-25T19:16:24.0287058Z Updating files:  92% (66125/71875)
+2026-11-25T19:16:24.0474981Z Updating files:  93% (66844/71875)
+2026-11-25T19:16:24.0705875Z Updating files:  94% (67563/71875)
+2026-11-25T19:16:24.0881086Z Updating files:  95% (68282/71875)
+2026-11-25T19:16:24.1062671Z Updating files:  96% (69000/71875)
+2026-11-25T19:16:24.1231015Z Updating files:  97% (69719/71875)
+2026-11-25T19:16:24.1431394Z Updating files:  98% (70438/71875)
+2026-11-25T19:17:24.3577679Z Updating files:  99% (71157/71875)
+2026-11-25T19:17:24.3602487Z ##[error]fatal: unable to access 'https://github.com/manaflow-ai/cmux/': Operation too slow. Less than 1 bytes/sec transferred the last 60 seconds
+2026-11-25T19:17:24.3962008Z ##[error]fatal: could not fetch f2436f6a7884cb452579f50c9f8c3a8b9a93154f from promisor remote
+2026-11-25T19:17:24.4034415Z ##[group]Removing auth
+2026-11-25T19:17:24.4034929Z Removing SSH command configuration
+2026-11-25T19:17:24.4039119Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-25T19:17:24.4137847Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-25T19:17:24.4609420Z Entering 'ghostty-next'
+2026-11-25T19:17:24.4738934Z Removing HTTP extra header
+2026-11-25T19:17:24.4745402Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-25T19:17:24.4844330Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-25T19:17:24.5316117Z Entering 'ghostty-next'
+2026-11-25T19:17:24.5441626Z Removing includeIf entries pointing to credentials config files
+2026-11-25T19:17:24.5446764Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-25T19:17:24.5531096Z includeif.gitdir:/home/runner/work/cmux/cmux/.git.path
+2026-11-25T19:17:24.5531676Z includeif.gitdir:/home/runner/work/cmux/cmux/.git/worktrees/*.path
+2026-11-25T19:17:24.5532179Z includeif.gitdir:/github/workspace/.git.path
+2026-11-25T19:17:24.5532627Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-25T19:17:24.5544110Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/home/runner/work/cmux/cmux/.git.path
+2026-11-25T19:17:24.5627900Z /home/runner/work/_temp/git-credentials-d320045c-628e-4c20-b51e-9f6d31a4923f.config
+2026-11-25T19:17:24.5640330Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/home/runner/work/cmux/cmux/.git.path /home/runner/work/_temp/git-credentials-d320045c-628e-4c20-b51e-9f6d31a4923f.config
+2026-11-25T19:17:24.5736688Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/home/runner/work/cmux/cmux/.git/worktrees/*.path
+2026-11-25T19:17:24.5818911Z /home/runner/work/_temp/git-credentials-d320045c-628e-4c20-b51e-9f6d31a4923f.config
+2026-11-25T19:17:24.5830967Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/home/runner/work/cmux/cmux/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-d320045c-628e-4c20-b51e-9f6d31a4923f.config
+2026-11-25T19:17:24.5926256Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-11-25T19:17:24.6005457Z /github/runner_temp/git-credentials-d320045c-628e-4c20-b51e-9f6d31a4923f.config
+2026-11-25T19:17:24.6016734Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-d320045c-628e-4c20-b51e-9f6d31a4923f.config
+2026-11-25T19:17:24.6107836Z [command]/usr/local/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-11-25T19:17:24.6185186Z /github/runner_temp/git-credentials-d320045c-628e-4c20-b51e-9f6d31a4923f.config
+2026-11-25T19:17:24.6194029Z [command]/usr/local/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-d320045c-628e-4c20-b51e-9f6d31a4923f.config
+2026-11-25T19:17:24.6282185Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-25T19:17:24.6739496Z Entering 'ghostty-next'
+2026-11-25T19:17:24.6782631Z file:/home/runner/work/cmux/cmux/.git/modules/ghostty-next/config	remote.origin.url
+2026-11-25T19:17:24.6864865Z [command]/usr/local/bin/git config --file /home/runner/work/cmux/cmux/.git/modules/ghostty-next/config --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-25T19:17:24.6956450Z Removing credentials config '/home/runner/work/_temp/git-credentials-d320045c-628e-4c20-b51e-9f6d31a4923f.config'
+2026-11-25T19:17:24.6963686Z ##[endgroup]
+2026-11-25T19:17:24.6993313Z ##[error]The process '/usr/local/bin/git' failed with exit code 128
+2026-11-25T19:17:24.7364800Z Post job cleanup.
+2026-11-25T19:17:24.8350400Z [command]/usr/local/bin/git version
+2026-11-25T19:17:24.8453851Z git version 2.56.1
+2026-11-25T19:17:24.8496718Z Copying '/home/runner/.gitconfig' to '/home/runner/work/_temp/dd816953-bc95-4355-9246-c510324dbdaa/.gitconfig'
+2026-11-25T19:17:24.8509841Z Temporarily overriding HOME='/home/runner/work/_temp/dd816953-bc95-4355-9246-c510324dbdaa' before making global git config changes
+2026-11-25T19:17:24.8510893Z Adding repository directory to the temporary git global config as a safe directory
+2026-11-25T19:17:24.8515299Z [command]/usr/local/bin/git config --global --add safe.directory /home/runner/work/cmux/cmux
+2026-11-25T19:17:24.8604200Z Removing SSH command configuration
+2026-11-25T19:17:24.8611445Z [command]/usr/local/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-11-25T19:17:24.8705287Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-11-25T19:17:24.9185511Z Entering 'ghostty-next'
+2026-11-25T19:17:24.9351214Z Removing HTTP extra header
+2026-11-25T19:17:24.9358704Z [command]/usr/local/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-11-25T19:17:24.9464163Z [command]/usr/local/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-11-25T19:17:24.9936059Z Entering 'ghostty-next'
+2026-11-25T19:17:25.0054006Z Removing includeIf entries pointing to credentials config files
+2026-11-25T19:17:25.0063345Z [command]/usr/local/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-25T19:17:25.0162084Z [command]/usr/local/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-11-25T19:17:25.0607950Z Entering 'ghostty-next'
+2026-11-25T19:17:25.0648795Z file:/home/runner/work/cmux/cmux/.git/modules/ghostty-next/config	remote.origin.url
+2026-11-25T19:17:25.0736119Z [command]/usr/local/bin/git config --file /home/runner/work/cmux/cmux/.git/modules/ghostty-next/config --name-only --get-regexp ^includeIf\.gitdir:
+2026-11-25T19:17:25.0965815Z A job completed hook has been configured by the self-hosted runner administrator
+2026-11-25T19:17:25.1001092Z ##[group]Run '/opt/cmux-job-clean.sh'
+2026-11-25T19:17:25.1017154Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-11-25T19:17:25.1017664Z ##[endgroup]
+2026-11-25T19:17:26.8950182Z Evaluate and set job outputs
+2026-11-25T19:17:26.8965277Z Cleaning up orphan processes

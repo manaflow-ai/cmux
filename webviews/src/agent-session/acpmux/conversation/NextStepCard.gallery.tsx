@@ -5,15 +5,71 @@
 // bare text answers), inline (no card: the question and the buttons under the
 // prose), consent (the consent card's buttons at the end of the row, ChatGPT's) and list (the
 // answers stacked as rows, the question card's). Each look in its pending and answered states, with Yes and No, and with a list of answers.
-import type React from "react";
+// The customize variants are RFD 0150's live-customize card (a wrap-up's typed `{label, run}` answer,
+// customizeRun.ts): Try it on, then Keep, Revert and Share, and each thing Share can say. They drive the
+// real card through its clicks against a stand-in daemon (`setCustomizeRunner`) and clipboard.
+import React, { useLayoutEffect, useRef } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
-import { nextStepAsk, chosenAnswer } from "./nextStepAsk";
+import { nextStepCardHeight } from "../permissions/cardHeight";
+import type { AnswerBlock } from "../subagents/restart";
+import { setCustomizeRunner } from "./customizeRun";
+import { nextStepAsk, chosenAnswer, type NextStepAsk } from "./nextStepAsk";
 import { NextStepCard } from "./NextStepCard";
 
 type Look = "box" | "recap" | "inline" | "consent" | "list";
 type Palette = "glass-dark" | "light-accent";
-type Props = { look: Look; text: string; reply?: string; palette?: Palette; lines?: number | "none" };
+type Props = {
+  look: Look;
+  text: string;
+  reply?: string;
+  palette?: Palette;
+  lines?: number | "none";
+  /// A pane that cannot send: the card draws read only, with this reason.
+  blocked?: AnswerBlock;
+  /// An ask given whole (a wrap-up's recap), in place of one parsed from `text`.
+  given?: NextStepAsk;
+  superseded?: boolean;
+  /// A larger chat text (Text Size): the factor the app sets on the page, which the card's text follows.
+  textScale?: number;
+  /// The live-customize card's stand-in daemon and clipboard (RFD 0150): what its Share answers.
+  customize?: Customize;
+};
+
+/// What the stand-in daemon's Share says (customize_run.rs `share`): a line with its note, no line
+/// with the reason (`ok: false`), or no answer yet; and whether the clipboard takes the line.
+type Customize = { line?: string; note?: string; pending?: boolean; copyFails?: boolean };
+
+// The stand-in daemon: Try it on, Keep and Revert succeed; Share answers as `customize` says. The
+// clipboard is stubbed both ways the card copies (clipboard.ts), so copied and failed hold in every
+// browser. Each variant is its own frame, so the stubs stay in it; unmount puts them back.
+function useCustomizeStandIn(customize: Customize | undefined) {
+  useLayoutEffect(() => {
+    if (!customize) return;
+    setCustomizeRunner({
+      available: () => true,
+      run: (run) =>
+        run.customize !== "share"
+          ? Promise.resolve({ ok: true, output: "" })
+          : customize.pending
+            ? new Promise(() => undefined)
+            : Promise.resolve(
+                customize.line
+                  ? { ok: true, output: customize.note ?? "", line: customize.line }
+                  : { ok: false, output: customize.note ?? "" },
+              ),
+    });
+    const clipboard = navigator.clipboard as Clipboard | undefined;
+    const writeText = customize.copyFails ? () => Promise.reject(new Error("not allowed")) : () => Promise.resolve();
+    if (clipboard) Object.defineProperty(clipboard, "writeText", { configurable: true, value: writeText });
+    Object.defineProperty(document, "execCommand", { configurable: true, value: () => !customize.copyFails });
+    return () => {
+      setCustomizeRunner(undefined);
+      if (clipboard) Reflect.deleteProperty(clipboard, "writeText");
+      Reflect.deleteProperty(document, "execCommand");
+    };
+  }, [customize]);
+}
 
 // Themes the shipped box must stay readable in, set as the app's applyTheme would (theme.ts): a dark
 // theme on a translucent window over a bright wallpaper, where --agent-page-bg is see-through glass
@@ -51,10 +107,46 @@ const CHOICES = `${PROSE}\n\n[taste] Which fix first?\n- Add the hook\n- Not now
 // rest in place, the answers under it in their order.
 const LONG = `${PROSE}\n\n[irreversible] Should I promote tonight's nightly to everyone now? It carries the session store migration, which rewrites every saved chat on first launch, keeps no copy of the old store once it finishes, and cannot be rolled back on a machine that has run it, so a bug in it would reach every chat everyone has, including the archived ones and the ones synced from another computer. The canary group ran it for six hours with no crash reports, but only twelve machines were in it, none of them with more than two thousand chats, so are you fine with promoting it before a bigger store has run it? The canary log and the migration's dry run on a copy of the biggest store we have are linked in the lane.`;
 
-function NextStepInPane({ look, text, reply, palette, lines }: Props) {
-  const ask = nextStepAsk(text)!;
+function NextStepInPane({
+  look,
+  text,
+  reply,
+  palette,
+  lines,
+  blocked,
+  given,
+  superseded,
+  textScale,
+  customize,
+}: Props) {
+  const ask = given ?? nextStepAsk(text)!;
+  useCustomizeStandIn(customize);
+  const answer = reply === undefined ? undefined : chosenAnswer(ask, reply);
+  // The transcript's first height for this card at its drawn width (cardHeight.ts), beside the height
+  // it draws, for next-step-card-gallery-browser.test.ts: the reply under it moves by their difference.
+  const host = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const frame = host.current;
+    const card = frame?.querySelector<HTMLElement>(".acpmux-next-step");
+    if (!frame || !card) return;
+    // The chat's text scale, as the host sets it: the transcript's text follows it (.acpmux-scroll
+    // --cv-text-scale); outside the transcript, as here, the same steps follow the Interface Size.
+    if (textScale !== undefined)
+      for (const name of ["--cmux-chat-text-scale", "--cmux-interface-scale"])
+        document.documentElement.style.setProperty(name, String(textScale));
+    const measure = () => {
+      const box = card.getBoundingClientRect();
+      frame.dataset.estimate = String(nextStepCardHeight(ask, box.width, { answer, superseded }, textScale ?? 1));
+      frame.dataset.drawn = String(box.height);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(card);
+    return () => observer.disconnect();
+  });
   return (
     <div
+      ref={host}
       className="acpmux-shell acpmux-next-step-gallery"
       data-next-step-look={look}
       style={{
@@ -68,12 +160,14 @@ function NextStepInPane({ look, text, reply, palette, lines }: Props) {
           : ({ "--acpmux-next-step-lines": lines === "none" ? "none" : String(lines) } as React.CSSProperties)),
       }}
     >
-      <p style={{ margin: 0, color: "var(--agent-text)" }}>{ask.rest}</p>
+      {ask.rest && <p style={{ margin: 0, color: "var(--agent-text)" }}>{ask.rest}</p>}
       <NextStepCard
         ask={ask}
-        answer={reply === undefined ? undefined : chosenAnswer(ask, reply)}
-        onAnswer={() => Promise.resolve()}
-        registerKey={() => () => undefined}
+        answer={answer}
+        superseded={superseded}
+        onAnswer={blocked ? undefined : () => Promise.resolve()}
+        blocked={blocked}
+        registerKey={blocked ? undefined : () => () => undefined}
       />
     </div>
   );
@@ -82,6 +176,29 @@ function NextStepInPane({ look, text, reply, palette, lines }: Props) {
 const variant = (look: Look, text: string, reply: string | undefined, note: string, palette?: Palette) => ({
   note,
   props: { look, text, reply, palette },
+});
+
+// A pane that cannot send (NextStepCard.tsx `blocked`): the same card read only, its reason last.
+const blockedVariant = (blocked: AnswerBlock, note: string, text = CHOICES) => ({
+  note,
+  props: { look: "box" as Look, text, blocked },
+});
+
+const RECAP: NextStepAsk = {
+  tag: "wrap_up",
+  rest: "",
+  recap:
+    "Moved the composer settings into one page, removed the duplicate toggle in Advanced, and kept every setting's key so old configs still load.",
+  question: "Ship it?",
+  options: [
+    { label: "Yes", key: "recap.yes" },
+    { label: "Not now", key: "recap.notNow" },
+  ],
+};
+const WRAPPING = `${PROSE}\n\n[taste] Which fix should go in first?\n- The estimate, so the reply under the card stops jumping when it renders\n- The copy`;
+const given = (ask: NextStepAsk, note: string, extra: Partial<Props> = {}) => ({
+  note,
+  props: { look: "box" as Look, text: "", given: ask, ...extra },
 });
 
 const long = (note: string, lines?: number | "none", open = false) => ({
@@ -97,6 +214,55 @@ const long = (note: string, lines?: number | "none", open = false) => ({
       }
     : {}),
 });
+
+// RFD 0150's live-customize card: the agent's wrap-up offers its change as a typed Try it on.
+const tryOn = (target: string): NextStepAsk => ({
+  tag: "wrap_up",
+  rest: "",
+  recap:
+    "Session rows in the sidebar now show the agent's last line under the title, and a running session's dot pulses.",
+  question: "Try it on in your cmux?",
+  options: [
+    { label: "Try it on", run: { customize: "try", target, minutes: 15 } },
+    { label: "Not now", key: "recap.notNow" },
+  ],
+});
+const PR = "pr:59387";
+const PROFILE = "calm-sidebar";
+const FOLDER = "dir:/Users/you/src/cmux-sidebar";
+
+const answerRow = (ctx: PlayContext, label: string) =>
+  Array.from(ctx.document.querySelectorAll(".acpmux-next-step__answer")).find((row) =>
+    row.textContent?.includes(label),
+  );
+const pressTryOn = async (ctx: PlayContext) => {
+  await ctx.click({ role: "button", name: /Try it on/ });
+  await ctx.waitFor(() => answerRow(ctx, "Keep"));
+};
+const pressShare = async (ctx: PlayContext, done: (output: string) => boolean) => {
+  await ctx.click({ role: "button", name: /Share/ });
+  await ctx.waitFor(() =>
+    Array.from(ctx.document.querySelectorAll("output.acpmux-next-step__detail")).some((output) =>
+      done(output.textContent ?? ""),
+    ),
+  );
+};
+const customizeVariant = (
+  note: string,
+  target: string,
+  customize: Customize,
+  play?: (ctx: PlayContext) => Promise<void>,
+) => ({
+  note,
+  height: 400,
+  props: { look: "box" as Look, text: "", given: tryOn(target), customize },
+  ...(play ? { play } : {}),
+});
+const shareVariant = (note: string, target: string, customize: Customize, said: string) =>
+  customizeVariant(note, target, customize, async (ctx) => {
+    await pressTryOn(ctx);
+    await pressShare(ctx, (output) => output.includes(said));
+  });
 
 export default componentEntry({
   id: "agent-pane.next-step-card",
@@ -156,6 +322,57 @@ export default componentEntry({
       "Alternative: no cap, the whole ask always, as Claude's question card; a long ask pushes its answers far down.",
       "none",
     ),
+    "box-watching": blockedVariant("watching", "View Only: the same card read only; its last row says to take over."),
+    "box-bridged": blockedVariant("bridged", "A bridged desktop session: read only; reply below to answer."),
+    "box-watching-large": {
+      note: "View Only at a larger Interface Size and text: the estimate scales as the card does.",
+      props: { look: "box" as Look, text: WRAPPING, blocked: "watching" as AnswerBlock, textScale: 1.2 },
+    },
+    "wrap-up-recap-large": given(RECAP, "The wrap-up at a larger size.", { textScale: 1.2 }),
+    "wrap-up-recap-answered-large": given(RECAP, "Answered at a larger size.", { reply: "Yes", textScale: 1.2 }),
+    "box-long-large": {
+      ...long("A very long ask at a larger size: Show more scales too."),
+      props: { look: "box" as Look, text: LONG, textScale: 1.2 },
+    },
+    "box-subagent": blockedVariant("subagent", "A subagent's own pane: read only; answer in the main chat."),
+    "box-disconnected": blockedVariant("disconnected", "Not connected: read only."),
+    "box-remote": blockedVariant("remote", "A remote Codex or opencode chat this Mac cannot send to: read only."),
+    "box-origin": blockedVariant("origin", "A connection from an older cmux: read only; update cmux to answer here."),
+    "box-guest": blockedVariant("guest", "A shared chat's guest: read only; only the owner answers."),
+    "box-wrapping": variant("box", WRAPPING, undefined, "An answer label that wraps adds a line to its row."),
+    "box-wrapping-watching": blockedVariant("watching", "The wrapped label, read only: the same height.", WRAPPING),
+    "box-long-watching": {
+      ...long("A very long ask, read only: the same height, Show more included."),
+      props: { look: "box" as Look, text: LONG, blocked: "watching" as AnswerBlock },
+    },
+    "wrap-up-recap": given(RECAP, "A wrap-up's recap muted over the question."),
+    "wrap-up-recap-watching": given(RECAP, "The wrap-up, read only.", { blocked: "watching" }),
+    "wrap-up-recap-answered": given(RECAP, "The wrap-up answered: the recap over the question and the answer.", {
+      reply: "Yes",
+    }),
+    "wrap-up-recap-only": given(
+      {
+        tag: "wrap_up",
+        rest: "",
+        recap: "Moved the composer settings into one page. Nothing needs you.",
+        question: "",
+        options: [],
+      },
+      "A recap with nothing to decide: the recap box alone.",
+    ),
+    "box-superseded": {
+      note: "A later card took over: the question alone, folded.",
+      props: { look: "box" as Look, text: CHOICES, superseded: true },
+    },
+    "box-no-answers": given(
+      { tag: "taste", rest: "", question: "Anything else before I start?", options: [] },
+      "A question with no answers: no rows and no last row.",
+    ),
+    "box-no-answers-watching": given(
+      { tag: "taste", rest: "", question: "Anything else before I start?", options: [] },
+      "The same, read only.",
+      { blocked: "watching" },
+    ),
     "recap-choices": variant(
       "recap",
       CHOICES,
@@ -167,5 +384,61 @@ export default componentEntry({
     "consent-choices": variant("consent", CHOICES, undefined, "Alternative: the consent card, buttons right-aligned."),
     "consent-yes-no": variant("consent", YES_NO, undefined, "Alternative: the consent card, yes or no."),
     "list-choices": variant("list", CHOICES, undefined, "Alternative: answers stacked as rows, the question card's."),
+    "customize-offered": customizeVariant(
+      "Shipped (RFD 0150): a wrap-up offers its change; Try it on runs `cmux customize try`, Not now answers.",
+      PR,
+      { line: `cmux customize try ${PR}` },
+    ),
+    "customize-tried": customizeVariant(
+      "Shipped: on after Try it on; Keep, Revert and Share take the place of the answers.",
+      PR,
+      { line: `cmux customize try ${PR}` },
+      pressTryOn,
+    ),
+    "customize-kept": customizeVariant(
+      "Shipped: kept (Save); Share stays, with the ask's other answers.",
+      PR,
+      { line: `cmux customize try ${PR}` },
+      async (ctx) => {
+        await pressTryOn(ctx);
+        await ctx.click({ role: "button", name: /Keep/ });
+        await ctx.waitFor(() => answerRow(ctx, "Share") && !answerRow(ctx, "Keep"));
+      },
+    ),
+    "customize-share-pr": shareVariant(
+      "Shipped: Share on a pull request copies its one line.",
+      PR,
+      { line: `cmux customize try ${PR}` },
+      "Copied.",
+    ),
+    "customize-share-profile": shareVariant(
+      "Shipped: Share on a profile writes its setup repo and copies the install line, with where the repo is.",
+      PROFILE,
+      {
+        line: `cmux setup install /Users/you/cmux-setups/${PROFILE}`,
+        note: `/Users/you/cmux-setups/${PROFILE} is a setup repo of ${PROFILE}: push it to GitHub and the line is cmux setup install github.com/OWNER/REPO`,
+      },
+      "Copied.",
+    ),
+    "customize-share-none": shareVariant(
+      "Shipped: a folder whose changes are not pushed has no line yet; the daemon says to push first.",
+      FOLDER,
+      {
+        note: "this folder's changes are not on a pushed branch of manaflow-ai/cmux: push them, then Share gives the line",
+      },
+      "Nothing to share yet",
+    ),
+    "customize-share-failed": shareVariant(
+      "Shipped: the clipboard refused; the line shows to copy by hand.",
+      PR,
+      { line: `cmux customize try ${PR}`, copyFails: true },
+      "Could not copy",
+    ),
+    "customize-sharing": shareVariant(
+      "Shipped: Share waiting on the daemon (a profile's setup repo being written).",
+      PROFILE,
+      { pending: true },
+      "Getting the line",
+    ),
   },
 });

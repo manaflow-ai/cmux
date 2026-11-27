@@ -133,6 +133,7 @@ pub(super) fn run_add(
         // A folder of your own builds as `ext dev` builds it; a fetched one never builds.
         bun: if local { dev::find_bun() } else { None },
         every_size: false,
+        headless: false,
     };
     let mut outcome = dev::once(global, &dev_options, true);
     if let (true, Some(folder), Some(origin)) = (outcome.ok(), &outcome.folder, &origin)
@@ -397,7 +398,7 @@ pub(super) fn search_url(query: Option<&str>) -> String {
 /// (ignored when one is already installed).
 pub(super) fn search_client() -> Result<reqwest::Client, String> {
     let _ = rustls::crypto::ring::default_provider().install_default();
-    reqwest::Client::builder()
+    cmux_egress::client_builder("cmux_tui::cli::ext::share")
         .timeout(SEARCH_TIMEOUT)
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
         .build()

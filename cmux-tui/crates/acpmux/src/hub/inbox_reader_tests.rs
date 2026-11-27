@@ -198,6 +198,52 @@ async fn a_slow_reader_holds_no_notice() {
     assert_eq!(carried(&session), Some(vec!["s-a".into()]), "it went at once");
 }
 
+/// Duress: a burst of reads far past [`SLOTS`] queues for a slot and every one ends with its
+/// summary. The slot wait has no deadline (it once dropped 95 of 2786 reads on a busy VM).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_burst_past_the_slots_loses_no_read() {
+    const BURST: usize = 24;
+    let (hub, session) = hub_with_chat("reader-burst");
+    running(&session);
+    set_test_summarizer(
+        &session.id,
+        Arc::new(|prompt: String| {
+            std::thread::sleep(Duration::from_millis(150));
+            let n = prompt.split("burst-").nth(1).and_then(|t| t.split_whitespace().next());
+            Ok(format!("1|read {}", n.unwrap_or("?")))
+        }),
+    );
+    let now = due_result_at();
+    let items: Vec<Item> = (0..BURST)
+        .map(|n| {
+            item(
+                &format!("b-{n}"),
+                &format!("t{n}"),
+                PromptClass::Fyi,
+                now,
+                &long(&format!("burst-{n}")),
+            )
+        })
+        .collect();
+    for i in &items {
+        hub.inbox_reader_prefetch(&session, &i.prompt_id, "lane-a", i.class, false, &i.text);
+    }
+    let refs: Vec<&Item> = items.iter().collect();
+    let started = Instant::now();
+    loop {
+        let (s, jobs) = lookup(&session.id, &refs);
+        assert!(jobs.is_empty(), "the prefetch started every read");
+        if s.len() == BURST {
+            for n in 0..BURST {
+                assert_eq!(s[&format!("b-{n}")].line, format!("read {n}"));
+            }
+            break;
+        }
+        assert!(started.elapsed() < Duration::from_secs(20), "{} of {BURST} reads ended", s.len());
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 /// A notice that carries a block, a question or a FIRE never waits for the reader.
 #[tokio::test]
 async fn a_blocker_never_waits_for_the_reader() {
@@ -406,4 +452,121 @@ async fn inbox_reader_latency() {
             );
         }
     }
+}
+
+/// Has the reader read `it` and waits until its summary is cached.
+async fn read_now(hub: &Arc<Hub>, session: &Arc<Session>, it: &Item) {
+    hub.inbox_reader_prefetch(session, &it.prompt_id, "lane-a", it.class, false, &it.text);
+    let started = Instant::now();
+    while !lookup(&session.id, &[it]).0.contains_key(&it.prompt_id) {
+        assert!(started.elapsed() < Duration::from_secs(10), "the read ended");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+}
+
+/// A cold chat (its prompt cache lapsed 40 minutes ago, 200K of context) is not woken for a
+/// report the reader rated background or noise: it waits for the chat's next turn, at the latest
+/// an FYI's deadline, when it goes in (never lost). One the reader rated as needing action, and
+/// one from the chat's parent, wake it at the cold batch as before; a warm chat wakes as before.
+/// Desktop-zoe's brief, 2026-11-25: notices that need no action "shouldn't wake a session".
+#[tokio::test]
+async fn a_cold_chat_is_not_woken_for_what_the_reader_rated_background() {
+    use crate::hub::cold_wake::{DEFAULT_COMPACT_ABOVE_TOKENS, KNOBS_FOR_TEST, Knobs};
+    use crate::prompt_class::{FYI_DEADLINE_MS, RESULT_DEADLINE_MS};
+    KNOBS_FOR_TEST.with(|k| {
+        k.set(Some(Knobs {
+            enabled: true,
+            compact: false,
+            compact_above: DEFAULT_COMPACT_ABOVE_TOKENS,
+        }))
+    });
+    let cold = |session: &Session, expires: u64| {
+        let mut m = session.meta.lock().unwrap();
+        m.usage = Some(json!({"sessionUpdate": "usage_update", "used": 200_000, "size": 1_000_000,
+            "_meta": {"acpmux": {"cacheExpiresAt": expires}}}));
+        m.last_turn = Some(json!({"turnId": "t0", "endedAt": expires.saturating_sub(300_000)}));
+    };
+    // Scores by tag: "bg" background, "act" needs action.
+    let rate = |prompt: String| -> Result<String, String> {
+        Ok(if prompt.contains("act status") { "3|needs a rebase" } else { "1|still waiting on CI" }
+            .into())
+    };
+    let now = now_ms();
+    let at = now.saturating_sub(WAKE_DEBOUNCE_MS + 1);
+    let report = |id: &str, tag: &str| {
+        let mut it = item(id, id, PromptClass::Result, at, &long(tag));
+        it.report = true;
+        it
+    };
+
+    // Background, cold: no turn, at its batch or after.
+    let (hub, session) = hub_with_chat("quiet-bg");
+    set_test_summarizer(&session.id, Arc::new(rate));
+    cold(&session, now - 40 * 60_000);
+    let mut it = report("q-bg", "bg");
+    it.at = now - RESULT_DEADLINE_MS - 1;
+    let background_at = it.at;
+    read_now(&hub, &session, &it).await;
+    assert!(super::reader::quiet(&session.id, "q-bg"), "the reader rated it background");
+    session.inbox().items.push(it);
+    hub.inbox_review(&session);
+    assert!(!went(&session), "a background report wakes no cold chat");
+    if let Some(b) = session.cold_batch.lock().unwrap().as_mut() {
+        b.due = now_ms().saturating_sub(1);
+    }
+    hub.inbox_review(&session);
+    assert!(!went(&session), "nor at its cold batch");
+    assert!(session.inbox().timer.is_some(), "it looks again at the FYI deadline");
+    let (overdue, due_at) = super::deadline_row(&session, &session.meta());
+    assert_eq!(overdue, 0, "past a result's 15 minutes it is not overdue: it is an FYI's now");
+    assert_eq!(due_at, Some(background_at + FYI_DEADLINE_MS));
+    let threads = hub.inbox_threads(&session);
+    assert_eq!(threads["threads"][0]["dueAt"], background_at + FYI_DEADLINE_MS);
+    assert_eq!(threads["threads"][0]["overdue"], 0);
+    // Never lost: at an FYI's deadline it goes in.
+    session.inbox().items[0].at = now_ms().saturating_sub(FYI_DEADLINE_MS + 1);
+    hub.inbox_review(&session);
+    assert!(went(&session), "at its deadline it goes in");
+
+    // Needs action, cold: wakes at its batch.
+    let (hub, session) = hub_with_chat("quiet-act");
+    set_test_summarizer(&session.id, Arc::new(rate));
+    cold(&session, now - 40 * 60_000);
+    let it = report("q-act", "act");
+    read_now(&hub, &session, &it).await;
+    assert!(!super::reader::quiet(&session.id, "q-act"));
+    session.inbox().items.push(it);
+    hub.inbox_review(&session);
+    session.cold_batch.lock().unwrap().as_mut().expect("a cold batch is open").due =
+        now_ms().saturating_sub(1);
+    hub.inbox_review(&session);
+    assert!(went(&session), "an action wakes it at its batch");
+
+    // From the chat's parent, rated background: still wakes at its batch.
+    let (hub, session) = hub_with_chat("quiet-parent");
+    set_test_summarizer(&session.id, Arc::new(rate));
+    cold(&session, now - 40 * 60_000);
+    session.meta.lock().unwrap().delegator = Some("lead".into());
+    let mut it = report("q-parent", "bg");
+    it.from_session = Some("lead".into());
+    read_now(&hub, &session, &it).await;
+    session.inbox().items.push(it);
+    hub.inbox_review(&session);
+    session.cold_batch.lock().unwrap().as_mut().expect("a cold batch is open").due =
+        now_ms().saturating_sub(1);
+    hub.inbox_review(&session);
+    assert!(went(&session), "its delegator's word wakes it");
+
+    // Warm, rated background: the warm hold still applies.
+    let (hub, session) = hub_with_chat("quiet-warm");
+    set_test_summarizer(&session.id, Arc::new(rate));
+    cold(&session, now + 60_000);
+    let it = report("q-warm", "bg");
+    read_now(&hub, &session, &it).await;
+    session.inbox().items.push(it);
+    hub.inbox_review(&session);
+    assert!(!went(&session), "a warm report waits for company");
+    session.inbox().items[0].at = now_ms().saturating_sub(WARM_HOLD_MS + 1);
+    hub.inbox_review(&session);
+    assert!(went(&session), "the warm hold releases the report");
 }

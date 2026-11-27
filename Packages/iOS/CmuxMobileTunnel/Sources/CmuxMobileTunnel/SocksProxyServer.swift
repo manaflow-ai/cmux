@@ -1,6 +1,5 @@
 import Foundation
 import NIOCore
-import NIOTransportServices
 
 /// A SOCKS5 proxy on the phone's loopback whose connections are opened by a
 /// `SocksConnectBackend` at its exit point (an SSH server, a paired Mac).
@@ -31,18 +30,13 @@ public final class SocksProxyServer: Sendable {
         onConnect: (@Sendable (String, Int) -> Void)? = nil
     ) async throws -> SocksProxyServer {
         let relays = TunnelTaskSet(limit: maximumConnections)
-        let listener = try await NIOTSListenerBootstrap(group: NIOTSEventLoopGroup.singleton)
-            .childChannelInitializer { inbound in
+        let listener = try await TunnelTransport.listen(host: "127.0.0.1", port: port) { inbound in
                 inbound.eventLoop.makeCompletedFuture {
                     try inbound.pipeline.syncOperations.addHandler(
                         SocksHandshakeHandler(backend: backend, relays: relays, onConnect: onConnect)
                     )
-                }
             }
-            .childChannelOption(ChannelOptions.allowRemoteHalfClosure, value: true)
-            .childChannelOption(ChannelOptions.autoRead, value: false)
-            .bind(host: "127.0.0.1", port: port)
-            .get()
+        }
         guard let bound = listener.localAddress?.port else {
             try? await listener.close()
             throw TunnelOpenError.generalFailure
@@ -157,7 +151,7 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
         let backend = backend
         let relays = relays
         let handler = UncheckedSendableBox(self)
-        let body: @Sendable () async -> Void = { [pendingAtOpen = pending] in
+        let body: @Sendable () async -> Void = {
             let exit: any TunnelByteStream
             do {
                 exit = try await backend.open(host: host, port: port)
@@ -174,7 +168,10 @@ final class SocksHandshakeHandler: ChannelInboundHandler, RemovableChannelHandle
                     handler.value.state = .done
                     let reply = SocksReply.succeeded.message(allocator: channel.allocator)
                     channel.writeAndFlush(reply, promise: nil)
-                    let stream = try NIOChannelByteStream.installSync(on: channel, leftover: pendingAtOpen)
+                    // Read `pending` here, on the loop: a read already in flight when the request
+                    // parsed (a POSIX channel reads again while data waits) may have appended to it
+                    // since `open` ran.
+                    let stream = try NIOChannelByteStream.installSync(on: channel, leftover: handler.value.pending)
                     channel.pipeline.removeHandler(handler.value, promise: nil)
                     return stream
                 }.get()

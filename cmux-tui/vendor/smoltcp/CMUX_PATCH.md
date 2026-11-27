@@ -56,6 +56,23 @@ flowing while holes are repaired. A retransmission timeout drops the scoreboard
 (RFC 2018 section 8), and resending the head restarts the RTO, as the
 duplicate-ACK fast retransmit does. Blocks count only when both edges fall
 inside the flight. A peer that did not permit SACK gets the plain behavior.
+RACK time-based loss detection (RFC 8985) rides on the same scoreboard: the socket
+remembers when each run of new data was first sent (32 records), and a hole is
+lost once it was sent more than srtt + a reorder window ago while data sent
+LATER was SACKed, without waiting for three duplicate ACKs or three segments'
+worth of SACKed bytes (which tiny keystroke segments never reach in time). The
+reorder window is srtt/4, times a multiplier (up to 4) that grows each time a
+DSACK block shows a retransmission was spurious. Send order is (send time, end
+sequence), so segments sent in the same poll are ordered by sequence (RFC 8985's
+RACK.end_seq). Only the expired records' bytes are lost, not the whole hole they
+sit in. A timer in `poll_at` and `dispatch` re-evaluates at the earliest expiry.
+A retransmission restarts the clock of the records it overlaps (splitting one
+it only partly covers) and makes them in flight again; when RACK declares that
+retransmission lost too, its bytes are due again even below `sack_high_rxt`. A
+retransmission pause (tunnel hold) also stops SACK and RACK resends. An RTO
+forgets the records. Upstreaming: this
+is RACK without min-RTT filtering (srtt stands in) and without RACK's own
+reorder-window decay; smoltcp's tail-loss probe is the TLP half already.
 As a receiver, an ACK now carries up to three SACK blocks, not one: the block of
 the segment that triggered it, then the lowest others. cmux-wg turns recovery
 on, and builds smoltcp with a 32-range assembler
@@ -125,8 +142,65 @@ size, so any peer works. cmux-wg turns it on; its detector is
 `cmux-wg/tests/path_mtu.rs`, a 4 MiB transfer at tunnel MTU 1420 over a
 1400 byte IPv6 path that drops longer packets.
 
-The changes are in `src/socket/tcp/congestion/cubic.rs` and `src/socket/tcp.rs`,
-each marked `cmux patch`, with tests next to them. Reno's own start is unchanged;
+The patch adds a BBR-style controller, `CongestionControl::Bbr`, behind the
+`socket-tcp-bbr` feature (RFD 0142 O1), and cmux-wg makes it the tunnel default
+(`CMUX_WG_ULTRA_CC=cubic` goes back). Its window is twice the bandwidth-delay
+product: the highest delivery rate of the last 10 rounds that were not
+app-limited, times the minimum RTT of the last 10 s. Startup grows the window
+by every acknowledged byte, up to 2.885 times the BDP measured so far, until
+the rate grows under 25 % for 3 rounds or a loss comes. A loss episode bounds
+the window to 0.7 of the flight at the loss but never under the BDP, so a random
+loss costs no throughput, and the bound grows one segment a round (BBRv2's
+inflight_hi): a queue shallower than the BDP is not overfilled every few rounds.
+A round counts at most the window it began with as delivered, so a repaired
+hole, whose cumulative ACK covers data SACKed rounds ago, does not read as a
+burst of bandwidth. An RTO saves the window and resends one segment
+(packet conservation); the next ACK of new data brings the window back. Two RTOs
+in a row, with nothing acknowledged between them, restart the model. cmux-wg paces its
+datagrams itself, so the controller has no pacing gain cycle and no PROBE_RTT.
+`RttEstimator` keeps its latest raw sample for the controller's minimum. Its
+tests are in `congestion/bbr.rs`.
+
+A SACK resend of the head that is lost too goes again once the peer SACKed three
+segments of data sent after it (Linux's `tcp_mark_lost_retrans`). Before, it
+waited for the RTO, which Karn's backoff stretched past the user timeout under
+heavy loss; with a window that loss does not shrink, that failed 2 of the first 48
+seeds of cmux-wg's tunnel TCP model at 12% loss. The detector is
+`test_sack_lost_resend_of_the_head_goes_again_once_later_data_is_sacked`.
+
+A keep-alive probe from the remote (one octet or none, just below the receive
+window) counts as hearing from it for the user timeout. On the passive side
+(the socket listened) it also pushes the socket's own next probe to 1.25
+keep-alive intervals out. Upstream answered the probe but refreshed neither the
+timeout nor the idle timer, so both ends of an idle connection probed on their
+own clocks: two probes and two ACKs per interval. Now the active end keeps
+probing, the passive end only answers, and its timeout is fed by those probes
+as it was by the ACKs of its own. When the remote goes quiet the deferred probe
+goes out as before. Only one side defers: probes that crossed would defer both
+alike, and both would still fire together. The idle refresh that any segment
+triggers never moves a deferred probe earlier: the ACK to a probe of ours that
+crossed the remote's would undo the deferral. Nothing changes on the wire, so
+any peer works. The detectors are
+`test_remote_keep_alive_defers_ours_and_counts_as_heard`,
+`test_remote_keep_alive_deferral_survives_a_crossing_ack` and
+`test_remote_keep_alive_leaves_the_active_sides_beat`.
+
+An ACK that arrives while our receive window is closed counts for the user
+timeout. Upstream dropped every segment past a zero window whole: a data
+segment got an ACK back, a pure ACK off the window edge got a challenge ACK,
+and neither refreshed `remote_last_ts`, so a peer that kept acknowledging our
+data while we could not take its data was reset at the user timeout with
+bytes still being acknowledged. Now such a segment (in a synchronized state,
+with an ACK, not a SYN, FIN or RST) is processed for its ACK and window with
+its payload trimmed, as RFC 9293 3.10.7.4 asks ("special allowance should be
+made to accept valid ACKs"), and gets the same reply as before. The timeout
+itself stays an idle timer: 60 s with nothing heard is still 60 s. The
+detectors are `test_timeout_is_not_a_cap_on_an_acked_transfer` and
+`test_timeout_counts_acks_past_a_zero_window`.
+
+The changes are in `src/socket/tcp/congestion/cubic.rs`,
+`src/socket/tcp/congestion/bbr.rs` and `src/socket/tcp.rs`, each marked
+`cmux patch`, with tests next to them. Reno's own start is unchanged;
 cmux does not enable it.
 
 ## Taken from upstream main

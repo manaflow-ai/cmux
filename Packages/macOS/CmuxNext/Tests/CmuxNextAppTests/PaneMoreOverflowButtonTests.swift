@@ -68,7 +68,7 @@ import Testing
         ])
         let summary = PaneTabRowTool(id: "summary", symbol: "list.bullet", label: "Summary", toggled: true)
         // Room for one button: the chat's menu, in the trailing slot.
-        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: PaneToolbarView.trailingGap + TitlebarBandButton.side + 2, height: 30))
+        let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: PaneToolbarView.trailingGap + Metrics.tabBarControlSide + 2, height: 30))
         view.show(nativeItems: [summary, chatMenu])
         var invoked: [String] = []
         view.onNativeTool = { id, _ in invoked.append(id) }
@@ -215,7 +215,10 @@ import Testing
                 PaneTabRowTool(id: "first", symbol: "checkmark", label: "First"),
                 PaneTabRowTool(id: "second", symbol: "square", label: "Second"),
             ]
-            let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 60, height: 30))
+            // One whole slot and half of the next, at any button side.
+            let side = Metrics.tabBarControlSide
+            let width = PaneToolbarView.trailingGap + side + Metrics.space1 / 2 + side / 2
+            let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: width, height: 30))
             view.show(nativeItems: tools)
             view.layoutSubtreeIfNeeded()
 
@@ -237,7 +240,7 @@ import Testing
         let view = PaneToolbarView(frame: NSRect(x: 0, y: 0, width: 400, height: 30))
         view.show(nativeItems: [icon, text])
         view.layoutSubtreeIfNeeded()
-        #expect(view.nativeButtons[0].frame.width == TitlebarBandButton.side)
+        #expect(view.nativeButtons[0].frame.width == Metrics.tabBarControlSide)
         #expect(view.nativeButtons[1].frame.width > view.nativeButtons[0].frame.width)
         #expect(view.nativeOverflowItems().isEmpty)
     }

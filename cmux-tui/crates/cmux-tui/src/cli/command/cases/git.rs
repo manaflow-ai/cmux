@@ -49,6 +49,10 @@ pub(super) fn git_cases() -> Vec<(Vec<&'static str>, &'static str)> {
             ],
             "diff.comments.send",
         ),
+        (
+            vec!["git", "comments", "reply", "dc_1", "--root", "/repo", "--text", "Fixed"],
+            "diff.comments.thread",
+        ),
         (vec!["git", "branches", "--path", "/repo", "--limit", "50"], "git.branches"),
         (vec!["git", "fingerprint", "--path", "/repo", "--scope", "branch"], "git.fingerprint"),
         (

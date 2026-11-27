@@ -154,6 +154,22 @@ export async function deleteComment(repoRoot: string, id: string): Promise<void>
   await callDiffComments<unknown>("comments.delete", { repoRoot, id });
 }
 
+/** Adds a reviewer reply or changes a thread's resolved state. */
+export async function threadComment(
+  repoRoot: string,
+  id: string,
+  change: { reply?: string; resolved?: boolean },
+  opid: string,
+): Promise<DiffCommentRecord> {
+  const value = await callDiffComments<{ comment?: DiffCommentRecord }>(
+    "comments.thread",
+    { repoRoot, id, ...change },
+    { opid },
+  );
+  if (value?.comment == null) throw new DiffCommentsBridgeError("Diff comments thread returned no comment.");
+  return value.comment;
+}
+
 /**
  * Sends `text` (the comments `ids` as one prompt, `commentsPromptText`) to the chat that owns the
  * diff. The host then clears those comments, except any edited since (`versions`: each id's
@@ -173,6 +189,11 @@ export async function sendComments(
     { opid },
   );
   return Array.isArray(value?.cleared) ? value.cleared.filter((id): id is string => typeof id === "string") : ids;
+}
+
+/** Sends unread items from every thread while leaving the saved comments in place. */
+export async function sendThreadedComments(repoRoot: string, ids: string[], opid: string): Promise<void> {
+  await callDiffComments<unknown>("comments.send", { repoRoot, ids, threads: true }, { opid });
 }
 
 /**

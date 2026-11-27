@@ -70,6 +70,7 @@ import {
   sleep,
   validLogin,
   waitMachine,
+  waitRunning,
 } from "./cloud-journey.ts";
 import type { StepKind } from "./vm-hassle.ts";
 
@@ -425,7 +426,7 @@ async function chatOp(ctx: Ctx): Promise<OpResult> {
   const v = await ctx.api.op("cloud.machine.create", { name: ctx.name, size: MACHINE_SIZE }, `${ctx.tag}-create-${randomUUID().slice(0, 8)}`);
   ctx.machine = String(v.machine.id);
   ctx.exec = directExec(ctx.api, ctx.machine, { secrets: ctx.secrets });
-  const m = await waitMachine(ctx.api, ctx.machine, (x) => x.status === "running" && Boolean(x.host), 300_000);
+  const m = await waitRunning(ctx.api, ctx.machine, 300_000);
   const runningMs = Date.now() - t0;
   let lastError = "";
   let execOk = false;
