@@ -3,7 +3,7 @@
 what counts as a regression, and when the one issue opens, comments and closes. Pure functions only (no
 network, no git). Run: python3 -I scripts/cmux-next/tests/test_perf_cron.py (not a CI job, Lawrence 2026-10-23,
 since lifted)."""
-import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, tempfile, time, unittest, urllib.error, urllib.request
+import argparse, contextlib, datetime, hashlib, importlib.util, io, json, os, subprocess, tempfile, threading, time, unittest, urllib.error, urllib.request
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -1096,6 +1096,23 @@ class WebUiTests(unittest.TestCase):
         self.assertEqual(mem.rows_from({"samples": [{"label": "idle-10", "workspaces": 10, "total_footprint_mb": 1}]}), [],
                          "no empty sample: no ratio either")
         self.assertTrue(cron.report_is_incomplete(part, {"rows": [], "incomplete": ["no empty-app sample"]}))
+
+    def test_the_hot_swap_part_owns_its_rows_and_stays_due_without_a_p95(self):
+        """Goal hot-swap-fast: the hot_swap.mac.<surface>.p95_ms rows NOW reads come from a Mac part every tick, not a
+        hand-run capture; a run that stored only its red count rows (an invalid swap) leaves the part due."""
+        self.assertIn("hot-swap", FLEET, "a Mac part on the measure host")
+        part = cron.PART_BY_NAME["hot-swap"]
+        self.assertIn("--suite=graceful-swap", part["args"])
+        self.assertIn("--config=bench", part["args"])
+        self.assertEqual(part["goal"], "hot-swap-fast")
+        self.assertEqual(cron.part_for_row("hot_swap.mac.unfocused_pane.p95_ms@cmux20-bench"), "hot-swap")
+        stored = {"at": "2026-11-27T10:00:00Z"}
+        counts = {"part_rows": {"hot_swap.mac.focused_pane.drafts_lost@cmux20-bench": {"at": stored["at"]}}}
+        self.assertTrue(cron.goal_rows_missing(counts, "hot-swap", stored))
+        full = {"part_rows": {"hot_swap.mac.focused_pane.p95_ms@cmux20-bench": {"at": stored["at"]}}}
+        self.assertFalse(cron.goal_rows_missing(full, "hot-swap", stored))
+        split = open(os.path.join(HERE, "..", "split-spring-terminal.py")).read()
+        self.assertIn('"--suite=graceful-swap"', split, "the suite the part names is dispatched")
 
     def test_the_cef_resize_part_owns_its_rows_and_judges_late_frames(self):
         """Live resize beside a Chromium page (cef-layer-hosting-DESIGN.md "Live resize"): every frame on time (0
@@ -4038,10 +4055,73 @@ class NoHostTipTests(OneRunRule):
                 cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False,
                                                  output=out))
             state = json.load(open(os.path.join(d, "state.json")))
-        self.assertEqual(len(looked), cron.TREE_LOOKUP_SECONDS // 10)
-        self.assertLess(len(ancestors), 2 * len(looked) + 5, "no walk over the rest once the budget is spent")
+        # A batch started before the deadline finishes (TREE_LOOKUP_PARALLEL lookups at most past it).
+        self.assertGreaterEqual(len(looked), cron.TREE_LOOKUP_SECONDS // 10)
+        self.assertLess(len(looked), cron.TREE_LOOKUP_SECONDS // 10 + cron.TREE_LOOKUP_PARALLEL)
+        self.assertEqual(ancestors, [], "first_parent_since bounds the walk: no ancestry read per commit")
         self.assertEqual(state["current"]["sha"], commits[0], "the newest commit, its Mac parts waiting for its tree")
         self.assertIn("no commit in the tree lookup budget has a published cmux-tui tree", said.getvalue())
+
+    def test_the_walk_reaches_a_tree_68_commits_back_inside_its_budget(self):
+        """Run 45986071929 (2026-11-27 10:56Z): one lookup at a time, about 15 s each on the plan's runner, the 300 s
+        budget covered 7 commits while 59f9c21ea35e, 68 commits back, had a tree; the tip fell back to the tree-less
+        870585ff2904 and its Mac parts (tabs among them) waited again. Here each wave of lookups takes 15 s of the
+        plan's clock, and the barrier holds every lookup until TREE_LOOKUP_PARALLEL are in flight (one at a time,
+        it breaks)."""
+        commits = [f"{i:040x}" for i in range(1, 301)]
+        published = commits[67]
+        clock = [1000.0]
+        wave = threading.Barrier(cron.TREE_LOOKUP_PARALLEL, action=lambda: clock.__setitem__(0, clock[0] + 15),
+                                 timeout=60)
+
+        def git(*args, check=True):
+            return "\n".join(commits) if args[0] == "rev-list" else commits[0]
+
+        def tree_published(sha, deadline=None):
+            wave.wait()
+            return sha == published
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "plan.out")
+            with mock.patch.object(cron, "now_utc", lambda: at(1)), mock.patch.object(cron, "git", git), \
+                    mock.patch.object(cron, "measure_version", lambda sha: 3), \
+                    mock.patch.object(cron, "commit_on_branch", lambda repo, t, known=(): cron.is_sha), \
+                    mock.patch.object(cron, "tree_published", tree_published), \
+                    mock.patch.object(cron, "github_busy", lambda *a: None), \
+                    mock.patch.object(cron, "frame_pacing_runs", lambda repo: []), \
+                    mock.patch.object(cron, "is_ancestor", lambda a, b: False), \
+                    mock.patch.object(cron, "supported_parts_at", lambda sha: ["motion", "web-ui"]), \
+                    mock.patch.object(cron, "gh_request", lambda *a, **k: {}), \
+                    mock.patch.object(cron.time, "monotonic", lambda: clock[0]), \
+                    contextlib.redirect_stdout(io.StringIO()) as said:
+                cron.cmd_plan(argparse.Namespace(repo="o/r", dir=d, tip="HEAD", yield_mode="queued", no_mac=False,
+                                                 output=out))
+            state = json.load(open(os.path.join(d, "state.json")))
+        self.assertEqual(state["current"]["sha"], published, said.getvalue()[-2000:])
+        self.assertNotIn("tree_wait_since", state["current"])
+        self.assertLess(clock[0] - 1000, cron.TREE_LOOKUP_SECONDS)
+
+    def test_first_parent_since_stays_in_the_checkout(self):
+        """The plan's 300-commit partial clone: the last tip, older than the checkout, is never fetched (one fetch per
+        is_ancestor call took 48 s, then 1-2 s each, in run 45986071929); a stop in the checkout bounds the list."""
+        with tempfile.TemporaryDirectory() as d:
+            env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+                   "GIT_COMMITTER_EMAIL": "t@t"}
+            subprocess.run(["git", "init", "-q", d], check=True, env=env)
+            for i in range(5):
+                subprocess.run(["git", "-C", d, "commit", "-q", "--allow-empty", "-m", str(i)], check=True, env=env)
+            shas = subprocess.run(["git", "-C", d, "rev-list", "HEAD"], capture_output=True, text=True,
+                                  check=True).stdout.split()
+            with mock.patch.object(cron, "ROOT", d):
+                self.assertEqual(cron.first_parent_since("HEAD", shas[2], 600), (shas[:2], True))
+                self.assertEqual(cron.first_parent_since("HEAD", "f" * 40, 600), (shas, False),
+                                 "a last tip past the checkout: every commit in it is newer")
+                self.assertEqual(cron.first_parent_since("HEAD", None, 3), (shas[:3], False))
+                self.assertFalse(cron.is_ancestor(shas[0], "f" * 40))
+                self.assertTrue(cron.is_ancestor(shas[3], shas[0]))
+        seen = {}
+        with mock.patch.object(cron.subprocess, "run", lambda cmd, **k: seen.update(k) or mock.Mock(returncode=0)):
+            cron.is_ancestor("a", "b")
+        self.assertEqual(seen["env"].get("GIT_NO_LAZY_FETCH"), "1", "an ancestry read never fetches from the remote")
 
     def test_a_linux_part_that_failed_for_its_setup_runs_once_more(self):
         cur = cron.new_measurement(self.NEW, "tip", ["web-ui-flat", "web-ui-flat-grown"], T0)
@@ -5007,7 +5087,8 @@ class StalePartFirstTests(unittest.TestCase):
             name: {"sha": "0" * 40, "at": cron.iso(now - datetime.timedelta(hours=stored_hours_ago.get(name, 2))), "rows": 1}
             for name in ALL if name != "build"}
         # Each stored part carried its goal's rows (goal_rows_missing), so only the stored date makes one due.
-        state["part_rows"] = {"webui.god_ratio.transcript_replay.long.token_ms@h": dict(state["part_stored"]["web-ui-god"])}
+        state["part_rows"] = {"webui.god_ratio.transcript_replay.long.token_ms@h": dict(state["part_stored"]["web-ui-god"]),
+                              "hot_swap.mac.focused_pane.p95_ms@h": dict(state["part_stored"]["hot-swap"])}
         return state, now
 
     def test_a_part_past_the_bound_runs_before_a_yielding_one(self):
@@ -5259,6 +5340,41 @@ class UnreadPartFirstTests(unittest.TestCase):
         cron.decide(state, at(0.6), self.NEW, None, self.supported, None)
         self.assertEqual(state["current"]["sha"], self.NEW)
         self.assertEqual(state["current"]["parts_todo"][0], "build", "its Mac pass starts at the same tick")
+
+    def test_a_tip_whose_tree_is_unpublished_gives_way_to_a_newer_tree(self):
+        # 2026-11-27: tip e6896269634a was picked at 04:54:55Z with no newer tree; the publisher's window build
+        # published 56b23b70562d (merged 3 s later) at 05:42Z, and e6896269634a's own tree never came, so its Mac
+        # parts waited the whole TREE_WAIT_HOURS for nothing.
+        state = cron.empty_state(T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1} for n in ALL if n != "build"}
+        unpublished = lambda sha: sha != self.OLD
+        d = cron.decide(state, T0, self.OLD, None, self.supported, None, tree_ready=unpublished)
+        cur = state["current"]
+        self.assertEqual(d["part"], "", "the Mac parts wait for the tree")
+        self.assertTrue(cron.tree_waiting(cur))
+        cron.record_part(cur, "coord-sim", {"state": "done"}, "u", T0)  # a Linux part that ran meanwhile
+        d = cron.decide(state, at(0.5), None, None, self.supported, None, tree_ready=unpublished, newest=None)
+        self.assertNotIn("superseded", state["current"], "no newer tree: it keeps waiting")
+        d = cron.decide(state, at(0.8), None, None, self.supported, None, tree_ready=unpublished, newest=self.NEW)
+        self.assertEqual(d["action"], "finish", "the newer tree's tip claims the Mac now, not at TREE_WAIT_HOURS")
+        self.assertIn("no published cmux-tui tree", d["reason"])
+        parts = state["current"]["parts"]
+        self.assertEqual(parts["coord-sim"]["state"], "done", "a Linux part that finished keeps its rows")
+        self.assertEqual(parts["throughput"]["state"], "superseded")
+        self.assertEqual(state["current"]["superseded"]["by"], self.NEW)
+        cron.finish_measurement(state, {}, 8.33, None, "u", at(0.8), budgets_mod)
+        self.assertFalse(cron.last_tip_build_failed(state), "no build failed: the base is not judged broken")
+        cron.decide(state, at(0.8), self.NEW, None, self.supported, None, tree_ready=lambda sha: True)
+        self.assertEqual(state["current"]["sha"], self.NEW)
+        self.assertEqual(state["current"]["parts_todo"][0], "build")
+
+    def test_a_tip_whose_tree_is_published_keeps_its_mac_parts(self):
+        state = cron.empty_state(T0)
+        state["part_stored"] = {n: {"sha": self.OLD, "at": cron.iso(T0), "rows": 1} for n in ALL if n != "build"}
+        cron.decide(state, T0, self.OLD, None, self.supported, None, tree_ready=lambda sha: True)
+        self.assertFalse(cron.tree_waiting(state["current"]), "its tree was seen")
+        cron.decide(state, at(0.5), None, None, self.supported, None, tree_ready=lambda sha: True, newest=self.NEW)
+        self.assertNotIn("superseded", state["current"])
 
     def test_a_tip_whose_build_failed_after_another_gives_way_after_its_linux_bound(self):
         # A second tip in a row whose build failed: the base is likely broken, so its Linux parts keep their bound

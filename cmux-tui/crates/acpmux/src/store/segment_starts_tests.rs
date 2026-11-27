@@ -141,3 +141,45 @@ fn a_rewritten_segment_is_read_again() {
     assert_eq!(seqs_after(&store, "r", 150), (151..=200).collect::<Vec<_>>());
     assert_eq!(seqs_after(&store, "r", 0), (1..=200).collect::<Vec<_>>());
 }
+
+/// A forward read near the end of a long segment reads from a line found by a search, not from the
+/// segment's start (`log_line::start_of_seq`): a settled attach's read of the records since its
+/// view cost the whole segment being written, up to 8 MiB, on each open (the size ladder's 100 MB
+/// chat attached in 5.5 ms where the 1 MB and 1 GB ones took 3 ms). Every `after` still reads
+/// exactly the records past it.
+#[test]
+fn forward_read_near_a_long_segments_end_reads_only_its_tail() {
+    let path = std::env::temp_dir().join(format!("acpmux-segment-tail-{}", uuid::Uuid::now_v7()));
+    let store = LocalStore::new(path.join("sessions"), 8 << 20).unwrap();
+    let _home = Home(path);
+    let id = "tail";
+    let meta = json!({
+        "schema": META_SCHEMA, "id": id, "name": "long chat", "harness": "claude",
+        "cwd": "/tmp", "status": "idle", "createdAt": 1, "updatedAt": 2,
+    });
+    store.save(&serde_json::from_value(meta).unwrap()).unwrap();
+    let records = 3000u64;
+    for seq in 1..=records {
+        // Mostly ~2 KB records, every 97th a 40 KB one: longer than one search probe.
+        let text = "x".repeat(if seq % 97 == 0 { 40_000 } else { 2000 });
+        let rec = EventRecord {
+            seq,
+            at: seq,
+            dir: "in".into(),
+            kind: "session/update".into(),
+            msg: json!({"n": seq, "text": text}),
+            host_seq: None,
+        };
+        store.append(id, &rec).unwrap();
+    }
+    store.flush_session(id).unwrap();
+    assert_eq!(store.segments(id).unwrap().len(), 1, "the chat must fit one segment");
+    for after in [0, 1, 2, 96, 97, 500, 1499, 2900, 2997, 2999, 3000, 4000] {
+        let want: Vec<u64> = (after + 1..=records).collect();
+        assert_eq!(seqs_after(&store, id, after), want, "after {after}");
+    }
+    FORWARD_READ_BYTES.with(|n| n.set(0));
+    assert_eq!(seqs_after(&store, id, records - 3), vec![records - 2, records - 1, records]);
+    let read = FORWARD_READ_BYTES.with(std::cell::Cell::get);
+    assert!(read < 64 * 1024, "a read of the last 3 records read {read} bytes of a 6 MB segment");
+}
