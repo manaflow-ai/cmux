@@ -56,13 +56,11 @@ LIVE_SOURCE = re.compile(r"\b(?:needs|matrix|inputs|steps|env)\.|vars\.(?!LINUX_
 # workflow file -> jobs that still read LINUX_RUNNER as their one size. Lower a count when a job
 # moves to fromJSON(vars.RUNNER_POOLS).<pool> or a picker; never raise one.
 SINGLE_SIZE: dict[str, int] = {
-    "actions-artifact-prune.yml": 0,
+    "storage-maintenance.yml": 0,
     "agent-brands.yml": 0,
     "app-ffi-release.yml": 0,
     "auto-resume-nightly-notarization.yml": 0,
-    "automation-bench.yml": 0,
     "backend.yml": 0,
-    "ci-artifact-canary.yml": 0,
     "ci-compile-attribution.yml": 0,
     "ci-guards.yml": 0,
     "ci-health-report.yml": 0,
@@ -75,7 +73,6 @@ SINGLE_SIZE: dict[str, int] = {
     "cloud-vm-env-audit.yml": 0,
     "cloud-vm-guest-install.yml": 0,
     "cloud-vm-image-bake.yml": 0,
-    "cloud-vm-image-lock.yml": 0,
     "cloud-vm-image-promote.yml": 0,
     "cloud-vm-migrate.yml": 0,
     "cloud-vm-smoke.yml": 0,
@@ -130,12 +127,8 @@ SINGLE_SIZE: dict[str, int] = {
     "nightly-next-train.yml": 0,
     "nightly-next-verdict.yml": 0,
     "nightly-tag-permission-probe.yml": 0,
-    "pr-media-prune.yml": 0,
     "pr-red-checks-comment.yml": 0,
     "presence.yml": 0,
-    "r2-binaries-prune.yml": 0,
-    "r2-cache-prune.yml": 0,
-    "r2-storage-census.yml": 0,
     "relay-publish-npm.yml": 0,
     "release-rails.yml": 0,
     "release.yml": 0,
@@ -287,7 +280,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")
         self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_web_subarea_scope_reads_the_linux_pool(self) -> None:
@@ -298,7 +291,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(len(cells), 1, cells)
         runs_on = cells[0]
         self.assertFalse(single_size(runs_on))
-        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")  # vars.CI_FORK_LINUX_RUNNER is the fork branch
+        self.assertNotRegex(runs_on, r"vars\.LINUX_RUNNER(?!\w)")
         self.assertTrue(runs_on.rstrip().endswith("|| 'cmux-linux' }}"), runs_on)
 
     def test_no_workflow_adds_a_single_size_linux_job(self) -> None:

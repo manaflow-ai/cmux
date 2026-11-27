@@ -27,14 +27,16 @@ import CmuxNextDesign
 extension ScreenContentView {
     /// The window's live resize began. Only a person's (a mouse button down on the window's edge, synthetic presses
     /// included): AppKit also starts one for a one-shot frame change (a display change), which lays out once.
-    func windowLiveResizeBegan() {
+    /// `followers`: the pane contents follow it as a divider drag (a person's resize). Off for the chrome's own motion
+    /// (``contentAreaMotionBegan()``), whose contents already do what they do in a spring (`NSView.isInPaneMotion`).
+    func windowLiveResizeBegan(followers: Bool = true) {
         guard windowResizeListeners == nil, window != nil, !isHiddenOrHasHiddenAncestor, !isParkedOrHasParkedAncestor
         else { return }
         // A divider drag's release still landing hands its contents over to this resize: they hear its end at the end.
         if resizeGesture != .idle { finishResizeGesture() }
         paneFrameNotices.hold(displayedHosts)
-        let listeners = displayedHosts.flatMap { $0.content.paneResizeGestureFollowers() }
-            .map { PaneResizeGestureListener(view: $0) }
+        let listeners = followers ? displayedHosts.flatMap { $0.content.paneResizeGestureFollowers() }
+            .map { PaneResizeGestureListener(view: $0) } : []
         windowResizeListeners = listeners
         for listener in listeners { listener.view?.paneResizeGestureDidChange(active: true) }
     }
@@ -42,6 +44,7 @@ extension ScreenContentView {
     /// The window's live resize ended: the newest terminal grids go out, each page lays out once at its final size, and
     /// each moved view posts its one frame notice.
     func windowLiveResizeEnded() {
+        holdsForContentAreaMotion = false
         guard let listeners = windowResizeListeners else { return }
         windowResizeListeners = nil
         // The panes kept out of sight at their old size take their final one, before their contents hear the end.
@@ -54,5 +57,27 @@ extension ScreenContentView {
         for listener in listeners { listener.view?.paneResizeGestureReleased() }
         for listener in listeners { listener.view?.paneResizeGestureDidChange(active: false) }
         releasePaneFrameNoticesIfSettled()
+    }
+}
+
+/// The window's chrome resizing the content area over several frames (the sidebar sliding open or closed,
+/// `WindowRootView+ContentAreaMotion`) moves and resizes every displayed pane in every frame, as a person's live resize
+/// of the window does, and had none of that resize's per-tick savings: every frame posted every pane view's frame notice
+/// (and AppKit's titlebar drag-shape walk in its commit), told every pane's content of its window-frame move (each strip's
+/// traffic-light avoidance, the window's avoiders), and laid out panes scrolled out of the viewport. The motion now
+/// takes the same mode, without the drag followers: its contents keep what they do in a spring (a terminal holds its
+/// grid to the landing, `NSView.isInPaneMotion`), so nothing they show changes.
+extension ScreenContentView {
+    /// The content area's motion began; nothing when a person's live resize already holds this screen.
+    func contentAreaMotionBegan() {
+        guard windowResizeListeners == nil else { return }
+        windowLiveResizeBegan(followers: false)
+        holdsForContentAreaMotion = windowResizeListeners != nil
+    }
+
+    /// The content area's motion landed (its layout at the final width is in): the end of the mode it started.
+    func contentAreaMotionEnded() {
+        guard holdsForContentAreaMotion else { return }
+        windowLiveResizeEnded()
     }
 }

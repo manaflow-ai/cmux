@@ -76,6 +76,17 @@ pub fn digest(pack: &Pack, range: &RangeId, limits: Limits) -> Result<String> {
         let kind = v.get("kind").and_then(Value::as_str).unwrap_or("");
         let update = v.pointer("/msg/params/update");
         match kind {
+            // A turn starts at its `turn_started` record, which follows the person's message: the
+            // message itself ends the turn before, so the ask is shown here too.
+            "turn_started" => {
+                let asked = v
+                    .pointer("/msg/promptLine")
+                    .or_else(|| v.pointer("/msg/prompt"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let (shown, _) = cut(asked, limits.prompt);
+                let _ = writeln!(out, "\nasked (seq {seq}): {shown}");
+            }
             "agent_message_chunk" => {
                 say.push_str(
                     update
@@ -326,17 +337,38 @@ fn one_line(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// One line a turn: its range name, when it started (ms since 1970), how many records it holds,
-/// and the start of what was asked.
-pub fn outline(pack: &Pack) -> Result<String> {
+/// One turn of an outline: its range, when it started (ms since 1970), how many records it
+/// holds, and the start of what was asked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Turn {
+    /// The turn's lines, `<session>@<first>-<last>`.
+    pub range: RangeId,
+    /// When its first record was written, ms since 1970 (0 when the record says none).
+    pub at: u64,
+    /// How many records it holds.
+    pub records: u64,
+    /// The first 160 bytes of what was asked (cut at a character).
+    pub ask: String,
+}
+
+/// The turns of `pack`, in order ([`outline`] as data).
+pub fn turns(pack: &Pack) -> Result<Vec<Turn>> {
+    turns_window(pack, 0, usize::MAX)
+}
+
+/// Turns `from..to` (by their order in the pack) of `pack`: only those turns' first lines are
+/// read, so a window of a long chat costs what the window does.
+pub fn turns_window(pack: &Pack, from: usize, to: usize) -> Result<Vec<Turn>> {
     let m = &pack.manifest;
     let starts: Vec<u64> = m.marks().collect();
-    let mut out = String::new();
+    let to = to.min(starts.len());
+    let from = from.min(to);
+    let window = starts.get(from..to).unwrap_or(&[]);
     // Long strings are left out, so no blob chunk is read. Rows whose prompt was
     // stored as a blob are read again with their blobs, and only those lines' blob
     // chunks are read.
-    let all = pack.skim_lines(&starts)?;
-    let mut rows = Vec::with_capacity(starts.len());
+    let all = pack.skim_lines(window)?;
+    let mut rows = Vec::with_capacity(window.len());
     let mut again = Vec::new();
     for (i, line) in all.iter().enumerate() {
         let v: Value = serde_json::from_slice(line).unwrap_or(Value::Null);
@@ -362,7 +394,7 @@ pub fn outline(pack: &Pack) -> Result<String> {
         };
         rows.push(row);
     }
-    let lines: Vec<u64> = again.iter().filter_map(|i| starts.get(*i).copied()).collect();
+    let lines: Vec<u64> = again.iter().filter_map(|i| window.get(*i).copied()).collect();
     for (i, line) in again.iter().zip(pack.lines_at(&lines)?) {
         let v: Value = serde_json::from_slice(&line).unwrap_or(Value::Null);
         if let Some(row) = rows.get_mut(*i) {
@@ -380,15 +412,25 @@ pub fn outline(pack: &Pack) -> Result<String> {
             }
         }
     }
-    for (i, (first, (at, prompt))) in starts.iter().zip(&rows).enumerate() {
-        let last = starts.get(i + 1).copied().unwrap_or(m.lines) - 1;
-        let _ = writeln!(
-            out,
-            "{}\t{at}\t{}\t{}",
-            RangeId { name: m.name.clone(), first: *first, last },
-            last - first + 1,
-            cut(prompt, 160).0
-        );
+    let mut out = Vec::with_capacity(rows.len());
+    for (i, (first, (at, prompt))) in window.iter().zip(rows).enumerate() {
+        let last = starts.get(from + i + 1).copied().unwrap_or(m.lines) - 1;
+        out.push(Turn {
+            range: RangeId { name: m.name.clone(), first: *first, last },
+            at,
+            records: last - first + 1,
+            ask: cut(&prompt, 160).0.to_owned(),
+        });
+    }
+    Ok(out)
+}
+
+/// One line a turn: its range name, when it started (ms since 1970), how many records it holds,
+/// and the start of what was asked.
+pub fn outline(pack: &Pack) -> Result<String> {
+    let mut out = String::new();
+    for t in turns(pack)? {
+        let _ = writeln!(out, "{}\t{}\t{}\t{}", t.range, t.at, t.records, t.ask);
     }
     Ok(out)
 }

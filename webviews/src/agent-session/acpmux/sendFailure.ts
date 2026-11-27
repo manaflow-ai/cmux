@@ -42,6 +42,31 @@ export const isTrustCause = (cause: SendCause) => cause === "trust-pending" || c
 /// out is Edit (Leo, 2026-10-31: "this is completely hardlocked bc of message size").
 export const retryHelps = (cause: SendCause) => cause !== "too-large";
 
+/// Whether a send that did not get there goes again by itself, its row keeping the pending look
+/// (PendingSteer.tsx) with no Not sent line, until it does (Leo, 2026-11-24: "i dont ever want to see these, it should
+/// just fix itself automtically. recovery for this stuff is wack"). Yes for every failure of the way
+/// there: no answer from acpmux in time (`timeout`), the pane's link to it (`native.*`, a closed
+/// socket), the chat's machine link (`peer_unreachable`), acpmux or the agent too busy for now. A
+/// prompt that goes again keeps its prompt id, which acpmux runs once, so a copy it took already
+/// runs no second turn. No for a refusal that would come back the same (too large, the folder's
+/// trust question, a request the pane got wrong, a gesture, any other refusal): its row says why in
+/// one line.
+export function sendRetriesItself(
+  fields: { code?: unknown; reason?: unknown; error?: unknown } | null | undefined,
+): boolean {
+  const cause = sendCause(fields);
+  if (cause === "host-away") return true;
+  if (cause !== "other") return false;
+  const code = text(fields?.code);
+  const reason = text(fields?.reason);
+  if (code === "timeout" || code === "transport.closed" || code?.startsWith("native.")) return true;
+  if (peerLinkFailure({ reason, message: text(fields?.error) ?? "" })) return true;
+  if ([code, reason].some((value) => value !== undefined && BUSY_CODE.test(value))) return true;
+  return connectionClosed(text(fields?.error), fields ?? undefined);
+}
+/// A refusal for want of room right now, which passes by itself: an overloaded provider, a busy host.
+const BUSY_CODE = /overload|capacity|rate_limit|busy|unavailable/i;
+
 /// The bytes an attachment puts in the prompt: its base64 or its text.
 const promptBytes = (attachment: ComposerAttachment) => (attachment.data?.length ?? 0) + (attachment.text?.length ?? 0);
 
@@ -83,6 +108,7 @@ export function failedSendText(
     case "pane":
       // The pane's bug, not the person's: logged for its report, as errorMessage logs it.
       console.error("agent pane: the host refused a request", error);
+      // retry-prompt-ok: "Not sent. Try again.": sending the prompt again is a paid model request.
       return translate(retried ? "prompt.failure.paneAgain" : "prompt.failure.pane");
     case "too-large":
       return tooLargeText(attachments);
