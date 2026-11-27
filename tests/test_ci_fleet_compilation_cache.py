@@ -253,10 +253,16 @@ class FleetCacheTests(unittest.TestCase):
         (nightly-next run 46020152626, no compile error in its tree). That build gets one more try, also on
         a cold-cache run; a crash on the retry too ends red, and there is no third build."""
         crash = "error: unexpected service error: The Xcode build system has crashed. Build again to continue."
-        result, count, _ = self._run_nightly_release_stub(crash, DECIDE_COLD_CACHE_DISABLE="1")
+        result, count, args_log = self._run_nightly_release_stub(crash, DECIDE_COLD_CACHE_DISABLE="1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(count.read_text().strip(), "2")
         self.assertIn("build service crashed", result.stdout + result.stderr)
+        # Xcode 27.2 crashes replaying cached diagnostics (runs 46024218260, 46026219141, 46033303025), so the
+        # retry builds with the compilation cache off; the first build kept it on.
+        attempts = args_log.read_text().split("---\n")[1:]
+        self.assertIn("COMPILATION_CACHE_ENABLE_CACHING=YES\n", attempts[0])
+        self.assertIn("COMPILATION_CACHE_ENABLE_CACHING=NO\n", attempts[1])
+        self.assertIn("without the compilation cache", result.stdout + result.stderr)
         result, count, _ = self._run_nightly_release_stub(crash, DECIDE_COLD_CACHE_DISABLE="1",
                                                           STUB_FAIL_EVERY_BUILD="1")
         self.assertEqual(result.returncode, 65)
@@ -357,8 +363,9 @@ class FleetCacheTests(unittest.TestCase):
         self.assertIn("local_cache_settings+=(\"$setting\")", step)
         self.assertIn('settings=("${local_cache_settings[@]}")', step)
         self.assertIn('${settings[@]+"${settings[@]}"}', step)
-        self.assertIn('run_release_build 1', step)
-        self.assertIn("retrying the Release build once with the local cache", step)
+        self.assertIn("retry_mode=1\n", step)
+        self.assertIn('run_release_build "$retry_mode"', step)
+        self.assertIn("echo 'with the local cache'", step)
         self.assertIn('exit "$release_status"', step)
 
 
