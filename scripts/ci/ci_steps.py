@@ -38,6 +38,13 @@ glob (`dir/**`, `**`) or a change to the pipeline itself is left to the post-mer
 step at the merged tip (cmux-next-pr-pipeline-linux-batch.yml) and bisects a new red there. A step with
 `pr_scope = false` keeps its whole route on a pull request. An unknown diff still routes every step.
 
+`nightly` names the nightly.yml steps (`nightly.yml:<job>:<step>`) a step runs the same check as: a red there stops
+the nightly's publish or reds its run, found hours after the merge (Leo, 2026-11-27: "shouldn't a build check fail
+beforehand fast like fast-fail is useful ci all stuff"). Such a step keeps its whole route under `--pr-scope`, and
+pr_router.py starts it on a landing head of the affected tier (nightly_gate_steps), so the landing fails, not the
+nightly. .github/nightly-step-coverage.json maps the nightly step back to it ({"table": NAME};
+tests/test_nightly_step_coverage.py checks both directions).
+
 Step results by input hash (the CI v2 design, "Caches: three, content-addressed", item 3). Before a
 routed step runs, `run` keys it: sha256 over the step's own table entry, the job's setup and the
 tools it needs, this runner, its entry and the workflow, the machine kind (RUNNER_OS, RUNNER_ARCH,
@@ -129,6 +136,8 @@ class Step:
     # False: a pull request's --pr-scope route keeps every input of this step (security-holes: a secret or a
     # workflow hole must not land to be found post-merge).
     pr_scope: bool = True
+    # The nightly.yml steps this step runs the same check as (`nightly.yml:<job>:<step>`; the module's docs).
+    nightly: tuple[str, ...] = ()
 
 
 @dataclass
@@ -203,6 +212,7 @@ def parse(doc: dict) -> Table:
             alone=raw.get("alone", False),
             reuse=raw.get("reuse", True),
             pr_scope=raw.get("pr_scope", True),
+            nightly=tuple(raw.get("nightly", ())),
         )
         if step.job not in jobs:
             raise TableError(f"step {name}: job {step.job!r} is not one of [jobs] {sorted(jobs)}")
@@ -214,6 +224,9 @@ def parse(doc: dict) -> Table:
             raise TableError(f"step {name}: `reuse` is true or false")
         if not isinstance(step.pr_scope, bool):
             raise TableError(f"step {name}: `pr_scope` is true or false")
+        if not all(isinstance(n, str) and re.fullmatch(r"nightly\.yml:[^:]+:.+", n) for n in step.nightly) or (
+                step.nightly and not step.blocks):
+            raise TableError(f"step {name}: `nightly` lists a blocking step's nightly.yml:<job>:<step> counterparts")
         if step.klass not in CLASSES:
             raise TableError(f"step {name}: class {step.klass!r} is not one of {CLASSES}")
         if not step.blocks and (step.job != ADVISORY_JOB or step.klass != "idle"):
@@ -246,7 +259,7 @@ def named_input(glob: str) -> bool:
 def routed(step: Step, paths: list[str] | None, pr_scope: bool = False) -> bool:
     """Whether a diff of `paths` needs the step. No inputs, or an unknown diff, routes it. PR_SCOPE: only the step's
     named inputs route it, and a change to the pipeline does not route every step (see the module's `--pr-scope`)."""
-    narrow = pr_scope and step.pr_scope
+    narrow = pr_scope and step.pr_scope and not step.nightly
     if not step.inputs or paths is None or (not narrow and any(p in PIPELINE_PATHS for p in paths)):
         return True
     patterns = [glob_pattern(g) for g in step.inputs if not narrow or named_input(g)]
@@ -256,6 +269,12 @@ def routed(step: Step, paths: list[str] | None, pr_scope: bool = False) -> bool:
         return next((back for back, i in ignored if i.match(path)), True)
 
     return any(p.match(path) and kept(path) for path in paths for p in patterns)
+
+
+def nightly_gate_steps(table: Table, paths: list[str] | None, jobs: tuple[str, ...] | list[str] = ()) -> list[str]:
+    """The steps with a `nightly` counterpart a diff of PATHS routes (every input kept), in JOBS when given."""
+    return [step.name for step in table.steps.values()
+            if step.nightly and (not jobs or step.job in jobs) and routed(step, paths, pr_scope=True)]
 
 
 def route(table: Table, paths: list[str] | None, label: str | None = None,

@@ -156,7 +156,7 @@ models.dev
 monitoring.googleapis.com
 # crash and error reports, scrubbed (below), only when telemetry is on
 o4507547940749312.ingest.us.sentry.io
-# the same release and log files, on GitHub's older download host
+# the same release and log files, on GitHub's older download host; also the pinned cmux-rd release download on a joined Linux machine
 objects.githubusercontent.com
 # museum art for backgrounds, when you search for art
 openaccess-api.clevelandart.org
@@ -176,7 +176,7 @@ pypi.org
 raw.githubusercontent.com
 # checks for a newer cmux CLI when installed with npm; npm packages agents install
 registry.npmjs.org
-# a release file github.com redirects to: an agent's installer or a fork's release, when you install or update it; GitHub learns the file asked for
+# a release file github.com redirects to: an agent's installer, a fork's release, or the pinned cmux-rd download on a joined Linux machine, when you install or update it; GitHub learns the file asked for
 release-assets.githubusercontent.com
 # shared workspace links in development builds
 share-dev.cmux.dev

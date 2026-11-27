@@ -187,7 +187,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `models.dev` | connects | the public model list the daemon's live model catalog reads (new models in the model picker) |
 | `monitoring.googleapis.com` | connects | only `cmux vm pool` (the CI runner pool tool, run by cmux's own CI with its own Google Cloud credential): reads the pool instances' CPU use; never run by the app |
 | `o4507547940749312.ingest.us.sentry.io` | connects | crash and error reports, scrubbed (below), only when telemetry is on |
-| `objects.githubusercontent.com` | connects | the same release and log files, on GitHub's older download host |
+| `objects.githubusercontent.com` | connects | the same release and log files, on GitHub's older download host; also the pinned cmux-rd release download on a joined Linux machine |
 | `openaccess-api.clevelandart.org` | connects | museum art for backgrounds, when you search for art |
 | `openaccess-cdn.clevelandart.org` | connects | museum art for backgrounds, when you search for art |
 | `opencode.ai` | connects | OpenCode's config schema and installer, when you install OpenCode |
@@ -197,7 +197,7 @@ each part it fills in. Reserved names (`.example`, `.test`, `.invalid`, `localho
 | `pypi.org` | connects | checks for a newer cmux CLI when installed with pip |
 | `raw.githubusercontent.com` | connects | release media reels and raw files linked in agent replies |
 | `registry.npmjs.org` | connects | checks for a newer cmux CLI when installed with npm; npm packages agents install |
-| `release-assets.githubusercontent.com` | connects | a release file github.com redirects to: an agent's installer or a fork's release, when you install or update it; GitHub learns the file asked for |
+| `release-assets.githubusercontent.com` | connects | a release file github.com redirects to: an agent's installer, a fork's release, or the pinned cmux-rd download on a joined Linux machine, when you install or update it; GitHub learns the file asked for |
 | `share-dev.cmux.dev` | connects | shared workspace links in development builds |
 | `share-staging.cmux.dev` | connects | shared workspace links on staging, only when chosen |
 | `share.cmux.dev` | connects | shared workspace links (production) |

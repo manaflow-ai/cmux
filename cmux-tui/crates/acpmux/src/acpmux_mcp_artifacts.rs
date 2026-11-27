@@ -459,7 +459,15 @@ impl Artifacts {
         }
         let mut created = None;
         let mut legacy = false;
-        let mut conflict_retried = false;
+        // Another save moved the head first: saved again on the new head while saves keep
+        // landing, for a few seconds (no save applied, so another try never saves twice).
+        let mut conflicts = cmux_tui_util::retry::Patience::new(
+            "the artifact repository to settle",
+            std::time::Duration::from_secs(10),
+        )
+        .quiet()
+        .spaced(std::time::Duration::from_millis(50), std::time::Duration::from_secs(1));
+        let mut first_conflict = true;
         loop {
             let body = json!({"title": title, "kind": kind, "files": body_files, "trailers": trailers, "expectedHeadSha": head});
             match self.json("artifact save", |http| http.post(create_url.clone()).json(&body)).await
@@ -478,16 +486,21 @@ impl Artifacts {
                     legacy = true;
                 }
                 Err(e) => match e.downcast_ref::<Conflict>() {
-                    Some(Conflict(current)) if !conflict_retried => {
+                    Some(Conflict(current)) => {
                         head = current.clone();
-                        conflict_retried = true;
+                        // The first goes again at once, with the head the conflict named.
+                        if !std::mem::take(&mut first_conflict) {
+                            let Some(wait) = conflicts.next_wait(None) else { break };
+                            tokio::time::sleep(wait).await;
+                        }
                     }
-                    Some(_) => break,
                     None => return Err(e),
                 },
             }
         }
-        let created = created.context("artifact save: the repository kept changing; try again")?;
+        let created = created.context(
+            "artifact save: the repository kept changing (other saves kept landing first)",
+        )?;
         let id = created
             .get("id")
             .and_then(Value::as_str)
