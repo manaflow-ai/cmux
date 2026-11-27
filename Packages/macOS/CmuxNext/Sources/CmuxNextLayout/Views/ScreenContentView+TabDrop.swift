@@ -145,13 +145,21 @@ extension ScreenContentView {
         switch layout {
         case let .splits(root): after = .splits(inserting(root))
         case let .columns(columns):
-            guard !columns.contains(where: \.hasRows) else { return nil }
-            after = .columns(columns.map { column in
-                guard column.root.contains(split) else { return column }
-                var changed = column
-                changed.root = inserting(column.root)
-                return changed
-            })
+            var changed = columns
+            var found = false
+            for index in changed.indices {
+                if changed[index].hasRows {
+                    for row in changed[index].rows.indices where changed[index].rows[row].root.node(for: split) != nil {
+                        changed[index].rows[row].root = inserting(changed[index].rows[row].root)
+                        found = true
+                    }
+                } else if changed[index].root.node(for: split) != nil {
+                    changed[index].root = inserting(changed[index].root)
+                    found = true
+                }
+            }
+            guard found else { return nil }
+            after = .columns(changed)
         }
         let computed = ScreenGeometry.compute(after, viewport: bounds.size, style: context.style,
                                               scale: window?.backingScaleFactor ?? 2)
