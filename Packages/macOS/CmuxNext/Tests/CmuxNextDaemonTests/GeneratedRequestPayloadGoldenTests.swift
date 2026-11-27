@@ -8,6 +8,26 @@ struct GeneratedRequestPayloadGoldenTests {
     private static let workspaceKey = WorkspaceKey(rawValue: "018f6e21-7b70-7e70-8000-0000000000d1")
     private static let terminalID = TerminalID(rawValue: "018f6e217b704e7080000000000000f1")
 
+    // A call with named arguments still compiles when a migration appends a defaulted
+    // parameter. A reference to the initializer by its full name catches that change.
+    // CreateTerminalWorkspaceWireTests exercises the create-terminal initializer this way.
+    @Test func originalRequestInitializersCanBePassedAsFunctions() {
+        _ = NewTabRequest.init(pane:options:)
+        _ = NewScreenRequest.init(workspace:size:)
+        _ = SplitRequest.init(pane:direction:tab:options:before:)
+        _ = NewPaneRequest.init(pane:options:)
+        _ = NewColumnRequest.init(pane:width:left:options:)
+        _ = NewRowRequest.init(pane:height:options:)
+        _ = ClosePaneRequest.init(pane:endTerminals:)
+        _ = CloseScreenRequest.init(screen:endTerminals:)
+        _ = CloseTabsRequest.init(surfaces:endTerminals:transaction:mutation:reason:)
+        _ = CloseTabGroupRequest.init(group:endTerminals:)
+        _ = CloseWorkspaceRequest.init(workspace:endTerminals:reason:ifEmpty:mutation:)
+        _ = RenameWorkspaceRequest.init(workspace:name:source:expectedNameRevision:release:mutation:)
+        _ = MoveWorkspaceRequest.init(workspace:index:mutation:)
+        _ = SetWorkspaceMetadataRequest.init(workspace:color:icon:title:pinned:markedUnread:keepAwake:mutation:)
+    }
+
     private func line(_ request: some DaemonRequest) throws -> JSONValue {
         try JSONDecoder().decode(JSONValue.self, from: WireCoding.encodeRequest(request, id: 7))
     }
