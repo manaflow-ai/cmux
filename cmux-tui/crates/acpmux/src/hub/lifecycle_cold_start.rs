@@ -397,7 +397,7 @@ impl Hub {
         // Start the inbound loop for this session once.
         self.spawn_inbound_loop(session).await;
 
-        let init = match child.request(method::INITIALIZE, self.start_params(session)).await {
+        let init = match super::acp_version::initialize(&child, self.start_params(session)).await {
             Ok(v) => v,
             Err(e) => {
                 // An agent CLI that refuses to start signed out exits before it answers
