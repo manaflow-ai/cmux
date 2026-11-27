@@ -59,7 +59,7 @@ function Fixture({ variant }: { variant: Variant }) {
         }
       />
       {/* A subagent activity row's latest line (AgentLine.tsx's Tick). */}
-      <div style={{ marginTop: 12, fontSize: 12, opacity: 0.8 }}>
+      <div style={{ marginTop: 12, fontSize: "var(--text-detail)", opacity: 0.8 }}>
         <Tick className="acpmux-agent-line__latest-inline" text={call} slide />
       </div>
     </div>
