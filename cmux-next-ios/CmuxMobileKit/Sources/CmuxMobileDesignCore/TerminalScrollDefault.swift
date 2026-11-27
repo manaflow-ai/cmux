@@ -7,8 +7,12 @@
 /// just a normal iOS scroll instead of like by line scroll in the terminal view?" and "we can just treat
 /// the scroll like any pedestrian scroll." Off (Settings → Terminal → Plain Scroll in Full-Screen Apps)
 /// keeps the line-by-line wheel scroll.
+///
+/// Off by default again (iOS regression row 18): with it on, a drag in a full-screen app opened the
+/// phone's own re-render of the screen. Aziz, 2026-11-26: "I prefer that you take it back to the old
+/// behavior ... you shouldnt be trying to rerender the tui on your own"; Leo: "Ok". A stored On stays.
 public enum TerminalScrollDefault {
-    public static let plainScroll = true
+    public static let plainScroll = false
 }
 
 #if canImport(CoreGraphics)

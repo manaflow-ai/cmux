@@ -128,7 +128,7 @@ export function playNewChatEntrance(
   const animations = newChatEntranceParts(hero, style).map((part) =>
     // motion-allow: the iOS new chat's spring (response 0.42 s) runs 360 ms, past the scale's large step; one entrance per new chat, matched across iOS and web (Leo 2026-11-22).
     part.element.animate([part.from, part.to], {
-      duration: NEW_CHAT_PART_MS,
+      duration: NEW_CHAT_PART_MS, // motion-allow: the iOS new chat's spring runs 360 ms (above).
       delay: part.delay,
       easing,
       // Before its delay a part is drawn at its start, so nothing shows whole and then jumps back.

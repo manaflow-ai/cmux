@@ -366,6 +366,15 @@ fn workspace_groups_resolve_group_and_room_names() {
     let add = plan(&["workspace", "group", "Backend", "add", "--workspace", WS]);
     assert_eq!(add.operation.name().unwrap(), "workspace.place");
     assert_eq!(add.resolve, vec![state_name("group", Op::WorkspaceGroupList)]);
+    let by_id = plan(&[
+        "workspace",
+        "group",
+        "grp_0000000000000000000000000000000b",
+        "add",
+        "--workspace",
+        WS,
+    ]);
+    assert!(by_id.resolve.is_empty());
     assert_eq!(
         sent(&["workspace", "placement", "list"]),
         ("workspace.placement.list".into(), json!({}))
@@ -454,6 +463,16 @@ fn rooms_map_to_room_operations() {
         deleted.resolve,
         vec![state_name("room", Op::RoomList), state_name("move_to", Op::RoomList)]
     );
+    // An id needs no lookup: the verb is one request.
+    let room = "prof_0000000000000000000000000000000a";
+    let pinned = plan(&["room", room, "pin", "--workspace", WS]);
+    assert_eq!(pinned.params["room"], room);
+    assert!(pinned.resolve.is_empty());
+    let moved = plan(&["room", room, "delete", "--move-to", "Home"]);
+    assert_eq!(moved.resolve, vec![state_name("move_to", Op::RoomList)]);
+    // A name shaped like another kind's id is still looked up.
+    let named = plan(&["room", "grp_0000000000000000000000000000000a", "move", "--index", "0"]);
+    assert_eq!(named.resolve, vec![state_name("room", Op::RoomList)]);
     assert!(rejects(&["room", "Work", "update"]).contains("change flag"));
     assert!(rejects(&["room", "Work", "pin"]).contains("--workspace"));
 }

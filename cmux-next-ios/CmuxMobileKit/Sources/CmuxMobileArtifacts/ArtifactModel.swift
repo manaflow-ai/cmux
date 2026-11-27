@@ -162,8 +162,18 @@ public struct ArtifactNotFound: Error, LocalizedError {
 /// A preview that can't load, with the sentence to show.
 public struct ArtifactUnavailable: Error, LocalizedError, Equatable {
     public let message: String
-    public init(_ message: String) { self.message = message }
+    /// The same load can succeed later on its own (no link yet, a stall, a file
+    /// that changed mid-read): the preview retries it without asking. A refusal,
+    /// a missing file or a folder is not retried.
+    public let isTransient: Bool
+    public init(_ message: String, transient: Bool = false) {
+        self.message = message
+        self.isTransient = transient
+    }
     public var errorDescription: String? { message }
+
+    /// Two refusals are the same when they say the same thing.
+    public static func == (lhs: Self, rhs: Self) -> Bool { lhs.message == rhs.message }
 }
 
 /// Files and Links with no Mac to read from (a terminal or chat that is not

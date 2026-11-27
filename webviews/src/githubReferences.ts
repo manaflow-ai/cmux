@@ -50,24 +50,18 @@ export function githubIssueLink(text: string): GithubIssueLink | undefined {
 // Not after a word, a path or URL (`x.com/#12`) or an HTML entity (`&#123;`). GitHub numbers
 // start at 1 and have at most ten digits (the pull request card's rule), so `#0`, `#012` and
 // `#12345678901` are not references.
-// A short name glued to the `#` (`hq#12`, `subrouter-internal#54`) is a reference only when the
+// A short name glued to the `#` (`cmux#12`) is a reference only when the
 // caller takes aliases and it is a known one (REPOSITORY_ALIASES); any other word glued to a `#`
 // (`foo#12`, `F#7`) stays text.
 const REFERENCE =
   /(?<![\w./&-])(?:(?<repository>[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*)(?<qualifiedNumber>#[1-9][0-9]{0,9})|(?<alias>[A-Za-z][A-Za-z0-9-]*)(?<aliasNumber>#[1-9][0-9]{0,9})|(?<bareNumber>#[1-9][0-9]{0,9}))(?![\w])/g;
 
-/// The repositories cmux's own agents name by their short name (`subrouter-internal#54`, Leo
-/// 2026-11-07: "should we auto-render this as a link?"). Nothing else in the app lists them, so
-/// this does; a name two of them share would name neither, and is left out (shortNames).
-export const KNOWN_REPOSITORIES: readonly string[] = [
-  "manaflow-ai/cmux",
-  "manaflow-ai/cmuxterm-hq",
-  "manaflow-ai/cmux-platform",
-  "manaflow-ai/cmux-design-references",
-  "manaflow-ai/subrouter",
-  "manaflow-ai/subrouter-internal",
-  "teamleaderleo/leo-workspace",
-];
+/// The repositories an agent reply may name by their short name (`cmux#123`): cmux's own, which
+/// every user of the app has reason to name. No team's own repositories are here: a person's `hq#12`
+/// or `lw#3` is theirs, not a link to ours (Leo 2026-11-26: "identify all the weird opinoinated
+/// fleet things we shipped into the app and remove them"). A name two of them share would name
+/// neither, and is left out (shortNames).
+export const KNOWN_REPOSITORIES: readonly string[] = ["manaflow-ai/cmux"];
 
 /// Each repository's name, when no other repository in `repositories` has it.
 export function shortNames(repositories: readonly string[]): Map<string, string> {
@@ -82,19 +76,14 @@ export function shortNames(repositories: readonly string[]): Map<string, string>
   return out;
 }
 
-/// Short repository names agents write in place of `owner/repo` (`hq#2713`, `lw#12`,
-/// `subrouter-internal#54`), in agent replies only.
-export const REPOSITORY_ALIASES: ReadonlyMap<string, string> = new Map([
-  ...shortNames(KNOWN_REPOSITORIES),
-  ["hq", "manaflow-ai/cmuxterm-hq"],
-  ["lw", "teamleaderleo/leo-workspace"],
-]);
+/// Short repository names agents write in place of `owner/repo` (`cmux#12`), in agent replies only.
+export const REPOSITORY_ALIASES: ReadonlyMap<string, string> = shortNames(KNOWN_REPOSITORIES);
 
 /**
  * Finds explicit `owner/repo#123` and, when known, bare `#123` references. `kind` picks the
  * address: `issues` (the markdown editor) or `pull` (agent replies, whose chips open the pull
  * request card); GitHub redirects either to the other when the number is the other kind.
- * `aliases`: also `hq#123` and the other REPOSITORY_ALIASES (agent replies).
+ * `aliases`: also `cmux#123` and the other REPOSITORY_ALIASES (agent replies).
  */
 export function githubReferences(
   text: string,
