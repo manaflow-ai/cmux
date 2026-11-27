@@ -1,6 +1,7 @@
 {
   "caption": "Install a theme and its wallpapers, pane art, sidebar header, focus glow and cursor arrive together.",
   "frameInterval": 0.25,
+  "settings": {},
   "steps": [
     {"title": "Launch", "wait": 3},
     {"title": "A terminal workspace", "cmux": ["workspace", "new", "--name", "Panes"]},
