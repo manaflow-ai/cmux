@@ -42,6 +42,10 @@
 #   build   CmuxMobileLinkFFI.xcframework, xcodegen, and the app for the
 #           simulator (Demo: optimized, with the DEBUG developer surface); then
 #           boot one iPhone, install, launch, screenshot.
+#   shots push-gate=1
+#           Build Demo, inject production APNs payloads on its leased simulator,
+#           assert foreground delivery and background tap-to-wake. Use
+#           --sim-features push; evidence.zip includes push-gate.json.
 #   test    build, plus `xcodebuild test` of CmuxMobileKit on that iPhone.
 #           Optional arguments after it (each one `--arg`; the controller's
 #           argument pattern has no spaces, so lists are comma-separated):
@@ -381,8 +385,10 @@ fi
 scenes=()
 appstore=0
 clean_status_bar=0
+push_gate=0
 for scene in "${@:2}"; do
-  if [[ "$mode" == shots && "$scene" == appstore=iphone-6.9 ]]; then appstore=1; clean_status_bar=1
+  if [[ "$mode" == shots && "$scene" == push-gate=1 ]]; then push_gate=1
+  elif [[ "$mode" == shots && "$scene" == appstore=iphone-6.9 ]]; then appstore=1; clean_status_bar=1
   elif [[ "$mode" == shots && "$scene" == statusbar=clean ]]; then clean_status_bar=1
   else scenes+=("$scene"); fi
 done
@@ -405,7 +411,12 @@ if [[ "$mode" == handoff ]]; then
   source "$(dirname "${BASH_SOURCE[0]}")/../lib/mobile-attach.sh"
   cmux_attach_validate_dev_tag "$handoff_tag" || { echo "cmux-next-ios-sim.sh: handoff tag=$handoff_tag refused" >&2; exit 2; }
 fi
-if [[ "$mode" == shots && ${#scenes[@]} -eq 0 ]]; then
+if [[ "$push_gate" == 1 ]]; then
+  [[ $# -eq 2 ]] || { echo "push-gate=1 must be the only shots argument" >&2; exit 2; }
+  command -v bun >/dev/null || { echo "push gate requires bun for production APNs payloads" >&2; exit 2; }
+  command -v axe >/dev/null || { echo "push gate requires AXe for visible delivery and tap evidence" >&2; exit 2; }
+fi
+if [[ "$mode" == shots && ${#scenes[@]} -eq 0 && "$push_gate" != 1 ]]; then
   echo "cmux-next-ios-sim.sh: shots needs one or more scenes after it, name=WORD,WORD,..." >&2; exit 2
 fi
 
@@ -1280,6 +1291,18 @@ if [[ $reduce_motion -eq 1 ]]; then
   note "- reduce motion: on, com.apple.Accessibility ReduceMotionEnabled read back in the simulator: $rm_value"
 fi
 simctl install "$udid" "$app"
+if [[ "$push_gate" == 1 ]]; then
+  push_id="push-gate-$(python3 -c 'import uuid; print(uuid.uuid4().hex)')"
+  (cd cmux-next-ios/backend && bun install --frozen-lockfile)
+  (cd cmux-next-ios/backend && bun scripts/push-gate-payload.ts "$push_id-foreground") > "$out/push-foreground.json"
+  (cd cmux-next-ios/backend && bun scripts/push-gate-payload.ts "$push_id-background") > "$out/push-background.json"
+  python3 scripts/ci/ios_push_sim_gate.py --udid "$udid" --sim-set "$sims" \
+    --bundle "$bundle_id" --sha "$(git rev-parse HEAD)" \
+    --foreground-payload "$out/push-foreground.json" --background-payload "$out/push-background.json" \
+    --output "$out/push-gate.json"
+  note "- push gate: foreground delivery and background tap-to-wake passed; push-gate.json"
+  exit 0
+fi
 simctl launch "$udid" "$bundle_id" >/dev/null
 # Until the first screen has drawn and holds still: three screenshots in a row the same, 0.5 s apart, at most 30 s.
 # Best effort: past it, the capture below shows whatever is on screen.

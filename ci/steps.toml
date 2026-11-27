@@ -356,6 +356,35 @@ python3 scripts/ci/nightly_guard_steps.py
 # added a bare urlopen of files-next.cmux.com (the CDN refuses Python-urllib's agent, 403 error code 1010) and
 # test_ci_cdn_user_agent.py, which finds that read, went red only on the feat-cmux-next push (cas/1 replay; fixed
 # by #59707). Any Python or JSON change now runs it before the merge.
+[step.ios-push-headless]
+job = "linux"
+timeout = 180
+pr_scope = false
+needs = ["bun", "node"]
+title = "iOS push delivery and collapse"
+about = "production APNs sender against a mock endpoint, plus fail-closed simulator detector tests; no phone or simulator boot"
+inputs = [
+  "cmux-next-ios/backend/src/**",
+  "cmux-next-ios/backend/package.json",
+  "cmux-next-ios/backend/bun.lock",
+  "cmux-next-ios/backend/vitest.push.config.ts",
+  "cmux-next-ios/backend/test/apns-delivery-gate.test.ts",
+  "cmux-next-ios/backend/scripts/push-gate-payload.ts",
+  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileNotifications/**",
+  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/Notifications.swift",
+  "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileShell/SimulatedServiceExtension.swift",
+  "scripts/ci/ios_push_sim_gate.py",
+  "scripts/ci/cmux-next-ios-sim.sh",
+  "tests/test_ios_push_sim_gate.py",
+  "ci/steps.toml",
+]
+run = '''
+python3 tests/test_ios_push_sim_gate.py
+cd cmux-next-ios/backend
+flock "$CI_TOOLS/bun-install.lock" bun install --frozen-lockfile
+bun run test --config vitest.push.config.ts
+'''
+
 [step.cdn-user-agent]
 job = "linux"
 timeout = 300
