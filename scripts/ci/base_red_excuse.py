@@ -7990,8 +7990,18 @@ def quarantined_only(view: "FailedView | Unplaced", known: dict) -> bool:
 # whose failure cannot be read is refused.
 WS_CHECK = "ws-check"
 WS_CHECK_REPOS = {"teamleaderleo/leo-workspace": "manaflow-ai/cmuxterm-hq"}  # repo: the repo its runs are in
-WS_CHECK_COMMITS = 30  # base commits read for a verdict, newest first (most main commits get none)
-WS_CHECK_TESTED_TIPS = 20  # base commits whose squash tree a run may have tested (one local merge-tree each)
+# Both windows must hold every main merge that lands while one ws-check run is out. leo-workspace main takes up to
+# WS_CHECK_PEAK_MERGES merges in one run (55 min; 2026-11-21..23, the same figure as the leo-workspace timer's
+# tools/ws_check_timer.py MAIN_PEAK_MERGES, whose MAIN_HISTORY window of 80 is why main~N tips get their verdict at
+# all). At 30 and 20, 2026-11-27: main's newest finished verdict was 43 commits back (f5310494's, 09:55Z, while
+# 30 commits landed in 46 min), so lw#12062 at 0d6d738f was refused "none of the 30 newest main commits has a ws-check
+# verdict to compare with", and its own run, which tested main 25+ commits back, "tested another base or head" (the
+# 20-commit tree window). Every leo-workspace PR with a ws-check red was refused the same way, red_not_excused.
+# The commit list is one call either way (a page of up to 100); each commit past the first readable verdict costs
+# nothing, since the walk stops there.
+WS_CHECK_PEAK_MERGES = 66
+WS_CHECK_COMMITS = 100  # base commits read for a verdict, newest first (most main commits get none)
+WS_CHECK_TESTED_TIPS = 70  # base commits whose squash tree a run may have tested (one local merge-tree each)
 # leo-workspace tools/ws-check describes a failure "N of M steps failed: STEP", cut to 139 characters. It may lead with
 # "base red (main SHA8 fails it too) " (main's own run fails those steps) and end the step with a hint ("STEP; lints
 # before the next push: ..."); ws_check_names_step reads the step text.
