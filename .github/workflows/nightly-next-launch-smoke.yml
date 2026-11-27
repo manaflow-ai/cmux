@@ -104,7 +104,7 @@ jobs:
       checked: ${{ steps.seen.outputs.cache-hit == 'true' || steps.seen-hour.outputs.cache-hit == 'true' }}
       hour: ${{ steps.hour.outputs.hour }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.TOOLING_REF }}
           persist-credentials: false
@@ -221,7 +221,7 @@ jobs:
       DMG_LENGTH: ${{ needs.pick.outputs.length }}
       DMG_ED_SIGNATURE: ${{ needs.pick.outputs.ed_signature }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.TOOLING_REF }}
           persist-credentials: false
@@ -337,7 +337,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ env.TOOLING_REF }}
           persist-credentials: false

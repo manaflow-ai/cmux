@@ -1,6 +1,7 @@
 import type { LinkRelay } from "./link-relay.ts"
 import type { HubRelay } from "./hub-relay.ts"
 import type { TeamHub } from "./team-hub.ts"
+import type { ChunkCache } from "./chunk-cache.ts"
 
 export interface Env {
   readonly ENVIRONMENT: string
@@ -14,6 +15,8 @@ export interface Env {
   readonly TEAM_HUB: DurableObjectNamespace<TeamHub>
   /** The link's WebSocket relay (src/link-relay.ts): one object per link session. */
   readonly LINK_RELAY: DurableObjectNamespace<LinkRelay>
+  /** Per-pair sealed chunk cache (PROTOCOL.md "Sealed chunk cache"). */
+  readonly CHUNK_CACHE: DurableObjectNamespace<ChunkCache>
   /** `off` refuses every relay join with 503 `relay_off` (the kill switch; PROTOCOL.md "WebSocket relay"). */
   readonly LINK_RELAY_MODE?: string
   /** `off` keeps no tail and replays nothing on a rejoin (RFD 0142 R3, src/link-relay.ts `RELAY_TAIL_MS`). */
@@ -33,6 +36,13 @@ export interface Env {
    * `relay_cache_off` and a client keeps today's path (the live link).
    */
   readonly LINK_RELAY_CACHE?: string
+  /**
+   * `on` turns on the hub's central relay region pick (RFD 0142 O2, src/region-pick.ts): each user's TeamHub learns
+   * the relayed link's round trip per network pair and region from the phone's `link_stat` and places the next
+   * relay where it ran fastest. Absent or anything else: off (the default); relays are placed by
+   * `relayPlacement` alone, as before.
+   */
+  readonly LINK_RELAY_CENTRAL_PICK?: string
   /** The three-way hub (RFD 0142 R6): "off" refuses every hub join with 503 hub_off; clients keep their per-source path. */
   readonly HUB_RELAY: DurableObjectNamespace<HubRelay>
   readonly HUB_RELAY_MODE?: string

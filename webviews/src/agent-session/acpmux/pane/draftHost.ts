@@ -1,12 +1,17 @@
 import { type ComposerAttachment } from "../attachments";
 import { type KeptAttachments } from "../composer/keptAttachments";
 import { callNative } from "../callNative";
+import { composerFilledReporter } from "../conversation/toggleDraft";
 
 /// Hands the host a new chat's typed text, kept with its tab across a relaunch (cx-z5vd).
 /// The composer's text changed: the chat tells acpmux this pane types (never the text itself).
 export const postTyping = (text: string, sessionId?: string) =>
   void window.cmuxAcpmuxActions?.["chat.typing"]?.({ text, sessionId }).catch(() => undefined);
 const postUnsentDraft = (text: string) => callNative("chat.unsentDraft", { text }).catch(() => undefined);
+/// Whether the composer holds anything, for Toggle Terminal and Chat (toggleDraft.ts): sent when it changes.
+export const postComposerFilled = composerFilledReporter(
+  (filled) => void callNative("pane.composerFilled", { filled }).catch(() => undefined),
+);
 /// The new chat's typed text, its prompts held for a trust answer, and held ones given back that no
 /// composer took (`kept`, a new chat in another folder by then): the host keeps them all, so a held
 /// prompt outlives the tab moving to another chat or folder as typed text does.
