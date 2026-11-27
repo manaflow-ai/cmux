@@ -2,133 +2,61 @@
   "sourceLanguage" : "en",
   "strings" : {
     "githubConnect.connect" : {
-      "comment" : "Agent pane: the Connect GitHub card under a turn whose GitHub call found no GitHub connection for this chat (conversation/GitHubConnectCard.tsx): the card's one button",
+      "comment" : "Agent pane: the Sign in with GitHub card under a turn whose GitHub call found no GitHub access for this chat (conversation/GitHubConnectCard.tsx): the card's one button",
       "extractionState" : "manual",
       "localizations" : {
-        "ar" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
-          }
-        },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Connect GitHub"
+            "value" : "Sign in with GitHub"
           }
         },
-        "es" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول باستخدام GitHub"
           }
         },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit GitHub anmelden"
           }
         },
-        "it" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión con GitHub"
           }
         },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter avec GitHub"
           }
         },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub でサインイン"
           }
         },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub로 로그인"
           }
         },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 GitHub 登录"
           }
         },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Connect GitHub"
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用 GitHub 登入"
           }
         }
       }

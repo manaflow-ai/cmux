@@ -50,7 +50,7 @@ use crate::cloud::wire::AGENT_SOCKET;
 use crate::github_cli_joined::{JoinedMachine, Post, ask_hub, https_post, joined_now};
 use crate::json::JsonField;
 
-const USAGE: &str = "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS... | gh --auto [--] ARGS... | setup [--unset]";
+const USAGE: &str = "usage: cmux github credential get|store|erase | gh [--write] [--] ARGS... | gh --auto [--] ARGS... | setup [--unset] | login [status|forget]";
 const HOST_KEY: &str = "credential.https://github.com.helper";
 const PATH_KEY: &str = "credential.https://github.com.useHttpPath";
 /// The agent answers within this: an ask that waited 60 s in its queue is
@@ -1189,13 +1189,37 @@ fn credential(args: &[String]) -> u8 {
     }
     let workflows = std::env::var("CMUX_GITHUB_WORKFLOWS").is_ok_and(|v| v == "1");
     let socket = Path::new(AGENT_SOCKET);
-    let (out, note) =
-        credential_get(&input, git_op(), workflows, &mut |ask| ask_retrying(socket, ask));
+    // The person's own GitHub login, when their Mac carried it here: first, when it reaches the
+    // repository (`github_own_login.rs`).
+    let own = own_login_token();
+    let gh = crate::github_own_login::probe_gh();
+    let token: &str = own.as_ref().map_or("", |token| token.as_str());
+    let mut probe = |repo: &str| crate::github_own_login::probe(&gh, token, repo);
+    let (out, note) = crate::github_own_login::credential_get_own_first(
+        &input,
+        git_op(),
+        workflows,
+        own.is_some().then_some((token, &mut probe as &mut dyn FnMut(&str) -> _)),
+        &mut |ask| ask_retrying(socket, ask),
+    );
     if let Some(note) = note {
         eprintln!("cmux github credential: {note}");
     }
     let _ = std::io::stdout().write_all(out.as_bytes());
     0
+}
+
+/// The person's own GitHub login carried to this machine (`github_own_login.rs`), when `HOME`
+/// has one that passes the file checks; a file that fails them is one stderr line.
+fn own_login_token() -> Option<zeroize::Zeroizing<String>> {
+    let home = std::env::var_os("HOME").filter(|h| !h.is_empty()).map(PathBuf::from)?;
+    match crate::github_own_login::token(&home) {
+        Ok(token) => token,
+        Err(note) => {
+            eprintln!("cmux github: your carried GitHub login is not used: {note}");
+            None
+        }
+    }
 }
 
 /// The gh `--auto` and the plain form run: `CMUX_GITHUB_GH_REAL` (the
@@ -1262,6 +1286,25 @@ fn gh_auto(args: &[String]) -> u8 {
         }
         GhRoute::Token { repo, args, asks } => {
             command.args(&args);
+            // The person's own GitHub login, carried from their Mac, when it reaches the repo.
+            if let Some(token) = own_login_token() {
+                let reach = crate::github_own_login::probe(
+                    &crate::github_own_login::probe_gh(),
+                    &token,
+                    &repo,
+                );
+                if reach != crate::github_own_login::Reach::None {
+                    command
+                        .env("GH_TOKEN", token.as_str())
+                        .env("GH_HOST", "github.com")
+                        .env_remove("GITHUB_TOKEN")
+                        .env_remove("GH_ENTERPRISE_TOKEN")
+                        .env_remove("GITHUB_ENTERPRISE_TOKEN");
+                    let err = command.exec();
+                    eprintln!("cmux github gh: gh: {err}");
+                    return 1;
+                }
+            }
             match first_token(&asks, &mut |ask| ask_retrying(Path::new(AGENT_SOCKET), ask)) {
                 Ok((minted, wider)) => {
                     if let Some(wider) = wider {
@@ -1333,6 +1376,7 @@ pub fn run(args: &[String]) -> u8 {
         "credential" => credential(rest),
         "gh" => gh(rest),
         "setup" => setup(rest),
+        "login" => crate::github_own_login::login_command(rest),
         "--help" | "-h" | "help" => {
             println!("{USAGE}");
             0
