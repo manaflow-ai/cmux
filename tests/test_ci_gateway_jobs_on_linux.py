@@ -72,11 +72,17 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
                 job = found[key]
                 self.assertEqual(job["runs-on"], LINUX)
                 steps = job["steps"]
-                checkout = next(s for s in steps if str(s.get("uses", "")).startswith("actions/checkout"))
-                self.assertIn(".github/actions/fleet-client", checkout["with"]["sparse-checkout"])
-                uses = [s.get("uses") for s in steps]
-                self.assertIn("./.github/actions/fleet-client", uses)
-                client = uses.index("./.github/actions/fleet-client")
+                checkouts = [s for s in steps if str(s.get("uses", "")).startswith("actions/checkout")]
+                uses = [str(s.get("uses", "")) for s in steps]
+                client = next(i for i, u in enumerate(uses) if u.endswith("/.github/actions/fleet-client"))
+                prefix = uses[client].removesuffix("/.github/actions/fleet-client").removeprefix(".").strip("/")
+                # The checkout that supplies the action: path matches the step's prefix ("" is the workspace).
+                source = next(s for s in checkouts if str(s["with"].get("path", "")).strip("/") == prefix)
+                self.assertIn(".github/actions/fleet-client", source["with"]["sparse-checkout"])
+                if any("inputs.sha" in str(s["with"].get("ref", "")) for s in checkouts):
+                    # A bisect probe tests a commit that may predate the action: load it from the workflow's own
+                    # commit, or every probe of an older commit fails before any suite runs.
+                    self.assertEqual(source["with"]["ref"], "${{ github.workflow_sha }}")
                 self.assertEqual(steps[client]["with"]["controller"], "${{ vars.CMUX_FLEET_CONTROLLER }}")
                 later = yaml.safe_dump(steps[client + 1:])
                 self.assertIn(marker, later, "the fleet step runs after the client is in place")
