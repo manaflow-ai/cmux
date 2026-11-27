@@ -14663,9 +14663,9 @@ CmuxNextDaemon	struct	RemoteHostConfigRequest	0	MIRROR	0	100	Packages/macOS/Cmux
 CmuxNextDaemon	struct	ComputerUseConfigRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Session/RemoteHost.swift	daemon wire request DTO
 CmuxNextDaemon	struct	ComputerUseApprovalsRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Session/RemoteHost.swift	daemon wire request DTO
 CmuxNextDaemon	struct	RemoteHostAppRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Session/RemoteHostApp.swift	daemon wire request DTO
-CmuxNextDaemon	struct	ShellRunRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Shell/ShellRunRequests.swift	daemon wire request DTO with its encoder
-CmuxNextDaemon	struct	ShellReadRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Shell/ShellRunRequests.swift	daemon wire request DTO
-CmuxNextDaemon	struct	ShellStopRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Shell/ShellRunRequests.swift	daemon wire request DTO
+CmuxNextDaemon	extension	ShellRunRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Shell/ShellRunRequests.swift	daemon wire answer the app reads (the request is generated: bindings.json Shell)
+CmuxNextDaemon	extension	ShellReadRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Shell/ShellRunRequests.swift	daemon wire answer the app reads (the request is generated: bindings.json Shell)
+CmuxNextDaemon	extension	ShellStopRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Shell/ShellRunRequests.swift	daemon wire answer the app reads (the request is generated: bindings.json Shell)
 CmuxNextDaemon	class	LinkWait	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Tabs/FrontendBrowserTabKeyedCreate.swift	One wait of a keyed create for its connection's reconnect (``NewFrontendBrowserTabRequest/send(on:)``): it ends once, at the first of the re (3 funcs, 8 branches)
 CmuxNextDaemon	struct	TerminalLastCommandRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Tabs/TerminalLastCommand.swift	daemon wire request DTO with its encoder
 CmuxNextDaemon	struct	SetTerminalTailPinRequest	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Tabs/TerminalTailPin.swift	daemon wire request DTO with its encoder

@@ -2992,6 +2992,61 @@
           }
         }
       }
+    },
+    "Shell": {
+      "$comment": "Hand-written still: each Response (the schema's result is JsonValue), ShellRunRequest.newRunID and ShellReadRequest.timeout (Shell/ShellRunResponses.swift).",
+      "requests": {
+        "shell-run": {
+          "name": "ShellRunRequest",
+          "doc": [
+            "`shell-run {command, cwd?, scope?, run?}`: starts `command` in `cwd` there under the id `run`",
+            "(chosen here, so a start whose answer is lost can still be stopped); `{run}` or `{refused}`."
+          ],
+          "order": [
+            "command",
+            "cwd",
+            "scope",
+            "run"
+          ],
+          "fields": {
+            "scope": {
+              "type": "String",
+              "optional": false,
+              "encode": "always"
+            }
+          },
+          "response": "hand-written"
+        },
+        "shell-read": {
+          "name": "ShellReadRequest",
+          "doc": [
+            "`shell-read {run, after}`: output after `after`, answered when there is some or the command",
+            "ended, else after 10 s."
+          ],
+          "order": [
+            "run",
+            "after"
+          ],
+          "fields": {
+            "after": {
+              "type": "Int",
+              "optional": false,
+              "encode": "always"
+            }
+          },
+          "response": "hand-written"
+        },
+        "shell-stop": {
+          "name": "ShellStopRequest",
+          "doc": [
+            "`shell-stop {run}`: Ctrl-C to the command's process group, then SIGTERM and SIGKILL."
+          ],
+          "order": [
+            "run"
+          ],
+          "response": "hand-written"
+        }
+      }
     }
   }
 }
