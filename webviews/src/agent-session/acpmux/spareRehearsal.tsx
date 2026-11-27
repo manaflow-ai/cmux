@@ -16,6 +16,8 @@ const SESSION = "rehearsal:spare";
 const START = Date.UTC(2026, 0, 1, 9, 0, 0);
 /// How long the drawn sample stays mounted: two frames, so its layout and effects run.
 const HOLD_FRAMES = 2;
+/// The longest it stays mounted when no frame comes (a page hidden meanwhile).
+const HOLD_BOUND_MS = 250;
 /// The longest the rehearsal waits for an idle moment before it runs anyway.
 const IDLE_TIMEOUT_MS = 2_000;
 
@@ -129,7 +131,7 @@ const OFFSCREEN: React.CSSProperties = {
 let rehearsed = false;
 const noToggle = () => {};
 
-/// Draws the sample once per page, after the page is idle and shown, then nothing.
+/// Draws the sample once per page, when the page is idle and still shown, then nothing.
 export function SpareRehearsal() {
   const [rows, setRows] = useState<ReturnType<typeof turnView> | undefined>();
   useEffect(() => {
@@ -137,11 +139,10 @@ export function SpareRehearsal() {
     let cancelled = false;
     const run = () => {
       if (cancelled || rehearsed) return;
-      // A hidden page folds no snapshot (direct.ts emit): wait until it shows.
-      if (document.visibilityState === "hidden") {
-        document.addEventListener("visibilitychange", run, { once: true });
-        return;
-      }
+      // A hidden page folds no snapshot (direct.ts emit), and the next show is the person's open: a parked
+      // Chromium spare reports hidden once it painted (PageWebView+AwayDrawing). Rehearsing then would land
+      // in the open it is meant to speed up, so a page that is hidden by now skips it.
+      if (document.visibilityState === "hidden") return;
       rehearsed = true;
       setRows(turnView(rehearsalRows(), NO_FOLD_TOGGLES, { working: false, clockOffset: 0 }));
     };
@@ -151,7 +152,6 @@ export function SpareRehearsal() {
         : (setTimeout(run, 200) as unknown as number);
     return () => {
       cancelled = true;
-      document.removeEventListener("visibilitychange", run);
       if (typeof cancelIdleCallback === "function") cancelIdleCallback(idle);
       else clearTimeout(idle);
     };
@@ -159,15 +159,23 @@ export function SpareRehearsal() {
   useEffect(() => {
     if (!rows) return;
     let frames = HOLD_FRAMES;
+    const end = () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(bound);
+      setRows(undefined);
+      // When it ended, for the restart bench's A/B (it adopts only after this).
+      document.documentElement.dataset.spareRehearsed = String(Math.round(performance.now()));
+    };
     let frame = requestAnimationFrame(function tick() {
       if (--frames > 0) frame = requestAnimationFrame(tick);
-      else {
-        setRows(undefined);
-        // When it ended, for the restart bench's A/B (it adopts only after this).
-        document.documentElement.dataset.spareRehearsed = String(Math.round(performance.now()));
-      }
+      else end();
     });
-    return () => cancelAnimationFrame(frame);
+    // A page that hides meanwhile draws no frames: the sample still goes now, not on the open's first frame.
+    const bound = setTimeout(end, HOLD_BOUND_MS);
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(bound);
+    };
   }, [rows]);
   if (!rows) return null;
   return (
