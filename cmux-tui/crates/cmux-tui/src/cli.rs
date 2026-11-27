@@ -138,6 +138,8 @@ mod intent;
 #[cfg(unix)]
 mod key_broker;
 #[cfg(unix)]
+mod mac_screen_view;
+#[cfg(unix)]
 mod notification_banners;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
