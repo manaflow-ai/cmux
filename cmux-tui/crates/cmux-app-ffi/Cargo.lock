@@ -382,6 +382,7 @@ dependencies = [
  "cmux-embed",
  "cmux-json",
  "cmux-layout-reducer",
+ "cmux-message-preview",
  "cmux-theme-tokens",
  "core-foundation",
  "core-foundation-sys",
@@ -597,6 +598,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-message-preview"
+version = "0.1.0"
+dependencies = [
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "cmux-mobile-host-core"
 version = "0.1.0"
 dependencies = [
@@ -809,6 +817,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
  "uuid",
 ]
 
