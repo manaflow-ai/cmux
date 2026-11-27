@@ -222,6 +222,7 @@ const FEATURES: &[&str] = &[
     crate::hub::fork_subagent::FEATURE,
     crate::hub::journal_restore::PAGES_FEATURE,
     crate::hub::pause::FEATURE,
+    crate::hub::presence::PEER_FEATURE,
     crate::hub::register::AUTO_FEATURE,
     crate::hub::release_to_watch::FEATURE,
     crate::hub::require_asking::FEATURE,
