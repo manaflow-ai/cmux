@@ -137,6 +137,7 @@ jobs:
             local args=(--arg clips --arg "id=$id" --arg "roles=$roles")
             [ "$before" = - ] || args+=(--arg "base=$before")
             "$client" run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref "$HEAD" \
+              --deadline "${QUEUE_S}s" \
               --queue-timeout "$QUEUE_S" --timeout "$RUN_S" ${rank[@]+"${rank[@]}"} \
               --artifact artifacts/ios-sim/whats-new-clips.zip "${args[@]}" > "$log" 2>&1
             rc=$?
