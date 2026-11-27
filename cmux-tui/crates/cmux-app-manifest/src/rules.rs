@@ -49,6 +49,16 @@ pub(crate) fn check(m: &Value) -> Vec<Issue> {
         }
     }
 
+    // A setting-backed entry's switch writes the person's cmux settings: only an app that ships
+    // with cmux may name one.
+    if m.get("setting").is_some() && !first_party {
+        out.push(Issue::error(
+            "/setting",
+            "setting.firstPartyOnly",
+            "only first-party apps may drive a cmux setting",
+        ));
+    }
+
     if let Some(implements) = m["implements"].as_object() {
         for (name, imp) in implements {
             let at = format!("/implements/{}", escape(name));

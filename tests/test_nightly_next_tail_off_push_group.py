@@ -99,10 +99,12 @@ else:
     if not re.search(r"gh api [^\n]*actions/runs/[^\n]*/attempts/", body) \
             or "nightly_published_build.py check-source" not in body:
         failures.append("published-build must check the source run through the API (check-source)")
-    download = next((s for s in source.get("steps", []) if "download-artifact" in str(s.get("uses", ""))), None)
-    with_ = (download or {}).get("with") or {}
-    if download is None or "nightly-published-build" not in str(with_.get("name", "")) \
-            or "steps.source.outputs.run" not in str(with_.get("run-id", "")):
+    # gh run download through gh_budget_wait.sh (run 45819376175 went red on a rate-limited read, 2026-11-26).
+    download = next((s for s in source.get("steps", []) if "gh run download" in str(s.get("run", ""))), None)
+    env_ = (download or {}).get("env") or {}
+    if download is None or "nightly-published-build" not in str(env_.get("NAME", "")) \
+            or "steps.source.outputs.run" not in str(env_.get("RUN", "")) \
+            or not re.search(r'gh run download "\$RUN" [^\n]*--name "\$NAME"', str(download.get("run", ""))):
         failures.append("published-build must read the record from the checked source run's artifact")
 
 for name in TAIL:
@@ -202,7 +204,7 @@ if "needs.published-build.outputs.comment == 'true'" not in str(JOBS.get("publis
 report = JOBS.get("report-nightly-failure", {})
 if "published-build" not in needs("report-nightly-failure") or "dispatch-published-in" not in needs("report-nightly-failure"):
     failures.append("report-nightly-failure must see the tail jobs and a failed dispatch")
-if "results['published-build']?.outputs?.run_tail === 'true'" not in job_text("report-nightly-failure"):
+if "results['published-build']?.outputs?.run_tail === 'true'" not in (ROOT / "scripts/ci/nightly-steps/report-nightly-failure.cjs").read_text():
     failures.append("report-nightly-failure must count skipped notes only in the run that ran the tail (run_tail)")
 if "needs.published-build.result == 'success'" not in str(JOBS.get("close-nightly-failure-issue", {}).get("if", "")):
     failures.append("close-nightly-failure-issue must close only in the run that ran the tail")
@@ -221,7 +223,7 @@ report = JOBS.get("report-nightly-failure") or {}
 report_if = str(report.get("if", ""))
 if "inputs.nightly_next_post_publish != '' && needs.published-build.result == 'failure'" not in report_if:
     failures.append("report-nightly-failure must report a failed published-build in the dispatched run")
-report_env = (report.get("steps") or [{}])[0].get("env") or {}
+report_env = next(s for s in report["steps"] if s.get("name") == "Open or update the nightly failure issue").get("env") or {}
 for key in ("CHANNEL_RELEASE_TAG", "TRACK"):
     if "'nightly-next'" not in str(report_env.get(key, "")):
         failures.append(f"report-nightly-failure's {key} must fall back to nightly-next when the dispatched run has no record")

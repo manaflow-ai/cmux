@@ -653,6 +653,7 @@
       "shutdown-daemon",
       "pairing-response",
       "url-open",
+      "offer-link-to-phone",
       "conversation-list",
       "conversation-create",
       "conversation-snapshot",
@@ -1192,6 +1193,12 @@
     },
     {
       "name": "url-open",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "phone-open-link",
       "streams": [
         "control"
       ]
