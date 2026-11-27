@@ -3483,6 +3483,36 @@ exit "$status"
 # scripts/ci/ios_runner_pool.py (the `pipeline` lane) and selects Xcode first. Each step judges its own cells: the
 # matrix report (scripts/ci/ios_reliability_matrix.py) fails a step when a `gate: true` cell of its suite failed or
 # did not run, as the workflow's report job did for both logs.
+# Fast headless coverage of signed pairing over each carrier, independently of
+# the full workspace/scroll matrix. Fake providers, production link and host.
+[step.ios-pairing-paths]
+job = "linux"
+timeout = 900
+title = "iOS signed pairing: impaired carrier paths"
+about = "real signed pairing, host approval and authenticated echo over LocalHub, UDP, TURN UDP and WebSocket relay with deterministic delay/loss"
+needs = ["rust"]
+inputs = [
+  "cmux-next-ios/rust/crates/cmux-mobile-host/src/auth.rs",
+  "cmux-next-ios/rust/crates/cmux-mobile-host/src/pairing.rs",
+  "cmux-next-ios/rust/crates/cmux-mobile-host/src/host.rs",
+  "cmux-next-ios/rust/crates/cmux-mobile-host/src/config.rs",
+  "cmux-next-ios/rust/crates/cmux-mobile-host/src/services.rs",
+  "cmux-next-ios/rust/crates/cmux-mobile-host/src/local_link.rs",
+  "cmux-next-ios/rust/crates/cmux-mobile-host/src/peer.rs",
+  "cmux-next-ios/rust/crates/cmux-mobile-host/tests/host.rs",
+  "cmux-next-ios/rust/crates/cmux-mobile-host/tests/support/**",
+  "cmux-next-ios/rust/crates/cmux-mobile-link/**",
+  "cmux-next-ios/rust/Cargo.*",
+  "cmux-tui/crates/cmux-wg/**",
+  "cmux-tui/crates/cmux-transport/**",
+  "cmux-tui/crates/cmux-braid-*/**",
+  "cmux-tui/vendor/smoltcp/**",
+]
+run = '''
+cd cmux-next-ios/rust
+cargo test --release --locked -p cmux-mobile-host --test host pairing_paths:: -- --nocapture
+'''
+
 [step.ios-matrix-protocol]
 job = "linux"
 # Every test of the cmux-next-ios/rust workspace on all cores, and a scroll gate that times itself under load.
