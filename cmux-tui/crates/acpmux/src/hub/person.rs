@@ -1177,6 +1177,17 @@ impl Hub {
                 // Claude Code (`claude-sr2`) asks in Claude's `default` and `plan` too; an agent
                 // that only names itself Claude Code does not (`Hub::trusted_mode_family`).
                 let family = self.trusted_mode_family(&s.meta());
+                // The built-in Codex bridge validates this option against the model's
+                // service tiers. A CLI speed change cannot select a permission mode.
+                if starts_modes
+                    && id == Some("fast-mode")
+                    && self.any_mode_for_web(&s.meta())
+                    && caller.is_none_or(|owner| {
+                        owner == s.id || self.subsession_is_ancestor(owner, &s.meta())
+                    })
+                {
+                    return Ok(());
+                }
                 if remote_authenticated && self.any_mode_for_web(&s.meta()) {
                     return Ok(());
                 }

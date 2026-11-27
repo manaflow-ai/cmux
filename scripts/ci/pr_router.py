@@ -32,7 +32,9 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
   land_handoff_only
              true for a workflow that starts only on a land's own heads: the `labeled` event that adds
              ready-to-land or full-ci (the land handoff), or a synchronize of a ready-to-land PR whose head
-             is GitHub's base merge (land's update-branch). Any other head, full tier or not, skips it;
+             is GitHub's base merge (land's update-branch), and the merge train's tip. The label handoff
+             itself skips it unless $CI_MC_HANDOFF_LABEL_SKIP is 0 (handoff_label_skip). Any other head,
+             full tier or not, skips it;
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
              for review, so every callee must listen to `ready_for_review` (`check` says so).
@@ -84,6 +86,20 @@ FULL_CI_ONLY_JOBS = ("web-browser",)
 def full_ci_only_jobs() -> tuple[str, ...]:
     """FULL_CI_ONLY_JOBS, or none when $CI_PR_BROWSER_FULL_CI_ONLY is 0."""
     return () if os.environ.get("CI_PR_BROWSER_FULL_CI_ONLY", "1").strip() == "0" else FULL_CI_ONLY_JOBS
+# A land_handoff_only callee (the machine channel PR head build) skips the label handoff itself and builds only
+# the merge train's tip and land's update-branch head. 13-17Z 2026-11-26: 72 of 112 PR head builds (1,769 of
+# 3,002 runner-min) came from a ready-to-land or full-ci label being added, 66 of the 102 PRs built had not merged
+# by 20Z, and a labeled head had fallen behind the base by its merge (0 of 18 merges squashed their own head's
+# tree, #58765), so find never took those builds. yap-goblin's unlabel/relabel of ready-to-land rebuilt the same
+# head up to 3 times. Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
+# The repository variable CI_MC_HANDOFF_LABEL_SKIP=0 turns this off (passed in by pr-router.yml).
+
+
+def handoff_label_skip() -> bool:
+    """Whether a land_handoff_only callee skips the label handoff ($CI_MC_HANDOFF_LABEL_SKIP, on unless 0)."""
+    return os.environ.get("CI_MC_HANDOFF_LABEL_SKIP", "1").strip() != "0"
+
+
 MANIFEST = HERE / "pr_router.json"
 ENTRY = ROOT / ".github" / "workflows" / "pr-router.yml"
 FULL_CI = "full-ci"
@@ -209,6 +225,10 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if config.get("land_handoff_only") and not handoff and not land_update:
             why[name] = (f"land handoff only: starts when {head_tier.LAND_LABEL} or {FULL_CI} is added, or on land's "
                          f"update-branch head")
+            continue
+        if config.get("land_handoff_only") and handoff and not land_update and handoff_label_skip():
+            why[name] = (f"label handoff: the merge train's tip ({TRAIN_TIP}) and land's update-branch head build the "
+                         f"tree a merge takes; $CI_MC_HANDOFF_LABEL_SKIP=0 builds here too")
             continue
         if added and added in config.get("labels", []):
             start.append(name)
@@ -410,12 +430,37 @@ def check(callees: dict, entry_text: str, workflows: Path) -> list[str]:
 def land_status(event: dict, decided: tuple[str, str]) -> str:
     """The `cmux/land-tier` commit status for EVENT's head (pr-router.yml posts it): `pending` while the land rule holds
     it on the cheap tier (or idle), `success` once it runs the full tier, lands on the affected tier (the hourly
-    full tier rule), or the land carry rule carries its previous head's success (head_tier.carried), empty where the
-    land rule does not apply."""
+    full tier rule), or the land carry rule or the full-ci base merge carry rule carries its previous head's run
+    (head_tier.carried, head_tier.full_carried), empty where the land rule does not apply."""
     if (os.environ.get("CI_LAND_TIER", "1").strip() in ("0", "")) or not head_tier.land_rule_applies(event):
         return ""
     return ("success" if decided[0] == "full" or head_tier.carried(decided) or head_tier.land_affected(decided)
-            else "pending")
+            or head_tier.full_carried(decided) else "pending")
+
+
+def ios_status(event: dict, files: list[str] | None, start: list[str], land: str) -> tuple[str, str]:
+    """The `cmux/ios-fast` commit status for EVENT's head (pr-router.yml posts it; the ios fast verdict's own result
+    replaces a `pending` one, pr-router.yml's ios-fast-status job): ("", "") where the land rule does not apply.
+    `success` at once for a head that touches nothing iOS builds (scripts/ci/ios_fast_verdict.py affects, the ios-kit
+    step's inputs, the Rust crates the FFI compiles among them), so a ruleset can require it; `pending` for an
+    iOS-affecting head until its verdict runs (pr-pipeline.yml's ios-fast); a head the router starts no pipeline on
+    carries `success` only where cmux/land-tier does (LAND, land_status), else waits for the land handoff."""
+    if not head_tier.land_rule_applies(event):
+        return "", ""
+    if os.environ.get("CI_IOS_FAST_VERDICT", "").strip() == "0":
+        return "success", "iOS fast verdict is off (vars.CI_IOS_FAST_VERDICT=0): the ios job's kit tests still run"
+    try:
+        import ios_fast_verdict
+        touched = files is None or ios_fast_verdict.affects(files)
+    except Exception:  # noqa: BLE001 - unreadable routes more, never less
+        touched = True
+    if not touched:
+        return "success", "Touches nothing iOS builds (cmux-next-ios, the packages it links, the FFI's Rust crates)"
+    if "pr-pipeline.yml" in start:
+        return "pending", "iOS fast verdict runs on this head: the changed iOS targets, the app and its UI tests compile"
+    if land == "success":
+        return "success", "Carried: no pipeline runs on this head (land tier carried from its previous head)"
+    return "pending", "iOS-affecting: the fast verdict runs when ready-to-land or full-ci is added"
 
 
 def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tuple[set[str], set[str]]:
@@ -433,11 +478,13 @@ def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tup
 
 
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
-                  table: list[str] | None = None, status: str = "") -> None:
+                  table: list[str] | None = None, status: str = "", ios: tuple[str, str] = ("", "")) -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
         out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
         out.write(f"land_status={status}\n")
+        out.write(f"ios_status={ios[0]}\n")
+        out.write(f"ios_status_description={ios[1]}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = ["### pr router", "",
              f"changed files: {len(files) if files is not None else 'unknown'}", "",
@@ -469,7 +516,11 @@ def main(argv: list[str]) -> int:
             why["pr-pipeline.yml"] = why.get("pr-pipeline.yml", "") + (
                 f" (table jobs that ran green at the previous head stay off: {', '.join(sorted(rows))})")
         status = land_status(event, decided)
-        write_outputs(start, why, files, table, "pending" if status and (carried or rows) else status)
+        # A rerun of the red-head base merge rule leaves the land tier to come (pending); the full-ci base merge carry
+        # rule's rerun is the land tier itself, on the label land pulsed, so it keeps success (else land pulses again).
+        held = (carried or rows) and not head_tier.full_rerun(decided)
+        status = "pending" if status and held else status
+        write_outputs(start, why, files, table, status, ios_status(event, files, start, status))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)

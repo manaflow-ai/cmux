@@ -32,8 +32,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A workflow sweep that reaches this only through workflow files skips its heavy jobs (self-edit-sweep.yml,
+  # scripts/ci/self_edit_sweep.py); a pull request under 10 changed files or with full-ci never starts the gate.
+  self-edit:
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.changed_files >= 10 && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+    uses: ./.github/workflows/self-edit-sweep.yml
+    with:
+      workflow: .github/workflows/tailnet-stable-node-move.yml
+    permissions:
+      contents: read
+
   move:
-    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    needs: self-edit
+    if: ${{ !cancelled() && needs.self-edit.outputs.run != 'false' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }}  # frozen-label: LINUX_RUNNER (#54437)
     environment:
       name: cmux-next-vm-image-dev
@@ -42,7 +53,7 @@ jobs:
     # and 68 min on a freestyle runner in run 45830130860, whose move then hit a 100-min cap mid-step.
     timeout-minutes: 150
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false

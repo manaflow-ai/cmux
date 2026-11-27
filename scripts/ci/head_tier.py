@@ -98,6 +98,19 @@ jobs that had passed at the previous head. Anything unread (the runs or jobs ans
 everything: the rule fails open. `full-ci` runs everything; the land tier runs at the land as above.
 CI_RED_BASE_MERGE_RERUN=0 turns this off.
 
+Full-ci base merge carry rule (goal ci-runner-min-per-day-500k): a `full-ci` pulse or an added `ready-to-land` (the
+`labeled` event) into feat-cmux-next, on a head that only merges the base onto a previous head whose land tier ran
+(`cmux/land-tier` success) carries that run's results. Every run there green: this workflow runs nothing (tier `none`,
+and pr-router.yml posts `cmux/land-tier` success). Some run red: a workflow whose newest run there ended `success`
+runs nothing, and the rest run as usual, the router starting only its callees and pr pipeline table jobs that were not
+green there (pr_router.rerun_plan) with `cmux/land-tier` success. The full set runs anyway when (1) the base merge
+touched a file of the PR's own change, (2) the merge had conflicts or edits beyond the merge itself, or (3) the
+previous head has no land tier run: the PR's own change (the compare API, from its base, at each head) must be the same
+files with the same blobs and the same added and removed lines before and after the merge. On 11-26 15Z..21Z, full-ci
+heads that only merged the base were about 46k runner-min/day in cmux-tui-spec, cmux-next-guards and rust-workspaces
+alone. Anything unread runs everything. Leo, 2026-11-26: "de facto, im asking for 99% fewer minutes of ci time,
+period." CI_FULL_CI_BASE_MERGE_CARRY=0 turns this off.
+
 Ask rule (goal ask-to-nightly-under-2h): a ready pull request whose body names one of Leo's asks (`ask-` and ten hex
 digits, the id leo-asks gives it) is handed off to land from its first head, as if `ready-to-land` were on it: it runs
 the landing tier and `cmux/land-tier` is `success` at once. Agents waited for green before asking to land, so an ask's
@@ -112,7 +125,8 @@ repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gi
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
 off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule and the same-patch rule off; CI_LAND_CARRY=0 turns the land carry rule
 off (a landing base merge runs the full tier again); CI_LABELLED_BASE_MERGE_SKIP=0 turns the labelled base merge rule
-off; CI_RED_BASE_MERGE_RERUN=0 turns the red-head base merge rule off; CI_LAND_FULL_PER_PR=1 turns the hourly full tier rule off (a
+off; CI_RED_BASE_MERGE_RERUN=0 turns the red-head base merge rule off; CI_FULL_CI_BASE_MERGE_CARRY=0 turns the full-ci base
+merge carry rule off; CI_LAND_FULL_PER_PR=1 turns the hourly full tier rule off (a
 landing head runs the full tier again). Stdlib only; anything unreadable gives
 `full`.
 """
@@ -140,6 +154,11 @@ ASK_ACTIONS = frozenset({"opened", "reopened", "ready_for_review"})
 LAND_STATUS = "cmux/land-tier"  # the commit status the land rule's heads carry (pr-router.yml posts it)
 # The start of the land carry rule's reason: pr_router.land_status posts success for a head whose reason starts so.
 CARRY_REASON = "land tier carried"
+# The full-ci base merge carry rule's reasons: FULL_CARRY_REASON for a workflow that runs nothing (pr_router.land_status
+# posts success), FULL_RERUN_REASON for a router that reruns only what was not green (pr_router.main keeps success).
+FULL_CARRY_REASON = "full run carried"
+FULL_RERUN_REASON = "full run rerun red only"
+FULL_CARRY_LABELS = frozenset({"full-ci", "ready-to-land"})
 IDLE_HOURS = 24
 LAND_AFFECTED_REASON = "landing on the affected tier"  # the hourly full tier rule's reason prefix
 # Conclusions of a previous head's runs that count as green for the green-head base merge rule.
@@ -235,7 +254,7 @@ def runs_at(repo: str, sha: str, token: str) -> list | None:
     return data["workflow_runs"]
 
 
-def own_patch_key(repo: str, base: str, sha: str, token: str) -> str | None:
+def own_patch_key(repo: str, base: str, sha: str, token: str, blobs: bool = False) -> str | None:
     """A key for the change commit SHA makes over its merge base with BASE: each changed file's name, status and
     added and removed lines, without the hunk line numbers a newer base shifts (what `git patch-id` ignores too).
     None when the compare cannot be read whole."""
@@ -253,12 +272,13 @@ def own_patch_key(repo: str, base: str, sha: str, token: str) -> str | None:
         data = json.loads(body) if status == 200 else None
     except Exception:  # fail open: an unread diff keeps the usual tier
         return None
-    return patch_key(data)
+    return patch_key(data, blobs)
 
 
-def patch_key(compare: dict | None) -> str | None:
+def patch_key(compare: dict | None, blobs: bool = False) -> str | None:
     """own_patch_key's key for one compare answer, or None when it is not whole: no files, 300 or more (the
-    API's cap), or a changed file with no patch (binary or too large)."""
+    API's cap), or a changed file with no patch (binary or too large). BLOBS: each file's blob too (the full-ci base
+    merge carry rule: a base change merged into the same file keeps the patch lines but not the blob)."""
     files = compare.get("files") if isinstance(compare, dict) else None
     if not isinstance(files, list) or not files or len(files) >= 300:
         return None
@@ -268,7 +288,8 @@ def patch_key(compare: dict | None) -> str | None:
             return None
         lines = [line for line in item["patch"].splitlines() if line[:1] in ("+", "-")]
         parts.append("\0".join([str(item.get("filename") or ""), str(item.get("previous_filename") or ""),
-                                 str(item.get("status") or ""), *lines]))
+                                 str(item.get("status") or ""), *([str(item.get("sha") or "")] if blobs else []),
+                                 *lines]))
     import hashlib
     return hashlib.sha256("\1".join(sorted(parts)).encode()).hexdigest()
 
@@ -354,6 +375,44 @@ def rerun_rule_applies(event: dict, rerun_switch: str = "1", land_switch: str = 
             and event.get("action") == "synchronize" and land_rule_applies(event) and FULL_CI not in labels)
 
 
+def full_carry_rule_applies(event: dict, switch: str = "1") -> bool:
+    """Whether the full-ci base merge carry rule can apply to EVENT (before reading any fact): `full-ci` or
+    `ready-to-land` added (a `labeled` event) to a ready head into feat-cmux-next (land_rule_applies), switch on."""
+    added = str((event.get("label") or {}).get("name") or "")
+    return ((switch or "1").strip() != "0" and event.get("action") == "labeled" and added in FULL_CARRY_LABELS
+            and land_rule_applies(event))
+
+
+def full_carried(decided: tuple[str, str]) -> bool:
+    """Whether DECIDED is the full-ci base merge carry rule's `none` (its head carries `cmux/land-tier` success)."""
+    return decided[0] == "none" and str(decided[1]).startswith(FULL_CARRY_REASON)
+
+
+def full_rerun(decided: tuple[str, str]) -> bool:
+    """Whether DECIDED is that rule's `full` that reruns only what was not green (the router keeps the land success)."""
+    return decided[0] == "full" and str(decided[1]).startswith(FULL_RERUN_REASON)
+
+
+def full_carry(facts: dict | None) -> tuple[str, str] | None:
+    """The full-ci base merge carry rule's answer for FACTS (head_facts plus full_carry_facts), or None when the full
+    set runs: not a base merge, no land tier run at the previous head, the PR's own change moved, anything unread."""
+    if not (facts and facts.get("base_merge_only") and facts.get("full_landed") is True
+            and facts.get("own_change_kept") is True and isinstance(facts.get("previous_runs"), list)):
+        return None
+    previous = str(facts.get("previous") or "")[:10]
+    if facts.get("previous_green") is True:
+        return "none", (f"{FULL_CARRY_REASON}: this head only merges the base onto {previous}, whose land tier ran "
+                        f"all green, and the merge touched none of the PR's own files: nothing runs again; "
+                        f"{LAND_STATUS} carries success")
+    if facts.get("previous_green") is False and facts.get("workflow_passed") is True:
+        return "none", (f"{FULL_CARRY_REASON}: this head only merges the base onto {previous}, where "
+                        f"{facts.get('workflow')} passed in the land tier run: only what was not green there runs")
+    if facts.get("previous_green") is False:
+        return "full", (f"{FULL_RERUN_REASON}: this head only merges the base onto {previous}, whose land tier run had "
+                        f"reds: what was not green there runs again")
+    return None
+
+
 def workflow_file(ref: str | None) -> str:
     """The workflow file a run is of, from $GITHUB_WORKFLOW_REF (`owner/repo/.github/workflows/F@ref`), or ""."""
     m = re.search(r"\.github/workflows/([^/@]+)@", str(ref or ""))
@@ -397,13 +456,16 @@ def land_affected(decided: tuple[str, str]) -> bool:
 def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = None, now: float | None = None,
          idle_switch: str = "1", land_switch: str = "0", sync_switch: str = "1",
          green_switch: str = "1", carry_switch: str = "1", land_full_switch: str = "1",
-         labelled_switch: str = "1", rerun_switch: str = "1") -> tuple[str, str]:
+         labelled_switch: str = "1", rerun_switch: str = "1", full_carry_switch: str = "1") -> tuple[str, str]:
     """(tier, reason) for one event. Anything not a draft, idle, green-head or agent-made base merge or (with
     LAND_SWITCH on) not-yet-landing pull request head is `full`."""
     if event_name not in ("pull_request", "pull_request_target"):
         return "full", f"event {event_name or 'unknown'} is not a pull request"
     pr = event.get("pull_request") or {}
     labels = labels_of(event)
+    carried_run = full_carry(facts) if full_carry_rule_applies(event, full_carry_switch) else None
+    if carried_run:
+        return carried_run
     if FULL_CI in labels:
         return "full", "full-ci label"
     land_on = (land_switch or "0").strip() not in ("0", "") and land_rule_applies(event)
@@ -460,13 +522,14 @@ def _git(*args: str) -> str:
     return subprocess.run(["git", *args], check=True, capture_output=True, text=True, timeout=60).stdout
 
 
-def head_facts(event: dict, depth: int = 30) -> dict | None:
-    """{"base_merge_only", "own_last"} for a synchronize event's head, read with git from the current checkout
-    (fetching commits only, no trees, when they are missing). None when anything is unreadable."""
+def head_facts(event: dict, depth: int = 30, actions: tuple[str, ...] = ("synchronize",)) -> dict | None:
+    """{"base_merge_only", "own_last", "by_github", "previous", "base_parent"} for the head of an event whose action
+    is in ACTIONS, read with git from the current checkout (fetching commits only, no trees, when they are missing).
+    None when anything is unreadable."""
     pr = event.get("pull_request") or {}
     sha = str((pr.get("head") or {}).get("sha") or "")
     base = str((pr.get("base") or {}).get("ref") or "")
-    if event.get("action") != "synchronize" or not re.fullmatch(r"[0-9a-f]{40}", sha) or not base:
+    if event.get("action") not in actions or not re.fullmatch(r"[0-9a-f]{40}", sha) or not base:
         return None
     merge = base_merge_message(base)
     try:
@@ -500,16 +563,44 @@ def head_facts(event: dict, depth: int = 30) -> dict | None:
         if len(parents) != 2 or not merge.match(message):
             return {"base_merge_only": False, "own_last": None, "by_github": by_github}
         previous = rev = parents[0]
+        base_parent = parents[1]
         for _ in range(depth):  # first parents: past earlier base merges to the branch's own last commit
             if not have(rev):
                 fetch(rev, depth)
             parents, when, message = commit(rev)
             if not (len(parents) == 2 and merge.match(message)):
-                return {"base_merge_only": True, "own_last": when, "by_github": by_github, "previous": previous}
+                return {"base_merge_only": True, "own_last": when, "by_github": by_github, "previous": previous,
+                        "base_parent": base_parent}
             rev = parents[0]
     except (subprocess.SubprocessError, OSError, StopIteration, ValueError, IndexError):
         return None
-    return {"base_merge_only": True, "own_last": None, "by_github": by_github, "previous": previous}
+    return {"base_merge_only": True, "own_last": None, "by_github": by_github, "previous": previous,
+            "base_parent": base_parent}
+
+
+def full_carry_facts(event: dict, facts: dict) -> dict:
+    """The full-ci base merge carry rule's facts for a base merge head (FACTS, head_facts): full_landed (the previous
+    head carries `cmux/land-tier` success), own_change_kept (the PR's own change from the merged base at the head is
+    the change from its old base at the previous head: same files, blobs and lines, so the merge touched none of
+    them and edited nothing else), and previous_runs, previous_green, workflow, workflow_passed. A fact it cannot read
+    is missing or None, and full_carry runs the full set."""
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    sha = str(((event.get("pull_request") or {}).get("head") or {}).get("sha") or "")
+    previous = str(facts.get("previous") or "")
+    base_parent = str(facts.get("base_parent") or "")
+    landed = land_status_at(repo, previous, token)
+    out: dict = {"full_landed": None if landed is None else landed == "success"}
+    if landed != "success":
+        return out
+    runs = runs_at(repo, previous, token)
+    if runs is None:
+        return out
+    key = own_patch_key(repo, base_parent, sha, token, blobs=True)
+    kept = None if key is None else own_patch_key(repo, base_parent, previous, token, blobs=True) == key
+    workflow = workflow_file(os.environ.get("GITHUB_WORKFLOW_REF"))
+    return {**out, "own_change_kept": kept, "previous_runs": runs, "previous_green": green_previous(runs),
+            "workflow": workflow, "workflow_passed": passed_there(runs, workflow)}
 
 
 def same_patch_facts(event: dict) -> dict:
@@ -546,8 +637,18 @@ def decide_with_facts(event_name: str, event: dict) -> tuple[tuple[str, str], di
     carry_switch = os.environ.get("CI_LAND_CARRY", "1")
     labelled_switch = os.environ.get("CI_LABELLED_BASE_MERGE_SKIP", "1")
     rerun_switch = os.environ.get("CI_RED_BASE_MERGE_RERUN", "1")
+    full_carry_switch = os.environ.get("CI_FULL_CI_BASE_MERGE_CARRY", "1")
     labels = labels_of(event)
     pull = event_name in ("pull_request", "pull_request_target")
+    if pull and full_carry_rule_applies(event, full_carry_switch):
+        facts = head_facts(event, actions=("labeled",))
+        if facts and facts.get("base_merge_only"):
+            facts = {**facts, **full_carry_facts(event, facts)}
+            decided = tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch,
+                           green_switch, carry_switch, land_full_switch, labelled_switch, rerun_switch,
+                           full_carry_switch)
+            if full_carry(facts):
+                return decided, facts
     green_wanted = pull and green_rule_applies(event, green_switch, land_switch, labelled_switch)
     carry_wanted = pull and carry_rule_applies(event, carry_switch, land_switch)
     rerun_wanted = pull and rerun_rule_applies(event, rerun_switch, land_switch)
@@ -574,7 +675,7 @@ def decide_with_facts(event_name: str, event: dict) -> tuple[tuple[str, str], di
         runs = runs_at(repo, previous, token) if landed else None
         facts = {**facts, "previous_landed": landed and runs is not None and green_previous(runs)}
     return tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch, green_switch,
-                carry_switch, land_full_switch, labelled_switch, rerun_switch), facts
+                carry_switch, land_full_switch, labelled_switch, rerun_switch, "0"), facts
 
 
 def _load(path: str) -> dict:
