@@ -152,9 +152,12 @@ PLATFORM_MSGS = frozenset({
     "cloud.image.follow.read_failed",
     "cloud.image.follow.seeded",
     "cloud.machine.bind",
+    # A guest still unbound two minutes into its create, read and maybe restarted (cmux-platform CloudCore
+    # nudgeLateBinds): kept with its bind_probe projection and `kicked`.
     "cloud.machine.bind_late",
     # The edge name check after a bind or claim (cmux-platform CloudCore.ts checkEdgeDns): resolved, flushed, kicked,
-    # unresolved, no_answer, failed or no_route, its exit and why (bind or claim); dns_upstream is dropped.
+    # unresolved, no_answer, failed or no_route, its exit and why (bind or claim); dns_upstream is dropped, and an
+    # unresolved line's guest DNS facts keep only counts and flags (edge_dns_guest).
     "cloud.machine.edge_dns",
     "cloud.machine.exec_wake",
     "cloud.machine.ledger_wake",
@@ -509,6 +512,11 @@ BIND_PROBE_OUTCOMES = frozenset({"ran", "failed", "bound", "no_route"})
 UPTIME_BANDS = ((60, "lt60s"), (300, "60s-300s"), (900, "300s-900s"))
 CURL_ERROR = re.compile(r"curl: \((\d{1,3})\)")
 HTTP_CODE = re.compile(r"(?:^|\s)http=(\d{3})(?:\s|$)")
+# The bind agent's own state (cmux-platform#2182 NeverBoundProbe.ts guestAgentLines): fixed tokens only.
+AGENT_BIND = re.compile(r"^(no_line|none|noise_key_wait|noise_key_gave_up|restart_gate|daemon_info_failed|"
+                        r"retry_http_\d{3}|retry_other|refused_[a-z._]{1,40}|invalid|bound|other)$")
+HOST_SERVICE = frozenset({"active", "activating", "inactive", "failed", "deactivating", "reloading", "unknown"})
+BIND_LATE_KICKED = frozenset({"yes", "no", "failed"})
 
 
 def probe_facts(out):
@@ -544,6 +552,20 @@ def probe_facts(out):
                 https.append("no_answer")
         elif ln == "curl=absent":
             https = ["curl_absent", "curl_absent"]
+        elif ln in ("bound_file=present", "bound_file=missing"):
+            facts["bound_file"] = ln.split("=", 1)[1]
+        elif ln.startswith("host_service="):
+            v = ln.split("=", 1)[1]
+            facts["host_service"] = v if v in HOST_SERVICE else ("none" if not v else "other")
+        elif ln.startswith("noise_identity=") and ln.split("=", 1)[1].isdigit():
+            facts["noise_identity"] = min(999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_bind_lines=") and ln.split("=", 1)[1].isdigit():
+            facts["agent_bind_lines"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_bind="):
+            v = ln.split("=", 1)[1]
+            facts["agent_bind"] = v if AGENT_BIND.match(v) else "other"
+        elif ln == "journal=absent":
+            facts["journal"] = "absent"
     for name, got in (("dns", dns), ("https", https)):
         for target, v in zip(("api", "edge"), got):
             facts[f"{name}_{target}"] = v
@@ -618,6 +640,74 @@ CHIEF_UPDATE_TIMERS = frozenset({"systemd:cmux-chief-update.timer", "cmux-chief-
 DAEMON_VERSION = re.compile(r"^[0-9][0-9A-Za-z.+_-]{0,47}$")
 # How long the machine had run since its last power when the line was written: a coarse band, never the number.
 RUNNING_BANDS = ((3600, "lt1h"), (6 * 3600, "1h-6h"), (24 * 3600, "6h-24h"))
+
+
+# cloud.machine.edge_dns's `guest` (cmux-platform#2293 NeverBoundProbe.ts edgeDnsGuestFacts): the guest's own DNS facts
+# when coderouter.cmux.internal stays unresolved after every kick, each one raw text with its lines joined by `|`:
+# hosts (the /etc/hosts lines naming the edge), confd (the resolved.conf.d drop-ins, `path:` before each), status
+# (`resolvectl status`) and journal (systemd-resolved's tail). The journal and status can name hosts a tenant's
+# machine looked up, so no text leaves: only counts, flags, the drop-ins' own file names and the kind of address the
+# hosts line points at.
+EDGE_DNS_JOURNAL = (
+    ("timed_out", re.compile(r"timed out|timeout", re.I)),
+    ("degraded", re.compile(r"degraded feature set", re.I)),
+    ("servfail", re.compile(r"SERVFAIL")),
+    ("refused", re.compile(r"REFUSED|connection refused", re.I)),
+    ("no_servers", re.compile(r"no (appropriate )?(name|dns) servers?", re.I)),
+    ("started", re.compile(r"Started .*Name Resolution|Starting .*Name Resolution", re.I)),
+    ("stopped", re.compile(r"Stopped .*Name Resolution|Stopping .*Name Resolution", re.I)),
+)
+EDGE_DNS_CONFD_FILE = re.compile(r"(?:^|\|)(/(?:etc|run)/systemd/resolved\.conf\.d/([0-9A-Za-z._-]{1,64}\.conf)):")
+EDGE_DNS_IPV4 = re.compile(r"\b(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\b")
+
+
+def edge_dns_addr_kind(text):
+    """The kind of the first IPv4 address in `text`: loopback, private, link_local, cgnat, public, or none."""
+    m = EDGE_DNS_IPV4.search(text)
+    if not m:
+        return "none"
+    a, b = int(m.group(1)), int(m.group(2))
+    if a == 127:
+        return "loopback"
+    if a == 10 or (a == 172 and 16 <= b <= 31) or (a == 192 and b == 168):
+        return "private"
+    if a == 169 and b == 254:
+        return "link_local"
+    if a == 100 and 64 <= b <= 127:
+        return "cgnat"
+    return "public"
+
+
+def edge_dns_guest(g):
+    """cloud.machine.edge_dns `guest`'s typed projection: counts and flags, never the guest's text."""
+    out = {}
+    hosts = g.get("hosts")
+    if isinstance(hosts, str):
+        lines = [x for x in hosts.split("|") if x.strip()]
+        out["hosts_lines"] = len(lines)
+        out["hosts_addr"] = edge_dns_addr_kind(lines[0]) if lines else "none"
+    confd = g.get("confd")
+    if isinstance(confd, str):
+        out["confd_files"] = sorted({m.group(2) for m in EDGE_DNS_CONFD_FILE.finditer(confd)})[:8]
+        out["confd_internal"] = "cmux.internal" in confd
+        out["confd_dns_lines"] = sum(1 for x in confd.split("|") if x.strip().startswith("DNS="))
+    status = g.get("status")
+    if isinstance(status, str):
+        lines = status.split("|")
+        out["status_links"] = sum(1 for x in lines if re.match(r"\s*Link \d+ \(", x))
+        out["status_internal_scope"] = "~cmux.internal" in status
+        out["status_current_server"] = any("Current DNS Server:" in x for x in lines)
+        out["status_servers"] = len(EDGE_DNS_IPV4.findall(" ".join(x for x in lines if "DNS Servers:" in x)))
+    journal = g.get("journal")
+    if isinstance(journal, str):
+        lines = [x for x in journal.split("|") if x.strip()]
+        counts = {"lines": len(lines)}
+        for name, rx in EDGE_DNS_JOURNAL:
+            n = sum(1 for x in lines if rx.search(x))
+            if n:
+                counts[name] = n
+        out["journal"] = counts
+    return out
 
 
 def idle_kept(j):
@@ -750,12 +840,14 @@ def public_log(j):
         steps = trace_steps(j.get("steps"))
         if steps is not None:
             out["steps"] = steps
+    if msg == "cloud.machine.bind_late" and j.get("kicked") in BIND_LATE_KICKED:
+        out["kicked"] = j["kicked"]
     if msg in SPARE_COUNT_MSGS:
         for k in ("skipped", "ms"):
             counts = token_counts(j.get(k))
             if counts is not None:
                 out[k] = counts
-    if msg == "cloud.machine.start_overdue" and "bind_probe" in j:
+    if msg in ("cloud.machine.start_overdue", "cloud.machine.bind_late") and "bind_probe" in j:
         probe = bind_probe(j["bind_probe"])
         if probe is not None:
             out["bind_probe"] = probe
@@ -764,6 +856,10 @@ def public_log(j):
             out["exit"] = j["exit"]
         if j.get("why") in ("bind", "claim"):
             out["why"] = j["why"]
+        if out.get("outcome") == "unresolved" and isinstance(j.get("guest"), dict):
+            facts = edge_dns_guest(j["guest"])
+            if facts:
+                out["guest"] = facts
     if "error" in j:
         out["error"] = True
         if msg == "cloud provider call failed":
