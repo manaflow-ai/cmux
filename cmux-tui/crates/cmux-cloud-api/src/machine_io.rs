@@ -308,7 +308,10 @@ impl Default for Resume {
 /// Whether `answer` is the refusal of a machine that is paused or stopped: the operation never ran.
 fn machine_asleep(answer: &Answer) -> bool {
     // The code is the route's header, or (the platform's own refusals) in the body's error.
-    let code = answer.code.as_deref().or_else(|| answer.body["error"]["code"].as_str());
+    let code = answer
+        .code
+        .as_deref()
+        .or_else(|| answer.body.get("error").and_then(|e| e.get("code")).and_then(|c| c.as_str()));
     answer.status == 409
         && matches!(
             code,
