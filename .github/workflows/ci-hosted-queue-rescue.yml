@@ -49,7 +49,7 @@ jobs:
       github.repository == 'manaflow-ai/cmux' &&
       contains(fromJSON('["failure","cancelled"]'), github.event.workflow_run.conclusion) &&
       contains(fromJSON('["pull_request","pull_request_target","issue_comment","merge_group"]'), github.event.workflow_run.event)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 5
     steps:
       - name: Mint the cmux-bot token
@@ -93,6 +93,7 @@ jobs:
           route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
           bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-actions: read

@@ -793,6 +793,14 @@ jobs:
           path: cmux-tui/target/debug/cmux-tui
           key: ${{ steps.headless-key.outputs.key }}
 
+      # Zig's own package download has no retry: one GitHub archive 504 failed a whole
+      # cmux-tui build (cmux-tui-sdks run 45887126017). Cached, deadlined, retried.
+      - name: Fetch the Ghostty Zig packages (cached, deadlined, retried)
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/ghostty-zig-packages
+        with:
+          source: ghostty
+
       - name: Build exact headless cmux-tui
         if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
         working-directory: cmux-tui

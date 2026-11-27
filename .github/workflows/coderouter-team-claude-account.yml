@@ -32,7 +32,7 @@ concurrency:
 jobs:
   add:
     if: github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 10
     # The environment whose test account makes the machines: cloud-claude-matrix's (prod), cloud-chief-turn-proof's (staging).
     environment: ${{ inputs.backend == 'staging' && 'cmux-next-vm-image-dev' || 'cmux-next-cloud-journey' }}

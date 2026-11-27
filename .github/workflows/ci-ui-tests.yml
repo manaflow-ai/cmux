@@ -49,7 +49,7 @@ jobs:
     # repaired. Re-enable with CI_UI_TESTS_ENABLED=1; await-request also keeps
     # non-UI diffs out of the downstream test runner.
     if: ${{ github.repository_owner == 'manaflow-ai' && vars.CI_UI_TESTS_ENABLED == '1' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds actions write and mostly waits; keeps CI's Linux pool free
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: holds actions write and mostly waits; keeps CI's Linux pool free
     # A request can follow a long compile admission; the dispatch then waits up
     # to 50 minutes for the compile it adopts, then runs the tests.
     timeout-minutes: 360
@@ -83,6 +83,7 @@ jobs:
           route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
           bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           permission-actions: read
           permission-pull-requests: read
           skip-token-revoke: true

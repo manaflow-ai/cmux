@@ -70,7 +70,7 @@ jobs:
   sdk:
     name: Resolve the commit and fetch the SDK
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     # 10 minutes of work plus up to an hour waiting out the API budget.
     timeout-minutes: 70
     permissions:
@@ -429,7 +429,7 @@ jobs:
     # Holds no concurrency group, since an environment wait never times out: a
     # wait nobody answers must never queue another dispatch.
     environment: cef-publish
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -496,7 +496,7 @@ jobs:
     concurrency:
       group: cmux-next-cua-helper-dev-sign-pin-pr-${{ inputs.helper || 'computer-use' }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     # 10 minutes of work plus up to an hour waiting out the API budget.
     timeout-minutes: 70
     permissions:

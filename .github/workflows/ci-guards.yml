@@ -190,6 +190,11 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_runs_on_values.py
 
+      # GitHub rejects a workflow whose mapping repeats a key: zero jobs, no log.
+      - name: Validate no workflow repeats a key in one mapping
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_duplicate_keys.py
+
       - name: Validate every compile job declares its warm source
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_warm_sources.py
@@ -774,6 +779,11 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_cron_concurrency.py
 
+      # namespace-autofix lists a PR's files again once after a refused budget's reset, bounded, never skipping.
+      - name: Check namespace autofix waits out a refused file listing once
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_namespace_autofix_rate_limit_wait.py
+
       # Warn-level: a dispatched or PR workflow with macOS or long jobs needs a
       # concurrency group not keyed by SHA or run id (cmuxterm-hq#2568 flood).
       - name: Warn about workflows that can flood the queue
@@ -846,6 +856,10 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: python3 tests/test_check_ghostty_zig_workflows.py
 
+      - name: Validate Ghostty builds fetch their Zig packages first (cached, retried)
+        if: ${{ matrix.group == 'release-tooling' }}
+        run: python3 tests/test_ci_ghostty_zig_packages_fetched.py
+
       - name: Validate Release helper architecture handoff
         if: ${{ matrix.group == 'release-tooling' }}
         run: python3 tests/test_ci_release_helper_archs.py
@@ -905,6 +919,10 @@ jobs:
       - name: Validate scheduled workflows dispatch on the cmux bot App token
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_cron_dispatch_token_lint.py
+
+      - name: Validate the Debug and Labs keys dispatch skips a ref without the report
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_debug_labs_keys_dispatch.py
 
       - name: Validate the nightly-next tick waits through GitHub API rate limits
         if: ${{ matrix.group == 'ci' }}
@@ -1685,9 +1703,17 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_github_release_publication.py
 
+      - name: Validate the nightly publish guard reads the release through gh with retries
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_publication_guard_release_read.py
+
       - name: Validate publish gh calls go out as the release App first, github.token as fallback
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_app_token.py
+
+      - name: Validate the token-spread action reads on the quota-goblin pool before minting the routing App
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_app_token_spread_pool.py
 
       - name: Validate every continuation job waits through a GitHub API rate limit
         if: ${{ matrix.group == 'release-notary' }}
@@ -1725,6 +1751,10 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_download_run_artifact.py
 
+      - name: Validate the nightly publish guard reads the release through gh with retries
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_publication_guard_release_read.py
+
       - name: Validate nightly release notes and appcast summaries
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_release_notes.py
@@ -1752,6 +1782,7 @@ jobs:
           python3 tests/test_nightly_next_feed_watch.py
           python3 tests/test_nightly_next_unsigned_resume.py
           python3 tests/test_nightly_next_rolling.py
+          python3 tests/test_nightly_next_precheck_scan.py
           python3 tests/test_nightly_fast_pass.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_nightly_off_blacksmith.py
@@ -1822,6 +1853,10 @@ jobs:
       - name: Validate write-token jobs lead with a JIT label
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_write_token_jit_label.py
+
+      - name: Validate secret-bearing jobs lead with the secret JIT label
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_secret_jobs_secret_jit.py
 
       - name: Validate the CEF publish checksum check
         if: ${{ matrix.group == 'ci' }}
