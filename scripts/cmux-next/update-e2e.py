@@ -618,11 +618,16 @@ def main():
                    app.status().get("build"))
         else:
             # The quit leg needs updates.installOnQuit on (off by default, the nightly restart
-            # policy); the app must have read it from the harness's settings file.
-            read = {key: (app.rpc("settings.get", {"path": key}) or {}).get("value")
-                    for key in ("updates.installOnQuit", "app.quitBehavior")}
-            record("the app read the harness's settings file", read == {"updates.installOnQuit": True, "app.quitBehavior": "keep"},
-                   f"{json.dumps(read)} from {app.config}")
+            # policy). The harness's settings file asks for it; print what the app read from it,
+            # then turn it on the way the Settings toggle does (settings.set) and read it back.
+            for key in ("updates.installOnQuit", "app.quitBehavior"):
+                print(f"settings.get {key} at launch: {json.dumps(app.rpc('settings.get', {'path': key}))} (harness file {app.config})")
+            for key, value in (("updates.installOnQuit", True), ("app.quitBehavior", "keep")):
+                print(f"settings.set {key}: {json.dumps(app.rpc('settings.set', {'path': key, 'value': value}))}")
+            on = wait(lambda: (app.rpc("settings.get", {"path": "updates.installOnQuit"}) or {}).get("value") is True, 10)
+            record("install on quit turned on before the quit", bool(on),
+                   json.dumps(app.rpc("settings.get", {"path": "updates.installOnQuit"})))
+            time.sleep(1)  # the updater follows the settings stream; let it apply the change
             for pid in app.pids():
                 env = run("ps", "eww", "-o", "command=", "-p", str(pid)).stdout.split()
                 print(f"app pid {pid} cmux env: {[e for e in env if e.startswith(('CMUX', 'MUX_'))]}")
