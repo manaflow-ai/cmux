@@ -61,6 +61,10 @@ summary_json() {
 }
 case "${CLIPPY_JSON:-}" in
   warn) lint_json warning; lint_json warning; echo '{"reason":"build-finished","success":true}'; exit 0 ;;
+  ratchet)
+    lint_json warning
+    printf '{"reason":"compiler-message","message":{"level":"warning","code":{"code":"clippy::unwrap_used"},"message":"used `unwrap()` on an `Option` value","rendered":"warning: used `unwrap()` on an `Option` value\\\\n  --> crates/a/tests/journey.rs:2:5\\\\n","spans":[{"is_primary":true,"file_name":"crates/a/tests/journey.rs","line_start":2,"column_start":5}]}}\n'
+    echo '{"reason":"build-finished","success":true}'; exit 0 ;;
   build-script) lint_json error; echo "error: failed to run custom build command for pkg-a v0.1.0" >&2; exit 101 ;;
   deny) lint_json error; summary_json; echo "error: could not compile pkg-a (lib) due to 1 previous error" >&2; echo '{"reason":"build-finished","success":false}'; exit 101 ;;
   compile)
@@ -264,6 +268,33 @@ class ClippyChangedTests(unittest.TestCase):
         text = summary.read_text()
         self.assertIn("1 lint(s), not blocking", text)
         self.assertIn("`cmux-tui/crates/a/src/lib.rs:3` clippy::needless_return", text)
+
+    def test_ratchet_lints_ride_along_so_the_ratchet_step_reuses_the_build(self) -> None:
+        # goal ci-min-per-pr-14: the ratchet's `--lib --bins` run with these flags finds its units checked.
+        self.change("cmux-tui/crates/a/tests/journey.rs", "#[test]\nfn t2() {}\n")
+        result = self.run_check("--base", self.base, "--ratchet-lints")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d",
+                                         "--all-targets", *PANIC]])
+        self.assertEqual(self.ratchet_calls(), [], "the clippy step only borrows the flags; the ratchet step judges")
+
+    def test_a_ratchet_lint_warning_is_counted_not_annotated(self) -> None:
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        summary = self.tmp / "summary.md"
+        result = self.run_check("--base", self.base, "--ratchet-lints",
+                                env_extra={"CLIPPY_JSON": "ratchet", "GITHUB_STEP_SUMMARY": str(summary)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        warnings = [line for line in result.stdout.splitlines() if line.startswith("::warning file=")]
+        self.assertEqual(len(warnings), 1, warnings)
+        self.assertIn("needless_return", warnings[0])
+        self.assertNotIn("unwrap()", result.stderr + summary.read_text())
+        self.assertIn("1 panic ratchet lint warning(s)", result.stdout)
+
+    def test_a_ratchet_lint_is_reported_as_any_lint_without_ratchet_lints(self) -> None:
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        result = self.run_check("--base", self.base, env_extra={"CLIPPY_JSON": "ratchet"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("title=clippy clippy%3A%3Aunwrap_used", result.stdout)
 
     def test_a_lint_cargo_stopped_on_still_passes(self) -> None:
         # A level --cap-lints did not reach (an error-level lint): cargo exits non-zero, but only lints were in the way.

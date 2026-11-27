@@ -421,7 +421,10 @@ if [[ "$mode" == clippy-changed ]]; then
   echo "cargo target: $CARGO_TARGET_DIR"
   # The clippy step writes this when every error it found is in a file the change does not touch (a base red).
   export CMUX_CLIPPY_BASE_RED_FILE="$tools/clippy-base-red"
-  step "cargo clippy --all-targets on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base"
+  # --ratchet-lints: this run carries the panic ratchet's flags, so the ratchet step below finds each production
+  # target it lints already checked with them in this target and replays their diagnostics instead of checking the
+  # changed packages again (307 s of a 14.5 min step, hq run 45940434974; goal ci-min-per-pr-14).
+  step "cargo clippy --all-targets on changed cmux-tui packages" python3 "$tools/cmux-tui-clippy-changed.py" --repo "$root" --base "$base" --ratchet-lints
   clippy_rc=$last_rc
   unset CMUX_CLIPPY_BASE_RED_FILE
   host_identity() {
