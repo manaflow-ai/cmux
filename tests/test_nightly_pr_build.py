@@ -172,6 +172,19 @@ class Workflow(unittest.TestCase):
         self.assertIsNotNone(timeout)
         self.assertLessEqual(int(timeout.group(1)), 90)
 
+    def test_swift_job_detaches_and_the_fleet_posts_the_verdict(self) -> None:
+        # Leo, 2026-11-27: "de facto, im asking for 99% fewer minutes of ci time, period." The job held a runner
+        # ~20 min per arch while its step sat queued (run 46030977376 job 140614747339), ~20k runner-min/day.
+        text = (ROOT / npb.WORKFLOW).read_text()
+        self.assertIn("DETACH: ${{ vars.CI_NIGHTLY_PR_BUILD_DETACH || '1' }}", text)
+        self.assertIn('detach=(--report-check "$REPORT_CHECK" --detach)', text)
+        self.assertIn('${detach[@]+"${detach[@]}"}', text)  # empty-array safe under set -u on macOS bash 3.2
+        name = re.search(r"REPORT_CHECK: (.*)$", text, re.M)
+        self.assertIsNotNone(name)
+        self.assertIn("(advisory)", name.group(1))
+        # report_check.go reportCheckName, with the matrix expression standing in for the arch.
+        self.assertRegex(name.group(1).replace("${{ matrix.arch }}", "arm64"), r"^[A-Za-z0-9][A-Za-z0-9 ._()/:+-]{0,99}$")
+
 
 if __name__ == "__main__":
     unittest.main()
