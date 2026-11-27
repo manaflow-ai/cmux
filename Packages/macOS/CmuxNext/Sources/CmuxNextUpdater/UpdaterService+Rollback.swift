@@ -210,7 +210,7 @@ extension UpdaterService {
 
 extension UpdaterService {
     /// Builds at or below this are not offered after a rollback.
-    static let skipsBuildsThroughKey = "cmux.next.updates.skipsBuildsThrough"
+    nonisolated static let skipsBuildsThroughKey = "cmux.next.updates.skipsBuildsThrough"
     /// The build a rollback or Install this version went to: while it runs, a newer build waits
     /// for the person's click (``UpdateController/asksBeforeInstalling``); any other build clears it.
     static let pickedBuildKey = "cmux.next.updates.pickedBuild"
