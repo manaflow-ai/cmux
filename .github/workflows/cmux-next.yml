@@ -1517,6 +1517,7 @@ jobs:
     # Why: note-396
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Why: note-349
+    # Why: 2026-11-27-checks-timeout-20.md
     timeout-minutes: 20
     permissions:
       contents: read
