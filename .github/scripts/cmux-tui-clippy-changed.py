@@ -11,8 +11,15 @@ owning a changed .rs file or Cargo.toml between --base and HEAD (tests, benches
 and examples included), plus every member that depends on one of them, in one
 `cargo clippy --keep-going` so each red package is reported. Members and their
 path dependencies come from `cargo metadata --no-deps`. A change to the workspace
-manifest, the lockfile, a clippy config or the toolchain pin, or no usable base,
-lints the whole workspace. Packages in a workspace of their own (the app FFI
+manifest or the lockfile is read, not taken as everything: a Cargo.lock change reaches
+each member whose own entry changed or that uses (through any crate) an entry added,
+removed or bumped; a manifest change reaches new members and the users of a changed
+`[workspace.dependencies]` entry (default-members and non-dev/test profiles reach none).
+Any other manifest table (lints, dev/test profile, patch, workspace.package), an unreadable
+or reformatted lock, a clippy config, the toolchain pin, or no usable base lints the
+whole workspace. Post-merge calls lint since the plan's base (the last judged batch);
+before, they passed no base and every one linted all 225 members (job 140499897736,
+15.8 min); 18 of the 22 batch windows on 11-26..27 touched the lock or the manifest. Packages in a workspace of their own (the app FFI
 workspace with cmux-rd-ffi, cmux-rd-host, ...) and vendored crates are not members and stay with
 cmux-tui.yml's dispatch run. Which files map to which package is
 cmux-tui-fmt-changed.py's rule, shared from there.
@@ -73,7 +80,8 @@ LINT EVEN STOPPING SHIT INSTEAD OF JUST BEING OOPS".
 from __future__ import annotations
 
 import argparse
-from collections import deque
+from collections import defaultdict, deque
+import fnmatch
 import importlib.util
 import json
 import os
@@ -81,6 +89,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tomllib
 from typing import NamedTuple
 
 
@@ -102,6 +111,15 @@ WHOLE_WORKSPACE = frozenset({
     "scripts/cmux-next/rust-panic-baseline.json",
     "plans/cmux-next/rust-panic-free.md",
 })
+# The workspace manifest and the lockfile are read, not taken as "every member" (narrowed()).
+MANIFEST, LOCKFILE = f"{ROOT}/Cargo.toml", f"{ROOT}/Cargo.lock"
+EVERY_MEMBER = WHOLE_WORKSPACE - {MANIFEST, LOCKFILE}
+# The root package's own tables in the workspace manifest (the root is a package too): a change there is the root
+# package's own change.
+PACKAGE_TABLES = frozenset({"package", "lib", "bin", "test", "bench", "example", "dependencies", "dev-dependencies",
+                            "build-dependencies", "target", "features", "lints", "badges"})
+# The profiles a `cargo clippy --all-targets` unit can be built with (test inherits dev).
+CHECK_PROFILES = frozenset({"dev", "test"})
 RATCHET = "scripts/cmux-next/rust_panic_ratchet.py"
 # Every lint is a warning, whatever level a crate or a Cargo [lints] table gives it; only compile errors fail.
 CAP_LINTS = ["--cap-lints", "warn"]
@@ -160,10 +178,11 @@ def stale_lock_error(title: str, lock: str) -> str:
             f"root and commit the Cargo.lock files it changed; rerunning the job does not help")
 
 
-def workspace_of(repo: Path) -> tuple[dict[str, str], dict[str, set[str]], set[str]]:
+def workspace_of(repo: Path) -> tuple[dict[str, str], dict[str, set[str]], set[str], dict[str, set[str]]]:
     """The members' directories (repository-relative) with their package names, each
-    member's dependents (the members naming it as a path dependency of any kind), and
-    the members with a library target."""
+    member's dependents (the members naming it as a path dependency of any kind),
+    the members with a library target, and the members using each dependency key
+    (its `rename` or name, as `[workspace.dependencies]` keys it)."""
     meta = json.loads(subprocess.run(
         ["cargo", "metadata", "--format-version", "1", "--no-deps"],
         cwd=repo / ROOT, check=True, stdout=subprocess.PIPE, text=True,
@@ -175,14 +194,140 @@ def workspace_of(repo: Path) -> tuple[dict[str, str], dict[str, set[str]], set[s
              for package in packages}
     by_dir = {top / path: name for path, name in names.items()}
     dependents: dict[str, set[str]] = {name: set() for name in names.values()}
+    uses: dict[str, set[str]] = defaultdict(set)
     for package in packages:
         for dependency in package["dependencies"]:
+            uses[dependency.get("rename") or dependency["name"]].add(package["name"])
             target = by_dir.get(Path(dependency["path"]).resolve()) if dependency.get("path") else None
             if target and target != package["name"]:
                 dependents[target].add(package["name"])
     libs = {package["name"] for package in packages
             if any(LIB_KINDS & set(target.get("kind", [])) for target in package.get("targets", []))}
-    return names, dependents, libs
+    return names, dependents, libs, uses
+
+
+def at(repo: Path, rev: str, path: str) -> str:
+    """PATH's text at REV ("" when it is not there)."""
+    try:
+        return fmt_changed.git(repo, "show", f"{rev}:{path}")
+    except subprocess.CalledProcessError:
+        return ""
+
+
+def load_toml(text: str) -> dict | None:
+    try:
+        return tomllib.loads(text)
+    except tomllib.TOMLDecodeError:
+        return None
+
+
+def package_tables(doc: dict) -> dict:
+    return {key: value for key, value in doc.items() if key in PACKAGE_TABLES}
+
+
+def manifest_change(before: str, after: str, workspace: dict[str, str], uses: dict[str, set[str]]) -> set[str] | None:
+    """The members a change to the workspace manifest reaches, or None when it can reach every member.
+    Most of its changes add a member or a `[workspace.dependencies]` entry (38 of the 3,302 feat-cmux-next
+    commits on 11-25..27 touched it): those reach the new members and the members using a changed entry;
+    default-members and the release and custom profiles reach none. A change to any other workspace table
+    (lints, the dev and test profiles, patches, workspace.package, exclude) reaches every member. The root package's own tables are left out here: a change there is the root package's own."""
+    old, new = load_toml(before), load_toml(after)
+    if old is None or new is None:
+        return None
+
+    def rest(doc: dict) -> dict:
+        doc = {key: value for key, value in doc.items() if key not in PACKAGE_TABLES}
+        # default-members only picks the packages a bare `cargo` command builds (this check always names them).
+        doc["workspace"] = {key: value for key, value in (doc.get("workspace") or {}).items()
+                            if key not in ("members", "default-members", "dependencies")}
+        # Clippy builds with the dev profile (its log ends "Finished `dev` profile"): a release or custom
+        # profile changes no unit it checks (2c789b93f17f..5af1e1c79eb2 changed only [profile.release]).
+        doc["profile"] = {name: value for name, value in (doc.get("profile") or {}).items() if name in CHECK_PROFILES}
+        return doc
+
+    if rest(old) != rest(new):
+        return None
+    reached: set[str] = set()
+    old_ws, new_ws = old.get("workspace") or {}, new.get("workspace") or {}
+    added = set(new_ws.get("members") or []) - set(old_ws.get("members") or [])
+    for path, name in workspace.items():
+        relative = path[len(ROOT) + 1:] if path.startswith(f"{ROOT}/") else ""
+        if relative and any(fnmatch.fnmatchcase(relative, pattern.rstrip("/")) for pattern in added):
+            reached.add(name)
+    old_deps, new_deps = old_ws.get("dependencies") or {}, new_ws.get("dependencies") or {}
+    for key in old_deps.keys() | new_deps.keys():
+        if old_deps.get(key) != new_deps.get(key):
+            reached |= uses.get(key, set())
+    return reached
+
+
+def lock_graph(doc: dict) -> tuple[dict[tuple, tuple], dict[tuple, set[tuple]]]:
+    """Each Cargo.lock entry, (name, version, source), with what decides its build (checksum and
+    dependencies), and each entry's users."""
+    entries = doc.get("package") or []
+    keys = [(entry["name"], entry.get("version", ""), entry.get("source", "")) for entry in entries]
+    by_name: dict[str, list[tuple]] = defaultdict(list)
+    for key in keys:
+        by_name[key[0]].append(key)
+    state: dict[tuple, tuple] = {}
+    users: dict[tuple, set[tuple]] = defaultdict(set)
+    for key, entry in zip(keys, entries):
+        dependencies = entry.get("dependencies") or []
+        state[key] = (entry.get("checksum", ""), tuple(sorted(dependencies)))
+        for dependency in dependencies:
+            name, _, rest = dependency.partition(" ")
+            version = rest.split(" ")[0]
+            for target in by_name.get(name, ()):
+                if not version or target[1] == version:
+                    users[target].add(key)
+    return state, users
+
+
+def lock_change(before: str, after: str, members: set[str]) -> set[str] | None:
+    """The members a Cargo.lock change reaches: each whose own entry changed (a dependency added or dropped)
+    or that uses, directly or through other crates, an entry added, removed or changed (a version bump, a
+    new checksum). None when either lock cannot be read or its format changed. 74 of the 3,302
+    feat-cmux-next commits on 11-25..27 touched the lock, so nearly every post-merge window did."""
+    old, new = load_toml(before), load_toml(after)
+    if old is None or new is None:
+        return None
+    if {k: v for k, v in old.items() if k != "package"} != {k: v for k, v in new.items() if k != "package"}:
+        return None
+    old_state, old_users = lock_graph(old)
+    new_state, new_users = lock_graph(new)
+    changed = {key for key in old_state.keys() | new_state.keys() if old_state.get(key) != new_state.get(key)}
+    seen, queue = set(changed), deque(changed)
+    while queue:
+        key = queue.popleft()
+        for user in old_users.get(key, set()) | new_users.get(key, set()):
+            if user not in seen:
+                seen.add(user)
+                queue.append(user)
+    return {name for name, _, source in seen if not source and name in members}
+
+
+def narrowed(repo: Path, base: str, paths: list[str], workspace: dict[str, str],
+             uses: dict[str, set[str]]) -> set[str] | None:
+    """The members the change's edits to the workspace manifest and Cargo.lock reach (none when it has
+    neither), or None when one of them can reach every member."""
+    reached: set[str] = set()
+    if MANIFEST in paths:
+        found = manifest_change(at(repo, base, MANIFEST), at(repo, "HEAD", MANIFEST), workspace, uses)
+        if found is None:
+            return None
+        reached |= found
+    if LOCKFILE in paths:
+        found = lock_change(at(repo, base, LOCKFILE), at(repo, "HEAD", LOCKFILE), set(workspace.values()))
+        if found is None:
+            return None
+        reached |= found
+    return reached
+
+
+def root_package_changed(repo: Path, base: str) -> bool:
+    """Whether the root package's own tables in the workspace manifest differ from the base's."""
+    old, new = load_toml(at(repo, base, MANIFEST)), load_toml(at(repo, "HEAD", MANIFEST))
+    return old is None or new is None or package_tables(old) != package_tables(new)
 
 
 def with_dependents(changed: set[str], dependents: dict[str, set[str]]) -> set[str]:
@@ -212,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
     flags = ratchet_flags(repo)
     args_for_lint, hidden = lint_args(flags), flag_lints(flags)
     try:
-        workspace, dependents, libs = workspace_of(repo)
+        workspace, dependents, libs, uses = workspace_of(repo)
     except subprocess.CalledProcessError:
         print("::error title=cmux-tui clippy::`cargo metadata --no-deps` failed in cmux-tui (its error is above); "
               "fix the manifest it names")
@@ -224,19 +369,26 @@ def main(argv: list[str] | None = None) -> int:
     if args.panic_ratchet and base and set(base) != {"0"}:
         try:
             all_changed = [path for path in fmt_changed.git(repo, "diff", "--name-only", "-z", base, "HEAD").split("\0") if path]
-            ratchet_inputs_changed = any(path in WHOLE_WORKSPACE for path in all_changed)
+            ratchet_inputs_changed = any(path in EVERY_MEMBER for path in all_changed)
         except subprocess.CalledProcessError:
             ratchet_inputs_changed = True
-    if paths is None or ratchet_inputs_changed or any(path in WHOLE_WORKSPACE for path in paths):
+    reached = None if paths is None else narrowed(repo, base, paths, workspace, uses)
+    if paths is None or reached is None or ratchet_inputs_changed or any(path in EVERY_MEMBER for path in paths):
         if args.panic_ratchet:
             return panic_ratchet(repo, ["--workspace"], True, "the whole cmux-tui workspace", args.panic_ratchet, compare)
         command = ["cargo", "clippy", "--locked", "--keep-going", "--workspace", *args_for_lint]
         scope = "the whole cmux-tui workspace"
     else:
-        touched = fmt_changed.touched(paths, known, fmt_changed.manifest_dirs(repo, base))
+        # The workspace manifest is the root package's manifest too: it is the root package's change only when
+        # the package's own tables differ (narrowed() read the workspace's).
+        own = [path for path in paths if path != MANIFEST or root_package_changed(repo, base)]
+        touched = fmt_changed.touched(own, known, fmt_changed.manifest_dirs(repo, base))
         for path in sorted(touched - workspace.keys()):
             print(f"cmux-tui-clippy-changed: {path} is not a cmux-tui workspace member (cmux-tui.yml lints it)")
         changed = {workspace[path] for path in touched if path in workspace}
+        if via_manifest := sorted(reached - changed):
+            print(f"cmux-tui-clippy-changed: the workspace manifest or Cargo.lock change reaches {', '.join(via_manifest)}")
+        changed |= reached
         if not changed:
             print("cmux-tui-clippy-changed: no cmux-tui workspace package changed")
             return 0

@@ -120,6 +120,10 @@ pub(super) struct OpenWork {
     /// previous controller stopped. Recovered from its logged `compaction`
     /// updates so Stop keeps the prompt-first path after a restart.
     compacting: bool,
+    /// The chat's process table as the adoption checkpoint keeps it (`journal.rs`
+    /// `keep_processes`): the adoption rebuilds the table from it (`recover_work`).
+    #[serde(skip)]
+    pub(super) processes: Option<super::processes::SavedProcesses>,
 }
 
 /// What the host records say (`Hub::read_host_records`).
@@ -961,11 +965,11 @@ impl Hub {
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         incarnation: &str,
-        work: OpenWork,
+        mut work: OpenWork,
     ) {
         Self::recover_floor(session, &work);
         session.compacting.store(work.compacting, Ordering::SeqCst);
-        self.recover_processes(session);
+        self.recover_processes(session, work.processes.take());
         // A carried turn the restart cut before its prompt went out (or before it started):
         // the agent runs it still, and it goes on (`carried_turn.rs`).
         if let Some((turn_seq, turn_id, prompt_id, prompt, client, control)) = work.turn.clone()
@@ -1804,6 +1808,8 @@ impl Hub {
             started.set("remoteEnvPolicy", crate::agent::REMOTE_ENV_POLICY_ID.into());
         }
         self.append(session, "mux", "host_started", started);
+        // Its first adoption resumes from a checkpoint, not the whole log (`checkpoint.rs`).
+        self.prime_adoption_checkpoint(session, &record.incarnation);
         // A new host: its log is read back again under MDM's off, no end is pending for it, and
         // none of its reports waits (`full_access_bound.rs`).
         session.floor.left_host_read.store(false, Ordering::SeqCst);
