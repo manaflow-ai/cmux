@@ -113,7 +113,7 @@ fn dispatch_command(
         command @ (Command::SetTerminalCommandHistory(_)
         | Command::ListTerminalCommands(_)
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
-        Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
+        Command::ServerStats { include, .. } => cmd_server::server_stats(mux, client, include),
         Command::ProcessCensus => cmd_server::process_census(mux, client),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::RemoteHostStatus => remote_host_command::status(mux, client),
@@ -137,7 +137,7 @@ fn dispatch_command(
         Command::DeviceSetup { device, verb, allow_agents, dry_run } => {
             device_setup_command::handle(mux, client, writer, device, &verb, allow_agents, dry_run)
         }
-        Command::Identify { machine_metadata, revisions } => {
+        Command::Identify { machine_metadata, revisions, .. } => {
             cmd_server::identify(mux, machine_metadata, revisions)
         }
         Command::ShutdownDaemon {
