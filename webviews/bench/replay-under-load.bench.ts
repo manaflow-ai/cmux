@@ -344,7 +344,12 @@ if (import.meta.main) {
         `${reading.renderer_main_busy_pct ?? "null"}% busy, ${reading.records} records in ${reading.seconds} s`,
     );
   } catch (error) {
-    console.error(`replay-under-load: FAILED: ${error instanceof Error ? error.message : String(error)}`);
+    // One line with the cause: a vite build error's message starts "Build failed with 1 error:" and names the file
+    // and the Babel error only on the lines after it, and the sensor keeps a log's tail, which is stack frames.
+    const message = error instanceof Error ? error.message : String(error);
+    const cause = message.split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 3).join(" | ");
+    console.error(`replay-under-load: FAILED: ${cause.slice(0, 500)}`);
+    if (message.includes("\n")) console.error(message);
     process.exitCode = 1;
   }
 }
