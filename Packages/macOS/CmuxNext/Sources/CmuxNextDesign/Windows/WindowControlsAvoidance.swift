@@ -41,13 +41,28 @@ public final class WindowControlsAvoiders {
     public func batching<T>(in window: NSWindow, _ body: () -> T) -> T {
         batchDepth += 1
         defer {
-            batchDepth -= 1
+            // Never below 0: a reset (``endBatchesLeftOpen(in:)``) inside the body ended this batch already.
+            batchDepth = max(0, batchDepth - 1)
             if batchDepth == 0, batchedUpdate {
                 batchedUpdate = false
                 update(in: window)
             }
         }
         return body()
+    }
+
+    /// Ends the batches still open on `window` and runs the update asked in them. An Objective-C exception that AppKit
+    /// catches in a layout pass or a frame change (a layout loop it stops, `-[NSWindow layoutIfNeeded]`) skips the
+    /// Swift `defer` that ends ``batching(in:_:)``: the depth stayed above 0 and every later update waited for an end
+    /// that never came, so Home's header and chat column stopped re-checking for the life of the window. The window
+    /// calls this once per event loop turn (its `update()`), outside every pass, as the overlay layer resets its own
+    /// pass depth at `didUpdate`.
+    public func endBatchesLeftOpen(in window: NSWindow) {
+        guard batchDepth > 0 else { return }
+        batchDepth = 0
+        guard batchedUpdate else { return }
+        batchedUpdate = false
+        update(in: window)
     }
 
     /// Each view still in `window` re-checks its clearance. A hidden one (a workspace not shown)
