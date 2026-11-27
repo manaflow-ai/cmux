@@ -152,10 +152,15 @@ pub fn freeze(rows: &mut [Value], current: Option<&str>) {
             .copied()
             .find(|&i| text(&rows[i], "cwd") == text(&rows[i]["repo"], "root"));
         let selected = members.iter().copied().find(|&i| Some(text(&rows[i], "cwd")) == current);
+        let selected_root = selected.map(|i| text(&rows[i]["repo"], "root"));
+        let selected_main = members.iter().copied().find(|&i| {
+            Some(text(&rows[i], "cwd")) == selected_root
+                && text(&rows[i], "cwd") == text(&rows[i]["repo"], "root")
+        });
         let plain = members.iter().copied().find(|&i| !rows[i]["repo"].is_object());
         let first = members[0];
-        let lead = selected.or(main).or(plain).unwrap_or(first);
-        let main_lead = main.or(plain).or(selected).unwrap_or(first);
+        let lead = selected.or(selected_main).or(main).or(plain).unwrap_or(first);
+        let main_lead = selected_main.or(main).or(plain).or(selected).unwrap_or(first);
         let repo = members.iter().map(|&i| &rows[i]["repo"]).find(|r| r.is_object());
         let mut group = seeds.get(&group_key).cloned().unwrap_or_else(|| {
             json!({

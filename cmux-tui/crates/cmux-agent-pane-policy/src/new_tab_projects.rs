@@ -193,6 +193,16 @@ mod tests {
         assert_eq!(result[1]["displayGroup"]["lead"], "/lane");
     }
     #[test]
+    fn main_lead_prefers_current_clones_root() {
+        let first = json!({"root":"/first","name":"repo","github":"org/repo"});
+        let second = json!({"root":"/second","name":"repo","github":"org/repo"});
+        let result =
+            rows(json!({"projects":["/first","/second","/second-lane"],"cwd":"/second-lane",
+            "repos":{"/first":first,"/second":second,"/second-lane":second}}));
+        assert_eq!(result[0]["displayGroup"]["lead"], "/second-lane");
+        assert_eq!(result[0]["displayGroup"]["mainLead"], "/second");
+    }
+    #[test]
     fn next_opening_uses_new_recency_and_metadata() {
         let result = rows(json!({"projects":["/a","/b"],"repos":{"/b":{"root":"/b","name":"b"}},
           "warm":r#"{"sessions":[{"cwd":"/b","activityAt":30},{"cwd":"/a","activityAt":20}]}"#}));
