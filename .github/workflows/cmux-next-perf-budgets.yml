@@ -371,10 +371,25 @@ jobs:
           persist-credentials: false
           submodules: false
 
+      # The repo's github.token shares one 1,000-call hour with every workflow; when others spend it the tick reads no
+      # state (fetch-state 403, RATE_LIMITED: every tick 12:20Z-14:51Z on 2026-11-27). The cmux-bot App has its own
+      # hour: perf-cron.py spends GH_TOKEN (the App's) first and GH_TOKEN_FALLBACK (github.token) once it is refused
+      # for the limit. No App token (a fork, no key): github.token alone, as before (#53866's pattern).
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: read
+
       - name: Read the state and pick this tick's work
         id: plan
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          GH_TOKEN_FALLBACK: ${{ github.token }}
           MAC_GATEWAY: ${{ vars.CI_PERF_CRON_GATEWAY }}
           MAC_CONTROLLER: ${{ vars.CMUX_NEXT_PERF_CRON_CONTROLLER }}
           LINUX_CONTROLLER: ${{ vars.CMUX_NEXT_PERF_CRON_LINUX_CONTROLLER }}
@@ -665,6 +680,18 @@ jobs:
             .gitmodules
           sparse-checkout-cone-mode: false
 
+      # The cmux-bot App's own call hour first, github.token after (the plan job's mint says why).
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-issues: write
+
       - name: Download the working state
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
@@ -699,7 +726,8 @@ jobs:
       - name: Store the part, compare, keep the regression issue
         id: report
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
+          GH_TOKEN_FALLBACK: ${{ github.token }}
           PART: ${{ needs.measure.result != 'skipped' && needs.plan.outputs.part || '' }}
           RESULT_PARTS: ${{ needs.plan.outputs.action == 'result' && needs.plan.outputs.result_parts || '' }}
           LINUX_MATRIX: ${{ needs.linux.result != 'skipped' && needs.plan.outputs.linux_matrix || '[]' }}
@@ -736,7 +764,7 @@ jobs:
         if: ${{ !cancelled() && needs.plan.outputs.frame_pacing == 'true' }}
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
         run: |
           set -euo pipefail
           gh workflow run cmux-next-frame-pacing.yml --repo "$GITHUB_REPOSITORY" --ref feat-cmux-next -f ref=feat-cmux-next
@@ -769,5 +797,5 @@ jobs:
       - name: Start the next part now
         if: ${{ steps.report.outputs.next_now == 'true' }}
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
         run: python3 -I scripts/cmux-next/perf-cron.py dispatch-next --repo "$GITHUB_REPOSITORY"
