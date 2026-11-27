@@ -777,6 +777,12 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
     return out
 
 
+def stuck_chain_start(good: str, bad: str) -> str:
+    """The sha a stuck red's bisect over good..bad starts at (stuck_probe's): stuck_reds counts finished bisects by it,
+    in the batch judge and in each probe's judge alike, so both agree on whether the bisect is capped."""
+    return stuck_probe("", "", "", good, bad, "", first_parent_range(good, bad)).sha
+
+
 def stuck_probe(name: str, suite: str, only: str, good: str, bad: str, origin: str, commits: list[str], step: str = "") -> Probe:
     """The first probe of a stuck red's bisect: the middle of good..bad (bad itself when that is one commit, which
     re-confirms it: next_step reads a pass there as a flake)."""
@@ -813,7 +819,8 @@ def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, P
     if len(span) <= 1:
         return "culprit", bad
     mid = span[(len(span) - 1) // 2]
-    return "probe", Probe(probe.suite, probe.job, probe.only, mid, good, bad, probe.origin)
+    # The origin red's failing step travels with every probe of the chain (#61284 set it on the first only).
+    return "probe", Probe(probe.suite, probe.job, probe.only, mid, good, bad, probe.origin, step=probe.step)
 
 
 def commits_between(commits: list[str], good: str, bad: str) -> list[str]:
@@ -1101,8 +1108,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
         # Only runs older than this one, as a probe's judge reads them (before its origin), so both agree.
         runs = list_runs(args.repo, args.branch, before=int(args.run_id or 0), batches=LOOKBACK_BATCHES)
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of, suites)
-        stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites,
-                           chain_start=lambda good, bad: stuck_probe("", "", "", good, bad, "", first_parent_range(good, bad)).sha)
+        stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites, chain_start=stuck_chain_start)
         stuck_names = {name for name, *_ in stuck}
         notes = [n for n in notes if not any(n.startswith(f"`{name}` was already red") for name in stuck_names)]
         for note in notes:
@@ -1152,7 +1158,11 @@ def cmd_judge(args: argparse.Namespace) -> int:
             found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)
             if not probe.step:  # a chain begun before the step travelled: the origin's red names it
                 probe.step = STEP_SEP.join(sorted(red_step_names(steps_of(origin["id"]), probe.job)))
-            found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)]
+            # The same chain_start as the batch judge: without it every judged probe of the job since its first red
+            # counted as a finished bisect, so a chain two steps in was refused as "not a new red" (probe run
+            # 45971486391, 11-27 09:10Z: web / Web tests (1/4) at 27712e0b, the culprit step the batch had dispatched).
+            found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites,
+                                                                                  chain_start=stuck_chain_start)]
     except RuntimeError as err:
         # GitHub would not answer (a rate limit spent past the wait budget, a lasting 5xx). That says nothing
         # about the probe's inputs, yet refusing here ended the bisect, and the next batch began the same one
