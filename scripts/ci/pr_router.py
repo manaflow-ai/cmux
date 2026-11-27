@@ -308,7 +308,8 @@ def route(event: dict, callees: dict, files: list[str] | None,
             # at the nightly, hours after the merge (NIGHTLY_GATE_JOBS). Only those steps run (main's `only`).
             start.append(name)
             why[name] = (f"{head_tier.LAND_AFFECTED_REASON}, nightly gate: runs only "
-                         f"{', '.join(gates)} (steps the nightly also runs, ci/steps.toml `nightly`)")
+                         f"{', '.join(gates)} (steps the nightly also runs or a base red put on the land gate, "
+                         f"ci/steps.toml `nightly`, `land_gate`)")
             continue
         if cheap and fast and not config.get("draft"):
             why[name] = "fast-track: runs after the merge (post-merge batch and push runs)"
