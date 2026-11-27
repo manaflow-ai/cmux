@@ -15,7 +15,7 @@
  *
  * Usage (from web/):
  *   bun scripts/cmux-vm-image/graduate.ts --summary SUMMARY.json [--min-people N] [--write]
- *   CMUX_INSTALL_COUNTS_TOKEN=... bun scripts/cmux-vm-image/graduate.ts --api https://cloud-api.cmux.dev [--min-people N] [--write]
+ *   CMUX_INSTALL_COUNTS_TOKEN=... bun scripts/cmux-vm-image/graduate.ts --api https://cmux-platform-production.debussy.workers.dev [--min-people N] [--write]
  *   bun scripts/cmux-vm-image/graduate.ts --backend dev [--out REPORT.json]   (signs in as CMUX_DOGFOOD_STACK_EMAIL/_PASSWORD)
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -155,10 +155,15 @@ export function parseSummary(text: string): SummaryRow[] {
   return v.names.filter((r): r is SummaryRow => !!r && typeof r.name === "string" && typeof r.people === "number");
 }
 
-/** The backends and Stack projects cloud-journey.ts signs in to (its STACK and resolveBackend; kept in step by hand). */
-const BACKENDS: Record<string, { api: string; stack: { project: string; clientKey: string } }> = {
-  dev: { api: "https://cmux-api-development.debussy.workers.dev", stack: { project: "454ecd03-1db2-4050-845e-4ce5b0cd9895", clientKey: "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g" } },
-  prod: { api: "https://cloud-api.cmux.dev", stack: { project: "9790718f-14cd-4f7e-824d-eaf527a82b82", clientKey: "" } },
+/**
+ * Where the summary is served, and the Stack project whose token it takes (cloud-journey.ts STACK; kept in step by
+ * hand). The summary is cmux-platform's, not cmux-api's: cmux-api answers 404 on /v1/install-counts (the first
+ * graduate run, 2026-11-23, read that 404), and the machines send their lists to the platform (acpmux
+ * install_share.rs).
+ */
+const BACKENDS: Record<string, { api: string; cmuxApi: string; stack: { project: string; clientKey: string } }> = {
+  dev: { api: "https://cmux-platform-development.debussy.workers.dev", cmuxApi: "https://cmux-api-development.debussy.workers.dev", stack: { project: "454ecd03-1db2-4050-845e-4ce5b0cd9895", clientKey: "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g" } },
+  prod: { api: "https://cmux-platform-production.debussy.workers.dev", cmuxApi: "https://cloud-api.cmux.dev", stack: { project: "9790718f-14cd-4f7e-824d-eaf527a82b82", clientKey: "" } },
 };
 
 /** The test account's person token: Stack's password sign-in, as cloud-journey.ts passwordSignIn. */
@@ -178,9 +183,54 @@ async function passwordSignIn(stack: { project: string; clientKey: string }, ema
   return body.access_token;
 }
 
+/**
+ * A cmux access token of an install, which the summary takes (platform UsageSharing.ts personInstallToken: a Stack
+ * session answers 401 install_counts.unauthorized, the second graduate run on 2026-11-27). Registers a CLI install
+ * with a fresh key and signs cmux-api's challenge, as dev-e2e.ts "install.register + token" does.
+ */
+async function installToken(cmuxApi: string, session: string): Promise<string> {
+  const post = async (route: string, body: unknown, bearer?: string) => {
+    const r = await fetch(`${cmuxApi}${route}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(bearer ? { authorization: `Bearer ${bearer}` } : {}) },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const parsed = (await r.json().catch(() => ({}))) as { value?: unknown; message_prefix?: string; nonce?: string; access_token?: unknown };
+    if (r.status !== 200) throw new Error(`${route} HTTP ${r.status} ${JSON.stringify(parsed).slice(0, 200)}`);
+    return parsed;
+  };
+  const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"])) as CryptoKeyPair;
+  const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+  const tag = `graduate-${Date.now().toString(36)}`;
+  const registered = await post(
+    "/v1/ops",
+    { op: "install.register", params: { public_jwk: { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y }, kind: "cli", name: `cmux graduate ${tag}`, device_name: "cmux graduate", platform: "linux" }, idempotency_key: tag },
+    session,
+  );
+  const install = registered.value as { id: string; user?: string };
+  install.user ??= ((await post("/v1/ops", { op: "user.ensure", params: {}, idempotency_key: `${tag}-ensure` }, session)).value as { id: string }).id;
+  const challenge = await post("/v1/auth/challenge", { user: install.user, install: install.id });
+  const signed = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${challenge.message_prefix}${challenge.nonce}`));
+  const token = await post("/v1/auth/token", { user: install.user, install: install.id, nonce: challenge.nonce, signature: Buffer.from(signed).toString("base64url") });
+  if (typeof token.access_token !== "string") throw new Error("/v1/auth/token: no access_token");
+  return token.access_token;
+}
+
 function argValue(flag: string, argv: readonly string[]): string | undefined {
   const i = argv.indexOf(flag);
   return i >= 0 ? argv[i + 1] : undefined;
+}
+
+/** `--backend`: its summary host, and the test account's install token unless CMUX_INSTALL_COUNTS_TOKEN gave one. */
+async function backendAccess(name: string, api: string | undefined, token: string): Promise<{ api: string; token: string }> {
+  const backend = BACKENDS[name];
+  if (!backend) throw new Error(`--backend: one of ${Object.keys(BACKENDS).join(", ")}`);
+  if (token) return { api: api ?? backend.api, token };
+  const email = process.env.CMUX_DOGFOOD_STACK_EMAIL ?? "";
+  const password = process.env.CMUX_DOGFOOD_STACK_PASSWORD ?? "";
+  if (!email || !password) throw new Error("--backend needs CMUX_INSTALL_COUNTS_TOKEN, or CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD");
+  return { api: api ?? backend.api, token: await installToken(backend.cmuxApi, await passwordSignIn(backend.stack, email, password)) };
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -190,17 +240,7 @@ async function main(argv: string[]): Promise<number> {
   const backendName = argValue("--backend", argv);
   let api = argValue("--api", argv);
   let token = process.env.CMUX_INSTALL_COUNTS_TOKEN ?? "";
-  if (backendName && !file) {
-    const backend = BACKENDS[backendName];
-    if (!backend) throw new Error(`--backend: one of ${Object.keys(BACKENDS).join(", ")}`);
-    api ??= backend.api;
-    if (!token) {
-      const email = process.env.CMUX_DOGFOOD_STACK_EMAIL ?? "";
-      const password = process.env.CMUX_DOGFOOD_STACK_PASSWORD ?? "";
-      if (!email || !password) throw new Error("--backend needs CMUX_INSTALL_COUNTS_TOKEN, or CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD");
-      token = await passwordSignIn(backend.stack, email, password);
-    }
-  }
+  if (backendName && !file) ({ api, token } = await backendAccess(backendName, api, token));
   let text: string;
   if (file) text = readFileSync(file, "utf8");
   else if (api) {

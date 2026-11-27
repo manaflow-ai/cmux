@@ -663,7 +663,9 @@ async fn unsupported_ways_and_team_machines_for_gemini_and_grok() {
     // An owner machine saves the Gemini key with no CLI run.
     save_api_key(&m, &cli, Agent::Gemini, "AIzaOwner1").await.unwrap();
     assert!(signed_in_at(Agent::Gemini, &root.join("home/.gemini")));
-    let e = save_api_key(&m, &cli, Agent::Gemini, "not a key").await.unwrap_err();
+    // Whitespace is stripped from a paste (`key_check::without_whitespace`), so a bad key
+    // needs a character no Gemini key has.
+    let e = save_api_key(&m, &cli, Agent::Gemini, "not/a key").await.unwrap_err();
     assert_eq!(e.reason, reason::BAD_CODE);
     // A team machine: refused before anything runs or is written.
     std::fs::create_dir_all(root.join("etc/cmux")).unwrap();
@@ -876,7 +878,7 @@ async fn opencode_signs_in_with_a_key_only() {
     let e = start(&m, &cli, Agent::OpenCode).await.unwrap_err();
     assert_eq!(e.reason, reason::UNSUPPORTED, "{e:?}");
     assert!(Agent::OpenCode.takes_api_key() && !Agent::OpenCode.signs_in_by_link());
-    let e = save_api_key(&m, &cli, Agent::OpenCode, "two words").await.unwrap_err();
+    let e = save_api_key(&m, &cli, Agent::OpenCode, "two wörds").await.unwrap_err();
     assert_eq!(e.reason, reason::BAD_CODE, "{e:?}");
     save_api_key(&m, &cli, Agent::OpenCode, "  sk-oc-0123456789 \n").await.expect("saved");
     let store = home.join(".local/share/opencode");
@@ -1174,4 +1176,63 @@ async fn a_sign_out_in_a_home_logs_out_there_only() {
         reason::UNSUPPORTED
     );
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The hosts the app may close a sign-in's own tab on once it ended (`parse::page_hosts`): the
+/// link's host first, then the provider's own sign-in hosts, and never another provider's or a
+/// host outside the sign-in.
+#[test]
+fn page_hosts_are_the_links_host_then_the_providers_own() {
+    use super::parse::page_hosts;
+    assert_eq!(page_hosts(Agent::Github, "https://github.com/login/device"), ["github.com"]);
+    assert_eq!(
+        page_hosts(Agent::Codex, "https://AUTH.OPENAI.COM/codex/device"),
+        ["auth.openai.com"]
+    );
+    // Claude's link on claude.com signs in on claude.ai and ends on platform.claude.com.
+    assert_eq!(
+        page_hosts(Agent::Claude, "https://claude.com/cai/oauth/authorize?code=true&state=abc123"),
+        [
+            "claude.com",
+            "claude.ai",
+            "platform.claude.com",
+            "console.anthropic.com",
+            "auth.anthropic.com"
+        ]
+    );
+    assert_eq!(
+        page_hosts(Agent::Claude, "https://claude.ai/oauth/authorize").first().map(String::as_str),
+        Some("claude.ai")
+    );
+    assert_eq!(
+        page_hosts(Agent::Grok, "https://accounts.x.ai/device"),
+        ["accounts.x.ai", "auth.x.ai"]
+    );
+    assert_eq!(
+        page_hosts(Agent::Cursor, "https://cursor.com/loginDeepControl?x=1"),
+        ["cursor.com"]
+    );
+    // One provider's sign-in never names another's hosts.
+    for (agent, url) in [
+        (Agent::Github, "https://github.com/login/device"),
+        (Agent::Codex, "https://auth.openai.com/codex/device"),
+    ] {
+        let hosts = page_hosts(agent, url);
+        assert!(
+            !hosts.iter().any(|h| h.contains("claude") || h.contains("anthropic")),
+            "{hosts:?}"
+        );
+    }
+    // A link that is not an allowed one for the provider closes nothing.
+    for (agent, bad) in [
+        (Agent::Github, "https://github.com.evil.example/login/device"),
+        (Agent::Github, "https://claude.ai/login"),
+        (Agent::Cursor, "https://claude.ai/login"),
+        (Agent::Claude, "http://claude.ai/login"),
+        (Agent::Claude, "https://user@claude.ai/login"),
+        (Agent::Claude, "https://claude.ai:8443/login"),
+        (Agent::Codex, ""),
+    ] {
+        assert!(page_hosts(agent, bad).is_empty(), "{bad}");
+    }
 }

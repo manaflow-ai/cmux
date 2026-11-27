@@ -48,6 +48,20 @@ python3 "$PTR" verify --pointer "$TMP/ptr1.json" --keys "$TMP/keys-b.json" 2>/de
 python3 "$PTR" verify --pointer "$TMP/ptr1.json" --keys "$TMP/keys-a.json" --channel nightly 2>/dev/null \
   && fail "an every-merge pointer verified as nightly"
 
+# --cas adds cas/1's manifest and pack (RFD 0166); a bad id is refused, and a pointer with it verifies.
+m=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+printf '{"manifest": "%s", "pack": "%s", "tree_bytes": 1, "pack_bytes": 1}\n' "$m" "${m//a/b}" >"$TMP/cas.json"
+python3 "$PTR" payload --manifest "$TMP/manifest.json" --abi-file "$TMP/abi.json" --channel every-merge \
+  --commit 1111111111111111111111111111111111111111 --committed-at 100 --out "$TMP/cas-payload" --cas "$TMP/cas.json"
+python3 "$PTR" sign --payload "$TMP/cas-payload" --key "$TMP/a.pem" --keys "$TMP/keys-a.json" --out "$TMP/cas-ptr.json"
+out=$(python3 "$PTR" verify --pointer "$TMP/cas-ptr.json" --keys "$TMP/keys-a.json" --channel every-merge)
+python3 -c 'import json,sys; c=json.loads(sys.argv[1])["cas"]; assert c=={"prefix":"cmux-next-web/cas/","manifest":"a"*64,"pack":"b"*64}, c' "$out" \
+  || fail "the cas field did not round-trip"
+printf '{"manifest": "x", "pack": "%s"}\n' "$m" >"$TMP/bad-cas.json"
+python3 "$PTR" payload --manifest "$TMP/manifest.json" --abi-file "$TMP/abi.json" --channel every-merge \
+  --commit 1111111111111111111111111111111111111111 --committed-at 100 --out "$TMP/x" --cas "$TMP/bad-cas.json" 2>/dev/null \
+  && fail "a bad cas manifest id was accepted"
+
 # The promoted NEXT workflow publishes a distinct nightly pointer. Its payload
 # and read-back verification use the same signed channel contract.
 python3 "$PTR" payload --manifest "$TMP/manifest.json" --abi-file "$TMP/abi.json" --channel nightly \
@@ -215,8 +229,14 @@ refuses "a version that is not the commit time" "$TMP/badversion.json" "${LR[@]}
 signed resigned published_at=1794209999 expires_at=1796809999
 python3 "$PTR" same-build --pointer "$TMP/rel.json" --current "$TMP/resigned.json" --keys "$TMP/keys-a.json" 2>/dev/null \
   || fail "a re-sign of the same build was not the same build"
+# The .deb and .rpm carry the signing run's version, so a re-sign that built others is the same build.
 python3 "$PTR" same-build --pointer "$TMP/rel.json" --current "$TMP/extra.json" --keys "$TMP/keys-a.json" 2>/dev/null \
-  && fail "a file with other targets was the same build"
+  || fail "a file that only adds packages was not the same build"
+signed otherbin 'targets.x86_64-unknown-linux-gnu.cmux-tui.sha256="'"$(printf 'e%.0s' {1..64})"'"'
+python3 "$PTR" same-build --pointer "$TMP/rel.json" --current "$TMP/otherbin.json" --keys "$TMP/keys-a.json" 2>/dev/null \
+  && fail "a file with another binary was the same build"
+signed notdeb 'targets.x86_64-unknown-linux-gnu.deb={"url":"https://files.cmux.com/cmux-tui/cccccccccccccccccccccccccccccccccccccccc/cmux-tui-x86_64-unknown-linux-gnu","sha256":"'"$(printf 'd%.0s' {1..64})"'","size":9}'
+refuses "a deb entry that is not a .deb" "$TMP/notdeb.json" "${LR[@]}"
 python3 "$PTR" same-build --pointer "$TMP/rel.json" --current "$TMP/machine.json" --keys "$TMP/keys-a.json" 2>/dev/null \
   && fail "a Cloud machine file was the same build as a Linux release file"
 python3 "$PTR" same-build --pointer "$TMP/rel.json" --current "$TMP/tampered.json" --keys "$TMP/keys-a.json" 2>/dev/null \
