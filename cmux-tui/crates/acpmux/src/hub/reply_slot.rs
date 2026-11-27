@@ -214,8 +214,42 @@ fn last_seq(s: &super::Session) -> u64 {
     s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).last_seq
 }
 
+/// The most bytes of replies, as JSON, one answer carries: a reply page
+/// ([`crate::rpc::REPLY_PAGE_BYTES`]) less room for the framing. [`KEEP`] replies of
+/// [`MAX_REPLY_BYTES`] each would pass the frame cap, so the oldest are left out past it.
+const ANSWER_BUDGET: usize = crate::rpc::REPLY_PAGE_BYTES - (16 << 10);
+
 fn answer(fold: &ReplyFold, count: usize) -> Vec<String> {
-    fold.newest(count.clamp(1, KEEP)).into_iter().map(crate::secret_scan::mask).collect()
+    let masked: Vec<String> =
+        fold.newest(count.clamp(1, KEEP)).into_iter().map(crate::secret_scan::mask).collect();
+    within_budget(masked, ANSWER_BUDGET)
+}
+
+/// The newest of `replies` (oldest first) whose JSON fits in `budget` bytes; the newest one
+/// always, cut to fit.
+fn within_budget(mut replies: Vec<String>, budget: usize) -> Vec<String> {
+    let json_len = |r: &str| serde_json::to_string(r).map_or(r.len(), |s| s.len()) + 1;
+    let mut used = 0;
+    let mut keep = 0;
+    for r in replies.iter().rev() {
+        let len = json_len(r);
+        if keep > 0 && used + len > budget {
+            break;
+        }
+        used += len;
+        keep += 1;
+    }
+    let mut out = replies.split_off(replies.len() - keep);
+    if let Some(newest) = out.last_mut() {
+        while json_len(newest) > budget {
+            let mut cut = newest.len() / 2;
+            while !newest.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            newest.truncate(cut);
+        }
+    }
+    out
 }
 
 impl super::Hub {

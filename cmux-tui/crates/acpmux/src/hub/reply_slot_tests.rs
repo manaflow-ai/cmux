@@ -151,3 +151,18 @@ fn reply_is_capped_on_a_char_boundary() {
     let last = fold.last().unwrap();
     assert!(last.len() <= super::MAX_REPLY_BYTES);
 }
+
+/// `-n 8` of 256 KiB replies is 2 MiB, past the 1 MiB frame cap: the answer keeps the newest
+/// that fit, and fits; control characters (6 bytes each as JSON) count at their JSON size.
+#[test]
+fn answer_fits_a_reply_page() {
+    let big = "\u{1}".repeat(super::MAX_REPLY_BYTES);
+    let replies: Vec<String> = (0..KEEP).map(|i| format!("{i}{big}")).collect();
+    let out = super::within_budget(replies.clone(), super::ANSWER_BUDGET);
+    let bytes = serde_json::to_string(&out).unwrap().len();
+    assert!(bytes <= super::ANSWER_BUDGET, "{bytes} bytes");
+    assert!(out.last().unwrap().starts_with(&format!("{}", KEEP - 1)), "newest kept");
+    // Small replies all fit, unchanged.
+    let small: Vec<String> = (0..KEEP).map(|i| format!("reply {i}")).collect();
+    assert_eq!(super::within_budget(small.clone(), super::ANSWER_BUDGET), small);
+}
