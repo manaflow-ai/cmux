@@ -1328,3 +1328,149 @@ async fn hub_outage_delivers_a_waiting_message_once_when_the_hub_returns() {
     relay.stop().await;
     let _ = std::fs::remove_dir_all(&scratch);
 }
+
+// ------------------------------------------------------------------ the drop sweep
+
+/// Chunks in the sweep's scripted turn; each frame boundary 1..=SWEEP_TOTAL is one cut.
+const SWEEP_TOTAL: u64 = 24;
+
+/// Which cut a seed gives an offset: seed 0 resets every offset (the fast default); any other
+/// seed picks reset or black hole per offset from a fixed generator, so the same seed cuts the
+/// same offsets the same way and fails the same way.
+fn sweep_cut(seed: u64, offset: u64) -> Cut {
+    if seed == 0 {
+        return Cut::Reset;
+    }
+    let mut x = seed ^ offset.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    x ^= x >> 33;
+    x = x.wrapping_mul(0xff51_afd7_ed55_8ccd);
+    x ^= x >> 33;
+    if x & 1 == 0 { Cut::Reset } else { Cut::BlackHole }
+}
+
+/// The chunk texts a client saw, in order.
+fn chunks(c: &Client) -> Vec<String> {
+    c.lines().iter().filter_map(chunk_text).map(str::to_owned).collect()
+}
+
+fn sha(parts: &[String]) -> String {
+    use sha2::Digest;
+    let mut h = sha2::Sha256::new();
+    for p in parts {
+        h.update(p.as_bytes());
+    }
+    format!("{:x}", h.finalize())
+}
+
+/// One offset: the scripted turn, the carrier cut once chunk `offset` reached A's client, the
+/// rest streamed while it is down, the carrier restored. Passes when A's client saw chunks
+/// 1..=SWEEP_TOTAL once each in order with no journal sequence twice or backwards, and the
+/// sha of what it was shown equals the sha of B's own journal of the turn (the pass rule
+/// cloud-carrier-chaos-staging applies on a real machine: contiguous seq, matching sha).
+async fn sweep_one(offset: u64, cut: Cut) -> Result<String, String> {
+    let tag = format!("sweep-{offset}");
+    let w = world(&tag, Route::Ws).await;
+    let gate = w.scratch.join("gate");
+    // B's own journal of the turn: what the agent's machine holds.
+    let mut cb = Client::new(&w._b).await;
+    cb.call(method::MUX_ATTACH, json!({"session": "lane", "limit": 0})).await.unwrap();
+    let mut ca = Client::new(&w.a).await;
+    ca.call(method::MUX_ATTACH, json!({"session": "b/lane", "limit": 0})).await.unwrap();
+    let text = format!("carrier-sweep: {SWEEP_TOTAL} {offset} {}", gate.display());
+    let turn = ca
+        .send(
+            method::SESSION_PROMPT,
+            json!({"sessionId": "b/lane", "prompt": [{"type": "text", "text": text}]}),
+        )
+        .await;
+    let at = format!("ev-{offset} ");
+    ca.find(0, STEP, |v| (chunk_text(v) == Some(at.as_str())).then_some(()))
+        .await
+        .ok_or_else(|| format!("chunk {offset} never reached A's client before the cut"))?;
+    w.carrier.cut(cut);
+    std::fs::write(&gate, b"go").unwrap();
+    w.until_not("connected", DETECT_BOUND + STEP).await.ok_or("the link never left connected")?;
+    if cut == Cut::BlackHole {
+        let deadline = Instant::now() + DETECT_BOUND + STEP;
+        while down_reason(&w.a).is_none() {
+            if Instant::now() >= deadline {
+                return Err("the black hole never took the link down".into());
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+    w.carrier.restore();
+    w.until_state("connected", REDIAL_BOUND + STEP).await.ok_or("the link never came back")?;
+    let ended = ca.reply(turn, STEP).await.ok_or("the turn never ended")?;
+    match ended {
+        Ok(r) if r["stopReason"] == "end_turn" => {}
+        other => return Err(format!("the turn ended {other:?}")),
+    }
+    let last = format!("ev-{SWEEP_TOTAL} ");
+    cb.find(0, STEP, |v| (chunk_text(v) == Some(last.as_str())).then_some(())).await;
+    ca.find(0, STEP, |v| (chunk_text(v) == Some(last.as_str())).then_some(())).await;
+    let (shown, held) = (chunks(&ca), chunks(&cb));
+    let numbers: Vec<u64> =
+        shown.iter().filter_map(|t| t.strip_prefix("ev-")?.trim().parse().ok()).collect();
+    let want: Vec<u64> = (1..=SWEEP_TOTAL).collect();
+    if numbers != want {
+        let missing: Vec<_> = want.iter().filter(|n| !numbers.contains(n)).collect();
+        return Err(format!("chunks not contiguous: shown {numbers:?}, missing {missing:?}"));
+    }
+    let seqs: Vec<u64> = ca.lines().iter().filter_map(journal_seq).collect();
+    if let Some(p) = seqs.windows(2).find(|p| p[0] >= p[1]) {
+        return Err(format!("journal sequence {} came after {}", p[1], p[0]));
+    }
+    let (got, want) = (sha(&shown), sha(&held));
+    if got != want {
+        return Err(format!(
+            "sha {got} shown, {want} in B's journal ({} vs {} chunks)",
+            shown.len(),
+            held.len()
+        ));
+    }
+    Ok(got)
+}
+
+/// The deterministic drop sweep: cuts the carrier at every frame boundary of one scripted turn,
+/// one fresh pair of daemons per offset, and lists every offset that lost, doubled or reordered
+/// output. Each failing offset is its own repro: `CARRIER_SWEEP_OFFSETS=7 CARRIER_SWEEP_SEED=S
+/// cargo test -p acpmux --test carrier_faults carrier_drop_sweep`. `cloud-carrier-chaos-staging`
+/// runs this first, so the staging journey only confirms what the sweep proved in process.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn carrier_drop_sweep_every_frame_offset_loses_nothing() {
+    let seed: u64 =
+        std::env::var("CARRIER_SWEEP_SEED").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let offsets: Vec<u64> = match std::env::var("CARRIER_SWEEP_OFFSETS") {
+        Ok(list) if !list.trim().is_empty() => list
+            .split(',')
+            .map(|s| s.trim().parse().expect("CARRIER_SWEEP_OFFSETS: numbers"))
+            .collect(),
+        _ => (1..=SWEEP_TOTAL).collect(),
+    };
+    let mut failed = Vec::new();
+    for offset in offsets {
+        let cut = sweep_cut(seed, offset);
+        // Each offset in its own task, so one offset's panic is a row of the list, not the end.
+        let outcome = tokio::spawn(sweep_one(offset, cut)).await;
+        let outcome = match outcome {
+            Ok(r) => r,
+            Err(e) => Err(format!("panicked: {e}")),
+        };
+        match &outcome {
+            Ok(sha) => {
+                eprintln!("carrier_sweep seed={seed} offset={offset} cut={cut:?} ok sha={sha}")
+            }
+            Err(why) => {
+                eprintln!("carrier_sweep seed={seed} offset={offset} cut={cut:?} FAIL {why}");
+                failed.push(format!("{offset} ({cut:?}): {why}"));
+            }
+        }
+    }
+    assert!(
+        failed.is_empty(),
+        "carrier_sweep seed={seed}: {} offset(s) lost output:\n{}",
+        failed.len(),
+        failed.join("\n")
+    );
+}
