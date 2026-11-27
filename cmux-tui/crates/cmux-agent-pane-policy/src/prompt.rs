@@ -13,7 +13,7 @@ use unicode_segmentation::UnicodeSegmentation;
 pub const REDACTED: &str = "[redacted]";
 const SCRUB_WINDOW: usize = 16 * 1024;
 
-static WHOLE: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+static WHOLE: LazyLock<Result<Vec<Regex>, regex::Error>> = LazyLock::new(|| {
     [
         r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(-----END [A-Z0-9 ]*PRIVATE KEY-----|$)",
         r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}",
@@ -28,17 +28,16 @@ static WHOLE: LazyLock<Vec<Regex>> = LazyLock::new(|| {
         r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/:@]+:[^\s/@]+@",
     ]
     .into_iter()
-    .map(|pattern| Regex::new(pattern).expect("prompt scrub regex"))
+    .map(Regex::new)
     .collect()
 });
 
-static BEARER: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(?i)(\b(?:bearer|basic)\s+)([^\s"',;]{4,})"#).unwrap());
-static VALUED: LazyLock<Regex> = LazyLock::new(|| {
+static BEARER: LazyLock<Result<Regex, regex::Error>> =
+    LazyLock::new(|| Regex::new(r#"(?i)(\b(?:bearer|basic)\s+)([^\s"',;]{4,})"#));
+static VALUED: LazyLock<Result<Regex, regex::Error>> = LazyLock::new(|| {
     Regex::new(
         r##"(?i)(\b[a-z0-9_.-]*(?:api[_-]?key|token|secret|passw(?:or)?d|pwd|credential|auth(?:orization)?)[a-z0-9_.-]*["']?\s*[:=]\s*["']?)([^\s"',;]{4,})"##,
     )
-    .unwrap()
 });
 
 pub fn scrub(text: &str, prefix: bool) -> String {
@@ -47,11 +46,15 @@ pub fn scrub(text: &str, prefix: bool) -> String {
     if out.is_empty() {
         return out;
     }
-    for pattern in WHOLE.iter() {
+    let (Ok(whole), Ok(bearer), Ok(valued)) = (&*WHOLE, &*BEARER, &*VALUED) else {
+        // A malformed pattern must never disclose the text it failed to scrub.
+        return REDACTED.to_owned();
+    };
+    for pattern in whole {
         out = pattern.replace_all(&out, REDACTED).into_owned();
     }
-    out = BEARER.replace_all(&out, "${1}[redacted]").into_owned();
-    VALUED.replace_all(&out, "${1}[redacted]").into_owned()
+    out = bearer.replace_all(&out, "${1}[redacted]").into_owned();
+    valued.replace_all(&out, "${1}[redacted]").into_owned()
 }
 
 pub fn visible(text: &str) -> String {
@@ -113,6 +116,7 @@ pub fn cut(text: &str, limit: usize) -> String {
 
 pub fn input_summary(input: &Map<String, Value>) -> Option<Value> {
     let env = input.iter().find(|(key, _)| key.eq_ignore_ascii_case("env"));
+    // Swift treats every env value except an empty object as hidden input.
     let mut truncated = env.is_some_and(|(_, value)| !value.as_object().is_some_and(Map::is_empty));
     let mut shown: Vec<(&String, &Value)> = input
         .iter()

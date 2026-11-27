@@ -24,6 +24,34 @@ fn scrubs_secret_shapes_and_limits_prefix() {
 }
 
 #[test]
+fn scrubs_each_existing_secret_shape_and_preserves_public_text() {
+    for secret in [
+        "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----",
+        "-----BEGIN RSA PRIVATE KEY-----\nunfinished",
+        "eyJabcdefgh.abcdEFGH1234.abcdEFGH1234",
+        "sk-abcdefghijklmnop",
+        "pk-abcdefghijklmnop",
+        "rk-abcdefghijklmnop",
+        "ghp_abcdefghijklmnopqrst",
+        "github_pat_abcdefghijklmnopqrst",
+        "glpat-abcdefghijklmnop",
+        "xoxb-1234567890",
+        "AKIA0123456789ABCDEF",
+        "AIzaabcdefghijklmnopqrstuvwxyz1234",
+        "npm_abcdefghijklmnopqrstuvwxyz1234",
+        "https://name:password@",
+    ] {
+        assert_eq!(scrub(secret, false), REDACTED, "{secret}");
+    }
+    for text in ["api_key = abcdef", "password: abcdef", "Authorization: Bearer abcdef"] {
+        let shown = scrub(text, false);
+        assert!(shown.contains(REDACTED), "{text}");
+        assert!(!shown.contains("abcdef"), "{text}");
+    }
+    assert_eq!(scrub("echo 'hello world' /tmp/readme", false), "echo 'hello world' /tmp/readme");
+}
+
+#[test]
 fn renders_commands_and_invisible_scalars() {
     assert_eq!(
         shown_command(Some(&json!(["bash", "-lc", "rm -rf ~"]))),
@@ -41,6 +69,17 @@ fn input_summary_hides_env_and_marks_redaction_or_overflow() {
     assert_eq!(summary["truncated"], true);
     assert_eq!(summary["fields"]["pattern"], "token: [redacted]");
     assert!(summary["fields"].get("env").is_none());
+}
+
+#[test]
+fn input_summary_matches_swift_env_cast_semantics() {
+    for env in [Value::Null, json!("hidden"), json!(["hidden"])] {
+        let input = Map::from_iter([(String::from("env"), env)]);
+        assert_eq!(input_summary(&input), Some(json!({"fields": {}, "truncated": true})));
+    }
+    assert_eq!(input_summary(&Map::from_iter([(String::from("env"), json!({}))])), None);
+    let input = Map::from_iter([(String::from("env"), json!({"TOKEN": "hidden"}))]);
+    assert_eq!(input_summary(&input), Some(json!({"fields": {}, "truncated": true})));
 }
 
 #[test]
