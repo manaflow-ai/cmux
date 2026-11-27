@@ -318,6 +318,19 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "machine-consent-v1",
         wire: &[method::MUX_MACHINE_CONSENT_SET, method::MUX_MACHINE_CONSENT_GET],
     },
+    // Control and Screen switched from the owner's app on another machine, by a grant a key
+    // pinned here signed (`cli/consent_grant.rs`).
+    Capability {
+        id: "consent-grant-v1",
+        wire: &[
+            method::MUX_CONSENT_REMOTE_STATUS,
+            method::MUX_CONSENT_REMOTE_SET,
+            method::MUX_CONSENT_GRANTOR_TRUST,
+            method::MUX_CONSENT_ACCOUNT_SET,
+            method::MUX_CONSENT_TRUST_REFRESH,
+            method::MUX_CONSENT_SCREEN_AUTO,
+        ],
+    },
     // Signing in enrolls this machine on the hub; signing out leaves only that join
     // (`server/machine_enroll.rs`). A literal id, which the app's reference check reads.
     Capability {
@@ -550,6 +563,12 @@ pub const CAPABILITIES: &[Capability] = &[
     // A listen on another member's agent address: open, list, close, and read what it receives
     // (`server/team.rs` `listen`), under the same team-messaging gate.
     Capability { id: "team-listen-v1", wire: &[method::MUX_TEAM_LISTEN] },
+    // RFD 0170 phase 1: the team navigator, recipient picker and Session Info, under the same
+    // team-messaging gate (`server/team_directory.rs`).
+    Capability {
+        id: "team-directory-v1",
+        wire: &[method::MUX_TEAM_NAVIGATOR, method::MUX_TEAM_PICK, method::MUX_TEAM_SESSION_INFO],
+    },
     // A chat's sign-in before a send, by session or target (`hub/session_auth.rs`).
     Capability { id: "session-auth-v1", wire: &[method::MUX_SESSION_AUTH] },
     // Owner-captured Cloud turns: prepare reserves a stable id before the native bridge mints
@@ -660,6 +679,18 @@ pub const CAPABILITIES: &[Capability] = &[
     // `acp.session.fork` with `subagentId` (a subagent's own conversation as a chat of its own),
     // `mode`, and `model` without `harness` (`hub/fork_subagent.rs`).
     Capability { id: crate::hub::fork_subagent::CAPABILITY, wire: &[method::ACP_SESSION_FORK] },
+    // A delete that asks for it (`grace: true` on `_acpmux/kill` with `purge`, or on
+    // `session/delete`) keeps the chat 7 days, restorable (`hub/soft_delete.rs`). Older daemons
+    // ignore `grace` and delete at once.
+    Capability {
+        id: crate::hub::soft_delete::FEATURE,
+        wire: &[
+            method::MUX_KILL,
+            method::SESSION_DELETE,
+            method::MUX_UNDELETE,
+            method::MUX_DELETED,
+        ],
+    },
 ];
 
 /// The capabilities of this build, including the local stream listener.

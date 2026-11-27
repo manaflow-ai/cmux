@@ -40,6 +40,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_COMPOSERS,
     method::MUX_COMPOSER_SET,
     method::MUX_CUSTOMIZE_RUN,
+    method::MUX_DELETED,
     method::MUX_DETACH,
     method::MUX_DETACH_PARENT,
     method::MUX_DISPATCH,
@@ -72,6 +73,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_INFO,
     method::MUX_KEEP,
     method::MUX_KILL,
+    method::MUX_LIFECYCLE,
     method::MUX_MACHINE_INFO,
     method::MUX_MAIL_ACK,
     method::MUX_MAIL_READ,
@@ -143,14 +145,18 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_TEAM_ACK,
     method::MUX_TEAM_INBOX,
     method::MUX_TEAM_LISTEN,
+    method::MUX_TEAM_NAVIGATOR,
+    method::MUX_TEAM_PICK,
     method::MUX_TEAM_READ,
     method::MUX_TEAM_SEND,
+    method::MUX_TEAM_SESSION_INFO,
     method::MUX_TRANSCRIPT_OFFLOAD,
     method::MUX_TURN_FRAMES,
     method::MUX_TURN_SHOTS,
     method::MUX_ROOMS,
     method::MUX_FOLLOW,
     method::MUX_TYPING,
+    method::MUX_UNDELETE,
     method::MUX_UPLOADS_KEEP,
     method::MUX_USAGE,
     method::MUX_V2,
@@ -241,6 +247,18 @@ pub(super) fn initialize(
     conn: &Arc<Conn>,
     params: &Value,
 ) -> Result<Value, RpcError> {
+    // A hello that names an ABI range this build shares nothing with is refused, typed, before
+    // anything is noted (`protocol/range.rs`); one that names none is a client from before the
+    // field and is served as before.
+    if params.pointer("/_meta/acpmux/abi").is_some() {
+        let (ours, theirs) = (
+            crate::protocol::range::AbiRange::ours(),
+            crate::protocol::range::AbiRange::of(params),
+        );
+        if ours.common(theirs).is_none() {
+            return Err(crate::protocol::range::refusal(ours, theirs));
+        }
+    }
     // Also set in order before the next request runs (`note_initialize`).
     note_initialize(conn, params);
     // A client that only observes (cmux-tui's chat notices watch) keeps no daemon whose
@@ -262,7 +280,7 @@ pub(super) fn initialize(
             "sessionCapabilities": {"list": {}, "fork": {}, "resume": {}, "close": {}, "delete": {}},
         },
         "authMethods": [],
-        "_meta": {"acpmux": {"version": VERSION, "abi": crate::protocol::ABI, "build": crate::hub::build(), "capabilities": capabilities,
+        "_meta": {"acpmux": {"version": VERSION, "abi": crate::protocol::ABI, "abiMin": crate::protocol::range::ABI_MIN, "build": crate::hub::build(), "capabilities": capabilities,
         // `local`: the unix socket or the proven local app
         // (`local_app.rs`), which the session pool serves.
         "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
@@ -413,5 +431,7 @@ pub(in crate::server) fn note_initialize(conn: &Conn, params: &Value) {
     // Opt-in too (`time_breakdown_gate.rs`): a client that does not ask keeps every breakdown.
     let omit = params.pointer("/_meta/acpmux/omitTimeBreakdown").and_then(Value::as_bool);
     conn.omit_time_breakdown.store(omit == Some(true), Ordering::SeqCst);
-    *conn.sent_rows.lock_or_recover() = Default::default();
+    *conn.sent_rows.lock_or_recover() = super::super::session_patch::SentRows::bounded(
+        super::super::session_patch::bound(conn.raw_text),
+    );
 }

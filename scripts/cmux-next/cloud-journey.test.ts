@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import * as journey from "./cloud-journey";
 import { spawnSync } from "node:child_process";
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -6,21 +7,28 @@ import { dirname, join } from "node:path";
 import { claudeTranscriptModelsProgram, transcriptModels } from "./cloud-journey";
 import { ensureBenchCommand, ensureBenchMarkdown, parseEnsureBench } from "./cloud-journey";
 import { execProbe, execProbeCommand, execProbeHop, execProbeMarkdown, machineStopFields, markRanOnGuest, EXEC_PROBE_NONCES, type ExecProbeRun } from "./cloud-journey";
+import { rpcFailureReason } from "./cloud-journey";
 import { Api, clientPlatformOrigin, Journey, preclaimDeployFields, preclaimGuestFacts, preclaimHoldMinutes, preclaimMetMarkdown, preclaimRefillImage, preclaimRefillToReady, runPreclaimBurst, runPreclaimChat, warmSpareRefusal } from "./cloud-journey";
 import { saveSendTrace, SEND_TRACE_SETTLE_MS } from "./cloud-journey";
-import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString } from "./cloud-journey";
-import { oidcSignIn, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
+import { claudeLoginPrograms, credentialSeen, judgeStubCredentials, launchCredentialStartProgram, loginBearer, loginPathAfterClaim, loginPrograms, MODEL_PLANE_PLACEHOLDER, startsOnLaunchCredential, preclaimPublicMeta, preclaimPublicStep, stubCodexAuth, validLogin, INSTALLER_SWIFT, JOURNEY_STUB_SCRIPT, journeyReadFileCommand, journeyReadPrompt, MODEL_STUB_PY, newReds, capacityOnly, probeRow, readEnvFile, readyMs, resolveBackend, scrub, summaryMarkdown, swiftRawString, agentReady, milestoneLines, spareTaken } from "./cloud-journey";
+import { oidcSignIn, ownerKindGated, startAfterOwnerKind, waitOwnerKind, waitPreflight, CODEX_STUB_CONFIG, OWNER_KIND_GATE_EXIT, OWNER_KIND_PROGRAM, PREFLIGHT_PROBE } from "./cloud-journey";
 import { directExec, settleBackground, keyProbeCommand, keyProbeDetail, keyProbeStatus, parseKeyProbe, KEY_PROBE_PY } from "./cloud-journey";
 import { deleteJourneyMachines, journeyMachineEligible, leakProof, machineLine, parseDeleteEntries, provenLeak, type MachineScope } from "./cloud-journey";
 import { desktopLinkDial, desktopLinkVerdict, maskAddresses, rdFrame, teamIdsIn, RD_FEEDBACK } from "./cloud-journey";
 import { carrierScrollProbe, parseScrollReport, scrollDetail } from "./cloud-journey";
 import { sessionModelVerdict } from "./cloud-journey";
-import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
+import { canonicalKey, carrierDial, carrierTicketProblem, claimToBoundSplit, classifyLeaseHit, cloudSpareReadyFrame, dialDetail, dialPhases, guestTimeline, JOURNAL_FIELD, hopSpans, hopTimes, machineIds, newMachineIds, opaquePreclaimLeaseId, opRetryable, deleteRetryable, requestTimedOut, IDLE_JOURNEY_MS, listAllMachines, listedMachine, preclaimClaimRecord, preclaimFailureRecord, preclaimHealthSnapshot, preclaimLoginMode, preclaimRunComplete, preclaimSummary, preclaimSummaryMarkdown, waitForReadySpare, waitForSpareReady, spareRecordReady, claimTookSpare, anyCloudSpareReady, installTokenTeam, staleJourneyInstalls, staleJourneyMachines, machinesByState, FAILED_JOURNEY_MS, STALE_JOURNEY_MS, LONG_JOURNEY_MS, autoMachineName } from "./cloud-journey";
 import { http as journeyHttp, socketDropped } from "./cloud-journey";
 import { sameSurgeSlots, surgeMachineIds, SURGE_PROOF_REQUEST } from "./cloud-journey";
 import { idleHeldBy, idlePauseDeadlineMs, machineIdleSeconds } from "./cloud-journey";
 import { parseClaimedMarkers, parseWarmHomeAnswer } from "./cloud-journey";
 import { platformVerdict, waitRunning } from "./cloud-journey";
+import { preclaimPhasesText } from "./cloud-journey";
+import { OWN_LOGIN_CHECK, preclaimInstallCommand } from "./cloud-journey";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("cloud journey", () => {
   test("a create stuck provisioning with no host waits for the platform's verdict and names it", async () => {
@@ -67,6 +75,8 @@ describe("cloud journey", () => {
     expect(parseWarmHomeAnswer('{\n  "accepted": true,\n  "state": "ready",\n  "shapes": [\n    {\n      "harness": "claude"\n    }\n  ]\n}\n')).toEqual({ state: "ready", reason: "reserved home chat is ready" });
     expect(parseWarmHomeAnswer('note: dialing\n{\n  "accepted": false,\n  "state": "busy"\n}')).toEqual({ state: "not_ready", reason: "warm-home answered state=busy" });
     expect(parseWarmHomeAnswer('{"accepted":false,"state":"busy"}')).toEqual({ state: "not_ready", reason: "warm-home answered state=busy" });
+    // Prod stub run 45848359611: "warm-home answered state=none" said nothing of why; acpmux now names it.
+    expect(parseWarmHomeAnswer('{"accepted":true,"state":"none","why":"another key holds its slot (warming), differing in model"}')).toEqual({ state: "not_ready", reason: "warm-home answered state=none (another key holds its slot (warming), differing in model)" });
     expect(parseWarmHomeAnswer("")).toEqual({ state: "unsupported", reason: "warm-home is unavailable on this guest image" });
     expect(parseWarmHomeAnswer("warm-home: command not found")).toEqual({ state: "unsupported", reason: "warm-home returned no JSON answer" });
   });
@@ -333,6 +343,28 @@ describe("cloud journey", () => {
     expect(md).not.toContain("install_secret");
   });
 
+  test("the preclaim install, cleanup and own-login check run as one exec", () => {
+    const dir = mkdtempSync(join(tmpdir(), "preclaim-"));
+    const run = (install: string, after = "") => {
+      const file = join(dir, "cred.json");
+      writeFileSync(file, "{}");
+      const r = spawnSync("bash", ["-c", preclaimInstallCommand(install, file, after)], { encoding: "utf8" });
+      return { code: r.status, out: r.stdout, left: existsSync(file) };
+    };
+    // A heredoc installer like loginPrograms' keeps its terminator on a line of its own.
+    expect(run("set -e\ncat <<'EOF'\ninstalled\nEOF", "echo own-login")).toEqual({ code: 0, out: "installed\nown-login\n", left: false });
+    // A refused install keeps its exit, removes the file, and skips the check.
+    expect(run("set -e\nfalse\necho never", "echo own-login")).toEqual({ code: 1, out: "", left: false });
+    expect(run("exit 3")).toEqual({ code: 3, out: "", left: false });
+    expect(OWN_LOGIN_CHECK).toContain("echo own-login");
+  });
+
+  test("the preclaim step names where its time went, phase by phase", () => {
+    expect(preclaimPhasesText(undefined)).toBe("");
+    expect(preclaimPhasesText({})).toBe("");
+    expect(preclaimPhasesText({ warm: 812, ready_wait: 6101, install: 2400 })).toBe("; phases: warm 812 ms, ready_wait 6101 ms, install 2400 ms");
+  });
+
   test("cold preclaim claims use the post-bind login fallback before chat", () => {
     expect(preclaimLoginMode(null, "cold-machine")).toBe("post-bind");
     expect(preclaimLoginMode("ready-spare", "ready-spare")).toBe("preclaim");
@@ -452,6 +484,14 @@ describe("cloud journey", () => {
     expect(capacityOnly([red("the machine did not take its first exec (vm_unavailable)")])).toBe(false);
     expect(capacityOnly([red("HTTP 429"), red("reply timed out")])).toBe(false);
     expect(capacityOnly([])).toBe(false);
+    // The journey's own capacity codes: a full team before the first create, a create refused at the cap.
+    expect(capacityOnly([red("cloud.quota.headroom quota_headroom:account-team used 5/5, need 2 (no room after 244 s, 17 reads)")])).toBe(true);
+    expect(capacityOnly([red("cloud.quota.exceeded: at the cap (no room after 60 s, 5 refusals)")])).toBe(true);
+    expect(capacityOnly([red("cloud.quota.headroom quota_headroom:t used 5/5, need 2"), red("reply timed out")])).toBe(false);
+    // The provider refusing to make a machine (run 46010808734's cold create), not a given machine breaking.
+    expect(capacityOnly([red('machine failed: {"error":{"code":"cloud.machine.create_overdue","message":"the machine\'s create did not settle within 300 s (6 failed tries, the last cloud.provider.unavailable: VM API: HTTP 503: ServiceUnavailable (vm-provider.createQueueFull))"}}')])).toBe(true);
+    expect(capacityOnly([red("FreestyleApiError: infrastructure overloaded: VM start capacity queue wait expired")])).toBe(true);
+    expect(capacityOnly([red("cloud.provider.unavailable"), red('exec: HTTP 502 "vm_unavailable"')])).toBe(false);
   });
   test("the login copy runs the Mac installer's own programs", () => {
     expect(swiftRawString('  static let x = #"""\n      a\n        b\n      """#', "x")).toBe("a\n  b");
@@ -484,6 +524,28 @@ describe("cloud journey", () => {
     expect(readyMs(steps.map((s) => (s.step === "pass Claude login" ? { ...s, status: "skip" as const } : s)))).toBeNull();
     expect(readyMs(steps.filter((s) => s.step !== "first exec"))).toBeNull();
     expect(probeRow("p", [st("create machine", 5, "fail")], undefined, at)).not.toHaveProperty("ready_ms");
+  });
+  test("agent_ready_ms is labeled warm or cold and the summary reports M17, G1 warm and M3 without failing the run", () => {
+    const at = new Date("2026-11-04T11:00:00Z");
+    const st = (step: string, ms: number, status: "pass" | "fail" | "skip" = "pass") => ({ step, status, ms, detail: "" });
+    // Production run 45100377818: create 4037 + login 1503 + start agent 1980, send 4118 + reply 959.
+    const steps = [st("create machine", 4037), st("running (status)", 0), st("first exec", 0), st("pass Claude login", 1503), st("start agent (claude)", 1980), st("send chat", 4118), st("reply", 959)];
+    expect(spareTaken({ spare_fallback: "none_ready" })).toBe(false);
+    expect(spareTaken({ spare_fallback: null, claimed_behind: false })).toBe(true);
+    expect(spareTaken({ claimed_spare: null })).toBeNull();
+    expect(agentReady(steps, true)).toEqual({ agent_ready_ms: 7520, agent_ready_path: "warm", first_reply_ms: 5077 });
+    expect(milestoneLines(steps, true)).toEqual([
+      "agent_ready_ms: 7520 (warm); first_reply_ms: 5077",
+      "- M17 click to agent ready, warm: fail (7520 ms, <= 1000 ms)",
+      "- G1 first reply, warm: fail (5077 ms, < 3000 ms)",
+      "- M3 agent started step: pass (1980 ms, <= 4000 ms)",
+    ]);
+    expect(milestoneLines(steps, false)[1]).toBe("- M17 click to agent ready, warm: not judged: a cold start");
+    expect(milestoneLines(steps, null)[2]).toBe("- G1 first reply, warm: not judged: a warm-or-cold unknown start");
+    const md = summaryMarkdown(resolveBackend("staging"), steps, {}, true);
+    expect(md.split("\n")[0]).toMatch(/^PASS: /);
+    expect(md).toContain("- M3 agent started step: pass (1980 ms, <= 4000 ms)");
+    expect(probeRow("p", steps, undefined, at, undefined, { spare_fallback: null, claimed_behind: false })).toMatchObject({ outcome: "ok", agent_ready_ms: 7520, agent_ready_path: "warm" });
   });
   test("the journey's stub script is valid for the shared model stub and its reply repeats the tool output", () => {
     expect(readFileSync(MODEL_STUB_PY, "utf8")).toContain("--ready-file");
@@ -638,6 +700,45 @@ describe("cloud journey: login preflight", () => {
     const unread = async () => ({ code: 255, stdout: "", stderr: "" });
     await expect(waitOwnerKind(unread, 0, 0, noPause)).rejects.toThrow(/reads unread \(exit 255\)/);
   });
+
+  test("the owner read rides the start's exec: one trip on an owner record, the old wait and a lone start otherwise", async () => {
+    // Real leg 45563753386 / 45571173365: the owner read was its own exec, 1.6 to 2.3 s before the start's.
+    const seen: string[] = [];
+    let kindMs: number | null | undefined;
+    const owner = async (command: string) => { seen.push(command); return { code: 0, stdout: "vm-kind=owner\n@@kind_ms 12\n@@session s\n@@prompted\n@@guest_ms 40\n", stderr: "" }; };
+    let waited = 0;
+    const r = await startAfterOwnerKind(owner, "START", 120_000, async () => { waited++; }, (ms) => { kindMs = ms; });
+    expect(seen).toHaveLength(1);
+    expect(seen[0].indexOf(OWNER_KIND_PROGRAM)).toBeGreaterThanOrEqual(0);
+    expect(seen[0].indexOf(OWNER_KIND_PROGRAM)).toBeLessThan(seen[0].indexOf("START"));
+    expect(waited).toBe(0);
+    expect(kindMs).toBe(12);
+    expect(r.stdout).toContain("@@prompted");
+    // Not owner yet: the gate keeps the start from running, the journey's wait runs, then the start alone.
+    const seen2: string[] = [];
+    const team = async (command: string) => { seen2.push(command); return seen2.length === 1 ? { code: OWNER_KIND_GATE_EXIT, stdout: "vm-kind=team\n@@kind_ms 9\n", stderr: "" } : { code: 0, stdout: "@@session s\n", stderr: "" }; };
+    await startAfterOwnerKind(team, "START", 120_000, async () => { waited++; }, () => { throw new Error("not owner"); });
+    expect(waited).toBe(1);
+    expect(seen2).toHaveLength(2);
+    expect(seen2[1]).not.toContain(OWNER_KIND_PROGRAM);
+    // A wait that fails fails the start as before, with no start run.
+    const seen3: string[] = [];
+    const none = async (command: string) => { seen3.push(command); return { code: OWNER_KIND_GATE_EXIT, stdout: "vm-kind=team\n", stderr: "" }; };
+    await expect(startAfterOwnerKind(none, "START", 120_000, async () => { throw new Error("vm-kind reads team"); }, () => {})).rejects.toThrow(/vm-kind reads team/);
+    expect(seen3).toHaveLength(1);
+    // The gate itself, in a shell: a record that is not owner stops before the start.
+    const dir = mkdtempSync(join(tmpdir(), "owner-gate-"));
+    const program = (kind: string) => ownerKindGated(`echo STARTED`).replaceAll("/etc/cmux/vm-kind", join(dir, kind)).replaceAll("/usr/local/bin/cmux-vm-kind-sync", join(dir, "no-sync"));
+    writeFileSync(join(dir, "owner"), "owner\n");
+    writeFileSync(join(dir, "team"), "team\n");
+    const ran = spawnSync("bash", ["-c", program("owner")], { encoding: "utf8" });
+    expect(ran.status).toBe(0);
+    expect(ran.stdout).toMatch(/vm-kind=owner\n@@kind_ms \d+\nSTARTED/);
+    const gated = spawnSync("bash", ["-c", program("team")], { encoding: "utf8" });
+    expect(gated.status).toBe(OWNER_KIND_GATE_EXIT);
+    expect(gated.stdout).not.toContain("STARTED");
+    rmSync(dir, { recursive: true });
+  });
 });
 
 describe("cloud journey: app cli", () => {
@@ -652,6 +753,25 @@ describe("cloud journey: leaked machine sweep", () => {
   const now = Date.UTC(2026, 10, 9, 12, 0, 0);
   const tagAt = (ms: number) => `jr-${ms.toString(36)}`;
   const ids = (rows: any[], at = now) => staleJourneyMachines(rows, at).map((m) => m.id);
+
+  test("a failed drill machine is taken once its run is FAILED_JOURNEY_MS old, not after LONG_JOURNEY_MS (run 45979891007 left six)", () => {
+    const t20 = tagAt(now - 20 * 60_000);
+    const t5 = tagAt(now - 5 * 60_000);
+    expect(FAILED_JOURNEY_MS).toBe(15 * 60_000);
+    expect(ids([
+      { id: "dead_long", name: `cloud journey auto ${t20} long`, status: "failed", last_active_at: now - 60_000 },
+      { id: "dead_move", name: `cloud journey auto ${t20} long move B`, status: "failed" },
+      { id: "young", name: `cloud journey auto ${t5} long`, status: "failed" },
+      { id: "live", name: `cloud journey auto ${t20} long`, status: "running" },
+      { id: "kept", name: `cloud journey ${t20}`, status: "failed" },
+      { id: "theirs", name: `fp-${t20}`, status: "failed" },
+    ])).toEqual(["dead_long", "dead_move"]);
+  });
+
+  test("machinesByState counts each state, most first", () => {
+    expect(machinesByState([{ status: "paused" }, { status: "failed" }, { status: "paused" }, {}])).toBe("paused 2, failed 1, ? 1");
+    expect(machinesByState([])).toBe("none");
+  });
 
   test("takes only an auto-named journey machine (and gateway) older than any journey run, in any state", () => {
     const old = tagAt(now - STALE_JOURNEY_MS - 60_000);
@@ -975,6 +1095,16 @@ describe("opRetryable", () => {
   });
 });
 
+describe("deleteRetryable", () => {
+  test("a delete retries an owner reset as well as a cut-off provider call (drill run 45979891007 leaked six)", () => {
+    expect(deleteRetryable({ ok: false, error: { code: "owner.unreachable", message: "Error: Durable Object storage operation exceeded timeout which caused object to be reset.", retryable: true } })).toBe(true);
+    expect(deleteRetryable({ ok: false, error: { code: "mutation.indeterminate", retryable: true } })).toBe(true);
+    expect(deleteRetryable({ ok: false, error: { code: "owner.unreachable", retryable: false } })).toBe(false);
+    expect(deleteRetryable({ ok: false, error: { code: "cloud.machine.not_found", retryable: false } })).toBe(false);
+    expect(deleteRetryable({ ok: true, value: {} })).toBe(false);
+  });
+});
+
 describe("Api owner.unreachable retry (cmux-platform#1442)", () => {
   const unreachable = { status: 503, body: { _tag: "OwnerUnreachable", code: "owner.unreachable", message: "Error: Network connection lost.", retryable: true } };
   const timedOut = { status: 503, body: { ok: false, error: { code: "owner.unreachable", message: "CallTimedOut: team machines: get did not answer", retryable: true } } };
@@ -1290,6 +1420,75 @@ describe("cloud journey: leaked machines (--machines, --delete-ids)", () => {
     expect(await provenLeak(entry, "ghs_token", g.get)).toBeNull();
     expect(g.calls.find((c) => c.url.startsWith("https://blob.example/"))!.auth).toBe("");
     expect(g.calls.filter((c) => c.url.startsWith("https://api.github.com/repos/manaflow-ai/cmux/")).every((c) => c.auth === "Bearer ghs_token")).toBe(true);
+  });
+
+  test("proof HTTP failures retain bounded, scrubbed diagnostics without retrying ordinary permission errors", async () => {
+    const token = "ghs_proof_secret";
+    let calls = 0;
+    const reason = await provenLeak(entry, token, async () => {
+      calls++;
+      return { status: 403, location: null, remaining: "7", text: token + " forbidden " + "x".repeat(400) };
+    });
+    expect(calls).toBe(1);
+    expect(reason).toContain("HTTP 403");
+    expect(reason).toContain("x-ratelimit-remaining=7");
+    expect(reason).toContain("[secret] forbidden");
+    expect(reason).not.toContain(token);
+    expect(Buffer.byteLength(JSON.parse(reason!.split("; body=")[1]))).toBe(200);
+  });
+
+  test("proof retries each GitHub API read once after its exhausted quota resets", async () => {
+    for (const suffix of ["/jobs/128746706182", "/runs/42485334511", "/jobs/128746706182/logs"]) {
+      for (const status of [403, 429]) {
+        const g = gh();
+        let calls = 0;
+        const sleeps: number[] = [];
+        const get = async (url: string, headers: Record<string, string>) => {
+          if (url.endsWith(suffix) && ++calls === 1) return {
+            status, location: null, remaining: "0", reset: "102", retryAfter: "3", text: "rate limit exceeded",
+          };
+          return g.get(url, headers);
+        };
+        expect(await provenLeak(entry, "ghs_token", get, {
+          now: () => 100_000, sleep: async (ms: number) => { sleeps.push(ms); },
+        })).toBeNull();
+        expect(calls).toBe(2);
+        expect(sleeps).toEqual([3000]);
+        expect(g.calls.find((c) => c.url.startsWith("https://blob.example/"))!.auth).toBe("");
+      }
+    }
+  });
+
+  test("proof retries are bounded and require an explicit exhausted quota and usable reset", async () => {
+    for (const over of [
+      { remaining: "0", reset: "102", expectedCalls: 2, expectedSleeps: [2000] },
+      { remaining: "0", reset: "500", expectedCalls: 1, expectedSleeps: [] },
+      { remaining: "0", reset: undefined, expectedCalls: 1, expectedSleeps: [] },
+      { remaining: undefined, reset: "102", expectedCalls: 1, expectedSleeps: [] },
+      { remaining: "1", reset: "102", expectedCalls: 1, expectedSleeps: [] },
+    ]) {
+      let calls = 0;
+      const sleeps: number[] = [];
+      const reason = await provenLeak(entry, "ghs_token", async () => {
+        calls++;
+        return { status: 403, location: null, text: "quota exhausted", ...over };
+      }, { now: () => 100_000, sleep: async (ms: number) => { sleeps.push(ms); } });
+      expect(reason).toContain("HTTP 403");
+      expect(reason).toContain("quota exhausted");
+      expect(calls).toBe(over.expectedCalls);
+      expect(sleeps).toEqual(over.expectedSleeps);
+    }
+  });
+
+  test("a successful quota retry still rejects an untrusted job", async () => {
+    const g = gh({ job: { name: "wake-echo" } });
+    let calls = 0;
+    const reason = await provenLeak(entry, "ghs_token", async (url, headers) => {
+      if (++calls === 1) return { status: 429, location: null, remaining: "0", retryAfter: "1", text: "quota" };
+      return g.get(url, headers);
+    }, { now: () => 100_000, sleep: async () => {} });
+    expect(reason).toContain("is not deploy-staging");
+    expect(calls).toBe(2);
   });
 
   test("a log a contributor's code could have written proves nothing, whatever it prints", async () => {
@@ -3402,6 +3601,22 @@ open(out, 'w').write(json.dumps(seen))
       rmSync(home, { recursive: true, force: true });
     }
   });
+  test("a start with no launch credential (a receipt spare's own login) sends session/new with no credentials", { timeout: 30_000 }, () => {
+    const home = mkdtempSync("/tmp/jn-");
+    try {
+      mkdirSync(join(home, ".cmux/acpmux"), { recursive: true });
+      writeFileSync(join(home, "fake.py"), FAKE_ACPMUX);
+      const program = launchCredentialStartProgram("journey-jr-1", "claude", null, null);
+      const sock = join(home, ".cmux/acpmux/acpmux.sock");
+      const script = `python3 -I fake.py ${sock} seen.json & for i in $(seq 50); do [ -S ${sock} ] && break; sleep 0.1; done\n${program}\nwait`;
+      const r = spawnSync("bash", ["-c", script], { cwd: home, env: { PATH: process.env.PATH, HOME: home }, encoding: "utf8", timeout: 20_000 });
+      expect(r.stdout).toContain("@@session s-1");
+      const seen = JSON.parse(readFileSync(join(home, "seen.json"), "utf8"));
+      expect(seen[1].params).toEqual({ mcpServers: [], cwd: home, _meta: { acpmux: { name: "journey-jr-1", harness: "claude" } } });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
   // The same fake, but it stays for the first prompt and accepts it, as acpmux's queue_prompt does.
   const FAKE_ACPMUX_PROMPT = `import json, os, socket, sys
 path, out, accept = sys.argv[1], sys.argv[2], sys.argv[3] == '1'
@@ -3842,5 +4057,106 @@ describe("a machine create with one overall deadline (run 45874526877: cold crea
       expect(Date.now() - t0).toBeLessThan(2_500);
       expect(creates()).toBeLessThanOrEqual(2);
     });
+  });
+});
+
+describe("rpcFailureReason", () => {
+  test("a 503 vm_unavailable says which Durable Object failure it was, and only the three fixed words", () => {
+    expect(rpcFailureReason("restarted")).toBe(" (restarted)");
+    expect(rpcFailureReason("overloaded")).toBe(" (overloaded)");
+    expect(rpcFailureReason("unreachable")).toBe(" (unreachable)");
+    expect(rpcFailureReason("Error: secret text")).toBe("");
+    expect(rpcFailureReason(undefined)).toBe("");
+  });
+});
+
+
+describe("wake-echo own-run cleanup", () => {
+  const scope = { repository: "manaflow-ai/cmux", run: "123", attempt: "2", job: "wake-echo", api: "https://staging.example", team: "" };
+  const machine = "vm_11111111111111111111";
+  const key = "jr-test123-cleanup-delete";
+  const withFile = async (run: (file: string) => Promise<void>) => {
+    const dir = mkdtempSync(join(tmpdir(), "wake-cleanup-test-"));
+    try { await run(join(dir, "created.json")); } finally { rmSync(dir, { recursive: true, force: true }); }
+  };
+
+  test("a fresh process recovers the returned ID and original delete key after the journey is killed", async () => withFile(async (file) => {
+    const child = spawnSync(process.execPath, ["-e", `
+      import { writeWakeCleanup } from ${JSON.stringify(new URL("./cloud-journey.ts", import.meta.url).pathname)};
+      writeWakeCleanup(${JSON.stringify(file)}, ${JSON.stringify(scope)}, ${JSON.stringify(machine)}, ${JSON.stringify(key)});
+      process.kill(process.pid, "SIGKILL");
+    `]);
+    expect(child.signal).toBe("SIGKILL");
+    const calls: string[][] = [];
+    const record = journey.readWakeCleanup(file, scope);
+    expect(record).toMatchObject({ version: 1, machine, key, scope });
+    let deleted = false;
+    await journey.cleanupWakeMachine(record, {
+      get: async (id: string) => { calls.push(["get", id]); return { status: deleted ? "deleting" : "paused" }; },
+      remove: async (id: string, k: string) => { calls.push(["delete", id, k]); deleted = true; },
+    });
+    expect(calls).toEqual([["get", machine], ["delete", machine, key], ["get", machine]]);
+    expect(readFileSync(file, "utf8")).not.toContain("token");
+  }));
+
+  test("missing record and already deleted machine need no delete", async () => withFile(async (file) => {
+    expect(journey.readWakeCleanup(file, scope)).toBeNull();
+    journey.writeWakeCleanup(file, scope, machine, key);
+    for (const row of [null, { status: "deleted" }, { status: "deleting" }]) {
+      await journey.cleanupWakeMachine(journey.readWakeCleanup(file, scope), {
+        get: async () => row, remove: async () => { throw new Error("unexpected delete"); },
+      });
+    }
+  }));
+
+  test("another run, attempt, job, backend or team cannot consume the record", async () => withFile(async (file) => {
+    journey.writeWakeCleanup(file, scope, machine, key);
+    for (const field of Object.keys(scope)) {
+      expect(() => journey.readWakeCleanup(file, { ...scope, [field]: "different" })).toThrow(/scope/);
+    }
+    const record = JSON.parse(readFileSync(file, "utf8"));
+    for (const bad of [{ ...record, version: 2 }, { ...record, machine: "" }, { ...record, key: "" }]) {
+      writeFileSync(file, JSON.stringify(bad));
+      expect(() => journey.readWakeCleanup(file, scope)).toThrow(/record/);
+    }
+  }));
+
+  test("read errors never trigger deletion and an unconfirmed delete fails", async () => withFile(async (file) => {
+    journey.writeWakeCleanup(file, scope, machine, key);
+    const record = journey.readWakeCleanup(file, scope);
+    await expect(journey.cleanupWakeMachine(record, {
+      get: async () => { throw new Error("HTTP 403"); },
+      remove: async () => { throw new Error("unexpected delete"); },
+    })).rejects.toThrow("HTTP 403");
+    await expect(journey.cleanupWakeMachine(record, {
+      get: async () => ({ status: "paused" }), remove: async () => {},
+    })).rejects.toThrow(/not confirmed/);
+  }));
+
+  test("a lost delete reply is settled by readback without hiding a live machine or another error", async () => withFile(async (file) => {
+    journey.writeWakeCleanup(file, scope, machine, key);
+    const record = journey.readWakeCleanup(file, scope);
+    for (const status of ["deleted", "deleting"]) {
+      let called = false;
+      await journey.cleanupWakeMachine(record, {
+        get: async () => ({ status: called ? status : "paused" }),
+        remove: async () => { called = true; throw new Error("TimeoutError"); },
+      });
+    }
+    await expect(journey.cleanupWakeMachine(record, {
+      get: async () => ({ status: "paused" }), remove: async () => { throw new Error("mutation.indeterminate"); },
+    })).rejects.toThrow("mutation.indeterminate");
+  }));
+
+  test("workflow cleans its record on failure or cancellation before artifact upload", () => {
+    const workflow = readFileSync(new URL("../../.github/workflows/cloud-wake-echo.yml", import.meta.url), "utf8");
+    const cleanup = workflow.indexOf("- name: Delete this run's machine");
+    expect(cleanup).toBeGreaterThan(workflow.indexOf("--wake-echo 50"));
+    const step = workflow.slice(cleanup, workflow.indexOf("uses: actions/upload-artifact", cleanup));
+    expect(step).toContain("if: always()");
+    expect(step).toContain("timeout-minutes: 6");
+    expect(step).toContain('--cleanup-wake-record "$out/created-machine.json"');
+    expect(workflow).toContain('--wake-cleanup-record "$out/created-machine.json"');
+    expect(workflow).toContain("wake-echo-${{ github.run_id }}-${{ github.run_attempt }}");
   });
 });

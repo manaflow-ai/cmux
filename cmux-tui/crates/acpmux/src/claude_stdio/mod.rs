@@ -309,10 +309,19 @@ mod elicitation_tests;
 mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
 mod dedupe;
+mod dedupe_search;
+/// Whether dedupe is on now, for the harness-magic stamp (`hub/harness_magic.rs`).
+pub(crate) use dedupe::enabled as dedupe_enabled;
+#[cfg(test)]
 pub(crate) use dedupe::enabled_with as dedupe_enabled_with;
 mod dedupe_shell;
+mod dir_rules;
+/// Whether path rules are on now, for the harness-magic stamp (`hub/harness_magic.rs`).
+pub(crate) use dir_rules::enabled as dir_rules_enabled;
 #[cfg(test)]
 mod dedupe_tests;
+#[cfg(test)]
+mod dir_rules_tests;
 mod foreground_work;
 #[cfg(test)]
 mod foreground_work_tests;
@@ -334,6 +343,10 @@ mod live_name_tests;
 mod loops;
 #[cfg(test)]
 mod loops_tests;
+// When each model call went out and came back, for the turn's Timeline (`model_calls.rs`).
+mod model_calls;
+#[cfg(test)]
+mod model_calls_tests;
 pub(crate) mod native_messaging;
 mod outbound;
 mod policy_gate;
@@ -626,6 +639,8 @@ pub struct Translator {
     gate: policy_gate::PolicyGate,
     /// Harness magic `dedupe` (dedupe.rs).
     dedupe: Arc<dedupe::Dedupe>,
+    /// Harness magic `dirRules` (dir_rules.rs).
+    dir_rules: Arc<dir_rules::DirRules>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -700,8 +715,15 @@ pub struct Translator {
     /// changes nothing sends no new one.
     sent_commands: Mutex<Option<Vec<Value>>>,
     /// Lines for claude's stdin produced while reading its stdout (answers
-    /// to control requests acpmux declines). The reader drains them.
-    stdin_replies: Mutex<Vec<Value>>,
+    /// to control requests acpmux declines). The reader drains them after each line, and
+    /// again whenever [`Translator::replies_ready`] fires: an answer worked out off the
+    /// reader (`hook_callback.rs`) lands here later.
+    stdin_replies: Arc<Mutex<Vec<Value>>>,
+    /// Notified when a line lands in `stdin_replies` off the stdout reader.
+    replies_ready: Arc<tokio::sync::Notify>,
+    /// Owns the tasks that work out answers off the stdout reader, and the ones that write
+    /// them (`hook_callback.rs`, [`Translator::scope`]): they end with the translator.
+    scope: cmux_scope::Scope,
     /// Running Agent (Task) tool calls: tool_use id -> the subagent session
     /// id their lines stream under.
     subagents: Mutex<HashMap<String, String>>,
@@ -737,6 +759,8 @@ pub struct Translator {
     context_from_compaction: AtomicBool,
     /// When the chat's prompt cache expires (`prompt_cache.rs`).
     cache: prompt_cache::CacheClock,
+    /// When the main loop's model call went out and came back (`model_calls.rs`).
+    model_clock: model_calls::ModelClock,
     /// A compaction just ended: the synthetic user line Claude writes next
     /// is its summary (`compaction_summary`).
     awaiting_summary: AtomicBool,
@@ -840,6 +864,7 @@ impl Translator {
             elicitations: Mutex::new(HashMap::new()),
             gate: Default::default(),
             dedupe: Default::default(),
+            dir_rules: Default::default(),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
@@ -870,7 +895,9 @@ impl Translator {
             slash_commands: Mutex::new(Vec::new()),
             skills: Mutex::new(None),
             sent_commands: Mutex::new(None),
-            stdin_replies: Mutex::new(Vec::new()),
+            stdin_replies: Arc::new(Mutex::new(Vec::new())),
+            replies_ready: Arc::new(tokio::sync::Notify::new()),
+            scope: cmux_scope::Scope::new("claude-translator"),
             subagents: Mutex::new(HashMap::new()),
             background_subagents: Mutex::new(HashSet::new()),
             subagent_tasks: Mutex::new(HashMap::new()),
@@ -883,6 +910,7 @@ impl Translator {
             turn_calls: AtomicU64::new(0),
             context_from_compaction: AtomicBool::new(false),
             cache: Default::default(),
+            model_clock: Default::default(),
             awaiting_summary: AtomicBool::new(false),
             compacting: AtomicBool::new(false),
             cancelled_compaction: AtomicBool::new(false),
@@ -1011,6 +1039,19 @@ impl Translator {
 
     pub async fn take_stdin_replies(&self) -> Vec<Value> {
         std::mem::take(&mut *self.stdin_replies.lock().await)
+    }
+
+    /// Fires (keeping a permit when nobody waits) each time an answer worked out off the
+    /// stdout reader lands in the stdin replies: whoever writes claude's stdin then takes
+    /// them with [`Translator::take_stdin_replies`] without waiting for its next stdout line.
+    pub fn replies_ready(&self) -> Arc<tokio::sync::Notify> {
+        self.replies_ready.clone()
+    }
+
+    /// The owner of this translator's background tasks, which its drop cancels. A task
+    /// spawned here holds no strong handle to the translator (that would keep it alive).
+    pub fn scope(&self) -> &cmux_scope::Scope {
+        &self.scope
     }
 
     /// The `available_commands_update` for Claude's slash commands, an entry

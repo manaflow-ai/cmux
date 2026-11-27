@@ -74,7 +74,16 @@ pub(super) async fn handle(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Resul
                     continue;
                 };
                 let started = hub
-                    .bg_start(&session, &command, None, description, notify, result_line, None)
+                    .bg_start(
+                        &session,
+                        &command,
+                        None,
+                        description,
+                        notify,
+                        result_line,
+                        None,
+                        crate::session_budget::TaskClass::Task,
+                    )
                     .await?;
                 rearmed.push(json!({"from": from, "id": started.get("id")}));
             }
