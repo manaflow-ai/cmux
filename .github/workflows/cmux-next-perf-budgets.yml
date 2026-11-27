@@ -411,7 +411,7 @@ jobs:
   measure:
     name: perf cron part (fleet, background)
     needs: plan
-    # Its own gateway label only (see the top of this file); unset, this job is skipped.
+    # Keep the existing gateway opt-in (see the top of this file); unset, this job is skipped.
     if: ${{ needs.plan.outputs.action == 'part' && needs.plan.outputs.part != '' && vars.CI_PERF_CRON_GATEWAY != '' }}
     # The client waits on Linux; native work stays on the fleet worker.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}

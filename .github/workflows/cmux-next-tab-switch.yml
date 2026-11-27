@@ -202,7 +202,7 @@ jobs:
         with:
           controller: ${{ vars.CMUX_FLEET_CONTROLLER }}
 
-      # No checkout: the gateway runner takes only thin cmux-ci clients. The display worker checks out the base
+      # Only fleet client tooling is checked out here. The display worker checks out the base
       # commit (the harness) and builds the head.
       - name: Measure tab switches on a display Mac
         env:

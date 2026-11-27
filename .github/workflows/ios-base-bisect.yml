@@ -64,7 +64,7 @@ jobs:
     if: ${{ needs.plan.outputs.good != '' && vars.CI_EVAL_STEP_GATEWAY != '' }}
     # The Linux fleet client only hands each probe to the controller with cmux-ci run.
     # The client waits on Linux; native work stays on the fleet worker.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: write token stays on a one-job Linux VM
     # At most MAX_PROBES (8) simulator steps of up to an hour each, plus their queue.
     timeout-minutes: 600
     permissions:

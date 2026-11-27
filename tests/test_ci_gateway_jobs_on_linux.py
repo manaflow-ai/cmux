@@ -22,6 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 ACTION = ROOT / ".github" / "actions" / "fleet-client" / "action.yml"
 LINUX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}"
+ISOLATED_LINUX = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}"
+WRITE_TOKEN_GATEWAYS = {"fleet-compile-check.yml#compile-check", "ios-base-bisect.yml#bisect"}
 
 GATEWAY_MAC = frozenset({
     "chief-evals.yml#fleet-ab",
@@ -81,7 +83,7 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
         for key, marker in MOVED.items():
             with self.subTest(key):
                 job = found[key]
-                self.assertEqual(job["runs-on"], LINUX)
+                self.assertEqual(job["runs-on"], ISOLATED_LINUX if key in WRITE_TOKEN_GATEWAYS else LINUX)
                 steps = job["steps"]
                 prefix = ".fleet-tooling/" if key in HISTORICAL else ""
                 checkout = next(s for s in steps if str(s.get("uses", "")).startswith("actions/checkout")
@@ -116,6 +118,21 @@ class GatewayJobsOnLinuxTests(unittest.TestCase):
                 permissions = found[key].get("permissions", document.get("permissions", {}))
                 self.assertIn(permissions.get("contents"), {"read", "write"})
                 self.assertNotIn(key, routes)
+
+    def test_write_token_clients_keep_one_job_isolation(self) -> None:
+        found = dict(jobs())
+        for key in PORTABLE_GATEWAYS:
+            with self.subTest(key):
+                source = (WORKFLOWS / key.split("#")[0]).read_text()
+                document = yaml.safe_load(source)
+                permissions = found[key].get("permissions", document.get("permissions", {}))
+                writes = permissions == "write-all" or (
+                    isinstance(permissions, dict) and "write" in permissions.values())
+                self.assertEqual(writes, key in WRITE_TOKEN_GATEWAYS,
+                                 "a new write permission requires an isolated runner")
+                if writes:
+                    self.assertEqual(found[key]["runs-on"], ISOLATED_LINUX)
+                    self.assertIn("# ephemeral-required:", source)
 
     def test_gh_is_installed_before_its_first_use(self) -> None:
         found = dict(jobs())
