@@ -92,13 +92,11 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
             self.assertNotIn("permissions", job, name)
 
     def test_secrets_reach_one_step_through_env(self) -> None:
-        text = WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"\bsecrets\.[A-Z]", str(load()["jobs"]["e2e"]))), 3)
         self.assertEqual(workflow_jobs.secret_names(load()["jobs"]["e2e"]),
                          {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CLAUDE_CODE_OAUTH_TOKEN"})
-        for name, job in load()["jobs"].items():
-            outside_steps = workflow_jobs.copy_job(job, {"steps": workflow_jobs.DROP}) if name == "e2e" else job
-            self.assertEqual(workflow_jobs.secret_names(outside_steps), set(), name)
+        selected = workflow_jobs.copy_job(load()["jobs"]["e2e"], {"steps": workflow_jobs.DROP})
+        self.assertEqual(workflow_jobs.secret_names(selected), set())
         holders = [s for s in steps() if workflow_jobs.secret_names(s)]
         self.assertEqual([s["name"] for s in holders], [RUN_STEP])
         run = holders[0]

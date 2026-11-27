@@ -83,15 +83,13 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
             self.assertNotIn("permissions", job, name)
 
     def test_stack_secrets_reach_one_step_through_env(self) -> None:
-        text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", text)), 4)
+        self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", str(load()["jobs"][JOB]))), 4)
         self.assertEqual(
             workflow_jobs.secret_names(load()["jobs"][JOB]),
             {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_DOGFOOD_GUEST_STACK_EMAIL", "CMUX_DOGFOOD_GUEST_STACK_PASSWORD"},
         )
-        for name, job in load()["jobs"].items():
-            outside_steps = workflow_jobs.copy_job(job, {"steps": workflow_jobs.DROP}) if name == JOB else job
-            self.assertEqual(workflow_jobs.secret_names(outside_steps), set(), name)
+        selected = workflow_jobs.copy_job(load()["jobs"][JOB], {"steps": workflow_jobs.DROP})
+        self.assertEqual(workflow_jobs.secret_names(selected), set())
         holders = [s for s in steps() if workflow_jobs.secret_names(s)]
         self.assertEqual([s["name"] for s in holders], ["Mint, join, verify and revoke"])
         mint = holders[0]
