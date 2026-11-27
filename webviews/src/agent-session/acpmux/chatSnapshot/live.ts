@@ -438,6 +438,7 @@ export function noteChatTheme(key: unknown): void {
 /// streaming reply writes at most once per ``WRITE_GAP_MS``, never per frame or per delta.
 const QUIET_MS = 1_500;
 const WRITE_GAP_MS = 10_000;
+const IDLE_WRITES_PER_GAP = 3;
 /// How long a resize rests before the copy is written at the new size (``watchChatSnapshot``).
 const RESIZE_QUIET_MS = 400;
 /// The host event that asks for a write now (the tab was hidden; AgentPaneView+PageHost).
@@ -494,9 +495,29 @@ export function watchChatSnapshot(
       },
     );
   };
+  // A change on a page that already rests (the switched-to chat's rows landing after the beat that
+  // rested it) has no beat coming to ride: the write goes at the page's next idle moment, inside the wake
+  // the change already is, rather than on its own timer QUIET_MS + RIDE_SLACK_MS later (3.46 s into the
+  // rest, bench/chat-switch.bench.ts idle_wakeups). A switch settles in a few batches (its minimap list
+  // followed the first idle write by 20 ms), so up to IDLE_WRITES_PER_GAP such writes per WRITE_GAP_MS;
+  // a turn streaming into a resting page then writes on the timer as before.
+  let idleWrite = false;
+  const idleWrites: number[] = [];
+  const idle = (view as { requestIdleCallback?: (run: () => void) => number }).requestIdleCallback;
   const schedule = () => {
-    if (timer !== undefined || stopped) return;
+    if (timer !== undefined || idleWrite || stopped) return;
     const now = performance.now();
+    while (idleWrites.length > 0 && now - idleWrites[0]! >= WRITE_GAP_MS) idleWrites.shift();
+    if (idle && slackTimers.resting && idleWrites.length < IDLE_WRITES_PER_GAP) {
+      idleWrite = true;
+      idle.call(view, () => {
+        if (!idleWrite) return;
+        idleWrite = false;
+        idleWrites.push(performance.now());
+        write("rest-change");
+      });
+      return;
+    }
     const due = Math.max(changedAt + QUIET_MS, wroteAt + WRITE_GAP_MS) - now;
     // On the page's shared timer, up to a heartbeat late: the quiet write rides a beat instead of
     // waking a chat at rest by itself (slackTimers.ts).
@@ -521,6 +542,7 @@ export function watchChatSnapshot(
   // idle_wakeups). One MutationObserver callback per batch of changes: a clear and a set, no wakeup.
   const changed = () => {
     changedAt = performance.now();
+    if (idleWrite) return;
     slackTimers.cancel(timer);
     timer = undefined;
     schedule();
@@ -545,6 +567,7 @@ export function watchChatSnapshot(
   };
   view.addEventListener("resize", resized);
   const now = (cause: string) => {
+    idleWrite = false;
     slackTimers.cancel(timer);
     write(cause);
   };
