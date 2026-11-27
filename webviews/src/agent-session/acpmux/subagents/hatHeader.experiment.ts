@@ -16,7 +16,7 @@ export const hatHeaderLook = defineExperiment({
   id: "composer-hat-header",
   title: "Composer hat: the top bar",
   description:
-    "The hat's top bar: as today, one harness icon per running line that pops and names its line on hover (a click opens it), a deck of cards that flips to the hovered one, or the icon strip with the hide control as an eye circle at the right, a pill at the left, or a slim bar along the top.",
+    "The hat's top bar: as today, one harness icon per running line (a click opens it), a fanned deck of cards, or the icon strip with the hide control as an eye circle at the right, a pill at the left, or a slim bar along the top. Hovering a mark changes nothing in the words.",
   arms: {
     today: {
       label: "Today",
@@ -26,12 +26,12 @@ export const hatHeaderLook = defineExperiment({
     strip: {
       label: "Icon strip",
       description:
-        "One harness icon per running line (Claude, Codex, a command's terminal). Pointing at one pops it and the header's words become that line's name and latest step; running the pointer along the strip thumbs through them with no delay; a click opens it; leaving gives the summary back.",
+        "One harness icon per running line (Claude, Codex, a command's terminal). A click opens it; pointing at one changes nothing in the header's words (Leo, 2026-11-27).",
     },
     cards: {
       label: "Rolodex cards",
       description:
-        "The running lines as a fanned deck of small cards. The hovered card flips to the front and names its line in the header; the scroll wheel over the deck thumbs card to card; a click opens the front card.",
+        "The running lines as a fanned deck of small cards; a click opens a card. Pointing at one changes nothing in the header's words (Leo, 2026-11-27).",
     },
     eye: {
       label: "Strip, eye at the right",

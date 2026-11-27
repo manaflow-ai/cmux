@@ -30,6 +30,7 @@
 // commit SHA reads as quiet monospace, and a message from another machine names that machine's
 // files, which draw with its name and a lock (chips/messageScope.ts).
 import { useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useHoverMarquee } from "../../../ui/hoverMarquee";
 import { useT, type StringKey } from "../i18n";
 import type { PromptImage } from "../model";
 import { messagePreview, unsigned, type IncomingMessage, type IncomingRelation } from "./incomingMessage";
@@ -223,6 +224,16 @@ export function SenderChip({
   withMark?: boolean;
 }) {
   const t = useT();
+  // A cut name or machine ("m5pro-24…") scrolls once to show its end while the pointer rests on it
+  // (Leo, 2026-11-27: "it shows all the way, and when you hover it pushes to the left"; ui/hoverMarquee.ts).
+  // Each part is the box that clips its own words: the chip's label (or the plain tag) and the machine.
+  const chipNode = useRef<HTMLSpanElement | null>(null);
+  useHoverMarquee(chipNode, (node) => [
+    ...[...node.querySelectorAll<HTMLElement>(".cv-agent-tag")].map(
+      (tag) => tag.querySelector<HTMLElement>(".cv-agent-tag__label") ?? tag,
+    ),
+    ...node.querySelectorAll<HTMLElement>(".cv-received__host"),
+  ]);
   // A Chief's message names the Chief and draws its avatar (chiefFace.ts); its turn session is no
   // chat of the list, so no listed chat with its name stands in for it, and it is no chat to open.
   // A program acpmux saw send it (incomingMessage.ts `senderProgram`) is no chat either: a fleet
@@ -307,7 +318,7 @@ export function SenderChip({
   const open = openHost ? t("subagents.openOnHost", { name, host: openHost }) : t("subagents.open", { name });
   return (
     // Its own part of the line: the name opens the sender's chat or nothing, never the message.
-    <span className="cv-received__sender" data-own-click="">
+    <span ref={chipNode} className="cv-received__sender" data-own-click="">
       {withMark && (
         <span
           className="cv-received__mark"

@@ -1,13 +1,11 @@
 /* The composer hat's top bar (hatHeader.experiment.ts, HatHeadDeck.tsx, SubagentTray.tsx). Leo,
-   2026-11-20: "thumb through them like a Rolodex or whatever at the top ... there's a slight pop ...
-   all of these functionality bits, like they ought to be fast". Nothing here moves layout: the bar
-   keeps its one row's height and its trailing columns, a mark's pop and a card's flip are transforms
-   only, and the words that change with the pointer truncate in the title's own box. */
+   2026-11-20: "thumb through them like a Rolodex or whatever at the top ... all of these functionality
+   bits, like they ought to be fast". Nothing here moves layout: the bar keeps its one row's height and
+   its trailing columns. Pointing at a mark changes nothing (Leo, 2026-11-27: "tdont think we should
+   have this hover anymore it's really bad"); a click opens its line. */
 
 /* ---------- the deck: one mark per running line ---------- */
 .acpmux-hat-deck {
-  /* The pop's overshoot: a small spring on the move token, for a direct pointer touch. */
-  --acpmux-deck-spring: cubic-bezier(0.34, 1.45, 0.64, 1);
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -15,8 +13,8 @@
   /* The first mark sits in the lines' icon column, its hit box reaching into the inset. */
   margin-inline-start: calc(-1 * var(--grid-half-step));
 }
-/* Each mark's hit box is the bar's full height and touches the next, so the pointer running along the
-   strip goes from one mark to the next and never falls back to the summary between them. */
+/* Each mark's hit box is the bar's full height and touches the next, so a click anywhere along the
+   strip lands on a mark. */
 .acpmux-hat-deck__mark {
   position: relative;
   display: inline-flex;
@@ -30,21 +28,9 @@
   display: inline-flex;
   line-height: 0;
   color: var(--agent-muted);
-  transform-origin: 50% 60%;
-  transition:
-    transform var(--agent-motion-move, 180ms) var(--acpmux-deck-spring),
-    opacity var(--agent-motion-hover, 80ms) var(--agent-ease-out, ease-out);
 }
 .acpmux-hat-deck__face svg {
   display: block;
-}
-/* The pointed-at mark pops, a touch up and larger; the others step back so it reads first. */
-.acpmux-hat-deck__mark[data-peeked] > .acpmux-hat-deck__face {
-  transform: translateY(-1px) scale(1.08);
-  color: var(--agent-text);
-}
-.acpmux-hat-deck[data-peeking] > .acpmux-hat-deck__mark:not([data-peeked]) > .acpmux-hat-deck__face {
-  opacity: 0.5;
 }
 .acpmux-hat-deck__rest {
   flex: none;
@@ -53,7 +39,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ---------- `cards`: a fanned deck that flips to the hovered card ---------- */
+/* ---------- `cards`: a small fanned deck ---------- */
 .acpmux-hat-deck[data-look="cards"] {
   margin-inline-start: 0;
 }
@@ -69,43 +55,6 @@
   border-radius: var(--ds-radius-control, 6px);
   background: color-mix(in srgb, var(--agent-page-bg, Canvas) 86%, var(--agent-text));
   box-shadow: inset 0 0 0 var(--cmux-hairline, 1px) color-mix(in srgb, var(--agent-text) 14%, transparent);
-  transform-origin: 50% 100%;
-}
-/* The front card: on top of the deck, lifted, flipped up from its bottom edge as a Rolodex card turns. */
-.acpmux-hat-deck[data-look="cards"] > .acpmux-hat-deck__mark[data-peeked] {
-  z-index: var(--layer-sticky) !important;
-}
-.acpmux-hat-deck[data-look="cards"] > .acpmux-hat-deck__mark[data-peeked] > .acpmux-hat-deck__face {
-  transform: translateY(-2px) scale(1.08);
-  animation: acpmux-hat-deck-flip var(--agent-motion-move, 180ms) var(--agent-ease-out, ease-out);
-}
-/* The cards behind it fan away a little, so the front one stands clear of its neighbours. */
-.acpmux-hat-deck[data-look="cards"] > .acpmux-hat-deck__mark[data-peeked] ~ .acpmux-hat-deck__mark > .acpmux-hat-deck__face {
-  transform: translateX(4px);
-}
-.acpmux-hat-deck[data-look="cards"][data-peeking] > .acpmux-hat-deck__mark:not([data-peeked]) > .acpmux-hat-deck__face {
-  opacity: 0.7;
-}
-@keyframes acpmux-hat-deck-flip {
-  from {
-    transform: perspective(160px) rotateX(-55deg) translateY(1px);
-  }
-  to {
-    transform: translateY(-2px) scale(1.08);
-  }
-}
-
-/* No motion: every state is there at once. */
-:root[data-cmux-motion="reduced"] .acpmux-hat-deck__face,
-:root[data-cmux-motion="off"] .acpmux-hat-deck__face {
-  transition: none;
-  animation: none !important;
-}
-@media (prefers-reduced-motion: reduce) {
-  .acpmux-hat-deck__face {
-    transition: none;
-    animation: none !important;
-  }
 }
 
 /* ---------- the hide control's places (`eye`, `pill`, `bar`) ---------- */
