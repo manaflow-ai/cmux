@@ -477,3 +477,4 @@ cmux-tui/crates/cmux-cloud-config/src/config.rs	com.cmuxterm.app	1	keep	RELEASE_
 scripts/cmux-next/restart-to-update-migration.py	/tmp/cmux-{channel}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/titlebar-hover-reveal.py	/tmp/cmux-debug-{o.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
 scripts/cmux-next/update-card-resize-drag.py	/tmp/cmux-debug-{o.tag}.sock	1	keep	dev harness: a DEV-tagged build's control socket, or Classic by design (scripts ship in no build)
+cmux-tui/crates/cmux-cloud-config/src/config.rs	com.cmuxterm.app"	1	keep	RELEASE_BUNDLE_ID names the release channel so its signed builds share the keychain access group (#46910); no read or write under it
