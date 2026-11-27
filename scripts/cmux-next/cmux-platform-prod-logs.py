@@ -463,7 +463,10 @@ PUBLIC_FIELDS = {"team": ID, "teamId": ID, "machine": ID, "machineId": ID, "vm":
                  "mode": TOKEN, "attempt": INT, "total_ms": INT, "path": TOKEN, "fallback": TOKEN, "behind": INT,
                  "paused_for_ms": INT, "why": TOKEN, "exit": INT,
                  # cloud.approval.run's split (cmux-platform#2295): queued, re-admission, delivery and the run itself.
-                 "queued_ms": INT, "admit_ms": INT, "delivery_ms": INT, "run_ms": INT}
+                 "queued_ms": INT, "admit_ms": INT, "delivery_ms": INT, "run_ms": INT,
+                 # machines.spare.fill's refill timing (cmux-platform lane/spare-fill-log-timing, hq#31487): the create
+                 # call, claim to fill start, the fill's age; and how many spares a claim could take.
+                 "reserve_ms": INT, "claim_to_fill_ms": INT, "fill_age_ms": INT, "claimable": INT}
 # Booleans a kept line may keep, only as true or false (cloud.spare.gateway_read, cmux-platform#1629: what a spare
 # claim's gateway check read: the shared route, a gateway host here, and whether the team's creates lack a rule;
 # cloud.machine.start_overdue and power_overdue: whether the machine's create or call was still running).
@@ -524,6 +527,30 @@ POWER_SPLIT = ("find_ms", "call_ms", "verify_ms", "provider_ms")
 # claim; only these say which spare wake they were. Each is kept only as one of its fixed words, any other dropped.
 START_KINDS = frozenset({"person", "window", "refresh", "warm"})
 START_BEFORE = frozenset({"paused", "stopped", "pausing", "starting", "running", "other"})
+
+
+# cloud.start.first_reply (cmux-platform StartTrace.ts firstReplyOf): `steps`, each hop's ms of one real chat's start
+# (StartTrace.ts HOPS, hopDurations), `first`, the hop that opened its trace, and `cold`, the agent_start span's cold
+# flag. Without them a 140-180 s create reads only `ms` and `path` (production 2026-11-27 05:15-06:50Z, hq#32155,
+# hq#32203): boot, agent start and the model's own wait cannot be told apart. A hop not listed here is dropped.
+FIRST_REPLY_HOPS = ("click", "send", "api", "carrier", "placement", "provider_create", "restore", "wake", "boot",
+                    "network", "agent_auth", "agent_start", "model_request", "first_token")
+
+
+def first_reply_split(j):
+    """{steps, first, cold} from a first_reply line: listed hops with int ms, in HOPS order; anything else dropped."""
+    out = {}
+    steps = j.get("steps")
+    if isinstance(steps, dict):
+        kept = {h: steps[h] for h in FIRST_REPLY_HOPS if base.typed(INT, steps.get(h)) is not None}
+        if kept:
+            out["steps"] = kept
+    if j.get("first") in FIRST_REPLY_HOPS:
+        out["first"] = j["first"]
+    cold = base.typed(INT, j.get("cold"))
+    if cold is not None:
+        out["cold"] = cold
+    return out
 
 
 def power_split(power):
@@ -932,6 +959,8 @@ def public_log(j):
             out["kind"] = j["kind"]
         if j.get("before") in START_BEFORE:
             out["before"] = j["before"]
+    if msg == "cloud.start.first_reply":
+        out.update(first_reply_split(j))
     if msg == "cloud.spare.promotion_failed":
         rev = image_rev(j.get("image"))
         if rev is not None:

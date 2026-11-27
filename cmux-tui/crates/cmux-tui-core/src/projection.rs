@@ -143,6 +143,9 @@ pub const WARM: &str = "projection.warm";
 pub const WARM_MAX_FILES: usize = 256;
 /// The most bytes one [`WARM`] fetches.
 pub const WARM_MAX_BYTES: u64 = 32 * 1024 * 1024;
+/// What the agent changed that Bring Back would carry, and what stays on the machine, as counts
+/// (module docs).
+pub const UNSYNCED: &str = "projection.unsynced";
 /// How long after the daemon starts the first reaper pass runs (acpmux starts beside it).
 const REAP_FIRST_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 /// How often the reaper runs.
@@ -378,7 +381,7 @@ pub fn frame_command(line: &str) -> Option<&'static str> {
         return None;
     }
     let cmd = object.get("cmd")?.as_str()?;
-    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, PIN, UNPIN, PINS, UNSYNCED, WARM]
+    [SERVE, LAYER, FILES, DROP, BROUGHT_BACK, RELEASE, PIN, UNPIN, PINS, WARM, UNSYNCED]
         .into_iter()
         .find(|known| *known == cmd)
 }
@@ -626,6 +629,10 @@ struct WayBackLine {
     /// [`WARM`]'s paths, relative to the projected folder.
     #[serde(default)]
     paths: Vec<String>,
+    /// [`LAYER`]: leave dependency, cache and build folders out of the listing
+    /// (`cmux_projection::layer::Layer::collect_pruned`); they follow it as `pruned_bytes`.
+    #[serde(default)]
+    prune: bool,
 }
 
 /// A projection name: 1-64 letters, digits, `-` or `_`.
@@ -715,21 +722,24 @@ fn way_back_answer(
             }
             .map_err(|error| io(&error))?;
             let mut encoded = layer.encode().map_err(|error| io(&error))?;
-            let mut data = json!({"bytes": encoded.len(), "upper": layer.upper.len(),
-                                  "whiteouts": layer.whiteouts.len(), "mark": mark});
-            if line.prune {
+            let data = if line.prune {
                 // The pruned folders follow the listing, so a dial with thousands of them
                 // (`__pycache__` in every package) never makes a long answer line.
                 let more = cmux_projection::layer::Layer::encode_pruned(&pruned)
                     .map_err(|error| io(&error))?;
-                data["pruned_bytes"] = json!(more.len());
-                data["kept_on_machine"] = json!({
+                let data = json!({"bytes": encoded.len(), "upper": layer.upper.len(),
+                "whiteouts": layer.whiteouts.len(), "mark": mark,
+                "pruned_bytes": more.len(), "kept_on_machine": {
                     "folders": pruned.len(),
                     "files": pruned.iter().map(|folder| folder.files).sum::<u64>(),
                     "bytes": pruned.iter().map(|folder| folder.bytes).sum::<u64>(),
-                });
+                }});
                 encoded.extend_from_slice(&more);
-            }
+                data
+            } else {
+                json!({"bytes": encoded.len(), "upper": layer.upper.len(),
+                       "whiteouts": layer.whiteouts.len(), "mark": mark})
+            };
             Ok((data, WayBackBody::Bytes(encoded)))
         }
         UNSYNCED => {
@@ -785,19 +795,20 @@ fn unsynced(state: &Path, prune: bool) -> anyhow::Result<Value> {
         .iter()
         .filter(|entry| entry.kind != cmux_projection::manifest::Kind::Dir)
         .fold((0u64, 0u64), |(files, bytes), entry| (files + 1, bytes + entry.size));
-    let mut data = json!({"files": files, "bytes": bytes, "deleted": layer.whiteouts.len()});
-    if prune {
-        data["kept_on_machine"] = json!({
+    Ok(if prune {
+        json!({"files": files, "bytes": bytes, "deleted": layer.whiteouts.len(),
+        "kept_on_machine": {
             "folders": pruned.len(),
             "files": pruned.iter().map(|folder| folder.files).sum::<u64>(),
             "bytes": pruned.iter().map(|folder| folder.bytes).sum::<u64>(),
             "paths": pruned.iter().take(UNSYNCED_FOLDERS).map(|f| &f.path).collect::<Vec<_>>(),
-        });
-    }
-    Ok(data)
+        }})
+    } else {
+        json!({"files": files, "bytes": bytes, "deleted": layer.whiteouts.len()})
+    })
 }
 
-/// [`PIN`], [`UNPIN`], [`PINS`] or [`WARM`] of projection `line.name`, mounted here (module docs).
+/// [`PIN`], [`UNPIN`] or [`PINS`] of projection `line.name`, mounted here (module docs).
 fn pin_answer(cmd: &str, line: &WayBackLine) -> Result<Value, Refusal> {
     let projected =
         projections().lock().unwrap_or_else(PoisonError::into_inner).get(&line.name).cloned();
@@ -1327,15 +1338,38 @@ fn mount_point(at: &str, roots: &[PathBuf]) -> Result<PathBuf, Refusal> {
         return Err(refused("not an absolute, plain path"));
     }
     let parent = path.parent().ok_or_else(|| refused("no folder above it"))?;
-    std::fs::create_dir_all(parent).map_err(|error| refused(&error.to_string()))?;
-    let parent = std::fs::canonicalize(parent).map_err(|error| refused(&error.to_string()))?;
+    // Resolve the nearest existing ancestor first. This validates symlinked and existing
+    // components before creating anything, so a rejected request cannot leave an arbitrary tree
+    // outside the daemon's approved roots.
+    let mut existing = parent;
+    while !existing.exists() {
+        existing = existing.parent().ok_or_else(|| refused("no existing ancestor"))?;
+    }
+    let existing = std::fs::canonicalize(existing).map_err(|error| refused(&error.to_string()))?;
     let below = roots
         .iter()
-        .any(|root| std::fs::canonicalize(root).is_ok_and(|root| parent.starts_with(&root)));
+        .any(|root| std::fs::canonicalize(root).is_ok_and(|root| existing.starts_with(&root)));
     if !below {
         return Err(refused("outside this machine's file roots"));
     }
+    std::fs::create_dir_all(parent).map_err(|error| refused(&error.to_string()))?;
+    let parent = std::fs::canonicalize(parent).map_err(|error| refused(&error.to_string()))?;
+    if !parent.starts_with(&existing)
+        || !roots
+            .iter()
+            .any(|root| std::fs::canonicalize(root).is_ok_and(|root| parent.starts_with(&root)))
+    {
+        return Err(refused("mount point parent changed while creating it"));
+    }
     let path = parent.join(path.file_name().ok_or_else(|| refused("no name"))?);
+    if let Ok(meta) = std::fs::symlink_metadata(&path) {
+        if meta.file_type().is_symlink() {
+            return Err(refused("mount point is a symlink"));
+        }
+        if !meta.is_dir() {
+            return Err(refused("mount point is not a folder"));
+        }
+    }
     #[cfg(target_os = "linux")]
     if !projections()
         .lock()

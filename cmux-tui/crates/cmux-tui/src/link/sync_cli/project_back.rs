@@ -235,13 +235,17 @@ fn batches<'a>(paths: &'a [String], size: impl Fn(&str) -> u64) -> Vec<&'a [Stri
     for (at, path) in paths.iter().enumerate() {
         let len = size(path);
         if at > start && (at - start == BATCH_PATHS || bytes.saturating_add(len) > BATCH_BYTES) {
-            runs.push(&paths[start..at]);
+            if let Some(batch) = paths.get(start..at) {
+                runs.push(batch);
+            }
             (start, bytes) = (at, 0);
         }
         bytes = bytes.saturating_add(len);
     }
     if start < paths.len() {
-        runs.push(&paths[start..]);
+        if let Some(batch) = paths.get(start..) {
+            runs.push(batch);
+        }
     }
     runs
 }
@@ -706,7 +710,8 @@ fn keep_ignored_home(
     ignored.dedup();
     let all: BTreeSet<String> = ignored.iter().cloned().collect();
     let within = |path: &str, set: &BTreeSet<String>| {
-        path.match_indices('/').any(|(at, _)| set.contains(&path[..at]))
+        path.match_indices('/')
+            .any(|(at, _)| path.get(..at).is_some_and(|prefix| set.contains(prefix)))
     };
     ignored.retain(|path| !within(path, &all));
     let roots: BTreeSet<String> = ignored.iter().cloned().collect();
