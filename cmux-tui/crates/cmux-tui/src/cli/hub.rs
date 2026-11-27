@@ -1215,6 +1215,15 @@ pub(super) fn audit_view(row: &Value) -> Value {
 
 // --- Running ------------------------------------------------------------------------------------------------------
 
+/// The hub's client (its gate site): no redirects, a 45 s bound.
+fn hub_http() -> Result<reqwest::Client, reqwest::Error> {
+    cmux_egress::client_builder("cmux_tui::cli::hub")
+        .redirect(reqwest::redirect::Policy::none())
+        .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
+        .timeout(Duration::from_secs(45))
+        .build()
+}
+
 struct Hub {
     http: reqwest::Client,
     platform: String,
@@ -1311,12 +1320,7 @@ async fn run(common: &Common, verb: &Verb, key: Option<Zeroizing<String>>) -> Va
         Ok(p) => p,
         Err(e) => return error_json("cli.invalid_args", &e),
     };
-    let http = match cmux_egress::client_builder("cmux_tui::cli::hub")
-        .redirect(reqwest::redirect::Policy::none())
-        .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
-        .timeout(Duration::from_secs(45))
-        .build()
-    {
+    let http = match hub_http() {
         Ok(h) => h,
         Err(e) => return error_json("cli.http_client", &e.to_string()),
     };
@@ -1514,3 +1518,7 @@ pub(super) fn run_words(words: &[String], json_out: bool) -> i32 {
 #[cfg(test)]
 #[path = "hub_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "hub_seeded_tests.rs"]
+mod seeded_tests;
