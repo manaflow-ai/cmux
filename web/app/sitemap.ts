@@ -4,6 +4,7 @@ import {
   jobsContentLocales,
   englishFallbackContentLocales,
   featureWorkflowContentLocales,
+  mainThreadDocsLocales,
   managedPoliciesDocsLocales,
   cloudSecurityDocsLocales,
   remoteTmuxDocsLocales,
@@ -126,6 +127,7 @@ export function sitemapEntries(): MetadataRoute.Sitemap {
     { path: "/docs/ssh", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/remote-tmux", lastModified: "2026-07-03", changeFrequency: "monthly" as const, priority: 0.8, locales: remoteTmuxDocsLocales },
     { path: "/docs/managed-policies", lastModified: "2026-08-18", changeFrequency: "monthly" as const, priority: 0.8, locales: managedPoliciesDocsLocales },
+    { path: "/docs/main-thread", lastModified: "2026-11-20", changeFrequency: "monthly" as const, priority: 0.6, locales: mainThreadDocsLocales },
     { path: "/docs/cloud-security", lastModified: "2026-09-24", changeFrequency: "monthly" as const, priority: 0.8, locales: cloudSecurityDocsLocales },
     { path: "/docs/ios", lastModified: "2026-06-21", changeFrequency: "monthly" as const, priority: 0.8 },
     { path: "/docs/agent-integrations/claude-code-teams", lastModified: "2026-03-30", changeFrequency: "monthly" as const, priority: 0.7 },
@@ -172,8 +174,8 @@ export function sitemapEntries(): MetadataRoute.Sitemap {
     { path: "/agents/aider", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/amp", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
     { path: "/agents/cursor-cli", lastModified: "2026-06-23", changeFrequency: "monthly" as const, priority: 0.6 },
-    { path: "/privacy-policy", lastModified: "2026-07-10", changeFrequency: "yearly" as const, priority: 0.3 },
-    { path: "/terms-of-service", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
+    { path: "/privacy-policy", lastModified: "2026-11-17", changeFrequency: "yearly" as const, priority: 0.3 },
+    { path: "/terms-of-service", lastModified: "2026-11-17", changeFrequency: "yearly" as const, priority: 0.3 },
     { path: "/eula", lastModified: "2026-03-18", changeFrequency: "yearly" as const, priority: 0.3 },
   ];
 

@@ -28,7 +28,7 @@ on:
         default: ''
       setup:
         type: choice
-        options: [none, webviews, playwright, rust]
+        options: [none, webviews, playwright, rust, kernel-free]
         default: none
       timeout:
         description: Command deadline in seconds, at most 10800
@@ -45,17 +45,22 @@ on:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
-  # A small picker starts on hosted Ubuntu, or on the smallest measured
-  # Blacksmith size when the broker re-dispatches a run whose admission
-  # waited 180 seconds with no runner: its one re-run route, never 16 or 32
-  # vCPU. It proves an online, idle fleet Linux runner from the routing
+  # A small picker starts on Blacksmith 2 vCPU, never GitHub-hosted (Leo,
+  # 2026-11-19: "why the fuck do you keep having the fucking GitHub hosted
+  # runners?"), or on the smallest measured Blacksmith size when the broker
+  # re-dispatches a run whose admission waited 180 seconds with no runner: its
+  # one re-run route, never 16 or 32 vCPU. It proves an online, idle fleet Linux runner from the routing
   # App's census; after 180 seconds without that proof it selects the
   # measured Blacksmith overflow set. The source snapshot and its arbitrary command never reach
   # this job, and the App token is not passed to the checks job.
   admit:
-    if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ contains(fromJSON('["blacksmith-8vcpu-ubuntu-2404"]'), inputs.runner) && inputs.runner || 'ubuntu-24.04' }} # github-hosted-required: light read-only runner admission
+    if: github.repository == 'manaflow-ai/cmux' && inputs.setup != 'kernel-free'
+    runs-on: ${{ inputs.runner == 'blacksmith-8vcpu-ubuntu-2404' && 'blacksmith-8vcpu-ubuntu-2404' || 'blacksmith-2vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     outputs:
@@ -64,7 +69,7 @@ jobs:
       # Fast-checks placement tooling is reviewed and pinned on feat-cmux-next;
       # main only carries this wiring and reads that exact helper revision:
       # #34270's, which decides on one census read instead of polling 180 s.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: 159a701991677b65aa48d11d54e1579d58f6b1cb
           path: .fast-checks-tools
@@ -81,15 +86,29 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+
       - name: Mint routing read token
         id: route-token
         if: vars.GLAEDA_ROUTE_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-administration: read
           permission-organization-self-hosted-runners: read
 
@@ -102,7 +121,7 @@ jobs:
         run: python3 .fast-checks-tools/scripts/ci/fast_checks_runner.py
 
   checks:
-    if: github.repository == 'manaflow-ai/cmux'
+    if: github.repository == 'manaflow-ai/cmux' && inputs.setup != 'kernel-free'
     needs: admit
     # The default is the shared fleet label.  The controller admits a live
     # member of that pool first; the lane-gh broker re-dispatches a queued run
@@ -176,6 +195,12 @@ jobs:
             else
               rm -rf .git/hooks .git/logs .git/refs
               rm -f .git/config .git/index .git/packed-refs .git/objects/info/alternates
+              # Git takes a directory for a repository only with refs/ and HEAD in it. Without them
+              # actions/checkout saw no repository, deleted the whole disk and fetched cold: every run
+              # sampled 2026-11-27 printed "fatal: --local can only be used inside a git repository"
+              # and spent 26 s fetching (ci-min-per-pr-14).
+              mkdir -p .git/refs/heads .git/refs/tags
+              printf 'ref: refs/heads/main\n' > .git/HEAD
               cat > .git/config <<'EOF'
           [core]
             repositoryformatversion = 0
@@ -190,7 +215,7 @@ jobs:
             fi
           fi
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.source_sha }}
           path: .fast-checks-checkout
@@ -226,6 +251,17 @@ jobs:
           key: cmux-fast-checks-v1
           path: ${{ runner.temp }}/fast-checks-cache
           commit: on-change
+
+      # Owned runners clear runner.temp after each job. Keep downloaded dependencies
+      # across workers without granting the test access to any release cache secrets.
+      - name: Restore fast-check dependencies on fleet runners
+        if: needs.admit.outputs.runner && !startsWith(needs.admit.outputs.runner, 'blacksmith-')
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ${{ runner.temp }}/fast-checks-cache/cargo/registry/cache
+            ${{ runner.temp }}/fast-checks-cache/bun
+          key: fast-checks-deps-v1-${{ runner.os }}-${{ runner.arch }}-${{ inputs.setup }}-${{ hashFiles('.fast-checks-checkout/**/Cargo.lock', '.fast-checks-checkout/**/bun.lock', '.fast-checks-checkout/**/bun.lockb') }}
 
       - name: Read repository Bun pin
         if: inputs.setup == 'webviews' || inputs.setup == 'playwright'
@@ -384,7 +420,7 @@ jobs:
       # The script comes from this workflow's own commit, never from the source snapshot.
       - name: Check out the SwiftPM artifact prefetch
         if: contains(inputs.command, 'swift')
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .fast-checks-tools
@@ -409,7 +445,7 @@ jobs:
       # workflow's own commit, never from the source snapshot.
       - name: Check out the cargo workspace check
         if: contains(inputs.command, 'cargo')
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .fast-checks-cargo-tools
@@ -435,11 +471,18 @@ jobs:
           rm -rf -- "$FAST_CHECKS_OUT"
           mkdir -p -- "$FAST_CHECKS_OUT"
           python3 - <<'PY'
-          import json, os, pathlib, shlex, signal, subprocess, time
+          import hashlib, json, os, pathlib, shlex, signal, subprocess, time
           root = pathlib.Path.cwd().resolve()
           directory = (root / os.environ['FAST_CHECKS_DIRECTORY']).resolve()
           directory.relative_to(root)
           command_text = os.environ['FAST_CHECKS_COMMAND']
+
+          def write_receipt(result):
+              result['command_sha256'] = hashlib.sha256(command_text.encode()).hexdigest()
+              receipt = json.dumps(result)
+              print('FAST_CHECKS_RECEIPT=' + receipt, flush=True)
+              pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(receipt)
+
           try:
               lexer = shlex.shlex(command_text, posix=True)
               lexer.whitespace_split = True
@@ -471,8 +514,7 @@ jobs:
                   exit_code=0,
               )
               print('::notice::display checks are advisory and skipped on the fast-checks gating path', flush=True)
-              print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
-              pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+              write_receipt(result)
               raise SystemExit(0)
           # cargo -p CRATE from a workspace that excludes CRATE: refused with the next step before it runs.
           cargo_check = pathlib.Path(os.environ.get('GITHUB_WORKSPACE', '/nonexistent'), '.fast-checks-cargo-tools', 'scripts', 'ci', 'cargo_package_workspace_check.py')
@@ -483,15 +525,14 @@ jobs:
                   result = dict(source_sha=actual, source_tree=tree, head_after=actual, command_started_at=time.time(),
                       command_seconds=0, exit_code=refused, refused='cargo-package-workspace',
                       run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
-                  print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
-                  pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+                  write_receipt(result)
                   raise SystemExit(refused)
           started_at = time.time()
           start = time.monotonic()
           command = subprocess.Popen(
               ['timeout', '--signal=TERM', '--kill-after=30s',
                os.environ['FAST_CHECKS_TIMEOUT'] + 's', 'bash', '-c',
-               os.environ['FAST_CHECKS_COMMAND']],
+               command_text],
               cwd=directory, start_new_session=True)
           command_pgid = command.pid
           try:
@@ -508,8 +549,7 @@ jobs:
           result = dict(source_sha=actual, source_tree=tree, head_after=after,
               command_started_at=started_at, command_seconds=round(time.monotonic() - start, 3), exit_code=code,
               command_pgid=command_pgid, run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count())
-          print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
-          pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+          write_receipt(result)
           raise SystemExit(code if actual == after else 2)
           PY
 
@@ -530,6 +570,187 @@ jobs:
             } > "$RUNNER_TEMP/fast-checks-checkout-holders.log" 2>&1 || true
             cat "$RUNNER_TEMP/fast-checks-checkout-holders.log"
           fi
+
+      - name: Save exact-source timing receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fast-checks-receipt
+          path: ${{ runner.temp }}/fast-checks.json
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Save command output files
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fast-checks-output
+          path: ${{ runner.temp }}/fast-checks-out/
+          if-no-files-found: ignore
+          retention-days: 3
+
+  # setup kernel-free (cmux-ci test --setup kernel-free from a lane VM): the command runs on an owned Mac. The
+  # lane-gh broker always dispatches this file on main, so the Mac job lives here too, as on feat-cmux-next
+  # (cmux#56909: main lacked the choice, so every kernel-free dispatch was a 422).
+  checks-mac:
+    if: github.repository == 'manaflow-ai/cmux' && inputs.setup == 'kernel-free'
+    runs-on: ${{ vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    permissions:
+      contents: read
+    timeout-minutes: 195
+    defaults:
+      run:
+        working-directory: .fast-checks-checkout
+    steps:
+      - name: Validate request
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha }}
+          TESTED_SHA: ${{ inputs.tested_sha }}
+          COMMAND_TIMEOUT: ${{ inputs.timeout }}
+          RUNNER_OS_NAME: ${{ runner.os }}
+          CI_JOB: ${{ inputs.ci_job }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ -z "$TESTED_SHA" || "$TESTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$COMMAND_TIMEOUT" =~ ^[0-9]{1,5}$ ]]
+          (( 10#$COMMAND_TIMEOUT >= 1 && 10#$COMMAND_TIMEOUT <= 10800 ))
+          [[ -z "$CI_JOB" || "$CI_JOB" =~ ^[0-9a-f]{32}$ ]]
+          [[ "$RUNNER_OS_NAME" == macOS ]] || { echo "setup kernel-free runs on an owned Mac, not $RUNNER_OS_NAME" >&2; exit 2; }
+          command -v python3 >/dev/null || { echo "python3 is required on the runner" >&2; exit 2; }
+          command -v git >/dev/null || { echo "git is required on the runner" >&2; exit 2; }
+
+      # The mini keeps this folder between jobs, and a command from one dispatch could leave Git objects or metadata
+      # that a later checkout would trust (Git does not re-hash a loose object it already has). Nothing a prior
+      # command or snapshot wrote is kept: the whole .git goes, as in the hq workflow's kernel-free route, and the
+      # checkout fetches the one snapshot commit afresh.
+      - name: Clear stale checkout metadata
+        timeout-minutes: 1
+        working-directory: ${{ github.workspace }}
+        run: |
+          mkdir -p -- .fast-checks-checkout
+          rm -rf -- .fast-checks-checkout/.git .fast-checks-tools/.git
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        timeout-minutes: 10
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: .fast-checks-checkout
+          persist-credentials: false
+          clean: true
+          submodules: false
+          fetch-depth: ${{ inputs.tested_sha && 2 || 1 }}
+
+      - name: Confirm the tested commit
+        if: inputs.tested_sha != ''
+        env:
+          TESTED_SHA: ${{ inputs.tested_sha }}
+        run: |
+          parents=$(git rev-list --parents -n 1 HEAD | cut -d' ' -f2-)
+          if [[ "$parents" != "$TESTED_SHA" ]]; then
+            echo "tested_sha $TESTED_SHA is not the snapshot's only parent ($parents)" >&2
+            exit 2
+          fi
+          if [[ "$(git rev-parse 'HEAD^{tree}')" != "$(git rev-parse "$TESTED_SHA^{tree}")" ]]; then
+            echo "the snapshot's tree differs from $TESTED_SHA's: it does not test that commit" >&2
+            exit 2
+          fi
+
+      # A SwiftPM command (cmux-ci test --setup kernel-free -- bash -c 'cd Packages/macOS/CmuxNext && swift test
+      # --filter X') failed on the mini before compiling: the mini's anonymous github.com requests get HTTP 403
+      # (git ls-remote and curl alike; actions/checkout, which authenticates, works), so SwiftPM could neither
+      # clone Sparkle nor download CCmuxAppFFI. As cmux-next.yml's Mac tiers do, the prefetch seeds each binary
+      # target into the mini's shared SwiftPM cache first; --resolve then checks out every pinned dependency
+      # into the package's .build with this job's read-only token in git's environment, so the command, which
+      # never sees the token, fetches nothing. The script comes from this workflow's commit, never the snapshot.
+      - name: Check out the SwiftPM artifact prefetch on the Mac
+        if: contains(inputs.command, 'swift')
+        timeout-minutes: 5
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          path: .fast-checks-tools
+          persist-credentials: false
+          sparse-checkout: scripts/ci/swiftpm_prefetch_binary_artifacts.py
+          sparse-checkout-cone-mode: false
+
+      - name: Prefetch SwiftPM dependencies on the Mac
+        if: contains(inputs.command, 'swift')
+        continue-on-error: true
+        timeout-minutes: 30
+        env:
+          FAST_CHECKS_COMMAND: ${{ inputs.command }}
+          FAST_CHECKS_DIRECTORY: ${{ inputs.directory }}
+          CMUX_SWIFTPM_GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          auth="$(printf 'x-access-token:%s' "$CMUX_SWIFTPM_GITHUB_TOKEN" | base64 | tr -d '\n')"
+          echo "::add-mask::$auth"
+          i="${GIT_CONFIG_COUNT:-0}"
+          export "GIT_CONFIG_KEY_$i=http.https://github.com/.extraheader" "GIT_CONFIG_VALUE_$i=AUTHORIZATION: basic $auth"
+          export GIT_CONFIG_COUNT="$((i + 1))"
+          python3 "$GITHUB_WORKSPACE/.fast-checks-tools/scripts/ci/swiftpm_prefetch_binary_artifacts.py" --resolve \
+            --command "$FAST_CHECKS_COMMAND" --directory "$FAST_CHECKS_DIRECTORY"
+
+      # Same receipt as the Linux job. macOS has no GNU `timeout`, so Python keeps the deadline (exit 124, as
+      # `timeout` reports) and ends the command's own process group, never anything else on the mini.
+      - name: Run fast checks
+        env:
+          FAST_CHECKS_COMMAND: ${{ inputs.command }}
+          FAST_CHECKS_DIRECTORY: ${{ inputs.directory }}
+          FAST_CHECKS_TIMEOUT: ${{ inputs.timeout }}
+          FAST_CHECKS_SOURCE: ${{ inputs.source_sha }}
+          FAST_CHECKS_OUT: ${{ runner.temp }}/fast-checks-out
+        run: |
+          umask 022
+          rm -rf -- "$FAST_CHECKS_OUT"
+          mkdir -p -- "$FAST_CHECKS_OUT"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, signal, subprocess, time
+          root = pathlib.Path.cwd().resolve()
+          directory = (root / os.environ['FAST_CHECKS_DIRECTORY']).resolve()
+          directory.relative_to(root)
+          actual = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert actual == os.environ['FAST_CHECKS_SOURCE'], (actual, os.environ['FAST_CHECKS_SOURCE'])
+          tree = subprocess.check_output(['git', 'rev-parse', 'HEAD^{tree}'], text=True).strip()
+          started_at = time.time()
+          start = time.monotonic()
+          command_text = os.environ['FAST_CHECKS_COMMAND']
+          command = subprocess.Popen(['bash', '-c', command_text],
+                                     cwd=directory, start_new_session=True)
+          command_pgid = command.pid
+          timed_out = False
+          try:
+              code = command.wait(timeout=float(os.environ['FAST_CHECKS_TIMEOUT']))
+          except subprocess.TimeoutExpired:
+              timed_out = True
+              code = 124
+              try:
+                  os.killpg(command_pgid, signal.SIGTERM)
+              except ProcessLookupError:
+                  pass
+              try:
+                  command.wait(timeout=30)
+              except subprocess.TimeoutExpired:
+                  try:
+                      os.killpg(command_pgid, signal.SIGKILL)
+                  except ProcessLookupError:
+                      pass
+                  command.wait()
+          finally:
+              # The command owns this process group: reap what it left, nothing else.
+              try:
+                  os.killpg(command_pgid, signal.SIGTERM)
+              except ProcessLookupError:
+                  pass
+          after = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          result = dict(source_sha=actual, source_tree=tree, head_after=after,
+              command_started_at=started_at, command_seconds=round(time.monotonic() - start, 3), exit_code=code,
+              timed_out=timed_out, command_pgid=command_pgid, run_id=os.environ['GITHUB_RUN_ID'], cpu_count=os.cpu_count(),
+              command_sha256=hashlib.sha256(command_text.encode()).hexdigest())
+          print('FAST_CHECKS_RECEIPT=' + json.dumps(result), flush=True)
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'fast-checks.json').write_text(json.dumps(result))
+          raise SystemExit(code if actual == after else 2)
+          PY
 
       - name: Save exact-source timing receipt
         if: always()

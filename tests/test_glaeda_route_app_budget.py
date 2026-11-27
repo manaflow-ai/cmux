@@ -51,8 +51,13 @@ def glaeda_mints():
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         for job_name, job in (document.get("jobs") or {}).items():
             for step in job.get("steps") or []:
-                if ("actions/create-github-app-token@" in str(step.get("uses", ""))
-                        and (step.get("with") or {}).get("private-key") == APP_KEY):
+                # A direct mint, or one through .github/actions/app-token-spread, which mints on
+                # glaeda-route and cmux-bot with the same inputs and spends the fuller one.
+                uses = str(step.get("uses", ""))
+                with_ = step.get("with") or {}
+                if (("actions/create-github-app-token@" in uses and with_.get("private-key") == APP_KEY)
+                        or (uses.endswith("/.github/actions/app-token-spread")
+                            and with_.get("route-private-key") == APP_KEY)):
                     yield path.name, job_name, step
 
 
@@ -188,6 +193,8 @@ class PrMediaPlansOnlyFirstFinishedRuns(unittest.TestCase):
         condition = load("pr-media.yml")["jobs"]["plan"]["if"]
         self.assertIn("github.event.workflow_run.run_attempt == 1", condition)
         self.assertIn("github.event.workflow_run.conclusion != 'cancelled'", condition)
+        # Every job skipped (the static checks too): no app build, so no plan job and no runner.
+        self.assertIn("github.event.workflow_run.conclusion != 'skipped'", condition)
         # A manual dispatch is the escape hatch for any head the filters passed over.
         self.assertIn("github.event_name == 'workflow_dispatch' ||", condition)
 

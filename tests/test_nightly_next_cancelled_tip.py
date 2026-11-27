@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import stat
+import re
 import subprocess
 import sys
 import tempfile
@@ -233,12 +234,11 @@ class CancelledTip(unittest.TestCase):
         steps = job["steps"]
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
         self.assertEqual(tooling["with"]["ref"], "${{ github.sha }}")
-        sparse = tooling["with"]["sparse-checkout"].split()
-        self.assertIn("scripts/ci/nightly_next_cancelled_tip.sh", sparse)
-        # nightly_repick.py and every scripts/ci module it imports.
-        for name in ("nightly_repick.py", "nightly_compile_red.py", "owned_pool_rescue.py", "owned_pool_sources.py", "pr_runner_pool.py",
-                     "simple_pool_picker.py", "ui_tests_dispatch.py"):
-            self.assertIn(f"scripts/ci/{name}", sparse)
+        # The whole tree at depth 1: a sparse checkout is a blob:none promisor clone whose lazy
+        # blob fetch stalled a tick's checkout on 2026-11-26 ("could not fetch ... from promisor remote").
+        self.assertNotIn("sparse-checkout", tooling["with"])
+        self.assertNotIn("filter", tooling["with"])
+        self.assertEqual(tooling["with"]["fetch-depth"], 1)
         names = [step.get("name") for step in steps]
         check = steps[names.index("Re-run a cancelled nightly-next tip")]
         self.assertTrue(check["continue-on-error"])
@@ -253,28 +253,26 @@ class CancelledTip(unittest.TestCase):
         request = [step.get("name") for step in yaml.safe_load(TICK.read_text())["jobs"]["request"]["steps"]]
         self.assertNotIn("Re-run a cancelled nightly-next tip", request)
 
-    def test_every_tick_sparse_checkout_imports_with_only_its_listed_files(self):
-        # cmux#34233: delivery_workflows.py was missing, so nightly_compile_red.py and nightly_repick.py
-        # failed at import in CI, and the script's `|| red=""` / `|| picker=""` hid it.
-        jobs = yaml.safe_load(TICK.read_text())["jobs"]
-        lists = [(name, step["with"]["sparse-checkout"].split()) for name, job in jobs.items()
-                 for step in job.get("steps", []) if "sparse-checkout" in step.get("with", {})]
-        self.assertTrue(lists)
-        for name, files in lists:
-            with self.subTest(job=name), tempfile.TemporaryDirectory() as tmp:
-                for path in files:
-                    target = Path(tmp) / path
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes((ROOT / path).read_bytes())
-                for path in files:
-                    if not path.endswith(".py"):
-                        continue
-                    module = Path(path).stem
-                    result = subprocess.run(
-                        [sys.executable, "-I", "-c",
-                         f"import sys; sys.path.insert(0, {str(Path(tmp) / 'scripts' / 'ci')!r}); import {module}"],
-                        capture_output=True, text=True, timeout=60, cwd=tmp)
-                    self.assertEqual(result.returncode, 0, f"{name}: {path}: {result.stderr[-400:]}")
+    def test_every_tick_tooling_script_imports_from_the_whole_tooling_tree(self):
+        # cmux#34233: delivery_workflows.py was missing from a sparse list, so nightly_compile_red.py
+        # and nightly_repick.py failed at import in CI, and the script's `|| red=""` / `|| picker=""`
+        # hid it. The tooling checkouts carry the whole tree now (a sparse one is a promisor clone
+        # whose lazy fetch stalled a tick on 2026-11-26), so no list can miss a module; every script
+        # a tick step runs from .tick-tooling still has to import with only scripts/ci on its path.
+        text = TICK.read_text()
+        jobs = yaml.safe_load(text)["jobs"]
+        sparse = [name for name, job in jobs.items()
+                  for step in job.get("steps", []) if "sparse-checkout" in step.get("with", {})]
+        self.assertEqual(sparse, [])
+        modules = sorted(set(re.findall(r"\.tick-tooling/scripts/ci/(\w+)\.py", text)))
+        self.assertIn("nightly_next_stuck_run", modules)
+        for module in modules:
+            with self.subTest(module=module):
+                result = subprocess.run(
+                    [sys.executable, "-I", "-c",
+                     f"import sys; sys.path.insert(0, {str(ROOT / 'scripts' / 'ci')!r}); import {module}"],
+                    capture_output=True, text=True, timeout=60, cwd=ROOT)
+                self.assertEqual(result.returncode, 0, f"{module}: {result.stderr[-400:]}")
 
 if __name__ == "__main__":
     unittest.main()

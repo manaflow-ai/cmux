@@ -44,6 +44,10 @@ late or not at all (12:35Z to 14:19Z on 2026-10-26, while #25466 sat blocked for
    proposed policy") that finished in the hour ending at that reset as evidence: the guard
    could not read, whatever the pull request changes. Other guard failures in that hour are not. (On 2026-10-28 from 06:44Z that budget
    ran out and the guard rejected every pull request into main until the reset.)
+   The two budgets reset at different minutes, so while the App's hour is spent the pass reads
+   and re-runs on the workflow token (RATE_TOKEN), whose budget step 1 just found above the
+   floor, instead of waiting for the App's reset. (On 2026-11-26 a pass slept 40 min for the
+   workflow token's 07:54Z reset, found the App spent until 08:04Z, and ended red.)
 
 A re-run changes no policy: the same trusted workflow runs again on the same head. Reads and re-runs use
 GH_TOKEN (the janitor's App token, its own budget); RATE_TOKEN is the workflow token
@@ -470,20 +474,56 @@ def one_pass(dry_run: bool, repo: str, token: str, rate_token: str, clock: Clock
         return 0
     gh = GitHub(token, repo)
     gh.deadline = deadline if clock.real else None
+    before = len(done)
     try:
-        runs = plan(gh, clock.now(), print, limit, skip=done, app_spent=app_spent)
-        for run in runs:
-            name = run.get("name") or "CLA"
-            print(f"cla-quota-rerun: {'would re-run' if dry_run else 're-running'} {name} run {run['id']} "
-                  f"for #{run['number']} at {run['head_sha'][:12]} (attempt {run.get('run_attempt')})")
-            if not dry_run:
-                gh.request("POST", f"/repos/{repo}/actions/runs/{run['id']}/rerun-failed-jobs")
-                done.add(run["id"])
+        runs = rerun_planned(gh, dry_run, repo, clock, limit, done, app_spent)
     except SpentBudget as spent:
         spent.app = True
-        raise
+        if not spent.exhausted:
+            raise
+        # The App hour is spent (X-RateLimit-Remaining 0), and the workflow token's budget was
+        # just read above the floor: it reads and re-runs instead of waiting for the App's reset.
+        # The two budgets reset at different minutes (2026-11-26 07:54Z: the workflow token had
+        # just reset, the App was spent until 08:04Z, and a pass that slept 40 min for the one
+        # reset ended red on the other while #57080's CLA Assistant stayed failed).
+        app_hour(spent, clock.now(), app_spent)
+        print(f"cla-quota-rerun: {spent}: {APP_BUDGET} is spent; the workflow token has budget ({text}), "
+              "so this pass reads and re-runs on it")
+        gh = GitHub(rate_token, repo)
+        gh.deadline = deadline if clock.real else None
+        runs = rerun_planned(gh, dry_run, repo, clock, max(0, limit - (len(done) - before)), done, app_spent)
+        print(f"cla-quota-rerun: budget {text}; {len(runs)} re-run(s) on the workflow token, "
+              f"{gh.calls} call(s)")
+        return 0
     print(f"cla-quota-rerun: budget {text}; {len(runs)} re-run(s), {gh.calls} App call(s)")
     return 0
+
+
+def rerun_planned(gh: GitHub, dry_run: bool, repo: str, clock: Clock, limit: int, done: set[int],
+                  app_spent: list[dt.datetime] | None) -> list[dict[str, Any]]:
+    """Plan on `gh` and re-run what it chose (each added to `done` as it goes)."""
+    runs = plan(gh, clock.now(), print, limit, skip=done, app_spent=app_spent)
+    for run in runs:
+        name = run.get("name") or "CLA"
+        print(f"cla-quota-rerun: {'would re-run' if dry_run else 're-running'} {name} run {run['id']} "
+              f"for #{run['number']} at {run['head_sha'][:12]} (attempt {run.get('run_attempt')})")
+        if not dry_run:
+            gh.request("POST", f"/repos/{repo}/actions/runs/{run['id']}/rerun-failed-jobs")
+            done.add(run["id"])
+    return runs
+
+
+def app_hour(spent: SpentBudget, now: dt.datetime, app_spent: list[dt.datetime]) -> None:
+    """Say so when the refusal on GH_TOKEN was the App's spent hour, and count that hour."""
+    if spent.app and spent.exhausted and spent.reset is not None and spent.reset not in app_spent:
+        # Said plainly: on main CLA policy guard reads on this budget too, so its rejects until
+        # the reset are the spent budget, not a policy (validate-cla-policy.rb hides why). Only
+        # an exhausted primary budget (X-RateLimit-Remaining 0) with its known X-RateLimit-Reset
+        # bounds the App hour.
+        print(f"::warning title=glaeda-route App budget spent::{APP_BUDGET} is spent until "
+              f"{spent.resume_at(now):%H:%M:%SZ} ({spent}); CLA policy guard reads on it, so its rejects in "
+              "this hour are the spent budget, not a policy. They are re-run after the reset.")
+        app_spent.append(spent.reset)
 
 
 def main(argv: list[str] | None = None, now: dt.datetime | None = None,
@@ -510,14 +550,7 @@ def main(argv: list[str] | None = None, now: dt.datetime | None = None,
             now = clock.now()
             resume = spent.resume_at(now)
             if spent.app and spent.exhausted and spent.reset is not None:
-                # Said plainly: on main CLA policy guard reads on this budget too, so its rejects
-                # until the reset are the spent budget, not a policy (validate-cla-policy.rb hides why).
-                # Only an exhausted primary budget (X-RateLimit-Remaining 0) with its known
-                # X-RateLimit-Reset bounds the App hour.
-                print(f"::warning title=glaeda-route App budget spent::{APP_BUDGET} is spent until "
-                      f"{resume:%H:%M:%SZ} ({spent}); CLA policy guard reads on it, so its rejects in "
-                      "this hour are the spent budget, not a policy. They are re-run after the reset.")
-                app_spent.append(spent.reset)
+                app_hour(spent, now, app_spent)
             elif spent.app:
                 # A secondary limit, a refusal, or no X-RateLimit-Remaining 0 with a reset: no claim
                 # about the hour.

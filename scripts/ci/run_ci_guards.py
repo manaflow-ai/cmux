@@ -85,14 +85,31 @@ LINUX_ONLY_STEPS = {
 PORTABLE_SUBSTITUTES = {
     "Run canonical CMUX CI guard profile": "scripts/ci/run_ci_guard_payload.sh",
 }
+# Steps that refuse a checkout with untracked files run alone, after every
+# parallel step has finished, so no sibling's scratch file is in the tree.
+ALONE_STEPS = {
+    "Run canonical CMUX CI guard profile",
+}
 GROUP_CONDITION = re.compile(r"matrix\.group\s*==\s*'([a-z0-9-]+)'")
 EXPRESSION = re.compile(r"\$\{\{\s*(.*?)\s*\}\}")
 SHELL = ["bash", "--noprofile", "--norc", "-eo", "pipefail"]
 # Steps run in their own sessions, so Ctrl-C reaches only this process; it
-# stops queued steps and kills the running ones' process groups.
+# stops queued steps and kills the running ones' process groups. RUNNING maps
+# each running step's process group to its name and start time, so a run
+# stopped by a signal (a job timeout) says which steps were still going.
 STOPPING = threading.Event()
-RUNNING: set[int] = set()
+RUNNING: dict[int, tuple[str, float]] = {}
 RUNNING_LOCK = threading.Lock()
+# How many of the slowest steps a finished run lists.
+SLOWEST_SHOWN = 10
+
+
+def running_report(now: float | None = None) -> list[str]:
+    """One line per running step, the longest-running first."""
+    now = time.monotonic() if now is None else now
+    with RUNNING_LOCK:
+        running = sorted(RUNNING.values(), key=lambda item: item[1])
+    return [f"  still running {now - started:6.1f}s  {name}" for name, started in running]
 
 
 def stop_running() -> None:
@@ -323,14 +340,15 @@ def run_steps(
                     results.append(StepResult(unit, step, None, 0.0, ""))
                     continue
                 step = dataclasses.replace(step, run=PORTABLE_SUBSTITUTES[step.name])
-            returncode, output = run_step(step, cwd, step_env, temp_path / "step.log")
+            returncode, output = run_step(step, cwd, step_env, temp_path / "step.log",
+                                          label=f"{unit.label}: {step.name}")
             results.append(StepResult(unit, step, returncode == 0, time.monotonic() - started, output))
             if returncode != 0 and not keep_going:
                 break
     return results
 
 
-def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tuple[int, str]:
+def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path, label: str = "") -> tuple[int, str]:
     """Run one step in its own session and reap whatever it leaves behind.
 
     Output goes to a file, not a pipe: a test that leaks a background child
@@ -351,12 +369,12 @@ def run_step(step: Step, cwd: Path, env: dict[str, str], log_path: Path) -> tupl
             start_new_session=True,
         )
         with RUNNING_LOCK:
-            RUNNING.add(proc.pid)
+            RUNNING[proc.pid] = (label or step.name, time.monotonic())
         try:
             returncode = proc.wait()
         finally:
             with RUNNING_LOCK:
-                RUNNING.discard(proc.pid)
+                RUNNING.pop(proc.pid, None)
             try:
                 os.killpg(proc.pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
@@ -429,6 +447,42 @@ def write_stamp(head_sha: str, groups: list[str], skipped: list[str], seconds: f
     return stamp
 
 
+# Each step's last time on this machine. The pool sorts its tasks longest first by it, so a
+# long step starts with the first workers instead of whenever its place in ci-guards.yml comes
+# up and runs past every other one. A step with no time yet counts as UNTIMED_SECONDS.
+TIMES = Path(os.environ.get("CMUX_GUARDS_TIMES")
+             or Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "cmux-guards/step-seconds.json")
+UNTIMED_SECONDS = 10.0
+# Times of the long steps, checked in, for a machine with no times of its own: every pool runner
+# is a fresh VM, so without these CI would run the steps in ci-guards.yml order. A step not
+# listed counts as UNTIMED_SECONDS. Refresh it from a run's own file (CMUX_GUARDS_TIMES).
+SEED_TIMES = ROOT / "scripts/ci/guard-step-seconds.json"
+
+
+def _read_seconds(path: Path) -> dict[str, float]:
+    try:
+        body = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return {k: float(v) for k, v in body.items() if isinstance(v, (int, float))} if isinstance(body, dict) else {}
+
+
+def read_times() -> dict[str, float]:
+    return {**_read_seconds(SEED_TIMES), **_read_seconds(TIMES)}
+
+
+def write_times(results: list[StepResult]) -> None:
+    times = _read_seconds(TIMES)
+    times.update({f"{r.unit.label}: {r.step.name}": round(r.seconds, 1) for r in results if r.ok is not None})
+    try:
+        TIMES.parent.mkdir(parents=True, exist_ok=True)
+        scratch = TIMES.with_name(f"{TIMES.name}.{os.getpid()}")
+        scratch.write_text(json.dumps(times, indent=0, sort_keys=True) + "\n")
+        os.replace(scratch, TIMES)
+    except OSError as error:  # a read-only home only loses the ordering
+        print(f"run_ci_guards.py: could not write step times to {TIMES}: {error}", file=sys.stderr)
+
+
 def write_results(path: str, head_sha: str, base_sha: str, units: list[Unit],
                   results: list[StepResult], seconds: float) -> None:
     body = {
@@ -460,6 +514,16 @@ def write_results(path: str, head_sha: str, base_sha: str, units: list[Unit],
 
 def main(argv: list[str]) -> int:
     global ROOT, WORKFLOW
+    # A runner started in the background with nohup (Freestyle's `cmux-linux`
+    # VMs) hands its jobs SIGINT and SIGHUP already ignored, and an ignored
+    # signal survives exec: the Ctrl-C Actions sends on cancel, and every step
+    # that tests its own Ctrl-C or hangup handling, then waits out its timeout.
+    # A caught handler resets on exec, so Python's own SIGINT handler gives every
+    # step a default SIGINT; the others go back to their defaults.
+    signal.signal(signal.SIGINT, signal.default_int_handler)
+    for signum in (signal.SIGHUP, signal.SIGQUIT):
+        if signal.getsignal(signum) == signal.SIG_IGN:
+            signal.signal(signum, signal.SIG_DFL)
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--group", action="append", default=[], help="run these matrix groups or jobs instead of the fast set")
     parser.add_argument("--all", action="store_true", help="run every guard group, not only the fast set")
@@ -467,7 +531,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--list", action="store_true", help="print the plan and exit")
     parser.add_argument("--no-stamp", action="store_true")
     parser.add_argument("--keep-going", action="store_true", help="keep running a sequential group after a failed step")
-    parser.add_argument("--verbose", action="store_true", help="print every step's output")
+    parser.add_argument("--verbose", action="store_true", help="also print every passing step's output")
     parser.add_argument("--step", action="append", default=[], help="run only this step (exact name); repeatable, no stamp")
     parser.add_argument("--root", help="run this checkout's guard steps instead of the runner's own (no stamp)")
     parser.add_argument("--results", help="write {step name: passed} as JSON to this file")
@@ -481,7 +545,7 @@ def main(argv: list[str]) -> int:
     step_names = {
         str(s.get("name")) for job in GUARD_JOBS for s in (workflow["jobs"].get(job) or {}).get("steps", [])
     }
-    stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
+    stale = (DEPENDENCY_STEPS | LINUX_ONLY_STEPS | EVENT_CONDITION_STEPS | ALONE_STEPS | set(PORTABLE_SUBSTITUTES)) - step_names
     # An older checkout (--root, a bisect) may predate a special-cased step; the names only have to be current here.
     if stale and not args.root:
         print(f"run_ci_guards.py: ci-guards.yml has no step named {sorted(stale)}; update this script", file=sys.stderr)
@@ -535,7 +599,7 @@ def main(argv: list[str]) -> int:
     started = time.monotonic()
     print(
         f"cmux guards: {len(units)} groups, {sum(len(u.steps) for u in units)} steps, "
-        f"head {head_sha[:12]}, base {base_sha[:12] or 'none'}, {args.jobs} workers",
+        f"head {head_sha[:12]}, base {base_sha[:12] or 'none'}, {args.jobs} workers, {os.cpu_count()} CPUs",
         flush=True,
     )
     # A stateless group's steps are independent tasks; a group whose steps
@@ -546,26 +610,76 @@ def main(argv: list[str]) -> int:
             tasks.append((unit, unit.steps))
         else:
             tasks.extend((unit, [step]) for step in unit.steps)
-    tasks.sort(key=lambda task: -len(task[1]))
+    times = read_times()
+
+    def expected(task: tuple[Unit, list[Step]]) -> float:
+        unit, steps = task
+        return sum(times.get(f"{unit.label}: {step.name}", UNTIMED_SECONDS) for step in steps)
+
+    tasks.sort(key=lambda task: (-expected(task), -len(task[1])))
+    # A step that requires a clean checkout runs after the pool drains: a
+    # sibling step's scratch file in the checkout would fail it (run
+    # 45122790288: "checkout has non-ignored source changes" at 23 s).
+    alone = [task for task in tasks if any(step.name in ALONE_STEPS for step in task[1])]
+    tasks = [task for task in tasks if task not in alone]
     results: list[StepResult] = []
+
+    def report(result: StepResult) -> None:
+        results.append(result)
+        elapsed = time.monotonic() - started
+        # Every step prints as it finishes, so a run cut short by a
+        # timeout still shows what finished and when.
+        if result.ok is False:
+            print(f"  FAIL {result.seconds:6.1f}s  at {elapsed:5.0f}s  {result.unit.label}: {result.step.name}", flush=True)
+            print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
+        elif result.ok:
+            print(f"  ok   {result.seconds:6.1f}s  at {elapsed:5.0f}s  {result.unit.label}: {result.step.name}", flush=True)
+            if args.verbose:
+                print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
+
+    # A job timeout ends this run with SIGTERM (Actions sends SIGINT first).
+    # Both stop it the same way, after it names the steps still running.
+    def interrupted(signum: int, _frame) -> None:
+        raise KeyboardInterrupt
+    previous_term = signal.signal(signal.SIGTERM, interrupted)
     pool = concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.jobs))
     futures = [pool.submit(run_steps, unit, steps, env, base_sha, args.keep_going) for unit, steps in tasks]
     try:
         for future in concurrent.futures.as_completed(futures):
             for result in future.result():
-                results.append(result)
-                if result.ok is False:
-                    print(f"  FAIL {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
-                    print(f"::group::{result.step.name}\n{result.output.rstrip()}\n::endgroup::", flush=True)
-                elif args.verbose and result.ok:
-                    print(f"  ok   {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}", flush=True)
+                report(result)
+        pool.shutdown()
+        for unit, steps in alone:
+            if STOPPING.is_set():
+                break
+            for result in run_steps(unit, steps, env, base_sha, args.keep_going):
+                report(result)
     except KeyboardInterrupt:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        still_running = running_report()
+        print(f"cmux guards: interrupted after {time.monotonic() - started:.1f}s, "
+              f"{len(results)} steps done, {len(still_running)} still running:", flush=True)
+        for line in still_running:
+            print(line, flush=True)
         pool.shutdown(wait=False, cancel_futures=True)
         stop_running()
         print("cmux guards: interrupted", file=sys.stderr)
         return 130
-    pool.shutdown()
+    finally:
+        signal.signal(signal.SIGTERM, previous_term)
     seconds = time.monotonic() - started
+    write_times(results)
+    slowest = sorted((r for r in results if r.ok is not None), key=lambda r: -r.seconds)[:SLOWEST_SHOWN]
+    if slowest:
+        print(f"slowest {len(slowest)} steps:")
+        for result in slowest:
+            print(f"  {result.seconds:6.1f}s  {result.unit.label}: {result.step.name}")
+    # CPU the steps used against what the machine had: near 1.0 the job needs fewer steps or more
+    # cores; well below it, the steps wait (sleeps, subprocess round trips) and more workers help.
+    cpu = sum(os.times()[:4])
+    cores = len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+    print(f"cmux guards: cpu {cpu:.0f}s over {seconds:.0f}s wall on {cores} cores "
+          f"({cpu / max(seconds * cores, 1e-9):.0%} busy), {args.jobs} workers", flush=True)
     failed = [r for r in results if r.ok is False]
     skipped = sorted({r.step.name for r in results if r.ok is None})
     passed = sum(1 for r in results if r.ok)

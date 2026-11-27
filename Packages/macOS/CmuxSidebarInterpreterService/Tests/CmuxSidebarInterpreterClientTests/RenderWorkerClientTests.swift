@@ -1,5 +1,9 @@
 import CmuxSwiftRender
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 import Foundation
 import Testing
 @testable import CmuxSidebarInterpreterClient

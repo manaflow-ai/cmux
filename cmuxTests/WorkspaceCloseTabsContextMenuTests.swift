@@ -152,6 +152,52 @@ struct WorkspaceCloseTabsContextMenuTests {
         }
     }
 
+    /// #52899: with every warn-before-closing toggle off, a tab running Claude
+    /// Code that is idle or waiting for input closes without asking.
+    @Test
+    func agentAtRestClosesWithoutPromptWhenCloseWarningsAreOff() throws {
+        try withCleanClosedHistory {
+            let fixture = try makeWorkspaceWithFourConfirmingTabs()
+            let catalog = SettingCatalog()
+            let defaults = fixture.manager.closeTabWarningDefaults
+            defaults.set(false, forKey: catalog.app.warnBeforeClosingTab.userDefaultsKey)
+            defaults.set(false, forKey: catalog.app.warnBeforeClosingAgentSession.userDefaultsKey)
+            defaults.set(false, forKey: catalog.app.warnBeforeClosingTabXButton.userDefaultsKey)
+            var promptCount = 0
+            fixture.manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                return true
+            }
+
+            for (tabId, lifecycle) in zip(fixture.tabIds.prefix(2), [AgentHibernationLifecycleState.idle, .needsInput]) {
+                let panelId = try #require(fixture.workspace.panelIdFromSurfaceId(tabId))
+                // Claude Code stays the shell's foreground command between turns.
+                fixture.workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+                fixture.workspace.setAgentLifecycle(key: "claude_code", panelId: panelId, lifecycle: lifecycle)
+                #expect(!fixture.workspace.panelNeedsConfirmClose(panelId: panelId), "\(lifecycle)")
+                let tab = try #require(fixture.workspace.bonsplitController.tab(tabId))
+                #expect(fixture.workspace.splitTabBar(
+                    fixture.workspace.bonsplitController,
+                    shouldCloseTab: tab,
+                    inPane: fixture.paneId
+                ), "\(lifecycle)")
+            }
+            #expect(promptCount == 0)
+
+            // A working agent, or a plain command with no agent, still counts
+            // as something running that a close would lose.
+            let workingPanelId = try #require(fixture.workspace.panelIdFromSurfaceId(fixture.tabIds[2]))
+            fixture.workspace.updatePanelShellActivityState(panelId: workingPanelId, state: .commandRunning)
+            for lifecycle in [AgentHibernationLifecycleState.running, .backgroundWorkPending] {
+                fixture.workspace.setAgentLifecycle(key: "claude_code", panelId: workingPanelId, lifecycle: lifecycle)
+                #expect(fixture.workspace.panelNeedsConfirmClose(panelId: workingPanelId), "\(lifecycle)")
+            }
+            let plainPanelId = try #require(fixture.workspace.panelIdFromSurfaceId(fixture.tabIds[3]))
+            fixture.workspace.updatePanelShellActivityState(panelId: plainPanelId, state: .commandRunning)
+            #expect(fixture.workspace.panelNeedsConfirmClose(panelId: plainPanelId))
+        }
+    }
+
     @Test
     func middleClickUsesTheInlineCloseWarningPath() async throws {
         try await withCleanClosedHistory {

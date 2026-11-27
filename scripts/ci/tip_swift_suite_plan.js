@@ -7,7 +7,10 @@
 // when base pushes crowd them out of its window). Per suite, one run at a time, at most one per
 // 30-minute tick, and only when its tier changed:
 //   - skip while a tip suite run is in flight, or when one was created in the last MIN_GAP_MS
-//     (25 min, not 30: a late cron tick must not push the next run back a whole tick);
+//     (25 min, not 30: a late cron tick must not push the next run back a whole tick). A run in
+//     flight for STALE_INFLIGHT_MS whose suite job never started (still queued, no runner took it,
+//     or not created at all) is stale, not in flight: it is named in the reason and the tick goes
+//     on (run 45040477313 sat queued for hours and held every tick until it was cancelled by hand);
 //   - the tip already has a verdict for the suite's job (pass or fail): skip;
 //   - the tip has runs but no verdict (the runner was lost, "Set up runner" failed, the run was
 //     cancelled, no test step ran): retry, at most MAX_ATTEMPTS runs per tip in all;
@@ -37,6 +40,8 @@ const SUITES = {
 const VERDICT_STEP = /^(Build package and tests|Run |Test |Script tests)/;
 const MIN_GAP_MS = 25 * 60 * 1000;
 const MAX_ATTEMPTS = 3;
+// An in-flight run this old whose suite job no runner has taken no longer holds the tick.
+const STALE_INFLIGHT_MS = 2 * 60 * 60 * 1000;
 // Job listings per tick, so a long red streak cannot spend the token's budget.
 const MAX_JOB_READS = 10;
 // A daemon suite run whose tree was still publishing ends with daemon-test skipped and leaves a tree
@@ -90,14 +95,28 @@ async function plan({ github, context, now = Date.now(), suite: requested }) {
   });
   const runs = (data.workflow_runs || []).filter((r) => testedSha(suite, r))
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
-  const out = (action, reason, base = '') => ({ action, reason, tip, base, suite: name });
+  const stale = [];
+  const out = (action, reason, base = '') => ({
+    action, reason: stale.length ? `${reason} (${stale.join('; ')})` : reason, tip, base, suite: name,
+  });
 
-  const going = runs.find((r) => r.status !== 'completed');
-  if (going) return out('skip', `run ${going.id} on ${testedSha(suite, going)} is in flight`);
+  const reads = { count: 0 };
+  for (const going of runs.filter((r) => r.status !== 'completed')) {
+    const age = now - Date.parse(going.created_at);
+    const held = `run ${going.id} on ${testedSha(suite, going)} is in flight`;
+    if (age < STALE_INFLIGHT_MS || reads.count >= MAX_JOB_READS) return out('skip', held);
+    reads.count += 1;
+    const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
+      owner, repo, run_id: going.id, filter: 'latest', per_page: 100,
+    });
+    const job = (jobs.jobs || []).find((j) => j.name === suite.job);
+    if (job && !['queued', 'waiting', 'pending', 'requested'].includes(job.status)) return out('skip', held);
+    stale.push(`run ${going.id} on ${testedSha(suite, going)} sat ${going.status} ${Math.round(age / 60000)} min `
+      + `with no runner on ${suite.job}; treated as stale`);
+  }
   const recent = runs.find((r) => now - Date.parse(r.created_at) < MIN_GAP_MS);
   if (recent) return out('skip', `run ${recent.id} started less than 25 minutes ago`);
 
-  const reads = { count: 0 };
   const onTip = runs.filter((r) => testedSha(suite, r) === tip);
   if (onTip.length) {
     for (const run of onTip) {
@@ -180,4 +199,6 @@ async function dispatch({ github, context, suite: requested, core }) {
   return true;
 }
 
-module.exports = { plan, dispatch, verdict, testedSha, SUITES, MIN_GAP_MS, MAX_ATTEMPTS, DEFERRED_GRACE_MS, SWIFT_JOB };
+module.exports = {
+  plan, dispatch, verdict, testedSha, SUITES, MIN_GAP_MS, MAX_ATTEMPTS, DEFERRED_GRACE_MS, STALE_INFLIGHT_MS, SWIFT_JOB,
+};

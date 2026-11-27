@@ -36,7 +36,12 @@ function safeAsset(name: string): string {
 
 export type PostedMessage = Record<string, unknown>;
 
-export function loadShell(): { dom: JSDOM; posted: PostedMessage[]; render(markdown: string): HTMLElement } {
+export function loadShell(): {
+  dom: JSDOM;
+  posted: PostedMessage[];
+  render(markdown: string, localImageRevision?: number): HTMLElement;
+  reloadLocalImages(revision: number): void;
+} {
   const posted: PostedMessage[] = [];
   // Bun cannot host jsdom's script runner, so evaluate the shell's inline
   // scripts in order with the jsdom window as their global scope.
@@ -67,13 +72,19 @@ export function loadShell(): { dom: JSDOM; posted: PostedMessage[]; render(markd
     .join("\n");
   // eslint-disable-next-line no-new-func
   new Function("win", `with (win) {\n${body}\n}`)(win);
-  const window = win as unknown as { __cmuxRenderMarkdown(md: string): void };
+  const window = win as unknown as {
+    __cmuxRenderMarkdown(md: string, localImageRevision?: number): void;
+    __cmuxReloadLocalImages?(revision: number): void;
+  };
   return {
     dom,
     posted,
-    render(markdown: string) {
-      window.__cmuxRenderMarkdown(markdown);
+    render(markdown: string, localImageRevision?: number) {
+      window.__cmuxRenderMarkdown(markdown, localImageRevision);
       return dom.window.document.getElementById("content") as HTMLElement;
+    },
+    reloadLocalImages(revision: number) {
+      window.__cmuxReloadLocalImages?.(revision);
     },
   };
 }

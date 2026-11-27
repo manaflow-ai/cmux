@@ -75,7 +75,7 @@ class LocalizationCatalogTests(unittest.TestCase):
             path.parent.mkdir()
             path.write_text(text)
             with patch.object(MODULE, "load_metadata", return_value={}), \
-                 patch.object(sys, "argv", ["catalog", "check", "--root", directory, "--locale", "de"]), \
+                 patch.object(sys, "argv", ["catalog", "check", "--strict", "--root", directory, "--locale", "de"]), \
                  contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                 self.assertEqual(MODULE.main(), 1)
 

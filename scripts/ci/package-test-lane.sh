@@ -346,7 +346,8 @@ package_args() {
   # second package build or changing the existing startup retry.
   case "$pkg" in
     CMUXAgentLaunch|CmuxAgentJournal)
-      swift_test_args+=(-Xswiftc -warnings-as-errors)
+      # A pull request keeps warnings soft (CI_WARNINGS=soft, scripts/ci/warnings_policy.py; Leo, 2026-11-19).
+      [[ "${CI_WARNINGS:-deny}" == soft ]] || swift_test_args+=(-Xswiftc -warnings-as-errors)
       ;;
   esac
 }
@@ -425,6 +426,10 @@ run_package_tests() {
   # these packages takes under a minute. The total limit is a backstop
   # for a run that keeps making slow progress.
   log="$(mktemp -t swift-package-test.XXXXXX)"
+  # A test process that crashes (CmuxHomeCore's "Exited with unexpected
+  # signal code 11") printed no stack: Swift's backtracer is on only for a
+  # terminal on macOS by default, and CI has none. Turn it on, non-interactive.
+  export SWIFT_BACKTRACE="enable=yes,interactive=no,timeout=0s,symbolicate=fast,color=no"
   run_swift_test() {
     test_status=0
     python3 scripts/ci/hung_test_watchdog.py \

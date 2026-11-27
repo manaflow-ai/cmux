@@ -1,3 +1,5 @@
+import { isNextPlanId } from "./nextPlans";
+
 export type BillingTeamLike = {
   readonly id: string;
   readonly displayName: string | null;
@@ -65,13 +67,23 @@ export function billingTeamFromUnknown(value: unknown): BillingTeamLike | null {
 
 export function billingPlanIdFromMetadata(metadata: unknown): string | null {
   if (!metadata || typeof metadata !== "object") return null;
+  // A cmux NEXT plan (next_pro, next_max) is no classic plan: it reads as
+  // absent here, so a classic grant or subscription underneath still counts
+  // and an account with only a NEXT plan is free in the classic app.
+  const plan = metadata as { cmuxVmPlan?: unknown; cmuxPlan?: unknown };
+  const override = classicPlanValue(plan.cmuxVmPlan);
+  const subscribed = classicPlanValue(plan.cmuxPlan);
   // A lower paid grant must not hide a paid Max purchase. Explicit free
   // overrides retain their operator restriction.
-  const plan = metadata as { cmuxVmPlan?: unknown; cmuxPlan?: unknown };
-  if (plan.cmuxPlan === "max" && [undefined, null, "pro", "team", "founders", "max"].includes(plan.cmuxVmPlan as never)) return "max";
-  const value = (metadata as { cmuxVmPlan?: unknown }).cmuxVmPlan ??
-    (metadata as { cmuxPlan?: unknown }).cmuxPlan;
+  if (subscribed === "max" && [undefined, null, "pro", "team", "founders", "max"].includes(override as never)) return "max";
+  const value = override ?? subscribed;
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** A metadata plan value, or undefined when unset or a cmux NEXT plan. */
+function classicPlanValue(value: unknown): unknown {
+  if (value === undefined || value === null || isNextPlanId(value)) return undefined;
+  return value;
 }
 
 /**
@@ -97,7 +109,7 @@ function hasActiveBillingPlan(metadata: unknown): boolean {
 // subscription state); cmuxVmPlan is a manual override decoupled from billing.
 function hasRealSubscriptionPlan(metadata: unknown): boolean {
   if (!metadata || typeof metadata !== "object") return false;
-  const value = (metadata as { cmuxPlan?: unknown }).cmuxPlan;
+  const value = classicPlanValue((metadata as { cmuxPlan?: unknown }).cmuxPlan);
   const planId = typeof value === "string" && value.trim() ? value.trim() : null;
   return !!planId && planId !== "free";
 }

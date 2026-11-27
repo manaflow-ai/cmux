@@ -18,6 +18,7 @@ struct AgentLifecycleReducerTests {
         isSubagent: Bool = false,
         unattributedReason: String? = nil,
         declaredPhase: AgentLifecyclePhase? = nil,
+        detail: String? = nil,
         occurredAtMs: Int64? = nil
     ) -> AgentJournalEvent {
         let attributed = unattributedReason == nil
@@ -33,7 +34,8 @@ struct AgentLifecycleReducerTests {
             unattributedReason: unattributedReason,
             isSubagent: isSubagent,
             pendingWork: pendingWork,
-            declaredPhase: declaredPhase
+            declaredPhase: declaredPhase,
+            detail: detail
         )
         return AgentJournalEvent(sequence: sequence, committedAtMs: 2_000 + sequence, draft: draft)
     }
@@ -103,6 +105,66 @@ struct AgentLifecycleReducerTests {
             event(3, .attentionResolved, declaredPhase: .idle),
         ])
         #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
+    }
+
+    /// Folds events the way the app does: through the notification reconciler, then the reducer.
+    private func foldThroughReconciler(_ events: [AgentJournalEvent]) -> AgentLifecycleReducerState {
+        var notifications = AgentNotificationReconciler()
+        var state = AgentLifecycleReducerState()
+        for event in events {
+            _ = notifications.apply(event)
+            reducer.apply(notifications.lifecycleEvent(event), to: &state)
+        }
+        return state
+    }
+
+    /// A live session that Claude Code compacts sends SessionStart again (`source: "compact"`)
+    /// and returns to the phase it was in, like a statechart's history state, instead of
+    /// `unknown`. An `unknown` pane is never hibernated (cmux#39778).
+    @Test func compactSessionStartKeepsTheLiveSessionsPhase() {
+        let compact = AgentJournalEventDraft.compactSessionStartDetail
+        let idle = foldThroughReconciler([
+            event(1, .sessionStarted),
+            event(2, .turnStarted),
+            event(3, .turnCompleted),
+            event(4, .sessionStarted, detail: compact),
+        ])
+        #expect(idle.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .idle)
+
+        let running = foldThroughReconciler([
+            event(1, .sessionStarted),
+            event(2, .turnStarted),
+            event(3, .sessionStarted, detail: compact),
+        ])
+        #expect(running.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .running)
+
+        let waiting = foldThroughReconciler([
+            event(1, .sessionStarted),
+            event(2, .turnStarted),
+            event(3, .approvalRequested),
+            event(4, .sessionStarted, detail: compact),
+        ])
+        #expect(waiting.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .needsInput)
+
+        // An ended session that starts again is a new run: nothing to return to.
+        let restarted = foldThroughReconciler([
+            event(1, .sessionStarted),
+            event(2, .turnStarted),
+            event(3, .turnCompleted),
+            event(4, .sessionEnded),
+            event(5, .sessionStarted, detail: compact),
+        ])
+        #expect(restarted.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .unknown)
+    }
+
+    /// Any other repeat SessionStart (restart, `/clear`, resume) is still a new boundary.
+    @Test func plainRepeatSessionStartResetsThePhase() {
+        let state = foldThroughReconciler([
+            event(1, .sessionStarted),
+            event(2, .turnStarted),
+            event(3, .sessionStarted),
+        ])
+        #expect(state.combinedPhase(surfaceId: surface, agentKey: "claude_code") == .unknown)
     }
 
     @Test func sessionEndedClearsEntry() {

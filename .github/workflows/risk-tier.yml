@@ -2,12 +2,12 @@ name: risk tier
 
 # Labels each feat-cmux-next pull request risk:low, risk:normal or risk:high from what it changes
 # (docs/ci/risk-tiers.md on feat-cmux-next). Low and normal never wait for a person: the check passes
-# as soon as it has graded them. High is held until its head has a verdict: an independent review
-# receipt (`Review (<reviewer>): SHIP at <full head sha>`), an approving review on the head commit, or
-# risk:human-ok from a maintainer. No person is needed (Leo, 2026-11-06: "this does not need a human.");
-# the step below keeps its older name. Any tier is held while it takes back another pull request's
-# change from the last week, until a `Takes back #N: <why>` line owns it. gh-merge-green and
-# next-autoland refuse a red `risk evidence` check.
+# as soon as it has graded them. A high head with no sign-off, or with a BLOCK, gets a warning only:
+# the lander lands nothing with a BLOCK at its head, and a self or helper review receipt
+# (`Review (<reviewer>): SHIP at <full head sha>`) clears it. No person is needed (Leo, 2026-11-06:
+# "this does not need a human."). The check is red for one thing, in any tier: the pull request takes
+# back another pull request's change from the last week, until a `Takes back #N: <why>` line owns it.
+# gh-merge-green and next-autoland refuse a red `risk evidence` check.
 #
 # This copy is the one that runs. GitHub runs pull_request_target workflows from the default branch
 # (main) whatever the pull request's base, so the copy on feat-cmux-next never ran: no feat pull
@@ -28,36 +28,105 @@ on:
 permissions:
   contents: read
 
+env:
+  # Temporary REST budget attribution until 2026-11-22 00:00 UTC: one gh-call line per GitHub API call
+  # (scripts/ci/api_call_log/env.sh). GitHub runs this file from main, and it had no attribution.
+  BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
+
 jobs:
   evidence:
-    # Every event grades, with no job-level `if`: a skipped `risk evidence` run would be the newest
-    # check of that name and read as a pass. The unit tests live in risk-tier-tests.yml for the
-    # same reason. A newer event cancels an older grading run; gh-merge-green refuses a cancelled
-    # check, so the newest finished run is always a real verdict.
-    name: risk evidence
+    # Every event grades except a label added or removed that is not risk:human-ok or risk:waived:
+    # those two are the only labels risk_tier.py reads, so no other label can change the verdict,
+    # and grading again on each one cost a runner start per label event (risk evidence was 6.5k
+    # runner-min over about 3,600 runs in 6 h on 2026-11-25). A skipped job named `risk evidence`
+    # would be the newest check of that name and read as a pass, so the skipped label run is named
+    # `risk evidence label (ignored)` and the newest `risk evidence` stays a real verdict. Its own
+    # concurrency group keeps it from cancelling a grading run in flight. The unit tests live in
+    # risk-tier-tests.yml for the same reason. A newer event cancels an older grading run;
+    # gh-merge-green refuses a cancelled check, so the newest finished run is always a real verdict.
+    # An `edited` event that changed only the title skips the same way (`risk evidence title edit
+    # (ignored)`): risk_tier.py reads the body and the base, never the title. freeze-ok grades too,
+    # because this job also posts the `merge freeze` result for the pull request (below).
+    if: ${{ !(((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base)) }}
+    name: ${{ ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) && 'risk evidence label (ignored)' || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base) && 'risk evidence title edit (ignored)' || 'risk evidence' }}
     concurrency:
-      group: risk-evidence-${{ github.event.pull_request.number }}
+      group: risk-evidence-${{ github.event.pull_request.number }}${{ (((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base)) && format('-ignored-{0}', github.run_id) || '' }}
       cancel-in-progress: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks Blacksmith (default) or GitHub-hosted
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: trusted pull-request-write token
     timeout-minutes: 8
     permissions:
       contents: read
       pull-requests: write
       issues: write
+      # The `merge freeze / merge freeze` commit status (the freeze check below).
+      statuses: write
     steps:
       # The tip of feat-cmux-next (the branch filter makes base.ref that branch), not base.sha: base.sha
       # is the base as of the pull request's last push, so a label or description event on an older pull
       # request would grade it with an older classifier, or find none from before #21718.
+      # The base files over raw.githubusercontent.com at a commit sha (seconds), with actions/checkout below as
+      # the fallback. A sparse blobless checkout of a file or two took 30 to 180 s on Blacksmith (the promisor blob
+      # fetch at `git checkout`, or a ref listing the git mirror proxy answered with a 502 after 90 s): most of this
+      # job's runner time. These are files of a base commit named by sha, never the pull request's head, and nothing
+      # from the pull request runs. scripts/ci/api_call_log is left out: it switched itself off on 2026-11-23.
+      # (tests/test_ci_prt_raw_base_files.py)
+      - name: Read the classifier at the tip of the pull request's base branch
+        id: raw
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          # The job's read token: an unauthenticated raw read is rate limited per address (429), and runner
+          # addresses are shared. Sent only to raw.githubusercontent.com.
+          RAW_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          FILES: scripts/ci/risk_tier.py
+          # Absent at a base before feat-cmux-next #36941 and again on its tip; the checkout then leaves none either.
+          OPTIONAL_FILES: scripts/ci/receipt_grammar.py
+        run: |
+          set -euo pipefail
+          # The tip as a sha, so the read is that commit and not a copy the raw CDN cached minutes ago. One git
+          # protocol v2 ls-refs request over curl (0.2 s), past the runner's git mirror proxy, whose ref
+          # listing is what answered 502 after 90 s. The ref name is compared as a string, not a pattern.
+          pkt() { printf '%04x%s' $((${#1} + 4)) "$1"; }
+          SHA="$({ pkt $'command=ls-refs\n'; printf 0001; pkt "ref-prefix refs/heads/$BASE_REF"$'\n'; printf 0000; } \
+            | curl -fsS --retry 2 --retry-all-errors --connect-timeout 5 --max-time 15 -H 'Git-Protocol: version=2' \
+                -H 'Content-Type: application/x-git-upload-pack-request' --data-binary @- "https://github.com/$REPO.git/git-upload-pack" \
+            | tr -d '\0' | awk -v ref="refs/heads/$BASE_REF" '$2 == ref && $1 ~ /^[0-9a-f]{44}$/ { print substr($1, 5) }')"
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]]
+          part="$RUNNER_TEMP/raw-base-files"
+          rm -rf "$part"
+          for f in $FILES ${OPTIONAL_FILES:-}; do
+            mkdir -p "$part/$(dirname "$f")"
+            code="$(curl -sS --retry 2 --retry-all-errors --connect-timeout 5 --max-time 15 -o "$part/$f" -w '%{http_code}' \
+              -H "Authorization: token $RAW_TOKEN" \
+              "https://raw.githubusercontent.com/$REPO/$SHA/$f")" || code=000
+            if [ "$code" = 404 ] && [[ " ${OPTIONAL_FILES:-} " == *" $f "* ]]; then
+              rm -f "$part/$f"  # absent at this commit, as the sparse checkout would leave it
+            elif [ "$code" != 200 ]; then
+              echo "::notice::$f read $code over raw; actions/checkout reads the files instead."
+              exit 1
+            fi
+          done
+          cp -R "$part"/. .
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+      # refs/heads/ in front: actions/checkout fetches a bare branch name as the wildcard
+      # `+refs/heads/feat-cmux-next*`, every one of the ~1,750 feat-cmux-next-* branches at depth 1 with
+      # their trees, and the sparse checkout's blob fetch then took ~50 s on top of the ~10 s fetch: the
+      # step was 68 s median of an ~88 s job (2026-11-25). A full ref fetches the one branch.
+      # tests/test_ci_checkout_branch_ref_exact.py keeps every checkout on main this way.
       - name: Checkout the classifier at the tip of the pull request's base branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: steps.raw.outputs.ok != 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: ${{ github.event.pull_request.base.ref }}
+          ref: refs/heads/${{ github.event.pull_request.base.ref }}
           persist-credentials: false
           # receipt_grammar.py: risk_tier.py imports it for the review receipt grammar (feat-cmux-next
           # #36941). A base before that has no such file; the pattern then matches nothing.
           sparse-checkout: |
             scripts/ci/risk_tier.py
             scripts/ci/receipt_grammar.py
+            scripts/ci/api_call_log
           sparse-checkout-cone-mode: false
       # The base's last 9 days of history, for the check that flags taking back a change another
       # pull request merged recently (a stale base). A fresh repository with full blobs, not the
@@ -81,10 +150,13 @@ jobs:
         run: |
           history="$RUNNER_TEMP/base-history"
           git init -q "$history"
-          if timeout 120 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
+          # Blobless: commits and trees only (16 MB in 5 s, against 681 MB in 115 s with every blob, 11-21; the fetch
+          # was 179 of risk tier's 251 runner-min). risk_tier.py fetches the versions of the files it blames in one
+          # round trip (prefetch_blobs, cmux#48946); merge-base reads commits only.
+          if timeout 120 git -C "$history" fetch -q --no-tags --filter=blob:none --shallow-since="9 days ago" "https://github.com/$REPO.git" \
               "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF"; then
             echo "BASE_HISTORY=$history" >> "$GITHUB_ENV"
-            timeout 60 git -C "$history" fetch -q --no-tags --shallow-since="9 days ago" "https://github.com/$REPO.git" \
+            timeout 60 git -C "$history" fetch -q --no-tags --filter=blob:none --shallow-since="9 days ago" "https://github.com/$REPO.git" \
               "+refs/pull/$NUMBER/head:refs/remotes/pull/head" || echo "head not fetched; the merge base comes from compare"
           else
             echo "::warning::recent-revert check skipped: base history unavailable"
@@ -93,15 +165,49 @@ jobs:
       # compare, and for high the comments, reviews and label events) draw on the App's own budget
       # rather than the GITHUB_TOKEN budget every workflow shares (it ran out again on 2026-10-26).
       # A failed mint leaves GITHUB_TOKEN, and a refused read is graded again on GITHUB_TOKEN.
-      - name: Mint the glaeda-route token
-        id: glaeda-token
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
         if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0
+        # remaining at 02:17Z and 10:32Z on 2026-11-25 with the controller
+        # itself at 234 calls/h; an even/odd run-id split only cut it to
+        # ~9.5k/h on 2026-11-26).
+        id: glaeda-token-bot
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
+          skip-token-revoke: true
+
+      - name: Mint the glaeda-route token
+        id: glaeda-token
+        if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.glaeda-token-bot.outputs.token == ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./.app-token-spread/.github/actions/app-token-spread
+        with:
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-contents: read
@@ -125,7 +231,7 @@ jobs:
       - name: Grade the pull request
         id: grade
         env:
-          READ_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          READ_TOKEN: ${{ (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
@@ -138,11 +244,15 @@ jobs:
           if [ -z "${READ_TOKEN:-}" ] || ! GH_TOKEN="$READ_TOKEN" grade; then
             [ -z "${READ_TOKEN:-}" ] || echo "::warning::the glaeda-route App's read failed; grading on GITHUB_TOKEN"
             grade
-          elif ! grep -qx 'ready=true' "$RUNNER_TEMP/grade.out"; then
-            # A held verdict is read again on GITHUB_TOKEN: the classifier treats an unreadable
-            # sign-off (a refused comments, reviews or label-events read) as none, so the App's
-            # budget may only ever cost a held pull request extra calls, never its sign-off.
-            echo "held on the App's read; grading again on GITHUB_TOKEN"
+          elif ! grep -qx 'ready=true' "$RUNNER_TEMP/grade.out" && ! grep -qx 'signoff_unread=false' "$RUNNER_TEMP/grade.out"; then
+            # A held verdict whose sign-off read was refused (comments, reviews or label events) is read
+            # again on GITHUB_TOKEN: the classifier treats an unreadable sign-off as none, so the App's
+            # budget may only ever cost a held pull request extra calls, never its sign-off. A held verdict
+            # read in full (signoff_unread=false: a FIX on the head, a missing receipt) would grade the same
+            # and is not graded again: that cost about ten calls on this self-hosted job's GITHUB_TOKEN hour,
+            # about 220 an hour, the hour the production promote gates read (2026-11-21). A base whose
+            # risk_tier.py predates the line keeps the second grade (tests/test_ci_risk_tier_grades_once.py).
+            echo "held on the App's read with the sign-off unread; grading again on GITHUB_TOKEN"
             grade
           fi
           cat "$RUNNER_TEMP/grade.out" >> "$GITHUB_OUTPUT"
@@ -155,7 +265,7 @@ jobs:
       - name: Set the risk label
         continue-on-error: true
         env:
-          READ_TOKEN: ${{ steps.glaeda-token.outputs.token }}
+          READ_TOKEN: ${{ (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
@@ -194,19 +304,77 @@ jobs:
         run: >-
           gh api rate_limit --jq
           '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
-      # Enforced from ENFORCE_FROM: the feat-cmux-next copy's advisory window (to 2026-10-24) let high
-      # pull requests merge unchecked, so this one holds from the start. gh-merge-green reads the value
-      # from the base's copy.
-      - name: Hold high until a person looked
+      # merge freeze for a pull request into feat-cmux-next rides this runner instead of starting its
+      # own (merge-freeze.yml skips feat-cmux-next): on 11-25..11-26 merge freeze started 8,270 runners
+      # a day, one per head, each about a minute for one GraphQL read, beside this job on the same head.
+      # The result is a commit status named like the old check run, `merge freeze / merge freeze`, so
+      # next-autoland's LIVE_CHECKED still treats it as advisory (the merge paths read the freezes again
+      # right before merging). Same checker (main's merge_freeze.py), same exit codes, same draft skip.
+      # A red here never turns risk evidence red. vars.MERGE_FREEZE_OWN_RUNNER=1 restores the own job.
+      - name: Checkout the merge freeze checker from main
+        if: ${{ !cancelled() && vars.MERGE_FREEZE_OWN_RUNNER != '1' && !github.event.pull_request.draft }}
+        continue-on-error: true
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: refs/heads/main
+          path: .merge-freeze
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/ci/merge_freeze.py
+          sparse-checkout-cone-mode: false
+      - name: Check the pull request against open freezes (merge freeze status)
+        if: ${{ !cancelled() && vars.MERGE_FREEZE_OWN_RUNNER != '1' && !github.event.pull_request.draft }}
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          GH_TOKEN: ${{ (steps.glaeda-token-bot.outputs.token || steps.glaeda-token.outputs.token) || github.token }}
+          GH_FALLBACK_TOKEN: ${{ github.token }}
+          STATUS_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        # Exit 0 clear, 1 frozen (red), 2 unreadable (red), 3 rate limited twice (a warning, green), as
+        # merge-freeze.yml's check reads them.
+        run: |
+          args=(check --repo "$REPO" --pr "$NUMBER" --base "$BASE" --rate-limit-retry 120)
+          if [ -n "$CHANGED_FILES" ]; then
+            args+=(--changed-files "$CHANGED_FILES")
+          fi
+          status=0
+          out=$(python3 .merge-freeze/scripts/ci/merge_freeze.py "${args[@]}") || status=$?
+          [ -z "$out" ] || printf '%s\n' "$out"
+          case "$status" in
+            0) state=success; desc="No active freeze covers this pull request" ;;
+            1) state=failure; desc=$(printf '%s\n' "$out" | head -n 1) ;;
+            3) state=success; desc="Not checked: GitHub rate limit; mergers read the freezes again"
+               echo "::warning title=merge freeze not checked::$desc" ;;
+            *) state=failure; desc="Could not read the merge freezes (exit $status)" ;;
+          esac
+          { printf '### merge freeze: %s\n\n%s\n' "$state" "$desc"; [ -z "$out" ] || printf '\n```\n%s\n```\n' "$out"; } >> "$GITHUB_STEP_SUMMARY"
+          GH_TOKEN="$STATUS_TOKEN" gh api -X POST "repos/$REPO/statuses/$HEAD_SHA" \
+            -f state="$state" -f context="merge freeze / merge freeze" \
+            -f description="${desc:0:140}" -f target_url="$RUN_URL" > /dev/null
+
+      # Only an unowned takeback keeps this check red (any tier): a squash from a stale base that quietly
+      # reverts a change merged in the last week breaks the base. Nothing else does. A BLOCK, or a
+      # sign-off read GitHub refused, on a high head only warns: land-judge refuses a BLOCK at the head
+      # itself, and a self or helper review clears it (Leo, 2026-11-21: "its just a nice to have").
+      # This step used to be "Hold high until a person looked" and failed on every held verdict with
+      # "risk:$TIER is held before merge", so a risk:normal takeback (#50477) read as a person hold.
+      # ENFORCE_FROM stays for gh-merge-green, which reads it from the base's copy.
+      - name: Hold only an unowned takeback
         if: steps.grade.outputs.ready != 'true'
         env:
           TIER: ${{ steps.grade.outputs.tier }}
+          TAKES_BACK: ${{ steps.grade.outputs.takes_back }}
+          TAKES_BACK_FIX: ${{ steps.grade.outputs.takes_back_fix }}
           ENFORCE_FROM: "2026-10-21T00:00:00Z"
         run: |
-          if [ "$(date -u +%s)" -lt "$(date -u -d "$ENFORCE_FROM" +%s)" ]; then
-            echo "::warning::risk:$TIER is held (the job summary says why); this is advisory until $ENFORCE_FROM, then it blocks merge."
-            echo "Advisory until $ENFORCE_FROM: this check passes now and blocks merge after that." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+          if [ "$TAKES_BACK" = true ]; then
+            echo "::error::risk:$TIER takes back a recent change. $TAKES_BACK_FIX"
+            exit 1
           fi
-          echo "::error::risk:$TIER is held before merge; the job summary says what clears it."
-          exit 1
+          echo "::warning::risk:$TIER has a review verdict to address (the job summary says which). The lander refuses a BLOCK at the head; this check does not."
