@@ -581,6 +581,9 @@ pub struct Session {
     /// (`idle.rs`), or 0: the next start of its agent is a wake, logged with its cause and how
     /// long it took.
     pub(super) hibernated_at: AtomicU64,
+    /// Its recent gaps between turns, which `adaptive-v1` picks its idle period from
+    /// (`residency.rs`).
+    pub(super) idle_rhythm: StdMutex<super::residency::Rhythm>,
     /// What asked for the agent the next wake starts (`idle.rs` `wake_cause`): `typing`, `prompt`,
     /// else a request that needs the agent.
     pub(super) wake_cause: StdMutex<Option<&'static str>>,

@@ -141,6 +141,28 @@ impl Hub {
             || session.work_below_since.lock().is_ok_and(|v| *v != 0)
     }
 
+    /// What under `session` keeps its harness up at its idle deadline. `static`: all of
+    /// [`Self::holds_work_below`]. `adaptive-v1`: only what the harness's exit would end, its own
+    /// processes and background subagents. An open sub-session child runs in its own harness and
+    /// outlives its parent's: a parent whose turn ended while only its children work sleeps
+    /// through their work, and whatever reaches it from them (a report, a question, a send) is a
+    /// prompt, which wakes it as any prompt does. Nothing prompts a parent when a child's turn
+    /// ends (`subsession_results.rs`), awake or not, so its agent loses nothing by sleeping.
+    fn idle_holds_work(&self, session: &Session) -> bool {
+        match self.idle_policy() {
+            IdlePolicyKind::Static => self.holds_work_below(session),
+            IdlePolicyKind::AdaptiveV1 => {
+                self.any_process_running(session)
+                    || session
+                        .subagents
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .background_running()
+                        > 0
+            }
+        }
+    }
+
     pub(super) fn idle_eligible(&self, session: &Session) -> bool {
         self.eligible(session, false)
     }
@@ -165,7 +187,7 @@ impl Hub {
             && !self.secrets.waiting_in(&session.id)
             && (session.queued() == 0 || sleeps_held)
             && session.pending_permissions().is_empty()
-            && !self.holds_work_below(session)
+            && !self.idle_holds_work(session)
             // Nor one whose agent waits on a request of its own (a permission not shown yet).
             && session.agent_requests.load(Ordering::SeqCst) == 0
             // Nor one whose cut turn's automatic continuation waits or starts (`auto_resume.rs`).
@@ -334,7 +356,7 @@ impl Hub {
             .filter(|s| s.child.try_lock().map(|c| c.is_some()).unwrap_or(true))
             .map(|s| {
                 std::time::Duration::from_nanos(s.last_active.load(Ordering::Relaxed))
-                    + self.idle_period(s, idle)
+                    + self.idle_period_for(s, idle)
             })
             .min()
     }
@@ -349,7 +371,8 @@ impl Hub {
         let Some(idle) = *self.idle_child.lock().unwrap() else { return };
         let now = self.clock_now();
         // Each session's own period: shorter for one whose host moves (`host_level.rs`).
-        let period = |s: &Session| self.idle_period(s, idle).as_nanos() as u64;
+        // And under `adaptive-v1`, its own rhythm's (`residency.rs`).
+        let period = |s: &Session| self.idle_period_for(s, idle).as_nanos() as u64;
         // The live sessions past their deadline, newest first as before: only those are sorted.
         let due = newest_first(
             self.live_session_handles()
@@ -488,6 +511,7 @@ impl Hub {
                 "host-level"
             },
             idle_secs = idle_for / 1_000_000_000,
+            policy = self.idle_policy().name(),
             exit_ms = u64::try_from(began.elapsed().as_millis()).unwrap_or(u64::MAX),
             "hibernated: no turn, nothing queued, no question pending, nothing but its MCP \
              servers running under it; the harness and its MCP servers exited and the session \

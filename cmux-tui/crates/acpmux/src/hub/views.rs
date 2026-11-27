@@ -878,6 +878,7 @@ impl Hub {
             pinned: m.pinned,
             // Background work no turn shows: an idle app update waits for it too.
             working_below: self.holds_work_below_read(session),
+            residency: serde_json::to_value(self.residency_of(session, m.status)).ok(),
             // A turn failed: the prompts that waited behind it wait for a client to resume them.
             queue_paused: session.queue_paused(),
             // A daemon start holds its queue until a person opens it (`protected_hold.rs`).
@@ -1354,6 +1355,9 @@ impl Hub {
             "liveAgents": live,
             // Live agent hosts still on another build than this one (`views/host_build.rs`).
             "hostsOnOtherBuilds": other_build,
+            // The idle policy and what the chats cost now: resident, busy, what a lane cap
+            // counts, hibernated (`residency.rs`, versioned `v`).
+            "residency": self.residency_status(&sessions),
             "stuckSessions": stuck,
             "disk": disk,
             // macOS: whether this daemon's agents can read the login keychain

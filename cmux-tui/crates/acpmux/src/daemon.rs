@@ -898,6 +898,11 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     {
         hub.set_idle_child((secs > 0).then(|| std::time::Duration::from_secs(secs)));
     }
+    // `ACPMUX_IDLE_POLICY=adaptive-v1`: each chat's idle period from its own rhythm
+    // (`hub/residency.rs`); unset or anything else, the one static period.
+    hub.set_idle_policy(crate::hub::IdlePolicyKind::parse(
+        std::env::var("ACPMUX_IDLE_POLICY").ok().as_deref(),
+    ));
     // `ACPMUX_PROBE_HARNESSES=a,b`: the model probes start only these
     // harnesses (the Chief lists the ones it uses); unset, every harness.
     hub.set_probe_only(Hub::probe_only_from_env(

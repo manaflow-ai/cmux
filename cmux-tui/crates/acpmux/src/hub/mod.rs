@@ -167,6 +167,8 @@ mod hunk_summary;
 mod hybrid_hold;
 pub(super) mod idle;
 mod idle_census;
+pub(super) mod residency;
+pub use residency::IdlePolicyKind;
 mod idle_governor;
 pub(crate) mod image_size;
 pub(crate) mod inactive_archive;
@@ -1423,6 +1425,8 @@ pub struct Hub {
     pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
     /// A session harness unused for this long exits (`idle.rs`); None: never.
     pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
+    /// Which policy picks each chat's idle period (`residency.rs`, `ACPMUX_IDLE_POLICY`).
+    pub(super) idle_policy: std::sync::atomic::AtomicU8,
     /// How long a start that waits on its harness lets it do no work (`start_watch.rs`
     /// `START_HUNG`; tests shorten it).
     pub(super) start_hung: StdMutex<std::time::Duration>,
@@ -1954,6 +1958,7 @@ impl Hub {
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
+            idle_policy: std::sync::atomic::AtomicU8::new(IdlePolicyKind::Static as u8),
             start_hung: StdMutex::new(start_watch::START_HUNG),
             workflow_runs: crate::workflow_runs::Service::default(),
             bg_runner: StdMutex::new(None),
@@ -2712,6 +2717,7 @@ impl Hub {
             evict_tried_at: AtomicU64::new(0),
             start_for: std::sync::atomic::AtomicU8::new(0),
             hibernated_at: AtomicU64::new(hibernated_at),
+            idle_rhythm: StdMutex::new(Default::default()),
             wake_cause: StdMutex::new(None),
             policy_refusal: Default::default(),
             launch_backoff: Default::default(),
