@@ -5,7 +5,7 @@
 // chat's own question, which then leaves the hat (Leo, 2026-11-07: "the composer hat can become a
 // dual thing where you can go through it and, like, click left and right through things and be able
 // to answer things as they come").
-import { useState, type CSSProperties } from "react";
+import { useLayoutEffect, useState, type CSSProperties } from "react";
 import {
   HatQuestions,
   type HatQuestionActions,
@@ -104,6 +104,7 @@ export function HatQuestionsStage({
   dismissLook,
   first,
   ask,
+  pagerLook,
 }: {
   /// One deploy ask: long (its head and tail cut until More) or short (shown whole).
   ask?: "long" | "short";
@@ -117,7 +118,16 @@ export function HatQuestionsStage({
   dismissLook?: "hover" | "always" | "corner";
   /// Which question leads: the stills of the started chat's question start on it.
   first?: "child";
+  /// The pager's spacing look (`<html data-pager-look>`, hatQuestions.css; design/chevrons.md).
+  pagerLook?: "before" | "gap" | "roomy";
 }) {
+  useLayoutEffect(() => {
+    if (!pagerLook) return;
+    document.documentElement.dataset.pagerLook = pagerLook;
+    return () => {
+      delete document.documentElement.dataset.pagerLook;
+    };
+  }, [pagerLook]);
   const start = (): readonly HatQuestion[] => {
     if (ask) return [ask === "long" ? LONG_ASK : SHORT_ASK];
     if (child) return [CHILD_QUESTION];
