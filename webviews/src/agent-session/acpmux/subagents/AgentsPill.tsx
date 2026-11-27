@@ -10,9 +10,9 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { usePopover } from "../summary/usePopover";
 import { subagentStatus, subagentStatusLabel } from "../summary/subagentStatusListModel";
-import { running, SubagentHarnessContext } from "./subagentGroupModel";
+import { running, useNow, SubagentHarnessContext } from "./subagentGroupModel";
 import type { Subagent } from "./subagentFold";
-import { SubagentElapsed } from "./Elapsed";
+import { subagentElapsedLabel } from "./Elapsed";
 import { AgentIdentity } from "./AgentIdentity";
 import { agentTone } from "./agentTones";
 import { subagentDisplayName } from "./subsessions";
@@ -38,6 +38,7 @@ export const AgentsPill = memo(function AgentsPill({
   const { open, setOpen, button, popover, toggle } = usePopover();
   const listId = useId();
   const live = agents.filter(running);
+  const sampledAt = useNow(false);
   if (live.length === 0) return null;
   const byStart = (a: Subagent, b: Subagent) => a.startedAt - b.startedAt || a.id.localeCompare(b.id);
   const sections = [
@@ -115,7 +116,7 @@ export const AgentsPill = memo(function AgentsPill({
                           <span className="acpmux-agents-list__name">{subagentDisplayName(t, agent)}</span>
                           <span className="acpmux-agents-list__state">{state}</span>
                         </span>
-                        <SubagentElapsed agent={agent} clock="acpmux-agents-list__time" />
+                        <span className="acpmux-agents-list__time">{subagentElapsedLabel(agent, sampledAt)}</span>
                         <Icon name="disclosure.collapsed" size={12} />
                       </button>
                     </li>

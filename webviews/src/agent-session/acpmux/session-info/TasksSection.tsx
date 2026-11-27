@@ -68,7 +68,7 @@ export function TasksSection({
   const { running, finished } = splitCommands(commands);
   // Moves once, when the earliest wakeup or cron job still ahead ends (no per-second poll).
   const scheduledNow = useScheduledClock(scheduled);
-  const { active, finished: ended } = splitScheduled(scheduled, Math.max(now, scheduledNow));
+  const { active, finished: ended } = splitScheduled(scheduled, scheduledNow);
   // Every command's id, so opening the finished fold, or a command finishing, replays nothing.
   const { arrived, played } = useArrivals(commands.map(arrivalKey));
   const row = (command: BackgroundCommand, time: ReactNode, state?: string, enters = false) => {
@@ -111,10 +111,10 @@ export function TasksSection({
         >
           <Icon name={TASK_ICONS.command.web} size={ROW_ICON} row fit className="acpmux-row-glyph" />
           <span className="acpmux-session-info-task__command">{sendLabel(t, command) ?? command.command}</span>
-          {time !== undefined && (
-            <span className="acpmux-session-info-task__time">
-              {typeof time === "string" ? <Clock text={time} size={runningClockSize(time)} /> : time}
-            </span>
+          {typeof time === "string" ? (
+            <Clock className="acpmux-session-info-task__time" text={time} size={runningClockSize(time)} />
+          ) : (
+            time
           )}
           {state !== undefined && <span className="acpmux-session-info-task__state">{state}</span>}
         </button>
@@ -282,7 +282,7 @@ export function runningTime(ms: number): string {
 function RunningTaskElapsed({ startedAt }: { startedAt: number }) {
   const now = useNow(true);
   const text = runningTime(Math.max(0, now - startedAt));
-  return <Clock className={runningClockSize(text)} text={text} />;
+  return <Clock className="acpmux-session-info-task__time" size={runningClockSize(text)} text={text} />;
 }
 
 /// The box a running command's time keeps: under an hour the steady "00m 00s" `Clock` reserves

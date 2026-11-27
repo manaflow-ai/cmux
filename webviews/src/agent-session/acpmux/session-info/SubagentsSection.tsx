@@ -9,7 +9,7 @@
 // says its state and its task. The live counts sit in the section's head (the running ones as their mark
 // and number, then "40 done",
 // `subagentCountParts`).
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useConnectionQuietKeys } from "../../../ui/lasting";
 import { useScrollEdges } from "../../../ui/scrollEdges";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
@@ -25,8 +25,7 @@ import { foreignHarness, isRepeatedAgentKind, SUBAGENT_FALLBACK } from "../subag
 import { subagentProgress } from "../subagents/subagentProgress";
 import { namedAction } from "../subagents/trayDetail";
 import { nestAgents } from "../subagents/agentsPillModel";
-import { running } from "../subagents/subagentGroupModel";
-import { SubagentElapsed } from "../subagents/Elapsed";
+import { running, subagentTime, ticking, useNow, useSessionBoundary } from "../subagents/subagentGroupModel";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
 import { subsessionResumeRow } from "../subagents/resumeState";
@@ -40,6 +39,22 @@ import { SUBAGENTS_SHOWN, NO_SESSIONS, subagentCountParts } from "./subagentsSec
 import { CountLine } from "../summary/LiveCount";
 import { WindowedRows } from "./WindowedRows";
 
+import { IDLE_AFTER_MS } from "../subagents/idle";
+import { subagentElapsedLabel } from "../subagents/Elapsed";
+
+function useIdleBoundary(agents: readonly Subagent[]) {
+  const boundaries = useMemo(
+    () =>
+      agents
+        .flatMap((agent) =>
+          running(agent) && agent.quietSince !== undefined ? [agent.quietSince + IDLE_AFTER_MS] : [],
+        )
+        .sort((a, b) => a - b),
+    [agents],
+  );
+  return useSessionBoundary(boundaries);
+}
+
 /// The section head's counts on the clock the lines read, so an idle one leaves "running" in both
 /// at once; only this span re-renders on the tick.
 export function SubagentCountsMeta({
@@ -52,7 +67,7 @@ export function SubagentCountsMeta({
   sessions: readonly StartedSession[];
 }) {
   const t = useT();
-  const now = useNow(agents.some(running));
+  const now = useIdleBoundary(agents);
   const parts = subagentCountParts(t, agents, waiting, sessions, now);
   return parts.length > 0 ? (
     <span className="acpmux-session-info-section__value">
@@ -134,7 +149,8 @@ export function SubagentsSection({
   // A retry waits out the shared bound before its line says so (retryState.ts ``retryWords``).
   const connectionQuiet = useConnectionQuietKeys();
   const language = usePaneLanguage();
-  const now = Date.now();
+  const now = useIdleBoundary(agents);
+  const sampledAt = useNow(false);
   const [more, setMore] = useState(false);
   const [endedOpen, setEndedOpen] = useState(false);
   const endedEdges = useScrollEdges();
@@ -160,7 +176,7 @@ export function SubagentsSection({
       status,
       state: subagentStateText(t, agent, waiting, connectionQuiet, now),
       working: Boolean(retrying(agent)),
-      time: <SubagentElapsed agent={agent} />,
+      time: subagentElapsedLabel(agent, sampledAt),
       task: agent.task,
       icon: SUBAGENT_FALLBACK,
       // Another family's mark; the chat's own subagents keep their toned sparkle (foreignHarness).
@@ -268,25 +284,22 @@ export function SubagentsSection({
 }
 
 function AgentCard({ item }: { item: Line }) {
+  const now = useNow(Boolean(item.agent && ticking(item.agent)));
   const progress = useAgentProgress(item.agent) ?? item.progress;
   // The one subagent card (subagents/SubagentPreview.tsx), which a subagent's name chip shows too.
   return (
     <SubagentCardBody
       name={item.name}
       status={item.status}
-      state={
-        <>
-          {[
-            item.state,
-            item.kind,
-            progress,
-            item.status === "running" || item.status === "waiting" ? item.detail : undefined,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-          {item.time && <> · {item.time}</>}
-        </>
-      }
+      state={[
+        item.state,
+        item.agent && subagentTime(item.agent, now),
+        item.kind,
+        progress,
+        item.status === "running" || item.status === "waiting" ? item.detail : undefined,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
       task={item.task && item.task !== item.name ? item.task : undefined}
     />
   );

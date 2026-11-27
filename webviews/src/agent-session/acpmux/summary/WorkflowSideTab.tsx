@@ -229,7 +229,7 @@ export function WorkflowSideTab({ workflow, onClose, onStop, onOpenWorkflowAgent
               {workflow.elapsedMs !== undefined ? (
                 <Clock text={formatDuration(workflow.elapsedMs)} />
               ) : (
-                <Elapsed since={workflow.startedAt!} />
+                <Elapsed since={workflow.startedAt!} clock="" />
               )}
             </time>
           ) : null}

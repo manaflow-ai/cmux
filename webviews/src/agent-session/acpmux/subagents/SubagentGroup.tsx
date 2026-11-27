@@ -27,9 +27,14 @@ import {
   SubagentStopContext,
   running,
   STATE_LABEL,
+  groupElapsed,
+  ticking,
+  useNow,
   STACK,
 } from "./subagentGroupModel";
-import { GroupElapsed, SubagentElapsed } from "./Elapsed";
+import { Elapsed, subagentElapsedLabel } from "./Elapsed";
+import { Clock } from "../../../ui/Typography";
+import { formatDuration } from "../conversation/turns";
 import { intl } from "../../../ui/intl";
 
 /// A subagent's avatar: the subagent mark in the agent's tone (another family's harness mark,
@@ -98,7 +103,11 @@ export function SubagentGroupHeader({
       <span className="cv-subagents__text">
         <span className="cv-subagents__title">{groupLabel(t, language, agents)}</span>
       </span>
-      <GroupElapsed agents={agents} clock="cv-subagents__time" />
+      {agents.some(ticking) ? (
+        <Elapsed since={Math.min(...agents.map((agent) => agent.startedAt))} clock="cv-subagents__time" />
+      ) : (
+        <Clock className="cv-subagents__time" text={formatDuration(groupElapsed(agents, 0))} />
+      )}
       <Icon name={expanded ? "disclosure.expanded" : "disclosure.collapsed"} size={12} />
     </button>
   );
@@ -119,6 +128,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
   const tones = useContext(AgentTonesContext);
   const actions = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
+  const sampledAt = useNow(false);
   if (!agent) return null;
   const label = STATE_LABEL[agent.state as keyof typeof STATE_LABEL] ?? STATE_LABEL.completed;
   const state = [
@@ -135,7 +145,7 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
         <span className="cv-subagent__name">{subagentDisplayName(t, agent)}</span>
         <span className="cv-subagent__state">{state}</span>
       </span>
-      <SubagentElapsed agent={agent} clock="cv-subagent__time" />
+      {subagentElapsedLabel(agent, sampledAt, "cv-subagent__time")}
     </>
   );
   const kind = agent.kind && agent.kind !== agent.name && !isRepeatedAgentKind(agent.kind) ? agent.kind : undefined;

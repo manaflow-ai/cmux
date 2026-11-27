@@ -4,7 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { subscribePageSecond } from "../../../ui/pageClock";
 import type { Subagent } from "./subagent";
-import { SubagentElapsed } from "./Elapsed";
+import { SubagentGroupHeader, SubagentListRow } from "./SubagentGroup";
+import type { AcpmuxRow } from "../model";
 import { settleReact } from "../../../../test/support/domTeardown";
 
 const STARTED = Date.UTC(2026, 10, 27, 18, 0, 0);
@@ -26,6 +27,7 @@ const agent = (state: string): Subagent => ({
 function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
     url: "http://localhost/",
+    pretendToBeVisual: true,
   });
   for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
     saved.set(key, scope[key]);
@@ -77,31 +79,42 @@ afterEach(async () => {
 test("a running subagent clock updates its leaf without re-rendering the row parent", async () => {
   now = STARTED + 2_000;
   Date.now = () => now;
-  let parentRenders = 0;
-  function Parent() {
-    parentRenders += 1;
-    return (
-      <div data-parent>
-        <SubagentElapsed agent={agent("running")} clock="test-clock" />
-      </div>
-    );
-  }
-
-  const container = await render(<Parent />);
-  expect(container.querySelector(".test-clock")?.textContent).toBe("2s");
-  expect(parentRenders).toBe(1);
-
+  let groupReads = 0;
+  const liveAgent = agent("running");
+  const row: AcpmuxRow = {
+    id: "group",
+    version: 1,
+    kind: "subagents",
+    at: STARTED,
+    get subagents() {
+      groupReads++;
+      return [liveAgent];
+    },
+  };
+  const container = await render(<SubagentGroupHeader row={row} expanded={false} onToggle={() => {}} />);
+  const time = () => container.querySelector(".cv-subagents__time")?.textContent;
+  expect(time()).toBe("2s");
+  const readsAfterMount = groupReads;
+  expect(readsAfterMount).toBeGreaterThan(0);
   now += 1_000;
   await act(nextSecond);
-  expect(container.querySelector(".test-clock")?.textContent).toBe("3s");
-  expect(parentRenders).toBe(1);
+  expect(time()).toBe("3s");
+  expect(groupReads).toBe(readsAfterMount);
 });
 
 test("a subagent that ended without a measurable span keeps the unknown time blank", async () => {
   now = STARTED + 1_000;
   Date.now = () => now;
   const container = await render(
-    <SubagentElapsed agent={{ ...agent("completed"), endedAt: STARTED }} clock="test-clock" />,
+    <SubagentListRow
+      row={{
+        id: "end",
+        version: 1,
+        kind: "subagent",
+        at: STARTED,
+        subagents: [{ ...agent("completed"), endedAt: STARTED }],
+      }}
+    />,
   );
-  expect(container.querySelector(".test-clock")).toBeNull();
+  expect(container.querySelector(".cv-subagent__time")).toBeNull();
 });
