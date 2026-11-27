@@ -700,14 +700,8 @@ class GitHub(_evidence.GitHub):
             return test_reds.plain(kept.replace("\ufeff", ""))
         try:
             return test_reds.plain(self.run(["api", ESCAPE_FLAG, route]).replace("\ufeff", ""))
-        except Refused as error:
-            said = str(error)
-            # main_fix_evidence names the read before gh's stderr (`...failed: gh api ROUTE: unknown flag...`, from
-            # its read_name); the refusal is gh's stderr after that name, as escape_flag_unknown reads it.
-            named = f"{REQUEST_FAILED}{_evidence.read_name(['api', ESCAPE_FLAG, route])}: " \
-                if hasattr(_evidence, "read_name") else REQUEST_FAILED
-            stderr = said[len(named):] if said.startswith(named) else said[len(REQUEST_FAILED):]
-            if not (said.startswith(REQUEST_FAILED) and escape_flag_unknown(stderr)):
+        except _evidence.RequestFailed as error:
+            if not escape_flag_unknown(error.stderr):
                 raise
         return test_reds.plain(self.run(["api", route]).replace("\ufeff", ""))
 
@@ -6250,6 +6244,7 @@ GUARD_WORKFLOWS = {
         "release-notary": "skipped on a pull request (its `if:`): it judges a push to the branch on its own "
                           "(guards_new_reds.py --tip), so no pull request's red is its",
         "rust-notices-tree": _PRODUCT,
+        "app-store-shelf-pr": _PRODUCT,
         "ios-placeholder-bounds": "reads the iOS app's Swift sources and placeholders.json: a red is the change's "
                                   "own unbound placeholder, never a guard's",
         "pr-red-checks": _PUBLISH,
@@ -6381,10 +6376,12 @@ PACKAGE_JOBS = {
                   # cmux-mobile-link-ffi depends on cmux-terminal-projection (#42219)
                   "cmux-tui/crates/cmux-terminal-projection/",
                   "cmux-tui/crates/cmux-transport/", "cmux-tui/crates/cmux-wg/",
+                  # The mobile dependency graph reaches the hop relay (#54363) and vault sealing (#56920).
+                  "cmux-tui/crates/cmux-hop-relay/", "cmux-tui/crates/cmux-vault-e2e/",
                   # cmux-mobile-link-ffi depends on cmux-window-rules (#43111)
                   "cmux-tui/crates/cmux-window-rules/", "schemas/remote-tab/",
-                  # cmux-window-rules' tab group tests include_str! the shared vectors (#57843)
-                  "schemas/tab-group-rules/",
+                  # cmux-window-rules tests include both sets of shared vectors (#57843, #57997).
+                  "schemas/tab-group-rules/", "schemas/tab-layout-rules/",
                   # a crate the kit's manifests reach since #58214 (cmux-vnc's vnc_* JSON ops)
                   "cmux-tui/crates/cmux-vnc/",
                   # cmux-mobile-link and cmux-mobile-host send the dev build's space (cmux-build-space, #43648),
