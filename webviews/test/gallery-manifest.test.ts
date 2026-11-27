@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { GalleryEntry } from "../src/gallery/format";
-import { selectGalleryFiles } from "../scripts/gallery/entries";
+import { loadEntrySources, selectGalleryFiles } from "../scripts/gallery/entries";
 import { manifestCases } from "../scripts/gallery/manifest";
 
 const entry = {
@@ -28,4 +28,11 @@ test("filtered gallery loading selects files before importing them", () => {
   const index = { "pages.diff/jump-file-overflow": "src/good.gallery.tsx" };
   expect(selectGalleryFiles(["pages.diff"], files, index, "/tmp/webviews/src")).toEqual([files[0]]);
   expect(selectGalleryFiles(["computed.entry"], files, index, "/tmp/webviews/src")).toEqual(files);
+});
+
+test("filtered gallery loading imports only the indexed source", async () => {
+  const sources = await loadEntrySources(["pages.diff"]);
+  expect(sources.map(({ entry, path }) => [entry.id, path])).toEqual([
+    ["pages.diff", "src/pages/diff/diff.gallery.ts"],
+  ]);
 });
