@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+import CmuxNextHomeModel
 public import Foundation
 
 /// The engine each of this Mac's Chiefs runs on, for the Home list's badges
@@ -51,7 +52,6 @@ public nonisolated struct HomeChiefHarnesses: Sendable {
     /// Chiefs (nil when the list could not be read), whose conversations Home hides.
     public func readWithDeleted(chiefs: Set<String>) async -> (harnesses: [String: String], deleted: Set<String>?) {
         let listed = await list()
-        let records = Self.recordHarnesses(listed)
         // brainHome is main-actor isolated: the paths are made here, the files read off it.
         let homes = await Self.brainHomes(muxHome: muxHome, chiefs: chiefs)
         let saved = await Task.detached { () -> [String: String] in
@@ -61,35 +61,25 @@ public nonisolated struct HomeChiefHarnesses: Sendable {
             }
             return saved
         }.value
-        var harnesses: [String: String] = [:]
-        for chief in chiefs {
-            if let harness = saved[chief] ?? records[chief] { harnesses[chief] = harness }
-        }
-        return (harnesses, Self.deletedIDs(listed))
+        return Self.merged(chiefs: chiefs, saved: saved, listed: listed)
     }
 
-    /// The deleted Chiefs' ids of a `chief.profile.list` result (`deleted`); nil when there is no
-    /// result or the owner does not list them (an older daemon), so the ids known stay.
-    static func deletedIDs(_ listed: JSONValue?) -> Set<String>? {
-        guard case .object(let reply)? = listed else { return nil }
-        var object = reply
-        if case .object(let value)? = reply["value"] { object = value }
-        guard case .array(let ids)? = object["deleted"] else { return nil }
-        return Set(ids.compactMap { if case .string(let id) = $0 { id } else { nil } })
+    /// Each Chief's harness, the saved one else its record's, and the deleted ids: Rust's
+    /// `chief_settings.harnesses` (cmux-home-rules `chief_settings/engine.rs`). Unreadable rules: none.
+    static func merged(chiefs: Set<String>, saved: [String: String], listed: JSONValue?) -> (harnesses: [String: String], deleted: Set<String>?) {
+        let request = HarnessesRequest(chiefs: chiefs.sorted(), saved: saved, listed: listed ?? .null)
+        guard let reply: HarnessesReply = try? HomeRules.call("chief_settings.harnesses", request) else { return ([:], nil) }
+        return (reply.harnesses, reply.deleted.map(Set.init))
     }
 
-    /// Each record's `engine.harness` by Chief id, from a `chief.profile.list` result.
-    static func recordHarnesses(_ listed: JSONValue?) -> [String: String] {
-        guard case .object(let reply)? = listed else { return [:] }
-        var object = reply
-        if case .object(let value)? = reply["value"] { object = value }
-        guard case .array(let chiefs)? = object["chiefs"] else { return [:] }
-        var harnesses: [String: String] = [:]
-        for case .object(let record) in chiefs {
-            guard case .string(let id)? = record["id"], case .object(let engine)? = record["engine"],
-                  case .string(let harness)? = engine["harness"], !harness.isEmpty else { continue }
-            harnesses[id] = harness
-        }
-        return harnesses
+    private nonisolated struct HarnessesRequest: Encodable {
+        var chiefs: [String]
+        var saved: [String: String]
+        var listed: JSONValue
+    }
+
+    private nonisolated struct HarnessesReply: Decodable {
+        var harnesses: [String: String]
+        var deleted: [String]?
     }
 }

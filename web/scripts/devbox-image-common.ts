@@ -71,6 +71,18 @@ export function isFreestyleOverload(error: unknown): boolean {
 }
 
 /**
+ * A 429 overload or any 5xx: Freestyle failed on its side and the same request
+ * may pass when asked again. Only for calls that are safe to repeat (a resize
+ * to a fixed target is; a snapshot, which would make a second image, is not).
+ * Rebake run 45889121287 (11-26) lost the xl row, and with it the promotion of
+ * a passing bake, to one 500 INTERNAL_ERROR from POST /v5/vms/ID/resize.
+ */
+export function isFreestyleTransient(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  return isFreestyleOverload(error) || (typeof status === "number" && status >= 500 && status < 600);
+}
+
+/**
  * Freestyle answers a VM start it has no capacity for with 429
  * INFRASTRUCTURE_OVERLOADED ("VM start capacity queue wait expired"). The
  * size ladder starts up to twelve VMs at once and the largest shapes queue
@@ -79,15 +91,16 @@ export function isFreestyleOverload(error: unknown): boolean {
  * through this: back off and ask again for up to ten minutes, and rethrow any
  * other error at once.
  */
-export async function retryFreestyleOverload<T>(label: string, start: () => Promise<T>, budgetMs = 10 * 60_000, firstWaitMs = 15_000): Promise<T> {
+export async function retryFreestyleOverload<T>(label: string, start: () => Promise<T>, budgetMs = 10 * 60_000, firstWaitMs = 15_000, retryable: (error: unknown) => boolean = isFreestyleOverload): Promise<T> {
   const deadline = Date.now() + budgetMs;
   for (let attempt = 1, waitMs = firstWaitMs; ; attempt += 1, waitMs = Math.min(waitMs * 2, Math.max(firstWaitMs, 120_000))) {
     try {
       return await start();
     } catch (error) {
-      if (!isFreestyleOverload(error) || Date.now() + waitMs > deadline) throw error;
-      const e = error as { code?: unknown; message?: unknown };
-      console.log(`${label}: Freestyle start capacity overloaded (${String(e?.message ?? e?.code)}); retry ${attempt} in ${waitMs / 1000}s`);
+      if (!retryable(error) || Date.now() + waitMs > deadline) throw error;
+      const e = error as { status?: unknown; code?: unknown; message?: unknown };
+      const why = isFreestyleOverload(error) ? "Freestyle start capacity overloaded" : `Freestyle answered ${String(e?.status)} ${String(e?.code)}`;
+      console.log(`${label}: ${why} (${String(e?.message ?? e?.code)}); retry ${attempt} in ${waitMs / 1000}s`);
       await new Promise((resolve) => setTimeout(resolve, waitMs));
     }
   }

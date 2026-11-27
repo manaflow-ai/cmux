@@ -39,6 +39,9 @@ mod settled_attach;
 #[cfg(test)]
 #[path = "requests/settled_attach_tests.rs"]
 mod settled_attach_tests;
+#[cfg(test)]
+#[path = "requests/sub_session_start_tests.rs"]
+mod sub_session_start_tests;
 mod successor;
 mod time_breakdown_gate;
 pub(super) use time_breakdown_gate::without as without_time_breakdown;
@@ -980,6 +983,17 @@ fn route_bare_key(hub: &Arc<Hub>, m: &str, params: &mut Value) -> Result<(), Rpc
     Ok(())
 }
 
+/// Whether a `session/new` starts a sub-session: it names a parent, or omits one
+/// and comes from an agent's own session (`ParentAsk::Caller` resolves to it).
+fn starts_sub_session(ask: Option<crate::hub::lineage::ParentAsk>, agent_caller: bool) -> bool {
+    use crate::hub::lineage::ParentAsk;
+    match ask {
+        Some(ParentAsk::Named(_)) => true,
+        Some(ParentAsk::Caller) => agent_caller,
+        Some(ParentAsk::Root) | None => false,
+    }
+}
+
 /// `session/new` on the peer `peer_name` (`_meta.acpmux.peer`), for a caller's
 /// own `peer` and for a create admission placed there (`hub/admission_redirect.rs`).
 async fn new_on_peer(
@@ -1023,10 +1037,12 @@ async fn new_on_peer(
         return Err(super::trust_gate::peer_unsupported(&peer.name));
     }
     // A provisioned VM holds one parent session (`hub/agent_vm.rs`): a second
-    // parent-less start there is refused; a sub-session start names its parent.
-    let asks_parent = mux_meta(params)
-        .and_then(|m| m.get(crate::hub::lineage::PARENT_FIELD))
-        .is_some_and(|v| v.as_str().is_some_and(|s| !s.is_empty()));
+    // parent-less start there is refused. A sub-session start names its parent,
+    // or omits it and an agent caller's own session is its parent (`lineage.rs`).
+    let asks_parent = starts_sub_session(
+        crate::hub::lineage::parent_ask(mux_meta(params)).ok(),
+        conn.caller().filter(|_| !conn.is_person()).is_some(),
+    );
     if let Some(refusal) = hub.one_parent_check(&peer, asks_parent) {
         return Err(refusal);
     }
@@ -1077,6 +1093,12 @@ async fn new_on_peer(
         hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
     }
     if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
+        // Findable by name at once, before the peer's own list or notice says so.
+        let name = result
+            .pointer("/_meta/acpmux/name")
+            .or_else(|| mux_meta(params).and_then(|m| m.get("name")))
+            .and_then(Value::as_str);
+        hub.note_created_remote(&peer.name, id, name);
         view::subscribe_remote(hub, conn, id, None);
         peer.mark_attached(id);
     }
@@ -2125,10 +2147,17 @@ async fn dispatch_request_with_identity(
                 == crate::hub::Control::Web;
             // The uploads this prompt names as its own (`attach::blocks_for` uploaded them for it
             // alone): a refusal before the session sees it deletes them, so none is left behind.
+            // Take ownership only after the lookup finishes in time. A retry after a timeout
+            // can still name these uploads even if the background lookup finishes later.
             let mut owned = crate::attach::OwnedUploads(if web {
                 Vec::new()
             } else {
-                crate::prompt_uploads::owned(&s.id, &blocks).await
+                tokio::time::timeout_at(
+                    admission.answer_due(),
+                    crate::prompt_uploads::owned(&s.id, &blocks),
+                )
+                .await
+                .map_err(|_| crate::hub::auto_resume::retry_turn::busy())?
             });
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
