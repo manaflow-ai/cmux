@@ -8,7 +8,8 @@ rm -rf "$out"; mkdir -p "$out"
 dmg=""; build=""
 for arg in "$@"; do
   case "$arg" in
-    dmg=https://*) dmg="${arg#dmg=}" ;;
+    dmg=https://files-next.cmux.com/*) dmg="${arg#dmg=}" ;;
+    dmg=*) echo "dmg must be a files-next.cmux.com NIGHTLY URL" >&2; exit 2 ;;
     build=*) build="${arg#build=}" ;;
     *) echo "unknown argument: $arg" >&2; exit 2 ;;
   esac
@@ -22,13 +23,19 @@ if [[ -z "$dmg" ]]; then
     https://files-next.cmux.com/nightly-next/appcast-arm64.xml \
     | grep -oE 'url=\"https://[^\"]+-macos-arm64-[0-9]+\.dmg\"' | head -1 | cut -d'\"' -f2)"
 fi
-[[ "$dmg" == https://* ]] || { echo "no NIGHTLY DMG in appcast" >&2; exit 3; }
+[[ "$dmg" == https://files-next.cmux.com/* ]] || { echo "no signed NIGHTLY DMG in appcast" >&2; exit 3; }
 echo "ACCOUNTS_PROBE host=$(hostname -s) macOS=$(sw_vers -productVersion) dmg=$dmg"
 work="$(mktemp -d "${TMPDIR:-/tmp}/cmux-accounts-nightly.XXXXXX")"; mkdir -p "$work/side" "$work/app"
 export CMUX_SIDE_ROOT="$(cd "$work/side" && pwd -P)"; side="$root/scripts/cmux-next/side-instance.sh"; name=accounts-nightly; mnt=""
+package_report() {
+  if [[ -d "$out" && ! -f "$out/report.tgz" ]]; then
+    tar -czf "$out/report.tgz" -C "$out" --exclude report.tgz . 2>/dev/null || true
+  fi
+}
 cleanup() {
   "$side" remove "$name" >/dev/null 2>&1 || true
   [[ -n "$mnt" ]] && hdiutil detach "$mnt" >/dev/null 2>&1 || true
+  package_report
   rm -rf "$work"
 }
 trap cleanup EXIT INT TERM

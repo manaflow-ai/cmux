@@ -32,6 +32,7 @@ REPO = f"{args.org}/{args.repo}"
 SECRETS = ("CMUX_GITHUB_TEST_PASSWORD", "CMUX_GITHUB_TEST_TOTP_SEED", "CMUX_UITEST_STACK_PASSWORD",
            "CMUX_DOGFOOD_STACK_PASSWORD")
 steps: list[dict] = []
+APP_META: dict = {}
 
 def scrub(value: object) -> str:
     text = str(value or "")
@@ -151,12 +152,31 @@ def api_get(token: str, path: str):
         with urllib.request.urlopen(req, timeout=30) as response: return response.status, json.loads(response.read())
     except Exception as exc: return 0, {"error": str(exc)}
 
-def main() -> int:
+def reset_existing_connection(pid: int) -> bool:
+    """Make the scheduled probe idempotent when the shared test account is still connected."""
+    disconnect = find_labelled(pid, "Disconnect")
+    if not disconnect:
+        return True
+    first = press(pid, disconnect)
+    if first.get("error"):
+        return False
+    confirm = wait_for(lambda: find_labelled(pid, "Disconnect"), 10)
+    if not confirm:
+        return False
+    second = press(pid, confirm)
+    if second.get("error"):
+        return False
+    return bool(wait_for(lambda: find_labelled(pid, "Connect GitHub"), 30))
+
+
+def _run_probe() -> int:
+    global APP_META
     meta = {}
     try:
         import plistlib
         with open(Path(args.app) / "Contents/Info.plist", "rb") as f: meta = plistlib.load(f)
     except Exception: pass
+    APP_META = meta
     cold = shot("cold")
     if not record("cold launch", bool(cold), "release window captured", cold): return 1
     opened = lkr.rpc(args.socket, "action.run", {"action": "openSettings", "focus": True}, timeout=60)
@@ -165,6 +185,7 @@ def main() -> int:
     if not record("Accounts page", bool(accounts), f"openSettings={opened}", accounts_shot): return 1
     # A person clicks the Accounts section, then the visible Connect GitHub control.
     if accounts: press(args.pid, accounts)
+    if not record("Reset existing GitHub connection", reset_existing_connection(args.pid), "idempotent account teardown", shot("connection-reset")): return 1
     connect = wait_for(lambda: find_labelled(args.pid, "Connect GitHub"), 30)
     if not record("Connect GitHub visible", bool(connect), "AX label readback", shot("connect-visible")): return 1
     before = set(tabs()); pressed = press(args.pid, connect)
@@ -189,7 +210,7 @@ def main() -> int:
         elif current == "sudo":
             if not (fill(tab, "#sudo_password", password) and click_text(tab, "^confirm")): break
         elif current == "install":
-            if not click_text(tab, rf"^{re.escape(args.org)}\\b|{re.escape(args.org)}$"): break
+            if not click_text(tab, rf"^{re.escape(args.org)}\b|{re.escape(args.org)}$"): break
         elif current == "permissions":
             if not click_text(tab, "only select repositories"): break
             click_text(tab, "select repositories")
@@ -203,7 +224,7 @@ def main() -> int:
         else: time.sleep(2)
         time.sleep(2)
     if not record("GitHub App installation", installed, f"last page={last}", shot("github-installed")): return 1
-    token_file = HERE / "dev-signin-token.py"
+    token_file = HERE.parent / "cmux-next" / "dev-signin-token.py"
     spec = importlib.util.spec_from_file_location("signin", token_file); mod = importlib.util.module_from_spec(spec); assert spec.loader; spec.loader.exec_module(mod)
     email = os.environ.get("CMUX_UITEST_STACK_EMAIL") or os.environ.get("CMUX_DOGFOOD_STACK_EMAIL", "")
     pwd = os.environ.get("CMUX_UITEST_STACK_PASSWORD") or os.environ.get("CMUX_DOGFOOD_STACK_PASSWORD", "")
@@ -221,9 +242,32 @@ def main() -> int:
     detail = f"active={bool(status)} repos={len(repos or [])} target={REPO}"
     final_shot = shot("repository-list")
     if not record("Repository list visible", ok, detail, final_shot): return 1
-    result = {"ok": True, "app": {"version": meta.get("CFBundleShortVersionString"), "build": meta.get("CFBundleVersion"), "commit": meta.get("CMUXCommit")}, "repo": REPO, "steps": steps, "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
-    (OUT / "result.json").write_text(json.dumps(result, indent=2) + "\n")
-    (OUT / "summary.md").write_text("# Accounts NIGHTLY probe\n\n" + "\n".join(f"- {'PASS' if x['ok'] else 'FAIL'} **{x['step']}**: {x['detail']}" for x in steps) + "\n")
-    print("ACCOUNTS_NIGHTLY_PROBE " + json.dumps(result, separators=(",", ":")), flush=True)
     return 0
+
+
+def main() -> int:
+    """Always leave scrubbed evidence so scheduled failures are diagnosable."""
+    status = 1
+    error = ""
+    try:
+        status = _run_probe()
+    except Exception as exc:  # noqa: BLE001 - the evidence wrapper must survive probe failures
+        error = scrub(exc)
+        record("probe exception", False, error)
+    finally:
+        result = {"ok": status == 0 and not error,
+                  "app": {"version": APP_META.get("CFBundleShortVersionString"),
+                          "build": APP_META.get("CFBundleVersion"),
+                          "commit": APP_META.get("CMUXCommit")},
+                  "repo": REPO, "steps": steps,
+                  "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+        if error:
+            result["error"] = error
+        (OUT / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+        (OUT / "summary.md").write_text("# Accounts NIGHTLY probe\n\n" +
+                                        "\n".join(f"- {'PASS' if x['ok'] else 'FAIL'} **{x['step']}**: {x['detail']}" for x in steps) + "\n")
+        print("ACCOUNTS_NIGHTLY_PROBE " + json.dumps(result, separators=(",", ":")), flush=True)
+    return status
+
+
 if __name__ == "__main__": raise SystemExit(main())
