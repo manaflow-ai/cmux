@@ -1631,7 +1631,7 @@ interface CmuxGlobal {
   }
   settings: {
     /** `settings.get` (read, scope `settings:read`) */
-    get: CmuxOp<{ machine?: string; session?: string; key?: string; path?: Array<string> }, Cmux.JsonValue>
+    get: CmuxOp<{ machine?: string; session?: string; project?: string; key?: string; path?: Array<string> }, Cmux.JsonValue>
     /** `settings.history` (read, scope `settings:read`) */
     history: CmuxOp<{ machine?: string; session?: string }, Cmux.SettingsHistory>
     /** `settings.list` (read, scope `settings:read`) */
