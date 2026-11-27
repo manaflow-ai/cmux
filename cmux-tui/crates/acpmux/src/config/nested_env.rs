@@ -98,8 +98,8 @@ pub(crate) const TURN_SCOPED_ENV: [&str; 13] = [
     // terminal, which died minutes later, also after a relaunch kept them.
     "CMUX_DEADLINE",
     "CMUX_DEADLINE_OWNER",
-    // One tool call's wait cap (leo-workspace tools/tool_rewrites.py `helper_wait_cap` exports
-    // them, 150 s, for a 5-minute-cache session's foreground wait). A daemon that call started
+    // One command's wait cap (a caller sets these, 150 s, on a foreground wait it wants back
+    // within a prompt cache's life). A daemon that command started
     // kept them, and so did every background task and agent it ran: 2026-11-27, a daemon
     // started from a capped `task-wait` call cut a background task (`cmux-gh wait pr ...
     // --timeout 2400`) to 150 s ("giving up after 150s with no change"), and handed every

@@ -233,8 +233,8 @@ pub fn keys_to_unset_in_child(env: &[(String, String)]) -> Vec<&'static str> {
 /// a shell and the agent a person runs in it were SIGTERMed (exit 143) hours
 /// later, after a relaunch adopted them. A terminal lives as long as the person
 /// keeps it, never to a call's bound.
-/// One tool call's wait cap (leo-workspace tools/tool_rewrites.py exports it for a
-/// 5-minute-cache session's wait) is bound to that call the same way: a terminal that
+/// One command's wait cap (a caller exports it on a foreground wait it wants back
+/// within a prompt cache's life) is bound to that call the same way: a terminal that
 /// inherited it would cap every `cmux-gh wait` and `task-wait` run there at 150 s
 /// (acpmux `TURN_SCOPED_ENV`).
 pub const CALL_BOUND_ENV: [&str; 5] = [
