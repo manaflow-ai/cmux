@@ -872,13 +872,14 @@ label:not([for]):has(:is(input, select, textarea):disabled):not(
    of how long you've had your cursor actually on it"). Each is an opacity transition, never a
    keyframe animation, so leaving reverses it from wherever it got to: a pass while scrolling reaches
    a faint level and fades back, and only a pointer that stays brings the control to full. In: a
-   gentle start with no delay and an ease-out finish, full at 400 ms (about 0.13 at 80 ms, 0.8 at
-   200 ms, 0.96 at 300 ms). Out: an ease-in over the standard step, faster than in. Gallery ui.motion-hover-dwell
+   gentle start with no delay and an ease-out finish, full at 240 ms (about 0.46 at 80 ms, 0.78 at
+   120 ms, 0.98 at 200 ms). 400 ms read slow coming out (Leo, 2026-11-27, of the queued prompt's
+   Steer and trash: "this animation for this coming out is a bit slow"). Out: an ease-in over the standard step, faster than in. Gallery ui.motion-hover-dwell
    compares curves; test/hover-reveal-dwell.test.ts holds the ramp. Use the pair through
    --cmux-hover-reveal-in-transition and --cmux-hover-reveal-out-transition, or the .ui-reveal class
    (ui/motion/motion.css). */
 :root {
-  --cmux-hover-reveal-in: 400ms; /* motion-allow: a dwell ramp, the pointer's stay drives it; it is interrupted, not played */
+  --cmux-hover-reveal-in: 240ms; /* motion-allow: a dwell ramp, the pointer's stay drives it; it is interrupted, not played */
   --cmux-hover-reveal-in-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --cmux-hover-reveal-out: var(--cmux-motion-standard, 180ms);
   --cmux-hover-reveal-out-ease: cubic-bezier(0.42, 0, 1, 1);

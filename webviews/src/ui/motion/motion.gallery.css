@@ -211,6 +211,15 @@
 }
 
 /* The arms. "standard" is the shipped pair (pages/shared/desktop.css --cmux-hover-reveal-*). */
+.dwell-demo[data-curve="was-400"] {
+  --cmux-hover-reveal-in: 400ms; /* motion-allow: the duration before 2026-11-27, kept to compare */
+}
+.dwell-demo[data-curve="brisk-200"] {
+  --cmux-hover-reveal-in: 200ms; /* motion-allow: a candidate under comparison */
+}
+.dwell-demo[data-curve="brisk-160"] {
+  --cmux-hover-reveal-in: 160ms; /* motion-allow: a candidate under comparison */
+}
 .dwell-demo[data-curve="linear"] {
   --cmux-hover-reveal-in: 400ms;
   --cmux-hover-reveal-in-ease: linear;

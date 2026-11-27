@@ -4,9 +4,11 @@
 // once on a message footer's "7 minutes ago" and Copy: a pass of 80 ms, a pass of 200 ms, and one
 // that stays. Each lane draws the control's opacity over 900 ms, frame by frame, and its peak.
 //
-// Picked: standard, 400 ms on cubic-bezier(0.4, 0, 0.2, 1) in, 180 ms ease-in out. Its gentle start
-// keeps an 80 ms pass faint (about 0.13) while a 200 ms look is already readable (about 0.8), and
-// its ease-out finish lands on full with no visible end. linear lights a pass more (0.2) and drags
+// Picked: standard, 240 ms on cubic-bezier(0.4, 0, 0.2, 1) in, 180 ms ease-in out. 400 ms (was-400)
+// read slow coming out (Leo, 2026-11-27: "this animation for this coming out is a bit slow"): a
+// 120 ms look was only 0.37 there. At 240 ms that look is 0.78 and full lands by about 200 ms, while
+// an 80 ms pass stays under half (0.46); brisk-200 (0.61) and brisk-160 (0.78) light a pass nearly
+// to full, the flash the ramp exists to avoid. Its ease-out finish lands on full with no visible end. linear lights a pass more (0.2) and drags
 // at the end; ease-out 320 front-loads, so a pass reaches about 0.4, close to the flash Leo
 // described; slow 600 never reads as a response under a 200 ms look (0.5); before (a 100 ms delay,
 // then 120 ms) shows a pass nothing and a 200 ms look everything, the one-shot he called out.
@@ -14,7 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import type { Play } from "../../gallery/play";
 
-type Curve = "standard" | "linear" | "ease-out" | "slow" | "before";
+type Curve = "standard" | "was-400" | "brisk-200" | "brisk-160" | "linear" | "ease-out" | "slow" | "before";
 type DwellDemoProps = { curve: Curve };
 
 const LANES = [
@@ -106,8 +108,26 @@ export default componentEntry<DwellDemoProps>({
   variants: {
     standard: {
       // motion-allow: the hover reveal's own out token (--cmux-hover-reveal-out), not a scale step
-      note: "Picked: 400 ms cubic-bezier(0.4, 0, 0.2, 1) in, 180 ms ease-in out. A pass stays faint; a look reads.",
+      note: "Picked: 240 ms cubic-bezier(0.4, 0, 0.2, 1) in, 180 ms ease-in out. A pass stays under half; a look reads at once.",
       props: { curve: "standard" },
+      play: ran,
+    },
+    "was-400": {
+      // motion-allow: the shipped duration before Leo's 2026-11-27 ask, kept to compare
+      note: "Before: 400 ms in. A 120 ms look is still 0.37: slow coming out.",
+      props: { curve: "was-400" },
+      play: ran,
+    },
+    "brisk-200": {
+      // motion-allow: a candidate duration under comparison
+      note: "200 ms in: an 80 ms pass reaches 0.61.",
+      props: { curve: "brisk-200" },
+      play: ran,
+    },
+    "brisk-160": {
+      // motion-allow: a candidate duration under comparison
+      note: "160 ms in: an 80 ms pass reaches 0.78, nearly a flash.",
+      props: { curve: "brisk-160" },
       play: ran,
     },
     linear: { note: "400 ms linear in and out.", props: { curve: "linear" }, play: ran },

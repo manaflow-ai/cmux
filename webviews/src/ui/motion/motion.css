@@ -119,7 +119,7 @@
 .ui-reveal-host:focus-within .ui-reveal,
 .ui-reveal[data-popup-open],
 .ui-reveal-host:has([data-popup-open]) .ui-reveal {
-  --ui-reveal-ms: var(--cmux-hover-reveal-in, 400ms); /* motion-allow: the dwell ramp's fallback (desktop.css --cmux-hover-reveal-in) */
+  --ui-reveal-ms: var(--cmux-hover-reveal-in, 240ms); /* motion-allow: the dwell ramp's fallback (desktop.css --cmux-hover-reveal-in) */
   --ui-reveal-ease: var(--cmux-hover-reveal-in-ease, ease-out);
   opacity: 1;
 }
@@ -165,7 +165,7 @@
 .ui-reveal-host:focus-within .ui-reveal-text,
 .ui-reveal-host:has([data-popup-open]) .ui-reveal-text,
 .ui-reveal-text[data-revealed] {
-  --ui-reveal-ms: var(--cmux-hover-reveal-in, 400ms); /* motion-allow: the dwell ramp's fallback (desktop.css --cmux-hover-reveal-in) */
+  --ui-reveal-ms: var(--cmux-hover-reveal-in, 240ms); /* motion-allow: the dwell ramp's fallback (desktop.css --cmux-hover-reveal-in) */
   --ui-reveal-ease: var(--cmux-hover-reveal-in-ease, ease-out);
   --ui-reveal-cover: var(--ui-reveal-controls-w, 0px);
 }
@@ -204,7 +204,7 @@
   transition: opacity var(--ui-reveal-ms) var(--ui-reveal-ease);
 }
 .ui-reveal-host[data-reveal-crowded]:is(:hover, :focus-within, :has([data-popup-open])) .ui-reveal-under {
-  --ui-reveal-ms: var(--cmux-hover-reveal-in, 400ms); /* motion-allow: the dwell ramp's fallback (desktop.css --cmux-hover-reveal-in) */
+  --ui-reveal-ms: var(--cmux-hover-reveal-in, 240ms); /* motion-allow: the dwell ramp's fallback (desktop.css --cmux-hover-reveal-in) */
   --ui-reveal-ease: var(--cmux-hover-reveal-in-ease, ease-out);
   opacity: 0;
 }
