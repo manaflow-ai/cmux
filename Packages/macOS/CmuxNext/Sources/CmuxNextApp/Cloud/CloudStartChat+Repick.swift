@@ -46,14 +46,10 @@ extension CloudStartChat {
         CloudMove.toast(services, toastID, CloudMoveStrings.moving, duration: CloudMove.working, working: true)
         do {
             // Only under the account the send began in (+Machine).
-            try CloudMoveStrings.checkStartAccount(started.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
+            try Self.checkAccount(started.account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             guard let binary = services.cloud.move.cli else { throw ActionFailure(message: CloudStrings.noClient) }
             let cli = CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout)
             // The pick wins over the send's first machine: the plan now names the picked one.
-            // Its provider is unknown here. An explicit machine pick replaces the original
-            // create preference; never stamp that preference onto an unrelated machine.
-            var start = started.start
-            start.provider = nil
             _ = try Self.checked(await cli.startChatPin(key: started.start.key, account: CloudStartCore().accountText(started.account),
                                                         machine: target, workspace: started.workspace))
             let old = services.machines.daemon(forTab: tab)
@@ -68,7 +64,7 @@ extension CloudStartChat {
                     services.cloud.logger.error("cloud start chat: closing the chat's old tab failed: \(String(describing: error), privacy: .public)")
                 }
             }
-            let machine = try await run(start, from: origin) { _ in }
+            let machine = try await run(started.start, from: origin) { _ in }
             CloudMove.toast(services, toastID, CloudMoveStrings.moved(machine), duration: .seconds(6))
             return AgentPaneReply.success(["machine": machine])
         } catch {

@@ -40,9 +40,9 @@ struct CloudStartChatMachineTests {
         #expect(CloudStartCore().refusal(cloudDisabled: false, signedIn: false) == "not_signed_in")
         #expect(CloudStartCore().refusal(cloudDisabled: true, signedIn: true) == "cloud_disabled")
         #expect(CloudStartCore().accountText([Self.me, nil]) == "user-leo/")
-        try CloudMoveStrings.checkStartAccount(teamA, now: teamA, listCurrent: true)
-        #expect(throws: CloudMove.Failure.self) { try CloudMoveStrings.checkStartAccount(teamA, now: teamB, listCurrent: true) }
-        #expect(throws: CloudMove.Failure.self) { try CloudMoveStrings.checkStartAccount(teamA, now: teamA, listCurrent: false) }
+        try CloudStartChat.checkAccount(teamA, now: teamA, listCurrent: true)
+        #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: teamB, listCurrent: true) }
+        #expect(throws: CloudMove.Failure.self) { try CloudStartChat.checkAccount(teamA, now: teamA, listCurrent: false) }
         let folder = try #require(CloudMoveFolder(chat: "/Users/me/src/paint"))
         var start = try #require(AgentPaneCloudStart(params: ["task": "t", "cwd": "/Users/me/src/paint", "key": UUID().uuidString]))
         #expect(!start.uploads(folder))

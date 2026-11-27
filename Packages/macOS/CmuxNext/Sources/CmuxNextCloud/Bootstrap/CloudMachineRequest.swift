@@ -70,8 +70,6 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// Cloud only): from its snapshot when it is built, otherwise from the image with its setup started
     /// on the machine. Not an option of the machine itself, so ``isDefault`` ignores it.
     public var environment: String?
-    /// The explicit infrastructure provider for a new machine; nil preserves the backend default.
-    public var provider: String?
     /// The ladder size a chat's folder needs (``CloudChatSize``, from the start's preflight): the create asks at least
     /// its vCPUs, memory and disk (``atLeast(cpu:memoryMb:diskMb:)``). Nil: the create's own default.
     public var chatSize: CloudChatSize?
@@ -116,7 +114,7 @@ public struct CloudMachineRequest: Equatable, Sendable {
         self.repo = repo
     }
 
-    public var isDefault: Bool { name == nil && size == nil && !persistent && bootstrapPath == nil && machineConfigPath == nil && repo == nil && provider == nil }
+    public var isDefault: Bool { name == nil && size == nil && !persistent && bootstrapPath == nil && machineConfigPath == nil && repo == nil }
 
     /// The idle pause a new machine is given, nil to leave the server's. A persistent machine is
     /// never idle-paused (0). The Mac pause/resume experiment (`labs.pauseAgentMachines`, opt-in)

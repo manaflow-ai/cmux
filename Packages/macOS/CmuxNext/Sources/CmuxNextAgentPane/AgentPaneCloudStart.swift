@@ -35,9 +35,6 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     public var account: String?
     /// The selected Cloud environment id; nil lets workspace ensure resolve personal Default.
     public var environment: String?
-    /// The explicit Cloud provider for a new machine (`gcp`, `freestyle` or `own-host`); nil keeps the
-    /// account's existing default route.
-    public var provider: String?
     /// The warm machine reserved by this compose; Send binds it using ``key``.
     public var reservationKey: String?
     /// The size a new machine needs for the chat's folder or repository (``sized(_:local:)``); nil: the chat size.
@@ -73,10 +70,9 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
     /// app-owned files are staged: a staged copy no longer carries the CLI's folder rules.
     public var stagedFiles: Set<String> = []
 
-    public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String, environment: String? = nil, provider: String? = nil, reservationKey: String? = nil, gestureTicket: String? = nil) {
+    public init(task: String, cwd: String?, harness: String? = nil, model: String? = nil, key: String, environment: String? = nil, reservationKey: String? = nil, gestureTicket: String? = nil) {
         (self.task, self.cwd, self.harness, self.model, self.key) = (task, cwd, harness, model, key)
         self.environment = environment
-        self.provider = provider
         self.reservationKey = reservationKey
         self.gestureTicket = gestureTicket
     }
@@ -100,9 +96,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
               let key = params?["key"] as? String, UUID(uuidString: key) != nil,
               let harness = name("harness"), let model = name("model"), let environment = name("environment"),
               let team = name("team"), let mode = name("mode"), let effort = name("effort"), let account = name("account"),
-              let provider = name("provider"),
               let replacesChat = name("replacesChat") else { return nil }
-        guard provider == nil || provider == "gcp" || provider == "freestyle" || provider == "own-host" else { return nil }
         // A connection id only (``CloudSetup/isConnectionID(_:)``).
         if let account, !CloudSetup.isConnectionID(account) { return nil }
         let reservationKey = params?["reservationKey"]
@@ -114,7 +108,7 @@ public nonisolated struct AgentPaneCloudStart: Sendable, Equatable {
         if let cwd, repository == nil, !((cwd as? String).map { $0.hasPrefix("/") && !$0.contains("\0") && $0.count <= 4096 } ?? false) { return nil }
         let home = params?["home"]
         if let home, !(home is Bool) || cwd != nil { return nil }
-        self.init(task: task, cwd: repository == nil ? cwd as? String : nil, harness: harness, model: model, key: key, environment: environment, provider: provider, reservationKey: reservationKey as? String, gestureTicket: gestureTicket as? String)
+        self.init(task: task, cwd: repository == nil ? cwd as? String : nil, harness: harness, model: model, key: key, environment: environment, reservationKey: reservationKey as? String, gestureTicket: gestureTicket as? String)
         (self.home, self.repository) = (home as? Bool ?? false, repository)
         self.team = team
         self.replacesChat = replacesChat

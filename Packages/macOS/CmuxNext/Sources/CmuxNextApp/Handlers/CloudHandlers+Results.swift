@@ -244,7 +244,6 @@ extension CloudHandlerRules {
         case "snapshotRequired": return CloudStrings.snapshotRequired
         case "apiKeyRequired": return CloudStrings.apiKeyRequired
         case "machineConfigUnreadable": return CloudStrings.machineConfigUnreadable(first)
-        case "providerInvalid": return CloudMoveStrings.providerInvalid
         case "sizeMustBeOneOf": return CloudStrings.sizeMustBeOneOf(first)
         case "laneNeedsName": return CloudStrings.laneNeedsName
         case "repoUnrecognized": return CloudStrings.repoUnrecognized

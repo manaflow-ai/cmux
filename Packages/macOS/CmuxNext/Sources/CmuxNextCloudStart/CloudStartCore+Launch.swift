@@ -36,13 +36,13 @@ extension CloudStartCore {
                              request: CloudMachineRequest?) -> (op: String, args: JSONValue, options: JSONValue)? {
         struct Script: Encodable { var kind: String, contentsBase64: String, repo: String? }
         struct Request: Encodable {
-            var name, environment, provider: String?
+            var name, environment: String?
             var cpu, memoryMb, diskMb: Int
             var sizeName: String?, persistent: Bool, script: Script?, machineConfigBase64: String?
         }
         struct Reply: Decodable { var op: String, args: JSONValue, options: JSONValue }
         let script = request?.script.map { Script(kind: $0.kind.rawValue, contentsBase64: $0.contents.base64EncodedString(), repo: $0.repo?.spec) }
-        let asked = Request(name: name, environment: environment, provider: request?.provider, cpu: cpu, memoryMb: memoryMb, diskMb: diskMb, sizeName: request?.size,
+        let asked = Request(name: name, environment: environment, cpu: cpu, memoryMb: memoryMb, diskMb: diskMb, sizeName: request?.size,
                             persistent: request?.persistent ?? false, script: script,
                             machineConfigBase64: request?.machineConfig.map { $0.contents?.base64EncodedString() ?? "" })
         return call("cloud_launch_create_params", asked, as: Reply.self).map { ($0.op, $0.args, $0.options) }

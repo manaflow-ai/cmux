@@ -88,7 +88,6 @@ extension CloudHandlers {
         var request = CloudMachineRequest(name: checked["name"] as? String, size: checked["size"] as? String, memoryMb: checked["memoryMb"] as? Int,
                                           persistent: checked["persistent"] as? Bool ?? false, bootstrapPath: checked["bootstrapPath"] as? String,
                                           bootstrapKind: checked["bootstrapKind"] as? String == "lane" ? .lane : .plain)
-        request.provider = checked["provider"] as? String
         request.machineConfigPath = checked["machineConfigPath"] as? String
         // A bare `--environment` (no value) arrives as `true`: refused, never a machine without it.
         if let environment = invocation["environment"] {
