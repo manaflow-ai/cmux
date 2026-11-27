@@ -99,6 +99,31 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         }
         Command::Retention(args) => super::history_upkeep::retention(args, json_out).await,
         Command::HistoryDelete(args) => super::history_upkeep::history_delete(args, json_out).await,
+        Command::Lifecycle(args) => {
+            let client = connect(true).await?;
+            let v = client.request(method::MUX_LIFECYCLE, json!({"dryRun": args.dry_run})).await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                print_lifecycle_report(&v);
+            }
+            Ok(())
+        }
+        Command::Restore { session } => {
+            let client = connect(true).await?;
+            let v = client.request(method::MUX_LIFECYCLE, json!({"restore": session})).await?;
+            if json_out {
+                print_json(&v);
+            } else {
+                println!(
+                    "{} restored (unarchived: {}, log back: {})",
+                    v.get("sessionId").and_then(Value::as_str).unwrap_or("?"),
+                    v.get("unarchived").unwrap_or(&Value::Null),
+                    v.get("rehydrated").unwrap_or(&Value::Null),
+                );
+            }
+            Ok(())
+        }
         Command::HistoryOffload(args) => {
             super::history_upkeep::history_offload(args, json_out).await
         }
@@ -2047,6 +2072,34 @@ async fn place_session(args: crate::cli::command::PlaceSessionArgs, json_out: bo
         .into()),
         None => Ok(()),
     }
+}
+
+/// The text form of a session lifecycle report.
+fn print_lifecycle_report(v: &Value) {
+    let num = |key: &str| v.get(key).and_then(Value::as_u64).unwrap_or(0);
+    let flag = |key: &str| v.get(key).and_then(Value::as_bool) == Some(true);
+    let mb = |key: &str| num(key) as f64 / 1_048_576.0;
+    println!(
+        "{} chats {} ({} offloaded{}), {:.1} MB to {:.1} MB, {:.1} MB freed",
+        num("archived"),
+        if flag("dryRun") { "would be archived (dry run)" } else { "archived" },
+        num("offloaded"),
+        if flag("cloud") { "" } else { "; cloud history not set up" },
+        mb("bytesBefore"),
+        mb("bytesAfter"),
+        mb("bytesFreed"),
+    );
+    for chat in v.get("chats").and_then(Value::as_array).into_iter().flatten() {
+        let text = |key: &str| chat.get(key).and_then(Value::as_str).unwrap_or("");
+        let id = text("id");
+        println!(
+            "  {}  {}  {}",
+            if id.is_empty() { "?" } else { id },
+            text("reason"),
+            text("name"),
+        );
+    }
+    println!("skipped: {}", v.get("skipped").unwrap_or(&Value::Null));
 }
 
 #[cfg(test)]

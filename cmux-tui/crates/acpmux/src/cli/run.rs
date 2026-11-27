@@ -21,7 +21,7 @@ pub(crate) mod fanout;
 mod history_upkeep;
 pub(crate) mod launch;
 pub(crate) mod ls;
-mod ls_archived;
+pub(crate) mod ls_archived;
 mod ls_leads;
 mod ls_pages;
 mod ls_tools;
