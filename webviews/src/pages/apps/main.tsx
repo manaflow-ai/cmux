@@ -12,6 +12,7 @@ import { AppsPage } from "./AppsPage";
 import table from "./generated/strings.json";
 import { MockAppsProvider } from "./mockProvider";
 import { AppsStore } from "./store";
+import { CommunityStore } from "./community";
 import { NewTabChoice, NewTabChoiceProvider } from "./UseAsNewTab";
 import { languageDirection, UiProvider } from "../../ui/UiProvider";
 import "../shared/pageBase.css";
@@ -23,23 +24,30 @@ export function mountAppsPage(
   hash = location.hash,
 ): AppsStore {
   const store = new AppsStore(client, hash);
+  // The Community tab installs through the store's own path, so the consent card always shows.
+  const community = new CommunityStore(client, (app) => store.install(app), hash);
   // The app's key dispatcher sends page commands; the page never reads chords.
   if (client) {
     void subscribePageStreams(client, {
       onCommand: ({ command, text }) => {
-        if (command === "back") void store.select(undefined);
+        const onCommunity = community.getSnapshot().active;
+        if (command === "back") void (onCommunity ? community.select(undefined) : store.select(undefined));
         if (command === "reset") {
           store.setQuery("");
           store.setCategory(undefined);
+          community.setQuery("");
         }
         if (command !== "find" && command !== "focusSearch") return;
-        if (typeof text === "string") store.setQuery(text);
+        if (typeof text === "string") (onCommunity ? community : store).setQuery(text);
         document.querySelector<HTMLInputElement>(".apps-search")?.focus();
       },
     });
   }
   // The host opens a listing or the Installed tab on an open page by setting the fragment.
-  window.addEventListener("hashchange", () => store.applyRoute(window.location.hash));
+  window.addEventListener("hashchange", () => {
+    store.applyRoute(window.location.hash);
+    community.applyRoute(window.location.hash);
+  });
   const newTabChoice = new NewTabChoice(client);
   renderLocalized(
     createRoot(root),
@@ -47,7 +55,7 @@ export function mountAppsPage(
     (strings) => (
       <UiProvider container={root} dir={languageDirection(strings.language)}>
         <NewTabChoiceProvider value={newTabChoice}>
-          <AppsPage store={store} strings={strings} />
+          <AppsPage store={store} strings={strings} community={community} />
         </NewTabChoiceProvider>
       </UiProvider>
     ),

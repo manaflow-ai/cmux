@@ -128,3 +128,12 @@ test("only a relay's unknown-param refusal of a key the request carries is sent 
   expect(unknownParamRefused(refused('unknown param "sessionId"'), params)).toBeUndefined();
   expect(unknownParamRefused(new Error('unknown param "attending"'), params)).toBeUndefined();
 });
+
+// cmux#44792 F1: an attach without `hold` is a plain page, which the row store would read as its
+// hold and discard. A refusal of `hold` reaches the caller, which falls to v1; other keys still drop.
+test("a relay's unknown-param refusal of hold is never sent again without it", () => {
+  const hold = { sessionId: "s", hold: true, eventStream: true, attending: true };
+  const refused = (key: string) => ({ code: "transport.intent_invalid", detail: `unknown param "${key}"` });
+  expect(unknownParamRefused(refused("hold"), hold)).toBeUndefined();
+  expect(unknownParamRefused(refused("attending"), hold)).toBe("attending");
+});

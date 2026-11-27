@@ -4,7 +4,7 @@
 // the first request (a click opens it). Past the limit the rest are only counted. It draws
 // nothing while nothing waits. The integrations hub's approvals (Chief only, hubApprovals.ts) come
 // first, as request rows with Deny and Approve, up to HUB_ROWS (FeedNeedsYouSection.hubRows).
-import { createContext, memo, useContext, useSyncExternalStore } from "react";
+import { useSyncExternalStore, createContext, memo, useContext } from "react";
 import { sameJson } from "../../agent-session/acpmux/sameJson";
 import { cx } from "../../ui/cx";
 import { HubApprovalCard } from "./HubApprovalCard";
@@ -66,7 +66,14 @@ export function NeedsYouView(props: FeedProps & { hub?: HubApprovals }) {
           : null}
         {shown.map((item) =>
           style === "cards" ? (
-            <RequestCard key={item.id} item={item} store={store} snap={snap} strings={strings} />
+            <RequestCard
+              key={item.id}
+              item={item}
+              store={store}
+              strings={strings}
+              time={relativeTime(item.created_at, snap.now, strings.language)}
+              {...answerState(snap, item)}
+            />
           ) : (
             <NeedsYouRow key={item.id} item={item} store={store} strings={strings} {...answerState(snap, item)} />
           ),

@@ -42,6 +42,9 @@ pub struct Client {
     /// The socket this client connected to: a list caller opens its v2 list on it
     /// (`cli/list_read.rs`).
     socket: std::path::PathBuf,
+    /// The wire ABI the daemon named at initialize (`_meta.acpmux.abi`); 0 for a daemon from
+    /// before the field ([`crate::protocol::peer_abi`]).
+    daemon_abi: std::sync::atomic::AtomicU32,
     /// The features the daemon listed at initialize (`_meta.acpmux.features`).
     daemon_features: std::sync::Mutex<Vec<String>>,
     /// The stable capabilities the daemon listed at initialize (`_meta.acpmux.capabilities`).
@@ -177,6 +180,7 @@ impl Client {
             proven_caller_session: std::sync::OnceLock::new(),
             daemon_cli_path: std::sync::Mutex::new(None),
             socket: path.to_path_buf(),
+            daemon_abi: std::sync::atomic::AtomicU32::new(0),
             daemon_features: std::sync::Mutex::new(Vec::new()),
             daemon_capabilities: std::sync::Mutex::new(Vec::new()),
             person_challenge: std::sync::Mutex::new(None),
@@ -238,6 +242,8 @@ impl Client {
             .and_then(Value::as_str)
             .filter(|path| std::path::Path::new(path).is_absolute())
             .map(std::path::PathBuf::from);
+        self.daemon_abi
+            .store(crate::protocol::peer_abi(&init), std::sync::atomic::Ordering::Relaxed);
         if let Some(Value::Array(features)) = init.pointer("/_meta/acpmux/features") {
             *self.daemon_features.lock_or_recover() =
                 features.iter().filter_map(Value::as_str).map(str::to_owned).collect();
@@ -279,6 +285,12 @@ impl Client {
     /// The daemon's build id, as reported at initialize.
     pub fn daemon_build(&self) -> Option<String> {
         self.daemon_build.lock_or_recover().clone()
+    }
+
+    /// The daemon's wire ABI, as named at initialize; 0 for a daemon from before the field.
+    /// A newer surface is asked for by [`Client::daemon_lists`], not by comparing this.
+    pub fn daemon_abi(&self) -> u32 {
+        self.daemon_abi.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// The CLI path reported by the daemon's app launcher, if any.
@@ -703,57 +715,5 @@ mod closed_tests;
 mod cancel_tests;
 
 #[cfg(test)]
-mod lineage_tests {
-    use super::*;
-
-    #[test]
-    fn a_session_new_names_the_env_tool_call_once() {
-        let p = json!({"cwd": "/tmp", "_meta": {"acpmux": {"name": "kid"}}});
-        let sent = with_spawn_tool_call(p.clone(), Some("toolu_7".into()));
-        assert_eq!(sent["_meta"]["acpmux"]["spawnToolCallId"], "toolu_7");
-        assert_eq!(sent["_meta"]["acpmux"]["name"], "kid");
-        assert_eq!(with_spawn_tool_call(p.clone(), None), p);
-        assert_eq!(with_spawn_tool_call(p.clone(), Some(String::new())), p);
-        let named = json!({"_meta": {"acpmux": {"spawnToolCallId": "mine"}}});
-        let sent = with_spawn_tool_call(named, Some("env".into()));
-        assert_eq!(sent["_meta"]["acpmux"]["spawnToolCallId"], "mine");
-        let bare = with_spawn_tool_call(json!({"cwd": "/tmp"}), Some("t".into()));
-        assert_eq!(bare["_meta"]["acpmux"]["spawnToolCallId"], "t");
-    }
-
-    #[test]
-    fn an_admission_waiting_note_prints_its_warning() {
-        let note = json!({"warning": "a machine is being added", "scalingUp": true});
-        assert_eq!(
-            admission_waiting_text(Some(&note)).as_deref(),
-            Some("acpmux: a machine is being added")
-        );
-        assert_eq!(admission_waiting_text(Some(&json!({}))), None);
-        assert_eq!(admission_waiting_text(None), None);
-    }
-
-    #[test]
-    fn a_parentless_session_new_asks_for_no_parent() {
-        let sent = parentless(json!({"cwd": "/tmp", "_meta": {"acpmux": {"ephemeral": true}}}));
-        assert_eq!(sent["_meta"]["acpmux"]["parent"], Value::Null);
-        assert!(sent["_meta"]["acpmux"].as_object().unwrap().contains_key("parent"));
-        assert_eq!(sent["_meta"]["acpmux"]["ephemeral"], true);
-    }
-
-    /// The tag request goes only to a daemon that records no lineage: the CLI path of a
-    /// proven caller makes none, and a root the daemon made (an unproven caller) is never
-    /// tagged under the env's session.
-    #[test]
-    fn only_a_daemon_without_lineage_gets_the_spawned_by_tag() {
-        let recorded = json!({"sessionId": "c", "_meta": {"acpmux": {"parent": "p"}}});
-        assert!(!reply_lacks_lineage(&recorded));
-        let root = json!({"sessionId": "c", "_meta": {"acpmux": {"parent": null}}});
-        assert!(!reply_lacks_lineage(&root), "a new daemon's root is final");
-        let older_daemon = json!({"sessionId": "c", "_meta": {"acpmux": {"name": "c"}}});
-        assert!(reply_lacks_lineage(&older_daemon));
-        assert!(reply_lacks_lineage(&json!({"sessionId": "c"})));
-        let on_a_peer =
-            json!({"sessionId": "c", "peer": "box", "_meta": {"acpmux": {"parent": null}}});
-        assert!(reply_lacks_lineage(&on_a_peer));
-    }
-}
+#[path = "client_lineage_tests.rs"]
+mod lineage_tests;

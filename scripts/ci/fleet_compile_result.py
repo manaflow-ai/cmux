@@ -20,6 +20,8 @@ Prints one word on stdout and exits 0:
          submitting; a caller that does not know the word compiles as before. A service that cannot be
          reached at all (no connection, the tunnel's 502 or 530) is still "none" after DOWN_AFTER: the
          controller may answer its own address.
+  awaiting_land  (--tier only) a pull request head with no `ready-to-land` or `full-ci` label: the controller
+         runs no check for it now, and the Release compile at land compiles it. The caller ends neutral at once.
   superseded  a feat-cmux-next push tip (no --pr) the controller will not check because a newer push
          tip is checked instead (its check covers this push's commits, and a red there names them).
          The caller confirms the branch head moved before it skips; a caller that does not know the
@@ -28,10 +30,11 @@ With --phase app-debug it reads the pull request app compile's own check instead
 `--app` compile of a same-repository pull request head, configuration "debug"): the controller submits it
 when that job is queued or when this read names the pull request, and it never stands for the land Release.
 With --phase test-compile --packages A,B it reads the pull request's test-target compile of those packages
-(`swift build --build-tests`, configuration "test-compile"); the read submits it.
+(`swift build --build-tests`, configuration "test-compile"); the read submits it. With --phase rd-host-macos
+it reads cmux-rd-host's macOS fmt, clippy and tests (configuration "rd-host-macos"); the read submits it.
 
 Reasons go to stderr. Usage:
-  fleet_compile_result.py --sha SHA --repo OWNER/NAME [--pr N] [--phase app-debug|scheme-debug|test-compile
+  fleet_compile_result.py --sha SHA --repo OWNER/NAME [--pr N] [--phase app-debug|rd-host-macos|scheme-debug|test-compile
                           [--packages A,B]] [--job-out F] [--wait 1500] [--no-record 600]
 """
 import argparse
@@ -57,7 +60,10 @@ CONFIGURATION = "release-onone"
 # The phases a read can name, and the configuration each one's record carries.
 # scheme-debug: the whole Debug cmux DEV app (the cmux app scheme's product) built by the fleet's app recipe for a
 # feat-cmux-next push or same-repository pull request head; its job_id names the zipped app (`cmux-ci artifact`).
-PHASES = {"": CONFIGURATION, "app-debug": "debug", "test-compile": "test-compile", "scheme-debug": "scheme-debug"}
+# rd-host-macos: cmux-rd-host's macOS fmt, clippy and tests (cmux-tui-rust-check.sh rd-host on a fleet Mac) for a
+# feat-cmux-next push or same-repository pull request head; the read submits it (fleet-rd-host-macos.yml).
+PHASES = {"": CONFIGURATION, "app-debug": "debug", "test-compile": "test-compile", "scheme-debug": "scheme-debug",
+          "rd-host-macos": "rd-host-macos"}
 
 
 def judge(record, sha, repo, configuration=CONFIGURATION):
@@ -75,6 +81,9 @@ def judge(record, sha, repo, configuration=CONFIGURATION):
         return state, f"tip check {state}: {detail}" if detail else f"tip check {state}"
     if state == "unavailable":
         return "none", "the tip check gave no verdict (unavailable)"
+    if state == "awaiting_land":
+        # Only a read sending tier=1 (--tier) gets it: an unlabeled pull request head, compiled at land instead.
+        return "awaiting_land", f"deferred to land: {record.get('reason') or 'no land label yet'}"
     if state == "superseded":
         return "superseded", f"a newer push tip is checked instead: {record.get('superseded_by') or 'unnamed'}"
     return "pending", f"tip check {state or 'queued'}"
@@ -124,7 +133,7 @@ def fetch(url, timeout):
 
 
 def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetch, now=time.monotonic,
-         sleep=time.sleep, gap=30, down_after=DOWN_AFTER, phase="", packages="", seen=None):
+         sleep=time.sleep, gap=30, down_after=DOWN_AFTER, phase="", packages="", seen=None, tier=False):
     """Wait up to `wait` s for this head's verdict; (word, reason). `seen`, a dict, gets the last record's job_id."""
     start = now()
     deadline = start + wait
@@ -135,6 +144,8 @@ def read(sha, repo, pr="", wait=1500, no_record=600, results=RESULTS, fetch=fetc
         q["phase"] = phase
     if packages:
         q["packages"] = packages
+    if tier:
+        q["tier"] = "1"  # the controller may answer awaiting_land for an unlabeled head (cmux_next_tip_land_tier.go)
     base = f"{results}/{sha}?{urllib.parse.urlencode(q)}"
     down_since = None
     down_unanswered = None  # every failed read since down_since was the controller not answering
@@ -199,6 +210,8 @@ def main(argv=None):
     p.add_argument("--no-record", type=int, default=600)
     p.add_argument("--phase", default="", choices=sorted(PHASES))
     p.add_argument("--packages", default="", help="comma or space separated; phase test-compile only")
+    p.add_argument("--tier", action="store_true",
+                   help="accept awaiting_land: an unlabeled pull request head is compiled at land, not now")
     p.add_argument("--job-out", default="", help="write the matching record's fleet job id to this file")
     a = p.parse_args(argv)
     if len(a.sha) != 40 or any(c not in "0123456789abcdef" for c in a.sha):
@@ -212,7 +225,7 @@ def main(argv=None):
         return 0
     seen = {}
     word, why = read(a.sha, a.repo, a.pr if a.pr.isdigit() else "", a.wait, a.no_record, phase=a.phase,
-                     packages=packages if a.phase == "test-compile" else "", seen=seen)
+                     packages=packages if a.phase == "test-compile" else "", seen=seen, tier=a.tier)
     if a.job_out:
         with open(a.job_out, "w") as f:
             f.write(seen.get("job_id", "") + "\n")

@@ -92,7 +92,7 @@ jobs:
       contents: read
     steps:
       # The trusted copy of the controller, never the pull request's.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: refs/heads/feat-cmux-next
           persist-credentials: false
@@ -133,7 +133,7 @@ jobs:
       GIT_COMMITTER_NAME: cmux-next batch queue
       GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # The generators run in the stack's worktree; keep the token out of
           # .git/config (the controller passes it per command).
@@ -200,7 +200,7 @@ jobs:
       contents: read
     env:
       CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(vars.CMUX_CI_XCODE_APP_MACOS_26, 'Xcode_27') && '27' || '26' }}
     steps:
       # This job's tests can start acpmux daemons: they get a home of the job's
       # own, never the runner's ~/.acpmux, the mini's own daemon
@@ -217,7 +217,7 @@ jobs:
         shell: bash
         run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha }}
           persist-credentials: false
@@ -252,7 +252,7 @@ jobs:
 
       # The generator script comes from this workflow's ref, not the stack,
       # which may predate it.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           path: .next-batch-tools
@@ -264,6 +264,8 @@ jobs:
             scripts/cmux-next/lib/warm-swiftpm.sh
             scripts/ci/swift-test-debug-info.sh
             scripts/ci/swiftpm-binary-module-guard.sh
+            scripts/ci/github-egress-direct.sh
+            scripts/ci/github-egress-run.sh
             .gitmodules
           sparse-checkout-cone-mode: false
 
@@ -323,7 +325,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.sha }}
           persist-credentials: false
