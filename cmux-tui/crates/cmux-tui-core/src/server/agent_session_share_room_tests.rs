@@ -537,9 +537,13 @@ fn a_transferred_share_reconnects_with_the_same_guest_role() {
     shares(&mux).detach_for_transfer(directory.as_deref(), SESSION);
     // Re-open the room host from the imported record after a source daemon handoff. The room's
     // durable guest and role survive the host replacement, so a retry gets the same talk role.
-    let ids = shares(&mux).import_for_transfer(directory.as_deref(), SESSION, &payload).unwrap();
+    super::super::stage_transferred_chat_shares(&mux, "aborted", SESSION, payload.clone()).unwrap();
+    assert!(shares(&mux).export_for_transfer(directory.as_deref(), SESSION).is_none());
+    super::super::finish_transferred_chat_shares(&mux, "aborted", false).unwrap();
+    super::super::stage_transferred_chat_shares(&mux, "moved", SESSION, payload).unwrap();
+    assert!(shares(&mux).export_for_transfer(directory.as_deref(), SESSION).is_none());
     room.drop_host();
-    super::super::start_transferred_share_hosts(&mux, &ids);
+    super::super::finish_transferred_chat_shares(&mux, "moved", true).unwrap();
     let (again, _) = room.host();
     assert_eq!(room.frame(again)["active"], json!([guest]));
     room.send(json!({"v":1,"t":"redeem","request_id":"after","attempt_id":"attempt-1",
