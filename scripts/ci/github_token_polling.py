@@ -172,26 +172,6 @@ def _shell_words(text: str, i: int, *, substitution: bool) -> tuple[list[tuple[s
             current, quoted, i = current + text[i + 1:end], True, end + 1
             continue
         if c == '"':
-<<<<<<< HEAD
-            j, depth, bodies = i + 1, 0, []
-            while j < n and (text[j] != '"' or depth):
-                if text[j] == "\\":
-                    j += 2
-                    continue
-                if depth and (skipped := heredoc_skip(text, j, bodies)) != j:
-                    j = skipped
-                    continue
-                if text.startswith("$(", j):
-                    depth += 1
-                elif text[j] == ")" and depth:
-                    depth -= 1
-                j += 1
-            inner = text[i + 1:j]
-            # A command substitution inside the quotes is code: read it as its own words.
-            for match in re.finditer(r"\$\(", inner):
-                sub_start = i + 1 + match.start()
-                words.extend(nested_substitution(text, sub_start))
-=======
             j = literal = i + 1
             pieces = []
             while j < n and text[j] != '"':
@@ -206,7 +186,6 @@ def _shell_words(text: str, i: int, *, substitution: bool) -> tuple[list[tuple[s
                 else:
                     j += 1
             pieces.append(text[literal:j])
->>>>>>> 833e616b5b5
             if start < 0:
                 start = i
             current, quoted, i = current + "".join(pieces), True, j + 1
@@ -244,54 +223,7 @@ def _shell_words(text: str, i: int, *, substitution: bool) -> tuple[list[tuple[s
             current += c
             i += 1
     flush()
-<<<<<<< HEAD
-    return words
-
-
-HEREDOC_START = re.compile(r"<<(-?)\s*(['\"]?)([A-Za-z_]\w*)\2")
-
-
-def heredoc_skip(text: str, j: int, bodies: list[tuple[str, bool]]) -> int:
-    """Inside a `$(...)`: past a heredoc opener (noted in bodies), or at its line's end past the bodies, whose
-    quotes and parentheses are text, not shell (`since="$(python3 - <<'PY'` in cmux-next-base-linux.yml); else j."""
-    if text[j] == "\n" and bodies:
-        i = j + 1
-        for delimiter, strip in bodies:
-            while i < len(text):
-                end = text.find("\n", i)
-                end = len(text) if end < 0 else end
-                line, i = text[i:end], end + 1
-                if (line.lstrip("\t") if strip else line) == delimiter:
-                    break
-        bodies.clear()
-        return min(i, len(text))
-    m = HEREDOC_START.match(text, j) if not text.startswith("<<<", j) else None
-    if m:
-        bodies.append((m.group(3), m.group(1) == "-"))
-        return m.end()
-    return j
-
-
-def nested_substitution(text: str, at: int) -> list[tuple[str, int]]:
-    """The words of the `$(...)` that starts at `at`, offsets kept."""
-    depth, j, bodies = 0, at, []
-    while j < len(text):
-        if (skipped := heredoc_skip(text, j, bodies)) != j:
-            j = skipped
-            continue
-        if text.startswith("$(", j):
-            depth += 1
-            j += 2
-            continue
-        if text[j] == ")":
-            depth -= 1
-            if depth == 0:
-                break
-        j += 1
-    return [(word, at + 2 + offset) for word, offset in shell_words(text[at + 2:j])] + [(";", j)]
-=======
     return words, n
->>>>>>> 833e616b5b5
 
 
 def command_positions(words: list[tuple[str, int]]) -> list[bool]:

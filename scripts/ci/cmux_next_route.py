@@ -416,15 +416,12 @@ NATIVE_SCRIPT_INPUTS = (
     "scripts/ci/check-screen-share-identity.sh", "scripts/ci/timeout.sh",
     # The LAN cache fetch download-prebuilt-ghosttykit.sh tries before GitHub (#57515).
     "scripts/ci/lan_cache_fetch.py",
-<<<<<<< HEAD
-=======
     # zig-fetch-all.sh seeds the Ghostty build from these locked archives and download helpers.
     "scripts/ci/seed-zig-package-archives.sh", "scripts/ci/zig-packages.lock",
     "scripts/ci/zig-packages-r2.sh", "scripts/ci/github-release-download.sh",
     "scripts/ci/github_release_asset.py",
     # swiftpm-seed.sh runs this before resolving the app's binary artifacts.
     "scripts/ci/swiftpm_prefetch_binary_artifacts.py",
->>>>>>> 833e616b5b5
 )
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")

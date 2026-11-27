@@ -191,11 +191,7 @@ def route_ctx(event, ref, generated, swift, targets, daemon, tree, marker, label
     return {"vars": {"CI_GENERATED_FILES_LINUX": linux}, "github": {"event_name": event, "ref": ref,
                        "event": {"pull_request": {"base": {"ref": "feat-cmux-next"}, "labels": [{"name": label} for label in labels]}}},
             "steps": {"route": {"outputs": {"generated": generated, "swift": swift, "swift_targets": targets,
-<<<<<<< HEAD
-                                            "daemon": daemon, "labels": live_labels(labels)}},
-=======
                                             "daemon": daemon, "labels": "," + ",".join(labels) + ","}},
->>>>>>> 833e616b5b5
                       "tree": {"outputs": {"tree_state": tree}}, "tree-final": {"outputs": {}},
                       "marker-upload": {"outcome": marker}}}
 
@@ -261,12 +257,8 @@ class GeneratedFoldTest(unittest.TestCase):
             host = Expr(host_expr, rctx).value()
             tree_state = Expr(tree_expr, rctx).value()
             outputs = {"generated": generated, "swift": swift, "swift_targets": targets, "daemon": daemon,
-<<<<<<< HEAD
-                       "tree_state": tree_state, "generated_host": host, "labels": live_labels(labels)}
-=======
                        "tree_state": tree_state, "generated_host": host,
                        "labels": Expr(self.route["outputs"]["labels"], rctx).value()}
->>>>>>> 833e616b5b5
             head = "someone/fork" if fork else REPO
             ctx = {"github": {"event_name": event, "ref": ref, "repository": REPO,
                               "event": {"pull_request": {"base": {"ref": "feat-cmux-next"}, "head": {"repo": {"full_name": head}},
