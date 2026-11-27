@@ -2538,6 +2538,426 @@
           }
         }
       }
+    },
+    "Tree": {
+      "$comment": "The daemon tree's snapshot types (list-workspaces). The schema's Tree objects are checked against the serializer by cmux-tui-core server/tree_schema_tests.rs. Workspace, LivePane, Tree and WorkspaceGroup stay hand-written until the schema has keep_awake, dead, saved_tab_groups and the group profile fields.",
+      "objects": {
+        "TabSnapshot": {
+          "type": "Tab",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "One tab of a pane as `list-workspaces` reports it (server.rs tab_json). Every field the GUI can live",
+            "without decodes leniently, so a newer daemon never breaks an older app."
+          ],
+          "order": [
+            "surface",
+            "tab_resource_id",
+            "content_resource_id",
+            "terminal_id",
+            "terminal_resource_id",
+            "terminal_incarnation",
+            "short_id",
+            "kind",
+            "name",
+            "title",
+            "title_activity",
+            "size",
+            "dead",
+            "notification",
+            "url",
+            "browser_source",
+            "browser_status",
+            "browser_error",
+            "browser_frames_stalled",
+            "pinned",
+            "pinned_url",
+            "cwd",
+            "git_branch",
+            "git_detached",
+            "browser_renderer",
+            "browser_engine",
+            "favicon_url",
+            "browser_profile_id",
+            "group",
+            "remote",
+            "conversation",
+            "app",
+            "relaunch",
+            "terminal_state",
+            "end",
+            "host_record_version"
+          ],
+          "omit": [
+            "terminal_host_fallback",
+            "supports_clear_history_key_fallback",
+            "program_status",
+            "attention",
+            "browser_owner",
+            "title_text"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "tab_resource_id": {
+              "type": "ResourceID"
+            },
+            "content_resource_id": {
+              "type": "ResourceID"
+            },
+            "terminal_id": {
+              "type": "TerminalID"
+            },
+            "terminal_resource_id": {
+              "type": "ResourceID"
+            },
+            "terminal_incarnation": {
+              "type": "TerminalIncarnation"
+            },
+            "kind": {
+              "type": "TabKind",
+              "default": ".pty"
+            },
+            "name": {
+              "optional": true
+            },
+            "title": {
+              "default": "\"\"",
+              "prefer": "title_text",
+              "doc": [
+                "The title's text as the daemon split it (wire `title_text`, D2): a terminal's without its leading status",
+                "glyphs, a page's as is. A daemon from before D2 sends only the raw `title`: it is the text then, glyphs included."
+              ]
+            },
+            "title_activity": {
+              "type": "TerminalTitle.Activity",
+              "lenient": true,
+              "doc": [
+                "What a terminal title's leading glyph said (wire `title_activity`); nil for none, an unknown glyph and on older daemons."
+              ]
+            },
+            "size": {
+              "type": "CellSize",
+              "optional": true
+            },
+            "dead": {
+              "default": "false"
+            },
+            "notification": {
+              "type": "TabNotification"
+            },
+            "browser_source": {
+              "type": "String",
+              "optional": true
+            },
+            "browser_status": {
+              "type": "String"
+            },
+            "pinned": {
+              "default": "false",
+              "doc": [
+                "Pinned tabs sort first in their pane (`tab-metadata-v1`)."
+              ]
+            },
+            "pinned_url": {
+              "doc": [
+                "The page a pinned browser tab was pinned on (Back to Pinned Page); nil when unpinned."
+              ]
+            },
+            "cwd": {
+              "doc": [
+                "Presented directory: last OSC 7 report or launch dir (`tab-metadata-v1`)."
+              ]
+            },
+            "git_branch": {
+              "doc": [
+                "Branch name, or the 7-char commit when `gitDetached` (`tab-metadata-v1`)."
+              ]
+            },
+            "git_detached": {
+              "default": "false"
+            },
+            "browser_renderer": {
+              "type": "String",
+              "doc": [
+                "`\"daemon\"` (CDP), `\"frontend\"` (app-drawn), nil for PTYs (`frontend-browser-tabs-v1`)."
+              ]
+            },
+            "browser_engine": {
+              "doc": [
+                "`\"webkit\"` or `\"cef\"` for frontend browsers."
+              ]
+            },
+            "group": {
+              "name": "tabGroup",
+              "type": "TabGroupID",
+              "doc": [
+                "Tab group membership (`tab-groups-v1`, wire `group`)."
+              ]
+            },
+            "remote": {
+              "type": "RemoteTerminalRef",
+              "lenient": true,
+              "when": "kind == .remoteTerminal",
+              "doc": [
+                "The terminal a `remote-terminal` tab references (`remote-terminal-tabs-v1`)."
+              ]
+            },
+            "conversation": {
+              "type": "ConversationTabRef",
+              "lenient": true,
+              "when": "kind == .conversation",
+              "doc": [
+                "The conversation a `.conversation` tab shows."
+              ]
+            },
+            "app": {
+              "type": "AppTabRef",
+              "lenient": true,
+              "when": "kind == .browser",
+              "doc": [
+                "The app a frontend app tab shows (`app-screens-v1`)."
+              ]
+            },
+            "relaunch": {
+              "type": "TabRelaunch",
+              "doc": [
+                "The workspace store's keep-layout record of a dead kept tab (`end-terminals-keep-layout-v1`)."
+              ]
+            },
+            "terminal_state": {
+              "type": "TerminalTabState",
+              "lenient": true,
+              "doc": [
+                "Whether the terminal's shell runs (R41); nil for browsers, older daemons and unknown future states."
+              ]
+            },
+            "end": {
+              "type": "TerminalTabEnd",
+              "lenient": true,
+              "doc": [
+                "How a dead terminal ended (R41); nil while it runs, on older daemons and for unknown ends."
+              ]
+            },
+            "host_record_version": {
+              "type": "Int",
+              "doc": [
+                "The record version of an unadoptable host (`terminalState == .unadoptable`)."
+              ]
+            }
+          }
+        },
+        "ScreenSnapshot": {
+          "type": "Screen",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "One screen of a workspace as `list-workspaces` reports it (server.rs screen_json)."
+          ],
+          "order": [
+            "id",
+            "resource_id",
+            "short_id",
+            "name",
+            "active",
+            "active_pane",
+            "zoomed_pane",
+            "layout",
+            "viewport_base_width",
+            "viewport_splits",
+            "columns",
+            "panes",
+            "color",
+            "icon",
+            "pinned",
+            "group",
+            "hidden_dividers",
+            "floating"
+          ],
+          "omit": [
+            "quick_terminal"
+          ],
+          "fields": {
+            "id": {
+              "type": "ScreenID"
+            },
+            "resource_id": {
+              "type": "ResourceID"
+            },
+            "name": {
+              "optional": true
+            },
+            "active": {
+              "default": "false"
+            },
+            "active_pane": {
+              "type": "PaneID",
+              "optional": true
+            },
+            "zoomed_pane": {
+              "optional": true
+            },
+            "layout": {
+              "type": "LayoutNode",
+              "default": ".unknown"
+            },
+            "viewport_splits": {
+              "default": "[]"
+            },
+            "columns": {
+              "default": "[]",
+              "doc": [
+                "Empty unless horizontal viewport columns are active."
+              ]
+            },
+            "panes": {
+              "type": "[PaneSnapshot]",
+              "default": "[]"
+            },
+            "pinned": {
+              "default": "false",
+              "doc": [
+                "Pinned screens sort first."
+              ]
+            },
+            "group": {
+              "type": "ScreenGroupID",
+              "doc": [
+                "The screen group this screen belongs to (`screen-groups-v1`)."
+              ]
+            },
+            "hidden_dividers": {
+              "type": "Set<SplitID>",
+              "lenient": true,
+              "default": "[]",
+              "doc": [
+                "Splits whose divider draws no line (`split-divider-visibility-v1`); they still drag."
+              ]
+            },
+            "floating": {
+              "type": "[FloatingPaneSnapshot]",
+              "lenient": true,
+              "default": "[]",
+              "doc": [
+                "The panes shown above the tiled layout, back to front (`floating-panes-v1`), as the daemon sent it; not",
+                "checked against the layout, the range or repeats. The daemon keeps each one a leaf of `layout`."
+              ]
+            },
+            "viewport_base_width": {
+              "doc": [
+                "Width of the first column as a fraction of the viewport; nil means 1.0."
+              ]
+            },
+            "color": {
+              "doc": [
+                "Optional palette token (`screen-metadata-v1`); frontends offer the nine group colors."
+              ]
+            },
+            "icon": {
+              "doc": [
+                "SF Symbol name or one emoji grapheme."
+              ]
+            }
+          }
+        },
+        "ViewportSplit": {
+          "type": "ViewportSplitWidth",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "A split's viewport width (`Screen.viewport_splits[]`)."
+          ]
+        },
+        "ColumnSnapshot": {
+          "type": "LayoutColumnNode",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "One horizontal scrolling column. Present when the screen has viewport splits (`viewport-splits-v1`)."
+          ],
+          "order": [
+            "id",
+            "width",
+            "layout",
+            "dock",
+            "rows"
+          ],
+          "fields": {
+            "id": {
+              "type": "ColumnID"
+            },
+            "layout": {
+              "type": "LayoutNode"
+            },
+            "dock": {
+              "type": "DockSnapshot",
+              "lenient": true,
+              "doc": [
+                "Docked to a viewport edge; nil scrolls (`dock-columns-v1`; top and bottom also need `edge-docks-v1`)."
+              ]
+            },
+            "rows": {
+              "lenient": true,
+              "default": "[]",
+              "doc": [
+                "The column's rows, top to bottom (`rows-v1`); empty for a column with one row. `layout` is then the",
+                "compat chain of these rows. A malformed `rows` keeps the column: the compat chain in `layout` still holds every pane."
+              ]
+            },
+            "width": {
+              "doc": [
+                "Fraction of the frontend viewport width."
+              ]
+            }
+          }
+        },
+        "RowSnapshot": {
+          "type": "LayoutRowNode",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "One row of a column (`rows-v1`, `Screen.columns[].rows[]`): a horizontal band of the column's vertical strip holding one split tree."
+          ],
+          "order": [
+            "id",
+            "height",
+            "layout"
+          ],
+          "fields": {
+            "id": {
+              "type": "RowID"
+            },
+            "height": {
+              "type": "Int",
+              "doc": [
+                "Permille of the column's viewport height, 100...1000. The sum per column is free: at most 1000 fills the column, more scrolls it."
+              ]
+            },
+            "layout": {
+              "type": "LayoutNode",
+              "doc": [
+                "The split tree inside the row."
+              ]
+            }
+          }
+        }
+      }
     }
   }
 }
