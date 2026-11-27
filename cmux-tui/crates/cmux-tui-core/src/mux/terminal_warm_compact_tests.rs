@@ -91,15 +91,31 @@ fn sidechain_and_empty_usage_lines_are_not_the_last_request() {
 #[test]
 fn the_chat_settings_decide_the_terminal_bar() {
     let none = |_: &str| None;
-    assert_eq!(min_tokens(&json!({}), none), Some(DEFAULT_MIN_TOKENS));
+    // Off unless turned on, as for chats.
+    assert_eq!(min_tokens(&json!({}), none), None);
+    assert_eq!(
+        min_tokens(&json!({"agents":{"cacheCompact":{"minContextTokens":80_000}}}), none),
+        None
+    );
     assert_eq!(min_tokens(&json!({"agents":{"cacheCompact":{"enabled":false}}}), none), None);
     assert_eq!(min_tokens(&json!({"agents.cacheCompact.enabled":false}), none), None);
     assert_eq!(
-        min_tokens(&json!({"agents":{"cacheCompact":{"minContextTokens":80_000}}}), none),
+        min_tokens(&json!({"agents":{"cacheCompact":{"enabled":true}}}), none),
+        Some(DEFAULT_MIN_TOKENS)
+    );
+    assert_eq!(
+        min_tokens(&json!({"agents.cacheCompact.enabled":true}), none),
+        Some(DEFAULT_MIN_TOKENS)
+    );
+    assert_eq!(
+        min_tokens(
+            &json!({"agents":{"cacheCompact":{"enabled":true,"minContextTokens":80_000}}}),
+            none
+        ),
         Some(80_000)
     );
     assert_eq!(
-        min_tokens(&json!({"agents":{"cacheCompact":{"minContextTokens":1}}}), none),
+        min_tokens(&json!({"agents":{"cacheCompact":{"enabled":true,"minContextTokens":1}}}), none),
         Some(MIN_TOKENS_RANGE.0)
     );
     let env = |var: &str| match var {

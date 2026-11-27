@@ -58,7 +58,10 @@ fn step(e: &EventRecord) -> Step<'_> {
     }
     match e.kind.as_str() {
         "agent_message_chunk" => Step::Chunk(
-            e.msg.pointer("/params/update/content/text").and_then(Value::as_str).unwrap_or_default(),
+            e.msg
+                .pointer("/params/update/content/text")
+                .and_then(Value::as_str)
+                .unwrap_or_default(),
         ),
         "tool_call" | "tool_call_update" | "agent_thought_chunk" | "plan" => Step::Close,
         _ => Step::Ignore,
@@ -83,11 +86,9 @@ fn push_capped(into: &mut String, text: &str) {
         into.push_str(text);
         return;
     }
-    let mut cut = room;
-    while !text.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    into.push_str(&text[..cut]);
+    // The longest prefix that fits and ends on a char boundary (0 always is one).
+    let cut = (0..=room).rev().find(|&i| text.is_char_boundary(i)).unwrap_or(0);
+    into.push_str(text.get(..cut).unwrap_or_default());
 }
 
 /// The last [`KEEP`] replies of the records folded so far, oldest first.
@@ -120,14 +121,21 @@ impl ReplyFold {
 
     /// The newest reply, trimmed; None before any or when it holds no words: `masked_reply`'s
     /// answer before its mask.
+    #[cfg(test)]
     pub fn last(&self) -> Option<&str> {
         self.replies.back().map(|r| r.trim()).filter(|r| !r.is_empty())
     }
 
     /// The newest `count` replies with words in them, trimmed, oldest first.
     pub fn newest(&self, count: usize) -> Vec<&str> {
-        let mut out: Vec<&str> =
-            self.replies.iter().rev().map(|r| r.trim()).filter(|r| !r.is_empty()).take(count).collect();
+        let mut out: Vec<&str> = self
+            .replies
+            .iter()
+            .rev()
+            .map(|r| r.trim())
+            .filter(|r| !r.is_empty())
+            .take(count)
+            .collect();
         out.reverse();
         out
     }
@@ -205,14 +213,53 @@ fn last_seq(s: &super::Session) -> u64 {
     s.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).last_seq
 }
 
+/// The most bytes of replies, as JSON, one answer carries: a reply page
+/// ([`crate::rpc::REPLY_PAGE_BYTES`]) less room for the framing. [`KEEP`] replies of
+/// [`MAX_REPLY_BYTES`] each would pass the frame cap, so the oldest are left out past it.
+const ANSWER_BUDGET: usize = crate::rpc::REPLY_PAGE_BYTES - (16 << 10);
+
 fn answer(fold: &ReplyFold, count: usize) -> Vec<String> {
-    fold.newest(count.clamp(1, KEEP)).into_iter().map(crate::secret_scan::mask).collect()
+    let masked: Vec<String> =
+        fold.newest(count.clamp(1, KEEP)).into_iter().map(crate::secret_scan::mask).collect();
+    within_budget(masked, ANSWER_BUDGET)
+}
+
+/// The newest of `replies` (oldest first) whose JSON fits in `budget` bytes; the newest one
+/// always, cut to fit.
+fn within_budget(mut replies: Vec<String>, budget: usize) -> Vec<String> {
+    let json_len = |r: &str| serde_json::to_string(r).map_or(r.len(), |s| s.len()) + 1;
+    // The array's brackets; each reply counts its comma.
+    let mut used = 2;
+    let mut keep = 0;
+    for r in replies.iter().rev() {
+        let len = json_len(r);
+        if keep > 0 && used + len > budget {
+            break;
+        }
+        used += len;
+        keep += 1;
+    }
+    let mut out = replies.split_off(replies.len() - keep);
+    if let Some(newest) = out.last_mut() {
+        while json_len(newest) + 2 > budget {
+            let mut cut = newest.len() / 2;
+            while !newest.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            newest.truncate(cut);
+        }
+    }
+    out
 }
 
 impl super::Hub {
     /// The chat's newest `count` replies (at most [`KEEP`]), masked, oldest first, and the last
     /// record they are of.
-    pub fn last_replies(&self, s: &super::Session, count: usize) -> anyhow::Result<(Vec<String>, u64)> {
+    pub fn last_replies(
+        &self,
+        s: &super::Session,
+        count: usize,
+    ) -> anyhow::Result<(Vec<String>, u64)> {
         let lock = || s.reply_slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         for _ in 0..2 {
             let seeded = lock().seeded;
@@ -261,18 +308,11 @@ impl super::Hub {
     fn seed_replies(&self, id: &str, upto: u64) -> anyhow::Result<ReplyFold> {
         let mut seed = Seed::default();
         let kinds = Value::from(SEED_KINDS.to_vec());
-        let filter = super::paging::EventFilter::parse(Some(&kinds)).map_err(|e| anyhow::anyhow!("{e:?}"))?;
+        let filter = super::paging::EventFilter::parse(Some(&kinds))
+            .map_err(|e| anyhow::anyhow!("{e:?}"))?;
         let mut before = upto.saturating_add(1);
         loop {
-            let page = self.events_page(
-                id,
-                0,
-                Some(before),
-                PAGE,
-                None,
-                true,
-                &filter,
-            )?;
+            let page = self.events_page(id, 0, Some(before), PAGE, None, true, &filter)?;
             let Some(first) = page.events.first().map(|e| e.seq) else { break };
             let mut more = true;
             for e in page.events.iter().rev() {

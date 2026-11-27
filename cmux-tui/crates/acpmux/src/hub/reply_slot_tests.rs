@@ -34,7 +34,7 @@ fn record(seq: u64, pick: u8, text: &str) -> EventRecord {
         5 => update("tool_call_update", json!({})),
         6 => update("agent_thought_chunk", json!({})),
         7 => update("plan", json!({})),
-        8 => mux(if text.len() % 2 == 0 { "turn_started" } else { "user_message" }),
+        8 => mux(if text.len().is_multiple_of(2) { "turn_started" } else { "user_message" }),
         // A subagent's words, a replayed chunk and a record of another kind change nothing.
         9 => update("agent_message_chunk", json!({"acpmux": {"subagent": "s1"}})),
         10 => update("agent_message_chunk.replay", json!({})),
@@ -67,7 +67,11 @@ fn all_replies(events: &[EventRecord]) -> Vec<String> {
 
 fn stream() -> impl Strategy<Value = Vec<EventRecord>> {
     prop::collection::vec((any::<u8>(), "[a-c \\n]{0,6}"), 0..160).prop_map(|items| {
-        items.iter().enumerate().map(|(i, (pick, text))| record(i as u64 + 1, *pick, text)).collect()
+        items
+            .iter()
+            .enumerate()
+            .map(|(i, (pick, text))| record(i as u64 + 1, *pick, text))
+            .collect()
     })
 }
 
@@ -146,4 +150,19 @@ fn reply_is_capped_on_a_char_boundary() {
     fold.apply(&record(1, 0, &big));
     let last = fold.last().unwrap();
     assert!(last.len() <= super::MAX_REPLY_BYTES);
+}
+
+/// `-n 8` of 256 KiB replies is 2 MiB, past the 1 MiB frame cap: the answer keeps the newest
+/// that fit, and fits; control characters (6 bytes each as JSON) count at their JSON size.
+#[test]
+fn answer_fits_a_reply_page() {
+    let big = "\u{1}".repeat(super::MAX_REPLY_BYTES);
+    let replies: Vec<String> = (0..KEEP).map(|i| format!("{i}{big}")).collect();
+    let out = super::within_budget(replies.clone(), super::ANSWER_BUDGET);
+    let bytes = serde_json::to_string(&out).unwrap().len();
+    assert!(bytes <= super::ANSWER_BUDGET, "{bytes} bytes");
+    assert!(out.last().unwrap().starts_with(&format!("{}", KEEP - 1)), "newest kept");
+    // Small replies all fit, unchanged.
+    let small: Vec<String> = (0..KEEP).map(|i| format!("reply {i}")).collect();
+    assert_eq!(super::within_budget(small.clone(), super::ANSWER_BUDGET), small);
 }

@@ -781,6 +781,33 @@ class LinuxReleasePoint(unittest.TestCase):
         return subprocess.run(["bash", "scripts/ci/cmux-linux-nightly-follow.sh", str(self.tmp / f"follow-{run_id}")],
                               cwd=self.repo, env=env, text=True, capture_output=True)
 
+    def run_sign(self, *mode, run_id="30"):
+        """scripts/ci/linux-release-sign.sh for RELEASE_COMMIT against the fake R2 (no gh: a run that finds
+        the commit's file published never downloads its build)."""
+        shutil.copy(ROOT / "scripts/ci/linux-release-sign.sh", self.repo / "scripts/ci/")
+        env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "HOME": str(self.tmp), "FAKE_R2": str(self.r2),
+               "FAKE_UPLOAD_LOG": str(self.tmp / "uploads.log"), "SIGNING_KEY": self.pem,
+               "R2_ENDPOINT": "https://r2.invalid", "GITHUB_RUN_ID": run_id, "GITHUB_SHA": RELEASE_COMMIT,
+               "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GH_TOKEN": "unused"}
+        return subprocess.run(["bash", "scripts/ci/linux-release-sign.sh", str(self.tmp / f"sign-{run_id}"),
+                               "feat-cmux-next", *mode], cwd=self.repo, env=env, text=True, capture_output=True)
+
+    def test_a_published_release_file_is_kept_and_moves_the_channel(self):
+        # sign-nightly-linux-release wrote the commit's file (--commit-only); point-machine-channel's run
+        # of the same commit keeps it and moves linux-feat-cmux-next to its bytes, with no second build.
+        self.only_linux_release()
+        self.assert_ok(self.point(self.payload(), "--commit-only"))
+        first = self.served(self.RELEASE)
+        self.assertIsNone(self.served(self.POINTER))
+        again = self.run_sign("--commit-only", run_id="31")
+        self.assert_ok(again)
+        self.assertIn("is published; keeping it", again.stdout)
+        self.assertIsNone(self.served(self.POINTER))
+        result = self.run_sign(run_id="32")
+        self.assert_ok(result)
+        self.assertEqual(self.served(self.RELEASE), first)
+        self.assertEqual(self.served(self.POINTER), first)
+
     def test_the_follow_script_points_linux_nightly_at_the_nightlys_first_commit(self):
         self.only_linux_release()
         self.assert_ok(self.point(self.payload()))
