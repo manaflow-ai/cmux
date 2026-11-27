@@ -593,7 +593,12 @@ elif args[0] == "api":
         query = dict(part.split("=", 1) for part in endpoint.split("?", 1)[1].split("&") if "=" in part)
         size, number = int(query.get("per_page", 30)), int(query.get("page", 1))
         emit({"total_count": len(runs), "check_runs": runs[(number - 1) * size:number * size]})
-    elif endpoint.endswith("/status"): emit({"state": state.get("status", "pending")})
+    elif endpoint.endswith("/status"):
+        # A status given as a string is one "ci" context in that state; a list is [context, state] pairs.
+        given = state.get("status", "pending")
+        pairs = [("ci", given)] if isinstance(given, str) else [tuple(p) for p in given]
+        emit({"state": given if isinstance(given, str) else "error",
+              "statuses": [{"context": c, "state": st} for c, st in pairs]})
     elif "/commits/" in endpoint:
         import datetime
         at = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=state.get("head_age_min", 600))
@@ -1015,6 +1020,12 @@ class RePinPublication(unittest.TestCase):
             "a check run cancelled by a newer run of its workflow": {"checks": ("success", "cancelled"),
                                                                      "staged_on": "5" * 40,
                                                                      "base_checks": ("success",)},
+            # 2026-11-27: re-pin run 46033637560 moved cmux#60965 off 2da59316, seated on the merge train, for an
+            # advisory fleet compile and the train's own "not seated" status: neither gates the land.
+            "an advisory check's failure": {"checks": ("success", ["nightly app compile arm64 fleet job (advisory)",
+                                                                   "failure"])},
+            "the merge train's seat status": {"checks": ("success",),
+                                              "status": [["merge-train", "error"], ["ci", "success"]]},
         }
         for name, options in cases.items():
             with self.subTest(name):
@@ -1043,6 +1054,10 @@ class RePinPublication(unittest.TestCase):
             "a workflow run that never started": {"head_age_min": 20, "head_runs": ("success", "startup_failure")},
             "a failed commit status": {"head_age_min": 20, "status": "failure"},
             "an errored commit status": {"head_age_min": 20, "status": "error"},
+            "an errored status beside the merge train's": {"head_age_min": 20,
+                                                           "status": [["merge-train", "error"], ["ci", "error"]]},
+            "a failed check named like an advisory one, not ending in it": {
+                "head_age_min": 20, "checks": (["nightly (advisory) compile", "failure"],)},
             "the PR is closed": {"head_age_min": 20, "closed": True},
             # 2026-11-27: #60275's head c175a22a conflicted with feat-cmux-next, no check failed, and each re-pin kept
             # it for the 90 min hold while the app FFI pin sat 182 min behind.
