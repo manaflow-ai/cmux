@@ -103,7 +103,7 @@ final class CloudMachineUpdates {
 
     /// The live ``CloudMachineUpdateTarget/Source`` of `session`. Each step reads the session on
     /// the main actor; nothing holds it.
-    static func source(_ session: CloudMachineSession, machines: MachineRegistry, cli: CloudMoveCLI, api: CloudAPIClient? = nil,
+    static func source(_ session: CloudMachineSession, machines: MachineRegistry, cli: CloudMoveCLI, api: CloudDaemon? = nil,
                        ifOlder: Bool = true, logger: Logger) -> CloudMachineUpdateTarget.Source {
         let machineID = session.machineID
         let binary = cli.binary
