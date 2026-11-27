@@ -202,13 +202,10 @@ struct PageFactory {
                                            in: services?.windows.active?.window) { continuation.resume(returning: $0) }
                 }
             }, defaultImage: { [weak services] in services?.settings.map { CloudNewWorkspaceSetting().defaultImage(in: $0.snapshot.root) } }) // rebuilt when stale
-        provider.environmentsState = { (try? JSONValue.parse(JSONEncoder().encode(environments.state))) ?? .null }
-        provider.environmentsRun = { params in
-            guard let run = try? JSONDecoder().decode(CloudEnvironmentsRun.self, from: JSONSerialization.data(withJSONObject: params.foundationObject)) else {
-                throw PageError.invalidParams("unknown environments action")
-            }
-            return (try? JSONValue.parse(JSONEncoder().encode(await environments.run(run)))) ?? .object([:])
-        }
+        provider.environments = environments
+        provider.allotment = CloudAllotmentPage(
+            available: { [weak cloud, weak settings] in settings?.snapshot.teamCompute == true && cloud?.auth.isSignedIn == true },
+            get: { [weak cloud] in try JSONEncoder().encode(await cloud?.appOps("cloud.allotment.get", .object([:]), nil, .script)) })
         let devices = services.deviceHub.settingsModel
         devices.openScreen = { [weak services] id in services?.openMacScreen(for: id, in: nil) }
         devices.shareThisMac = { [weak services] in _ = services?.registry.perform("macScreen.shareThisMac", invocation: ActionInvocation(origin: .page)) }
@@ -282,6 +279,7 @@ struct PageFactory {
                 value: { [weak services] id in services?.themes.workspaceOpacity(id) },
                 set: { [weak services] value, id in services?.themes.setWorkspaceOpacity(value, for: id) },
                 preview: { [weak services] value, id in services?.themes.previewWorkspaceOpacity(value, for: id) }))
+        SettingsHistoryPage.ops.forEach { [history = SettingsHistoryPage(daemon: services.daemon, settings: settings, writer: SettingsPageProvider.writer, personOnly: SettingsPageProvider.personOnly)] in provider.parts[$0] = history } // Undo, Redo and Reset on the daemon's settings history
         // Your own backgrounds from a link, removed or revealed (BackdropImagesPageProvider).
         let images = provider.backdropImages.map { images in
             BackdropImagesPageProvider(images: images.images, use: { [weak provider] in try await provider?.useBackdropImage($0) ?? "" },
