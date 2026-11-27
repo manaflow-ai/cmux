@@ -168,3 +168,34 @@ fn last_reply_read_is_flat_at_10x() {
     );
     assert!(big.warm < big.scan, "slot read {:?} not under the scan {:?}", big.warm, big.scan);
 }
+
+/// The hub's read of a small chat: what the bench reads at scale, with the state in its message.
+#[test]
+fn hub_reads_the_last_reply_of_a_small_chat() {
+    let mut cfg: crate::config::Config = serde_json::from_value(json!({})).unwrap();
+    cfg.store.mode = crate::config::StoreMode::Memory;
+    let hub = Hub::new(cfg, Box::new(MemoryStore::default()));
+    let s = chat(&hub, "small", 40);
+    let got = hub.last_replies(&s, 1).unwrap();
+    let kinds = Value::from(super::SEED_KINDS.to_vec());
+    let filter = crate::hub::EventFilter::parse(Some(&kinds)).unwrap();
+    let page = hub.events_page("small", 0, None, 512, None, true, &filter).unwrap();
+    let steps: Vec<String> = page
+        .events
+        .iter()
+        .rev()
+        .take(6)
+        .map(|e| format!("{} {} {} {:?}", e.seq, e.dir, e.kind, super::step(e)))
+        .collect();
+    let all = hub.events("small", 0, 512).unwrap();
+    assert_eq!(
+        got.0,
+        vec!["the last reply".to_owned()],
+        "through {} last_seq {} page {} all {} newest {steps:?} first {:?}",
+        got.1,
+        super::last_seq(&s),
+        page.events.len(),
+        all.len(),
+        all.first().map(|e| (&e.dir, &e.kind, &e.msg)),
+    );
+}
