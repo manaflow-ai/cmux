@@ -411,9 +411,31 @@ class WiringTest(unittest.TestCase):
             job = jobs[key]
             self.assertEqual(job["uses"], f"./.github/workflows/{suite.workflow}", key)
             self.assertEqual(job["if"], f"contains(needs.plan.outputs.suites, ' {key} ')", key)
-            self.assertEqual(job["with"], {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}, key)
+            # `base` (optional): the window's start, which a callee that routes by changed paths diffs against.
+            want = {"sha": "${{ needs.plan.outputs.sha }}", "only": "${{ needs.plan.outputs.only }}"}
+            if "base" in job["with"]:
+                want["base"] = "${{ needs.plan.outputs.base }}"
+            self.assertEqual(job["with"], want, key)
             self.assertNotIn("name", job, f"{key}: the caller job's name must be the suite key")
         self.assertEqual(set(jobs["judge"]["needs"]), {"plan", *self.suites})
+
+    def test_the_table_suites_reach_every_input_of_their_job(self) -> None:
+        # A suite that runs `ci/run run --job J` must start for any path a step of J reads, or a merge that
+        # changes only that path never runs the step after the merge.
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import ci_steps  # noqa: PLC0415
+
+        steps = ci_steps.load().steps.values()
+        for key, job in (("pr-pipeline-mac", "mac"), ("pr-pipeline-ios", "ios")):
+            with self.subTest(suite=key):
+                suite = self.suites[key]
+                self.assertEqual(set(suite.jobs), {job})
+                want = set(ci_steps.PIPELINE_PATHS) | {f".github/workflows/{suite.workflow}"}
+                want |= {p for s in steps if s.job == job for p in s.inputs}
+                self.assertLessEqual(want, set(suite.paths), sorted(want - set(suite.paths)))
+                text = (WORKFLOW.parent / suite.workflow).read_text()
+                self.assertIn(f"ci/run run --job {job}", text)
+                self.assertIn("inputs.base", text)
 
     def test_each_callee_takes_sha_and_only_and_gates_its_jobs(self) -> None:
         for key, suite in self.suites.items():
