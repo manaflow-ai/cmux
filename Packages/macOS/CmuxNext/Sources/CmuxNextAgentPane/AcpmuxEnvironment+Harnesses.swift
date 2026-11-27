@@ -135,7 +135,8 @@ public nonisolated enum AcpmuxHarnessMethod: String, Sendable, CaseIterable {
     /// The person's dictation provider (`agentPane.dictationEngine`, crate cmux-voice): `{}` answers
     /// `{engine, label, kind, wire, key, url, model, keyAccount, keyService, hasKey, providers}`.
     case voiceState = "_acpmux/voice/state"
-    /// `{audio}` (a WAV's base64) or `{path}`, and `language` (BCP 47): `{text}` or `{error: {code, detail}}`.
+    /// `{audio}` (a WAV's base64), and `language` (BCP 47): `{text}` or `{error: {code, detail}}`.
+    /// File paths are rejected; the native recorder sends only its own verified recording's bytes.
     case voiceTranscribe = "_acpmux/voice/transcribe"
     /// `{}`: the cheapest call proving the endpoint and key, no audio; `{ok}` or `{ok: false, error}`.
     case voiceCheck = "_acpmux/voice/check"

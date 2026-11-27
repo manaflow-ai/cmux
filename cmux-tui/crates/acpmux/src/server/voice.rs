@@ -11,7 +11,6 @@
 //! or a peer. No hub state is read or locked; the HTTP runs on the runtime, off the request loop's
 //! locks, bounded by the provider's own timeouts.
 
-use std::path::PathBuf;
 use std::time::Duration;
 
 use cmux_voice::{Audio, AudioError, BatchRequest, Endpoint, Http, Resolved, Settings};
@@ -77,15 +76,17 @@ async fn saved_key(endpoint: &Endpoint, wait: Duration) -> Option<String> {
     }
 }
 
-/// The recording `params` names: `path` (absolute) or `audio` (base64).
+/// The caller supplies recording bytes, never authority to read a daemon-side path.
 fn audio_param(params: &Value) -> Result<Audio, RpcError> {
-    let text = |key: &str| params.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
-    match (text("path"), text("audio")) {
-        (Some(path), None) => Ok(Audio::Path(PathBuf::from(path))),
-        (None, Some(audio)) => Ok(Audio::Base64(audio.to_owned())),
-        (Some(_), Some(_)) => Err(RpcError::invalid_params("give path or audio, not both")),
-        (None, None) => Err(RpcError::invalid_params("path or audio is required")),
+    if params.get("path").is_some() {
+        return Err(RpcError::invalid_params("path is not supported; send audio as base64"));
     }
+    let audio = params
+        .get("audio")
+        .and_then(Value::as_str)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| RpcError::invalid_params("audio is required as base64"))?;
+    Ok(Audio::Base64(audio.to_owned()))
 }
 
 async fn transcribe(resolved: Resolved, params: &Value) -> Result<Value, RpcError> {
@@ -208,13 +209,18 @@ mod tests {
     }
 
     #[test]
-    fn audio_param_needs_exactly_one() {
-        assert_eq!(audio_param(&json!({"path": "/a.wav"})).unwrap(), Audio::Path("/a.wav".into()));
+    fn audio_param_requires_bytes_and_rejects_any_path() {
         assert_eq!(
             audio_param(&json!({"audio": "UklGRg=="})).unwrap(),
             Audio::Base64("UklGRg==".into())
         );
-        assert!(audio_param(&json!({})).is_err());
-        assert!(audio_param(&json!({"path": "/a", "audio": "b"})).is_err());
+        for params in [json!({}), json!({"audio": ""}), json!({"audio": null}), json!({"audio": 1})]
+        {
+            assert!(audio_param(&params).is_err(), "{params}");
+        }
+        for path in [json!("/a.wav"), json!("relative.wav"), Value::Null, json!(1)] {
+            assert!(audio_param(&json!({"path": path})).is_err());
+            assert!(audio_param(&json!({"path": path, "audio": "UklGRg=="})).is_err());
+        }
     }
 }

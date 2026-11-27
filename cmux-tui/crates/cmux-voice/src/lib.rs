@@ -9,7 +9,7 @@
 //! - [`provider`]: the [`provider::DictationProvider`] trait and its HTTP implementation of the
 //!   two batch wires (the OpenAI-style `POST <base>/audio/transcriptions` and whisper.cpp's
 //!   `POST <base>/inference`), with errors in the closed [`error::ErrorCode`] set.
-//! - [`audio`]: the recording as the caller hands it over (a path or base64), capped.
+//! - [`audio`]: the recording as the caller hands it over (base64 bytes), capped.
 //! - [`state`]: the JSON the acpmux `_acpmux/voice/*` methods answer.
 //!
 //! Adding streaming dictation or a real-time voice mode later: each catalog entry lists its

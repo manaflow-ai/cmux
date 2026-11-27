@@ -35,18 +35,13 @@ public struct DictationProviderEngine {
         }
     }
 
-    /// One recording through acpmux: its bytes inline (or its file's path), the language as BCP 47;
+    /// One recording through acpmux: its bytes inline, the language as BCP 47;
     /// the answer is `{text}` or `{error: {code, detail}}`, a failure is ``DictationFailure/providerFailed(code:detail:)``.
     nonisolated static func transcribe(_ audio: DictationAudio, locale: Locale, environment: AcpmuxEnvironment, settings: [String: String]? = nil) async throws -> String {
         var params: [String: any Sendable] = ["language": locale.identifier(.bcp47)]
         if let settings { params["settings"] = settings }
-        if let data = audio.data {
-            params["audio"] = data.base64EncodedString()
-        } else if let file = audio.file {
-            params["path"] = file.path
-        } else {
-            throw DictationFailure.providerFailed(code: "bad_response", detail: "")
-        }
+        params["audio"] = try await encodedAudio(audio)
+        try Task.checkCancellation()
         let reply: Data
         do {
             reply = try await environment.harness(.voiceTranscribe, params: params)
@@ -65,5 +60,41 @@ public struct DictationProviderEngine {
         let failure = object["error"] as? [String: Any]
         throw DictationFailure.providerFailed(code: failure?["code"] as? String ?? "bad_response",
                                               detail: failure?["detail"] as? String ?? "")
+    }
+
+    /// Matches cmux-voice's MAX_AUDIO_BYTES. Its base64 fits the Unix socket's 64 MiB
+    /// inbound line limit. Paths never cross that RPC boundary: only the microphone owner
+    /// can open the recording, using the identity captured by its writer.
+    nonisolated static let maximumAudioBytes = 24 * 1024 * 1024
+
+    @concurrent static func encodedAudio(_ audio: DictationAudio) async throws -> String {
+        try Task.checkCancellation()
+        let invalid = DictationFailure.providerFailed(code: "bad_response", detail: "")
+        let tooLarge = DictationFailure.providerFailed(code: "too_large", detail: "")
+        if let data = audio.data {
+            guard data.count <= maximumAudioBytes else { throw tooLarge }
+            guard data.count == audio.byteCount else { throw invalid }
+            return data.base64EncodedString()
+        }
+        guard let file = audio.file, let identity = audio.fileIdentity,
+              let recording = AgentPaneDictationUpload.Recording.open(
+                AgentPaneIssuedRecording(file: file, identity: identity)
+              ) else { throw invalid }
+        defer { recording.close() }
+        guard recording.size <= maximumAudioBytes else { throw tooLarge }
+        guard recording.size >= 0, recording.size == audio.byteCount else { throw invalid }
+        var bytes = Data()
+        bytes.reserveCapacity(recording.size)
+        while bytes.count < recording.size {
+            try Task.checkCancellation()
+            let count = min(256 * 1024, recording.size - bytes.count)
+            guard let chunk = recording.read(at: bytes.count, count: count),
+                  !chunk.isEmpty else { throw invalid }
+            bytes.append(chunk)
+        }
+        // Reject a recording changed while it was being read; never read past the cap.
+        guard recording.read(at: bytes.count, count: 1)?.isEmpty == true else { throw invalid }
+        try Task.checkCancellation()
+        return bytes.base64EncodedString()
     }
 }
