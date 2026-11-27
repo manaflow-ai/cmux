@@ -599,6 +599,10 @@ class WebviewsWarnSplitCoversCheck(unittest.TestCase):
                         f"`./node_modules/.bin/{part} || echo ...` in the warn branch below this line")
                 continue
             name = part.removeprefix("bun run ").strip()
+            # A slow check runs beside the rest (`bun run check:compiler-bails > "$bails_log" 2>&1 &`, then `wait`).
+            backgrounded = re.search(rf"bun run {re.escape(name)} > \S+ 2>&1 &\n\s*(\w+)=\$!", warn_branch)
+            if backgrounded and f'wait "${backgrounded.group(1)}"' in warn_branch:
+                continue
             if not (name in looped or name in gated or f"bun run {name} || status=1" in warn_branch):
                 missing.append(
                     f"{ci_web}:{loop_line}: `{part}` (webviews/package.json:{script_line} "
@@ -1332,7 +1336,9 @@ class PathRoutingStructure(unittest.TestCase):
                             self.assertEqual(evaluate(expression, context), wanted)
         # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.
         # The workflow's comments moved to its notes file; the workflow points at the note that says it.
-        self.assertIn("# Why: docs/ci/cmux-next-workflow-notes.md#note-553\n", text)
+        # A bare note-N names a note in docs/ci/cmux-next-workflow-notes.md (the workflow's header says so).
+        self.assertTrue("# Why: docs/ci/cmux-next-workflow-notes.md#note-553\n" in text
+                        or "# Why: note-553\n" in text, "the workflow points at note-553")
         note = (ROOT / "docs/ci/cmux-next-workflow-notes.md").read_text(encoding="utf-8").split("## note-553\n", 1)[1]
         note = " ".join(note.split("\n## ", 1)[0].split())
         self.assertIn("The rescue re-admits a queued run after the five-minute queue alarm: placement first uses a free "
@@ -1762,12 +1768,13 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     continue
                 # A failed checkout's retry pair (tests/test_cmux_next_checkout_retry.py)
                 # sits between the checkout and the reset, which follows either way.
-                if step.get("if") == self.CHECKOUT_FAILED:
+                if self.CHECKOUT_FAILED in str(step.get("if", "")):
                     continue
                 checked.append(job_id)
                 with self.subTest(job=job_id):
                     after = index + 1
-                    while after < len(job_steps) and job_steps[after].get("if") == self.CHECKOUT_FAILED:
+                    # The retry pair includes borrowing the host's git mirror again before the retry.
+                    while after < len(job_steps) and self.CHECKOUT_FAILED in str(job_steps[after].get("if", "")):
                         after += 1
                     following = job_steps[after] if after < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
@@ -2012,11 +2019,9 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         runs_on = one_runs_on(cargo)
         self.assertTrue(runs_on.startswith("${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || "), runs_on)
         self.assertIn("github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404'", runs_on)
-        # Its Blacksmith size and failover are the ones .github/runners.json linux_sizes measured.
-        self.assertTrue(runs_on.endswith(
-            "vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || "
-            "fromJSON(vars.RUNNER_POOLS).linux_8 }}"
-        ), runs_on)
+        # Its pool is the one .github/runners.json linux_sizes names: linux_16, GCP-led with Blacksmith after
+        # and no Freestyle member, so no overflow failover (#59548).
+        self.assertTrue(runs_on.endswith("|| fromJSON(vars.RUNNER_POOLS).linux_16 }}"), runs_on)
         route_without_pools = re.sub(
             r"fromJSON\(vars\.RUNNER_POOLS\)\.[A-Za-z0-9_]+", "", OVERFLOW_FAILOVER.sub("", runs_on)
         )
@@ -2025,9 +2030,9 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         # request runs the cargo half only when its change reaches a cargo or script entry (FastTierCargoRoute).
         # The cargo route goes before the label guard, which stays last
         # (tests/test_ci_label_events_skip_full_ci.py).
-        label_guard = (" && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == "
-                       "'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') "
-                       "&& !contains(fromJSON('[\"full-ci\",\"ready-to-land\"]'), github.event.label.name)) }}")
+        # Removing a coverage label re-runs nothing (#58222): the guard tests/test_ci_label_events_skip_full_ci.py builds.
+        import test_ci_label_events_skip_full_ci as label_events
+        label_guard = " && " + label_events.guard(("full-ci", "ready-to-land")) + " }}"
         self.assertTrue(mac["if"].endswith(label_guard), mac["if"])
         # The Mac half runs a pull request's fast tier in pr-pipeline.yml's `mac` job (note-556); the cargo half
         # stays here on both events.
@@ -2379,9 +2384,16 @@ class JobsReuseAPassOnTheSameInputs(unittest.TestCase):
         condition = str(step.get("if", ""))
         if REUSE_GUARD in condition:
             return True
-        if "||" in condition:
-            return False
-        terms = condition.removeprefix("${{").removesuffix("}}").split("&&")
+        terms, depth, term = [], 0, ""
+        for char in condition.removeprefix("${{").removesuffix("}}"):
+            depth += (char == "(") - (char == ")")
+            term += char
+            if depth == 0 and term.endswith("&&"):
+                terms.append(term[:-2])
+                term = ""
+            elif depth == 0 and term.endswith("||"):
+                return False  # a top-level `||` can run without the skipped step
+        terms.append(term)
         return any(re.fullmatch(rf"steps\.{re.escape(id_)}\.(outputs\.[\w-]+ != ''|outcome == 'success')", term.strip())
                    for term in terms for id_ in guarded)
 
@@ -3823,6 +3835,8 @@ class HeavyMacCompilesBehindFullCi(unittest.TestCase):
             "needs.app-compile-fleet.outputs.verdict": fleet,
             "needs.release-compile-fast.result": "skipped",
             "needs.release-compile-fast.outputs.verdict": "",
+            # The cheap gate is not red: a pull request's heavy jobs start (#58899).
+            "needs.fast-tier-cargo.result": "success",
             "github.event_name": event, "github.ref": ref,
             "github.base_ref": "feat-cmux-next" if event == "pull_request" else "",
             "github.repository": "manaflow-ai/cmux", "github.repository_owner": "manaflow-ai",
@@ -3973,6 +3987,10 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
             "github.ref": "refs/heads/feat-cmux-next" if event == "push" else "refs/pull/1/merge",
             "github.run_attempt": attempt, "github.triggering_actor": "someone",
             "vars.CI_COMPILE_CHECK_GATEWAY": self.LIGHT, "vars.CI_PR_POOL_OWNED": "1",
+            # The router ran: a pull request's app compile (build fleet) checks its result (#56987).
+            "needs.path_route.result": "success",
+            # The cheap gate is not red: a pull request's heavy jobs start (#58899).
+            "needs.fast-tier-cargo.result": "success",
             "needs.path_route.outputs.native": "true", "needs.path_route.outputs.swift_canary": "true",
             # A change the Mac Release compile sees (path_route's mac_release): its fallback.
             "needs.path_route.outputs.mac_release": "true",
@@ -4059,6 +4077,8 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
             "github.repository_owner": "manaflow-ai", "vars.CI_COMPILE_CHECK_GATEWAY": gateway,
             "needs.path_route.outputs.native": native, "needs.push-head-preflight.outputs.current": "true",
             "needs.fast-tier-cargo.result": "success",
+            # The router ran: the job checks its result (#56987).
+            "needs.path_route.result": "success",
             "needs.path_route.outputs.mac_release": "true",
             "github.run_attempt": 1,
             "needs.path_route.outputs.labels": "," + ",".join(labels) + ",",
