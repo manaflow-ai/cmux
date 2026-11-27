@@ -742,7 +742,12 @@ mod tests {
                     if tail.len() == 12 {
                         tail.pop_front();
                     }
-                    tail.push_back((event.seq, event.kind));
+                    let detail = if event.kind == "stderr" {
+                        event.msg.to_string().chars().take(2048).collect::<String>()
+                    } else {
+                        String::new()
+                    };
+                    tail.push_back((event.seq, event.kind, detail));
                     true
                 })
                 .unwrap();
