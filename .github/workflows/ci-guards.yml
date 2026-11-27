@@ -1076,7 +1076,9 @@ jobs:
 
       - name: Validate the cmux-next web-bundle cache contract
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_cmux_next_web_bundle_cache.py
+        run: |
+          python3 tests/test_cmux_next_web_bundle_cache.py
+          python3 tests/test_cmux_next_web_bundle_sparse.py
 
       - name: Validate the nightly builder
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -2212,6 +2214,10 @@ jobs:
       - name: Validate the published feed read-back and the shipped app's channels
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_live_feed_check.py
+
+      - name: Validate a nightly-next run reads its feed back before it says published
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_nightly_published_feed_check.py
 
       - name: Validate the old feed's publication and appcast writer
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
