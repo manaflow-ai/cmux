@@ -603,18 +603,24 @@ impl Hub {
         // A prompt that cannot reach any agent (none running, and its folder or harness is gone)
         // is refused before it is recorded (`cold_prompt_check`, after steer-only's refusal).
         admission.enter("agent");
-        // Release the child mutex before probing the host. If either operation stalls, bound
-        // the probe for every origin, including daemon prompts with no answer waiter; an
-        // unknown liveness result stays live so a deliverable prompt is never dropped.
-        let live = tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, async {
+        // Release the child mutex before probing the host. A delivery awaiting acceptance
+        // stays in setup until the enclosing answer deadline queues it durably. Treating a
+        // timed-out probe as live here would publish "started" before dispatch can proceed.
+        // Restored/daemon prompts have no acceptance waiter; bound their probe separately.
+        let probe = async {
             let child = session.child.lock().await.clone();
             match child {
                 Some(child) => child.is_alive().await,
                 None => false,
             }
-        })
-        .await
-        .unwrap_or(true);
+        };
+        let live = if admission.queue_due().is_some() {
+            probe.await
+        } else {
+            tokio::time::timeout(super::prompt_admission::ADMISSION_BOUND, probe)
+                .await
+                .unwrap_or(true)
+        };
         let text = prompt_text(&blocks);
         let running = session.turn();
         // Another agent's message to a turn past its cap waits for the next turn (`turn_cap.rs`).
