@@ -296,7 +296,7 @@ export const TRANSCRIPT_STATUS_ROWS: readonly (SpacingRow & {
   {
     id: "status-to-prompt",
     variant: "status-prompt",
-    between: "a turn's last status row (\"Subagent finished\") and the next prompt bubble's top edge",
+    between: "a turn's last status row (the folded \"3 background updates\") and the next prompt bubble's top edge",
     value: TRANSCRIPT_LINE_ROW / 2 + 32,
     tolerance: 1,
     source: 'step-to-prompt: 11 + 32 (rule 5); Leo, 2026-11-03: "why is the spacing like this it\'s weird"',

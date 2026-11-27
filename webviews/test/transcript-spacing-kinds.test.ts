@@ -300,7 +300,16 @@ await requireBrowserLane("transcript-spacing-kinds.test.ts", async () => {
           footer && footer.height > 0 ? diff((footer.top + footer.bottom) / 2, head(received)) : null,
         "received-to-sent": diff(head(received), head(sent)),
         "sent-to-live": diff(head(sent), head(live)),
-        "status-to-prompt": diff(head(byClass("acpmux-subagentDone")), bubble?.top),
+        // The turn's last status row: the two notes and the subagent's end fold under one closed
+        // "3 background updates" line (backgroundRuns.ts), so that line is the row over the prompt.
+        "status-to-prompt": diff(
+          head(
+            byClass("acpmux-subagentDone") ??
+              document.querySelector('[data-row-id="backgroundRun-sp-task-1"]') ??
+              undefined,
+          ),
+          bubble?.top,
+        ),
         "prompt-to-sent": diff(bubble?.bottom, head(document.querySelector('[data-row-id="sp-sent"]') ?? undefined)),
         "note-to-live": diff(head(document.querySelector('[data-row-id="notes-last"]') ?? undefined), head(live)),
       };

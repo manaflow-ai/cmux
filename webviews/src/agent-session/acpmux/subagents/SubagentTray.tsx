@@ -80,6 +80,8 @@ import {
 } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
+import { Button } from "../../../ui/Button";
+import { Tooltip } from "../../../ui/Tooltip";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { type PaneLanguage, usePaneLanguage, useT, type Translate } from "../i18n";
@@ -833,16 +835,12 @@ export const SubagentTray = memo(function SubagentTray({
       {hideAt === "bar" && (
         // The `bar` arm: a slim bar along the hat's top, over the header. A press hides the hat (the rim
         // over it passes a press that never dragged through to it); its eye-slash shows on hover.
-        <button
-          type="button"
-          className="acpmux-hat-hide-bar"
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          {/* icon-scale-allow: the eye-slash rides inside the 10 px bar */}
-          <Icon name="action.hide" size={10} />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button bare type="button" className="acpmux-hat-hide-bar" aria-label={t("tray.tuck")} onClick={onTuck}>
+            {/* icon-scale-allow: the eye-slash rides inside the 10 px bar */}
+            <Icon name="action.hide" size={10} />
+          </Button>
+        </Tooltip>
       )}
       {headed && (
         <button
@@ -929,11 +927,17 @@ export const SubagentTray = memo(function SubagentTray({
           )}
           {/* Its words slide as a status line hands over: a new name joining, the lone item's task (Leo,
               2026-11-07); its counts roll in place (trayMotion.tsx `Tick`). */}
-          {!kindsHead && (
+          {/* A deck takes the counts' place, so its words stay: the summary, or the pointed-at line's name. */}
+          {(!kindsHead || deck) && (
             // Held at least PHASE_DWELL_MS, as the step is: twenty subagents joining in a burst is one
             // change of words, not twenty (Leo, 2026-11-22: "huge churn in numbers"; feel-composer-hat.test.ts).
-            // A fold or unfold is the reader's own change: keyed by it, the words change at once.
-            <Dwelt key={open ? "open" : "folded"} value={headText} dwellMs={PHASE_DWELL_MS}>
+            // A fold or unfold, or pointing at a deck's mark, is the reader's own change: keyed by it, the
+            // words change at once.
+            <Dwelt
+              key={`${open ? "open" : "folded"}:${peekItem ? peeked : ""}`}
+              value={headText}
+              dwellMs={PHASE_DWELL_MS}
+            >
               {(text) => (
                 <Tick className="acpmux-summary-text acpmux-running-tray__title" text={text} steadyCounts slide />
               )}
@@ -1081,54 +1085,56 @@ export const SubagentTray = memo(function SubagentTray({
       {hidesInHead && (
         // The `hide` arm: the header's own hide button, over its slot, shown while the pointer is on
         // the hat or it has keyboard focus; the top edge keeps only the resize rim.
-        <button
-          type="button"
-          className="acpmux-running-tray__hide"
-          data-with-panel={opensPanel === "button" || undefined}
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          <Icon name="action.hide" size={ROW_ICON} row />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button
+            bare
+            type="button"
+            className="acpmux-running-tray__hide"
+            data-with-panel={opensPanel === "button" || undefined}
+            aria-label={t("tray.tuck")}
+            onClick={onTuck}
+          >
+            <Icon name="action.hide" size={ROW_ICON} row />
+          </Button>
+        </Tooltip>
       )}
       {(hideAt === "eye" || hideAt === "pill") && (
         // The `eye` arm: a small eye-slash circle in the bar's trailing controls, shown at rest in muted
         // ink (never a hover-only control). The `pill` arm: a glass pill leading the bar, attached to the
         // hat's edge. Each lies over its slot in the header, outside the header's own button.
-        <button
-          type="button"
-          className="acpmux-hat-hide"
-          data-at={hideAt}
-          data-with-panel={opensPanel === "button" || undefined}
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          <Icon name="action.hide" size={hideAt === "eye" ? 12 : ROW_ICON} row={hideAt !== "eye"} />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button
+            bare
+            type="button"
+            className="acpmux-hat-hide"
+            data-at={hideAt}
+            data-with-panel={opensPanel === "button" || undefined}
+            aria-label={t("tray.tuck")}
+            onClick={onTuck}
+          >
+            <Icon name="action.hide" size={hideAt === "eye" ? 12 : ROW_ICON} row={hideAt !== "eye"} />
+          </Button>
+        </Tooltip>
       )}
       {onTuck && !hidesInHead && !hideAt && (
-        <button
-          type="button"
-          className="acpmux-running-tray__tuck"
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          <Icon name="disclosure.expanded" size={12} />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button bare type="button" className="acpmux-running-tray__tuck" aria-label={t("tray.tuck")} onClick={onTuck}>
+            <Icon name="disclosure.expanded" size={12} />
+          </Button>
+        </Tooltip>
       )}
       {headed && opensPanel === "button" && (
-        <button
-          type="button"
-          className="acpmux-running-tray__open"
-          aria-label={t("backgroundTasks.open")}
-          title={t("backgroundTasks.open")}
-          onClick={onOpenPanel}
-        >
-          <Icon name="panel.right" size={ROW_ICON} row />
-        </button>
+        <Tooltip label={t("backgroundTasks.open")}>
+          <Button
+            bare
+            type="button"
+            className="acpmux-running-tray__open"
+            aria-label={t("backgroundTasks.open")}
+            onClick={onOpenPanel}
+          >
+            <Icon name="panel.right" size={ROW_ICON} row />
+          </Button>
+        </Tooltip>
       )}
     </section>
   );
