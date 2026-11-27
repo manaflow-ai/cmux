@@ -740,6 +740,7 @@ dependencies = [
  "cmux-mobile-core",
  "cmux-mobile-link",
  "cmux-output-paint",
+ "cmux-phone-page",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
@@ -877,6 +878,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uniffi",
+ "url",
  "uuid",
 ]
 
@@ -895,6 +897,13 @@ dependencies = [
 [[package]]
 name = "cmux-output-paint"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-phone-page"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "cmux-process"
@@ -1140,6 +1149,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
  "uuid",
 ]
 
