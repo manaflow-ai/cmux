@@ -207,8 +207,8 @@ fn strip_leading_blocks(text: &str) -> &str {
     loop {
         if let Some(tag) = opening_tag(rest) {
             let close = format!("</{tag}>");
-            match rest.find(&close) {
-                Some(at) => rest = rest[at + close.len()..].trim_start(),
+            match rest.split_once(close.as_str()) {
+                Some((_, after)) => rest = after.trim_start(),
                 None => return "",
             }
         } else if let Some(after) = skip_tagged_section(rest) {
@@ -237,7 +237,7 @@ fn skip_tagged_section(text: &str) -> Option<&str> {
         if t.is_empty() {
             blank |= seen_text;
         } else if blank && !continues_section(line) {
-            return Some(&text[at..]);
+            return Some(text.get(at..).unwrap_or(""));
         } else {
             (seen_text, blank) = (true, false);
         }
