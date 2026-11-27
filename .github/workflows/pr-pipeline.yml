@@ -557,12 +557,12 @@ jobs:
   # The `ios macos` job: the kit's macOS swift test (ci/steps.toml's ios-kit-macos), which ios-kit ran before its
   # simulator leg in the `ios` job. On its own Mac it runs beside the simulator leg instead of before it: the `ios`
   # verdict is the longer leg, not the sum (Aziz's iOS PR verdict, goal ios-ci-under-5min). It needs no simulator,
-  # so it takes the same pool as the mac job. ios-kit reads its
+  # so it takes the mac job's pool, cmux-mac (RFD 0165: no Blacksmith macOS switch on own-branch runs). ios-kit reads its
   # verdict (scripts/ci/ios_macos_leg.py): a red one skips the simulator leg and turns `ios` red, as before.
   ios-macos:
     name: ios macos
     if: ${{ inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'ios') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || 'cmux-mac' }}
     # ci/run's setup (10 min) and tool downloads (3 min), then the `alone` ios-kit-macos (45 min), with room for the
     # checkout and Xcode (tests/test_ci_step_table.py holds this).
     timeout-minutes: 70
@@ -809,7 +809,7 @@ jobs:
     # a ready head into feat-cmux-next runs this job only once it is handed to land, not on every push.
     # Leo, 2026-11-23: "de facto, im asking for 99% fewer minutes of ci time, period."
     if: ${{ (inputs.jobs == '' || contains(fromJSON(inputs.jobs), 'mac')) && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && (contains(github.event.pull_request.labels.*.name, 'ready-to-land') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name)) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || 'cmux-mac' }}
     # The Mac setup below (Xcode, the owned build root, two cache restores of up to 8 min each), then ci/run: its
     # setup (10 min), the tool downloads (3 min), then the `alone` fast tier (tests/test_ci_step_table.py
     # holds this).
@@ -977,7 +977,7 @@ jobs:
     name: mac fallback
     needs: linux
     if: ${{ !cancelled() && needs.linux.outputs.mac_fallback != '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_OVERFLOW_MAC || 'cmux-mac' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || 'cmux-mac' }}
     timeout-minutes: 45
     permissions:
       contents: read
