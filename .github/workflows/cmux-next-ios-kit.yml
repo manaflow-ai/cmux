@@ -130,7 +130,7 @@ jobs:
       # Same-tree reuse (scripts/ci/same_tree_reuse.py): kit-tests already passed on this merge tree.
       same_tree: ${{ steps.same-tree.outputs.same_tree }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           sparse-checkout: |
             scripts/ci/ios_runner_pool.py
@@ -273,7 +273,7 @@ jobs:
     # A source-only lint with no secret: the persistent Linux pool; a fork pull request takes hosted Ubuntu.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       - name: Connection notices
@@ -302,7 +302,7 @@ jobs:
       id-token: write  # the route reads the repository and the commit from this job's OIDC token
     steps:
       # The key reads git objects only (scripts/ci/ios_link_ffi_key.py), so a blobless sparse checkout is enough.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           filter: blob:none
           sparse-checkout: scripts/ci
@@ -383,7 +383,7 @@ jobs:
     outputs:
       built: ${{ steps.upload.outcome == 'success' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           filter: blob:none
           sparse-checkout: scripts/ci
@@ -426,9 +426,18 @@ jobs:
 
       # Shadow only: the same pool suite as the Mac's products get (kit-sim-pool, the in-job submit), on these
       # products. Advisory: it never fails the run.
+      # cmux-linux is also served by GCP pool runners off the tailnet: the shadow run asks first and, on a no, is left
+      # out with a notice (it is advisory; kit-sim-pool's owned-Mac submit covers the run the pool judges).
+      - name: Does this runner reach the controller
+        id: reach
+        if: steps.upload.outcome == 'success' && (vars.CMUX_IOS_KIT_SIM_FLEET || 'shadow') == 'shadow'
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+        run: bash scripts/ci/kit_sim_fleet.sh reach
+
       - name: Fleet pool run on the fleet's build (shadow)
         id: pool
-        if: steps.upload.outcome == 'success' && (vars.CMUX_IOS_KIT_SIM_FLEET || 'shadow') == 'shadow'
+        if: steps.reach.outputs.reach == 'yes'
         continue-on-error: true
         timeout-minutes: 50
         env:
@@ -458,7 +467,7 @@ jobs:
     env:
       CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -571,7 +580,9 @@ jobs:
               echo "no fleet-built xcframework within 240 s ($JOB: $state); building it here"
               exit 0
             fi
-            sleep 15
+            # The fleet build normally takes 3.3-5.0 min. Keep the fallback bound at 4 min while
+            # limiting token reads to one pass every 30 s (9 passes maximum at the boundary).
+            sleep 30
           done
 
       - name: Build CmuxMobileLinkFFI.xcframework
@@ -973,83 +984,106 @@ jobs:
           key: ${{ fromJSON(needs.runner.outputs.same_tree || '{}')['kit-tests'].key }}
 
   # The simulator tests on the fleet pool for a kit run whose Mac is a Blacksmith one (see "Build the iOS simulator
-  # tests for the pool"): runs after the kit job (needs, no API poll), submits from this owned Linux runner (a tailnet peer of the
-  # controller), and reports the pool's verdict and seconds next to the Mac simulator step's. Advisory in "shadow".
+  # tests for the pool"): runs after the kit job (needs, no API poll), submits from an owned runner that reaches the
+  # controller (a tailnet peer), and reports the pool's verdict and seconds next to the Mac simulator step's.
+  # Advisory in "shadow". `cmux-linux` is also served by GCP pool runners (cmux-runner-pool-s1a-*) that are not on the
+  # tailnet: there the submit timed out after 3 x 30 s and read "the controller did not answer" (run 45912028627). So
+  # the job asks first (`kit_sim_fleet.sh reach`, 2 x 5 s), and on a no kit-sim-pool-mac submits from an owned Mac,
+  # which is on the tailnet (cmuxterm-hq docs/handbook/unreachable-from-here-read-as-down.md).
   kit-sim-pool:
     needs: [runner, kit-tests]
     name: CmuxMobileKit iOS simulator tests (fleet pool)
     if: ${{ !cancelled() && needs.runner.result == 'success' && github.repository == 'manaflow-ai/cmux' && github.event_name != 'pull_request' && contains(fromJSON('["shadow","on"]'), vars.CMUX_IOS_SIM_LINUX || 'shadow') && contains(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on, 'blacksmith') }}
     runs-on: cmux-linux
     timeout-minutes: 90
-    permissions: {}
+    permissions:
+      contents: read
+    outputs:
+      reach: ${{ steps.reach.outputs.reach }}
+      products: ${{ steps.wait.outputs.products }}
     steps:
       - name: The Mac's simulator test build
         id: wait
         env:
           UPLOADED: ${{ needs.kit-tests.outputs.sim_uploaded }}
           KIT: ${{ needs.kit-tests.result }}
+          PRODUCTS: ${{ github.run_id }}/${{ needs.kit-tests.outputs.sim_products || format('kit-sim-products-{0}-{1}', github.run_id, github.run_attempt) }}
         run: |
           # needs: kit-tests, not a jobs API poll: run 45826673120's poll got a 403 every minute for 36 min.
-          if [[ "$UPLOADED" == true ]]; then echo "uploaded=true" >> "$GITHUB_OUTPUT"
+          if [[ "$UPLOADED" == true ]]; then { echo "uploaded=true"; echo "products=$PRODUCTS"; } >> "$GITHUB_OUTPUT"
           else echo "uploaded=false" >> "$GITHUB_OUTPUT"; echo "the kit job made no simulator test build (kit-tests $KIT)"; fi
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: ${{ steps.wait.outputs.uploaded == 'true' }}
+        with:
+          filter: blob:none
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
+      - name: Does this runner reach the controller
+        id: reach
+        if: ${{ steps.wait.outputs.uploaded == 'true' }}
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+        run: bash scripts/ci/kit_sim_fleet.sh reach
 
       - name: Fleet pool run
         id: pool
-        if: ${{ steps.wait.outputs.uploaded == 'true' }}
+        if: ${{ steps.reach.outputs.reach == 'yes' }}
         timeout-minutes: 50
         env:
           CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
           HEAD_SHA: ${{ github.sha }}
-          PRODUCTS: ${{ github.run_id }}/${{ needs.kit-tests.outputs.sim_products || format('kit-sim-products-{0}-{1}', github.run_id, github.run_attempt) }}
-        run: |
-          set -uo pipefail
-          [[ -n "$CONTROLLER" ]] || { echo "no CMUX_FLEET_CONTROLLER variable"; exit 1; }
-          client="$RUNNER_TEMP/fleet-client"; dir="$RUNNER_TEMP/sim-linux"
-          mkdir -p "$client" "$dir"
-          for try in 1 2 3; do curl -fsS -m 30 "$CONTROLLER/v1/client/manifest" -o "$client/manifest.json" && break; [[ $try == 3 ]] && { echo "the controller did not answer from $RUNNER_NAME"; exit 1; }; sleep 20; done
-          python3 - "$client" "$CONTROLLER" <<'EOF'
-          import hashlib, json, sys, urllib.request
-          from pathlib import Path
-          root, controller = Path(sys.argv[1]), sys.argv[2]
-          for name, digest in json.loads((root / "manifest.json").read_text())["files"].items():
-              if "/" in name or name.startswith("."):
-                  raise SystemExit(f"bad client file name {name!r}")
-              data = urllib.request.urlopen(f"{controller}/v1/client/files/{name}", timeout=30).read()
-              if hashlib.sha256(data).hexdigest() != digest:
-                  raise SystemExit(f"{name}: sha256 mismatch")
-              (root / name).write_bytes(data)
-          EOF
-          # The same skips as the Mac simulator step (scripts/ci/ios-kit-sim-mac-test.sh) and the in-job submit.
-          start=$(date +%s)
-          status=0
-          CMUX_CI_CONTROLLER="$CONTROLLER" python3 "$client/ci-client.py" run --class simulator --os linux --script scripts/ci/ios-sim-linux-test.sh \
-            --ref "$HEAD_SHA" --repo manaflow-ai/cmux --env "CMUX_IOS_PRODUCTS=$PRODUCTS" \
-            --arg suite=kit --arg skip=CmuxMobileInstantPerfTests --arg skip=CmuxMobileDesignCoreTests --arg skip=CmuxMobileRealtimeTests \
-            --arg skip=CmuxMobileTransportTests --arg timeout=1800 \
-            --artifact artifacts/ios-sim-linux/result.tgz --timeout 2400 --queue-timeout 900 > "$dir/step.log" 2>&1 || status=$?
-          seconds=$(( $(date +%s) - start ))
-          step="$(grep -o -E 'step [0-9a-f]{24}' "$dir/step.log" | head -1 | cut -d' ' -f2 || true)"
-          if [[ -n "$step" ]]; then
-            CMUX_CI_CONTROLLER="$CONTROLLER" python3 "$client/ci-client.py" artifact "$step" "$dir/result.tgz" \
-              || CMUX_CI_CONTROLLER="$CONTROLLER" python3 "$client/ci-client.py" artifact --failed "$step" "$dir/result.tgz" || true
-          fi
-          if [[ -s "$dir/result.tgz" ]]; then mkdir -p "$dir/result"; tar -xzf "$dir/result.tgz" -C "$dir/result" 2>/dev/null || true; fi
-          if [[ -f "$dir/result/summary.txt" ]]; then
-            cat "$dir/result/summary.txt"
-            grep -E -A400 '<failure|<error' "$dir/result/junit.xml" 2>/dev/null | head -80 || true
-          else
-            tail -n 40 "$dir/step.log"
-          fi
-          cases="$(grep -c '<testcase' "$dir/result/junit.xml" 2>/dev/null || true)"; cases="${cases:-0}"
-          if [[ "$status" == 0 && "$cases" -gt 0 ]]; then verdict=pass; reason="step ${step:-?} passed $cases tests"
-          elif [[ "$status" == 1 && "$cases" -gt 0 ]]; then verdict=fail; reason="step ${step:-?} ran $cases tests and some failed"
-          else verdict=none; reason="step ${step:-none} gave no verdict (exit $status, $cases test cases)"; fi
-          echo "fleet pool: $verdict in $seconds s: $reason"
-          { echo "### iOS simulator tests on the fleet pool: $verdict"; echo "$reason; submit to result $seconds s (the Mac simulator step of this run is in the kit job)"; } >> "$GITHUB_STEP_SUMMARY"
-          { echo "verdict=$verdict"; echo "seconds=$seconds"; } >> "$GITHUB_OUTPUT"
+          PRODUCTS: ${{ steps.wait.outputs.products }}
+          LABEL: fleet pool
+        run: bash scripts/ci/kit_sim_fleet.sh pool
 
       - name: Upload the fleet pool result
         # No hashFiles() gate: it sees only the workspace, never runner.temp, so it skipped every upload.
+        if: ${{ !cancelled() && steps.pool.outcome != 'skipped' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: kit-sim-linux-result-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sim-linux/result.tgz
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Fleet pool verdict
+        if: ${{ (vars.CMUX_IOS_SIM_LINUX || 'shadow') == 'on' && steps.pool.outputs.verdict == 'fail' }}
+        run: |
+          echo "::error title=iOS simulator tests::the fleet pool ran the simulator tests and some failed (Fleet pool run step)"
+          exit 1
+
+  # kit-sim-pool's submit from an owned Mac, only when its runner had no route to the controller. The owned Macs
+  # (cmux-mac, not vars.CI_OVERFLOW_MAC: its overflow is a Blacksmith Mac, also off the tailnet) are tailnet peers, as
+  # kit-tests' in-job submit already relies on. The job only submits and waits on the pool; it builds nothing.
+  kit-sim-pool-mac:
+    needs: kit-sim-pool
+    name: CmuxMobileKit iOS simulator tests (fleet pool, owned Mac submit)
+    if: ${{ !cancelled() && needs.kit-sim-pool.outputs.reach == 'no' }}
+    runs-on: cmux-mac
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          filter: blob:none
+          sparse-checkout: scripts/ci
+          persist-credentials: false
+
+      - name: Fleet pool run
+        id: pool
+        timeout-minutes: 50
+        env:
+          CONTROLLER: ${{ vars.CMUX_FLEET_CONTROLLER }}
+          HEAD_SHA: ${{ github.sha }}
+          PRODUCTS: ${{ needs.kit-sim-pool.outputs.products }}
+          LABEL: fleet pool (owned Mac submit)
+        run: bash scripts/ci/kit_sim_fleet.sh pool
+
+      - name: Upload the fleet pool result
         if: ${{ !cancelled() }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1079,7 +1113,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 400
           persist-credentials: false
