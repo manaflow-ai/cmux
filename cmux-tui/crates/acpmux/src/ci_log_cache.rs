@@ -26,9 +26,9 @@
 //! `0` turns it off and `1` on, over the setting. Fails open: any error of its own runs `gh`
 //! as asked.
 
-use std::io::{Read, Write};
+use cmux_process::{Command, Stdio};
+use std::io::{Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime};
 
 use serde_json::Value;
@@ -231,33 +231,24 @@ impl Ask {
 
 /// Reads `gh api PATH` and returns `(status, run_attempt)`.
 fn status(gh: &str, ask: &Ask) -> Option<(String, Option<u64>)> {
+    // The answer goes to a file, so no reader thread is needed beside the bounded wait.
+    let mut out = tempfile::tempfile().ok()?;
     let mut child = Command::new(gh)
         .args(["api", &ask.status_path()])
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
+        .stdout(out.try_clone().ok()?)
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let mut stdout = child.stdout.take()?;
-    let reader = std::thread::spawn(move || {
-        let mut text = String::new();
-        let _ = stdout.read_to_string(&mut text);
-        text
-    });
-    let deadline = std::time::Instant::now() + STATUS_BOUND;
-    loop {
-        match child.try_wait() {
-            Ok(Some(s)) if s.success() => break,
-            Ok(Some(_)) | Err(_) => return None,
-            Ok(None) if std::time::Instant::now() > deadline => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-        }
+    // A child past the bound is ended by `Child`'s drop.
+    match child.wait_timeout(STATUS_BOUND) {
+        Ok(Some(s)) if s.success() => {}
+        _ => return None,
     }
-    let body: Value = serde_json::from_str(&reader.join().ok()?).ok()?;
+    let mut text = String::new();
+    out.rewind().ok()?;
+    out.read_to_string(&mut text).ok()?;
+    let body: Value = serde_json::from_str(&text).ok()?;
     let status = body.get("status")?.as_str()?.to_owned();
     Some((status, body.get("run_attempt").and_then(Value::as_u64)))
 }
