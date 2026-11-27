@@ -644,38 +644,46 @@ fn ramp_in<'s>(
     // The controller's memory with its peers configured, before their sessions are listed.
     let rss_baseline = gauge_mem(&rpc).0;
 
-    // A peer is dialed when something uses it (acpmux #56640): open one chat on each host, as
-    // the app does when a person opens a chat there, so the links come up. The results do not
-    // count; the attach pass below measures them.
-    std::thread::scope(|s| {
-        for hi in 0..h {
-            let rpc = &rpc;
-            s.spawn(move || {
-                let (_, nm) = name(h, hi as u64 + 1);
-                let _ = rpc.call(
-                    "_acpmux/attach",
-                    json!({"sessionId": format!("h{hi:02}/{nm}"), "limit": 0, "waitLogs": false}),
-                    Duration::from_secs(30),
-                );
-            });
-        }
-    });
-
     // Every peer connected and every session listed.
     let ready_limit = Duration::from_secs(120 + n as u64 / 10);
     let mut ready_ms = None;
     let mut last_status = Value::Null;
+    let mut last_dial: Option<Instant> = None;
     while ctrl_spawned.elapsed() < ready_limit {
         aborted()?;
         if let Ok(st) = rpc.call("_acpmux/status", json!({}), Duration::from_secs(30)) {
-            let connected = st["peers"]
-                .as_array()
-                .map_or(0, |p| p.iter().filter(|p| p["connected"] == true).count());
+            let peers = st["peers"].as_array().cloned().unwrap_or_default();
+            let connected = peers.iter().filter(|p| p["connected"] == true).count();
             let remote = st["remoteSessions"].as_u64().unwrap_or(0) as usize;
             last_status = json!({"peersConnected": connected, "remoteSessions": remote});
             if connected >= h && remote >= n {
                 ready_ms = Some(ctrl_spawned.elapsed().as_millis() as u64);
                 break;
+            }
+            // A peer is dialed when something uses it (acpmux #56640): open one chat on each
+            // host not linked yet, as the app does when a person opens a chat there. The
+            // controller starts its peers only after serving its first client, so a dial sent
+            // right after `initialize` can find no peer to dial: it is asked again every 5 s
+            // until that host's link is up. The results do not count; the attach pass measures.
+            if last_dial.is_none_or(|at| at.elapsed() >= Duration::from_secs(5)) {
+                last_dial = Some(Instant::now());
+                let up = |hi: usize| {
+                    let host = format!("h{hi:02}");
+                    peers.iter().any(|p| p["name"] == host.as_str() && p["connected"] == true)
+                };
+                std::thread::scope(|s| {
+                    for hi in (0..h).filter(|&hi| !up(hi)) {
+                        let rpc = &rpc;
+                        s.spawn(move || {
+                            let (_, nm) = name(h, hi as u64 + 1);
+                            let _ = rpc.call(
+                                "_acpmux/attach",
+                                json!({"sessionId": format!("h{hi:02}/{nm}"), "limit": 0, "waitLogs": false}),
+                                Duration::from_secs(30),
+                            );
+                        });
+                    }
+                });
             }
         }
         std::thread::sleep(Duration::from_millis(250));
