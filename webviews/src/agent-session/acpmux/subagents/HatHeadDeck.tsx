@@ -115,7 +115,7 @@ export function HatHeadDeck({
           >
             <span className="acpmux-hat-deck__face">
               {mark.harness !== undefined || mark.tone !== undefined ? (
-                <AgentIdentity harness={mark.harness} tone={mark.tone} size={ROW_ICON} fallback={mark.icon} />
+                <AgentIdentity harness={mark.harness} tone={mark.tone} size={ROW_ICON} fallback={mark.icon} plain />
               ) : (
                 <Icon name={mark.icon} size={ROW_ICON} row />
               )}
