@@ -3947,7 +3947,12 @@ describe("wake-echo own-run cleanup", () => {
   };
 
   test("a fresh process recovers the returned ID and original delete key after the journey is killed", async () => withFile(async (file) => {
-    journey.writeWakeCleanup(file, scope, machine, key);
+    const child = spawnSync(process.execPath, ["-e", `
+      import { writeWakeCleanup } from ${JSON.stringify(new URL("./cloud-journey.ts", import.meta.url).pathname)};
+      writeWakeCleanup(${JSON.stringify(file)}, ${JSON.stringify(scope)}, ${JSON.stringify(machine)}, ${JSON.stringify(key)});
+      process.kill(process.pid, "SIGKILL");
+    `]);
+    expect(child.signal).toBe("SIGKILL");
     const calls: string[][] = [];
     const record = journey.readWakeCleanup(file, scope);
     expect(record).toMatchObject({ version: 1, machine, key, scope });
