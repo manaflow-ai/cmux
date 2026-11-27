@@ -225,7 +225,12 @@ fn build_harness_command(
         .flatten();
     let mut cmd = match sandbox {
         Some((sandbox_program, sandbox_args)) => {
-            let mut cmd = Command::new(sandbox_program);
+            let mut cmd = crate::session_scope::command(
+                &sandbox_program,
+                session.map(|(id, _)| id),
+                &env,
+                remote_environment,
+            );
             cmd.args(sandbox_args).arg(program);
             cmd
         }
