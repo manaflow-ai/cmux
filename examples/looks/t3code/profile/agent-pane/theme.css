@@ -5,9 +5,12 @@
 }
 
 /* Motion: popovers, menus and tooltips enter over 150 ms, folds settle over 200 ms, as the app's do
-   (--cmux-motion-micro, --cmux-motion-settle). Animations off and Reduce Motion still win. */
+   (--cmux-motion-micro, --cmux-motion-settle). A thought or tool call that arrives in a running turn
+   lands in place: the app's chat timeline has no row-enter motion (--cmux-motion-arrive).
+   Animations off and Reduce Motion still win. */
 :root {
   --cmux-motion-micro: 150ms;
   --cmux-motion-settle: 200ms;
+  --cmux-motion-arrive: 0ms;
   --cmux-ease-out: cubic-bezier(0.4, 0, 0.2, 1);
 }
