@@ -25,11 +25,17 @@ enum DensityHandlers {
         })
         let others = registry.argumentSuggestions
         registry.argumentSuggestions = { $0 == ActionSuggestions.densities ? controller.choices() : others?($0) ?? [] }
-        let playground = DensityPlaygroundWindow(model: DensityPlaygroundModel(entries: DensityTokenCatalog.entries(fallbacks: [
-            SidebarRowTuning.densityFallbacks, VerticalTabListMetrics.densityFallbacks, OmnibarMetrics.densityFallbacks]), design: design, isManaged: { (try? controller.requireUnmanaged()) == nil }, persist: controller.persist(customs:active:)))
+        let playground = DensityPlaygroundWindow(model: DensityPlaygroundModel(entries: playgroundEntries(), design: design, isManaged: { (try? controller.requireUnmanaged()) == nil }, persist: controller.persist(customs:active:)))
         let row = DensityPaletteRows.playground(title: DensityPlaygroundStrings.title, open: { playground.show() })
         context.services.palette.sources.extraProviders.append(AsyncPaletteProvider(id: "densities", showsItemsForEmptyQuery: false) {
             [weak registry] in [row] + (registry.map { rows.items(design: design, registry: $0) } ?? [])
         })
+    }
+
+    /// The Density Playground's rows: every density token with the app's own fallbacks (the sidebar rows, the
+    /// vertical tab list and the omnibar). The UI shell's App scene (AppUiShellScenes) lists the same rows.
+    static func playgroundEntries() -> [DensityTokenCatalog.Entry] {
+        DensityTokenCatalog.entries(fallbacks: [
+            SidebarRowTuning.densityFallbacks, VerticalTabListMetrics.densityFallbacks, OmnibarMetrics.densityFallbacks])
     }
 }
