@@ -11,6 +11,7 @@ dependencies = [
  "acpmux-client",
  "acpmux-core",
  "acpmux-hot",
+ "acpmux-list-types",
  "aho-corasick",
  "anyhow",
  "arc-swap",
@@ -188,6 +189,7 @@ version = "1.0.0"
 dependencies = [
  "acpmux-book",
  "acpmux-client",
+ "acpmux-list-types",
  "arc-swap",
  "cmux-scope",
  "libc",
@@ -253,6 +255,7 @@ dependencies = [
  "libc",
  "pulldown-cmark",
  "ratatui",
+ "regex",
  "serde_json",
  "syntect",
  "tokio",
@@ -2021,6 +2024,7 @@ dependencies = [
 name = "cmux-daemon-client"
 version = "0.1.0"
 dependencies = [
+ "acpmux-list-types",
  "base64",
  "cmux-local-auth",
  "cmux-sdk",
@@ -2374,6 +2378,7 @@ version = "0.1.0"
 dependencies = [
  "cmux-file-lock",
  "cmux-process",
+ "cmux-rd-proto",
  "hpke",
  "libc",
  "p256",
@@ -2783,6 +2788,8 @@ version = "0.1.0"
 dependencies = [
  "cmux-rd-proto",
  "proptest",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2857,6 +2864,7 @@ name = "cmux-rd-screen-ffi"
 version = "0.1.0"
 dependencies = [
  "cmux-rd-screen",
+ "cmux-vnc",
  "serde_json",
 ]
 
