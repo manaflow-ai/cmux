@@ -85,9 +85,13 @@ pub struct FaultCounts {
 impl FaultCounts {
     pub fn record(&mut self, fault: Fault, unread: u64, gap_ms: u64) {
         let at = fault as usize;
-        self.calls[at] += 1;
+        if let Some(calls) = self.calls.get_mut(at) {
+            *calls = calls.saturating_add(1);
+        }
         if fault.is_miss() {
-            self.unread_tokens[at] = self.unread_tokens[at].saturating_add(unread);
+            if let Some(tokens) = self.unread_tokens.get_mut(at) {
+                *tokens = tokens.saturating_add(unread);
+            }
             if self.gaps_ms.len() == GAP_SAMPLES {
                 self.gaps_ms.pop_front();
             }
@@ -96,7 +100,7 @@ impl FaultCounts {
     }
 
     pub fn get(&self, fault: Fault) -> u64 {
-        self.calls[fault as usize]
+        self.calls.get(fault as usize).copied().unwrap_or(0)
     }
 
     /// The median refault gap of the newest misses, in ms.
@@ -114,14 +118,19 @@ impl FaultCounts {
             for fault in Fault::ALL {
                 calls.insert(fault.key().into(), json!(self.get(fault)));
                 if fault.is_miss() {
-                    unread.insert(fault.key().into(), json!(self.unread_tokens[fault as usize]));
+                    unread.insert(
+                        fault.key().into(),
+                        json!(self.unread_tokens.get(fault as usize).copied().unwrap_or(0)),
+                    );
                 }
             }
-            let mut out = json!({"calls": calls, "unreadTokens": unread});
+            let mut out = serde_json::Map::new();
+            out.insert("calls".into(), Value::Object(calls));
+            out.insert("unreadTokens".into(), Value::Object(unread));
             if let Some(gap) = self.median_gap_ms() {
-                out["medianMissGapMs"] = json!(gap);
+                out.insert("medianMissGapMs".into(), json!(gap));
             }
-            out
+            Value::Object(out)
         })
     }
 }
