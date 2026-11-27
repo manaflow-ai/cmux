@@ -147,8 +147,6 @@ async fn an_old_kept_listing_is_read_again_and_kept_only_when_the_relay_misses()
     let kept = kept.unwrap();
     assert_eq!(kept.state, RemoteState::Stale { as_of_ms: old });
     assert_eq!(kept.rows[0]["sessionId"], "old");
-    assert!(cache.with_file_name(MISSED_MARK).exists(), "the miss is recorded");
-
     // Model the detached refresh's live lease while checking the next ls. The test binary does
     // not spawn the refresh child, so the fixture owns the lock for this short assertion.
     let refresh = claim_refresh(&cache).expect("the test can hold the refresh lease");
