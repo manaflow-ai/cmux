@@ -39,7 +39,7 @@ struct IdleScreenStreamTests {
         #expect(frames == 0, "a still screen sent \(frames) frames in 4 s")
 
         // The viewer's refresh brings the picture back.
-        viewer.send(ScreenInput(t: "refresh"))
+        viewer.send(ScreenInput(t: ScreenStreamViewer.refreshMessage))
         try await Task.sleep(for: .seconds(1)) // one repeat period and the round trip
         let refreshed = await viewer.videoStats()
         #expect(refreshed.framesReceived > after.framesReceived, "the viewer's refresh sent no picture")
