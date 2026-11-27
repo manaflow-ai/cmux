@@ -37,10 +37,10 @@ extension SidebarModel {
     }
 
     /// The items the feed shows now. Read inside an observation scope, so a change re-yields.
-    /// The Chief's subagent rows draw only under the Chief item, in the top band.
+    /// The Chief is one line (Lawrence 2026-11-26: "ideally Chief is just a single line"): its subagents
+    /// never draw as rows under it; the Chief pane's Subagents menu (`ChiefSidebar.allSubagents`) lists them.
     public static func topItems(chief: ChiefSidebar = .shared) -> [SidebarTransientItem] {
         SidebarTransientItem.nav(DesignSettings.shared.sidebarSections.nav)
             + [DesignSettings.shared.homeChannelsEnabled && !HomeDock.classic ? SidebarTransientItem.channels : nil].compactMap(\.self)
-            + chief.rows()
     }
 }
