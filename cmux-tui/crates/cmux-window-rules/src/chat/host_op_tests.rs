@@ -166,6 +166,34 @@ fn repository_actions_take_only_their_shape() {
 }
 
 #[test]
+fn github_add_account_matches_the_host_decoder() {
+    for params in [json!({ "add_account": true }), json!({ "add_account": true, "repo": null })] {
+        assert_eq!(
+            serde_json::to_value(op("github.connect", params)).unwrap(),
+            json!({ "case": "gitHub", "github": { "request": "addAccount" } })
+        );
+    }
+    for params in [
+        json!({ "add_account": false }),
+        json!({ "add_account": "true" }),
+        json!({ "add_account": null }),
+    ] {
+        assert_eq!(
+            op("github.connect", params),
+            HostOp::GitHub { github: GitHubRequest::Connect { repo: None } }
+        );
+    }
+    assert_eq!(
+        op("github.connect", json!({ "add_account": true, "repo": "manaflow-ai/cmux" })),
+        HostOp::GitHub { github: GitHubRequest::Connect { repo: Some("manaflow-ai/cmux".into()) } }
+    );
+    assert_eq!(
+        op("github.connect", json!({ "add_account": true, "repo": "invalid" })),
+        refused("github.connect")
+    );
+}
+
+#[test]
 fn github_requests_are_checked() {
     let gh = |method: &str, params: Value| op(method, params);
     let is = |github: GitHubRequest| HostOp::GitHub { github };
