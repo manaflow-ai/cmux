@@ -36,7 +36,7 @@ use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 
-use super::{LinkProfile, QUEUE_SEGMENTS, SEGMENT, lane, lane_mut, lock, lost};
+use super::{Disruption, LinkProfile, QUEUE_SEGMENTS, SEGMENT, lane, lane_mut, lock, lost};
 use crate::rng::Rng;
 use crate::trace::Trace;
 
@@ -309,6 +309,37 @@ impl UdpShaper {
 
     pub fn profile(&self) -> LinkProfile {
         lock(&self.shared.air).profile.clone()
+    }
+
+    /// The profile's own disruption, if it has one; returns when the link flows again. A
+    /// blackout is [`UdpShaper::blackout`]; an address change is a [`UdpShaper::rebind`] (a stall
+    /// on it is a blackout after the rebind, a seeded draw in its range) and a step to its
+    /// `then` link; internet down is [`UdpShaper::internet_down`].
+    pub async fn disrupt(&self) -> Option<std::io::Result<Instant>> {
+        let profile = self.profile();
+        Some(Ok(match profile.disruption.clone()? {
+            Disruption::Blackout { duration_ms } => {
+                self.blackout(Duration::from_millis(duration_ms))
+            }
+            Disruption::AddressChange { stall_ms: [lo, hi], then } => {
+                if then.is_some() {
+                    self.set_profile(profile.after_change());
+                }
+                if let Err(error) = self.rebind().await {
+                    return Some(Err(error));
+                }
+                let stall = Rng::new(self.seed).split(5).range(lo, hi.max(lo));
+                if stall == 0 {
+                    Instant::now()
+                } else {
+                    self.blackout(Duration::from_millis(stall))
+                }
+            }
+            Disruption::InternetDown => {
+                self.internet_down();
+                Instant::now()
+            }
+        }))
     }
 
     /// The host sees the phone from a new source port from now (a NAT rebinding); the old port
