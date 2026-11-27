@@ -625,6 +625,9 @@ pub(crate) fn bound(args: &[String], cwd: &Path, env: &BTreeMap<String, String>)
         cmux_agent_config.clone(),
         cmux_agent_legacy_config.clone(),
     ]);
+    // Defaults can cross symlinks too (for example an agent home's .config).
+    // Keep both the spelling the reader uses and every resolved policy target.
+    policy_files.extend(policy_files.clone().iter().map(|path| canonical(path)));
     policy_files.sort();
     policy_files.dedup();
     Some(Bound {

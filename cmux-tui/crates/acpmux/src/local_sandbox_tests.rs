@@ -381,3 +381,23 @@ fn missing_credential_and_policy_paths_resolve_existing_symlink_ancestors() {
     assert!(bound.policy_files.contains(&real.join("claude/settings.json")));
     assert!(bound.policy_files.contains(&cwd.join("alias/new/../claude/settings.json")));
 }
+
+#[cfg(unix)]
+#[test]
+fn default_agent_policy_paths_protect_symlink_targets_before_creation() {
+    let t = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(t.path()).unwrap();
+    let cwd = root.join("chat");
+    let home = root.join("home");
+    let config = cwd.join("config");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::create_dir(&home).unwrap();
+    std::os::unix::fs::symlink(&config, home.join(".config")).unwrap();
+    let env = BTreeMap::from([("HOME".into(), home.to_string_lossy().into_owned())]);
+    let bound = bound(&[], &cwd, &env).unwrap();
+    for dir in [cmux_config::NEXT_DIR, cmux_config::location::LEGACY_DIR] {
+        let tail = Path::new(dir).join(cmux_config::location::NEXT_FILE_NAME);
+        assert!(bound.policy_files.contains(&home.join(".config").join(&tail)));
+        assert!(bound.policy_files.contains(&config.join(&tail)));
+    }
+}
