@@ -445,12 +445,14 @@ mod tests {
     }
 
     #[test]
-    fn a_machine_down_within_the_grace_waits_without_known_startability() {
+    fn a_machine_down_within_the_grace_asks_it_to_start() {
         let dead =
             Dead { why: "its machine does not answer", since_ms: NOW - 11 * MIN, host_down: true };
         // Past the 10 min watch grace but within the 20 min host grace recovery uses.
         let r = route_of("k", "vm-1", &dead, NOW, 20 * MIN, 1, MAX_DEATHS);
-        // A row does not say whether its host can be started; recovery supplies that fact.
-        assert_eq!(r, Route::None);
+        // `route_of` reads a down host as startable (#61428), so within the grace the starter
+        // is told to start it, not "nothing to do"; #61325 had expected `Route::None` for the
+        // code before #61428, and the two merged into a red.
+        assert_eq!(r, Route::StartHost);
     }
 }
