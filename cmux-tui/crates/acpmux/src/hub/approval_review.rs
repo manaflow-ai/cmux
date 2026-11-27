@@ -112,8 +112,9 @@ pub(crate) fn enabled() -> bool {
 pub(crate) fn command_with(doc: Option<&Value>) -> Vec<String> {
     let named: Option<Vec<String>> = doc
         .and_then(|d| crate::user_settings::value(d, SETTING_COMMAND))
-        .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect());
+        .and_then(|v| {
+            v.as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+        });
     match named {
         Some(argv) if !argv.is_empty() => argv,
         _ => ["claude", "-p", "--model", "haiku", "--output-format", "text"]

@@ -405,7 +405,8 @@ class NightlyPooledRoutingTests(unittest.TestCase):
                         off = {label for label in resolve_labels(runs_on, variables=SWITCH_OFF) if isinstance(label, str)}
                         self.assertFalse({label for label in on - off if "macos" in label.lower()},
                                          f"{path.name}#{name}: the overflow switch adds a macOS label")
-        self.assertGreater(checked, 10)
+        # The pickers that read the switch are frozen to labels (one_linux_label.py); a few still read it.
+        self.assertGreater(checked, 1)
         self.assertEqual(unread, set(OVERFLOW_UNREAD), "an OVERFLOW_UNREAD entry no longer names a job")
 
     def test_the_overflow_rules_fail_on_a_mac_overflow(self) -> None:
