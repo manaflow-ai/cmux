@@ -51,9 +51,12 @@ tree="$(plist CmuxRemoteSourceTree)"
 #   libcua_driver_sdk.dylib      the Cua Driver SDK (its tarball sha256 in CmuxCuaDriverSDKSha256)
 #   libcmux_computer_use.dylib   the Rust engine (cmux-tui/crates/cmux-computer-use-ffi, #37003),
 #                                built from the source tree, so no SDK key
+# A source tree with the screen stream's rules in Rust (cmux-rd-screen-ffi,
+# #58368) also carries libcmux_rd_screen.dylib; an older tree has none.
 framework_dir="$app/Contents/Frameworks"
 [[ -d "$framework_dir" ]] || { echo "error: Remote has no Frameworks directory" >&2; exit 1; }
 engine=""
+screen_rules=""
 framework_count=0
 for dylib in "$framework_dir"/*.dylib; do
   [[ -f "$dylib" ]] || continue
@@ -63,12 +66,15 @@ for dylib in "$framework_dir"/*.dylib; do
       [[ -z "$engine" ]] || { echo "error: Remote carries two Computer Use engines" >&2; exit 1; }
       engine="${dylib##*/}"
       ;;
+    libcmux_rd_screen.dylib) screen_rules="${dylib##*/}" ;;
     *) echo "error: unexpected Remote framework ${dylib##*/}" >&2; exit 1 ;;
   esac
   framework_count=$((framework_count + 1))
 done
-[[ "$framework_count" == 2 && -f "$framework_dir/libWebRTC.dylib" && -n "$engine" ]] ||
-  { echo "error: Remote Frameworks must contain exactly libWebRTC.dylib and one engine (libcua_driver_sdk.dylib or libcmux_computer_use.dylib)" >&2; exit 1; }
+expected_count=2
+[[ -z "$screen_rules" ]] || expected_count=3
+[[ "$framework_count" == "$expected_count" && -f "$framework_dir/libWebRTC.dylib" && -n "$engine" ]] ||
+  { echo "error: Remote Frameworks must contain exactly libWebRTC.dylib, one engine (libcua_driver_sdk.dylib or libcmux_computer_use.dylib) and at most libcmux_rd_screen.dylib" >&2; exit 1; }
 sdk=""
 if [[ "$engine" == libcua_driver_sdk.dylib ]]; then
   sdk="$(plist CmuxCuaDriverSDKSha256)"
@@ -86,6 +92,7 @@ sign() {
 }
 sign "$framework_dir/$engine"
 sign "$framework_dir/libWebRTC.dylib"
+[[ -z "$screen_rules" ]] || sign "$framework_dir/$screen_rules"
 sign "$app"
 codesign --verify --strict --deep --verbose=2 "$app"
 team="$(codesign -dv "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"

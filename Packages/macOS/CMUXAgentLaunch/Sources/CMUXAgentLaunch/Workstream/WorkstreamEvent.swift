@@ -243,12 +243,24 @@ private indirect enum AnyJSON: Codable, Sendable, Equatable {
         if value is NSNull { return .null }
         if let n = value as? NSNumber {
             // NSNumber distinguishes Bool via objCType == "c" (char).
+            #if canImport(Darwin)
             if CFGetTypeID(n) == CFBooleanGetTypeID() {
                 return .bool(n.boolValue)
             }
             if CFNumberIsFloatType(n) {
                 return .double(n.doubleValue)
             }
+            #else
+            // swift-corelibs-foundation has no CFBoolean bridge here; objCType
+            // carries the same distinction ("c" Bool, "f"/"d" floating point).
+            let objCType = String(cString: n.objCType)
+            if objCType == "c" || objCType == "B" {
+                return .bool(n.boolValue)
+            }
+            if objCType == "d" || objCType == "f" {
+                return .double(n.doubleValue)
+            }
+            #endif
             return .int(Int(n.int64Value))
         }
         if let s = value as? String { return .string(s) }

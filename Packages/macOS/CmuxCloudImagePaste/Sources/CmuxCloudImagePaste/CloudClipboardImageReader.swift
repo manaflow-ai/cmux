@@ -1,4 +1,8 @@
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 public import Foundation
 
 /// Reads and validates a materialized clipboard image off the main actor.

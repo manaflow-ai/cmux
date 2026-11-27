@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 final class ClientConfigRequestRecorder: @unchecked Sendable {
     private let lock = NSLock()

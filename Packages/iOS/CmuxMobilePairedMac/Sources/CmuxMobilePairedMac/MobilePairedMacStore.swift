@@ -1,7 +1,12 @@
 public import CMUXMobileCore
 public import Foundation
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
 import SQLite3
+#if canImport(os)
 import os
+#endif
 
 let pairedMacStoreLog = Logger(subsystem: "com.cmuxterm.app", category: "PairedMacStore")
 

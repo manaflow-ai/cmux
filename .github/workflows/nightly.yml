@@ -3531,6 +3531,8 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Open or update the nightly failure issue
+        # Reporting only: a failure here must not mask the real job results.
+        continue-on-error: true
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           HEAD_SHA: ${{ needs.decide.outputs.head_sha }}

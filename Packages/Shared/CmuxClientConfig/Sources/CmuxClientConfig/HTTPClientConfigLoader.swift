@@ -1,5 +1,8 @@
 import CMUXMobileCore
 public import Foundation
+#if canImport(FoundationNetworking)
+public import FoundationNetworking
+#endif
 
 /// A URLSession-backed loader for the cmux `/api/client-config` route.
 public struct HTTPClientConfigLoader: ClientConfigLoading {
