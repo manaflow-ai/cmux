@@ -36,7 +36,15 @@ type Drawn = {
   readonly line: AcpmuxRow;
   readonly basis: AcpmuxSnapshot;
   readonly moved?: boolean;
+  /// The turn's work drawn open: the running turn's rows the transcript drew, by id (`drewLiveLine`).
+  readonly open?: ReadonlyMap<string, AcpmuxRow>;
 };
+
+/// Under the open fold: the turn's rows a call moved without the pane, by the row the transcript drew
+/// (`from`), and the ids of those rows (`useLiveOpenRow`).
+const openEntries = new Map<AcpmuxRow, { readonly to: AcpmuxRow; readonly seq: number }>();
+const openIds = new Set<string>();
+const openListeners = new Set<() => void>();
 
 /// The pane draws: each `redraw` moves it on, and a shape from before it is stale.
 let stamp = 0;
@@ -90,7 +98,7 @@ export const liveCallLine = {
     turn[at] = now;
     // Its shaped rows are older than `turn` now: a call shapes them again first (`callOnly`), so a
     // streamed token costs no shaping.
-    drawn = { shape: { ...drawn.shape, turn }, line: drawn.line, basis: next, moved: true };
+    drawn = { ...drawn, shape: { ...drawn.shape, turn }, basis: next, moved: true };
   },
   get: (): Entry | undefined => entry,
   /// Forgets everything (tests).
@@ -101,6 +109,8 @@ export const liveCallLine = {
     entry = undefined;
     ahead = false;
     flush = undefined;
+    openEntries.clear();
+    openIds.clear();
     liveTurnShapes.stamp(0);
     liveTurnShapes.reset();
   },
@@ -136,16 +146,34 @@ function turnOf(turn: readonly AcpmuxRow[], rows: readonly AcpmuxRow[]): boolean
 export function drewLiveLine(rows: readonly AcpmuxRow[] | undefined): void {
   const line = rows ? tailLine(rows) : undefined;
   const closed = drewUnderClosedFold();
+  const open = closed || !rows ? undefined : runningTurnRows(rows);
   if (ahead) {
-    if (line && line === entry?.from && closed) return;
+    if (line && line === entry?.from && (closed ? !drawn?.open : drawn?.open && sameRows(drawn.open, open))) return;
     drawn = undefined;
     ahead = false;
     flush?.();
     return;
   }
+  // The pass drew the pane's own rows: what went around it is in them now.
+  openEntries.clear();
+  openIds.clear();
   // The same line as before: the rows the bypasses followed since still hold.
-  if (drawn && drawn.line === line && closed) return;
+  if (drawn && drawn.line === line && (closed ? !drawn.open : drawn.open && sameRows(drawn.open, open))) return;
   const shape = liveTurnShapes.last();
+  if (open) {
+    // The turn's work drawn open: each of its rows the transcript drew is one the pass shaped, so a
+    // call's change to one of them can go to that row alone (`callOnly`, `useLiveOpenRow`).
+    drawn =
+      line &&
+      basis &&
+      shape &&
+      shape.stamp === stamp &&
+      drewShaped(shape.shaped, open) &&
+      turnOf(shape.turn, basis.rows)
+        ? { shape, line, basis, open }
+        : undefined;
+    return;
+  }
   // The transcript draws the line `steadyRows` kept (turns.ts): an equal line drawn before stands
   // in for the one this pass shaped, so the shaped line need only hold the same values.
   drawn =
@@ -158,6 +186,44 @@ export function drewLiveLine(rows: readonly AcpmuxRow[] | undefined): void {
     turnOf(shape.turn, basis.rows)
       ? { shape, line, basis }
       : undefined;
+}
+
+/// The running turn's rows `rows` holds (back to its prompt), by id.
+function runningTurnRows(rows: readonly AcpmuxRow[]): Map<string, AcpmuxRow> | undefined {
+  const turn = new Map<string, AcpmuxRow>();
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.kind === "user") return turn;
+    turn.set(row.id, row);
+  }
+  return undefined;
+}
+
+function sameRows(a: ReadonlyMap<string, AcpmuxRow>, b: ReadonlyMap<string, AcpmuxRow> | undefined): boolean {
+  if (!b || a.size !== b.size) return false;
+  for (const [id, row] of a) if (b.get(id) !== row) return false;
+  return true;
+}
+
+/// Whether the transcript drew each of the turn's shaped rows (past its prompt), and only those.
+function drewShaped(shaped: readonly AcpmuxRow[], open: ReadonlyMap<string, AcpmuxRow>): boolean {
+  let count = 0;
+  for (const row of shaped) {
+    if (row.kind === "user") continue;
+    const drew = open.get(row.id);
+    if (!drew || !sameShape(drew, row, COMPARE_DEPTH)) return false;
+    count += 1;
+  }
+  return count === open.size;
+}
+
+/// A row of the open turn drew `row`: while calls are ahead of the pane, a row they moved that is not
+/// the one they moved on from draws the pane's older state, so the pane draws the newest at once.
+function drewOpenRow(row: AcpmuxRow): void {
+  if (!ahead || !openIds.has(row.id) || openEntries.has(row)) return;
+  drawn = undefined;
+  ahead = false;
+  flush?.();
 }
 
 /// The line's row drew `row`: a line drawn ahead of the pane that is not the one the entry moved
@@ -239,8 +305,9 @@ export function callOnly(
   previous: AcpmuxSnapshot,
   next: AcpmuxSnapshot,
   followed = false,
-): { line: AcpmuxRow } | undefined {
+): { line: AcpmuxRow; rows: readonly (readonly [AcpmuxRow, AcpmuxRow])[] } | undefined {
   if (!drawn) return missed(`nodrawn(${closedNow() ? "closed" : "open"})`);
+  if (drawn.open && !followed) return missed("open/unfollowed");
   if (drawn.basis !== previous) return missed("basis");
   const index = oneRowChangeFrom(next.rows, previous.rows);
   if (index === undefined || !sameButRows(previous, next)) return missed("notrows");
@@ -274,13 +341,19 @@ export function callOnly(
   const last = shaped.length - 1;
   // Every other row the same in each value, as `steadyRows` keeps a drawn row: a renderer may draw
   // from fields its version does not cover (transcript/RowFrame.tsx `RowContent`), so the same
-  // version is not enough.
-  for (let row = 0; row < last; row += 1)
-    if (!sameShape(old[row], shaped[row], COMPARE_DEPTH)) return missed(`row${row}/${last}:${shaped[row]!.kind}`);
+  // version is not enough. Under the open fold a row may change in place: the row the transcript
+  // drew of its id draws the new one (`useLiveOpenRow`).
+  const rows: [AcpmuxRow, AcpmuxRow][] = [];
+  for (let row = 0; row < last; row += 1) {
+    if (sameShape(old[row], shaped[row], COMPARE_DEPTH)) continue;
+    const drew = drawn.open && old[row]!.id === shaped[row]!.id ? drawn.open.get(old[row]!.id) : undefined;
+    if (!drew) return missed(`row${row}/${last}:${shaped[row]!.kind}`);
+    rows.push([drew, shaped[row]!]);
+  }
   const line = shaped[last]!;
   if (line.id !== LIVE_THINKING || line.kind !== THINKING) return missed("noline");
-  drawn = { shape: { ...shape, turn, shaped }, line: drawn.line, basis: next };
-  return { line };
+  drawn = { ...drawn, shape: { ...shape, turn, shaped }, basis: next, moved: false };
+  return { line, rows };
 }
 
 /// Debug (replay bench RENDERS=1): why a one-activity-row record is not a `callOnly` one.
@@ -332,6 +405,37 @@ export function setLiveLine(line: AcpmuxRow): void {
   whenSettled("call-line", () => {
     for (const listener of listeners) listener();
   });
+}
+
+/// Under the open fold: the turn's rows the pane kept its snapshot for draw these (`callOnly`'s
+/// `rows`, from the row the transcript drew to the row the turn shapes now).
+export function setOpenRows(rows: readonly (readonly [AcpmuxRow, AcpmuxRow])[]): void {
+  if (rows.length === 0) return;
+  for (const [from, to] of rows) {
+    openEntries.set(from, { to, seq: (seq += 1) });
+    openIds.add(from.id);
+  }
+  ahead = true;
+  whenSettled("open-rows", () => {
+    for (const listener of openListeners) listener();
+  });
+}
+
+const subscribeOpen = (listener: () => void): (() => void) => {
+  openListeners.add(listener);
+  return () => void openListeners.delete(listener);
+};
+
+/// The open turn's row as the calls since the pane drew have it. Only the pane's live transcript
+/// (`active`) listens; a call renders only the rows it moved.
+export function useLiveOpenRow(row: AcpmuxRow, active: boolean): AcpmuxRow {
+  const listens = active && row.kind !== "user" && row.id !== LIVE_THINKING;
+  const read = useMemo(() => settledRead(() => openEntries.get(row)?.seq ?? 0), [row]);
+  const version = useSyncExternalStore(listens ? subscribeOpen : noSubscribe, listens ? read : zero, zero);
+  useLayoutEffect(() => {
+    if (listens) drewOpenRow(row);
+  }, [listens, row]);
+  return version === 0 ? row : (openEntries.get(row)?.to ?? row);
 }
 
 /// Whether `a` and `b` draw the same line: the same in every value but the row's version.
