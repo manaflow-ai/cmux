@@ -188,17 +188,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.services")
         AppActions.bind(services, laps: binderLaps, deferring: true)
         DebugTimings.markLaunch("dfl.app_actions") // AppActions.bind alone; dfl.bind adds the palette, Ghostty keybinds and terminal hooks
-        // The binders no first-frame view reads, once it is up: before HandlerCoverage.verify and the binding check below.
-        firstFrame.whenOpen { [weak services] in
-            guard let services else { return }
-            binderLaps.restart()
-            AppActions.bindDeferred(services, laps: binderLaps)
-            DebugTimings.markLaunch("dfl.app_actions_deferred")
-        }
+        firstFrame.whenOpen { [weak services] in guard let services else { return }; binderLaps.restart(); AppActions.bindDeferred(services, laps: binderLaps); DebugTimings.markLaunch("dfl.app_actions_deferred") } // before HandlerCoverage.verify below
         services.palette.bindRegistryActions()
-        let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter)
-        self.ghosttyKeybinds = ghosttyKeybinds
-        ghosttyKeybinds.start()
+        let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter); self.ghosttyKeybinds = ghosttyKeybinds; ghosttyKeybinds.start()
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
         DebugTimings.markLaunch("dfl.bind")

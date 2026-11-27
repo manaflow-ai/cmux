@@ -15,15 +15,11 @@ import CmuxNextWorkspaceNaming
 /// context menus all resolve through the registry (REWRITE.md "Action
 /// contract"), so each behavior is written once here.
 enum AppActions {
-    /// Binds every action. `deferring` (the app's launch) leaves out the ``bindDeferred(_:laps:)`` binders, which
-    /// the app runs once the first frame is up; without it (tests, tools) they run here, before the catalog
-    /// requests, so a caller can assert at once.
-    static func bind(_ services: AppServices, laps: LaunchBinderLaps = LaunchBinderLaps(), deferring: Bool = false) { // laps: each binder's time, for the launch-times row
+    static func bind(_ services: AppServices, laps: LaunchBinderLaps = LaunchBinderLaps(), deferring: Bool = false) { // laps: each binder's time, for the launch-times row; deferring (the launch): bindDeferred waits for the first frame
         bindApp(services); laps.lap("bindApp")
         bindWorkspaces(services); laps.lap("bindWorkspaces")
         bindBrowser(services); laps.lap("bindBrowser")
-        let registry = services.registry
-        let context = AppActionContext(services: services)
+        let registry = services.registry, context = AppActionContext(services: services)
         WindowHandlers.bind(into: registry, context: context); laps.lap("WindowHandlers.bind")
         // Pin/Unpin Chat on a history row: bound with the app's actions, with or without a local acpmux (the
         // Chats feed only fills the history; a launch without one used to leave the action unbound).
@@ -122,12 +118,8 @@ enum AppActions {
         ResourceHandlers.bind(into: registry, context: context); laps.lap("ResourceHandlers.bind")
         LinkHandlers.bind(into: registry, context: context); laps.lap("LinkHandlers.bind")
         if !deferring { bindDeferred(services, laps: laps) }
-        // Last: a catalog row with a daemon request and no handler above sends it (cmux-action-catalog `Action::request`).
-        // Deferring, a deferred binder's row may get one until that binder runs: a fallback it replaces, no duplicate.
-        registry.bindingFallbacks(deferring) {
-            CatalogRequestHandlers(host: services).bind(into: registry); laps.lap("CatalogRequestHandlers")
-            HandlerPlaceholders.bind(into: registry); laps.lap("HandlerPlaceholders.bind")
-        }
+        // Last: a catalog row with a daemon request and no handler above sends it (cmux-action-catalog `Action::request`); deferring, a fallback the deferred binder replaces.
+        registry.bindingFallbacks(deferring) { CatalogRequestHandlers(host: services).bind(into: registry); laps.lap("CatalogRequestHandlers"); HandlerPlaceholders.bind(into: registry); laps.lap("HandlerPlaceholders.bind") }
         IconMenuVisibility.install(registry, context: context); laps.lap("IconMenuVisibility.install")
         SpacesMenuVisibility { [weak services] in services.map { SidebarSpaceBar.profiles($0.machines.local, window: $0.windows.active?.state.id ?? "", windows: $0.windows).count } ?? 0 }.install(in: registry); laps.lap("SpacesMenuVisibility")
         TabSelectionTitles(context: context).install(in: registry); laps.lap("TabSelectionTitles")
@@ -142,29 +134,16 @@ enum AppActions {
         WindowKeyTable.install(services); laps.lap("WindowKeyTable.install")
     }
 
-    /// The binders no setting, restored tab or first-frame view reads (startup-under-100ms): pages and features a
-    /// person opens by hand. They register no page provider (a restored tab finds those at launch) and no other
-    /// binder or rule amends their actions. The app runs them after the first frame (`bind(_:laps:deferring:)`); their
-    /// laps are `post_frame.NAME` in the launch-times row.
-    static func bindDeferred(_ services: AppServices, laps: LaunchBinderLaps = LaunchBinderLaps()) {
-        let registry = services.registry
-        let context = AppActionContext(services: services)
-        HistoryHandlers.bind(into: registry, context: context); laps.lap("post_frame.HistoryHandlers")
-        StashHandlers.bind(into: registry, context: context); laps.lap("post_frame.StashHandlers")
-        BookmarkHandlers.bind(into: registry, context: context); laps.lap("post_frame.BookmarkHandlers")
-        BookmarkIconHandlers.bind(into: registry, context: context); laps.lap("post_frame.BookmarkIconHandlers")
-        ServerHandlers.bind(into: registry, context: context); laps.lap("post_frame.ServerHandlers")
-        VaultHandlers.bind(into: registry, context: context); laps.lap("post_frame.VaultHandlers")
-        FindInDirectoryHandlers.bind(into: registry, context: context); laps.lap("post_frame.FindInDirectoryHandlers")
-        GlobalSearchHandlers.bind(into: registry, context: context); laps.lap("post_frame.GlobalSearchHandlers")
-        HintHandlers.bind(into: registry, context: context); laps.lap("post_frame.HintHandlers")
-        MusicHandlers.bind(into: registry, context: context); laps.lap("post_frame.MusicHandlers")
-        VoiceRoomHandlers.bind(into: registry, context: context); laps.lap("post_frame.VoiceRoomHandlers")
-        NowPlayingCardHandlers.bind(into: registry, context: context); laps.lap("post_frame.NowPlayingCardHandlers")
-        PictureInPictureHandlers.bind(into: registry, context: context); laps.lap("post_frame.PictureInPictureHandlers")
-        StatsPageTab.bind(into: registry, context: context); laps.lap("post_frame.StatsPageTab")
-        AccountsHandlers.bind(into: registry, context: context); laps.lap("post_frame.AccountsHandlers")
-        ProfileMenuHandlers.bind(into: registry, context: context); laps.lap("post_frame.ProfileMenuHandlers")
+    /// After the first frame at launch (startup-under-100ms): binders no setting, restored tab (no page provider) or first-frame view reads, and no rule amends.
+    static func bindDeferred(_ services: AppServices, laps: LaunchBinderLaps = LaunchBinderLaps()) { let registry = services.registry, context = AppActionContext(services: services)
+        HistoryHandlers.bind(into: registry, context: context); laps.lap("post_frame.HistoryHandlers") StashHandlers.bind(into: registry, context: context); laps.lap("post_frame.StashHandlers")
+        BookmarkHandlers.bind(into: registry, context: context); laps.lap("post_frame.BookmarkHandlers") BookmarkIconHandlers.bind(into: registry, context: context); laps.lap("post_frame.BookmarkIconHandlers")
+        ServerHandlers.bind(into: registry, context: context); laps.lap("post_frame.ServerHandlers") VaultHandlers.bind(into: registry, context: context); laps.lap("post_frame.VaultHandlers")
+        FindInDirectoryHandlers.bind(into: registry, context: context); laps.lap("post_frame.FindInDirectoryHandlers") GlobalSearchHandlers.bind(into: registry, context: context); laps.lap("post_frame.GlobalSearchHandlers")
+        HintHandlers.bind(into: registry, context: context); laps.lap("post_frame.HintHandlers") MusicHandlers.bind(into: registry, context: context); laps.lap("post_frame.MusicHandlers")
+        VoiceRoomHandlers.bind(into: registry, context: context); laps.lap("post_frame.VoiceRoomHandlers") NowPlayingCardHandlers.bind(into: registry, context: context); laps.lap("post_frame.NowPlayingCardHandlers")
+        PictureInPictureHandlers.bind(into: registry, context: context); laps.lap("post_frame.PictureInPictureHandlers") StatsPageTab.bind(into: registry, context: context); laps.lap("post_frame.StatsPageTab")
+        AccountsHandlers.bind(into: registry, context: context); laps.lap("post_frame.AccountsHandlers") ProfileMenuHandlers.bind(into: registry, context: context); laps.lap("post_frame.ProfileMenuHandlers")
     }
 
     static func scope(_ services: AppServices, _ invocation: ActionInvocation = ActionInvocation()) -> ActionScope {
