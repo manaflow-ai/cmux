@@ -153,6 +153,11 @@ pub(super) const EXAMPLES: &[(&str, &[Example])] = &[
                 "Delete chats unchanged over 180 days, exporting each first",
                 "acpmux daemon history-delete --older-than-days 180 --export ~/chat-export",
             ),
+            (
+                "List Recently deleted: chats that can still be restored",
+                "acpmux daemon history-delete --deleted",
+            ),
+            ("Restore a deleted chat", "acpmux daemon history-delete --restore review-27310"),
         ],
     ),
     (

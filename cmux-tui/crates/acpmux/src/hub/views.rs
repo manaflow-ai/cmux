@@ -62,18 +62,6 @@ pub(crate) fn without_summary_tools(mut summary: Value) -> Value {
     summary
 }
 
-/// The time breakdown a whole row carries (`Hub::summary_with_tools`).
-#[derive(Clone, Copy)]
-pub(crate) enum Breakdown {
-    /// The chat's current one, when seeded: Session Info and attach.
-    Cached,
-    /// Only when a change row owes it (`time_breakdown::State::row_snapshot`), which marks it
-    /// sent: a `session_changed` row for a client that draws it.
-    Owed,
-    /// None, and nothing marked sent: a census row, or a row for a client that draws none.
-    None,
-}
-
 /// The detail-only member a census row leaves out beside the inventory: a chat's time
 /// breakdown, its spans one per turn (`hub/time_breakdown.rs`).
 pub(crate) const CENSUS_LEAVES_OUT: &str = "timeBreakdown";
@@ -525,22 +513,14 @@ impl Hub {
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, true, Breakdown::Cached)
+        self.summary_with_tools(session, true, None)
     }
 
     /// The whole row of a chat for the `session_changed` that follows one of its records: its
     /// summary, with the time breakdown only when the row owes it
     /// (`time_breakdown::State::row_snapshot`). Built once per record (`HubEvent::row`).
-    pub(crate) fn session_change_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, true, Breakdown::Owed)
-    }
-
-    /// [`Self::session_change_summary`] for a client that draws no breakdown (`omitTimeBreakdown`):
-    /// it neither carries the breakdown nor marks it sent. Built as the whole row and cut, the
-    /// phone's row took the chart a turn owes, and the pane's row of the same record went out
-    /// without it (reopen_attach_bytes_tests, base red 2026-11-25).
-    pub(crate) fn session_change_summary_lean(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, true, Breakdown::None)
+    pub(crate) fn session_change_summary(&self, session: &Session, seq: u64) -> Value {
+        self.summary_with_tools(session, true, Some(seq))
     }
 
     /// Start restoring a chat's time breakdown off the request path, at most one at a time. Until
@@ -597,6 +577,13 @@ impl Hub {
     #[cfg(test)]
     pub(crate) fn seed_time_breakdown_for_test(&self, session: &Session) {
         self.seed_time_breakdown(session, false);
+    }
+
+    /// Whether a time-breakdown seed of the chat is running, for a server test that waits out
+    /// the one an attach started.
+    #[cfg(test)]
+    pub(crate) fn time_breakdown_seeding_for_test(&self, session: &Session) -> bool {
+        session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).seeding
     }
 
     /// Restore a chat's breakdown from its saved copy and fold the records past it, then keep the
@@ -768,7 +755,7 @@ impl Hub {
     /// Census rows omit the inventory and cut a long title (`TITLE_CHARS`); `_acpmux/info` and
     /// attach keep both.
     pub(crate) fn session_list_summary(&self, session: &Session) -> Value {
-        self.summary_with_tools(session, false, Breakdown::None)
+        self.summary_with_tools(session, false, None)
     }
 
     /// Whether `fork_through.rs` and `fork.rs` fork this chat through any completed turn: its
@@ -783,13 +770,12 @@ impl Hub {
     }
 
     /// Everything a row reads from the session and the daemon, owned and comparable: two
-    /// equal gathers render the same row (`render_row`, `live_rows.rs`). `breakdown`: which time
-    /// breakdown the row carries ([`Breakdown`]); none without tools.
+    /// equal gathers render the same row (`render_row`, `live_rows.rs`).
     pub(crate) fn row_inputs(
         &self,
         session: &Session,
         with_tools: bool,
-        breakdown: Breakdown,
+        change_row: Option<u64>,
     ) -> RowInputs {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
@@ -1048,14 +1034,14 @@ impl Hub {
             // What its harness spent and holds, as the last read found it (`usage_view.rs`).
             usage_stats: self.usage_stats_of(session, &m),
             // A detail/attach read seeds this lazily; census rows never scan journals.
-            time_breakdown: match (with_tools, breakdown) {
-                (false, _) | (true, Breakdown::None) => None,
-                (true, Breakdown::Cached) => self.cached_time_breakdown(session),
-                (true, Breakdown::Owed) => session
+            time_breakdown: match (with_tools, change_row) {
+                (false, _) => None,
+                (true, None) => self.cached_time_breakdown(session),
+                (true, Some(seq)) => session
                     .time_breakdown
                     .lock()
                     .unwrap_or_else(|e| e.into_inner())
-                    .row_snapshot(crate::store::now_ms()),
+                    .row_snapshot(crate::store::now_ms(), seq),
             },
             // Set from the row's own fields below (`set_composer_status`).
             composer_status: None,
@@ -1155,14 +1141,15 @@ impl Hub {
         RowInputs { summary, extras, notice, with_tools, limits }
     }
 
-    /// `breakdown`: which time breakdown the row carries ([`Breakdown`]); none without tools.
+    /// `change_row`: the record the row follows (`session_change_summary`), so it carries the
+    /// time breakdown only when owed.
     fn summary_with_tools(
         &self,
         session: &Session,
         with_tools: bool,
-        breakdown: Breakdown,
+        change_row: Option<u64>,
     ) -> Value {
-        render_row(&self.row_inputs(session, with_tools, breakdown))
+        render_row(&self.row_inputs(session, with_tools, change_row))
     }
 
     pub fn session_detail(&self, session: &Session) -> Value {
@@ -1285,7 +1272,10 @@ impl Hub {
         let exe_unstable = crate::daemon::exe_path::current_unstable();
         let closed = self.closed_listed(all.saturating_sub(live_ids));
         let (now, evictions, rehydrations) = self.eviction_counts();
-        let evicted = json!({"now": now, "evictions": evictions, "rehydrations": rehydrations});
+        let (samples, p50, p99) = self.evicted.rehydrate_quantiles();
+        let evicted = json!({"now": now, "evictions": evictions, "rehydrations": rehydrations,
+            "residentCap": self.evicted.cap(), "rehydrateSamples": samples,
+            "rehydrateP50Us": p50, "rehydrateP99Us": p99});
         json!({
             "version": VERSION,
             "build": build(),

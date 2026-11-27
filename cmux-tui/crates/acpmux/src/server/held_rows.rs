@@ -14,7 +14,7 @@
 //! most [`HOLD`] after its record. Only its place among the agent's output moves, and the events
 //! of the same records (`_acpmux/event`) go at once as before.
 
-use super::{Conn, Hub, Message, json, method, outbound, session_patch};
+use super::{Conn, Hub, Message, json, method, outbound, requests, session_patch};
 use crate::no_panic::LockExt as _;
 use serde_json::Value;
 use std::sync::Arc;
@@ -100,23 +100,22 @@ pub(super) fn flush_sharing(
         if built.as_ref().is_none_or(|(id, _)| *id != row.session_id) {
             let lean = conn.omit_time_breakdown.load(Ordering::SeqCst)
                 || super::omits_time_breakdown(conn, &row.session_id);
-            // A client that draws no breakdown gets none, and leaves the chart a turn owes to
-            // the connections that draw it (`Hub::session_change_summary_lean`).
-            let build = || {
+            let build = |seq: u64| {
                 let s = hub.resolve(&row.session_id).ok()?;
-                Some(if lean {
-                    hub.session_change_summary_lean(&s)
-                } else {
-                    hub.session_change_summary(&s)
-                })
+                let mut summary = hub.session_change_summary(&s, seq);
+                if lean {
+                    requests::without_time_breakdown(&mut summary);
+                }
+                Some(summary)
             };
             let summary = match ev {
                 Some(ev) if ev.remote.is_none() && ev.session_id == row.session_id => {
-                    let summary = ev.row.cells[if lean { 2 } else { 1 }].get_or_build(build);
+                    let summary = ev.row.cells[if lean { 2 } else { 1 }]
+                        .get_or_build(|| build(ev.record.seq));
                     shared.clone_from(&summary);
                     summary
                 }
-                _ => build().map(Arc::new),
+                _ => build(row.seq).map(Arc::new),
             };
             let Some(summary) = summary else { continue };
             built = Some((&row.session_id, summary));
