@@ -45,8 +45,16 @@ nonisolated enum AcpmuxPermissionPrompt {
     /// Bidi controls and zero-width characters shown as `<U+XXXX>`, so a command cannot read
     /// one way and run another.
     static func visible(_ text: String) -> String {
-        guard !text.isEmpty else { return text }
-        return AgentPanePolicyFFI.text("prompt_visible", ["text": text]) ?? FeedSecretScrubber.marker
+        var out = ""
+        for scalar in text.unicodeScalars {
+            switch scalar.value {
+            case 0x061C, 0x180E, 0x200B...0x200F, 0x202A...0x202E, 0x2060...0x2064, 0x2066...0x2069, 0xFEFF:
+                out += String(format: "<U+%04X>", scalar.value)
+            default:
+                out.unicodeScalars.append(scalar)
+            }
+        }
+        return out
     }
 
     /// A short, scrubbed summary of a tool's input besides its command: field names with their
@@ -54,61 +62,88 @@ nonisolated enum AcpmuxPermissionPrompt {
     /// `env` is never shown, and its presence marks the summary truncated. `truncated`: a field
     /// beyond the first 8, a long name, a long value, or `env` (the phone then never allows).
     static func inputSummary(_ input: [String: Any]) -> (fields: [String: String], truncated: Bool)? {
-        guard let reply = AgentPanePolicyFFI.call("prompt_input_summary", ["input": input]) else {
-            // Not read: nothing is shown, and the summary says so (the phone never allows).
-            return ([:], true)
+        var out: [String: String] = [:]
+        let env = input.first { $0.key.lowercased() == "env" }
+        var truncated = env.map { !(($0.value as? [String: Any])?.isEmpty ?? false) } ?? false
+        let shown = input.filter { $0.key.lowercased() != "env" && $0.key != "command" }
+            .sorted { ($0.key == "cwd" ? 0 : 1, $0.key) < ($1.key == "cwd" ? 0 : 1, $1.key) }
+        if shown.count > 8 { truncated = true }
+        for (key, value) in shown.prefix(8) {
+            let raw = value as? String ?? compactJSON(value)
+            let scrubbed = FeedSecretScrubber.scrub(raw)
+            // A redaction must never hide what the person signs.
+            if scrubbed != raw { truncated = true }
+            let text = visible(scrubbed)
+            if key.count > 40 || text.count > 200 { truncated = true }
+            out[cut(visible(key), 40)] = cut(text, 200)
         }
-        guard let summary = reply["summary"] as? [String: Any] else { return nil }
-        return (summary["fields"] as? [String: String] ?? [:], summary["truncated"] as? Bool ?? true)
+        // Two shown names that read the same after the cut collide: one value is not shown.
+        if out.count < min(shown.count, 8) { truncated = true }
+        return out.isEmpty && !truncated ? nil : (out, truncated)
     }
 
     static func cut(_ text: String, _ limit: Int) -> String {
-        guard text.count > limit else { return text }
-        return AgentPanePolicyFFI.text("prompt_cut", ["text": text, "limit": max(limit, 1)]) ?? String(text.prefix(max(limit - 1, 0))) + "…"
+        text.count > limit ? String(text.prefix(limit - 1)) + "…" : text
     }
 
     /// The one option of kind `allow_once` (allow) or `reject_once` (deny): never a lasting choice.
     static func onceOption(allow: Bool, offered: [[String: Any]]) -> String? {
-        AgentPanePolicyFFI.call("prompt_once_option", ["allow": allow, "offered": offered])?["option"] as? String
+        let matches = offered.filter { $0["kind"] as? String == (allow ? "allow_once" : "reject_once") }
+        return matches.count == 1 ? matches[0]["optionId"] as? String : nil
     }
 
     /// The one option of kind `allow_always` (a banner's Always allow), else nil.
     static func alwaysOption(offered: [[String: Any]]) -> String? {
-        AgentPanePolicyFFI.call("prompt_always_option", ["offered": offered])?["option"] as? String
+        let matches = offered.filter { $0["kind"] as? String == "allow_always" }
+        return matches.count == 1 ? matches[0]["optionId"] as? String : nil
     }
 
     static func option(allow: Bool, offered: [[String: Any]]) -> String? {
-        AgentPanePolicyFFI.call("prompt_option", ["allow": allow, "offered": offered])?["option"] as? String
-    }
-
-    /// The Rust policy's reading of a request (`prompt_read`); nil when it could not run.
-    private static func read(_ request: [String: Any]) -> [String: Any]? {
-        AgentPanePolicyFFI.call("prompt_read", ["request": request])
+        let kinds = allow ? ["allow_once"] : ["reject_once", "reject_always"]
+        for kind in kinds {
+            let matches = offered.filter { $0["kind"] as? String == kind }
+            if matches.count == 1, let id = matches[0]["optionId"] as? String { return id }
+        }
+        return nil
     }
 
     /// The daemon's normalized question of a request, `toolCall._meta.acpmux.question`
     /// (`{harness, agent, items: [{id, header?, prompt, options, …}]}`, acpmux `hub/questions.rs`),
     /// when it is an object.
     static func question(_ request: [String: Any]) -> [String: Any]? {
-        read(request)?["question"] as? [String: Any]
+        let tool = request["toolCall"] as? [String: Any]
+        let acpmux = (tool?["_meta"] as? [String: Any])?["acpmux"] as? [String: Any]
+        return acpmux?["question"] as? [String: Any]
     }
 
     /// True when the request is a question an agent asks a person, never a tool permission: it
     /// carries `toolCall._meta.acpmux.question`, or it is Claude Code's AskUserQuestion
     /// (`_meta.claude.tool`), as acpmux's own `needs_person` reads it.
     static func isQuestion(_ request: [String: Any]) -> Bool {
-        read(request)?["is_question"] as? Bool ?? true
+        let tool = request["toolCall"] as? [String: Any]
+        let meta = tool?["_meta"] as? [String: Any]
+        return (meta?["acpmux"] as? [String: Any])?["question"] != nil
+            || (meta?["claude"] as? [String: Any])?["tool"] as? String == "AskUserQuestion"
     }
 
     /// A tool permission both buttons can answer: not a question (``isQuestion(_:)``), and it
     /// offers allow once and a deny.
     static func isToolPermission(_ request: [String: Any]) -> Bool {
-        read(request)?["is_tool_permission"] as? Bool ?? false
+        let offered = request["options"] as? [[String: Any]] ?? []
+        return !isQuestion(request) && option(allow: true, offered: offered) != nil
+            && option(allow: false, offered: offered) != nil
     }
 
     /// What the prompt asks to do, for a banner: its tool call's title, then the command it runs,
     /// secrets scrubbed and invisible characters shown (as the feed bridge shows them).
     static func summary(_ request: [String: Any]) -> String {
-        read(request)?["summary"] as? String ?? ""
+        let call = request["toolCall"] as? [String: Any] ?? [:]
+        let input = call["rawInput"] as? [String: Any] ?? [:]
+        let lines = [call["title"] as? String, shownCommand(input["command"])]
+            .compactMap { $0.map { visible(FeedSecretScrubber.scrub($0)) } }
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        let unique = lines.count == 2 && lines[0] == lines[1] ? [lines[0]] : lines
+        return cut(unique.joined(separator: "\n"), 300)
     }
 }

@@ -2,6 +2,20 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn truncation_counts_swift_characters_without_splitting_graphemes() {
+    for grapheme in ["e\u{301}", "👩🏽‍💻", "🇺🇸", "\r\n"] {
+        assert_eq!(cut(&grapheme.repeat(3), 3), grapheme.repeat(3));
+        assert_eq!(cut(&grapheme.repeat(4), 3), format!("{}…", grapheme.repeat(2)));
+        assert_eq!(scrub(&grapheme.repeat(SCRUB_WINDOW + 1), true), grapheme.repeat(SCRUB_WINDOW));
+    }
+    // Combining accents stay invisible to the character budget in both field names and values.
+    let key = "e\u{301}".repeat(40);
+    let value = "e\u{301}".repeat(200);
+    let input = Map::from_iter([(key.clone(), Value::String(value.clone()))]);
+    assert_eq!(input_summary(&input), Some(json!({"fields": {key: value}, "truncated": false})));
+}
+
+#[test]
 fn scrubs_secret_shapes_and_limits_prefix() {
     assert_eq!(scrub("token: abcdefghijklmnop", false), "token: [redacted]");
     assert_eq!(scrub("Bearer abcdef", false), "Bearer [redacted]");
@@ -42,4 +56,34 @@ fn option_and_request_read_are_fail_closed() {
     assert_eq!(read["is_question"], false);
     assert_eq!(read["is_tool_permission"], true);
     assert_eq!(read["summary"], "Run\necho hi");
+}
+
+#[test]
+fn options_preserve_uniqueness_and_never_recover_a_malformed_list() {
+    let allow = json!({"kind": "allow_once", "optionId": "allow"});
+    let deny = json!({"kind": "reject_once", "optionId": "deny"});
+    assert_eq!(option(true, &[allow.clone(), allow.clone()]), None);
+    assert_eq!(option(true, &[allow.clone(), Value::Null]), None);
+    assert_eq!(
+        always_option(&[json!({"kind": "allow_always", "optionId": "always"}), json!(1)]),
+        None
+    );
+    let malformed = json!({"options": [allow, deny, null]});
+    assert!(!is_tool_permission(malformed.as_object().unwrap()));
+    let denied =
+        [json!({"kind": "reject_once"}), json!({"kind": "reject_always", "optionId": "never"})];
+    assert_eq!(option(false, &denied).as_deref(), Some("never"));
+    assert_eq!(once_option(false, &denied), None);
+    assert_eq!(option(true, &[json!({"kind": "allow_always", "optionId": "always"})]), None);
+}
+
+#[test]
+fn explicit_null_command_is_shown_and_missing_command_is_absent() {
+    assert_eq!(shown_command(None), None);
+    assert_eq!(shown_command(Some(&Value::Null)).as_deref(), Some("null"));
+    for marker in [Value::Null, json!(false), json!("question"), json!({})] {
+        let request = json!({"toolCall": {"_meta": {"acpmux": {"question": marker}}}});
+        assert!(is_question(request.as_object().unwrap()));
+        assert!(!is_tool_permission(request.as_object().unwrap()));
+    }
 }

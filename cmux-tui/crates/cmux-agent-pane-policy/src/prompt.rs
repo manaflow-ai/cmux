@@ -8,6 +8,7 @@
 use regex::Regex;
 use serde_json::{Map, Value, json};
 use std::sync::LazyLock;
+use unicode_segmentation::UnicodeSegmentation;
 
 pub const REDACTED: &str = "[redacted]";
 const SCRUB_WINDOW: usize = 16 * 1024;
@@ -42,7 +43,7 @@ static VALUED: LazyLock<Regex> = LazyLock::new(|| {
 
 pub fn scrub(text: &str, prefix: bool) -> String {
     let mut out: String =
-        if prefix { text.chars().take(SCRUB_WINDOW).collect() } else { text.to_owned() };
+        if prefix { text.graphemes(true).take(SCRUB_WINDOW).collect() } else { text.to_owned() };
     if out.is_empty() {
         return out;
     }
@@ -94,19 +95,18 @@ pub fn shown_command(value: Option<&Value>) -> Option<String> {
                 .collect::<Vec<_>>()
                 .join(" "),
         ),
-        Value::Null => None,
         _ => Some(compact_json(value)),
     }
 }
 
 pub fn cut(text: &str, limit: usize) -> String {
-    if text.chars().count() <= limit {
+    if text.graphemes(true).count() <= limit {
         return text.to_owned();
     }
     if limit == 0 {
         return String::new();
     }
-    let mut out: String = text.chars().take(limit - 1).collect();
+    let mut out: String = text.graphemes(true).take(limit - 1).collect();
     out.push('…');
     out
 }
@@ -133,7 +133,7 @@ pub fn input_summary(input: &Map<String, Value>) -> Option<Value> {
             truncated = true;
         }
         let text = visible(&scrubbed);
-        if key.chars().count() > 40 || text.chars().count() > 200 {
+        if key.graphemes(true).count() > 40 || text.graphemes(true).count() > 200 {
             truncated = true;
         }
         fields.insert(cut(&visible(key), 40), Value::String(cut(&text, 200)));
@@ -149,6 +149,11 @@ pub fn input_summary(input: &Map<String, Value>) -> Option<Value> {
 }
 
 fn option_id(offered: &[Value], kinds: &[&str]) -> Option<String> {
+    // Swift's [[String: Any]] cast rejects the entire list when any entry
+    // is not an object. Never recover an allow from a malformed list.
+    if !offered.iter().all(Value::is_object) {
+        return None;
+    }
     for kind in kinds {
         let matches: Vec<&Map<String, Value>> = offered
             .iter()
