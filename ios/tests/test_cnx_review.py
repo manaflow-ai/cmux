@@ -13,11 +13,13 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import signal
 from pathlib import Path
 import plistlib
 import subprocess
 import tempfile
+import textwrap
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -2170,6 +2172,26 @@ class TryScriptTests(unittest.TestCase):
                 self.assertNotIn('--sign-in', args)
                 self.assertNotIn('--urgent', args)
 
+    def test_a_key_that_names_an_earlier_step_is_sent_again_under_the_next_key(self):
+        # 2026-11-26, a0a4b2d1: the ahead build's step was cancelled, and the controller refuses its key from then on
+        # ("409: step_key already names a different step"). The tap sends the step again under the next key.
+        with tempfile.TemporaryDirectory() as temp:
+            ci = Path(temp) / 'cmux-ci'
+            ci.write_text(f"""#!/bin/bash
+[ "$1" = run ] || exit 1
+for a in "$@"; do case "$a" in cnx-ios-try-*) echo "$a" >> "{temp}/keys";; esac; done
+case "$*" in *-r1*) echo "cmux-ci: step 0123456789abcdef01234567 (simulator)" >&2; exit 0;; esac
+echo "cmux-ci: controller HTTP 409: step_key already names a different step" >&2; exit 1
+""")
+            ci.chmod(0o755)
+            r = bash(f'''source "{TRY}"; SHA={SHA} STATE="{temp}" TRY_LABEL="PR #1" CMUX_CI="{ci}"
+try_script_mode() {{ echo try; }}; try_get_app || echo "fail=$TRY_FAIL"''', {'CMUX_CI': str(ci)})
+            keys = (Path(temp) / 'keys').read_text().split()
+            self.assertEqual(keys, [f'cnx-ios-try-try-{SHA[:12]}', f'cnx-ios-try-try-{SHA[:12]}-r1'], r.stdout + r.stderr)
+            self.assertIn('names an earlier step; sending it again under the next key', r.stdout)
+            # Past the submit: the artifact download is next (this fake has none).
+            self.assertIn('passed but its artifact did not download', r.stdout)
+
     def test_urgent_puts_the_step_first_with_a_reason(self):
         with tempfile.TemporaryDirectory() as temp:
             ci = Path(temp) / 'cmux-ci'
@@ -2204,6 +2226,113 @@ class TryScriptTests(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn('built ahead or cached: n=1 p50=40 s', r.stdout)
             self.assertIn('cold (fleet build): n=1 p50=600 s', r.stdout)
+
+    def test_list_shows_the_iphone_prs_and_their_build_state(self):
+        check, fleet = 'cmux Dev try build (ahead)', 'cmux Dev try build (fleet)'
+        prs = [
+            {'number': 1, 'title': 'ios ahead', 'author': {'login': 'a'}, 'headRefOid': '1' * 40, 'updatedAt': '2026-11-22T01:00:00Z',
+             'isDraft': False, 'files': [{'path': 'cmux-next-ios/x.swift'}],
+             'statusCheckRollup': [{'name': check, 'status': 'COMPLETED', 'conclusion': 'SUCCESS'}]},
+            {'number': 2, 'title': 'web only', 'author': {'login': 'b'}, 'headRefOid': '2' * 40, 'updatedAt': '2026-11-22T02:00:00Z',
+             'isDraft': False, 'files': [{'path': 'webviews/x.ts'}], 'statusCheckRollup': []},
+            {'number': 3, 'title': 'ios building', 'author': {'login': 'c'}, 'headRefOid': '3' * 40, 'updatedAt': '2026-11-22T03:00:00Z',
+             'isDraft': True, 'files': [{'path': 'Packages/iOS/y.swift'}],
+             'statusCheckRollup': [{'name': fleet, 'status': 'IN_PROGRESS', 'conclusion': ''}]},
+            {'number': 4, 'title': 'ios cached', 'author': {'login': 'd'}, 'headRefOid': '4' * 40, 'updatedAt': '2026-11-22T00:00:00Z',
+             'isDraft': False, 'files': [{'path': 'cmux-next-ios/z.swift'}], 'statusCheckRollup': []},
+            {'number': 5, 'title': 'ios failed', 'author': {'login': 'e'}, 'headRefOid': '5' * 40, 'updatedAt': '2026-11-21T00:00:00Z',
+             'isDraft': False, 'files': [], 'statusCheckRollup': [{'name': check, 'status': 'COMPLETED', 'conclusion': 'FAILURE'}]},
+            # The fleet gave no verdict (a host that could not set up): the fleet job is green, no verdict check.
+            {'number': 6, 'title': 'ios no verdict', 'author': {'login': 'f'}, 'headRefOid': '6' * 40, 'updatedAt': '2026-11-20T00:00:00Z',
+             'isDraft': False, 'files': [{'path': 'cmux-next-ios/w.swift'}],
+             'statusCheckRollup': [{'name': fleet, 'status': 'COMPLETED', 'conclusion': 'SUCCESS'},
+                                   {'name': check, 'status': 'COMPLETED', 'conclusion': 'SKIPPED'}]},
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            Path(temp, 'prs.json').write_text(json.dumps(prs))
+            gh = Path(temp, 'gh')
+            gh.write_text(f'#!/bin/sh\necho "$@" > "{temp}/gh-args"\ncat "{temp}/prs.json"\n')
+            gh.chmod(0o755)
+            Path(temp, 'cache', '4' * 40, 'device', 'CmuxMobileApp.app').mkdir(parents=True)
+            r = bash(f'CNX_TRY_HOME="{temp}/cache" "{TRY}" list', {'PATH': f'{temp}:{os.environ["PATH"]}'})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            out = json.loads(r.stdout)
+            self.assertEqual(out['schema'], 'cmux.ios-try.list.v1')
+            self.assertEqual([(p['number'], p['build']) for p in out['prs']],
+                             [(3, 'building'), (1, 'ahead'), (4, 'cached'), (5, 'failed'), (6, 'none')])
+            self.assertTrue(out['prs'][0]['draft'])
+            self.assertIn('--base feat-cmux-next', Path(temp, 'gh-args').read_text())
+            gh.write_text('#!/bin/sh\nexit 1\n')
+            r = bash(f'CNX_TRY_HOME="{temp}/cache" "{TRY}" list', {'PATH': f'{temp}:{os.environ["PATH"]}'})
+            self.assertEqual(r.returncode, 1)
+            self.assertIn('could not list pull requests', json.loads(r.stdout)['error'])
+
+    def test_the_ahead_workflow_submits_the_step_try_sh_attaches_to(self):
+        # Same script, scene, artifact and key as try_fleet: the controller answers try.sh's submit with that step.
+        flow = (ROOT / '.github/workflows/cmux-next-ios-try-ahead.yml').read_text()
+        text = TRY.read_text()
+        for needle in ('--script scripts/ci/cmux-next-ios-sim.sh', '--artifact artifacts/ios-sim/evidence.zip',
+                       '--no-supersede', '--arg shots --arg try=dev'):
+            self.assertIn(needle, flow)
+        self.assertIn('--key "cnx-ios-try-try-${HEAD_SHA:0:12}"', flow)
+        self.assertIn('--key "cnx-ios-try-$mode-${SHA:0:12}', text)
+        self.assertIn('--background', flow)
+        self.assertIn('name: cmux Dev try build (ahead)', flow)
+        self.assertIn('name: cmux Dev try build (fleet)', flow)
+        self.assertIn('TRY_AHEAD_CHECK="cmux Dev try build (ahead)"', text)
+        self.assertIn('TRY_FLEET_CHECK="cmux Dev try build (fleet)"', text)
+
+    def test_the_ahead_verdict_is_success_only_when_the_fleet_built_it(self):
+        # 2026-11-26: the step failed at setup (exit 3) and the one check said success, so the picker said "ahead".
+        flow = (ROOT / '.github/workflows/cmux-next-ios-try-ahead.yml').read_text()
+        verdict = flow[flow.index('  verdict:'):]
+        self.assertIn("needs.build-ahead.outputs.outcome == 'built'", verdict)
+        self.assertIn('[[ "$OUTCOME" == built ]]', verdict)
+        # The gateway's hook admits only build-ahead; the verdict job there was refused red at 7df749d8.
+        self.assertNotIn('CI_EVAL_STEP_GATEWAY', verdict)
+        self.assertIn("'cmux-linux'", verdict)
+        fleet = flow[:flow.index('  verdict:')]
+        self.assertEqual(fleet.count('outcome=built'), 1)
+        self.assertIn('if [[ "$state" == done ]]; then echo "outcome=built"', fleet)
+        # Only events that bring a new head: a second run at one head cancelled the first one's step (a0a4b2d1).
+        self.assertIn('types: [opened, synchronize]\n', flow)
+
+    def test_the_fleet_job_reads_its_verdict_from_the_steps_own_state(self):
+        # 2026-11-26, a0a4b2d1: the controller refused the submit (HTTP 409, client exit 1, no step) and the job
+        # said the device app did not build. The outcome comes from the step's state and exit code alone.
+        flow = (ROOT / '.github/workflows/cmux-next-ios-try-ahead.yml').read_text()
+        start = flow.index('        run: |\n', flow.index('id: fleet')) + len('        run: |\n')
+        body = textwrap.dedent(flow[start:flow.index('\n\n  verdict:')])
+        step = '0123456789abcdef01234567'
+        cases = [  # client run output, run exit, status JSON -> outcome, job exit
+            ('cmux-ci: controller HTTP 409: step_key already names a different step', 1, '', '', 0),
+            # a121379b: the controller was unreachable; the log names no step.
+            ('cmux-ci: controller unavailable, no verdict (infra): 9 tries over 600 s', 69, '', '', 0),
+            (f'cmux-ci: step {step} queued', 0, '{"state": "done", "exit_code": 0}', 'built', 0),
+            (f'cmux-ci: step {step} queued', 1, '{"state": "failed", "exit_code": 1}', 'failed', 1),
+            (f'cmux-ci: step {step} queued', 1, '{"state": "failed", "exit_code": 3}', '', 0),
+            (f'cmux-ci: step {step} queued', 1, '{"state": "cancelled"}', '', 0),
+            (f'cmux-ci: step {step} queued', 1, '', '', 0),  # status unreadable
+        ]
+        for out, rc, status, outcome, code in cases:
+            with self.subTest(out=out, status=status), tempfile.TemporaryDirectory() as temp:
+                t = Path(temp)
+                client = t / 'cmux-ci'
+                (t / 'status.json').write_text(status)
+                client.write_text(f"""#!/bin/bash
+if [ "$1" = status ]; then [ "$2" = {step} ] && cat "{t}/status.json"; exit 0; fi
+echo {shlex.quote(out)} >&2; exit {rc}
+""")
+                client.chmod(0o755)
+                (t / 'out').write_text('')
+                env = dict(os.environ, CMUX_CI_CLIENT=str(client), HEAD_SHA='a0a4b2d1fcdb7450ec0bc2078a3e27fb0d70434c',
+                           PR='51721', RUNNER_TEMP=temp, RUNNER_NAME='r', GITHUB_OUTPUT=str(t / 'out'),
+                           GITHUB_STEP_SUMMARY=str(t / 'summary'))
+                # The runner's shell: `bash -e {0}` (the step's own line adds -uo pipefail).
+                r = subprocess.run(['bash', '-e', '-c', body], env=env, capture_output=True, text=True, timeout=30)
+                self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+                self.assertEqual((t / 'out').read_text(), f'outcome={outcome}\n' if outcome else '')
+                self.assertEqual('Built ahead' in (t / 'summary').read_text(), outcome == 'built')
 
 if __name__ == '__main__':
     unittest.main()
