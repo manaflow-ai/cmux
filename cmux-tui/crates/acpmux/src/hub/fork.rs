@@ -1443,7 +1443,8 @@ impl Hub {
         if inherits_mode && target.profile.kind == crate::config::HarnessKind::ClaudeStdio {
             let modes: Vec<Value> =
                 crate::claude_stdio::MODES.iter().map(|(id, ..)| json!({"id": id})).collect();
-            fork.meta.lock().unwrap().modes = Some(json!({"availableModes": modes}));
+            fork.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner).modes =
+                Some(json!({"availableModes": modes}));
             let mode = if let Some(mode) = requested_mode {
                 super::fork_subagent::check_mode(&fork.meta(), mode)?;
                 Some(mode.to_owned())
@@ -1451,7 +1452,8 @@ impl Hub {
                 Box::pin(self.start_mode_for(fork, parent.as_deref())).await
             };
             if let Some(mode) = mode {
-                fork.meta.lock().unwrap().modes.as_mut().unwrap()["currentModeId"] = json!(mode);
+                let mut meta = fork.meta.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                meta.modes.get_or_insert_with(|| json!({}))["currentModeId"] = json!(mode);
             }
         }
         if let Err(e) = self.child_for(fork).await {
