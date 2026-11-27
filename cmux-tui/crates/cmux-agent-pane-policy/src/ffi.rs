@@ -279,6 +279,7 @@ pub fn checked_json(checked: Checked) -> Value {
             "method": refused.method,
             "id": refused.request_id,
             "spend": spend,
+            "cause": refused.cause,
         }),
         Checked::Frame { frame, facts } => {
             json!({"frame": Value::Object(frame), "facts": facts.to_json()})

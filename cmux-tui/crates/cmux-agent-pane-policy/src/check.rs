@@ -18,7 +18,7 @@ use crate::error::Refusal;
 use crate::frame::{Refused, allowlist_check, contains, raw_id, with_local_app_token};
 use crate::gesture::{Gesture, PermissionOptions, is_click_only, needs_click, needs_gesture};
 use crate::params::{
-    breaks_params_rule, requested_setting, session_refusal, stripping_initialize_opt_ins,
+    params_rule_violation, requested_setting, session_refusal, stripping_initialize_opt_ins,
     stripping_prompt_meta, stripping_unknown_params, take_gesture_ticket,
 };
 use serde_json::{Map, Value};
@@ -51,6 +51,35 @@ pub struct FrameState<'a> {
     pub gesture: Gesture,
     pub scope: &'a dyn PaneScope,
     pub options: &'a PermissionOptions,
+}
+
+/// Native input that a host verified while consuming an answer ticket.
+/// There is deliberately no conversion from a page value or [`Gesture::Key`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AnswerTicketOrigin {
+    Click,
+    QuestionReturn,
+}
+
+/// A ticket redemption request derived from the checked frame, never from
+/// a separately supplied page intent.
+pub struct AnswerTicketRequest<'a> {
+    pub ticket: &'a str,
+    pub pick: &'a GesturePick,
+    pub session_id: Option<&'a str>,
+}
+
+/// The trusted host's one-time answer-ticket redemption boundary. The host
+/// must remove the ticket even on failure and verify its connection, age,
+/// exact pick/session binding, approval and native input provenance. Return
+/// additionally requires the still-current, non-repeating native question
+/// witness; posted input and a generic key grant cannot provide it.
+///
+/// This interface neither issues tickets nor changes the C ABI. It is an
+/// integration prerequisite: the host must prove its implementation before
+/// adopting [`check_frame_with_answer_tickets`].
+pub trait AnswerTicketVerifier {
+    fn redeem(&mut self, request: AnswerTicketRequest<'_>) -> Option<AnswerTicketOrigin>;
 }
 
 /// The pick a gesture ticket is bound to (`AgentPaneGesturePick`): the method
@@ -200,6 +229,12 @@ pub struct Facts {
     /// click": "go remove this").
     pub ticket: Option<String>,
     pub other_meta: bool,
+    /// Sorted names accompanying a ticket; metadata values never enter diagnostics.
+    pub other_meta_keys: Vec<String>,
+    /// A trusted host already redeemed this ticket and consumed its input
+    /// credit. Do not redeem or spend another click/grant for this frame.
+    /// All other facts (path, scope and setting approval) still apply.
+    pub redeemed_answer: Option<AnswerTicketOrigin>,
     pub pick: Option<GesturePick>,
     pub session_id: Option<String>,
     pub needs_gesture: bool,
@@ -268,16 +303,27 @@ impl Facts {
             })
         });
         let pick = self.pick.as_ref().map(GesturePick::to_json);
-        serde_json::json!({
+        let mut value = serde_json::json!({
             "is_first": self.is_first, "method": self.method, "page_id": self.page_id,
             "ticket": self.ticket, "other_meta": self.other_meta, "pick": pick,
+            "other_meta_keys": self.other_meta_keys,
             "session_id": self.session_id, "needs_gesture": self.needs_gesture,
             "needs_click": self.needs_click,
             "needs_path_check": self.needs_path_check, "setting": setting,
             "attach_session": self.attach_session, "foreign_source": self.foreign_source,
             "handoff_id": self.handoff_id, "harness_enable": self.harness_enable,
             "starts_local_session": self.starts_local_session, "free": self.free(),
-        })
+        });
+        if let Some(origin) = self.redeemed_answer {
+            value["redeemed_answer"] = Value::String(
+                match origin {
+                    AnswerTicketOrigin::Click => "click",
+                    AnswerTicketOrigin::QuestionReturn => "question_return",
+                }
+                .into(),
+            );
+        }
+        value
     }
 }
 
@@ -334,6 +380,25 @@ pub fn redacted(frame: &Map<String, Value>) -> Value {
 
 /// The full check of `text` (see the module docs).
 pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
+    check_frame_inner(text, state, None)
+}
+
+/// Check with a host-owned ticket verifier. The legacy API and C ABI never
+/// enter this path. A failed redemption still returns `spend` (idempotently
+/// discard the ticket); a successful one is explicit in `redeemed_answer`.
+pub fn check_frame_with_answer_tickets(
+    text: &str,
+    state: &FrameState<'_>,
+    verifier: &mut dyn AnswerTicketVerifier,
+) -> Checked {
+    check_frame_inner(text, state, Some(verifier))
+}
+
+fn check_frame_inner(
+    text: &str,
+    state: &FrameState<'_>,
+    verifier: Option<&mut dyn AnswerTicketVerifier>,
+) -> Checked {
     let p = policy();
     let mut object = match allowlist_check(text, state.is_first) {
         Err(refused) => return Checked::Refuse { refused, spend: None },
@@ -366,13 +431,23 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
     {
         return Checked::Refuse { refused, spend: carried };
     }
-    if breaks_params_rule(&object, state.mode_fields) {
-        let refused = Refused { refusal: Refusal::IntentInvalid, method, request_id: page_id };
+    if let Some(cause) = params_rule_violation(&object, state.mode_fields) {
+        let refused = Refused {
+            refusal: Refusal::IntentInvalid,
+            method,
+            request_id: page_id,
+            cause: Some(cause),
+        };
         return Checked::Refuse { refused, spend: carried };
     }
     // Answers go only to a pending question, keyed by its items and bounded.
-    if crate::answers::breaks_answers_rule(&object, state.options) {
-        let refused = Refused { refusal: Refusal::IntentInvalid, method, request_id: page_id };
+    if let Some(cause) = crate::answers::answers_rule_violation(&object, state.options) {
+        let refused = Refused {
+            refusal: Refusal::IntentInvalid,
+            method,
+            request_id: page_id,
+            cause: Some(cause),
+        };
         return Checked::Refuse { refused, spend: carried };
     }
     let mut frame = stripping_prompt_meta(&object).unwrap_or_else(|| object.clone());
@@ -387,6 +462,7 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
         let taken = take_gesture_ticket(&frame);
         frame = taken.object;
         facts.other_meta = taken.other_meta;
+        facts.other_meta_keys = taken.other_meta_keys;
         if taken.ticket.is_some() {
             facts.pick = Some(GesturePick::new(method.as_deref(), params));
             facts.session_id = params.get("sessionId").and_then(Value::as_str).map(str::to_owned);
@@ -401,18 +477,38 @@ pub fn check_frame(text: &str, state: &FrameState<'_>) -> Checked {
         let ruled = method.as_deref().is_some_and(|m| p.gesture_rules.contains_key(m));
         facts.needs_click = needs_click(click_only, ruled, facts.needs_gesture);
         facts.needs_gesture |= facts.needs_click;
-        // DIFFERENCE TO THE SWIFT HOST: a ticket is no click here, so a
-        // click-only frame with a ticket and no click is refused. The Swift
-        // host passes such a frame on its ticket alone, in two cases: it
-        // gave the ticket after a click, or for the person's Return key on
-        // a question (`reserveGesture`, `takeQuestionKeyTicket`). This check
-        // refuses both, so on a host that uses it a question is answered by
-        // a click, not by Return. The move of the Swift host onto this
-        // check must bring those ticket rules with it (tests/click_only.rs
-        // `a_ticket_is_no_click_which_differs_from_the_swift_host`).
-        if facts.needs_click && state.gesture != Gesture::Click {
-            let refused =
-                Refused { refusal: Refusal::GestureRequired, method, request_id: facts.page_id };
+        // A raw ticket or key is never proof. Only the opt-in host verifier
+        // may supply already-consumed native click/Return provenance.
+        if facts.needs_click
+            && state.gesture != Gesture::Click
+            && !facts.other_meta
+            && let (Some(verifier), Some(ticket), Some(pick)) =
+                (verifier, facts.ticket.as_deref().filter(|t| !t.is_empty()), facts.pick.as_ref())
+        {
+            let origin = verifier.redeem(AnswerTicketRequest {
+                ticket,
+                pick,
+                session_id: facts.session_id.as_deref(),
+            });
+            let question_allow = method.as_deref() == Some("_acpmux/permission_respond")
+                && params.get("answers").is_some_and(Value::is_object)
+                && params.get("permissionId").and_then(Value::as_str).is_some_and(|permission| {
+                    state.options.question_keys(permission).is_some()
+                        && params
+                            .get("optionId")
+                            .and_then(Value::as_str)
+                            .is_some_and(|option| state.options.is_known_allow(permission, option))
+                });
+            facts.redeemed_answer =
+                origin.filter(|origin| *origin == AnswerTicketOrigin::Click || question_allow);
+        }
+        if facts.needs_click && state.gesture != Gesture::Click && facts.redeemed_answer.is_none() {
+            let refused = Refused {
+                refusal: Refusal::GestureRequired,
+                method,
+                request_id: facts.page_id,
+                cause: None,
+            };
             return Checked::Refuse { refused, spend: carried };
         }
         facts.needs_path_check = needs_path_check(&frame);
