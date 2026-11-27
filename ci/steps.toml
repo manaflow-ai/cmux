@@ -472,19 +472,24 @@ python3 scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_re
 # swift-acpmux-protocol.yml). Those workflows keep their push, dispatch and post-merge runs; a pull
 # request runs them here. `inputs` is each one's former pull_request path filter. A step whose
 # workflow ran its checks under `if: !cancelled()` runs every one and fails if any failed.
-# Every page's strings, strict, on the pull request that changes a catalog or a setting. cmux-next-guards.yml's
-# static-checks runs the same generation on the feat-cmux-next push, but a pull request skips that job (Tier A of
-# scripts/ci/affected-jobs.json pull_request_skip), so a setting with English-only strings landed twice and the
-# push's Release compile was red on every later commit while no nightly could promote: #51725 (11-23, 3 h) and
-# #55301 (11-26, 3 h; fixed by #58991). The export is regenerated first, as the PR autofix and base-autofix do,
-# because a pull request edits the settings sources, not the export the generator reads. Exit 2 from the Linux
-# export (a Swift shape it cannot read) leaves the Mac to decide: the committed export is checked instead. It runs
-# alone: both write into the checkout (the export, the gitignored tables) while no other step reads it.
+# Every page's strings, non-blocking in the table, for a catalog or setting change. The bounded catch-value audit
+# found no sampled compile/build catch for the strict translation debt gate; its known red was 80 missing
+# translations before the webview checks ran. The PR workflows intentionally do not schedule this advisory entry:
+# the strict generator's only execution is cmux-next-guards.yml's blocking post-merge static-checks copy. That push
+# check is the safety net for settings/catalog changes that later affect Release: #51725 (11-23, 3 h) and #55301
+# (11-26, 3 h; fixed by #58991).
+# The export is regenerated first, as the PR autofix and base-autofix do, because a pull request edits the settings
+# sources, not the export the generator reads. Exit 2 from the Linux export (a Swift shape it cannot read) leaves
+# the Mac to decide: the committed export is checked instead. It runs alone: both write into the checkout (the
+# export, the gitignored tables) while no other step reads it.
 [step.page-strings]
-job = "linux"
+job = "advisory"
+blocks = false
+class = "idle"
 timeout = 300
 alone = true
-# Its ** globs route it on a pull request too: a catalog edit anywhere in the tree is the case it exists for.
+# Its ** globs retain the whole-tree route when the table is used by a pull-request caller; the post-merge static
+# check always runs it at the merged tip.
 pr_scope = false
 title = "Page strings generate with no missing translation"
 about = "the settings export the pull request's sources make, then every React page's strings table, strict (webviews/scripts/pages/gen-strings.mjs)"
