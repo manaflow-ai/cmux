@@ -975,7 +975,6 @@ impl Hub {
             meta.bookmarks.clear();
             meta.moved_to = Some(if to.is_object() { to.clone() } else { json!({}) });
         }
-        self.forget_draft_attachments(session);
         // Saved now: a stopped chat is closed already, so `kill` below saves nothing, and the
         // mark must outlive a restart or the source could reopen and run it: `committed` is
         // answered only once it is on disk.
