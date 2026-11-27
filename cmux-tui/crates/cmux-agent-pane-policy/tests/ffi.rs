@@ -424,6 +424,35 @@ fn c_abi_prompt_ops_match_the_shared_presentation_rules() {
     assert_eq!(read["summary"], "Run\necho hi");
 }
 
+#[test]
+fn c_abi_prompt_input_summary_and_invalid_requests() {
+    let none = std::ptr::null();
+    assert_eq!(
+        call(
+            none,
+            "prompt_input_summary",
+            json!({"input": {"env": {"TOKEN": "hidden"}, "cwd": "/tmp"}})
+        ),
+        Ok(json!({"summary": {"fields": {"cwd": "/tmp"}, "truncated": true}}))
+    );
+    for (op, request) in [
+        ("prompt_scrub", json!({"text": null})),
+        ("prompt_visible", json!({})),
+        ("prompt_input_summary", json!({"input": []})),
+        ("prompt_cut", json!({"text": "abc", "limit": -1})),
+        ("prompt_once_option", json!({"allow": "yes", "offered": []})),
+        ("prompt_always_option", json!({"offered": {}})),
+        ("prompt_option", json!({"allow": true})),
+        ("prompt_read", json!({"request": null})),
+    ] {
+        assert_eq!(call(none, op, request), Err(ERR_INVALID), "{op}");
+    }
+    assert_eq!(
+        call(none, "prompt_cut", json!({"text": "👩🏽‍💻👩🏽‍💻👩🏽‍💻", "limit": 2})),
+        Ok(json!({"text": "👩🏽‍💻…"}))
+    );
+}
+
 /// The pick a gesture ticket is bound to, asked without a frame check (the
 /// host redeems a ticket for a page op such as `cloud.startChat`, and holds a
 /// click's intent by the same values): every case of tests/cases/picks.json

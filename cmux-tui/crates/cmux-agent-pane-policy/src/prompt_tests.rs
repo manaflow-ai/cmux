@@ -24,6 +24,34 @@ fn scrubs_secret_shapes_and_limits_prefix() {
 }
 
 #[test]
+fn scrubs_each_existing_secret_shape_and_preserves_public_text() {
+    for secret in [
+        "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----",
+        "-----BEGIN RSA PRIVATE KEY-----\nunfinished",
+        "eyJabcdefgh.abcdEFGH1234.abcdEFGH1234",
+        "sk-abcdefghijklmnop",
+        "pk-abcdefghijklmnop",
+        "rk-abcdefghijklmnop",
+        "ghp_abcdefghijklmnopqrst",
+        "github_pat_abcdefghijklmnopqrst",
+        "glpat-abcdefghijklmnop",
+        "xoxb-1234567890",
+        "AKIA0123456789ABCDEF",
+        "AIzaabcdefghijklmnopqrstuvwxyz1234",
+        "npm_abcdefghijklmnopqrstuvwxyz1234",
+        "https://name:password@",
+    ] {
+        assert_eq!(scrub(secret, false), REDACTED, "{secret}");
+    }
+    for text in ["api_key = abcdef", "password: abcdef", "Authorization: Bearer abcdef"] {
+        let shown = scrub(text, false);
+        assert!(shown.contains(REDACTED), "{text}");
+        assert!(!shown.contains("abcdef"), "{text}");
+    }
+    assert_eq!(scrub("echo 'hello world' /tmp/readme", false), "echo 'hello world' /tmp/readme");
+}
+
+#[test]
 fn renders_commands_and_invisible_scalars() {
     assert_eq!(
         shown_command(Some(&json!(["bash", "-lc", "rm -rf ~"]))),
