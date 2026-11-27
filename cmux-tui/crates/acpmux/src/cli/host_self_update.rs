@@ -33,7 +33,8 @@
 //! After acpmux's step, the cmux-tui beside it (the one the `chief` harness
 //! runs) is brought to the same R2 tree (`host_self_update_tui.rs`).
 
-use super::super::host_auto_update::NO_AUTO_UPDATE;
+use super::super::SYSTEMD_LINGERING;
+use super::super::host_auto_update::{NO_AUTO_UPDATE, install_script, take_auto_update_off};
 use super::super::host_lock::Lease;
 use super::super::{REMOTE_HOME, Remote, RemoteOut};
 use super::{
@@ -1140,7 +1141,13 @@ pub(crate) async fn self_update(
         refuse(run, &why);
         bail!("fast-patch refused: {why}");
     }
-    let up = apply(&LocalRemote, &plan, paths.target, now);
+    let mut up = apply(&LocalRemote, &plan, paths.target, now);
+    // An update that restarted the daemon installed the timer with the
+    // restart (`linux_restart`); one that did not (`current`, `busy`) checks
+    // for it here, still under the plan's lease.
+    if !up.outcome.failed() && up.outcome != Outcome::Updated {
+        up.auto_update_off = ensure_timer(&plan.lease.fence(&LocalRemote));
+    }
     let tui = refresh_tui(&paths, &R2_FETCH, &plan, &up).await;
     let name = crate::hand::pair::hostname();
     let fast_patch_line = run.map(|run| {
@@ -1173,6 +1180,11 @@ pub(crate) async fn self_update(
         } else {
             println!("{name} (local): {}", up.line());
         }
+        if up.outcome != Outcome::Updated
+            && let Some(why) = &up.auto_update_off
+        {
+            eprintln!("{name} (local): auto-update off: {why}");
+        }
         print_rd(&plan.rd, false);
         if let Some(line) = tui.line() {
             println!("{line}");
@@ -1183,6 +1195,31 @@ pub(crate) async fn self_update(
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// Installs `acpmux-update.timer` ([`install_script`]) on this host when it
+/// is not running and the daemon runs under `acpmux.service` in a user
+/// manager that lingers: what an update's restart does (`linux_restart`), for
+/// a host whose binary is already the channel's. fs-agent-lane-44 to 47
+/// (2026-11-27) got acpmux and `acpmux.service` from their image, never from
+/// an acpmux restart, so they had no timer; every `host self-update` found
+/// the binary current and installed nothing, and the hosts never followed
+/// the channel by themselves. A running timer costs one `is-active`. Why the
+/// host is left without it, when it is (a unit acpmux did not write, a
+/// failed write); nothing for the opt-out ([`NO_AUTO_UPDATE`]).
+pub(super) fn ensure_timer(remote: &dyn Remote) -> Option<String> {
+    match remote.exec(&timer_script(), None) {
+        Ok(out) => take_auto_update_off(&out.stdout).1,
+        Err(e) => Some(format!("checking acpmux-update.timer failed: {e:#}")),
+    }
+}
+
+/// [`ensure_timer`]'s script.
+fn timer_script() -> String {
+    format!(
+        "if systemctl --user is-active --quiet acpmux-update.timer; then :\nelif systemctl --user show-environment >/dev/null 2>&1 && systemctl --user is-active --quiet acpmux.service && {SYSTEMD_LINGERING}; then\n{}fi\n",
+        install_script()
+    )
 }
 
 /// cmux-rd's line, when there is one to print (`--json` carries it as `cmuxRd`).
