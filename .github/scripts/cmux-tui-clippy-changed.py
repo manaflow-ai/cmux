@@ -27,7 +27,9 @@ does not check keeps its baseline (the ratchet names it in a warning).
 --compare-base (with --panic-ratchet and a base): when HEAD is over the baseline, it lints
 the same packages at the base too, then judges HEAD with the ratchet's --base-clippy-json:
 a crate the base already has over its row is red only for hits HEAD adds. A HEAD within the
-baseline is green without the base lint, which could only excuse counts. cmux-next fast gates use it on a pull
+baseline is green without the base lint, which could only excuse counts, and so is a HEAD whose every count
+over the baseline has all its hits in files the change does not touch (the ratchet's --untouched-is-base:
+the base's drift, which the base lint would only excuse). cmux-next fast gates use it on a pull
 request merged with a tip whose baseline went down since the pull request's own ratchet
 ran (cmux_next_fast_gates.py), so a base ratchet red never reads as the pull request's.
 
@@ -456,6 +458,8 @@ def name_base_reds(repo: Path, base: str, red_files: list[str]) -> None:
               f"through an API it changed, is this change's to fix)")
     if outside and len(outside) == len(red_files):
         print("cmux-tui-clippy-changed: every clippy error is in a file this change does not touch: likely a base red")
+        if verdict := os.environ.get("CMUX_CLIPPY_BASE_RED_FILE"):
+            Path(verdict).write_text("base red\n", encoding="utf-8")
 
 
 def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, out: Path, compare: str = "") -> int:
@@ -504,6 +508,16 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
         if strict.returncode == 0:
             print(strict.stdout, end="", flush=True)
             print(f"cmux-tui-clippy-changed: HEAD passes the baseline, so the base {compare} is not linted", flush=True)
+            return 0
+        # A count over the baseline with every hit in a file this change never touched is the base's own drift
+        # (a crate that merged over its row, or with none): the base run could only excuse it. Linting the base
+        # cost ~5 min a job (run 45929462416: 20 crates over, none touched); only a hit in a touched file needs it.
+        untouched = subprocess.run([*judge, "--untouched-is-base", "--diff-base", compare],
+                                   stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        if untouched.returncode == 0:
+            print(untouched.stdout, end="", flush=True)
+            print(f"cmux-tui-clippy-changed: every count over the baseline is in files this change does not touch, "
+                  f"so the base {compare} is not linted", flush=True)
             return 0
         base_out = out.with_name(out.name + ".base")
         head = fmt_changed.git(repo, "rev-parse", "HEAD").strip()
