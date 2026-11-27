@@ -69,7 +69,7 @@ def base_environment(
     watch: bool,
 ) -> dict[str, str]:
     tmpdir = directory / "tmp"
-    tmpdir.mkdir(exist_ok=True)
+    tmpdir.mkdir(mode=0o700, exist_ok=True)
     home = directory / "home"
     home.mkdir(exist_ok=True)
     environment = {
@@ -153,7 +153,8 @@ def assert_disabled_features_do_not_spawn(shell_name: str, directory: Path, sock
 
 def assert_stale_pr_cache_is_still_cleared(shell_name: str, directory: Path, socket_path: Path) -> list[str]:
     case_directory = directory / f"{shell_name}-stale-pr-cache"
-    case_directory.mkdir()
+    # The cache owner validates every TMPDIR ancestor, including this fixture.
+    case_directory.mkdir(mode=0o700)
     panel_id = str(uuid.uuid4()).upper()
     environment = base_environment(case_directory, socket_path, panel_id, watch=False)
     state_directory = Path(environment["TMPDIR"]) / f"cmux-pr-{os.geteuid()}"

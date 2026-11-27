@@ -52,6 +52,8 @@ QUEUE_WORKFLOWS = frozenset({
 })
 # (workflow, line number is not pinned) -> why the job does not lead with a JIT label yet.
 EXCEPTIONS = {
+    "cloud-mvp-nightly-readback.yml": "a macOS job: the JIT labels are one-job GCP Linux VMs, so it names its Mac by "
+    "literal where no variable can move it (test_ci_runner_set, test_ci_fork_runner_routing)",
     "cla.yml": "the CLA Assistant moves to the gate label with its policy PR (exact-head human approval)",
     "resolve-runners.yml": "the resolver reads no runner variable and must not depend on a fleet it resolves",
     "web-complexity-trusted.yml": "reads untrusted source: only the one-job PR-control JIT label, with no switch a "

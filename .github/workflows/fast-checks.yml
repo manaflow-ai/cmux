@@ -68,19 +68,25 @@ jobs:
     steps:
       # Fast-checks placement tooling is reviewed and pinned on feat-cmux-next;
       # main only carries this wiring and reads that exact helper revision:
-      # #34270's, which decides on one census read instead of polling 180 s.
+      # feat-cmux-next's at #52730, whose census reader takes the published
+      # runner document's runner_group_tallies (cmux-fleet-linux is too large
+      # for rows). #34270's pin read the fleet group live, 5 pages of 100 of
+      # its ~3,700 registrations, oldest first: no online runner in them, so
+      # every dispatch took Blacksmith while the fleet sat idle (run 46049698131).
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: 159a701991677b65aa48d11d54e1579d58f6b1cb
+          ref: d669e59a89f0e46438cadaad591323d66466a0ce
           path: .fast-checks-tools
           # Keep the admission checkout narrow, but include every helper the
           # pinned picker imports: the shared census client, its request counter
-          # (github_spend, imported at load since #34270's pin) and the warm
+          # (github_spend, imported at load since #34270's pin), its bounded HTTP
+          # client (deadline_http, imported at load since #52730) and the warm
           # routing modules it imports on the distance path.
           sparse-checkout: |
             scripts/ci/fast_checks_runner.py
             scripts/ci/pr_runner_pool.py
             scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
             scripts/ci/warm_distance.py
             scripts/ci/owned_warm_state.py
           sparse-checkout-cone-mode: false
@@ -118,6 +124,12 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           ROUTE_TOKEN: ${{ steps.route-token.outputs.token }}
           REQUESTED_RUNNER: ${{ inputs.runner }}
+          # The complete runner census cmuxterm-hq's runner-state-publish.yml
+          # keeps fresh (every 240 s; the reader takes it up to 300 s old, else
+          # reads live as before): it tallies every fleet registration, so an
+          # online fleet runner is seen, with no runner API request. The
+          # repository variable FAST_CHECKS_LIVE_CENSUS=1 restores the live read.
+          CI_RUNNER_STATE: ${{ vars.FAST_CHECKS_LIVE_CENSUS != '1' && vars.CI_RUNNER_STATE || '' }}
         run: python3 .fast-checks-tools/scripts/ci/fast_checks_runner.py
 
   checks:
@@ -180,11 +192,20 @@ jobs:
 
       - name: Sanitize persistent checkout metadata
         working-directory: ${{ github.workspace }}
+        env:
+          CMUX_FAST_CHECKS_COLD_CHECKOUT: ${{ vars.CMUX_FAST_CHECKS_COLD_CHECKOUT }}
         run: |
           mkdir -p -- .fast-checks-checkout
           cd .fast-checks-checkout
           # Keep the sticky disk's Git object store for fetch speed, but never
           # trust metadata written by a prior command or source snapshot.
+          # The prior run's detached HEAD, read as text before Git runs here (Git runs only once
+          # the config below is our own). checkout leaves HEAD at the commit it checked out.
+          prior=""
+          if [[ -f .git/HEAD && ! -L .git/HEAD ]]; then
+            prior="$(head -c 41 .git/HEAD | tr -d '\n')"
+            [[ "$prior" =~ ^[0-9a-f]{40}$ ]] || prior=""
+          fi
           if [[ -L .git || ( -e .git && ! -d .git ) ]]; then
             rm -rf -- .git
           elif [[ -d .git ]]; then
@@ -212,6 +233,22 @@ jobs:
             url = https://github.com/manaflow-ai/cmux
             fetch = +refs/heads/*:refs/remotes/origin/*
           EOF
+              # An unborn HEAD (refs/heads/main) still failed checkout's `git reset --hard HEAD`
+              # ("ambiguous argument 'HEAD'"): checkout then deleted the disk and fetched cold
+              # anyway, 30-40 s of every run (run 46049698131: fetch 18:28:40 -> 18:29:14, after
+              # "Unable to clean or reset the repository"). Point HEAD at the prior commit when the
+              # store still has it, rebuild the index from that tree (no -u: files stay), and tag
+              # it, because a fetch offers only refs, never a bare HEAD, as haves: with the tag the
+              # fetch sends only what is new since the prior run. Set CMUX_FAST_CHECKS_COLD_CHECKOUT=1
+              # to keep the old cold checkout.
+              if [[ -n "$prior" && "${CMUX_FAST_CHECKS_COLD_CHECKOUT:-}" != 1 ]] \
+                && git cat-file -e "$prior^{commit}" 2>/dev/null \
+                && git read-tree "$prior" 2>/dev/null; then
+                printf '%s\n' "$prior" > .git/HEAD
+                git update-ref refs/tags/fast-checks-warm "$prior"
+              else
+                rm -f .git/index
+              fi
             fi
           fi
 

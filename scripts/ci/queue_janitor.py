@@ -297,6 +297,12 @@ MAX_JOB_LISTINGS = 2000
 # The read token's installation budget a sweep never spends below (GitHub.read_token_floor_reached()): the Linux runner
 # scaler mints JIT runners on the same glaeda-route installation and holds its own creates below 1,600 left.
 READ_TOKEN_FLOOR = 3000
+# Under READ_TOKEN_FLOOR the sweep's reads move onto the sweep's own token (cmux-bot) while its installation has more
+# than this left (GitHub.sweep_token_has_room()), above HQ's cmux-bot floors (app_budget.py's 2,500 default and NOW's
+# 1,500 reserve). From 19:14Z to 20:05Z on 2026-11-27 glaeda-route sat under its floor (2,574 left at 19:22Z, 796 at
+# 19:52Z) while cmux-bot had 8,000+ left; every sweep in between stopped at its first run page, succeeded and
+# uploaded no macos-pool-load snapshot for 55 minutes, so the pool pickers routed on a stale or missing queue.
+SWEEP_TOKEN_READ_FLOOR = 4000
 JOB_LISTING_WORKERS = 6
 GRAPHQL_BATCH = 25
 # A read that meets a 5xx or a dropped connection is made again after each of these delays (seconds),
@@ -4717,6 +4723,11 @@ class GitHub:
         self.read_token = ""
         # The read token's installation budget a sweep leaves for its other users (read_token_floor_reached()).
         self.read_token_floor = 0
+        # The sweep token's own budget its reads keep once the read token is under its floor (sweep_token_has_room());
+        # 0 turns the move off: under the read floor the sweep then stops, as before 2026-11-27.
+        self.sweep_token_read_floor = 0
+        # Said once, when the reads first move onto the sweep token for the read floor.
+        self.moved_reads = ""
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -4765,6 +4776,31 @@ class GitHub:
             return False
         return limits["remaining"] <= self.read_token_floor
 
+    def sweep_token_has_room(self) -> bool:
+        """Whether the sweep's own token (cmux-bot) has more than sweep_token_read_floor calls left this hour: the
+        newest reading of its `core`, else one GET /rate_limit on it, which GitHub does not count. Only then do reads
+        the read token's floor holds back go on it (_request()); below it the sweep stops as before."""
+        if self.sweep_token_read_floor <= 0:
+            return False
+        with self._count_lock:
+            limits = self.rate_limits.get("core")
+        if not limits or ("reset" in limits and time.time() >= limits["reset"]):
+            request = urllib.request.Request(API + "/rate_limit", headers=dict(self.headers), method="GET")
+            try:
+                with urllib.request.urlopen(request, timeout=10) as response:
+                    core = (json.loads(response.read() or b"{}").get("resources") or {}).get("core") or {}
+            except (OSError, ValueError, urllib.error.URLError) as error:
+                print(f"queue-janitor: the sweep token's budget is unread ({error}); the read floor holds",
+                      file=sys.stderr)
+                return False
+            if not isinstance(core.get("remaining"), int):
+                return False
+            limits = {key: int(core[key]) for key in ("limit", "remaining", "used", "reset")
+                      if isinstance(core.get(key), int)}
+            with self._count_lock:
+                self.rate_limits["core"] = limits
+        return limits["remaining"] > self.sweep_token_read_floor
+
     def request(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
         """One API call. A read (GET, or a GraphQL query) that meets a 5xx or a dropped connection is
         made again after each RETRY_DELAYS delay; a write is not, since it may have taken effect."""
@@ -4795,12 +4831,28 @@ class GitHub:
         read_token = self.read_token if method == "GET" and not app_only and not self.cancel_phase else ""
         if read_token and self.read_token_floor_reached():
             left = self.rate_limits["core (read token)"]["remaining"]
-            limited = RateLimited(f"{method} {path.split('?')[0]} not sent: the read token's installation has {left} "
-                                  f"calls left, at or under the {self.read_token_floor} the sweep leaves for the "
-                                  "runner scaler (READ_TOKEN_FLOOR)")
-            with self._count_lock:
-                self.rate_limited = self.rate_limited or str(limited)
-            raise limited
+            if self.sweep_token_has_room():
+                # The runner scaler keeps the read installation's floor, and the sweep still lists the whole queue
+                # and writes its snapshot, on the sweep token's own budget above SWEEP_TOKEN_READ_FLOOR.
+                read_token = ""
+                with self._count_lock:
+                    if not self.moved_reads:
+                        self.moved_reads = (f"the read token's installation has {left} calls left, at or under the "
+                                            f"{self.read_token_floor} the sweep leaves for the runner scaler "
+                                            "(READ_TOKEN_FLOOR); the sweep's reads went on its own token from "
+                                            f"{method} {path.split('?')[0]}, which keeps "
+                                            f"{self.sweep_token_read_floor} (SWEEP_TOKEN_READ_FLOOR)")
+                        print(f"queue-janitor: {self.moved_reads}", file=sys.stderr)
+            else:
+                bot = (self.rate_limits.get("core") or {}).get("remaining")
+                limited = RateLimited(f"{method} {path.split('?')[0]} not sent: the read token's installation has "
+                                      f"{left} calls left, at or under the {self.read_token_floor} the sweep leaves "
+                                      "for the runner scaler (READ_TOKEN_FLOOR), and the sweep's own token has "
+                                      f"{bot if bot is not None else 'an unread number of'} calls left, at or under "
+                                      f"its {self.sweep_token_read_floor} (SWEEP_TOKEN_READ_FLOOR)")
+                with self._count_lock:
+                    self.rate_limited = self.rate_limited or str(limited)
+                raise limited
         if read_token:
             headers["Authorization"] = f"Bearer {read_token}"
         request = urllib.request.Request(API + path, data=data, headers=headers, method=method)
@@ -5364,6 +5416,9 @@ def sweep(argv: Sequence[str] | None, clients: list["GitHub"]) -> int:
         # the runner scaler's JIT creates and about 30 workflows' mints share (read_token_floor_reached()).
         if hasattr(github, "read_token_floor"):
             github.read_token_floor = env_int("READ_TOKEN_FLOOR", READ_TOKEN_FLOOR)
+        # SWEEP_TOKEN_READ_FLOOR: under that floor the reads go on cmux-bot while it has more than this left.
+        if hasattr(github, "sweep_token_read_floor"):
+            github.sweep_token_read_floor = env_int("SWEEP_TOKEN_READ_FLOOR", SWEEP_TOKEN_READ_FLOOR)
     now = utc_now()
     linux_only = linux_only_workflow_paths(args.workflows_dir)
     branch_linux_only = branch_linux_only_paths(args.branch_workflows)

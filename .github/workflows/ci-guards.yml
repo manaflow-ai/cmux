@@ -1187,6 +1187,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_nightly_next_train_drive_pin.py
 
+      - name: Validate the fast-checks warm checkout stays a repository
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fast_checks_warm_checkout.py
+
       - name: Validate the signing keychain is deleted before bundle code runs
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py
@@ -1623,6 +1627,7 @@ jobs:
         run: |
           python3 tests/test_update_release_tag.py
           python3 tests/test_nightly_publication_marker.py
+          python3 tests/test_publication_guard_release_read.py
           python3 tests/test_nightly_resume_tracks.py
 
       - name: Validate the nightly-next canary runs the installed app
@@ -1754,10 +1759,6 @@ jobs:
       - name: Validate the nightly signing-input download fails fast and resumes
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_download_run_artifact.py
-
-      - name: Validate the nightly publish guard reads the release through gh with retries
-        if: ${{ matrix.group == 'release-notary' }}
-        run: python3 tests/test_publication_guard_release_read.py
 
       - name: Validate nightly release notes and appcast summaries
         if: ${{ matrix.group == 'release-notary' }}
