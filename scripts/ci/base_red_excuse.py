@@ -4889,9 +4889,13 @@ class SuiteChecks:
             try:
                 found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"],
                                                    repo=self.repo))
-            except Refused as why:
+            except (Refused, UnreadRead) as why:
                 if "root field nodes is refused" not in str(why):
+                    if isinstance(why, UnreadRead):
+                        raise  # transport/quota failures still stop the judgement without a verdict
                     return  # read over REST instead, as before
+                # The real subprocess reader wraps this broker capability refusal as UnreadRead (#58452).
+                # Only this known refusal selects the supported repository-scoped query below.
                 self.rooted = True
             except ValueError:
                 return
