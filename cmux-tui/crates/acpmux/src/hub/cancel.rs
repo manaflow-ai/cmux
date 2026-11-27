@@ -20,7 +20,7 @@
 //! Codex's `turn/interrupt`, ACP `session/cancel`), and if the turn is still open [`INTERRUPT_GRACE`]
 //! later acpmux ends its process (its own process group, `ChildAgent::kill`), ends the turn,
 //! and starts it again on the same conversation before the next turn can start
-//! (`turns.rs` `finish_turn`). Until the turn ends the row reads `stopping`; what the ended
+//! (`turns/finish.rs` `finish_turn`). Until the turn ends the row reads `stopping`; what the ended
 //! process still had in flight never reaches the next turn (`permissions.rs`).
 //!
 //! Stop never ends a process that runs background work (2026-10-31: a Stop for one tool call
