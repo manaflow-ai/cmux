@@ -8,6 +8,11 @@
 //!
 //! - [`close`]: what closing tabs asks first (a working agent, a foreground
 //!   program) and whether the close earns an undo toast.
+//! - [`desktop_center`], [`desktop_attention`], [`desktop_bursts`],
+//!   [`desktop_announce`]: the desktop notification rules (whether a launch
+//!   uses Notification Center, a banner's category and what its actions do,
+//!   the Needs you banners a mark change posts or withdraws, agent-finished
+//!   bursts and VoiceOver's status line).
 //! - [`tabs`]: what a new tab or pane opens and where (its kind, the browser
 //!   open plan, a split's plan), tab moves, numbers, duplicates, restarts and
 //!   icons; [`tabs::panes`] the pane and terminal tables; [`tabs::strip`]
@@ -23,36 +28,63 @@
 //!   asks, space defaults, description and status, screen moves).
 //! - [`restore`]: which saved windows a launch makes before its front window
 //!   is live (only the front one; the others follow, one per turn).
+//! - [`right_column`]: what opens on the right of a pane (a split right, a
+//!   split below the one pane there, or a tab), and [`subagent_panes`]: a
+//!   chat's subagent panes, opened one at a time, and the focus a click owes.
 //! - [`closed`]: the daemon's closed history (page rows, Cmd-Shift-T's
 //!   owner) and the undo toast's expected closes, a reducer.
+//! - [`auto_namer`]: workspace auto-naming's bookkeeping (one live rename
+//!   per workspace, attempt numbers, retry marks) and the sidebar's held names.
 //! - [`notifications`], [`history`], [`remote`], [`browser`], [`files`],
 //!   [`appearance`]: the smaller handlers' tables and refusals (which unread
 //!   tab a verb reads, the trail walks, the SSH machine an action names, a
 //!   page fit, Picture in Picture's page, where a file or diff opens, the
 //!   appearance verbs).
+//! - [`notification_policy`]: what a notification does when it arrives
+//!   (read on sight, ring, banner, Dock bounce, timeout, its sound and how
+//!   loud), which interactions clear it, and the burst sound cooldown.
+//! - [`notification_rings`]: the notification service's attention rings and
+//!   reads (which panes ring, what a look or Dismiss Highlight reads, the
+//!   turn-end burst, where an arriving notification goes, a banner reply's
+//!   guard, a workspace mark's resend).
 //! - [`launch`]: whether the launch snapshot drawn before the daemon answered
 //!   is that daemon's, or stale (the launch then goes on as a bare one), and
 //!   where the launch lands: the last workspace and tab, or Home.
 //! - [`editors`]: the code editors Open in Editor knows and which one opens
 //!   a folder (the person's `editor.default`, else the first installed).
+//! - [`empty_workspace`]: what happens to a workspace with no pane (its
+//!   last tab closed: it closes; its terminal was lost: it gets a new one).
 //! - [`update_idle`]: whether Update When Idle installs a staged app update
 //!   now, or why it waits (input, a running turn, an unsent draft).
+//! - [`onboarding`]: the onboarding tool window's footer (the primary
+//!   button, Skip, Back) and Import from Browser's selection rules.
 
 pub mod appearance;
+pub mod auto_namer;
 pub mod browser;
 pub mod chat;
 pub mod close;
 pub mod closed;
+pub mod desktop_announce;
+pub mod desktop_attention;
+pub mod desktop_bursts;
+pub mod desktop_center;
 pub mod editors;
+pub mod empty_workspace;
 pub mod files;
 pub mod handlers_close;
 pub mod handlers_placement;
 pub mod history;
 pub mod launch;
+pub mod notification_policy;
+pub mod notification_rings;
 pub mod notifications;
+pub mod onboarding;
 pub mod remote;
 pub mod restore;
+pub mod right_column;
 pub mod screen_share;
+pub mod subagent_panes;
 pub mod tabs;
 pub mod targets;
 pub mod update_idle;

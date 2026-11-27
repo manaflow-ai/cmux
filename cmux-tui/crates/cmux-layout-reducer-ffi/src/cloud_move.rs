@@ -3,16 +3,18 @@
 //! defaults and the disk, observes its main-actor state, and asks here what each means.
 
 use cmux_cloud_start_core::moves::{
-    autosize, cli, folder, ledger, pin, place, priority, progress, seed, settle, targets, wait,
+    autosize, chat_moves, cli, folder, ledger, pin, place, priority, progress, seed, settle,
+    targets, wait,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::ERR_INVALID;
 
-/// Whether `operation` is one of this module's.
+/// Whether `operation` is one of this module's: `cloud_move_*` but for `cloud_move_host`'s
+/// `cloud_move_host_*`.
 pub(crate) fn handles(operation: &[u8]) -> bool {
-    operation.starts_with(b"cloud_move_")
+    operation.starts_with(b"cloud_move_") && !operation.starts_with(b"cloud_move_host_")
 }
 
 fn read<'a, T: Deserialize<'a>>(request: &'a [u8]) -> Result<T, i32> {
@@ -48,6 +50,15 @@ pub(crate) fn respond(operation: &[u8], request: &[u8]) -> Result<Vec<u8>, i32> 
             cli::read(request.reading, &request.output)
         }
         // The working toast's second line while a move runs: its step, why it waits, about how long is left.
+        b"cloud_move_chat_move" => {
+            #[derive(Deserialize)]
+            struct Request {
+                prior: Option<chat_moves::Move>,
+                event: chat_moves::Event,
+            }
+            let request: Request = read(request)?;
+            json!({ "next": to_value(chat_moves::step(request.prior, request.event))? })
+        }
         b"cloud_move_progress" => {
             let facts: progress::Facts = read(request)?;
             to_value(progress::line(&facts))?

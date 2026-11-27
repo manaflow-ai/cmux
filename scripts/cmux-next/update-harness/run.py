@@ -1008,13 +1008,18 @@ def main():
         # Home's first page (launch.home.first_page): the post-update launch's own end, when Home is the page it opens.
         marks.wait(lambda rows: first(rows, "launch.home.first_page", not_pid=v1_pid), 20)
         rows = marks.read()
-        v2_pid = next(r["pid"] for r in rows if r["pid"] != v1_pid)
+        click = first(rows, "install_clicked", pid=v1_pid)["unix_ms"]
+        # The relaunched app: the process whose window drew first after the click. The first row of any
+        # other pid was a helper's or an earlier launch's, and every click_to_v2 mark read null (ask-ad4a68e740).
+        v2_pid = next((r["pid"] for r in rows if r["pid"] != v1_pid and r["unix_ms"] >= click
+                      and r["name"] == RESTORED_MARKS[0]), None)
+        if v2_pid is None:
+            raise SystemExit("no process drew a window after the click")
         remember_app(v2_pid)
         remember_tag()
         result["v2_pid"] = v2_pid
         with open(os.path.join(v1, "Contents/Info.plist"), "rb") as f:
             result["installed_build"] = plistlib.load(f)["CFBundleVersion"]
-        click = first(rows, "install_clicked", pid=v1_pid)["unix_ms"]
         if a.handoff:
             handed = marks.wait(lambda rows: first(rows, "launch.daemon_version_handoff", not_pid=v1_pid), 60)
             result["daemon_handoff_mark"] = bool(handed)
@@ -1084,6 +1089,11 @@ def main():
                                  if click <= r["start_ms"] <= t_exit * 1000] if a.feed_latency_ms else None,
             "click_to_v2": {n: at(n, v2_pid) for n in ["process_start", "updater_created"] + RESTORED_MARKS
                             + ["launch.home.first_page"]},
+            # Every mark of v1 after the click (its quit steps) and of v2 to its first frame plus 10 s:
+            # where the click-to-frame time went, without guessing names up front.
+            "v1_after_click": {r["name"]: r["unix_ms"] - click for r in reversed(rows) if r["pid"] == v1_pid and r["unix_ms"] >= click},
+            "v2_marks": {r["name"]: r["unix_ms"] - click for r in reversed(rows) if r["pid"] == v2_pid
+                         and r["unix_ms"] - click <= (at(RESTORED_MARKS[0], v2_pid) or 0) + 10_000},
         }
         try:
             with open(updater_log, "rb") as f:

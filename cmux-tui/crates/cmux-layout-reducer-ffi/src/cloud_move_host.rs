@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use crate::ERR_INVALID;
 
-/// Whether `operation` is one of this module's (before `cloud_move`, whose prefix is wider).
+/// Whether `operation` is one of this module's (`cloud_move` leaves `cloud_move_host_*` to it).
 pub(crate) fn handles(operation: &[u8]) -> bool {
     operation.starts_with(b"cloud_move_host_")
 }
