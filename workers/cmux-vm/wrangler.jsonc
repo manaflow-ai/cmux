@@ -30,8 +30,8 @@
   // One Durable Object per tenant: rate limits, quota reservations and
   // idempotency keys (src/limits/). Bindings are not inherited by
   // environments, so each environment repeats them.
-  "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
-  "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
+  "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }, { "name": "PAUSED_REPLICAS", "class_name": "PausedReplicaObject" }] },
+  "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }, { "tag": "v2-paused-replicas", "new_sqlite_classes": ["PausedReplicaObject"] }],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
@@ -51,8 +51,8 @@
       // The tunnel orphan sweep runs wherever the VM API runs (src/cron-plan.ts): a revoke's 200 relies on it. In
       // preview the cron runs only that sweep.
       "triggers": { "crons": ["*/5 * * * *"] },
-      "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
-      "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
+      "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }, { "name": "PAUSED_REPLICAS", "class_name": "PausedReplicaObject" }] },
+      "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }, { "tag": "v2-paused-replicas", "new_sqlite_classes": ["PausedReplicaObject"] }],
       "vars": {
         "ENVIRONMENT": "preview",
         "STACK_API_URL": "https://api.stack-auth.com",
@@ -71,8 +71,8 @@
       "routes": [{ "pattern": "vm-staging.cmux.dev", "custom_domain": true }],
       // The agent reaper (src/agents/reaper.ts): expired and revoked agent keys' VMs, orphaned client sessions.
       "triggers": { "crons": ["*/5 * * * *"] },
-      "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
-      "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
+      "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }, { "name": "PAUSED_REPLICAS", "class_name": "PausedReplicaObject" }] },
+      "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }, { "tag": "v2-paused-replicas", "new_sqlite_classes": ["PausedReplicaObject"] }],
       "vars": {
         "ENVIRONMENT": "staging",
         "STACK_API_URL": "https://api.stack-auth.com",
@@ -165,8 +165,8 @@
       "workers_dev": false,
       "routes": [{ "pattern": "vm.cmux.dev", "custom_domain": true }],
       "triggers": { "crons": ["*/5 * * * *"] },
-      "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }] },
-      "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }],
+      "durable_objects": { "bindings": [{ "name": "TENANT_LIMITS", "class_name": "TenantLimitsObject" }, { "name": "PAUSED_REPLICAS", "class_name": "PausedReplicaObject" }] },
+      "migrations": [{ "tag": "v1-tenant-limits", "new_sqlite_classes": ["TenantLimitsObject"] }, { "tag": "v2-paused-replicas", "new_sqlite_classes": ["PausedReplicaObject"] }],
       "vars": {
         "ENVIRONMENT": "production",
         // Stack team ids treated as dev/test in production (idle timeout <= 300 s).
