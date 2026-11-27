@@ -120,6 +120,8 @@ final class CloudService {
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
+    /// The chats moving to another machine now: each window's sidebar row for the move.
+    let chatMoves = ChatMoves()
     /// Who drives each Chief's computer (Chief computer take-over): the lease of every Cloud machine a
     /// Chief on this Mac uses, and the last answer for each Cloud Chief's own sandbox.
     @ObservationIgnored let computerControl = ChiefComputerControlStore()
@@ -173,7 +175,7 @@ final class CloudService {
         self.mainWork = mainWork
         self.work = work
         configuration = selectedConfiguration ?? .unavailable
-        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture)
+        auth = CloudAuth(configuration: configuration, captureFixture: authCaptureFixture, consentSession: SessionConsentClient.consentSession(configuration))
         let basePaths = CloudPaths.standard(bundleID: configuration.bundleID)
         paths = configuration.runtimeSelection?.storageNamespace.map { CloudPaths(root: basePaths.root.appendingPathComponent($0, isDirectory: true)) } ?? basePaths
         installIDs = CloudInstallIDs(machine: basePaths, backend: paths, work: work)
@@ -863,7 +865,7 @@ final class CloudService {
     /// A guest link's owner token from `api` (the daemon's room's, cmux#31372; nil: the build's default), registering that install first when
     /// sign-in did not (a DEV build on the local backend never calls the Cloud API). Nil signed out, switched, or with Cloud off or no team.
     func shareOwnerToken(api: URL?) async -> String? {
-        guard let stackUser = auth.user?.id, !policyDisabled, auth.managedTeamID == nil || auth.teamID != nil else { return nil }
+        guard let stackUser = await auth.restoredUserID(), !policyDisabled, auth.managedTeamID == nil || auth.teamID != nil else { return nil }
         let auth = auth, share = await shareInstalls.identity(for: api)
         do {
             try await share.signedIn(stackUser: stackUser, session: { try await auth.tokens().access })
