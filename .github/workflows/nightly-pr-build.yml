@@ -61,8 +61,12 @@ jobs:
     # Use the gateway when configured, then the overflow pool, then the owned
     # Linux pool. The job remains a thin cmux-ci client on every route.
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
-    # The client waits up to QUEUE_WAIT_S (20 min) queued plus 3600 s running, with slack.
-    timeout-minutes: 90
+    # Detached (the default, 2026-11-27): the client submits, hands the verdict to the controller as check run
+    # "nightly app compile ARCH (fleet)" and exits, so this job holds its runner about a minute, not the whole
+    # fleet job (15.1 GitHub min per merged PR in 08-12Z 11-27; cmuxterm-hq report_check.go). Leo: "de facto, im
+    # asking for 99% fewer minutes of ci time, period." CI_NIGHTLY_PR_BUILD_DETACH=0 keeps the old wait: up to
+    # QUEUE_WAIT_S (20 min) queued plus 3600 s running, with slack.
+    timeout-minutes: ${{ vars.CI_NIGHTLY_PR_BUILD_DETACH == '0' && 90 || 12 }}
     permissions: {}
     strategy:
       # One arch's red cancels the other's wait. The reds seen are arch-independent: a Swift error in the
@@ -95,6 +99,7 @@ jobs:
           SHA: ${{ github.event.pull_request.head.sha }}
           ARCH: ${{ matrix.arch }}
           PR: ${{ github.event.pull_request.number }}
+          DETACH: ${{ vars.CI_NIGHTLY_PR_BUILD_DETACH || '1' }}
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
@@ -108,6 +113,23 @@ jobs:
           # (run 45969778703 attempt 2). The client's default key is per run and attempt; the cache step above
           # is what skips a build whose inputs already passed.
           log="$RUNNER_TEMP/nightly-pr-build-$ARCH.log"
+          check="nightly app compile $ARCH (fleet)"
+          if [[ "${DETACH:-1}" != 0 ]] && "$client" run --help 2>/dev/null | grep -q -- --detach; then
+            # The controller posts the verdict on the head as check run "$check" when the step ends (success,
+            # failure, or neutral for no verdict); this job only submits. A detached step records no pass for
+            # the cache above: its verdict is the check run.
+            "$client" run --class isolated --script scripts/cmux-next/check-release-compile.sh --ref "$SHA" \
+              --repo "$GITHUB_REPOSITORY" --arg=--archs --arg="$ARCH" --arg=--nightly \
+              --reason "nightly pr build #$PR $ARCH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" \
+              --report-check "$check" --detach || status=$?
+            case "$status" in
+              0) echo "::notice title=nightly app compile::fleet job submitted; its verdict is check run \"$check\"" ;;
+              69|75|124) echo "::warning title=nightly app compile::the fleet job was not submitted (exit $status); not judged" ;;
+              *) echo "::error title=nightly app compile::the detached fleet job for $ARCH was refused (cmux-ci exit $status)"
+                 exit "$status" ;;
+            esac
+            exit 0
+          fi
           "$client" run --class isolated --script scripts/cmux-next/check-release-compile.sh --ref "$SHA" \
             --repo "$GITHUB_REPOSITORY" --arg=--archs --arg="$ARCH" --arg=--nightly \
             --reason "nightly pr build #$PR $ARCH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" 2>&1 \
