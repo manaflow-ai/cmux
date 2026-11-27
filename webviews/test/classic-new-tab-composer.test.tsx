@@ -171,7 +171,14 @@ test("the classic New Tab draws the clock over its field, never in the field's p
   const { NewTabClock } = await import("../src/agent-session/acpmux/newtab/NewTabClock");
   const field = await render(
     [],
-    <NewTabClock font="rounded" weight="bold" color="text" date now={new Date(2026, 10, 16, 21, 41).getTime()} locale="en-US" />,
+    <NewTabClock
+      font="rounded"
+      weight="bold"
+      color="text"
+      date
+      now={new Date(2026, 10, 16, 21, 41).getTime()}
+      locale="en-US"
+    />,
   );
   const page = host.querySelector(".acpmux-newtab")!;
   const room = page.querySelector(":scope > .nt-above-room");
