@@ -639,7 +639,7 @@ pub struct Options<'a> {
 }
 
 fn bytes_of(path: &Path) -> Option<u64> {
-    let sizes = crate::disk::sizes(path, &[], Instant::now() + MEASURE);
+    let sizes = crate::disk::sizes_memo(path, &[], Instant::now() + MEASURE);
     Some(sizes.total)
 }
 
