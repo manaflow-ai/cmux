@@ -130,11 +130,14 @@ sys.exit(2)
     path
 }
 
+/// The fake's calls, the daemon's `--json auth token` reads aside (`hosted_mcp.rs` asks for a
+/// token on its own schedule; it is not a step of the move).
 fn calls(dir: &Path) -> Vec<(u64, Vec<String>)> {
     std::fs::read_to_string(dir.join("calls.log"))
         .unwrap_or_default()
         .lines()
-        .map(|l| serde_json::from_str(l).unwrap())
+        .map(|l| serde_json::from_str::<(u64, Vec<String>)>(l).unwrap())
+        .filter(|(_, a)| !(a.len() >= 2 && a[0] == "--json" && a[1] == "auth"))
         .collect()
 }
 
@@ -251,7 +254,21 @@ struct Rig {
     target: Daemon,
     source: Daemon,
     cmux: String,
+    /// The source's `pushInsteadOf` key: its branch push goes to the bare origin.
+    push_key: String,
     cwd: PathBuf,
+}
+
+impl Rig {
+    /// The source's env as the rig started it, for a restart after it dies.
+    fn source_vars(&self) -> [(&str, &str); 4] {
+        [
+            ("CMUX_BIN", self.cmux.as_str()),
+            ("GIT_CONFIG_COUNT", "1"),
+            ("GIT_CONFIG_KEY_0", self.push_key.as_str()),
+            ("GIT_CONFIG_VALUE_0", GITHUB),
+        ]
+    }
 }
 
 async fn rig(tag: &str, vm_delay: f64, mode: &str) -> Rig {
@@ -278,7 +295,7 @@ async fn rig(tag: &str, vm_delay: f64, mode: &str) -> Rig {
     .await;
     let cwd = scratch.path().join("project");
     repo(scratch.path(), &cwd);
-    Rig { scratch, target, source, cmux, cwd }
+    Rig { scratch, target, source, cmux, push_key: key, cwd }
 }
 
 async fn new_chat(rig: &Rig, rpc: &mut Rpc) -> String {
@@ -509,8 +526,10 @@ async fn duress_b_source_dies_during_the_move() {
     }
     tokio::time::sleep(Duration::from_secs(2)).await;
     drop(src);
-    let cmux = rig.cmux.clone();
-    let killed = die_and_restart(&mut rig.source, &[("CMUX_BIN", cmux.as_str())]).await;
+    let vars: Vec<(String, String)> =
+        rig.source_vars().iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+    let vars: Vec<(&str, &str)> = vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let killed = die_and_restart(&mut rig.source, &vars).await;
     report(n, "killed_pids", killed.len());
     tokio::time::sleep(Duration::from_secs(8)).await;
     let mut src = Rpc::connect(&rig.source.socket).await;
@@ -572,8 +591,10 @@ async fn duress_b_source_dies_while_the_move_waits_for_the_turn() {
     }
     tokio::time::sleep(Duration::from_secs(2)).await;
     drop(src);
-    let cmux = rig.cmux.clone();
-    die_and_restart(&mut rig.source, &[("CMUX_BIN", cmux.as_str())]).await;
+    let vars: Vec<(String, String)> =
+        rig.source_vars().iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+    let vars: Vec<(&str, &str)> = vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    die_and_restart(&mut rig.source, &vars).await;
     let mut src = Rpc::connect(&rig.source.socket).await;
     // The move the dead daemon left goes on once the restarted one is up (its turn died with it).
     let moved = wait_closed(&mut src, &id, Duration::from_secs(30)).await;
