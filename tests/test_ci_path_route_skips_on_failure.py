@@ -42,9 +42,7 @@ from pr_test_lanes import Expression, UNKNOWN, truthy  # noqa: E402
 # site and complete condition so another job or a widened condition is still checked.
 INTENTIONAL_FAIL_OPEN = {
     ("cmux-tui-spec.yml", "remote-web-wasm", "changes"):
-        "${{ (inputs.only == '' || inputs.only == 'remote-web-wasm') && "
-        "(!cancelled() && (needs.changes.result != 'success' || "
-        "needs.changes.outputs.run == 'true' && needs.changes.outputs.remote_web_wasm != 'false')) }}",
+        "${{ (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || (github.event.pull_request.draft == true && (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') || (github.event.pull_request.draft != true && ((contains(github.event.pull_request.labels.*.name, 'ready-to-land') && vars.CI_LAND_FULL_PER_PR == '1') || github.event.pull_request.base.ref != 'feat-cmux-next' || github.event.pull_request.head.repo.full_name != github.repository || (vars.CI_LAND_TIER || '1') == '0'))) && (inputs.only == '' || inputs.only == 'remote-web-wasm') && (!cancelled() && (needs.changes.result != 'success' || (needs.changes.outputs.run == 'true' && needs.changes.outputs.remote_web_wasm != 'false'))) }}",
 }
 
 
@@ -186,6 +184,11 @@ class RouterFailureSkipsOnPullRequests(unittest.TestCase):
             self.assertIs(Expression(expression, {}).evaluate(), UNKNOWN)
         self.assertIs(truthy(Expression("vars.x && false", {}).evaluate()), False)
         self.assertIs(truthy(Expression("vars.x || 'fast'", {}).evaluate()), True)
+        # Reusable-workflow inputs compare repr across matrix rows. Different
+        # known truth values must not collapse to the first row's value.
+        values = [Expression(expr, {}).evaluate() for expr in
+                  ("vars.x", "vars.x && false", "vars.x || 'fast'")]
+        self.assertEqual(len({repr(value) for value in values}), 3)
         self.assertFalse(guarded("(needs.changes.outputs.tier || 'fast') == 'fast' && "
                                  "needs.changes.outputs.run != 'false'", "changes"))
 

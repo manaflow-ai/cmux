@@ -61,7 +61,7 @@ class Unknown:
         self.truth = truth
 
     def __repr__(self) -> str:
-        return "UNKNOWN"
+        return "UNKNOWN" if self.truth is None else f"UNKNOWN(truth={self.truth!r})"
 
 
 UNKNOWN = Unknown()

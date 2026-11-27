@@ -1579,6 +1579,90 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_swift_linux_reach.py
 
+      - name: Validate registered ci cmux next compile revert
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cmux_next_compile_revert.py
+
+      - name: Validate registered ci cmux next compile status
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cmux_next_compile_status.py
+
+      - name: Validate registered ci compile test plan
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_compile_test_plan.py
+
+      - name: Validate registered ci github token budget
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_github_token_budget.py
+
+      - name: Validate registered cmux next dev daily tree wait
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_dev_daily_tree_wait.py
+
+      - name: Validate registered cmux next pr changed paths
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_pr_changed_paths.py
+
+      - name: Validate registered cmux next prepush gate
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_prepush_gate.py
+
+      - name: Validate registered cmux next prepush main twin
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_prepush_main_twin.py
+
+      - name: Validate registered dev release product key
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_dev_release_product_key.py
+
+      - name: Validate registered dev release product reuse
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_dev_release_product_reuse.py
+
+      - name: Validate registered feat ci guard group
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_feat_ci_guard_group.py
+
+      - name: Validate registered guard hooks from base
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_guard_hooks_from_base.py
+
+      - name: Validate registered intent familiar warning
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_intent_familiar_warning.py
+
+      - name: Validate registered job input fingerprint
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_job_input_fingerprint.py
+
+      - name: Validate registered job reuse
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_job_reuse.py
+
+      - name: Validate registered migrate journey verdict
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_migrate_journey_verdict.py
+
+      - name: Validate registered nightly release product key
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_release_product_key.py
+
+      - name: Validate registered nightly release product reuse
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_release_product_reuse.py
+
+      - name: Validate registered pr capture check paths
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_pr_capture_check_paths.py
+
+      - name: Validate registered web coalesce
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_web_coalesce.py
+
+      - name: Validate registered webviews test history
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_webviews_test_history.py
+
       - name: Validate every workflow guard is wired
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_guards_are_wired.py
@@ -2009,6 +2093,10 @@ jobs:
       - name: Validate CmuxMobileLinkFFI.xcframework reuse by input key
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
         run: python3 tests/test_ios_link_ffi_key.py
+
+      - name: Validate the CmuxMobileLinkFFI.xcframework cache seed saves what the iOS jobs restore
+        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        run: python3 tests/test_ios_link_ffi_cache_seed.py
 
       - name: Validate a Mac-built CmuxMobileLinkFFI.xcframework is reused by the job's next step
         if: ${{ !cancelled() && matrix.group == 'release-ios' }}
