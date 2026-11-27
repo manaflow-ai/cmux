@@ -306,13 +306,6 @@ final class LayoutViewContext {
         }
     }
 
-    /// The panes `screen` took out of its layout that still show (``retire(_:from:until:)``): until the change that took
-    /// them out shows, or, when that change moves its panes, under the panes that take their room until the motion's end
-    /// (`PaneCommitMotion.keepsDeparted`). O(retired panes).
-    func retiredShown(of screen: ScreenID) -> [PaneID] {
-        retired.compactMap { pane, entry in entry.screen == screen && entry.shown ? pane : nil }
-    }
-
     /// The layout change that took them out shows in this turn: the hosts `screen` kept shown for it
     /// (``retire(_:from:until:)``) hide, their rings with them. Their teardown is work no frame
     /// shows: it follows that frame's commit (``releaseRetired(of:until:)``). Returns whether any hid.
