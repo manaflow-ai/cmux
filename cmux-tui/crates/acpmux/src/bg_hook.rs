@@ -221,11 +221,14 @@ fn short_bound(rest: &[&str]) -> bool {
 
 /// A wait's bound in seconds: `90`, `90s`, `2m`, `1h`.
 fn seconds(value: &str) -> Option<f64> {
-    let (number, unit) = match value.char_indices().last()? {
-        (at, 's') => (&value[..at], 1.0),
-        (at, 'm') => (&value[..at], 60.0),
-        (at, 'h') => (&value[..at], 3600.0),
-        _ => (value, 1.0),
+    let (number, unit) = if let Some(number) = value.strip_suffix('s') {
+        (number, 1.0)
+    } else if let Some(number) = value.strip_suffix('m') {
+        (number, 60.0)
+    } else if let Some(number) = value.strip_suffix('h') {
+        (number, 3600.0)
+    } else {
+        (value, 1.0)
     };
     number.parse::<f64>().ok().filter(|n| n.is_finite()).map(|n| n * unit)
 }

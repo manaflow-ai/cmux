@@ -3,7 +3,7 @@
 // final assistant message should be collapsed"). The arms that keep every reply in sight (Leo, 2026-11-06) are tested in
 // turn-fold-keeps-replies.test.ts.
 // Short narration between steps folds with them. While running, intermediate dialogue remains visible.
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, expect, test, beforeEach } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { isTakeaway, turnFoldFor, turnView, toggleTurnFold } from "../src/agent-session/acpmux/conversation/turns";
 
