@@ -3,7 +3,7 @@ use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _};
 
 /// A daemon on a unix socket that answers every method `{"ok": true}`, and
 /// `_acpmux/transfer_interrupts` with `interrupts` (None: an older acpmux, method not found).
-async fn holder(interrupts: Option<Value>) -> (tempfile::TempDir, Client) {
+async fn holder(interrupts: Option<Value>) -> (tempfile::TempDir, std::sync::Arc<Client>) {
     let dir = tempfile::tempdir().unwrap();
     let socket = dir.path().join("d.sock");
     let listener = tokio::net::UnixListener::bind(&socket).unwrap();
