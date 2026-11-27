@@ -543,6 +543,11 @@ impl Hub {
         // with no sign-in of its own fails with the fix (`joined_model_plane::no_sign_in`). An
         // opted-in launch that keeps own on purpose (a launcher of its own, a pair it sets) logs
         // why and keeps it.
+        // The launch choices and the team route can each replace a file-backed --settings
+        // with inline JSON. Keep its origin for the local Seatbelt decision after both merges.
+        if !meta.remote_origin && p.kind == crate::config::HarnessKind::ClaudeStdio {
+            crate::local_sandbox::capture_flag_origin(&p.argv, Path::new(&meta.cwd), &mut p.env);
+        }
         let claude_family = !direct
             && crate::config::derive_family(&meta.harness, &p) == "claude"
             && !p.env.contains_key(crate::routes::NAME_KEY);

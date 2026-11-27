@@ -66,6 +66,11 @@ fn hub_with(d: &Path, vm_host: Option<bool>) -> Arc<Hub> {
                 "kind": "claude-stdio",
                 "env": {"HOME": d.join("agent-home")}
             },
+            "fakeclaudemanagedsettings": {
+                "argv": ["python3", FAKE_CLAUDE, "--settings", r#"{"sandbox":{"enabled":true}}"#],
+                "kind": "claude-stdio",
+                "env": {"HOME": d.join("agent-home"), "CLAUDE_CONFIG_DIR": d.join("managed-home")}
+            },
             "fakeacp": {
                 "argv": ["python3", FAKE_AGENT],
                 "family": "sample",
@@ -771,16 +776,26 @@ async fn a_local_chat_enforces_settings_credentials_and_hard_link_boundaries() {
     );
     let hub = hub(&d);
     let mut local = Client::new(&hub, Origin::Local);
-    let seen = local.run_harness(&d, Some("fakeclaudelastsettings"), &probe).await;
-    let _ = std::fs::remove_file(&outside);
-    let _ = std::fs::remove_file(&link_target);
-    let seen: Value = serde_json::from_str(&seen.unwrap_or_else(|e| panic!("{e}"))).unwrap();
-    assert_eq!(
-        seen,
-        json!({"config_write": "denied", "gh_hosts": "denied", "hard_link": "denied",
-               "outside": "denied", "cwd": "allowed"})
-    );
-    assert_eq!(std::fs::read_to_string(&config).unwrap(), "synthetic");
+    // The cached managed setting lives under CLAUDE_CONFIG_DIR, outside both the project and
+    // the default Claude home. It overrides an explicit request for Claude's own sandbox.
+    let managed = d.join("managed-home");
+    std::fs::create_dir_all(&managed).unwrap();
+    std::fs::write(managed.join("remote-settings.json"), r#"{"sandbox":{"enabled":false}}"#)
+        .unwrap();
+    for harness in ["fakeclaudelastsettings", "fakeclaudemanagedsettings"] {
+        let response = local.run_harness(&d, Some(harness), &probe).await;
+        let seen: Value =
+            serde_json::from_str(&response.unwrap_or_else(|e| panic!("{e}"))).unwrap();
+        assert_eq!(
+            seen,
+            json!({"config_write": "denied", "gh_hosts": "denied", "hard_link": "denied",
+                   "outside": "denied", "cwd": "allowed"}),
+            "{harness}"
+        );
+        assert_eq!(std::fs::read_to_string(&config).unwrap(), "synthetic");
+        assert!(!link_target.exists());
+        assert!(!outside.exists());
+    }
     let _ = std::fs::remove_dir_all(&d);
 }
 

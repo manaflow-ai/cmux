@@ -22,7 +22,6 @@
 ;; Seatbelt applies the last rule that matches.
 (version 1)
 (allow default)
-(deny file-link)
 
 ;; Writes: the chat's folders, the temporary folders, the harness's own state
 ;; and the toolchains' caches. Never the rest of home (shell startup files,
@@ -31,7 +30,6 @@
 (allow file-write*
   (subpath (param "CWD"))
   (subpath (param "SESSION_TMP"))
-  (subpath (param "ACPMUX_HOME"))
   (subpath "/private/tmp")
   (subpath "/private/var/folders")
   (subpath "/dev")
@@ -59,6 +57,10 @@
 ;; @FOLDERS@
   )
 
+;; acpmux reads its daemon state when it starts later chats. The state may
+;; live inside a chat or temporary folder, so this denial follows all write grants.
+(deny file-write* (subpath (param "ACPMUX_HOME")))
+
 ;; The sandbox policy itself is read by the daemon before each new chat. Keep
 ;; cmux's settings trees immutable from inside the sandbox, including the
 ;; legacy path used by the one-time macOS migration and an explicit override.
@@ -77,18 +79,13 @@
 (deny file-link)
 
 ;; Credentials a local agent never reads, though their tools keep working:
-;; private keys (ssh still finds known_hosts, its config and the agent's
-;; keys through SSH_AUTH_SOCK), cloud and registry tokens, browser cookies
-;; and profiles and system or user Keychains.
+;; private keys, cloud and registry tokens, browser cookies and profiles,
+;; and system or user Keychains.
 (deny file-read* file-write*
   (subpath (string-append (param "HOME") "/.ssh"))
-  (subpath (string-append (param "AGENT_HOME") "/.ssh"))
   (subpath (string-append (param "HOME") "/.secrets"))
-  (subpath (string-append (param "AGENT_HOME") "/.secrets"))
   (subpath (string-append (param "HOME") "/.aws"))
-  (subpath (string-append (param "AGENT_HOME") "/.aws"))
   (subpath (string-append (param "HOME") "/.gnupg"))
-  (subpath (string-append (param "AGENT_HOME") "/.gnupg"))
   (subpath (string-append (param "HOME") "/.kube"))
   (subpath (string-append (param "HOME") "/.config/gh"))
   (subpath (param "GH_CONFIG_DIR"))
@@ -102,7 +99,6 @@
   (literal (string-append (param "HOME") "/.docker/config.json"))
   (literal (string-append (param "HOME") "/.codex/auth.json"))
   (subpath (string-append (param "HOME") "/Library/Keychains"))
-  (subpath "/Library/Keychains")
   (subpath (string-append (param "HOME") "/Library/Cookies"))
   (subpath (string-append (param "HOME") "/Library/Application Support/Google/Chrome"))
   (subpath (string-append (param "HOME") "/Library/Application Support/Firefox"))
@@ -131,8 +127,7 @@
   (subpath (string-append (param "AGENT_HOME") "/Library/Application Support/BraveSoftware"))
   (subpath (string-append (param "AGENT_HOME") "/Library/Application Support/Arc"))
   (subpath (string-append (param "AGENT_HOME") "/Library/Safari")))
-;; ssh's own non-secret files stay readable: without known_hosts and its
-;; config, git over ssh stops even with keys in the agent.
+;; ssh can read the account's config and known_hosts.
 (allow file-read*
   (literal (string-append (param "HOME") "/.ssh"))
   (literal (string-append (param "HOME") "/.ssh/config"))

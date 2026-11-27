@@ -497,16 +497,21 @@ fn build_harness_command(
     if plugin_hooks && !remote_environment {
         cmd.env(crate::bg_hook::HOME_ENV, crate::config::home());
     }
+    cmd.env_remove(crate::local_sandbox::FLAG_ORIGIN);
     // Derive the local boundary only after login, machine, profile, session and secret env
     // have been applied. The settings and API route must be the ones the child receives.
     // Do this before stdio, process-group and CwdPin setup so no spawn hooks are lost.
     if claude_session && !remote_environment {
         let final_env = command_env(&cmd);
-        let final_env_map = final_env.iter().cloned().collect();
+        let mut final_env_map: std::collections::BTreeMap<_, _> =
+            final_env.iter().cloned().collect();
+        if let Some(origin) = profile.env.get(crate::local_sandbox::FLAG_ORIGIN) {
+            final_env_map.insert(crate::local_sandbox::FLAG_ORIGIN.into(), origin.clone());
+        }
         let final_args: Vec<String> =
             cmd.as_std().get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
         if let Some((sandbox_program, sandbox_args)) =
-            crate::local_sandbox::prefix(&final_args, cwd, &final_env_map)
+            crate::local_sandbox::prefix(&final_args, cwd, &final_env_map)?
         {
             cmd = wrap_local_sandbox_command(
                 cmd,
@@ -626,6 +631,8 @@ pub(crate) fn resolved_profile_env(
     profile: &HarnessProfile,
 ) -> Result<std::collections::BTreeMap<String, String>> {
     let mut env = profile.env.clone();
+    // This file name is private launch metadata, never a secret reference or a child variable.
+    env.remove(crate::local_sandbox::FLAG_ORIGIN);
     if !crate::config::profiles::has_env_refs(&env) {
         return Ok(env);
     }

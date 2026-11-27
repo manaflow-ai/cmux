@@ -103,12 +103,16 @@ fn the_profile_denies_credentials_writes_and_other_ports() {
 
 #[test]
 fn the_profile_keeps_home_ssh_metadata_and_closes_escape_boundaries() {
-    assert!(PROFILE.contains(r#"(literal (string-append (param "HOME") "/.ssh/config"))"#));
-    assert!(PROFILE.contains(r#"(literal (string-append (param "HOME") "/.ssh/known_hosts"))"#));
-    assert!(!PROFILE.contains(r#"(literal (string-append (param "AGENT_HOME") "/.ssh/config"))"#));
-    assert!(
-        !PROFILE.contains(r#"(literal (string-append (param "AGENT_HOME") "/.ssh/known_hosts"))"#)
-    );
+    let (_, public_reads) = PROFILE.split_once("(allow file-read*").unwrap();
+    for path in ["/.ssh", "/.ssh/config", "/.ssh/known_hosts"] {
+        let account = format!(r#"(literal (string-append (param "HOME") "{path}"))"#);
+        let alternate = format!(r#"(literal (string-append (param "AGENT_HOME") "{path}"))"#);
+        assert!(public_reads.contains(&account), "{account}");
+        assert!(!public_reads.contains(&alternate), "{alternate}");
+    }
+    let (grants, restrictions) = PROFILE.split_once(";; @FOLDERS@").unwrap();
+    assert!(!grants.contains(r#"(subpath (param "ACPMUX_HOME"))"#));
+    assert!(restrictions.contains(r#"(deny file-write* (subpath (param "ACPMUX_HOME")))"#));
     assert!(
         PROFILE.contains(r#"(remote unix-socket (path-literal "/private/var/run/mDNSResponder"))"#)
     );
@@ -177,7 +181,7 @@ fn untrusted_worktree_metadata_cannot_add_an_arbitrary_write_root() {
 }
 
 #[test]
-fn claude_codes_own_sandbox_is_seen_from_any_settings_source() {
+fn only_an_effective_trusted_setting_can_select_claudes_sandbox() {
     let t = tempfile::tempdir().unwrap();
     let (cwd, home) = (t.path().join("cwd"), t.path().join("home"));
     std::fs::create_dir_all(cwd.join(".claude")).unwrap();
@@ -200,7 +204,7 @@ fn claude_codes_own_sandbox_is_seen_from_any_settings_source() {
         &env
     ));
     std::fs::write(cwd.join(".claude/settings.local.json"), on).unwrap();
-    assert!(claude_sandbox_on(&[], &cwd, &env));
+    assert!(!claude_sandbox_on(&[], &cwd, &env));
     std::fs::remove_file(cwd.join(".claude/settings.local.json")).unwrap();
     std::fs::write(home.join(".claude/settings.json"), on).unwrap();
     assert!(claude_sandbox_on(&[], &cwd, &env));
@@ -217,7 +221,17 @@ fn claude_codes_own_sandbox_is_seen_from_any_settings_source() {
     std::fs::write(configured.join("settings.json"), on).unwrap();
     assert!(!claude_sandbox_on(&s(&["--setting-sources", "project,local"]), &cwd, &env));
     std::fs::write(cwd.join(".claude/settings.json"), on).unwrap();
-    assert!(claude_sandbox_on(&s(&["--setting-sources", "project"]), &cwd, &env));
+    assert!(!claude_sandbox_on(&s(&["--setting-sources", "project"]), &cwd, &env));
+    let off = r#"{"sandbox":{"enabled":false}}"#;
+    std::fs::write(cwd.join(".claude/settings.json"), off).unwrap();
+    assert!(!claude_sandbox_on(&[], &cwd, &env));
+    assert!(claude_sandbox_on(&s(&["--setting-sources=user"]), &cwd, &env));
+
+    std::fs::write(cwd.join("launch.json"), on).unwrap();
+    let flags = s(&["--settings", on, "--settings=launch.json"]);
+    assert!(!claude_sandbox_on(&flags, &cwd, &env));
+    assert!(claude_sandbox_on(&s(&["--settings", on, "--", "--settings=launch.json"]), &cwd, &env));
+    assert!(!claude_sandbox_on(&s(&["--settings", on, "--settings"]), &cwd, &env));
 }
 
 #[test]
@@ -272,6 +286,19 @@ fn a_folder_at_or_above_home_is_never_a_write_root() {
     assert!(!b.folders.iter().any(|d| home.starts_with(d)), "{:?}", b.folders);
 }
 
+#[cfg(unix)]
+#[test]
+fn a_required_boundary_that_cannot_start_returns_a_launch_error() {
+    let t = tempfile::tempdir().unwrap();
+    let config = t.path().join("settings-home");
+    let env = BTreeMap::from([("CLAUDE_CONFIG_DIR".into(), config.display().to_string())]);
+    let args = s(&["--settings", r#"{"sandbox":{"enabled":false}}"#]);
+    let missing = required_prefix("", &args, t.path(), &env).unwrap_err();
+    assert!(missing.to_string().contains("Seatbelt"));
+    let unsafe_folder = required_prefix("/bin/sh", &args, Path::new("/"), &env).unwrap_err();
+    assert!(unsafe_folder.to_string().contains("chat folder"));
+}
+
 #[test]
 fn an_added_folder_at_or_above_agent_home_is_never_a_write_root() {
     let Some(home) = dirs::home_dir() else { return };
@@ -309,11 +336,11 @@ fn profile_does_not_grant_tool_executable_write_roots() {
 fn api_port_follows_settings_precedence_and_the_effective_child_environment() {
     let t = tempfile::tempdir().unwrap();
     let cwd = t.path().join("cwd");
-    let config = cwd.join("custom");
+    let config = t.path().join("custom");
     std::fs::create_dir_all(cwd.join(".claude")).unwrap();
     std::fs::create_dir_all(&config).unwrap();
     let env = BTreeMap::from([
-        ("CLAUDE_CONFIG_DIR".into(), "custom".into()),
+        ("CLAUDE_CONFIG_DIR".into(), config.display().to_string()),
         ("ANTHROPIC_BASE_URL".into(), "https://env.test:8001".into()),
     ]);
     let settings =
@@ -322,18 +349,48 @@ fn api_port_follows_settings_precedence_and_the_effective_child_environment() {
     std::fs::write(config.join("settings.json"), settings(8002)).unwrap();
     std::fs::write(cwd.join(".claude/settings.json"), settings(8003)).unwrap();
     std::fs::write(cwd.join(".claude/settings.local.json"), settings(8004)).unwrap();
-    assert_eq!(api_endpoint(&[], &cwd, &env).as_deref(), Some("https://settings.test:8004"));
+    assert_eq!(api_endpoint(&[], &cwd, &env), None);
+    assert_eq!(api_endpoint(&s(&["--setting-sources=project"]), &cwd, &env), None);
     assert_eq!(
         api_endpoint(&s(&["--setting-sources=user"]), &cwd, &env).as_deref(),
         Some("https://settings.test:8002")
     );
     std::fs::write(cwd.join("override.json"), settings(8005)).unwrap();
     let flags = s(&["--settings", &settings(8006), "--settings", "override.json"]);
-    assert_eq!(api_endpoint(&flags, &cwd, &env).as_deref(), Some("https://settings.test:8005"));
+    assert_eq!(api_endpoint(&flags, &cwd, &env), None);
+    let inline_last = s(&["--settings", "override.json", "--settings", &settings(8006)]);
+    assert_eq!(
+        api_endpoint(&inline_last, &cwd, &env).as_deref(),
+        Some("https://settings.test:8006")
+    );
     std::fs::write(config.join("remote-settings.json"), settings(8007)).unwrap();
     assert_eq!(api_endpoint(&flags, &cwd, &env).as_deref(), Some("https://settings.test:8007"));
     std::fs::write(config.join("remote-settings.json"), "{").unwrap();
     assert_eq!(api_endpoint(&flags, &cwd, &env), None);
+}
+
+#[test]
+fn settings_inside_project_roots_cannot_grant_exceptions_through_other_sources() {
+    let t = tempfile::tempdir().unwrap();
+    let project = t.path().join("repo");
+    let cwd = project.join("subdir");
+    let added = t.path().join("added");
+    std::fs::create_dir_all(project.join(".git")).unwrap();
+    std::fs::create_dir_all(&cwd).unwrap();
+    std::fs::create_dir_all(&added).unwrap();
+    let setting =
+        r#"{"sandbox":{"enabled":true},"env":{"ANTHROPIC_BASE_URL":"https://example.test:8443"}}"#;
+    let args = vec!["--add-dir".into(), added.display().to_string()];
+    for dir in [&project, &added] {
+        let env = BTreeMap::from([("CLAUDE_CONFIG_DIR".into(), dir.display().to_string())]);
+        for name in ["settings.json", "remote-settings.json"] {
+            let file = dir.join(name);
+            std::fs::write(&file, setting).unwrap();
+            assert!(!claude_sandbox_on(&args, &cwd, &env));
+            assert_eq!(api_endpoint(&args, &cwd, &env), None);
+            std::fs::remove_file(file).unwrap();
+        }
+    }
 }
 
 #[test]
