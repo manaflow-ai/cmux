@@ -10,7 +10,7 @@ is off. The Cloud activity worker captures ordinary running or permission-waitin
 serially, with a 30-second delay after each pass. A slow upload can extend that interval.
 It uses the existing store's authorization; unsupported machine credentials still fail.
 
-Inspect the opt-in and successful checkpoint receipts, or capture an enrolled chat now:
+Inspect the opt-in and the latest 4,096 chat checkpoint receipts, or capture an enrolled chat now:
 
 ```sh
 acpmux running-replica status --json
@@ -35,7 +35,8 @@ does not require enabling automatic replicas on the destination:
 acpmux running-replica recover PAIR --cwd /absolute/restored/project --name recovered-chat --json
 ```
 
-The command creates an idle chat with a new identity. It refuses native-session collisions
+Native capture currently supports Claude, Codex, and Pi. The command creates an idle chat
+with a new identity. It refuses native-session collisions
 and unsupported native recovery formats. Interrupted tools have an unknown outcome; check
 their external effects before asking the recovered agent to continue. Queued prompts and
 scheduled work remain inert history, so importing or restarting the daemon cannot replay

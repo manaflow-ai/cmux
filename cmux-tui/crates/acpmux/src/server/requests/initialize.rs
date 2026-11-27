@@ -112,6 +112,7 @@ const EXTENSIONS: &[&str] = &[
     method::MUX_REPORT,
     method::MUX_RESOLVE,
     method::MUX_RETENTION,
+    method::MUX_RUNNING_REPLICA,
     method::MUX_ROLE,
     method::MUX_ROWS,
     method::MUX_SEEN,

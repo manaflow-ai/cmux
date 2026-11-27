@@ -13,6 +13,7 @@ use std::time::Duration;
 
 static OPERATION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 const PERIOD: Duration = Duration::from_secs(30);
+const MAX_RECEIPTS: usize = 4096;
 
 fn enabled(state: &Path) -> Result<bool> {
     Ok(Config::load_in(state)?.is_some_and(|config| config.running_replica))
@@ -93,9 +94,22 @@ fn receipts(state: &Path) -> Result<Value> {
     }
 }
 
+fn remember(saved: &mut Value, session: &str, receipt: Value) -> Result<()> {
+    let entries = saved.as_object_mut().context("replica receipt index must be an object")?;
+    entries.insert(session.to_owned(), receipt);
+    while entries.len() > MAX_RECEIPTS {
+        let oldest = entries
+            .iter()
+            .min_by_key(|(_, value)| value["checkpointedAt"].as_u64().unwrap_or(0))
+            .map(|(key, _)| key.clone())
+            .context("replica receipt index is empty")?;
+        entries.remove(&oldest);
+    }
+    Ok(())
+}
+
 /// The RPC caller checks local-only origin before reaching this handler.
 pub(crate) async fn request(hub: Arc<Hub>, params: Value) -> Result<Value> {
-    let _operation = OPERATION.lock().await;
     let state = crate::config::home();
     match required(&params, "action")? {
         "address" => {
@@ -114,6 +128,7 @@ pub(crate) async fn request(hub: Arc<Hub>, params: Value) -> Result<Value> {
             }))
         }).await?,
         "checkpoint" => {
+            let _operation = OPERATION.lock().await;
             let session = hub.resolve(required(&params, "sessionId")?)
                 .map_err(|error| anyhow::anyhow!(error.message))?;
             if hub.auto_record(&session).is_some() {
@@ -129,12 +144,13 @@ pub(crate) async fn request(hub: Arc<Hub>, params: Value) -> Result<Value> {
                 let receipt = replica::publish(&bundle, &session.id, &cloud)?;
                 let result = json!({"receipt": receipt, "checkpointedAt": crate::store::now_ms()});
                 let mut saved = receipts(&state)?;
-                saved[&session.id] = result.clone();
+                remember(&mut saved, &session.id, result.clone())?;
                 cmux_session_cloud::write_durable(&receipts_path(&state), &serde_json::to_vec(&saved)?)?;
                 Ok(result)
             }).await?
         }
         "recover" => {
+            let _operation = OPERATION.lock().await;
             let pair = required(&params, "pair")?.to_string();
             let cwd = PathBuf::from(required(&params, "cwd")?);
             if !cwd.is_absolute() || !cwd.is_dir() {
@@ -158,6 +174,18 @@ pub(crate) async fn request(hub: Arc<Hub>, params: Value) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn running_replica_receipts_keep_the_latest_bounded_index() {
+        let mut saved = json!({});
+        for n in 0..=MAX_RECEIPTS {
+            remember(&mut saved, &n.to_string(), json!({"checkpointedAt": n})).unwrap();
+        }
+        assert_eq!(saved.as_object().unwrap().len(), MAX_RECEIPTS);
+        assert!(saved.get("0").is_none());
+        assert!(saved.get(MAX_RECEIPTS.to_string()).is_some());
+        assert!(remember(&mut json!([]), "id", json!({})).is_err());
+    }
 
     #[test]
     fn running_replica_is_separate_opt_in_and_keeps_silent_turns() {

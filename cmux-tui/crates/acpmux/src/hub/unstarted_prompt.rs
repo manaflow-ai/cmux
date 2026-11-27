@@ -26,7 +26,7 @@ use std::collections::{BTreeMap, HashSet};
 
 /// The direct prompts whose turn has not started, read in log order.
 #[derive(Default)]
-pub(super) struct Unstarted {
+pub(in crate::hub) struct Unstarted {
     /// Turns that came out of the queue: their prompts are `lost_start.rs`'s.
     queued_turns: HashSet<String>,
     /// Turns already started: a watched conversation logs `turn_started` before the prompt's
@@ -42,7 +42,7 @@ fn field<'a>(e: &'a EventRecord, k: &str) -> Option<&'a str> {
 
 impl Unstarted {
     /// One record of the restore's scan.
-    pub(super) fn read(&mut self, e: &EventRecord) {
+    pub(in crate::hub) fn read(&mut self, e: &EventRecord) {
         if e.dir != "mux" {
             return;
         }
@@ -102,7 +102,7 @@ impl Unstarted {
     }
 
     /// The `user_message` records of the prompts left unstarted, oldest first.
-    pub(super) fn finish(self) -> Vec<EventRecord> {
+    pub(in crate::hub) fn finish(self) -> Vec<EventRecord> {
         let mut left: Vec<EventRecord> = self.by_turn.into_values().collect();
         left.sort_by_key(|e| e.seq);
         left

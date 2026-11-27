@@ -104,6 +104,12 @@ impl Hub {
         );
         let mut meta: SessionMeta =
             serde_json::from_slice(&std::fs::read(staged.join("session.json"))?)?;
+        anyhow::ensure!(
+            manifest["id"] == meta.id
+                && manifest["lastSeq"].as_u64() == Some(meta.last_seq)
+                && manifest["replica"]["throughSeq"].as_u64() == Some(meta.last_seq),
+            "replica manifest and journal watermark disagree"
+        );
         anyhow::ensure!(meta.auto_session.is_none(), "Auto recovery requires its fenced holder");
         require_native(
             &meta,
@@ -146,6 +152,15 @@ impl Hub {
         // Validate and place native state strictly. The generic import tolerates divergent
         // existing native files, which is inappropriate for a recovered durable copy.
         let plan = crate::native::guarded_plan(&staged, &meta).map_err(anyhow::Error::msg)?;
+        let listed = manifest["native"].as_array().context("replica native manifest is invalid")?;
+        anyhow::ensure!(plan.len() == listed.len(), "replica native files do not match manifest");
+        for entry in listed {
+            let path = entry["path"].as_str().context("replica native path is invalid")?;
+            anyhow::ensure!(
+                plan.iter().any(|(source, _)| source == &staged.join("native").join(path)),
+                "replica is missing a declared native file"
+            );
+        }
         let native = staged.join("native");
         let kept = scratch.path().join("native");
         if native.exists() {
@@ -154,12 +169,12 @@ impl Hub {
         let plan: Vec<_> = plan
             .into_iter()
             .map(|(src, dst)| {
-                (
-                    kept.join(src.strip_prefix(&native).expect("native plan is inside the bundle")),
+                Ok((
+                    kept.join(src.strip_prefix(&native).context("native plan escaped bundle")?),
                     dst,
-                )
+                ))
             })
-            .collect();
+            .collect::<Result<_>>()?;
         // This refuses even an orphaned same-id file; no source's native store is overwritten.
         crate::qos::off_worker(|| crate::native::restore_guarded(&plan, false))?;
         let imported = self
@@ -338,13 +353,21 @@ fn inert(record: &mut EventRecord) -> bool {
 }
 
 fn project_history(bundle: &Path, meta: &mut SessionMeta) -> Result<u64> {
+    for entry in std::fs::read_dir(bundle.join("events"))? {
+        anyhow::ensure!(
+            entry?.file_name() == "000001.ndjson",
+            "replica contains an unexpected journal file"
+        );
+    }
     let path = bundle.join("events/000001.ndjson");
     let input = std::io::BufReader::new(std::fs::File::open(&path)?);
     let projected = bundle.join("events/projected.part");
     let mut out = std::io::BufWriter::new(crate::home_fs::create_file(&projected)?);
     let (mut last, mut bytes, mut archived) = (0u64, 0u64, 0u64);
-    let mut direct = super::unstarted_prompt::Unstarted::default();
+    let mut direct = super::queue::unstarted_prompt::Unstarted::default();
     let mut open = None;
+    let mut tools = std::collections::BTreeMap::<String, Value>::new();
+    let mut settled_tools = std::collections::BTreeSet::new();
     for line in input.lines() {
         let mut record: EventRecord = serde_json::from_str(&line?)?;
         anyhow::ensure!(
@@ -359,9 +382,39 @@ fn project_history(bundle: &Path, meta: &mut SessionMeta) -> Result<u64> {
             "turn_result" => open = None,
             _ => {}
         }
+        if matches!(record.kind.trim_end_matches(".replay"), "tool_call" | "tool_call_update") {
+            if let Some(update) = record.msg.pointer("/params/update") {
+                if let Some(id) = update["toolCallId"].as_str() {
+                    if matches!(update["status"].as_str(), Some("completed" | "failed")) {
+                        tools.remove(id);
+                        settled_tools.insert(id.to_owned());
+                    } else if !settled_tools.contains(id) {
+                        tools.insert(id.to_owned(), record.msg.clone());
+                    }
+                }
+            }
+        }
         write_record(&mut out, &record, &mut bytes)?;
     }
     anyhow::ensure!(last == meta.last_seq, "replica journal is incomplete");
+    for (id, msg) in tools {
+        last += 1;
+        let msg = json!({"jsonrpc":"2.0", "method":"session/update", "params": {
+            "sessionId": msg.pointer("/params/sessionId"), "update": {
+                "sessionUpdate": "tool_call_update", "toolCallId": id, "status": "failed",
+                "_meta": {"acpmux": {"outcomeUnknown": true}}
+            }
+        }});
+        let event = EventRecord {
+            seq: last,
+            at: meta.updated_at,
+            dir: "agent".into(),
+            kind: "tool_call_update".into(),
+            msg,
+            host_seq: None,
+        };
+        write_record(&mut out, &event, &mut bytes)?;
+    }
     // Settle in the staged bundle, before import publishes anything. Even a crash during
     // import cannot turn an accepted but unstarted prompt into a recovered automatic run.
     for started in direct.finish().into_iter().chain(open) {
@@ -401,6 +454,196 @@ mod tests {
             msg: json!({"turnId": "t", "promptId": "p", "text": "preserved"}),
             host_seq: None,
         }
+    }
+
+    fn meta(id: &str, cwd: &Path) -> SessionMeta {
+        serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": id,
+            "harness": "fake", "family": "claude", "cwd": cwd,
+            "status": "running", "createdAt": 1, "updatedAt": 2
+        }))
+        .unwrap()
+    }
+
+    fn hub(root: &Path) -> Arc<Hub> {
+        let cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["false"], "family": "claude"}},
+            "defaultHarness": "fake", "store": {"mode": "local"}
+        }))
+        .unwrap();
+        let store = crate::store::open(&cfg.store, root).unwrap();
+        Hub::new(cfg, store)
+    }
+
+    fn native_path(cwd: &Path, id: &str) -> PathBuf {
+        let project: String = cwd
+            .to_string_lossy()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+            .collect();
+        dirs::home_dir().unwrap().join(".claude/projects").join(project).join(format!("{id}.jsonl"))
+    }
+
+    // Only directories with a unique test-created working-directory name are removed.
+    struct NativeFiles(Vec<PathBuf>);
+    impl Drop for NativeFiles {
+        fn drop(&mut self) {
+            for path in &self.0 {
+                let _ = std::fs::remove_file(path);
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::remove_dir(parent);
+                }
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn running_replica_long_silent_turn_recovers_idle_and_stays_inert_after_restart() {
+        use cmux_session_cloud::{Cloud, replica, seal, store::FsStore};
+        let tmp = tempfile::tempdir().unwrap();
+        let source_cwd = tmp.path().join("source-cwd");
+        let recovery_cwd = tmp.path().join("recovery-cwd");
+        std::fs::create_dir_all(&source_cwd).unwrap();
+        std::fs::create_dir_all(&recovery_cwd).unwrap();
+        let source_store = tempfile::tempdir().unwrap();
+        let source = hub(source_store.path());
+        let source_id = uuid::Uuid::now_v7().to_string();
+        let native_id = uuid::Uuid::now_v7().to_string();
+        let mut metadata = meta(&source_id, &source_cwd);
+        metadata.agent_session_id = Some(native_id.clone());
+        source.store.save(&metadata).unwrap();
+        let session = source.make_session(metadata);
+        source.sessions.lock().unwrap().insert(source_id.clone(), session.clone());
+        source.append(
+            &session,
+            "mux",
+            "user_message",
+            json!({
+                "turnId":"t", "promptId":"p", "text":"long running task"
+            }),
+        );
+        source.append(&session, "mux", "turn_started", json!({"turnId":"t", "promptId":"p"}));
+        for i in 0..2048 {
+            source.append(
+                &session,
+                "agent",
+                "agent_message_chunk",
+                json!({
+                    "params": {"sessionId": native_id, "update": {
+                        "sessionUpdate":"agent_message_chunk", "messageId":"m",
+                        "content":{"type":"text", "text":format!("chunk {i}\n")}
+                    }}
+                }),
+            );
+        }
+        source.append(
+            &session,
+            "agent",
+            "tool_call",
+            json!({"params": {
+                "sessionId": native_id, "update": {"sessionUpdate":"tool_call",
+                "toolCallId":"silent-tool", "status":"in_progress", "title":"write files"}
+            }}),
+        );
+        source.append(
+            &session,
+            "mux",
+            "queued",
+            json!({
+                "turnId":"queued-turn", "promptId":"queued-prompt", "text":"do not execute"
+            }),
+        );
+        // An accepted direct prompt that never started must not re-enter the queue either.
+        source.append(
+            &session,
+            "mux",
+            "user_message",
+            json!({
+                "turnId":"accepted-turn", "promptId":"accepted-prompt", "text":"also inert"
+            }),
+        );
+        source.save_meta(&session);
+        let source_native = native_path(&source_cwd, &native_id);
+        let recovered_native = native_path(&recovery_cwd, &native_id);
+        let _cleanup = NativeFiles(vec![source_native.clone(), recovered_native.clone()]);
+        crate::home_fs::create_dirs(source_native.parent().unwrap()).unwrap();
+        crate::home_fs::write(&source_native, b"{\"type\":\"assistant\",\"text\":\"initial\"}\n")
+            .unwrap();
+        let first = source.capture_running_replica(&session, &tmp.path().join("first")).unwrap();
+        let cloud = Cloud {
+            store: Box::new(FsStore::new(tmp.path().join("cloud")).unwrap()),
+            key: seal::Key::from_bytes([7; 32]),
+            root_prefix: "m.running-test.".into(),
+        };
+        let before = replica::publish(&first, &source_id, &cloud).unwrap();
+        let through = session.meta().last_seq;
+        // Native progress changes without an ACP journal event: the long silent-turn case.
+        let mut native = std::fs::OpenOptions::new().append(true).open(&source_native).unwrap();
+        native.write_all(b"{\"type\":\"assistant\",\"text\":\"late silent progress\",\"permissionMode\":\"bypassPermissions\"}\n{\"partial\":").unwrap();
+        drop(native);
+        let second = source.capture_running_replica(&session, &tmp.path().join("second")).unwrap();
+        assert_eq!(session.meta().last_seq, through);
+        let after = replica::publish(&second, &source_id, &cloud).unwrap();
+        assert_ne!(before.manifest, after.manifest);
+        drop(session);
+        drop(source);
+        source_store.close().unwrap();
+        std::fs::remove_file(&source_native).unwrap();
+        std::fs::remove_dir_all(&first).unwrap();
+        std::fs::remove_dir_all(&second).unwrap();
+        let bundle = tmp.path().join("downloaded");
+        replica::recover(&after.pair, &bundle, &cloud).unwrap();
+        let destination = tmp.path().join("recovered-store");
+        let recovered = hub(&destination);
+        let result = recovered
+            .recover_running_replica(&bundle, &recovery_cwd, Some("recovered"))
+            .await
+            .unwrap();
+        let id = result["sessionId"].as_str().unwrap().to_owned();
+        assert_ne!(id, source_id);
+        assert_eq!(result["automaticContinuation"], false);
+        let chat = recovered.resolve_here(&id).unwrap();
+        assert_eq!(chat.meta().status, SessionStatus::Idle);
+        let mut events = Vec::new();
+        recovered
+            .scan_off(&id, 0, &mut |event| {
+                events.push(event);
+                true
+            })
+            .unwrap();
+        assert_eq!(events.iter().filter(|e| e.kind == "agent_message_chunk").count(), 2048);
+        assert!(events.iter().any(|e| e.kind == "replica_history" && e.msg["kind"] == "queued"));
+        assert_eq!(
+            events
+                .iter()
+                .filter(|e| e.kind == "turn_result" && e.msg["detail"] == "outcome_unknown")
+                .count(),
+            2
+        );
+        assert!(events.iter().any(|e| e.kind == "tool_call_update"
+            && e.msg.pointer("/params/update/_meta/acpmux/outcomeUnknown") == Some(&json!(true))));
+        let restored = std::fs::read_to_string(&recovered_native).unwrap();
+        assert!(restored.contains("late silent progress"));
+        assert!(!restored.contains("bypassPermissions"));
+        assert!(!restored.contains("partial"));
+        recovered.restore_queue(&chat);
+        assert!(chat.queue.lock().unwrap().is_empty());
+        drop(chat);
+        drop(recovered);
+        let restarted = hub(&destination);
+        let chat = restarted.resolve_here(&id).unwrap();
+        restarted.restore_queue(&chat);
+        assert!(chat.queue.lock().unwrap().is_empty());
+        assert_eq!(chat.meta().status, SessionStatus::Idle);
+    }
+
+    #[test]
+    fn running_replica_refuses_extra_journal_segments() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(tmp.path().join("events")).unwrap();
+        std::fs::write(tmp.path().join("events/000001.ndjson"), "").unwrap();
+        std::fs::write(tmp.path().join("events/000002.ndjson"), "").unwrap();
+        assert!(project_history(tmp.path(), &mut meta("test", tmp.path())).is_err());
     }
 
     #[test]
