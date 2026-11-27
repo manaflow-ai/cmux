@@ -84,6 +84,7 @@ on:
       - "schemas/surface-roles/surface-roles.json"
       - "schemas/type-scale/scene-type.json"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift"
+      - "schemas/composer-status/peek-pin.json"
   workflow_dispatch:
     inputs:
       pr:
@@ -125,7 +126,7 @@ jobs:
   build:
     if: github.repository == 'manaflow-ai/cmux' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/nightly-next' && !inputs.pr && !inputs.ref)
     name: build the web bundles for this source key
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 20
     permissions:
       contents: read
@@ -150,7 +151,7 @@ jobs:
       # fails without them.
       - name: Check out the source key's dirs
         if: ${{ !inputs.pr && !inputs.ref && format('{0}', vars.NEXT_WEB_BUNDLE_SPARSE) != '0' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           filter: blob:none
@@ -200,7 +201,7 @@ jobs:
           exit 1
       - name: Check out the whole tree
         if: ${{ inputs.pr || inputs.ref || format('{0}', vars.NEXT_WEB_BUNDLE_SPARSE) == '0' }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       # A PR layer merges the PR head onto base, so it needs their history (no blobs): feat-cmux-next's alone,
@@ -310,7 +311,7 @@ jobs:
           fi
           pr="${BASH_REMATCH[1]}"
           head="$GITHUB_SHA"
-          git fetch -q --depth 2 --filter=blob:none origin "$head"
+          git fetch -q --depth 2 --filter=blob:none origin "$head" || { echo "::warning::fetching $head failed: no merged PR layer for #$pr"; exit 0; }
           parent="$(git rev-parse "$head^")"
           classify="$(python3 scripts/cmux-next/live_apply.py --json "$parent" "$head")" || { echo "::warning::live_apply failed: no merged PR layer for #$pr"; exit 0; }
           mkdir -p "$RUNNER_TEMP/pr-layer"
@@ -472,12 +473,12 @@ jobs:
     environment:
       name: artifacts
       deployment: ${{ !inputs.pr && !inputs.ref && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     steps:
       # Only the scripts and the two files this job reads: the whole tree (57k files) took about
       # 55 s to check out.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           filter: blob:none

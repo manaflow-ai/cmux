@@ -230,6 +230,28 @@ test("nothing saved yet reads as empty, a refusal as failed, a missing host as u
   expect(none.getSnapshot().status).toBe("unavailable");
 });
 
+test("reading again after a failure keeps the failure until the answer, never a flash of loading", async () => {
+  const mock = new MockArtifactsProvider();
+  let down = true;
+  const store = new ArtifactsStore(
+    new Host((op, params) => {
+      if (down) throw pageError("cmux.artifacts.unavailable", "unreachable", true);
+      return mock.call(op, params);
+    }),
+  );
+  await store.start();
+  expect(store.getSnapshot().status).toBe("failed");
+  const statuses: string[] = [];
+  store.subscribe(() => statuses.push(store.getSnapshot().status));
+  await store.start();
+  expect(statuses).not.toContain("loading");
+  expect(store.getSnapshot().status).toBe("failed");
+  down = false;
+  await store.start();
+  expect(statuses).not.toContain("loading");
+  expect(store.getSnapshot().status).toBe("ready");
+});
+
 test("a refresh keeps the tree on screen and the chosen file open", async () => {
   const store = new ArtifactsStore(new MockArtifactsProvider());
   await store.start();

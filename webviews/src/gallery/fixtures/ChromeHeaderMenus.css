@@ -55,7 +55,7 @@
 .chrome-header-menu-item:is(:has([data-popup-open]), :focus-visible, [aria-expanded="true"]) { background: var(--chrome-menu-hover); outline: none; }
 .chrome-header-menu-item[data-separator-before] { margin-top: var(--chrome-menu-gap); border-top: thin solid var(--chrome-menu-edge); border-top-left-radius: 0; border-top-right-radius: 0; }
 .chrome-header-menu-item[data-destructive] { color: var(--agent-error, #c84848); }
-.chrome-header-menu-item kbd { margin-inline-start: auto; font: inherit; opacity: .55; }
+.chrome-header-menu-item .ui-key-hint { margin-inline-start: auto; }
 .chrome-header-menu-arrow { margin-inline-start: auto; opacity: .55; }
 .chrome-header-menu-submenu { position: absolute; left: 100%; top: var(--chrome-menu-gap); }
 [data-menu-side="pane"] .chrome-header-menu-submenu { left: auto; right: 100%; }
