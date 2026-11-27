@@ -748,14 +748,14 @@ pub enum Command {
     #[command(subcommand, name = "machine", aliases = aliases::MACHINE)]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
-    /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
+    /// files (~/.config/cmux-next/harnesses/<id>.toml). Also `cmux harness …`.
     #[command(subcommand)]
     Harness(HarnessCmd),
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
-    /// The fleet memory mount (~/.cmux/memory): sync, put, get, ls, history, status, and link a
-    /// harness's memory folder into it.
+    /// The memory mount shared by your machines (~/.cmux/memory): sync, put, get, ls, history,
+    /// status, and link a harness's memory folder into it.
     #[command(subcommand)]
     Memory(crate::cli::memory::MemoryCmd),
     /// Bridge Claude Desktop, Codex Desktop and ChatGPT Desktop to each other and to cmux sessions:
@@ -1072,6 +1072,12 @@ pub enum Command {
         /// never registered.
         #[arg(long)]
         renew: bool,
+        /// For cmux's own Claude Code hook (`cmux-tui-hook`, UserPromptSubmit): the first step
+        /// with no person's step, under NAME unless the chat has a name already. Nothing when
+        /// the chat is registered with this process; else a one-time code goes to the chat's
+        /// inbox, as from a send. Starts no daemon, never fails (`cli/hook_register.rs`).
+        #[arg(long, hide = true, conflicts_with_all = ["code", "renew"], requires = "name")]
+        auto: bool,
     },
     #[command(hide = true)]
     DetachParent { session: String },
@@ -1162,6 +1168,8 @@ pub enum Command {
     #[command(hide = true)]
     HistoryOffload(HistoryOffloadArgs),
     #[command(hide = true)]
+    TranscriptOffload(TranscriptOffloadArgs),
+    #[command(hide = true)]
     Status {
         #[arg(long)]
         show_token: bool,
@@ -1231,7 +1239,8 @@ pub enum Command {
         /// one harness, `session.memory_mb=6144`, `session.swap_mb=2048`,
         /// `session.tasks_max=8192`, `session.sessions_tasks_max=131072`,
         /// `session.cpu_class=background`, `remote_daemon=127.0.0.1:PORT` or
-        /// `lane_gh_broker=~/.cache/lane-gh-broker/broker.sock`). A value the
+        /// `lane_gh_broker=~/.cache/lane-gh-broker/broker.sock`, or on a lane machine
+        /// `lane_gh_carrier=OWNER[,OWNER...]` for lane-gh over the carrier, off by default). A value the
         /// daemon would refuse to start with is refused and config.json is left as it was:
         /// `transport.wireguard=true` needs `transport.wireguardStatic` in config.json first.
         /// The hub carrier (`cmux remote ... --via-machine`) needs no setting here: a joined
@@ -1489,6 +1498,9 @@ pub enum DaemonCmd {
     /// Move old cold-archived chats to cloud history (`agents.chats.cloudOffload`), keeping a stub
     /// that fetches them back on open. --dry-run lists them.
     HistoryOffload(HistoryOffloadArgs),
+    /// Copy Claude's and Codex's transcripts to cloud history, read-only (setting
+    /// `agents.chats.transcriptOffload`, off by default).
+    TranscriptOffload(TranscriptOffloadArgs),
     /// Print the RPC schema (methods, notifications, types, exit codes) as JSON.
     Schema,
     /// Every model id each harness declares or reports (`provider/model` for OpenCode and pi).
@@ -1497,6 +1509,20 @@ pub enum DaemonCmd {
         #[arg(long)]
         refresh: bool,
     },
+}
+
+#[derive(Args, Debug, Clone, PartialEq, Eq)]
+pub struct TranscriptOffloadArgs {
+    /// List the transcripts and bytes that would be copied and removed locally; upload nothing,
+    /// change nothing. Runs here, with no daemon and no cloud needed.
+    #[arg(long, conflicts_with = "restore_all")]
+    pub dry_run: bool,
+    /// Transcripts unchanged for longer than this many days, instead of the setting.
+    #[arg(long)]
+    pub older_than_days: Option<u32>,
+    /// Bring back every transcript a pass removed (undo).
+    #[arg(long)]
+    pub restore_all: bool,
 }
 
 #[derive(Args, Debug, Clone, PartialEq, Eq)]
@@ -1533,6 +1559,13 @@ pub struct HistoryDeleteArgs {
     /// fails is kept.
     #[arg(long)]
     pub export: Option<PathBuf>,
+    /// List Recently deleted: the deleted chats that can still be restored, and when each is
+    /// purged.
+    #[arg(long, conflicts_with_all = ["dry_run", "older_than_days", "export", "restore"])]
+    pub deleted: bool,
+    /// Restore a deleted chat (by id or name) before it is purged: back in the lists as it was.
+    #[arg(long, value_name = "CHAT", conflicts_with_all = ["dry_run", "older_than_days", "export"])]
+    pub restore: Option<String>,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -1719,6 +1752,7 @@ pub fn flatten(c: Command) -> Command {
             DaemonCmd::Retention(args) => Command::Retention(args),
             DaemonCmd::HistoryDelete(args) => Command::HistoryDelete(args),
             DaemonCmd::HistoryOffload(args) => Command::HistoryOffload(args),
+            DaemonCmd::TranscriptOffload(args) => Command::TranscriptOffload(args),
             DaemonCmd::Schema => Command::Schema,
             DaemonCmd::Models { refresh } => Command::Models { refresh },
         },
@@ -1737,6 +1771,10 @@ pub enum RouterCmd {
 #[cfg(test)]
 #[path = "command_help_contract_tests.rs"]
 mod help_contract_tests;
+
+#[cfg(test)]
+#[path = "intent_tests.rs"]
+mod intent_tests;
 
 #[cfg(test)]
 mod config_set_tests {

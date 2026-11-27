@@ -296,6 +296,16 @@ pub enum PeerCmd {
         /// it the newer installed build is kept.
         #[arg(long)]
         allow_downgrade: bool,
+        /// RFD 0060 fast-patch: update now (no wait for the timer or the
+        /// restart window), hand over by restart, health read with rollback,
+        /// and append one line to ~/.local/state/fast-patch/runs.jsonl
+        /// (service acpmux-daemon).
+        #[arg(long)]
+        fast_patch: bool,
+        /// With --fast-patch: the commit expected live; refused when the
+        /// channel names another.
+        #[arg(long, requires = "fast_patch")]
+        commit: Option<String>,
     },
     /// Add a machine in one go: check ssh, install this build, start the
     /// daemon, copy harness profiles and add it here (and, with --reverse,
@@ -440,6 +450,44 @@ pub struct HypervisorOpts {
     /// libvirt connection URI (`virsh -c`), such as qemu:///system.
     #[arg(long, value_name = "URI")]
     pub connect: Option<String>,
+    /// What a slot is: a KVM guest (libvirt), or a pod on this host (a systemd slice
+    /// whose init runs in bwrap), for hosts that cannot run VMs.
+    #[arg(long, value_enum, default_value_t = HypervisorDriverKind::Libvirt)]
+    pub driver: HypervisorDriverKind,
+    /// With --driver pods: the folder of pod roots (default: <state dir>/pods).
+    #[arg(long, value_name = "DIR")]
+    pub pods_dir: Option<PathBuf>,
+    /// With --driver pods: the program each pod boots, HOME at its root (default: sleep
+    /// infinity). For a guest, `acpmux` with `--pod-init-arg daemon`. With `serve --source
+    /// hub` each new pod's init also gets a one-time join token the host minted for its slot
+    /// in CMUX_JOIN_TOKEN and its hub in CMUX_JOIN_HUB: an init `sh -c 'printf "%s\n"
+    /// "$CMUX_JOIN_TOKEN" | acpmux machine join --hub "$CMUX_JOIN_HUB"; unset
+    /// CMUX_JOIN_TOKEN; exec acpmux daemon'` joins the pod as its own machine.
+    #[arg(long, value_name = "PROGRAM")]
+    pub pod_init: Option<String>,
+    /// An argument for --pod-init; repeat for more.
+    #[arg(long = "pod-init-arg", value_name = "ARG", allow_hyphen_values = true)]
+    pub pod_init_args: Vec<String>,
+    /// With --driver pods: a variable of serve's own environment to hand each pod's init,
+    /// by name, so its value never shows in an argv (a model token); repeat for more.
+    #[arg(long = "pod-env", value_name = "NAME")]
+    pub pod_env: Vec<String>,
+    /// With --driver pods: a host path every pod sees read-only at its own path, such as a
+    /// harness installed under a home (`~/.local/share/claude`); repeat for more.
+    #[arg(long = "pod-bind", value_name = "PATH")]
+    pub pod_bind: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum HypervisorSourceKind {
+    Spool,
+    Hub,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum HypervisorDriverKind {
+    Libvirt,
+    Pods,
 }
 
 #[derive(Subcommand)]
@@ -466,6 +514,13 @@ pub enum HypervisorCmd {
         /// One pass, then exit.
         #[arg(long)]
         once: bool,
+        /// Where commands come from: the local spool `apply` writes, or the hub's command
+        /// lease for this joined machine (`acpmux machine join` first; its own credential).
+        #[arg(long, value_enum, default_value_t = HypervisorSourceKind::Spool)]
+        source: HypervisorSourceKind,
+        /// With --source hub: the most commands one lease takes (1 to 32).
+        #[arg(long, default_value_t = 8)]
+        lease_max: u32,
     },
     /// Queue one command for `serve`, as JSON on stdin: {"verb":"create","slot":"a1",
     /// "spec":{"vcpus":2,"memoryMib":4096},"lease":{"deleteAfterSecs":86400}}; verbs are

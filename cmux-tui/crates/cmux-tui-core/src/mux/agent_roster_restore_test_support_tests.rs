@@ -13,6 +13,7 @@ impl AgentRosterReplay {
             skipped: Vec::new(),
             problems: Vec::new(),
             limits,
+            progress_from: None,
         }
     }
 }

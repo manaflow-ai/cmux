@@ -463,3 +463,25 @@ async fn the_pass_behind_a_taken_standby_skips_the_route_that_died() {
     let (_, _) = reconnect(&standby, &next, &routes, &attempt).await.unwrap();
     assert_eq!(attempt.dials(), [1, 1, 0, 1]);
 }
+
+/// A pass dropped while it dials (a network change during a raced redial) does not move the
+/// rotation: the pass asked next starts on the same route. Before, each dropped pass skipped
+/// one, so a redial interrupted once took the route after the best one (on the routes bench,
+/// the relay in place of iroh: about 100 ms more to recover).
+#[tokio::test(start_paused = true)]
+async fn a_dropped_pass_does_not_skip_a_route() {
+    let routes = three_routes();
+    let attempt = CountingDials::new(Duration::from_millis(50), Vec::new());
+    let standby = WarmStandby::new(0);
+    let next = AtomicUsize::new(1);
+    let dropped = tokio::time::timeout(
+        Duration::from_millis(10),
+        reconnect(&standby, &next, &routes, &attempt),
+    )
+    .await;
+    assert!(dropped.is_err(), "the pass ended before it was dropped");
+    assert_eq!(next.load(Ordering::Relaxed), 1, "a dropped pass moved the rotation");
+    let (group, _) = reconnect(&standby, &next, &routes, &attempt).await.unwrap();
+    assert_eq!(group.0, 1, "the next pass started on another route");
+    assert_eq!(next.load(Ordering::Relaxed), 2);
+}
