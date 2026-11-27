@@ -535,6 +535,69 @@ class ReadTypeTests(unittest.TestCase):
         self.assertTrue(source.endswith("}\n"))
 
 
+def union_document(dead: dict[str, Any] | None = None) -> dict[str, Any]:
+    """A live pane or `{pane, dead: true}`, as the tree's `Pane` is."""
+    document = layout_document()
+    types = document["types"]
+    types["LivePaneValue"] = {
+        "kind": "object",
+        "fields": {
+            "pane": _field(ID),
+            "title": _field({"kind": "scalar", "name": "string"}, nullable=True, description="Shown title."),
+            "zoomed": _field({"kind": "scalar", "name": "boolean"}),
+        },
+        "additional_properties": False,
+    }
+    types["DeadPaneValue"] = {
+        "kind": "object",
+        "fields": dead or {"pane": _field(ID), "dead": _field({"kind": "literal", "value": True})},
+        "additional_properties": False,
+    }
+    types["PaneValue"] = {
+        "kind": "untagged_union",
+        "variants": [{"kind": "ref", "name": "LivePaneValue"}, {"kind": "ref", "name": "DeadPaneValue"}],
+    }
+    return document
+
+
+class UntaggedUnionReadTypeTests(unittest.TestCase):
+    """An untagged union of objects reads as one struct with every variant's fields."""
+
+    def test_every_variants_fields_and_only_the_shared_required_one_stays_required(self) -> None:
+        files = rendered(union_document(), read_bindings({"PaneRead": {
+            "type": "PaneValue", "order": ["pane", "title", "zoomed", "dead"],
+            "fields": {"zoomed": {"default": "false"}, "dead": {"default": "false"}}}}))
+        source = files["Layout/PaneRead.generated.swift"]
+        self.assertIn("    public var pane: PaneID\n", source)
+        self.assertIn("    /// Shown title.\n    public var title: String?\n", source)
+        self.assertIn("    public var dead: Bool\n", source)
+        self.assertIn("public init(pane: PaneID, title: String? = nil, zoomed: Bool = false, dead: Bool = false)",
+                      source)
+        self.assertIn("pane = try container.decode(PaneID.self, forKey: .pane)", source)
+        self.assertIn("zoomed = try container.decodeIfPresent(Bool.self, forKey: .zoomed) ?? false", source)
+        self.assertIn("dead = try container.decodeIfPresent(Bool.self, forKey: .dead) ?? false", source)
+
+    def test_a_field_only_one_variant_has_is_optional_without_a_default(self) -> None:
+        source = rendered(union_document(), read_bindings({"PaneRead": {"type": "PaneValue"}}))[
+            "Layout/PaneRead.generated.swift"]
+        self.assertIn("    public var zoomed: Bool?\n", source)
+        self.assertIn("    public var dead: Bool?\n", source)
+        self.assertNotIn("init(from decoder", source)
+
+    def test_variants_that_type_a_field_differently_are_refused(self) -> None:
+        document = union_document({"pane": _field(ID), "zoomed": _field({"kind": "scalar", "name": "string"})})
+        with self.assertRaises(BindingError) as raised:
+            rendered(document, read_bindings({"PaneRead": {"type": "PaneValue"}}))
+        self.assertIn("PaneValue's variants type 'zoomed' differently", str(raised.exception))
+
+    def test_a_variant_that_is_not_an_object_is_refused(self) -> None:
+        document = union_document()
+        document["types"]["PaneValue"]["variants"].append({"kind": "scalar", "name": "string"})
+        with self.assertRaises(BindingError) as raised:
+            rendered(document, read_bindings({"PaneRead": {"type": "PaneValue"}}))
+        self.assertIn("only when every variant is an object", str(raised.exception))
+
+
 class ReadTypeBindingErrorTests(unittest.TestCase):
     def assert_refused(self, message: str, objects: dict[str, Any], bindings: dict[str, Any] | None = None) -> None:
         with self.assertRaises(BindingError) as raised:

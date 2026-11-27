@@ -3087,6 +3087,64 @@
               ]
             }
           }
+        },
+        "PaneSnapshot": {
+          "type": "Pane",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "One pane of a screen as `list-workspaces` reports it (server.rs pane_json): a live pane, or `{id, dead: true}`",
+            "when the tree references a pane missing from state."
+          ],
+          "order": [
+            "id",
+            "resource_id",
+            "short_id",
+            "name",
+            "active_tab",
+            "focused_at",
+            "tabs",
+            "tab_groups",
+            "dead"
+          ],
+          "fields": {
+            "id": {
+              "type": "PaneID"
+            },
+            "resource_id": {
+              "type": "ResourceID"
+            },
+            "active_tab": {
+              "type": "Int",
+              "default": "0",
+              "doc": [
+                "Shared compatibility default, not user focus."
+              ]
+            },
+            "focused_at": {
+              "default": "0"
+            },
+            "tabs": {
+              "type": "[TabSnapshot]",
+              "default": "[]"
+            },
+            "tab_groups": {
+              "type": "[TabGroupSnapshot]",
+              "default": "[]",
+              "doc": [
+                "Tab groups in this strip, in strip order (`tab-groups-v1`)."
+              ]
+            },
+            "dead": {
+              "default": "false",
+              "doc": [
+                "Serialized only when the tree references a pane missing from state."
+              ]
+            }
+          }
         }
       }
     }

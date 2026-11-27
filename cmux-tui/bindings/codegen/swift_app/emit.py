@@ -5,10 +5,10 @@ optional, enum values and result shapes. bindings.json owns only what the schema
 side: the Swift type name, the typed id (`PaneID`, `SplitID`) an `Id` field carries, the Swift type a schema
 object is bound to, the order of the init's parameters, how the app reads a result, and doc comments. A type
 the bindings do not cover (an `Id` field with no Swift id type, an object or enum neither bound nor generated,
-a union, a non-empty result with no response binding, a required field gated by a capability) is refused with
-a BindingError, so a schema change cannot quietly produce a Swift type nobody chose. An optional field the
-schema gates by a capability is generated with a doc line naming it; the caller leaves it nil for a daemon
-that does not serve it, as the hand-written types did. Family keys and Swift type names must be plain Swift
+a union other than a read type's untagged union of objects, a non-empty result with no response binding, a
+required field gated by a capability) is refused with a BindingError, so a schema change cannot quietly
+produce a Swift type nobody chose. An optional field the schema gates by a capability is generated with a doc
+line naming it; the caller leaves it nil for a daemon that does not serve it, as the hand-written types did. Family keys and Swift type names must be plain Swift
 identifiers: they become the output paths.
 
 Wire rules (the same JSON the hand-written types sent):
@@ -19,7 +19,10 @@ Wire rules (the same JSON the hand-written types sent):
 - `float32` is `Double` in the app: the app keeps its precision and the daemon narrows it.
 
 Read types (a family's `objects`): result and snapshot structs the app decodes, from a schema object
-(`type`) or a command's result (`result`). A reference to a generated schema object resolves to its Swift
+(`type`) or a command's result (`result`). A `type` may also be an untagged union whose variants are all
+objects (the tree's `Pane`: a live pane or `{id, dead: true}`): it reads as one struct with every variant's
+fields, and a field that is not required in every variant is optional. A field that two variants type
+differently is refused; a literal reads as its scalar (`true` as `Bool`). A reference to a generated schema object resolves to its Swift
 name. The binding may set `conformances` (default Decodable, Sendable, Equatable), `order`, `init: false`,
 `omit` (schema fields the app does not read; never a required one of a type it encodes), `extra` (app-only
 properties with a type and default, not on the wire) and per field the request keys plus `default` (a
@@ -292,6 +295,13 @@ class _Renderer:
             return name
         if kind == "ref":
             return self._ref(expr["name"], where=where, wire=wire, nested=nested)
+        if kind == "literal":
+            value = expr["value"]
+            if isinstance(value, bool):
+                return "Bool"
+            if isinstance(value, str):
+                return "String"
+            raise BindingError(f"{where}: no Swift type for the literal {value!r}; bind the field's type")
         raise BindingError(f"{where}: the Swift emitter does not support a {kind} here; bind the field's type")
 
     def _ref(self, name: str, *, where: str, wire: str, nested: list[_Enum]) -> str:
@@ -523,6 +533,34 @@ class _Renderer:
             expr = self.ir.types.get(expr["name"], {"kind": "missing"})
         return expr if expr["kind"] == "object" else None
 
+    def _union_object(self, where: str, name: str, union: Mapping[str, Any]) -> Mapping[str, Any]:
+        """An untagged union of objects as one object: every variant's fields, in variant order."""
+        variants = []
+        for variant in union["variants"]:
+            target = self._object(variant)
+            if target is None:
+                raise BindingError(f"{where}: {name} reads as one struct only when every variant is an object")
+            variants.append(target)
+        fields: dict[str, dict[str, Any]] = {}
+        for target in variants:
+            for wire, spec in target["fields"].items():
+                seen = fields.get(wire)
+                if seen is None:
+                    fields[wire] = dict(spec)
+                    continue
+                if _plain(seen["type"]) != _plain(spec["type"]):
+                    raise BindingError(f"{where}: {name}'s variants type {wire!r} differently")
+                if spec["presence"] != "required":
+                    seen["presence"] = "optional"
+                seen["nullable"] = seen["nullable"] or spec["nullable"]
+                for key in ("description", "capability", "since"):
+                    if key not in seen and key in spec:
+                        seen[key] = spec[key]
+        for wire, spec in fields.items():
+            if any(wire not in target["fields"] for target in variants):
+                spec["presence"] = "optional"
+        return {"kind": "object", "fields": fields}
+
     def _is_empty_object(self, expr: Mapping[str, Any]) -> bool:
         target = self._object(expr)
         return target is not None and not target["fields"]
@@ -560,6 +598,8 @@ class _Renderer:
         if "type" in binding:
             target = self.ir.types.get(binding["type"])
             source = binding["type"]
+            if target is not None and target["kind"] == "untagged_union":
+                target = self._union_object(where, binding["type"], target)
             if target is None or target["kind"] != "object":
                 raise BindingError(f"{where}: the schema has no object type {binding['type']}")
         else:
