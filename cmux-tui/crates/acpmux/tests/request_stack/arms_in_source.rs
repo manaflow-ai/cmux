@@ -101,13 +101,19 @@ fn method_files() -> Vec<String> {
     names
 }
 
-/// The heads of the top-level arms of `dispatch_request`'s `match m`, each up to its `=>`. The
-/// match is in `dispatch_request_with_identity`, which `dispatch_request` runs on the heap with no
-/// fixed identity (#33811).
+/// Read both method matches so that moving a method across the recursive dispatch boundary
+/// preserves its coverage, and adding one on either side requires a table entry.
 fn arm_heads() -> Vec<String> {
+    let mut heads = method_heads("dispatch_request_with_identity");
+    heads.extend(method_heads("dispatch_method"));
+    assert!(heads.len() > 100, "read only {} arm heads of dispatch_request", heads.len());
+    heads
+}
+
+fn method_heads(function: &str) -> Vec<String> {
     let start = REQUESTS
-        .find("\nasync fn dispatch_request_with_identity(")
-        .expect("dispatch_request_with_identity in requests.rs");
+        .find(&format!("\nasync fn {function}("))
+        .unwrap_or_else(|| panic!("missing {function} in requests.rs"));
     let body = &REQUESTS[start..];
     let body = &body[..body.find("\n}\n").expect("the end of dispatch_request")];
     let open = body.find("\n    match m {\n").expect("dispatch_request's match m");
@@ -132,7 +138,7 @@ fn arm_heads() -> Vec<String> {
         );
         heads.push(code.split("=>").next().unwrap_or_default().to_owned());
     }
-    assert!(heads.len() > 100, "read only {} arm heads of dispatch_request", heads.len());
+    assert!(!heads.is_empty(), "read no arm heads of {function}");
     heads
 }
 
