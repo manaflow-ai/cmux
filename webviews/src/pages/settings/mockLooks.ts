@@ -58,12 +58,12 @@ const SEEDS: Seed[] = [
 
 /** The gallery's four looks as `setup/looks.json` lists them, under names of our own (Leo,
  * 2026-11-27: "we need to have at least SOMETHING you root for", "and obv dont call it t3 code and
- * whatnot"), with their themes' colors. */
+ * whatnot", "haha but idm namedropping claude/codex"), with their themes' colors. */
 const SHIPPED: Seed[] = [
   {
     id: "manaflow-ai/codex-profile",
-    name: "Pebble",
-    tagline: "Clean, quiet, sidebar of threads.",
+    name: "Codex",
+    tagline: "Like Codex.",
     traits: ["Light", "Round corners"],
     repo: "github.com/manaflow-ai/cmux/examples/looks/codex/profile@feat-cmux-next",
     tags: ["chat", "sidebar", "new-tab"],
@@ -71,8 +71,8 @@ const SHIPPED: Seed[] = [
   },
   {
     id: "manaflow-ai/claude-code-profile",
-    name: "Kiln",
-    tagline: "Warm tones, roomy chat.",
+    name: "Claude Code",
+    tagline: "Like Claude Code.",
     traits: ["Dark", "Warm"],
     repo: "github.com/manaflow-ai/cmux/examples/looks/claude-code/profile@feat-cmux-next",
     tags: ["chat", "sidebar", "new-tab"],
