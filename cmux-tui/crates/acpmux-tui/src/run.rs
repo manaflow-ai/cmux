@@ -103,7 +103,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                         } else { match &mut app.overlay {
                             Overlay::NewSession(f) => match f.field {
                                 2 => f.cwd.insert_str(s.trim()),
-                                4 => f.prompt.insert_str(&s),
+                                4 => f.prompt.insert_paste(&s),
                                 1 => f.name.insert_str(s.trim()),
                                 _ => {}
                             },
@@ -112,7 +112,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
                                 p.refilter();
                             }
                             Overlay::AddHost { text } | Overlay::Directory { text } => text.insert_str(s.trim()),
-                            _ => app.editor_mut().insert_str(&s),
+                            _ => app.editor_mut().insert_paste(&s),
                         }}
                     }
                     Some(Err(e)) => break Err(e.into()),

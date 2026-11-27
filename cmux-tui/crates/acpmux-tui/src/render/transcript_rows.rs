@@ -2,6 +2,11 @@
 
 use super::*;
 
+/// A queued prompt's note. It no longer says it "sends when the running turn ends", as the GUI's
+/// queued row no longer does (cmux#45044; Leo: "it's not really useful to see ever"); the ⋯ marker
+/// says queued, and the key that cancels it stays.
+const QUEUED_NOTE: &str = "queued · Ctrl-x cancels it";
+
 /// Render a transcript into rows at `width`. Every row starts after a
 /// two-column gutter that holds the role or state marker, so text lines
 /// up down the page. The transcript is a hierarchy of collapsibles: the
@@ -237,12 +242,7 @@ pub(super) fn transcript_rows_range(
                 let mut body: Vec<Row> = Vec::new();
                 wrap(text, inner_w, style, "", i, &mut body);
                 if *queued {
-                    plain(
-                        "queued · sends when the running turn ends · Ctrl-x cancels it",
-                        c.dim().bg(c.user_bg),
-                        i,
-                        &mut body,
-                    );
+                    plain(QUEUED_NOTE, c.dim().bg(c.user_bg), i, &mut body);
                 }
                 let bubble_row = |content: Vec<Span<'static>>, used: usize, text: String| -> Row {
                     let mut spans = Vec::new();
@@ -748,12 +748,7 @@ pub(super) fn transcript_rows_range(
             let inner_w = bubble_w.saturating_sub(4);
             let mut body: Vec<Row> = Vec::new();
             wrap(text, inner_w, style, "", i, &mut body);
-            plain(
-                "queued · sends when the running turn ends · Ctrl-x cancels it",
-                c.dim().bg(c.user_bg),
-                i,
-                &mut body,
-            );
+            plain(QUEUED_NOTE, c.dim().bg(c.user_bg), i, &mut body);
             let bubble_row = |content: Vec<Span<'static>>, used: usize, text: String| -> Row {
                 let mut spans = Vec::new();
                 spans.extend(content);

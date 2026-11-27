@@ -11,6 +11,47 @@
     "RowHeight": "RowHeightValue"
   },
   "families": {
+    "Agents": {
+      "requests": {
+        "feed-local-handoff-abort": {
+          "name": "FeedLocalHandoffAbortRequest",
+          "doc": [
+            "`feed-local-handoff-abort {item}` (the verified app connection only): the",
+            "cloud owner answered `feed.adopt.cancel` with `cancelled: true`, so the",
+            "item is open here again. Never on a timeout or a lost reply."
+          ],
+          "order": [
+            "item"
+          ],
+          "fields": {
+            "item": {
+              "type": "String"
+            }
+          },
+          "response": "FeedLocalHandoffBeginRequest.Response"
+        },
+        "feed-local-handoff-done": {
+          "name": "FeedLocalHandoffDoneRequest",
+          "doc": [
+            "`feed-local-handoff-done {item, home}` (the verified app connection only):",
+            "the new owner committed the item; it becomes `moved`."
+          ],
+          "order": [
+            "item",
+            "home"
+          ],
+          "fields": {
+            "item": {
+              "type": "String"
+            },
+            "home": {
+              "type": "String"
+            }
+          },
+          "response": "FeedLocalHandoffBeginRequest.Response"
+        }
+      }
+    },
     "Layout": {
       "$comment": "new-row stays hand-written in Layout/NewRowRequest.swift: it carries the shared SpawnOptions and moves with the Creation family.",
       "enums": {
@@ -158,6 +199,423 @@
             "zoomed",
             "zoomed_pane"
           ]
+        }
+      }
+    },
+    "Profiles": {
+      "requests": {
+        "create-personal-group": {
+          "name": "CreatePersonalGroupRequest",
+          "order": [
+            "name",
+            "group",
+            "profile",
+            "color",
+            "collapsed",
+            "index"
+          ],
+          "fields": {
+            "name": {
+              "type": "String"
+            },
+            "group": {
+              "type": "WorkspaceGroupID"
+            },
+            "profile": {
+              "type": "ProfileID"
+            },
+            "color": {
+              "type": "String"
+            },
+            "collapsed": {
+              "type": "Bool"
+            },
+            "index": {
+              "type": "Int"
+            }
+          },
+          "response": "PersonalGroupResult"
+        },
+        "delete-personal-group": {
+          "name": "DeletePersonalGroupRequest",
+          "order": [
+            "group"
+          ],
+          "fields": {
+            "group": {
+              "type": "WorkspaceGroupID"
+            }
+          },
+          "response": "EmptyResponse"
+        },
+        "list-personal": {
+          "name": "ListPersonalRequest",
+          "order": [],
+          "response": "PersonalState"
+        },
+        "move-personal-group": {
+          "name": "MovePersonalGroupRequest",
+          "order": [
+            "group",
+            "index"
+          ],
+          "fields": {
+            "group": {
+              "type": "WorkspaceGroupID"
+            },
+            "index": {
+              "type": "Int"
+            }
+          },
+          "response": "PersonalGroupResult"
+        },
+        "move-profile": {
+          "name": "MoveProfileRequest",
+          "doc": [
+            "Moves a profile to an insertion index (the `move-workspace` rule)."
+          ],
+          "order": [
+            "profile",
+            "index"
+          ],
+          "fields": {
+            "profile": {
+              "type": "ProfileID"
+            },
+            "index": {
+              "type": "Int"
+            }
+          },
+          "response": "ProfileResult"
+        }
+      }
+    },
+    "Screens": {
+      "requests": {
+        "add-screens-to-screen-group": {
+          "name": "AddScreensToScreenGroupRequest",
+          "doc": [
+            "Adds screens to a group. `index` is the position inside the group (default: the end)."
+          ],
+          "order": [
+            "group",
+            "screens",
+            "index"
+          ],
+          "fields": {
+            "group": {
+              "type": "ScreenGroupID"
+            },
+            "screens": {
+              "type": "[ScreenID]"
+            },
+            "index": {
+              "type": "Int"
+            }
+          },
+          "response": "ScreenGroupResult"
+        },
+        "create-screen-group": {
+          "name": "CreateScreenGroupRequest",
+          "order": [
+            "screens",
+            "name",
+            "color"
+          ],
+          "fields": {
+            "screens": {
+              "type": "[ScreenID]"
+            },
+            "name": {
+              "type": "String"
+            },
+            "color": {
+              "type": "String"
+            }
+          },
+          "response": "ScreenGroupResult"
+        },
+        "delete-saved-screen-group": {
+          "name": "DeleteSavedScreenGroupRequest",
+          "order": [
+            "saved"
+          ],
+          "fields": {
+            "saved": {
+              "type": "SavedScreenGroupID"
+            }
+          },
+          "response": "EmptyResponse"
+        },
+        "remove-screens-from-screen-group": {
+          "name": "RemoveScreensFromScreenGroupRequest",
+          "doc": [
+            "Removes screens from their groups; each lands right after its former group."
+          ],
+          "order": [
+            "screens"
+          ],
+          "fields": {
+            "screens": {
+              "type": "[ScreenID]"
+            }
+          },
+          "response": "ScreenGroupResult"
+        },
+        "save-screen-group": {
+          "name": "SaveScreenGroupRequest",
+          "order": [
+            "group"
+          ],
+          "fields": {
+            "group": {
+              "type": "ScreenGroupID"
+            }
+          },
+          "response": "ScreenGroupResult"
+        },
+        "ungroup-screen-group": {
+          "name": "UngroupScreenGroupRequest",
+          "order": [
+            "group"
+          ],
+          "fields": {
+            "group": {
+              "type": "ScreenGroupID"
+            }
+          },
+          "response": "ScreenGroupResult"
+        },
+        "unsave-screen-group": {
+          "name": "UnsaveScreenGroupRequest",
+          "order": [
+            "group"
+          ],
+          "fields": {
+            "group": {
+              "type": "ScreenGroupID"
+            }
+          },
+          "response": "ScreenGroupResult"
+        }
+      }
+    },
+    "Session": {
+      "requests": {
+        "remote-host-status": {
+          "name": "RemoteHostStatusRequest",
+          "doc": [
+            "`remote-host-status` (`remote-host-v1`, docs/cmux-remote.md): cmux Remote's state as the",
+            "daemon sees it (never starts the host)."
+          ],
+          "order": [],
+          "response": "JSONValue"
+        }
+      }
+    },
+    "TabGroups": {
+      "requests": {
+        "move-tab-group-to-split": {
+          "name": "MoveTabGroupToSplitRequest",
+          "doc": [
+            "Drops a whole group on a pane edge."
+          ],
+          "order": [
+            "group",
+            "pane",
+            "edge",
+            "ratio",
+            "transaction"
+          ],
+          "fields": {
+            "group": {
+              "type": "TabGroupID"
+            },
+            "pane": {
+              "type": "PaneID"
+            },
+            "edge": {
+              "type": "PaneEdge"
+            },
+            "ratio": {
+              "type": "Double"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabGroupResult"
+        },
+        "reopen-saved-tab-group": {
+          "name": "ReopenSavedTabGroupRequest",
+          "doc": [
+            "Reopens a saved group into `pane`. A still-linked live group is returned",
+            "unchanged; otherwise running terminals reattach, others start in their",
+            "saved directory, and browsers reopen at their saved URL."
+          ],
+          "order": [
+            "saved",
+            "pane",
+            "transaction"
+          ],
+          "fields": {
+            "saved": {
+              "type": "SavedTabGroupID"
+            },
+            "pane": {
+              "type": "PaneID"
+            },
+            "transaction": {
+              "type": "ClientTransactionID"
+            }
+          },
+          "response": "TabGroupResult"
+        }
+      }
+    },
+    "Tabs": {
+      "requests": {
+        "close-surface": {
+          "name": "CloseTabRequest",
+          "order": [
+            "surface"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            }
+          },
+          "response": "EmptyResponse"
+        },
+        "rename-pane": {
+          "name": "RenamePaneRequest",
+          "order": [
+            "pane",
+            "name"
+          ],
+          "fields": {
+            "pane": {
+              "type": "PaneID"
+            },
+            "name": {
+              "type": "String"
+            }
+          },
+          "response": "EmptyResponse"
+        },
+        "rename-screen": {
+          "name": "RenameScreenRequest",
+          "order": [
+            "screen",
+            "name"
+          ],
+          "fields": {
+            "screen": {
+              "type": "ScreenID"
+            },
+            "name": {
+              "type": "String"
+            }
+          },
+          "response": "EmptyResponse"
+        },
+        "rename-surface": {
+          "name": "RenameTabRequest",
+          "doc": [
+            "Renames a tab. Empty name clears it."
+          ],
+          "order": [
+            "surface",
+            "name"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "name": {
+              "type": "String"
+            }
+          },
+          "response": "EmptyResponse"
+        }
+      }
+    },
+    "TerminalIO": {
+      "requests": {
+        "send-key": {
+          "name": "SendKeyRequest",
+          "order": [
+            "surface",
+            "keys"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "keys": {
+              "type": "[String]"
+            }
+          },
+          "response": "EmptyResponse"
+        },
+        "set-client-sizing": {
+          "name": "SetClientSizingRequest",
+          "doc": [
+            "Claims (`enabled && exclusive`) or releases canonical geometry."
+          ],
+          "order": [
+            "surface",
+            "enabled",
+            "exclusive",
+            "client"
+          ],
+          "fields": {
+            "surface": {
+              "type": "SurfaceID"
+            },
+            "enabled": {
+              "type": "Bool"
+            },
+            "exclusive": {
+              "type": "Bool"
+            },
+            "client": {
+              "type": "ClientID"
+            }
+          },
+          "response": "EmptyResponse"
+        }
+      }
+    },
+    "Terminals": {
+      "requests": {
+        "list-terminals": {
+          "name": "ListTerminalsRequest",
+          "doc": [
+            "`list-terminals`: every terminal in the daemon's registry with its",
+            "workspace and, once ended, its exit record (cmux-tui terminal-host.md)."
+          ],
+          "order": [],
+          "response": "TerminalRegistryList"
+        }
+      }
+    },
+    "Workspace": {
+      "requests": {
+        "get-blob": {
+          "name": "GetBlobRequest",
+          "doc": [
+            "`get-blob`: `blob` is `blob:sha256-<hex>` or an asset icon value."
+          ],
+          "order": [
+            "blob"
+          ],
+          "fields": {
+            "blob": {
+              "type": "String"
+            }
+          },
+          "response": "IconAssetBlob"
         }
       }
     }
