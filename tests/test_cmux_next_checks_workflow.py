@@ -187,8 +187,11 @@ class ChecksJobStructure(unittest.TestCase):
         for step in checks:
             with self.subTest(step=step["name"]):
                 self.assertIn("${{ steps.%s.outcome }}|%s\n" % (step["id"], step["name"]), outcomes)
-        self.assertIn("GITHUB_STEP_SUMMARY", aggregate["run"])
-        self.assertIn("exit 1", aggregate["run"])
+        verdict_path = "scripts/ci/cmux_next_checks_verdict.sh"
+        self.assertEqual(aggregate["run"].strip(), f"bash {verdict_path}")
+        verdict = (ROOT / verdict_path).read_text(encoding="utf-8")
+        self.assertIn("GITHUB_STEP_SUMMARY", verdict)
+        self.assertIn("exit 1", verdict)
 
     def run_aggregate(self, outcomes: str) -> subprocess.CompletedProcess:
         _, _, aggregate = self.split()
@@ -984,7 +987,7 @@ class PathRoutingStructure(unittest.TestCase):
         swift = jobs["swift-test"]
         self.assertIn("SWIFT_PRIORITY_FILTER", job_env(swift))
         run = next(step for step in swift["steps"] if step.get("name", "").startswith("Run package tests"))
-        script = run["run"]
+        script = step_run(run)
         self.assertIn("SWIFT_PRIORITY_FILTER", script)
         self.assertIn("--skip", script)
         self.assertIn("priority", script.lower())
@@ -1913,9 +1916,9 @@ class SameTreeIsAnEvent(unittest.TestCase):
         ready = steps["Report the ready same-tree cmux-tui"]
         failed = steps["Report the unavailable same-tree cmux-tui"]
         self.assertIn("== 'ready'", ready["if"])
-        self.assertNotIn("exit 1", ready["run"])
+        self.assertNotIn("exit 1", step_run(ready))
         self.assertIn("== 'failed'", failed["if"])
-        self.assertIn("exit 1", failed["run"])
+        self.assertIn("exit 1", step_run(failed))
 
     def test_the_artifacts_workflow_starts_the_deferred_jobs(self):
         jobs = load_yaml(ARTIFACTS_WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -2098,7 +2101,7 @@ class MacFastTierFollowsTheRoute(unittest.TestCase):
             "needs": {
                 "push-head-preflight": {"outputs": {"current": "true"}},
                 "fast-tier-cargo": {"result": cargo},
-                "path_route": {"outputs": {key: value for key, value in (("macos", macos), ("fast_tier", fast_tier))
+                "path_route": {"result": "success", "outputs": {key: value for key, value in (("macos", macos), ("fast_tier", fast_tier))
                                            if value is not None}},
             },
         }
@@ -2124,20 +2127,16 @@ class MacFastTierFollowsTheRoute(unittest.TestCase):
         self.assertFalse(self.runs("fast-tier", "pull_request", macos))
         self.assertTrue(self.runs("macos-placement", "pull_request", macos))
 
-    def test_a_red_linux_cargo_tier_holds_the_pr_mac_jobs(self):
-        """About 17.6k Mac min/day ran on PR heads whose Linux cargo fast tier was already red
-        (2026-11-24). A PR head starts its Mac placement only once that tier passed or was skipped;
-        the base push never waits on it."""
+    def test_the_pr_compile_does_not_wait_for_the_linux_cargo_tier(self):
+        """Both placement jobs can start while the Linux cargo tier runs or fails."""
         macos = self.route_macos(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WindowRootView.swift"])
-        for job in ("macos-placement",):
+        for job in ("macos-placement", "app-compile-placement"):
             with self.subTest(job=job):
-                self.assertIn("fast-tier-cargo", self.jobs[job]["needs"])
-                self.assertTrue(self.runs(job, "pull_request", macos, cargo="skipped"))
-                self.assertFalse(self.runs(job, "pull_request", macos, cargo="failure"))
-                self.assertFalse(self.runs(job, "pull_request", macos, cargo="cancelled"))
-                self.assertTrue(self.runs(job, "push", macos, cargo="failure"))
-        self.assertIn("fast-tier-cargo", self.jobs["app-compile-placement"]["needs"])
-        self.assertIn("needs.fast-tier-cargo.result == 'success'", self.jobs["app-compile-placement"]["if"])
+                self.assertNotIn("fast-tier-cargo", self.jobs[job]["needs"])
+                self.assertNotIn("fast-tier-cargo", self.jobs[job]["if"])
+        for cargo in ("success", "skipped", "failure", "cancelled"):
+            with self.subTest(cargo=cargo):
+                self.assertTrue(self.runs("macos-placement", "pull_request", macos, cargo=cargo))
 
     def test_no_route_answer_and_the_base_push_still_run_it(self):
         self.assertFalse(self.runs("fast-tier", "pull_request", None))  # pr-pipeline.yml's `mac` job (note-556)
@@ -3165,6 +3164,8 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             "github.run_attempt": 1,
             "github.triggering_actor": "someone",
             "needs.push-head-preflight.outputs.current": "true",
+            # The cheap gate (note-cheap-gate): Linux cargo is not red.
+            "needs.fast-tier-cargo.result": "success",
             "needs.release-compile-fast.result": "skipped",
             "needs.release-compile-fast.outputs.verdict": "",
             # The build fleet compiled a same-repository PR's head (PullRequestCompileOnTheBuildFleet).
@@ -3519,6 +3520,8 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
                             "github.event.pull_request.base.ref": "feat-cmux-next",
                             "github.event.pull_request.head.repo.full_name": head_repo,
                             "github.event.pull_request.labels.*.name": list(labels),
+                            # path_route hands the jobs its labels as ",a,b," (note-97).
+                            "needs.path_route.outputs.labels": "," + ",".join(labels) + ",",
                             "github.event.pull_request.author_association": "CONTRIBUTOR"})
         context.update({f"inputs.{key}": value for key, value in inputs.items()})
         return context
@@ -3534,6 +3537,8 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         # which a pull request into feat-cmux-next skips without full-ci (#49046; its push runs them).
         # The Swift canary of a pull request is pr-pipeline.yml's `mac` job (ci/steps.toml, note-556).
         after_merge = set(HEAVY_COMPILES) | {"swift-test", "daemon-test", "swift-canary"}
+        # With none of web-bundles' consumers left (generated_host is swift-test here), it skips too.
+        after_merge |= {"web-bundles"}
         self.assertEqual(self.running(self.context()), set(self.TIER_JOBS) - after_merge | {"macos-placement"})
         self.assertEqual(self.running(self.context(labels=("full-ci",))),
                          set(self.TIER_JOBS) - after_merge | {"macos-placement", "checks"})
@@ -3547,7 +3552,8 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         fork["needs.path_route.outputs.cmuxnext_swift"] = "false"
         self.assertEqual(self.running(fork), set())
         labeled = self.context(head_repo="someone/cmux", labels=("full-ci",))
-        self.assertEqual(self.running(labeled), set(self.TIER_JOBS) - {"swift-canary", "swift-test", "daemon-test"}
+        self.assertEqual(self.running(labeled), set(self.TIER_JOBS) - {"swift-canary", "swift-test", "daemon-test",
+                                                                        "web-bundles"}
                          - set(HEAVY_COMPILES) | {"checks"})
 
     def test_a_dispatch_on_a_working_branch_runs_every_tier(self):
@@ -3598,9 +3604,29 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         for tier in ("swift", "daemon", "generated"):
             only_fast[f"needs.path_route.outputs.{tier}"] = "false"
         self.assertFalse(evaluate(self.jobs()["web-bundles"]["if"], only_fast))
-        for tier in ("swift", "daemon", "generated"):
-            with self.subTest(tier=tier):
-                self.assertTrue(evaluate(self.jobs()["web-bundles"]["if"], dict(only_fast, **{f"needs.path_route.outputs.{tier}": "true"})))
+        # A tier alone wakes the bundles only when the job that restores them will run.
+        bundles = self.jobs()["web-bundles"]["if"]
+        # swift-test and daemon-test never run on a feat-cmux-next PR (pr-pipeline.yml's `mac` job does).
+        cases = (
+            ({"swift": "true"}, (), "feat-cmux-next", False),
+            ({"swift": "true"}, ("full-ci",), "feat-cmux-next", False),
+            ({"swift": "true"}, (), "main", True),
+            ({"daemon": "true"}, (), "feat-cmux-next", False),
+            ({"daemon": "true"}, (), "main", True),  # the context's tree is ready
+            ({"daemon": "true", "tree_state": "pending"}, (), "main", False),
+            ({"generated": "true", "generated_host": "generated-files"}, (), "feat-cmux-next", True),
+            ({"generated": "true", "generated_host": "swift-test"}, (), "feat-cmux-next", False),
+        )
+        for outputs, labels, base, expected in cases:
+            with self.subTest(outputs=outputs, labels=labels, base=base):
+                context = dict(self.context(labels=labels), **{f"needs.path_route.outputs.{tier}": "false"
+                                                                for tier in ("swift", "daemon", "generated")})
+                context["github.event.pull_request.base.ref"] = base
+                context.update({f"needs.path_route.outputs.{key}": value for key, value in outputs.items()})
+                self.assertEqual(evaluate(bundles, context), expected)
+                consumers = [name for name in ("swift-test", "daemon-test", "generated-files")
+                             if evaluate(self.jobs()[name]["if"], {**context, "needs.generated-files-base-red.outputs.base_red": "false"})]
+                self.assertEqual(bool(consumers), expected, consumers)
         # A push and a dispatch fill the cache whatever the route.
         push = self.context("push", ref="refs/heads/feat-cmux-next")
         self.assertTrue(evaluate(self.jobs()["web-bundles"]["if"], push))
@@ -3966,6 +3992,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
             "needs.fast-tier-cargo.result": "success",
             "needs.path_route.outputs.mac_release": "true",
             "github.run_attempt": 1,
+            "needs.path_route.outputs.labels": "," + ",".join(labels) + ",",
         }
         if event == "pull_request":
             context.update({"github.event.pull_request.head.repo.full_name": head_repo,
@@ -4009,6 +4036,22 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
                     self.assertTrue(evaluate(job["if"], ctx))
                     self.assertEqual(route_of(job, ctx), "cmux-linux")
         self.assertNotIn("gateway_runner", job["if"])
+
+    def test_both_placements_run_for_a_landing_pr_regardless_of_cargo(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        context = {
+            **self.context(labels=("ready-to-land",)),
+            "github.event.pull_request.base.ref": "feat-cmux-next",
+            "needs.path_route.outputs.macos": "true",
+            "needs.path_route.outputs.app_compile_pr": "true",
+            "vars.CI_PR_POOL_OWNED": "1",
+        }
+        for job in ("app-compile-placement", "macos-placement"):
+            for cargo in ("", "success", "skipped", "failure", "cancelled"):
+                with self.subTest(job=job, cargo=cargo):
+                    self.assertTrue(evaluate(jobs[job]["if"], {
+                        **context, "needs.fast-tier-cargo.result": cargo,
+                    }))
 
     def test_placement_judges_the_gateway_for_the_jobs_that_start(self):
         """The app compile's gateway is judged at once (app-compile-placement, Leo 2026-11-08: only the Mac
@@ -4851,15 +4894,48 @@ class FastTierCargoRoute(unittest.TestCase):
                         path = entry["path"]
                     self.assertTrue(self.reaches(path))
 
+    def test_full_ci_on_a_tooling_only_change_routes_by_paths(self):
+        # ci-min-per-pr-140: full-ci forces it unless every change is a CI or tooling file (scripts/ci/tooling_only.py).
+        tooling = ("scripts/ci/test_reds.py", "tests/test_test_reds.py", ".github/workflows/nightly.yml", "docs/x.md")
+        self.assertFalse(self.reaches(*tooling, labels=["full-ci"]))
+        self.assertTrue(self.reaches(*tooling, ".github/workflows/cmux-next.yml", labels=["full-ci"]))
+        self.assertTrue(self.reaches(*tooling, "scripts/cmux-next/fast-tier.py", labels=["full-ci"]))
+        self.assertTrue(self.reaches(*tooling, "webviews/src/app.tsx", labels=["full-ci"]))
+        self.assertTrue(self.reaches(labels=["full-ci"]))
+
     def test_a_change_that_reaches_no_entry_skips_it(self):
         self.assertFalse(self.reaches("Packages/macOS/CmuxNext/Sources/CmuxNext/App.swift", "webviews/src/app.tsx",
                                       "docs/ci/x.md", ".github/workflows/ci-web.yml"))
         self.assertFalse(self.reaches())
 
     def test_full_ci_and_an_unreadable_registry_run_it(self):
-        self.assertTrue(self.reaches("docs/x.md", labels=("full-ci",)))
+        self.assertTrue(self.reaches("webviews/src/app.tsx", labels=("full-ci",)))
         with tempfile.TemporaryDirectory() as empty:
             self.assertTrue(self.route.reaches(["docs/x.md"], set(), Path(empty))[0])
+
+
+class SwiftPmFetchesStepAroundADeadProxy(unittest.TestCase):
+    """Every `swift build` or `swift test` a Mac step runs goes through scripts/ci/github-egress-run.sh, so a dead
+    github.com proxy tunnel on a mini goes direct instead of failing the package fetch (run 45866233902: daemon
+    tests, "Failed to connect to 127.0.0.1 port 18434" on every package; #58915 covered only xcodebuild)."""
+
+    def test_every_swiftpm_build_runs_through_the_egress_route(self):
+        jobs = load_yaml(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        direct = []
+        for job_id, job in jobs.items():
+            for step in job.get("steps") or []:
+                for line in step_run(step).splitlines():
+                    code = line.split("#", 1)[0]
+                    if re.search(r"(^|[\s;&|(])swift (build|test)\b", code) and "github-egress-run.sh" not in code:
+                        if "swiftpm_build_metrics.py" in code or re.match(r"\s*swift (build|test)\b", code):
+                            direct.append(f"{job_id}: {code.strip()[:120]}")
+        self.assertEqual([], direct)
+
+    def test_the_route_probes_and_retries_once_direct(self):
+        script = (ROOT / "scripts/ci/github-egress-run.sh").read_text()
+        self.assertIn("github-egress-direct.sh", script)
+        self.assertIn("github_egress_probe", script)
+        self.assertIn('github_egress_retry_direct "$log"', script)
 
 
 if __name__ == "__main__":

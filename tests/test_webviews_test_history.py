@@ -101,6 +101,12 @@ class ShardSize(unittest.TestCase):
             self.assertNotIn("linux_16", runs_on, name)
             # #50078 (Leo, 2026-11-23): the React shards read CI_REACT_SHARD_RUNNER first; unset, they take cmux-linux.
             self.assertEqual(runs_on, one_linux_label.CANONICAL.replace("|| 'cmux-linux'", "|| vars.CI_REACT_SHARD_RUNNER || 'cmux-linux'"), name)
+            for kind in ("push", "same-repository pull request"):
+                knob = {**EVENTS[kind], "vars.CI_REACT_SHARD_RUNNER": "cmux-linux-react"}
+                self.assertEqual(evaluate(runs_on, knob), "cmux-linux-react", f"{name} {kind}")
+            for kind in ("fork pull request", "fork repository"):
+                knob = {**EVENTS[kind], "vars.CI_REACT_SHARD_RUNNER": "cmux-linux-react"}
+                self.assertEqual(evaluate(runs_on, knob), "ubuntu-24.04", f"{name} {kind}")
             self.assertEqual(evaluate(runs_on, EVENTS["push"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["same-repository pull request"]), "cmux-linux", name)
             self.assertEqual(evaluate(runs_on, EVENTS["fork pull request"]), "ubuntu-24.04", name)
@@ -254,6 +260,44 @@ class Known(unittest.TestCase):
         pushes = history.record(pushes, "sha1", 1001, {FILE: True}, "same")
         base, replay = history.known(pushes, "same", head)
         self.assertEqual((base, replay), ({TEST: True, f"{FILE} > new test": True}, [other]))
+
+
+class HeldRedFiles(unittest.TestCase):
+    """A pull request's shards leave files red on the base for a day to the batch runs (ci-web.yml, held-red-files)."""
+
+    def pushes(self, *verdicts, start=0, step=3600 * 6):
+        out = []
+        for i, verdict in enumerate(verdicts):
+            out = history.record(out, f"sha{i}", start + i * step, {TEST: False} if verdict is False else {FILE: True}, f"k{i}")
+        return out
+
+    def test_a_file_red_on_every_push_for_a_day_is_held(self):
+        pushes = self.pushes(True, False, False, False, False, False)  # red from 6 h to 30 h
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 24),
+                         [{"file": FILE, "first": "sha1", "hours": 24.0}])
+        # Under a day red, a green on the newest push, off (0 h), or the change edits the file: it runs.
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 25), [])
+        self.assertEqual(history.held_red_files(self.pushes(False, False, False, False, False, True), 30 * 3600, 24), [])
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 0), [])
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600, 24, {FILE}), [])
+
+    def test_a_history_older_than_the_hours_holds_nothing(self):
+        pushes = self.pushes(False, False, False, False, False, False)
+        self.assertEqual(history.held_red_files(pushes, 30 * 3600 + 25 * 3600, 24), [])
+        # Pushes newer than the merge parent are not read.
+        self.assertEqual(history.held_red_files(pushes, 3 * 3600, 24), [])
+
+    def test_the_command_writes_the_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path, out, changed = Path(tmp) / "h.json", Path(tmp) / "held", Path(tmp) / "changed"
+            path.write_text(json.dumps({"runs": self.pushes(True, False, False, False, False, False)}), encoding="utf-8")
+            changed.write_text("src/other.ts\n", encoding="utf-8")
+            done = subprocess.run([sys.executable, str(SCRIPT), "held-red-files", str(path), "--before", str(30 * 3600),
+                                   "--hours", "24", "--changed", str(changed), "--out", str(out)],
+                                  capture_output=True, text=True, check=False)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(out.read_text(encoding="utf-8"), FILE + "\n")
+            self.assertIn(f"HELD RED {FILE} since sha1", done.stdout)
 
 
 class KnownHeldRed(unittest.TestCase):
@@ -1112,6 +1156,45 @@ class Workflow(unittest.TestCase):
         end = re.search(r"\n  [a-z][a-z0-9-]*:\n", text[start + 1:])
         return text[start:start + 1 + end.start()] if end else text[start:]
 
+    def test_cache_only_history_stays_out_of_the_artifact_across_pushes(self):
+        import yaml
+        steps = {s["name"]: s for s in yaml.safe_load(WORKFLOW.read_text())["jobs"]["webviews-test-history"]["steps"]}
+        restore = steps["Restore the history"]["run"]
+        stage = steps["Stage the history for the cache"]
+        self.assertIn("steps.history-restore.outputs.fresh", stage["env"]["CACHE_ONLY"])
+        self.assertIn("steps.history-restore.outputs.fresh != 'true'", steps["Save the history"]["if"])
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            output = root / "output"
+            history_file = root / "webviews-test-history/history.json"
+            cached = root / ".webviews-test-history-cache/history.json"
+            env = git_fixture_env.fixture_env({"RUNNER_TEMP": tmp, "GITHUB_OUTPUT": str(output),
+                                               "BRANCH": "base", "GITHUB_REPOSITORY": "o/r"})
+            # The fourth push restores the complete, unmarked cache saved after the artifact recovered.
+            pushes = [
+                ("cold cache", [], True),
+                ("cache after bootstrap", [0], True),
+                ("artifact recovered", ["canonical"], False),
+                ("complete cache", ["canonical", 2], False),
+            ]
+            for push, (source, expected_runs, cache_only) in enumerate(pushes):
+                with self.subTest(source=source):
+                    output.write_text("")
+                    fetch = "return 1"
+                    if source == "artifact recovered":
+                        fetch = """printf '%s' '{"runs":["canonical"]}' > "$3" """
+                    subprocess.run(["bash", "-eu", "-c", "python3() { " + fetch + "; }\n" + restore],
+                                   cwd=root, env=env, check=True)
+                    fresh = output.read_text().strip() == "fresh=true"
+                    self.assertEqual(fresh, cache_only)
+                    runs = json.loads(history_file.read_text())["runs"]
+                    self.assertEqual(runs, expected_runs)
+                    # The record command serializes the runs, dropping any cache metadata.
+                    history_file.write_text(json.dumps({"runs": runs + [push]}))
+                    subprocess.run(["bash", "-eu", "-c", stage["run"]], cwd=root,
+                                   env={**env, "CACHE_ONLY": str(fresh).lower()}, check=True)
+                    self.assertEqual(json.loads(cached.read_text()).get("cache_only", False), fresh)
+
     def test_pushes_save_the_history_and_pull_requests_only_read_it(self):
         upkeep = self.job("webviews-test-history")
         self.assertIn("github.event_name == 'push'", upkeep)
@@ -1125,22 +1208,30 @@ class Workflow(unittest.TestCase):
         # takes a key of its own and every restore takes the newest by prefix. The path is relative to the workspace
         # in both, since the cache version hashes the path as written and runner.temp differs between runners.
         scope = self.job("web-subarea-scope")
+        # The base check read the history over the API alone, and a 403 there replayed every red file (2026-11-21).
+        base_check = self.job("react-apps-base-check")
         for text, key in ((upkeep, "webviews-test-history-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}"),
-                          (scope, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}")):
+                          (scope, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}"),
+                          (base_check, "webviews-test-history-${{ github.base_ref }}-${{ github.run_id }}")):
             self.assertIn(f"key: {key}\n", text)
             paths = re.findall(r"path: ([^\n]+)\n\s+key: webviews-test-history-", text)
             self.assertTrue(paths)
-            self.assertEqual(set(paths), {".webviews-test-history-cache/history.json"})
+            # r2-cache.sh saves directories. Passing history.json itself quietly skips the upload.
+            self.assertEqual(set(paths), {".webviews-test-history-cache"})
+            self.assertIn("cached=.webviews-test-history-cache/history.json", text)
         self.assertIn("restore-keys: webviews-test-history-${{ github.ref_name }}-\n", upkeep)
         self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", scope)
         self.assertIn("uses: ./.github/actions/cache-save\n", upkeep)
         self.assertNotIn("cache-save", scope)
+        self.assertIn("restore-keys: webviews-test-history-${{ github.base_ref }}-\n", base_check)
+        self.assertNotIn("cache-save", base_check)
+        self.assertIn("webview test history: the Actions cache's copy", base_check)
         # R2, not the GitHub cache: that store is over its 10 GB cap and evicted the base's history before pull
         # requests read it (2026-11-25), so base comparisons missed. Every save and restore of it names the backend.
-        for text in (upkeep, scope):
+        for text in (upkeep, scope, base_check):
             self.assertNotIn("actions/cache/", text.split("webviews-test-history-")[0][-400:])
-            self.assertEqual(len(re.findall(r"backend: r2\n\s+path: \.webviews-test-history-cache/", text)),
-                             len(re.findall(r"path: \.webviews-test-history-cache/history\.json\n\s+key:", text)))
+            self.assertEqual(len(re.findall(r"backend: r2\n\s+path: \.webviews-test-history-cache\n", text)),
+                             len(re.findall(r"path: \.webviews-test-history-cache\n\s+key:", text)))
         # Optional upkeep: every step keeps going, so a stalled download or save never reddens a push. Only the last
         # step, which names reds stuck on the base, may turn the job red, and it runs after the history is saved.
         steps = upkeep.split("\n      - name: ")[1:]

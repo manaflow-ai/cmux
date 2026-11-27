@@ -54,7 +54,15 @@
     "agentPane.display.modelPickerStyle": "menu",
     "agentPane.showContextUsage": true,
     "agentPane.composerRing": "context",
+    // Claude's look: the computer, folder, mode and model chips sit in the quiet row under the box,
+    // outside it, as in the app. Pinned so a studio profile applied before does not keep its in-box row.
+    "agentPane.composerLook": "auto",
+    // The empty box keeps "Type / for commands", the app's own text (and cmux's).
+    "agentPane.composerPlaceholder": "",
     "sidebar.showNewWorkspaceChooser": true,
+    // The profile button opens the account menu, as the Claude Code app's: who is signed in, the teams to switch
+    // between, then Settings, Usage, Help and Sign Out.
+    "sidebar.profileMenu.style": "account",
     "tabs.newTabApp": "local/customize",
 
     // Feature sets (one line per feature look).

@@ -328,3 +328,32 @@ fn worst_tile_ssim_catches_a_short_label_change_the_ratio_misses() {
     // The same spec passes an identical picture.
     assert!(compare(&a, &a.clone(), &strict).verdict.pass);
 }
+
+/// Real Chrome renders of `tests/fixtures/chrome/html/*.html` (390x844, from the Python checker's fixtures,
+/// cmux#57480) against the committed store in `tests/fixtures/chrome/store`. An identical re-render and a
+/// SwiftShader re-render pass; a clock change under its ignore mask passes; a 6 px button nudge and a
+/// shortened label (0.31% and 0.53% of pixels, under the 1% ratio) fail on their worst tile.
+#[test]
+fn chrome_renders_against_the_committed_store() {
+    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/chrome");
+    let st = Store::open(fixtures.join("store"));
+    let same = batch(&st, &fixtures.join("same"), None, BatchOptions::default()).unwrap();
+    assert!(same.pass, "{:?}", same.counts);
+
+    let out = scratch("chrome");
+    let changed =
+        batch(&st, &fixtures.join("changed"), Some(&out), BatchOptions::default()).unwrap();
+    let status: Vec<(&str, Status)> =
+        changed.entries.iter().map(|e| (e.name.as_str(), e.status)).collect();
+    assert_eq!(
+        status,
+        vec![
+            ("web/clock", Status::Pass),
+            ("web/settings", Status::Fail),
+            ("web/settings-swiftshader", Status::Fail),
+        ]
+    );
+    assert!(!changed.pass);
+    assert!(out.join("diff/web/settings.png").exists());
+    let _ = std::fs::remove_dir_all(&out);
+}

@@ -507,6 +507,8 @@ export interface FsWriteResult {
   revision?: string | null;
 }
 
+export type PortForwardScheme = "http" | "https";
+
 /** A port forward on this Mac (`cloud.port.list` items, the `cloud.port.forward` answer). */
 export interface PortForward {
   machine: string;
@@ -514,6 +516,8 @@ export interface PortForward {
   host: "127.0.0.1";
   /** Connect here, on 127.0.0.1 only. */
   localPort: number;
+  scheme: PortForwardScheme;
+  url: string;
   generation: number;
   state: "up" | "down";
   reason?: string | null;

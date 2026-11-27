@@ -1006,6 +1006,10 @@ impl Worker {
             return;
         }
         self.noise_key_wait = None;
+        // A never-bound machine takes the channel's build before this bind
+        // (`updater::role::before_first_bind`), not five minutes after it.
+        #[cfg(target_os = "linux")]
+        crate::updater::role::before_first_bind(&self.paths);
         let changes = cmux_server::cloud_http::network_changes();
         // The bind writes carrier.json; the keyset refresher's write waits.
         let carrier_lock = self.keyset.carrier_lock();
