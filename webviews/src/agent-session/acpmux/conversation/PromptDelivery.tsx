@@ -13,6 +13,7 @@ import { PROMPT_PENDING_AFTER_MS, type AcpmuxRow, type PromptDelivery } from "..
 import { useT, type StringKey } from "../i18n";
 import { isTrustCause, sendCause, sendRetriesItself } from "../sendFailure";
 import { useTranscriptReadOnly } from "./readOnly";
+import { Tooltip } from "../../../ui/Tooltip";
 import { FailedSendsContext } from "./promptDeliveryModel";
 import { Clock, Close } from "./icons";
 import { ROW_ICON } from "./messageActionsModel";
@@ -96,15 +97,16 @@ export function DeliveryFailure({ row }: { row: AcpmuxRow }) {
             {t("trust.trustFolder")}
           </button>
         )}
-        <button
-          type="button"
-          className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
-          aria-label={t("composer.queueEditMessage")}
-          title={t("composer.queueEditMessage")}
-          onClick={takeBack}
-        >
-          <Close size={ROW_ICON} />
-        </button>
+        <Tooltip label={t("composer.queueEditMessage")}>
+          <button
+            type="button"
+            className="cv-user__take-back cv-iconbtn cv-iconbtn--compact"
+            aria-label={t("composer.queueEditMessage")}
+            onClick={takeBack}
+          >
+            <Close size={ROW_ICON} />
+          </button>
+        </Tooltip>
       </div>
     </div>
   );
