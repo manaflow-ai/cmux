@@ -199,8 +199,10 @@
   gap: var(--ds-space-2);
 }
 .acpmux-question-ask .acpmux-question-body[data-preview] { padding-right: 0; }
+/* 4 px between option rows (Lucas, 2026-11-27: 2 px ran the rows' text and fills together; 6 px was a
+   little too much). */
 .acpmux-question-ask .acpmux-question-rows {
-  gap: var(--grid-half-step);
+  gap: var(--ds-space-1);
   padding: 0;
 }
 /* A row: the mark and the tail on its centre line, the label and its detail tight under each other. */
@@ -301,9 +303,14 @@
 .acpmux-question-footer > .acpmux-question-other-room { flex: 1 1 180px; }
 .acpmux-question-footer > .acpmux-question-row:is(:hover, [data-highlighted], :focus-visible) { background: transparent; }
 .acpmux-question-footer > .acpmux-question-row:is([data-highlighted], :focus-visible) { color: var(--agent-text); }
+/* The field is one line tall, as the "Type your answer" button it replaces, so the words stay on the
+   row's centre line on click. The base 24 px least height drew them 3 px higher: a textarea puts its
+   text at the top of its box, and the row centres the box. 2 px of side padding, taken back by the
+   margin, gives the caret room: at padding 0 the field's own clip cut the caret in half at the start. */
 .acpmux-question-footer .acpmux-question-other :is(input, textarea) {
-  margin: 0;
-  padding: 0;
+  min-height: 0;
+  margin: 0 calc(-1 * var(--grid-half-step));
+  padding: 0 var(--grid-half-step);
   background: transparent;
   box-shadow: none;
   font-size: var(--text-body);
