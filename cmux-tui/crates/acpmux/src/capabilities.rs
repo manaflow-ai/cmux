@@ -576,10 +576,6 @@ pub const CAPABILITIES: &[Capability] = &[
     },
     // The person's Accept or Dismiss on what a chat learned (`server/memory_inbox.rs`).
     Capability { id: "memory-inbox-v1", wire: &[method::MUX_MEMORY_RESOLVE] },
-    Capability {
-        id: "agent-home-v1",
-        wire: &[method::MUX_AGENT_HOME, method::MUX_AGENT_HOME_RESOLVE],
-    },
     // The rewrite a chat that took several corrections offers (`server/prompt_coach.rs`).
     Capability { id: "prompt-coach-v1", wire: &[method::MUX_PROMPT_COACH] },
     // Pre-copy for a chat move (`hub/transfer_precopy.rs`): `transfer_prepare` exports the log

@@ -1573,18 +1573,6 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
-			<string>Your CLAUDE.md, AGENTS.md, agents, commands, skills and Claude's memory notes follow you to Cloud machines. Never credentials or settings files. Agents' changes wait for you in Session Info; only you can change this. Off deletes your copy in the cloud and stops every push.</string>
-			<key>pfm_name</key>
-			<string>cloud.agentMemory.follow</string>
-			<key>pfm_title</key>
-			<string>Carry Your Agent Memory to Cloud Machines</string>
-			<key>pfm_type</key>
-			<string>boolean</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<true/>
-			<key>pfm_description</key>
 			<string>Agents can start sessions that work in parallel, shown under theirs.</string>
 			<key>pfm_name</key>
 			<string>agents.subsessions.enabled</string>

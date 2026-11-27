@@ -751,32 +751,6 @@
             "place",
             "where"
           ]
-        },
-        {
-          "key": "cloud.agentMemory.follow",
-          "name": "agentMemoryFollow",
-          "title": {
-            "key": "settings.cloud.agentMemory.follow",
-            "text": "Carry Your Agent Memory to Cloud Machines"
-          },
-          "help": {
-            "key": "settings.cloud.agentMemory.follow.help",
-            "text": "Your CLAUDE.md, AGENTS.md, agents, commands, skills and Claude's memory notes follow you to Cloud machines. Never credentials or settings files. Agents' changes wait for you in Session Info; only you can change this. Off deletes your copy in the cloud and stops every push."
-          },
-          "kind": "toggle",
-          "default": true,
-          "keywords": [
-            "cloud",
-            "agent",
-            "memory",
-            "claude",
-            "agents",
-            "skills",
-            "commands",
-            "sync",
-            "follow",
-            "machine"
-          ]
         }
       ]
     },
