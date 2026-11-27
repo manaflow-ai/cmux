@@ -174,7 +174,7 @@ pub(crate) mod linux {
     use std::mem::{size_of, zeroed};
     use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
     use std::os::fd::RawFd;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     use super::{EF_TOS, Mark, ReceiveBatch, SendBatch};
 
@@ -196,6 +196,14 @@ pub(crate) mod linux {
     /// Set once a GSO send failed with what a device without checksum offload
     /// answers (EIO), so every later send goes one datagram a message.
     static GSO_OFF: AtomicBool = AtomicBool::new(false);
+
+    /// The largest datagram sent as a GSO segment. The kernel fragments a
+    /// datagram larger than the path MTU when it goes alone, but refuses a
+    /// GSO message whose segments are (EMSGSIZE): such a refusal lowers this
+    /// below the refused segment and the same datagrams go again, one a
+    /// message. Process-wide, as [`GSO_OFF`]: a path that refused a size
+    /// costs other paths only the batching of that size.
+    static GSO_SEGMENT_MAX: AtomicUsize = AtomicUsize::new(usize::MAX);
 
     /// Ask the kernel to join arriving datagrams (GRO). A kernel that
     /// refuses keeps one datagram a message; both read the same way.
@@ -272,7 +280,14 @@ pub(crate) mod linux {
     /// Group datagrams from `from` on into messages: a run to one address of
     /// one size (the last may be shorter) and one mark is one GSO message.
     /// `marks`: whether marks are sent at all (a run ignores them when not).
-    fn plan(batch: &SendBatch, from: usize, gso: bool, marks: bool) -> Vec<Message> {
+    /// A datagram over `segment_max` bytes goes alone.
+    fn plan(
+        batch: &SendBatch,
+        from: usize,
+        gso: bool,
+        marks: bool,
+        segment_max: usize,
+    ) -> Vec<Message> {
         let mark_of = |index| if marks { batch.mark(index) } else { Mark::Plain };
         let mut messages: Vec<Message> = Vec::new();
         let mut index = from;
@@ -282,7 +297,7 @@ pub(crate) mod linux {
             let segment = first.len();
             let mut count = 1;
             let mut bytes = segment;
-            while gso && count < GSO_SEGMENTS {
+            while gso && segment <= segment_max && count < GSO_SEGMENTS {
                 let Some((next, next_target)) = batch.get(index + count) else { break };
                 if next_target != target
                     || mark_of(index + count) != mark
@@ -306,20 +321,53 @@ pub(crate) mod linux {
     /// Send datagrams `from..` of `batch` with one `sendmmsg`. Returns how
     /// many datagrams left (at least one), or the error of the first message.
     pub(crate) fn send(fd: RawFd, batch: &SendBatch, from: usize) -> io::Result<usize> {
+        send_with(batch, from, &GSO_SEGMENT_MAX, |messages| send_messages(fd, batch, messages))
+    }
+
+    /// As [`send`], through `sender` (one `sendmmsg` of the messages), with
+    /// `segment_max` as the GSO segment bound it lowers.
+    fn send_with(
+        batch: &SendBatch,
+        from: usize,
+        segment_max: &AtomicUsize,
+        mut sender: impl FnMut(&[Message]) -> io::Result<usize>,
+    ) -> io::Result<usize> {
         let gso = !GSO_OFF.load(Ordering::Relaxed);
         let marks = super::marking();
-        let messages = plan(batch, from, gso, marks);
-        let marked = messages.iter().any(|message| message.mark != Mark::Plain);
-        match send_messages(fd, batch, &messages) {
-            Err(error) if gso && error.raw_os_error() == Some(libc::EIO) => {
-                // The device cannot checksum a GSO message: one a datagram.
-                GSO_OFF.store(true, Ordering::Relaxed);
-                send_messages(fd, batch, &plan(batch, from, false, marks))
-            }
-            Err(error) if super::marks_refused(&error, marked) => {
-                send_messages(fd, batch, &plan(batch, from, gso, false))
-            }
-            result => result,
+        loop {
+            let messages = plan(batch, from, gso, marks, segment_max.load(Ordering::Relaxed));
+            let marked = messages.iter().any(|message| message.mark != Mark::Plain);
+            return match sender(&messages) {
+                Err(error) if gso && error.raw_os_error() == Some(libc::EIO) => {
+                    // The device cannot checksum a GSO message: one a datagram.
+                    GSO_OFF.store(true, Ordering::Relaxed);
+                    sender(&plan(batch, from, false, marks, 0))
+                }
+                Err(error)
+                    if error.raw_os_error() == Some(libc::EMSGSIZE)
+                        && messages
+                            .first()
+                            .is_some_and(|first| first.count > 1 && first.segment > 0) =>
+                {
+                    // The path is smaller than the segment: never drop the
+                    // run, lower the bound under it and send it again. Each
+                    // pass lowers it, so this ends once the run goes alone.
+                    let segment = messages.first().map_or(0, |first| first.segment);
+                    let previous =
+                        segment_max.fetch_min(segment.saturating_sub(1), Ordering::Relaxed);
+                    if previous >= segment {
+                        eprintln!(
+                            "wireguard UDP: GSO segments of {segment} B refused ({error}); \
+                             datagrams that size now go one a message"
+                        );
+                    }
+                    continue;
+                }
+                Err(error) if super::marks_refused(&error, marked) => {
+                    sender(&plan(batch, from, gso, false, segment_max.load(Ordering::Relaxed)))
+                }
+                result => result,
+            };
         }
     }
 
@@ -515,10 +563,10 @@ pub(crate) mod linux {
             batch.push(&[2; 40], addr(1)); // the shorter tail joins
             batch.push(&[3; 100], addr(1)); // after a short one: new message
             batch.push(&[4; 100], addr(2)); // another address
-            let plan = plan(&batch, 0, true, true);
+            let plan = plan(&batch, 0, true, true, usize::MAX);
             let shape: Vec<_> = plan.iter().map(|m| (m.first, m.count, m.segment)).collect();
             assert_eq!(shape, vec![(0, 4, 100), (4, 1, 100), (5, 1, 100)]);
-            assert_eq!(super::plan(&batch, 0, false, true).len(), 6);
+            assert_eq!(super::plan(&batch, 0, false, true, usize::MAX).len(), 6);
         }
 
         #[test]
@@ -529,7 +577,7 @@ pub(crate) mod linux {
             batch.push_marked(&[1; 100], addr(1), Mark::Voice);
             batch.push(&[1; 100], addr(1));
             let shape = |marks| {
-                plan(&batch, 0, true, marks)
+                plan(&batch, 0, true, marks, usize::MAX)
                     .iter()
                     .map(|m| (m.first, m.count, m.mark))
                     .collect::<Vec<_>>()
@@ -626,7 +674,94 @@ pub(crate) mod linux {
             let mut batch = SendBatch::default();
             batch.push(&[1; 50], addr(1));
             batch.push(&[1; 60], addr(1));
-            assert_eq!(plan(&batch, 0, true, true).len(), 2);
+            assert_eq!(plan(&batch, 0, true, true, usize::MAX).len(), 2);
+        }
+
+        #[test]
+        fn datagrams_over_the_segment_bound_go_alone() {
+            let mut batch = SendBatch::default();
+            for _ in 0..3 {
+                batch.push(&[1; 1452], addr(1));
+            }
+            for _ in 0..3 {
+                batch.push(&[2; 1000], addr(1));
+            }
+            let shape: Vec<_> =
+                plan(&batch, 0, true, true, 1451).iter().map(|m| (m.first, m.count)).collect();
+            assert_eq!(shape, vec![(0, 1), (1, 1), (2, 1), (3, 3)]);
+        }
+
+        /// A sender that refuses a GSO message of segments over `path`
+        /// bytes as the kernel does (EMSGSIZE) and takes everything else,
+        /// recording what left.
+        fn path_of(
+            path: usize,
+            left: &mut Vec<usize>,
+        ) -> impl FnMut(&[Message]) -> io::Result<usize> + '_ {
+            move |messages: &[Message]| {
+                if let Some(first) = messages.first()
+                    && first.count > 1
+                    && first.segment > path
+                {
+                    return Err(io::Error::from_raw_os_error(libc::EMSGSIZE));
+                }
+                left.extend(messages.iter().map(|message| message.count));
+                Ok(messages.iter().map(|message| message.count).sum())
+            }
+        }
+
+        /// Full WireGuard datagrams of a 1420 inner MTU (1452 B) on a GCP
+        /// path (1460 less 28 B of IPv4 and UDP headers: 1432 B). The kernel
+        /// refuses them as GSO segments; every one must still leave, and the
+        /// next batch must not be refused again. The old send returned the
+        /// refusal and the underlay dropped the datagram.
+        #[test]
+        fn a_gso_message_refused_as_too_large_goes_again_one_a_message() {
+            let bound = AtomicUsize::new(usize::MAX);
+            let mut batch = SendBatch::default();
+            for _ in 0..4 {
+                batch.push(&[7; 1452], addr(1));
+            }
+            let mut left = Vec::new();
+            let sent = send_with(&batch, 0, &bound, path_of(1432, &mut left)).unwrap();
+            assert_eq!(sent, 4, "every datagram left");
+            assert_eq!(left, vec![1, 1, 1, 1]);
+            assert_eq!(bound.load(Ordering::Relaxed), 1451);
+
+            let mut again = Vec::new();
+            let mut refused = 0;
+            let sent = send_with(&batch, 0, &bound, |messages: &[Message]| {
+                let result = path_of(1432, &mut again)(messages);
+                refused += usize::from(result.is_err());
+                result
+            })
+            .unwrap();
+            assert_eq!((sent, refused), (4, 0), "the lowered bound holds");
+
+            // Smaller datagrams still join into one GSO message.
+            let mut small = SendBatch::default();
+            for _ in 0..4 {
+                small.push(&[8; 1412], addr(1));
+            }
+            let mut left = Vec::new();
+            assert_eq!(send_with(&small, 0, &bound, path_of(1432, &mut left)).unwrap(), 4);
+            assert_eq!(left, vec![4]);
+        }
+
+        /// A single datagram the path refuses is the caller's error, not a
+        /// loop: only a GSO run is split and sent again.
+        #[test]
+        fn a_lone_datagram_refused_as_too_large_is_returned() {
+            let bound = AtomicUsize::new(usize::MAX);
+            let mut batch = SendBatch::default();
+            batch.push(&[7; 1452], addr(1));
+            let mut calls = 0;
+            let result = send_with(&batch, 0, &bound, |_: &[Message]| {
+                calls += 1;
+                Err(io::Error::from_raw_os_error(libc::EMSGSIZE))
+            });
+            assert_eq!(result.unwrap_err().raw_os_error(), Some(libc::EMSGSIZE));
+            assert_eq!((calls, bound.load(Ordering::Relaxed)), (1, usize::MAX));
         }
 
         #[test]
@@ -635,7 +770,7 @@ pub(crate) mod linux {
             for _ in 0..100 {
                 batch.push(&[0; 1452], addr(1));
             }
-            let plan = plan(&batch, 0, true, true);
+            let plan = plan(&batch, 0, true, true, usize::MAX);
             assert!(plan.iter().all(|m| m.count * 1452 <= GSO_BYTES && m.count <= GSO_SEGMENTS));
             assert_eq!(plan.iter().map(|m| m.count).sum::<usize>(), 100);
         }

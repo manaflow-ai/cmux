@@ -38,8 +38,9 @@ class TreeKeyVerb(unittest.TestCase):
         callers = [ROOT / ".github/workflows/cmux-machine-channel.yml", ROOT / "scripts/ci/cmux_machine_channel_pr_head.py"]
         for path in callers:
             text = path.read_text(encoding="utf-8")
-            self.assertTrue(re.search(r'\bkey\b"?,? "?--version"?,? "?v2', text), f"{path} no longer passes `key --version v2`")
-        self.assertEqual(run("key", "--version", "v2", "HEAD^{commit}").returncode, 0)
+            self.assertTrue(re.search(r'--version[\"\', ]+v2', text), f"{path} no longer passes `--version v2`")
+        for prefix in ((), ("key",)):
+            self.assertEqual(run(*prefix, "--version", "v2", "HEAD^{commit}").returncode, 0)
 
     def test_extra_arguments_still_refused(self):
         self.assertEqual(run("key", "HEAD", "HEAD").returncode, 2)
