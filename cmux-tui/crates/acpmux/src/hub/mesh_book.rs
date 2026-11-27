@@ -87,6 +87,7 @@ struct Fields<'a> {
     name: &'a str,
     harness: &'a str,
     state: &'a str,
+    stuck_reason: Option<&'a str>,
     cwd: Option<&'a str>,
     title: Option<&'a str>,
     title_source: Option<&'a str>,
@@ -105,6 +106,7 @@ impl<'a> Fields<'a> {
             name: &s.name,
             harness: &s.harness,
             state: &s.state,
+            stuck_reason: s.stuck_reason.as_deref(),
             cwd: s.cwd.as_deref().filter(|c| !c.is_empty()),
             title: s.title.as_deref().filter(|t| !t.is_empty()),
             title_source: s.title_source.as_deref().filter(|t| !t.is_empty()),
@@ -128,6 +130,7 @@ struct Bare {
     name: String,
     harness: String,
     state: String,
+    stuck_reason: Option<String>,
     cwd: Option<String>,
     title: Option<String>,
     title_source: Option<String>,
@@ -149,6 +152,7 @@ impl Bare {
             name: fields.name.into(),
             harness: fields.harness.into(),
             state: fields.state.into(),
+            stuck_reason: own(fields.stuck_reason),
             cwd: own(fields.cwd),
             title: own(fields.title),
             title_source: own(fields.title_source),
@@ -168,6 +172,7 @@ impl Bare {
             name: &self.name,
             harness: &self.harness,
             state: &self.state,
+            stuck_reason: self.stuck_reason.as_deref(),
             cwd: self.cwd.as_deref(),
             title: self.title.as_deref(),
             title_source: self.title_source.as_deref(),
@@ -265,6 +270,7 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         name,
         harness,
         state,
+        stuck_reason,
         cwd,
         title,
         title_source,
@@ -276,7 +282,8 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         // `set_mesh_book` sets `updatedAt` itself, from this or its own reading.
         updated_at: _,
     } = *fields;
-    json!({
+    let failed = state == "failed";
+    let mut row = json!({
         "sessionId": session_id,
         "name": name,
         // Unknown unless the hub says: the name came from its machine, given or derived there.
@@ -293,12 +300,26 @@ fn row_of(session_id: &str, fields: &Fields<'_>) -> Value {
         // from the id (`session_handle::display`, `session_handle::matches`).
         "handle": handle,
         "displayName": handle,
-        "status": state,
+        // Keep the daemon's lifecycle status usable by existing summary views. The synthetic
+        // failed heartbeat state is carried by the last turn they already know how to render.
+        "status": if failed { "idle" } else { state },
         // A waiting session waits on its person: listed with the asks (`pendingOnly`).
         "pendingPermissions": u64::from(state == "waiting"),
         "via": "hub",
         "stale": false,
-    })
+    });
+    if failed {
+        // Existing summary views derive their failed indicator from the last turn. Keep that
+        // projection even when an older peer omitted the optional reason.
+        row["lastTurn"] = json!({"status": "failed"});
+    }
+    if let Some(reason) = stuck_reason {
+        row["stuckReason"] = json!(reason);
+        if failed {
+            row["lastTurn"]["errorText"] = json!(reason);
+        }
+    }
+    row
 }
 
 impl Hub {
@@ -591,11 +612,14 @@ impl Hub {
                     // What the machine's own heartbeat carried; a pulled reading newer than it
                     // replaces it below.
                     if let Some((at, reading)) = book.pushed.get(host)
-                        && now.saturating_sub(*at) <= PUSHED_FRESH_MS
                         && let Some(fields) = row.as_object_mut()
                     {
-                        fields.insert("health".into(), reading.clone());
+                        // Keep the time after the metrics expire: placement distinguishes a
+                        // machine that has gone stale from one it has never heard from.
                         fields.insert("healthAt".into(), json!(at));
+                        if now.saturating_sub(*at) <= PUSHED_FRESH_MS {
+                            fields.insert("health".into(), reading.clone());
+                        }
                     }
                     row
                 })
@@ -605,13 +629,20 @@ impl Hub {
         let health = self.hub_health.lock().unwrap_or_else(|e| e.into_inner());
         for row in &mut rows {
             let Some(name) = row.get("name").and_then(Value::as_str) else { continue };
-            let pushed_at = row.get("healthAt").and_then(Value::as_u64).unwrap_or(0);
+            let failed_at = health.failed_at(name);
+            let pushed_at = row.get("healthAt").and_then(Value::as_u64);
             if let Some((at, reading)) = health.reading(name)
-                && at > pushed_at
+                && pushed_at.is_none_or(|pushed| at > pushed)
                 && let Some(fields) = row.as_object_mut()
             {
                 fields.insert("health".into(), reading);
                 fields.insert("healthAt".into(), json!(at));
+            }
+            // Its newest read failed: placement passes it over (`placement/reach.rs`).
+            if let Some(failed) = failed_at
+                && let Some(fields) = row.as_object_mut()
+            {
+                fields.insert("healthFailedAt".into(), json!(failed));
             }
         }
         rows

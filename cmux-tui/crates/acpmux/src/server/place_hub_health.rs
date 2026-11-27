@@ -1,7 +1,8 @@
 //! Part of `place.rs`. Before a placement weighs the machines only the mesh hub reaches, their
 //! health is read through the hub (`server/mesh_read.rs` `host_health`, kept by
-//! `hub/hub_health.rs`). A machine with no reading yet is waited for up to [`FIRST_WAIT`]; one
-//! with a reading is weighed by it while a fresh one is asked. After a placement, a refresh asks
+//! `hub/hub_health.rs`). A machine with no reading yet, or one older than
+//! `placement::reach::STALE_MS`, is waited for up to [`FIRST_WAIT`]; one with a fresh reading is
+//! weighed by it while a newer one is asked. After a placement, a refresh asks
 //! again each minute for `INTEREST_MS`, then stops.
 //!
 //! Of the machines with no reading, a placement waits on [`SAMPLE`] chosen at random (RFD 0181
@@ -65,8 +66,17 @@ async fn refresh_drawn(
             return;
         }
         let running = h.interested(now);
-        let missing: BTreeSet<String> =
-            due.iter().filter(|host| h.reading(host).is_none()).cloned().collect();
+        // Wait for a sampled machine when it has no usable reading.
+        let missing: BTreeSet<String> = due
+            .iter()
+            .filter(|host| {
+                h.reading(host).is_none_or(|(at, _)| {
+                    now.saturating_sub(at) > crate::placement::reach::STALE_MS
+                        || h.failed_at(host).is_some_and(|failed| failed > at)
+                })
+            })
+            .cloned()
+            .collect();
         (due, missing, running)
     };
     let missing = wait_on(&missing, seed);
