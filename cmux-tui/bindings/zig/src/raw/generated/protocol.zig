@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "eacbdb081ca129fd0a1d92dbb49f3fc1445a56a232c52a75e21e512cf03388b4";
+pub const ir_sha256 = "587114f40cfc29220418a9a5e2d9de42cb392d6129c6d03054d0287dd2be69d2";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -3947,9 +3947,21 @@ pub const WorkspaceFirstTab = union(enum) {
 pub const WorkspaceGroup = struct {
     collapsed: bool,
     color: wire.Nullable([]const u8),
+    /// workspace-group-icon-v1: the group's icon (one emoji, an SF Symbol name or a stored image), in list-personal's groups.
+    icon: wire.Field([]const u8) = .absent,
     id: []const u8,
     index: u64,
     name: []const u8,
+    /// workspace-group-pin-v1: a pinned group stays as an empty saved group when its workspaces close, in list-personal's groups.
+    pinned: ?bool = null,
+    /// profiles-v1: the room of a personal group, in list-personal's groups; list-workspaces leaves it out.
+    profile: wire.Field([]const u8) = .absent,
+    /// personal-mixed-order-v1: the personal workspace index the group shows right before, in list-personal's groups; null after every loose workspace.
+    top_index: wire.Field(u64) = .absent,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "pinned",
+    };
 };
 
 pub const WorkspaceMutationResult = struct {
