@@ -167,10 +167,16 @@ async fn dns_down_turn_over_tls_still_verifies_the_name() {
     assert_eq!(after, Ok(LinkPath::TurnTls));
     eprintln!("route literals, TURN/TLS, DNS hangs: after {took:?} (link up)");
 
-    // A name the certificate does not carry fails verification even at the right literal.
+    // A name the certificate does not carry fails verification even at the right literal. Only
+    // the `turns:` URL is offered: with plain TURN/TCP beside it the dial fails over to that
+    // leg once TLS refuses (#55437), and LinkPath names both stream legs TurnTls.
     routes.store("other.cmux.test", &[IpAddr::V4(Ipv4Addr::LOCALHOST)]);
-    let wrong = DialOptions { ice_servers: vec![ice_named(&turn.ice, "other.cmux.test")], ..phone.clone() };
-    assert!(dial_once(&rig, &wrong).await.0.is_err(), "TLS accepted a certificate for another name");
+    let mut tls_only = ice_named(&turn.ice, "other.cmux.test");
+    tls_only.urls.retain(|url| url.starts_with("turns:"));
+    assert_eq!(tls_only.urls.len(), 1, "the test TURN server offers one TLS URL: {:?}", turn.ice.urls);
+    let wrong = DialOptions { ice_servers: vec![tls_only], ..phone.clone() };
+    let (path, _) = dial_once(&rig, &wrong).await;
+    assert!(path.is_err(), "TLS accepted a certificate for another name: {path:?}");
 }
 
 /// A stale literal (the server moved) does not slow a dial while DNS works: DNS's answer is

@@ -394,6 +394,10 @@ impl Message {
 }
 
 /// ACP method names used by acpmux. Kept as constants so the wire is explicit.
+/// `_acpmux/status` with this `true` answers only the listing's counts and peers
+/// (`Hub::list_counts`); a daemon before it ignores it and sends the full status.
+pub const LIST_COUNTS: &str = "listCounts";
+
 pub mod method {
     pub const INITIALIZE: &str = "initialize";
     pub const AUTHENTICATE: &str = "authenticate";
@@ -607,6 +611,8 @@ pub mod method {
     /// `acpmux send --no-wait`: queue a prompt for this daemon to deliver (`hub/outbox.rs`).
     pub const MUX_SEND_QUEUE: &str = "_acpmux/send_queue";
     pub const MUX_SEND_STATUS: &str = "_acpmux/send_status";
+    /// A peer daemon's one-hop send to a host this daemon peers (`server/send_hop.rs`).
+    pub const MUX_SEND_HOP: &str = "_acpmux/send_hop";
     /// Local socket: enqueue or read a mesh lifecycle control receipt.
     pub const MUX_MESH_CONTROL: &str = "_acpmux/mesh_control";
     /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
@@ -1089,7 +1095,9 @@ pub mod method {
     /// olderThanDays?, only?, unreadOnly?}` -> the pass's report.
     pub const MUX_RETENTION: &str = "_acpmux/retention";
     /// Delete old chats' history (`hub/history_delete.rs`): `{dryRun?, olderThanDays?, export?}`
-    /// -> the chats deleted, or with `dryRun` the preview of those a pass would delete.
+    /// -> the chats deleted (hidden for the undo window) and purged, or with `dryRun` the preview
+    /// of those a pass would delete. `{deleted: true}` -> Recently deleted; `{restore: id}` ->
+    /// `{sessionId, restored}`, the undo.
     pub const MUX_HISTORY_DELETE: &str = "_acpmux/history_delete";
     /// Offload old cold-archived chats to cloud history (`hub/cloud_offload.rs`): `{dryRun?,
     /// olderThanDays?}` -> the chats offloaded, or those a pass would offload.
