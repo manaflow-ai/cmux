@@ -21,10 +21,26 @@ fn line(mux: &Arc<Mux>, (client, writer, outbound, scheduler): &Conn, request: V
     pop_json(outbound)
 }
 
-/// The messages `conn` gets until the `marker` status arrives.
-fn until_marker(conn: &Conn, marker: &str) -> Vec<String> {
+/// Sends `subscribe` and returns what `conn` got up to and including its reply.
+fn subscribed(mux: &Arc<Mux>, conn: &Conn) -> Vec<String> {
+    let request = json!({"id": "sub", "cmd": "subscribe"}).to_string();
+    assert!(handle_connection_message(mux, conn.0, &request, &conn.1, &conn.3));
     let deadline = Instant::now() + Duration::from_secs(5);
-    let mut seen = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    while !seen.iter().any(|message| message.contains(r#""id":"sub""#)) {
+        assert!(Instant::now() < deadline, "subscribe never answered: {seen:?}");
+        match conn.2.try_pop() {
+            Some(message) => seen.push(message),
+            None => std::thread::sleep(Duration::from_millis(2)),
+        }
+    }
+    seen
+}
+
+/// The messages `conn` gets until the `marker` status arrives.
+fn until_marker(conn: &Conn, marker: &str, early: Vec<String>) -> Vec<String> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let mut seen: Vec<String> = early;
     while !seen.iter().any(|message: &String| message.contains(marker)) {
         assert!(Instant::now() < deadline, "the marker never arrived: {seen:?}");
         match conn.2.try_pop() {
@@ -60,7 +76,7 @@ fn a_connection_that_reads_scroll_on_attach_gets_no_scroll_changed_on_subscribe(
     }
     mux.emit(MuxEvent::Status("scroll-marker".into()));
 
-    let app_seen = until_marker(&app, "scroll-marker");
+    let app_seen = until_marker(&app, "scroll-marker", Vec::new());
     let scrolls: Vec<&String> = app_seen.iter().filter(|m| m.contains("scroll-changed")).collect();
     assert!(
         scrolls.is_empty(),
@@ -68,7 +84,7 @@ fn a_connection_that_reads_scroll_on_attach_gets_no_scroll_changed_on_subscribe(
         scrolls.len()
     );
     // The subscriber mailbox keeps only the newest scroll of a surface (event_bus coalescing): at least one arrives.
-    let other_seen = until_marker(&other, "scroll-marker");
+    let other_seen = until_marker(&other, "scroll-marker", Vec::new());
     assert!(
         other_seen.iter().any(|m| m.contains("scroll-changed")),
         "a connection that did not ask lost its scroll-changed events: {other_seen:?}"
@@ -81,7 +97,7 @@ fn identify_lists_subscribe_scroll_on_attach() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify { machine_metadata: false, revisions: false, restore_progress: false },
         &test_writer(),
     )
     .unwrap();
@@ -104,20 +120,14 @@ fn screen_identity_replay_and_live_events_are_opt_in() {
     );
     assert_eq!(reply["ok"], true, "{reply}");
     let legacy = connect(&mux);
-    for conn in [&opted, &legacy] {
-        assert!(handle_connection_message(
-            &mux,
-            conn.0,
-            &json!({"id": "sub", "cmd": "subscribe"}).to_string(),
-            &conn.1,
-            &conn.3,
-        ));
-    }
+    // The subscription exists once `subscribe` has answered: an event before that reaches no one.
+    let opted_early = subscribed(&mux, &opted);
+    let legacy_early = subscribed(&mux, &legacy);
 
     mux.emit(MuxEvent::ScreenDeviceChanged(Some("550e8400-e29b-41d4-a716-446655440000".into())));
     mux.emit(MuxEvent::Status("screen-identity-marker".into()));
 
-    let opted_seen = until_marker(&opted, "screen-identity-marker");
+    let opted_seen = until_marker(&opted, "screen-identity-marker", opted_early);
     let opted_events: Vec<Value> = opted_seen
         .iter()
         .filter_map(|message| serde_json::from_str(message).ok())
@@ -131,7 +141,7 @@ fn screen_identity_replay_and_live_events_are_opt_in() {
         opted_events.iter().all(|message| message["screen_device_id"].is_null()),
         "identity payloads must read the current cache, not a stale queued value: {opted_events:?}"
     );
-    let legacy_seen = until_marker(&legacy, "screen-identity-marker");
+    let legacy_seen = until_marker(&legacy, "screen-identity-marker", legacy_early);
     assert!(
         legacy_seen.iter().all(|message| !message.contains("screen-device-changed")),
         "a legacy owner must not receive the additive identity event: {legacy_seen:?}"
@@ -144,7 +154,7 @@ fn identify_lists_screen_identity_capability() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify { machine_metadata: false, revisions: false, restore_progress: false },
         &test_writer(),
     )
     .unwrap();

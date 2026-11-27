@@ -50,6 +50,9 @@
 # swiftpm_purge_build_outputs SCRATCH
 #   Removes every build output in SCRATCH (keeps checkouts, repositories,
 #   artifacts and the resolution state). Also the backstop of the suite build.
+#   It keeps app-ffi-linux too: CmuxNext's Linux libcmux_app_ffi.a and its
+#   cargo state (scripts/ci/app_ffi_linux.py), which cargo keeps current and
+#   the lane builds before any purge here.
 #
 # swiftpm_stale_module_failure LOG
 #   Exit 0 when LOG has a stale explicit-module failure
@@ -394,7 +397,7 @@ swiftpm_purge_build_outputs() {
   for entry in "$scratch"/* "$scratch"/.[!.]*; do
     [ -e "$entry" ] || continue
     case "${entry##*/}" in
-      artifacts|checkouts|repositories|workspace-state.json|Package.resolved) ;;
+      artifacts|checkouts|repositories|workspace-state.json|Package.resolved|app-ffi-linux) ;;
       *) rm -rf -- "$entry" ;;
     esac
   done

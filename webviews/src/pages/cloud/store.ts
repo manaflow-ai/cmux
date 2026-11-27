@@ -25,6 +25,7 @@ import {
   type MachineLayout,
   type MachineRow,
   type PendingIntent,
+  keptMachines,
 } from "./model";
 import {
   ACTION_RUN,
@@ -119,6 +120,8 @@ export interface CloudState {
    */
   recovering?: true;
   auth?: AuthStatus;
+  /** What Sign In signs in to ("Signs in to cmux.com"), from the app's account stream while signed out. */
+  signInBackend?: string;
   loading: boolean;
   machines: CloudMachine[];
   revision: number;
@@ -1013,6 +1016,8 @@ export class CloudStore {
         if (lifetime !== this.lifetime) return;
         const previous = this.lastAccount;
         this.lastAccount = event;
+        const signInBackend = event?.signInBackend ?? undefined;
+        if (signInBackend !== this.state.signInBackend) this.set({ signInBackend });
         // Another signed-in account (a user switch): its auth status may read the same, so it reloads.
         // The first event is checked against the kept list's user, so another user's list never stays.
         const before =
@@ -1137,6 +1142,10 @@ export class CloudStore {
           revision = event.revision;
         }
         buffer = null;
+        // A relist (Retry, a recovery) brings every machine as a new object: keep each unchanged one,
+        // so only the machines that changed draw again. Events need none of this (applyEvent keeps
+        // the others).
+        machines = keptMachines(this.state.machines, machines);
         return { machines, revision, surge };
       };
       return { unwatch, take };

@@ -62,7 +62,3 @@ windows-sys = { workspace = true, features = [
     "Win32_System_SystemServices",
     "Win32_System_Threading",
 ] }
-
-[dev-dependencies]
-# tests/catalog_manifest.rs hashes the generated sources in every feature set.
-sha2 = { workspace = true }
