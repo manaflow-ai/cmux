@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46028305117",
+  "recorded_at": "2026-11-27T15:54:21Z",
+  "reason": "image inputs changed in be17df0ea0b31c650e1e20114e4734d54e1f2a16..478ba4e27c7cde276b28e0ff14f4c56563f2a843; cmux-tui 0b9607122928, the newest build published on HEAD (pinned b75b74ccf357; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "0b9607122928b44f0dd707942a75b3a0040ffed6",
+  "fixes": [
+    {
+      "sha": "478ba4e27c7cde276b28e0ff14f4c56563f2a843",
+      "mergedAt": "2026-11-27T15:49:21Z",
+      "subject": "devbox bake: a provider outage past the budget no longer loses the step (#62090)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-27T15:54:21Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
