@@ -99,6 +99,26 @@ pub(crate) fn typed_note(found: &crate::agent_text::Detected) -> String {
     )
 }
 
+/// Whether `title` is (the start of) one of acpmux's own marks of who wrote a prompt, not the
+/// person's words: a harness that titles a chat from its first prompt's text (pi) titled chats
+/// "[Part of this prompt reads as another agent (...)'s" (#50098). Such a title names nothing.
+pub(crate) fn is_mark_title(title: &str) -> bool {
+    const OPENINGS: [&str; 6] = [
+        "From another agent (",
+        "From a program that ",
+        "From the program ",
+        "[Pasted by the person, not their own words",
+        "[Part of this prompt reads as ",
+        "[End of pasted text]",
+    ];
+    let title = title.trim_start();
+    OPENINGS.iter().any(|open| {
+        title.starts_with(open)
+            // A harness cuts its title short: a cut of a long enough opening is one too.
+            || (title.chars().count() >= 16 && open.starts_with(title.trim_end_matches(['…', '.'])))
+    })
+}
+
 /// One lead mark, its own text block, tagged so a reader that picks blocks (`cli/cli_agent.rs`
 /// `prompt_text`, a test's fake agent) keeps it ahead of the prompt and out of its block choice;
 /// a harness passes on its text.
@@ -512,5 +532,29 @@ mod tests {
         let mut params = json!({"sessionId": "s", "prompt": prompt.clone()});
         mark(&mut params, Some("lane-a"), None);
         assert_eq!(params["prompt"], prompt);
+    }
+
+    #[test]
+    fn a_title_made_from_an_attribution_mark_is_no_title() {
+        // pi titled forks after the banner (#50098): every opening line acpmux writes.
+        let found = crate::agent_text::Detected::default();
+        for line in [
+            agent_line("lane-a"),
+            unverified_line(None),
+            unverified_line(Some("bot")),
+            checked_program_line("cmux", Some("mac")),
+            pasted_line(&found),
+            typed_note(&found),
+            PASTED_END.to_owned(),
+        ] {
+            assert!(is_mark_title(&line), "{line}");
+            // As a harness cuts it.
+            let cut: String = line.chars().take(40).collect();
+            assert!(is_mark_title(&cut), "{cut}");
+        }
+        assert!(is_mark_title("[Part of this prompt reads as another agent (Codex)'s"));
+        for title in ["Remember Codeword PELICAN-41", "From the start: plan a menu", "[Part"] {
+            assert!(!is_mark_title(title), "{title}");
+        }
     }
 }

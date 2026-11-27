@@ -217,13 +217,14 @@ export function TurnWaterfall({
     </span>
   );
   if (form === "plain" || (form === "auto" && !waterfallCharts(chart))) {
-    // Plain: the turn's thinking as one line, then each call and its time; no axis, no bars.
+    // Plain: the turn's thinking as one line, then each call and its time; no axis, no bars. No
+    // total over the lines: one line is the total, and two or more end on a Total line in the same
+    // row style (Leo, 2026-11-25: "the 34s is weird to have on both").
     const lines = waterfallLines(chart);
     const listed = all ? lines : lines.slice(0, WATERFALL_FIRST);
     const more = lines.length - listed.length;
     return (
       <section id={id} className="cv-waterfall is-plain" aria-label={t("turn.timeline.label")} data-find-skip="">
-        <div className="cv-waterfall__head">{head}</div>
         <ul className="cv-waterfall__lines">
           {listed.map((line, at) => {
             const time = spanTime(t, line.ms);
@@ -271,6 +272,12 @@ export function TurnWaterfall({
           <button type="button" className="cv-waterfall__more" onClick={() => setAll(true)}>
             {t("turn.timeline.more", { n: more })}
           </button>
+        )}
+        {lines.length > 1 && (
+          <div className="cv-waterfall__line is-total">
+            <span className="cv-waterfall__name">{t("turn.timeline.total")}</span>
+            <span className="cv-waterfall__time">{spanTime(t, chart.total)}</span>
+          </div>
         )}
       </section>
     );
