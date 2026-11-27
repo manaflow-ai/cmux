@@ -194,15 +194,19 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertIn("GITHUB_STEP_SUMMARY", verdict)
         self.assertIn("exit 1", verdict)
 
-    def run_aggregate(self, outcomes: str) -> subprocess.CompletedProcess:
+    def run_aggregate(self, outcomes: str, *, guards: str = "fail", github_sha: str = "HEAD") -> subprocess.CompletedProcess:
         _, _, aggregate = self.split()
         with tempfile.NamedTemporaryFile() as summary:
             return subprocess.run(
-                ["bash", "-c", aggregate["run"]],
-                env={**os.environ, "OUTCOMES": outcomes, "GITHUB_STEP_SUMMARY": summary.name, "GITHUB_SHA": "HEAD"},
+                # Match the runner's bash shell: a failed blob read must stop the step.
+                ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", aggregate["run"]],
+                env={**os.environ, "OUTCOMES": outcomes, "GITHUB_STEP_SUMMARY": summary.name,
+                     "GITHUB_SHA": github_sha, "STYLE_CHECKS": aggregate["env"]["STYLE_CHECKS"],
+                     "CMUX_NEXT_STYLE_GUARDS": guards},
                 cwd=ROOT,
                 capture_output=True,
                 text=True,
+                timeout=30,
             )
 
     def test_aggregate_fails_closed_on_an_empty_outcome(self):
@@ -263,15 +267,29 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertEqual(document["env"]["CMUX_NEXT_STYLE_GUARDS"], "warn")
 
     def run_warn_aggregate(self, outcomes: str, guards: str = "warn") -> subprocess.CompletedProcess:
-        _, _, aggregate = self.split()
-        with tempfile.NamedTemporaryFile() as summary:
-            return subprocess.run(
-                ["bash", "-c", aggregate["run"]],
-                env={**os.environ, "OUTCOMES": outcomes, "GITHUB_STEP_SUMMARY": summary.name,
-                     "STYLE_CHECKS": aggregate["env"]["STYLE_CHECKS"], "CMUX_NEXT_STYLE_GUARDS": guards},
-                capture_output=True,
-                text=True,
-            )
+        return self.run_aggregate(outcomes, guards=guards)
+
+    def test_aggregate_helpers_use_the_checkout_despite_inherited_dispatch_context(self):
+        from unittest.mock import patch
+
+        previous = Path.cwd()
+        with tempfile.TemporaryDirectory() as elsewhere, patch.dict(os.environ, GITHUB_SHA="0" * 40):
+            try:
+                os.chdir(elsewhere)
+                for run, expected in ((self.run_aggregate, 1), (self.run_warn_aggregate, 0)):
+                    with self.subTest(helper=run.__name__):
+                        result = run("failure|Package conventions lint\n")
+                        self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                        self.assertIn("Package conventions lint", result.stdout)
+            finally:
+                os.chdir(previous)
+
+    def test_aggregate_fails_closed_when_the_committed_verdict_is_missing(self):
+        for guards in ("fail", "warn"):
+            with self.subTest(guards=guards):
+                result = self.run_aggregate("success|Crash safety\n", guards=guards, github_sha="0" * 40)
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("fatal:", result.stderr)
 
     def test_a_red_style_check_only_warns(self):
         result = self.run_warn_aggregate("failure|Package conventions lint\nfailure|Type scale\nsuccess|Crash safety\n")
