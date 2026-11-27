@@ -55,8 +55,12 @@
 
 #[path = "support/chat_size_seed.rs"]
 mod chat_size_seed;
+#[path = "god_daemon/cold_home.rs"]
+mod cold_home;
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+#[path = "support/dhat_sites.rs"]
+mod dhat_sites;
 // The prompt goes to tests/fake_agent.py; the sizes and the profile switch hold no credential.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_GOD_SHAPES",
@@ -68,6 +72,7 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "FAST_CHECKS_OUT",
     "ACPMUX_GOD_DHAT",
     "ACPMUX_GOD_DHAT_TOP",
+    "ACPMUX_GOD_DHAT_FRAMES",
     // A control artifact for differential runs; the child still uses the hermetic environment.
     "ACPMUX_GOD_DAEMON_BIN",
     // `1`: the test client asks for peer row batches (`peerRowBatches`, `run_with`).
@@ -131,6 +136,9 @@ const PAGE_BYTES: u64 = 131072;
 /// How long the run waits for every chat log to be read, and how often it asks.
 const ALL_LOGS: Duration = Duration::from_secs(120);
 const ALL_LOGS_POLL: Duration = Duration::from_millis(50);
+
+/// The longest a size sweep waits for a chat's adoption checkpoint before its restart.
+const ADOPTION_CHECKPOINT_WITHIN: Duration = Duration::from_secs(300);
 
 /// The startup points kept as marks, not phases (`gauges.rs`).
 const MARKS: [&str; 4] = ["socket ready", "requests ready", "first list reply", "agents may spawn"];
@@ -610,7 +618,10 @@ impl Daemon {
     fn start(scratch: &Path, home: &Path, dhat: Option<&Path>) -> Self {
         let socket = scratch.join("s.sock");
         let log = scratch.join("daemon.log");
+        // The daemon logs to its stdout (`log_sink.rs`); its stderr carries a panic. Both go to
+        // the log, so a failed run prints why the daemon did what it did.
         let stderr = std::fs::OpenOptions::new().create(true).append(true).open(&log).unwrap();
+        let stdout = stderr.try_clone().unwrap();
         let binary = std::env::var_os("ACPMUX_GOD_DAEMON_BIN")
             .map(PathBuf::from)
             .unwrap_or_else(|| daemon_env::bin().to_path_buf());
@@ -621,7 +632,7 @@ impl Daemon {
             .env("ACPMUX_HOME", home)
             .env("ACPMUX_SOCKET", &socket)
             .stdin(Stdio::null())
-            .stdout(Stdio::null())
+            .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr));
         if let Some(out) = dhat {
             command.env(acpmux::heap_profile::OUT_ENV, out);
@@ -776,6 +787,12 @@ impl Daemon {
 /// A run that panics does not leave its daemon writing into a scratch folder being removed.
 impl Drop for Daemon {
     fn drop(&mut self) {
+        // A daemon that went away by itself (a panic, an abort, the OOM killer's SIGKILL) says how before the kill.
+        if std::thread::panicking()
+            && let Ok(Some(status)) = self.child.try_wait()
+        {
+            eprintln!("daemon exited by itself: {status:?}");
+        }
         let _ = self.child.kill();
         let _ = self.child.wait_timeout(Duration::from_secs(5));
         if std::thread::panicking() {
@@ -1258,7 +1275,7 @@ async fn run_with(shape: Shape, dhat: bool, batches: bool) -> Value {
         let home_bytes: u64 = home_files.values().sum();
         let (daemon_added, daemon_removed, daemon_removed_top) =
             disk_change(&home, &fixture_files, &home_files);
-        let heap = profile.as_deref().map(attribute);
+        let heap = profile.as_deref().map(|p| dhat_sites::attribute(p, dhat_top()));
         json!({
             "shape": shape_name, "chats": shape.chats, "godMessages": shape.god_messages,
             "godLogBytes": made.god_log_bytes, "godJsonlBytes": made.god_jsonl_bytes,
@@ -1309,132 +1326,6 @@ async fn run_with(shape: Shape, dhat: bool, batches: bool) -> Value {
     let mut result = result;
     result["scratch"] = json!(scratch_dir.display().to_string());
     result
-}
-
-/// The frame a dhat site is named by: the first one in acpmux's own code below the allocator,
-/// with the function and its file and line.
-/// With line tables, a generic frame (`poll<acpmux::...>`, `call_mut<...>`) names acpmux in its
-/// type and a std file as its place: only a frame whose file is under `acpmux/src/` is acpmux's.
-/// The site is the first three such frames, innermost first (`ACPMUX_GOD_DHAT_FRAMES` more).
-fn acpmux_frame(frames: &[&str]) -> String {
-    let depth =
-        std::env::var("ACPMUX_GOD_DHAT_FRAMES").ok().and_then(|v| v.parse().ok()).unwrap_or(3);
-    let own: Vec<String> =
-        frames.iter().filter(|f| own_file(f)).take(depth).map(|f| place(f)).collect();
-    if own.is_empty() {
-        return frames.get(1).map_or_else(|| "[unknown]".to_owned(), |f| short_frame(f));
-    }
-    own.join(" < ")
-}
-
-/// A frame in acpmux's own source, not the allocator hook in `main.rs` or the profiler's.
-fn own_file(frame: &str) -> bool {
-    frame.contains("acpmux/src/")
-        && !frame.contains("acpmux/src/main.rs")
-        && !frame.contains("heap_profile")
-}
-
-/// A frame as `function (file:line)`: the function's last two path segments, its generics cut.
-fn place(frame: &str) -> String {
-    let frame = short_frame(frame);
-    let (name, file) = frame.rsplit_once(" (").map_or((frame.as_str(), ""), |(n, f)| (n, f));
-    let name = name.split('<').next().unwrap_or(name);
-    let name: Vec<&str> = name.rsplit("::").take(2).collect();
-    let file = file.trim_end_matches(')').split("acpmux/src/").last().unwrap_or(file);
-    format!("{} ({file})", name.into_iter().rev().collect::<Vec<_>>().join("::"))
-}
-
-/// `0x1234: acpmux::watch_delta::Known::patched (src/watch_delta.rs:107:9)` without the address
-/// and the hash.
-fn short_frame(frame: &str) -> String {
-    let frame = frame.split_once(": ").map_or(frame, |(_, f)| f);
-    let frame = frame.replace("/home/runner/", "").replace("cmux-tui/crates/acpmux/", "");
-    let hashless: String = frame.split("::h").next().unwrap_or(&frame).to_owned();
-    if hashless.len() < frame.len() {
-        // `::h<hash>` came before the file: keep the file.
-        let file = frame.rsplit_once(" (").map(|(_, f)| format!(" ({f}")).unwrap_or_default();
-        return format!("{hashless}{file}");
-    }
-    frame
-}
-
-/// The dhat profile at `path`, by acpmux site: bytes and blocks at the heap's peak and in total,
-/// the largest first; and the sites of blocks of 600 to 700 bytes (serde_json's BTreeMap leaf
-/// nodes are 640) at the peak.
-fn attribute(path: &Path) -> Value {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return json!({"error": format!("no profile at {}", path.display())});
-    };
-    let doc: Value = serde_json::from_str(&text).unwrap();
-    let ftbl: Vec<&str> =
-        doc["ftbl"].as_array().unwrap().iter().map(|f| f.as_str().unwrap_or("")).collect();
-    let top = std::env::var("ACPMUX_GOD_DHAT_TOP").ok().and_then(|v| v.parse().ok()).unwrap_or(30);
-    #[derive(Default)]
-    struct Site {
-        gb: u64,
-        gbk: u64,
-        tb: u64,
-        tbk: u64,
-        // Held when the profile was written (the daemon's exit): what a run left behind.
-        eb: u64,
-        leaf_gb: u64,
-        leaf_gbk: u64,
-        inner: BTreeMap<String, u64>,
-    }
-    let mut sites: BTreeMap<String, Site> = BTreeMap::new();
-    let (mut peak, mut leaves) = (0u64, 0u64);
-    for pp in doc["pps"].as_array().unwrap() {
-        let frames: Vec<&str> = pp["fs"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter_map(|i| ftbl.get(i.as_u64()? as usize).copied())
-            .collect();
-        let gb = pp["gb"].as_u64().unwrap_or(0);
-        let gbk = pp["gbk"].as_u64().unwrap_or(0);
-        let site = sites.entry(acpmux_frame(&frames)).or_default();
-        site.gb += gb;
-        site.gbk += gbk;
-        site.tb += pp["tb"].as_u64().unwrap_or(0);
-        site.tbk += pp["tbk"].as_u64().unwrap_or(0);
-        site.eb += pp["eb"].as_u64().unwrap_or(0);
-        // The library frame that asked (serde_json, imbl, String), below the allocator's own.
-        let inner = frames
-            .iter()
-            .find(|f| !f.contains("alloc::") && !f.contains("dhat") && !f.contains("[root]"))
-            .map_or_else(|| "[unknown]".to_owned(), |f| short_frame(f));
-        *site.inner.entry(inner).or_default() += gb;
-        peak += gb;
-        if gbk > 0 && (600..=700).contains(&(gb / gbk)) {
-            site.leaf_gb += gb;
-            site.leaf_gbk += gbk;
-            leaves += gb;
-        }
-    }
-    let row = |(name, s): (&String, &Site)| {
-        let mut inner: Vec<(&String, &u64)> = s.inner.iter().collect();
-        inner.sort_by_key(|(_, b)| std::cmp::Reverse(**b));
-        json!({"site": name, "peakBytes": s.gb, "peakBlocks": s.gbk, "endBytes": s.eb, "totalBytes": s.tb,
-               "totalBlocks": s.tbk, "leafPeakBytes": s.leaf_gb, "leafPeakBlocks": s.leaf_gbk,
-               "via": inner.into_iter().take(3).map(|(f, b)| json!([f, b])).collect::<Vec<_>>()})
-    };
-    let mut by_peak: Vec<(&String, &Site)> = sites.iter().collect();
-    by_peak.sort_by_key(|(_, s)| std::cmp::Reverse(s.gb));
-    let mut by_total: Vec<(&String, &Site)> = sites.iter().collect();
-    by_total.sort_by_key(|(_, s)| std::cmp::Reverse(s.tb));
-    let mut by_leaf: Vec<(&String, &Site)> = sites.iter().filter(|(_, s)| s.leaf_gb > 0).collect();
-    by_leaf.sort_by_key(|(_, s)| std::cmp::Reverse(s.leaf_gb));
-    let mut by_end: Vec<(&String, &Site)> = sites.iter().collect();
-    by_end.sort_by_key(|(_, s)| std::cmp::Reverse(s.eb));
-    json!({
-        "peakBytes": peak,
-        "leafPeakBytes": leaves,
-        "byPeak": by_peak.into_iter().take(top).map(row).collect::<Vec<_>>(),
-        "byTotal": by_total.into_iter().take(top).map(row).collect::<Vec<_>>(),
-        "leavesBySite": by_leaf.into_iter().take(top).map(row).collect::<Vec<_>>(),
-        "endBytes": sites.values().map(|s| s.eb).sum::<u64>(),
-        "byEnd": by_end.into_iter().take(top).map(row).collect::<Vec<_>>(),
-    })
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -1962,7 +1853,7 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
     let (rss_end, peak_rss) = daemon.rss();
     drop(rpc);
     daemon.stop();
-    let heap = profile.as_deref().map(attribute);
+    let heap = profile.as_deref().map(|p| dhat_sites::attribute(p, dhat_top()));
     let lists = &status["gauges"]["peerLists"];
     let result = json!({
         "rows": rows, "secs": secs, "everyMs": every.as_millis() as u64, "cpus": cpus,
@@ -1989,6 +1880,11 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
     }
 }
 
+/// How many sites each list of a heap profile names (`ACPMUX_GOD_DHAT_TOP`, default 30).
+fn dhat_top() -> usize {
+    std::env::var("ACPMUX_GOD_DHAT_TOP").ok().and_then(|v| v.parse().ok()).unwrap_or(30)
+}
+
 // The chat size sweep (infinite chats, 2026-11-19). Leo: "we need to be able to have infinite
 // chats, infinitely long chats ... on current day hardware". The goal (cmuxterm-hq#14331): a
 // chat's open, scroll, typing and memory at 100 MB, 1 GB and 4 GB stay within 1.2x of a 1 MB
@@ -1999,12 +1895,50 @@ async fn whole_lists_of_a_peer_that_cannot_follow_under_churn() {
 /// The sizes, as `ACPMUX_CHAT_SIZES` names them (`1M,100M,1G,4G`, binary units).
 const CHAT_SIZES: &str = "1M,100M,1G,4G";
 
+/// Cold opens per size, each paired with a cold open of a `COLD_FLOOR_BYTES` chat.
+const COLD_SAMPLES: usize = 5;
+
+/// The chat the cold opens are paired with.
+const COLD_FLOOR_BYTES: u64 = 1 << 20;
+
+/// One cold open of `id` on a daemon of its own, stopped after its attach, with the home put back
+/// to `cold` after: the time from spawn to the attach's reply, ms, and of the attach itself, us.
+fn cold_open(
+    scratch: &Path,
+    home: &Path,
+    id: &str,
+    cold: &cold_home::HomeSnapshot,
+) -> Result<(u64, u64), Value> {
+    let mut probe = Daemon::start(scratch, home, None);
+    let mut rpc = Rpc::connect(&probe.socket);
+    rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
+        .unwrap();
+    let asked = Instant::now();
+    let reply = rpc.call("_acpmux/attach", app_attach(id));
+    let taken = (ms(probe.spawned), micros(asked));
+    drop(rpc);
+    probe.stop();
+    // A home left changed would make every later open warm, so this stops the sweep.
+    if let Err(e) = cold.restore() {
+        panic!("a cold open left {} changed: {e}", home.display());
+    }
+    reply.map(|_| taken)
+}
+
+/// The floor's fastest open plus the median of each pair's difference, null with no pairs.
+fn paired_floor(sized: &[(u64, u64)], floor: &[(u64, u64)], at: fn(&(u64, u64)) -> u64) -> Value {
+    let Some(fastest) = floor.iter().map(at).min() else { return Value::Null };
+    let mut diffs: Vec<i64> =
+        sized.iter().zip(floor).map(|(s, f)| at(s) as i64 - at(f) as i64).collect();
+    diffs.sort_unstable();
+    json!((fastest as i64 + diffs[diffs.len() / 2]).max(0))
+}
+
 /// How long the first load of a chat's log may take (it parses a log with no kind copies whole).
 const SIZE_ALL_LOGS: Duration = Duration::from_secs(1800);
 
 /// An older page as the pane asks for one on scroll-up (direct.ts `olderPage`: 2,000 records,
 /// 1 MiB, transcript records and the local preset approvals).
-const OLDER_PAGE_LIMIT: u64 = 2000;
 const OLDER_PAGE_BYTES: u64 = 1 << 20;
 
 /// The bytes a measured page asks for. A 1 MB chat's whole transcript is 452 KB of JSON, so at
@@ -2012,6 +1946,13 @@ const OLDER_PAGE_BYTES: u64 = 1 << 20;
 /// at 100 MB and 1 GB: the 2x of every page row was the page's size (the daemon reads 16 to 20 ms
 /// per 452 KB at 1 MB and 22 to 34 ms per 945 KB at 1 GB). 256 KiB is full at every size.
 const SWEEP_PAGE_BYTES: u64 = 256 << 10;
+
+/// The records a measured page asks for: fewer than any size's 256 KiB page holds, so each size
+/// reads the same rows. A byte-capped page's row count is its content's: the 1 MB chat's deep page
+/// (its oldest) held 237 records and 198 KB against 306 and 314 at 100 MB and 1 GB, 1682 against
+/// 2130 and 2225 us, a 1.27x and 1.32x that was 7.0 to 7.1 us a record at every size. Every page
+/// row read 6.4 to 7.8 us a record at every size, its ratio the row count's (cmux#61742's ladder).
+const SWEEP_PAGE_ROWS: u64 = 150;
 
 /// The repeated settled turns after a coord-sim chat's settlement (a quarter of the history when
 /// that is less). A page counts only transcript kinds' bytes, so 1 MiB of them reaches back past
@@ -2031,7 +1972,7 @@ fn app_attach(id: &str) -> Value {
 }
 
 fn older_params(id: &str, before: u64) -> Value {
-    json!({"sessionId": id, "beforeSeq": before, "limit": OLDER_PAGE_LIMIT,
+    json!({"sessionId": id, "beforeSeq": before, "limit": SWEEP_PAGE_ROWS,
            "maxBytes": SWEEP_PAGE_BYTES,
            "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"]})
 }
@@ -2042,7 +1983,7 @@ fn older_params(id: &str, before: u64) -> Value {
 fn full_page_before(rpc: &mut Rpc, id: &str, last: u64) -> u64 {
     let oldest = rpc.call(
         "_acpmux/events",
-        json!({"sessionId": id, "afterSeq": 0, "limit": OLDER_PAGE_LIMIT,
+        json!({"sessionId": id, "afterSeq": 0, "limit": SWEEP_PAGE_ROWS,
                "maxBytes": SWEEP_PAGE_BYTES,
                "kinds": ["transcript", "preset_approval_request", "preset_approval_decision"]}),
     );
@@ -2336,17 +2277,60 @@ fn size_run(label: &str, bytes: u64) -> Value {
     // Cold: a daemon that has never read this chat, so no kind copy, restore point or settled
     // view exists. The open is the pane's attach, as soon as the socket answers. With
     // `ACPMUX_GOD_DHAT=1` (a `dhat-heap` build) this daemon records its heap until its stop.
+    // One cold open moves by tens of ms between runs: on Actions the opens fall in a ~57 ms band
+    // and an 85-120 ms one, and the runner sits in the slow one for stretches of tens of seconds,
+    // so a median or minimum of this chat's opens alone still moved 0.98x-1.49x at 1G. Each of
+    // `COLD_SAMPLES` opens is paired with a cold open of a 1 MiB chat on its own daemon just
+    // before it, in the same runner state, and the fields hold the floor chat's fastest open plus
+    // the median of the pairs' differences: what this size adds to opening any chat. The first
+    // opens run on daemons stopped right after their attach, with the home put back after each
+    // (cold_home.rs); the last is the run's own daemon.
     let profile = std::env::var("ACPMUX_GOD_DHAT")
         .is_ok_and(|v| v == "1")
         .then(|| scratch.join("dhat-heap.json"));
+    let floor_scratch = scratch.join("floor");
+    std::fs::create_dir_all(&floor_scratch).unwrap();
+    let (floor_home, floor_chat, _, _) = write_size_chat(&floor_scratch, COLD_FLOOR_BYTES);
+    write_config(&floor_home, json!({}));
+    let floor_cold = cold_home::HomeSnapshot::take(&floor_home);
+    let before_cold = cold_home::HomeSnapshot::take(&home);
+    let (mut sized, mut floor) = (vec![], vec![]);
+    let mut cold_samples_error = Value::Null;
+    for _ in 1..COLD_SAMPLES {
+        match (
+            cold_open(&floor_scratch, &floor_home, &floor_chat.id, &floor_cold),
+            cold_open(&scratch, &home, &id, &before_cold),
+        ) {
+            (Ok(f), Ok(o)) => {
+                floor.push(f);
+                sized.push(o);
+            }
+            (f, o) => {
+                cold_samples_error = json!({"floor": f.err(), "attach": o.err()});
+                break;
+            }
+        }
+    }
+    let last_floor = cold_open(&floor_scratch, &floor_home, &floor_chat.id, &floor_cold);
     let mut daemon = Daemon::start(&scratch, &home, profile.as_deref());
     let mut rpc = Rpc::connect(&daemon.socket);
     rpc.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "size-sweep"}}))
         .unwrap();
     let asked = Instant::now();
     let cold = rpc.call("_acpmux/attach", app_attach(&id));
-    let cold_attach_us = micros(asked);
-    let cold_attach_ms = ms(daemon.spawned);
+    let last = (ms(daemon.spawned), micros(asked));
+    match last_floor {
+        Ok(f) if cold.is_ok() => {
+            floor.push(f);
+            sized.push(last);
+        }
+        Ok(_) => {}
+        Err(e) => cold_samples_error = json!({"floor": e}),
+    }
+    let cold_attach_ms = paired_floor(&sized, &floor, |s| s.0);
+    let cold_attach_us = paired_floor(&sized, &floor, |s| s.1);
+    let (cold_ms_samples, cold_us_samples): (Vec<u64>, Vec<u64>) = sized.iter().copied().unzip();
+    let (floor_ms_samples, floor_us_samples): (Vec<u64>, Vec<u64>) = floor.iter().copied().unzip();
     let cold_records = cold.as_ref().ok().and_then(|a| a["events"].as_array().map(Vec::len));
     rpc.notes.clear();
     let cold_all_logs = wait_all_logs_within(&mut rpc, SIZE_ALL_LOGS);
@@ -2425,7 +2409,7 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let (forward_us, _, forward_error) =
         timed_rounds(&mut rpc, "_acpmux/events", rounds, &prepared, |_| {
             json!({"sessionId": id, "afterSeq": last / 2,
-               "limit": OLDER_PAGE_LIMIT, "maxBytes": SWEEP_PAGE_BYTES})
+               "limit": SWEEP_PAGE_ROWS, "maxBytes": SWEEP_PAGE_BYTES})
         });
     let (rss_after_reads, _) = daemon.rss();
 
@@ -2446,13 +2430,47 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let last_before_restart =
         rpc.call("_acpmux/attach", app_attach(&id)).ok().and_then(|a| a["lastSeq"].as_u64());
     drop(rpc);
+    // Its host up, the chat's adoption checkpoint is folded in the background
+    // (`hosts/checkpoint.rs` `prime_adoption_checkpoint`): how long after the sends it is there.
+    // A long chat's host has been up that long; a restart before it reads the whole log at
+    // adoption. A daemon that writes none waits the whole bound and restarts without one.
+    let checkpoint = home.join("sessions").join(&id).join("adoption-checkpoint.json");
+    let checkpoint_wait = Instant::now();
+    while !checkpoint.exists() && checkpoint_wait.elapsed() < ADOPTION_CHECKPOINT_WITHIN {
+        std::thread::sleep(ALL_LOGS_POLL);
+    }
+    let adoption_checkpoint_ms = checkpoint.exists().then(|| ms(checkpoint_wait));
+    // What the restart reads back of it: its bytes, and each field's (two levels into the
+    // folds), so a checkpoint that grows with the chat says which fold keeps what.
+    let checkpoint_bytes = std::fs::read(&checkpoint).ok();
+    let adoption_checkpoint_bytes = checkpoint_bytes.as_ref().map(Vec::len);
+    let adoption_checkpoint_fields =
+        // The file's first line is the compaction digest it was saved under (`store.rs`).
+        checkpoint_bytes
+            .as_deref()
+            .and_then(|b| b.iter().position(|&c| c == b'\n').map(|nl| &b[nl + 1..]))
+            .and_then(|b| serde_json::from_slice::<Value>(b).ok())
+            .map(|point| {
+            let mut sizes = serde_json::Map::new();
+            let len = |v: &Value| serde_json::to_vec(v).map_or(0, |b| b.len());
+            for (key, value) in point.as_object().into_iter().flatten() {
+                sizes.insert(key.clone(), len(value).into());
+                for (inner, value) in value.as_object().into_iter().flatten() {
+                    sizes.insert(format!("{key}.{inner}"), len(value).into());
+                    for (leaf, value) in value.as_object().into_iter().flatten() {
+                        sizes.insert(format!("{key}.{inner}.{leaf}"), len(value).into());
+                    }
+                }
+            }
+            Value::Object(sizes)
+        });
 
     // Restart with the agent host up: the new daemon adopts it (hub/hosts/journal.rs) and the
     // pane opens the chat again.
     let stopped = Instant::now();
     daemon.stop();
     let shutdown_ms = ms(stopped);
-    let heap = profile.as_deref().map(attribute);
+    let heap = profile.as_deref().map(|p| dhat_sites::attribute(p, dhat_top()));
     let restart_profile = profile.as_ref().map(|_| scratch.join("dhat-restart-heap.json"));
     let mut daemon = Daemon::start(&scratch, &home, restart_profile.as_deref());
     let mut rpc = Rpc::connect(&daemon.socket);
@@ -2474,9 +2492,12 @@ fn size_run(label: &str, bytes: u64) -> Value {
     let restart_send = send_first_token(&mut rpc, &id, &format!("size {label} restarted"));
     let (restart_rss, restart_peak_rss) = daemon.rss();
     let restart_maps = daemon.rss_maps();
+    // The restarted daemon's own startup phases (`gauges.rs`): where its time to adopt went.
+    let restart_startup =
+        rpc.call("_acpmux/status", json!({})).ok().map(|s| s["gauges"]["startup"].clone());
     drop(rpc);
     daemon.stop();
-    let restart_heap = restart_profile.as_deref().map(attribute);
+    let restart_heap = restart_profile.as_deref().map(|p| dhat_sites::attribute(p, dhat_top()));
 
     // A second restart: the first adoption left whatever it saves for the next one, so this
     // reads what a chat costs on every restart after its first.
@@ -2501,33 +2522,39 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "bytesPerRecord": w.bytes / w.records.max(1), "recordsPerTurn": w.records / w.turns.max(1),
         "largestToolOutput": w.largest_output, "writeMs": write_ms,
         "coldAttachMs": cold_attach_ms, "coldAttachUs": cold_attach_us,
+        "coldAttachSamples": {"ms": cold_ms_samples, "us": cold_us_samples,
+                              "floorMs": floor_ms_samples, "floorUs": floor_us_samples,
+                              "floorBytes": COLD_FLOOR_BYTES, "error": cold_samples_error},
         "coldAttachRecords": cold_records, "coldAttachError": cold.as_ref().err(),
         "coldAllLogsMs": cold_all_logs.as_ref().ok(), "coldAllLogsError": cold_all_logs.as_ref().err(),
         "rssAfterLoad": rss_after_load,
         "attachUs": attach_us, "attachRecords": attach_records, "attachError": attach_error,
-        "newestPageUs": newest_us, "newestPageRecords": newest_records, "newestPageError": newest_error,
-        "scrollRecentUs": recent_us, "scrollRecentError": recent_error,
-        "scrollMidUs": mid_us, "scrollMidError": mid_error,
-        "scrollDeepUs": deep_us, "scrollDeepError": deep_error,
+        "newestPageUs": newest_us, "newestPageRecords": newest_records, "newestPageError": short_rows(&newest_us, newest_error),
+        "scrollRecentUs": recent_us, "scrollRecentError": short_rows(&recent_us, recent_error),
+        "scrollMidUs": mid_us, "scrollMidError": short_rows(&mid_us, mid_error),
+        "scrollDeepUs": deep_us, "scrollDeepError": short_rows(&deep_us, deep_error),
         "fullPageFromSeq": full_from,
         "scrollBeforeSeqs": {"recent": recent_before, "mid": mid_before, "deep": deep_before},
         "promptIndexUs": prompt_index_us, "promptIndexRows": prompt_index_rows,
         "promptIndexError": prompt_index_error,
         "promptPageUs": prompt_page_us, "promptPageRows": prompt_page_rows,
         "promptPageError": prompt_page_error,
-        "forwardPageUs": forward_us, "forwardPageError": forward_error,
+        "forwardPageUs": forward_us, "forwardPageError": short_rows(&forward_us, forward_error),
         "rssIdle": rss_idle, "rssIdleAnon": rss_idle_anon, "rssIdleFile": rss_idle_file,
         "rssIdleMaps": rss_idle_maps,
         "rssAfterReads": rss_after_reads, "heap": heap,
         "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
         "sendError": send_error,
         "rss": rss, "peakRss": peak_rss, "shutdownMs": shutdown_ms,
+        "adoptionCheckpointMs": adoption_checkpoint_ms, "adoptionCheckpointBytes": adoption_checkpoint_bytes,
+        "adoptionCheckpointFields": adoption_checkpoint_fields,
         "restartAttachMs": restart_attach_ms, "restartAttachError": restart_attach.as_ref().err(),
         "restartAllLogsMs": restart_all_logs.as_ref().ok(),
         "restartAllLogsError": restart_all_logs.as_ref().err(), "restartAdopted": adopted,
         "restartSendFirstTokenUs": restart_send.as_ref().ok(),
         "restartSendError": restart_send.as_ref().err(),
         "restartRss": restart_rss, "restartPeakRss": restart_peak_rss,
+        "restartStartup": restart_startup,
         "restartMaps": restart_maps, "restartHeap": restart_heap,
         "secondRestartAttachMs": second_attach_ms,
         "secondRestartAttachError": second_attach.as_ref().err(),
@@ -2538,7 +2565,9 @@ fn size_run(label: &str, bytes: u64) -> Value {
         "homeBytes": home_bytes, "freeBytes": free,
     });
     if let Some(out) = std::env::var_os("FAST_CHECKS_OUT") {
-        let destination = PathBuf::from(out).join(format!("chat-size-{}-daemon.log", bytes));
+        let out = PathBuf::from(out);
+        std::fs::create_dir_all(&out).unwrap();
+        let destination = out.join(format!("chat-size-{}-daemon.log", bytes));
         // The sweep owns this artifact; preserve only the tail, never the generated chat.
         if let Ok(mut file) = std::fs::File::open(&daemon.log) {
             let len = file.metadata().map_or(0, |m| m.len());
@@ -2596,6 +2625,29 @@ fn size_failure(result: &Value) -> Option<String> {
         }
     }
     None
+}
+
+/// A measured page's error, or one when a round returned other than [`SWEEP_PAGE_ROWS`]: a short
+/// page's time is its row count's, and the sizes' ratio would be too.
+fn short_rows(timing: &Value, error: Value) -> Value {
+    if !error.is_null() {
+        return error;
+    }
+    let rows = timing["returnedRecords"].as_array().cloned().unwrap_or_default();
+    match rows.iter().find(|n| n.as_u64() != Some(SWEEP_PAGE_ROWS)) {
+        Some(n) => json!({"reason": "page held other than the measured rows",
+                          "records": n, "wanted": SWEEP_PAGE_ROWS}),
+        None => Value::Null,
+    }
+}
+
+#[test]
+fn a_short_measured_page_is_an_error() {
+    let full = json!({"p50": 10, "returnedRecords": [SWEEP_PAGE_ROWS, SWEEP_PAGE_ROWS]});
+    assert!(short_rows(&full, Value::Null).is_null());
+    let short = json!({"p50": 10, "returnedRecords": [SWEEP_PAGE_ROWS, SWEEP_PAGE_ROWS - 1]});
+    assert!(!short_rows(&short, Value::Null).is_null());
+    assert_eq!(short_rows(&full, json!("rpc")), json!("rpc"));
 }
 
 /// Prompts in the size sweep's fixed prompt-index page: as many as the 1 MB fixture holds.
@@ -2668,6 +2720,23 @@ fn chat_size_sweep() {
         let result = size_run(label, parse_size(label));
         println!("CHAT-SIZE {result}");
         println!("{}", page_cost_line(label, &result));
+        // Its own line: the result above is cut short in a CI log, and these say which fold
+        // of the adoption checkpoint grows with the chat.
+        // One field a line, largest first: a CI log cuts a long line short.
+        println!(
+            "CHAT-SIZE-CHECKPOINT {label} {} {}",
+            result["adoptionCheckpointBytes"], result["restartStartup"]
+        );
+        let mut fields: Vec<(&String, u64)> = result["adoptionCheckpointFields"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(k, v)| (k, v.as_u64().unwrap_or(0)))
+            .collect();
+        fields.sort_by(|a, b| b.1.cmp(&a.1));
+        for (field, bytes) in fields.into_iter().take(16) {
+            println!("CHAT-SIZE-FIELD {label} {field} {bytes}");
+        }
         if let Some(base) = results
             .first()
             .filter(|base| size_failure(base).is_none() && size_failure(&result).is_none())

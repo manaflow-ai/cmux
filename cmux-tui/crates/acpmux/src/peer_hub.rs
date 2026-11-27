@@ -38,7 +38,10 @@ impl Peer {
             .clone()
             .or_else(|| carrier.route(&self.name))
             .ok_or_else(|| "no hub route".to_owned())?;
-        carrier.dial(&daemon).await
+        match super::runtime_io::REPLACING_SILENT.try_with(|silent| *silent) {
+            Ok(silent) => carrier.dial_past_silent(&daemon, silent).await,
+            Err(_) => carrier.dial(&daemon).await,
+        }
     }
 
     /// This peer's link over the hub carrier ended after `silent` with no byte in: the carrier
