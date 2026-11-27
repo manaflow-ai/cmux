@@ -16,16 +16,14 @@ public enum SystemUI {
     /// The framework's provider, loaded on the first call from any thread and
     /// kept. Nil when the framework is missing or would not load (logged once);
     /// callers then degrade (no picker, Safari opens the link, no purchase).
-    public static var provider: (any SystemUIProvider)? { SystemUILoader.shared.provider }
+    public static var provider: (any SystemUIProvider)? { SystemUILoader.provider }
 
     static let log = Logger(subsystem: "dev.cmux.mobile", category: "SystemUI")
 }
 
 /// Loads the framework once. A lock, not an actor: the store reaches the
 /// provider off the main actor, and the views reach it synchronously on it.
-private final class SystemUILoader: @unchecked Sendable {
-    static let shared = SystemUILoader()
-
+private enum SystemUILoader {
     /// The framework's principal class (its Info.plist's `NSPrincipalClass`).
     static let principalClassName = "CMXSystemUIProviderImplementation"
     static let frameworkName = "CmuxMobileSystemUI.framework"
@@ -36,21 +34,22 @@ private final class SystemUILoader: @unchecked Sendable {
         case failed
     }
 
-    private let lock = NSLock()
-    private var state = State.unloaded
+    /// The provider is an Objective-C object the framework hands out once and
+    /// never mutates; the lock guards which state the loader is in.
+    private static let state = OSAllocatedUnfairLock<State>(uncheckedState: .unloaded)
 
-    var provider: (any SystemUIProvider)? {
-        lock.lock()
-        defer { lock.unlock() }
-        switch state {
-        case .loaded(let provider):
-            return provider
-        case .failed:
-            return nil
-        case .unloaded:
-            let provider = Self.load()
-            state = provider.map(State.loaded) ?? .failed
-            return provider
+    static var provider: (any SystemUIProvider)? {
+        state.withLockUnchecked { state in
+            switch state {
+            case .loaded(let provider):
+                return provider
+            case .failed:
+                return nil
+            case .unloaded:
+                let provider = load()
+                state = provider.map(State.loaded) ?? .failed
+                return provider
+            }
         }
     }
 
@@ -114,15 +113,18 @@ extension SystemUI {
 // MARK: - Photos
 
 /// One picked photo or video. Its loads run off the main actor.
-public struct SystemPhotoPick: @unchecked Sendable {
-    // NSItemProvider is thread-safe to load from; Sendable by hand.
-    public let itemProvider: NSItemProvider
+public struct SystemPhotoPick: Sendable {
+    /// The provider, behind a lock so the pick is Sendable: NSItemProvider's
+    /// loads are thread-safe, and the provider never changes after the pick.
+    private let provider: OSAllocatedUnfairLock<NSItemProvider>
     public let assetIdentifier: String?
 
     public init(_ pick: any SystemUIPhotoPick) {
-        itemProvider = pick.itemProvider
+        provider = OSAllocatedUnfairLock(uncheckedState: pick.itemProvider)
         assetIdentifier = pick.assetIdentifier
     }
+
+    public var itemProvider: NSItemProvider { provider.withLockUnchecked { $0 } }
 
     /// The item's types, best first (as `PhotosPickerItem.supportedContentTypes`).
     public var contentTypes: [UTType] {
@@ -219,6 +221,7 @@ extension SystemUI {
             photoLibrary: false,
             preselectedAssetIdentifiers: [],
             onPick: { picks in
+                // main-proof: the contract runs onPick on main (PHPickerViewControllerDelegate's didFinishPicking).
                 MainActor.assumeIsolated {
                     if let controller = picker?.viewController, controller.presentingViewController != nil {
                         controller.dismiss(animated: true)
@@ -312,6 +315,7 @@ private struct SystemPhotoPickerAnchor: UIViewControllerRepresentable {
             photoLibrary: false,
             preselectedAssetIdentifiers: [],
             onPick: { [weak coordinator] picks in
+                // main-proof: the contract runs onPick on main (PHPickerViewControllerDelegate's didFinishPicking).
                 MainActor.assumeIsolated {
                     if let presented = coordinator?.presented {
                         coordinator?.presented = nil
