@@ -18,7 +18,7 @@ cmux_tui_commit="$CMUX_TUI_CLIENT_COMMIT"
 client_key="$CMUX_TUI_CLIENT_KEY"
 tree_used=exact
 # While the tip's tree publishes (TREE_PENDING), the app installs that tree's client when it is
-# published within CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS (default 1500). Otherwise it installs
+# published within CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS (default 240). Otherwise it installs
 # the newest published tree's client (TREE_FALLBACK, from resolve-tree-pending.sh), and never fails:
 # waiting up to 45 min for the tip's tree, failing, and waiting again on the retry cost 23.8 h
 # of 48.6 h (RFD 0021 row 1, 2026-11-19 to 21). The bounded wait only lasts while a same-key
@@ -29,7 +29,13 @@ tree_used=exact
 # artifacts run 45825165044, which the same push had started. So every nightly whose tip changed
 # the tree shipped the previous tree, and a merged Rust change missed that NIGHTLY. With no
 # fallback tree, or CMUX_TUI_TREE_CLIENT_FALLBACK=off, it waits for the tip's tree as before.
-fallback_wait="${CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS:-1500}"
+# 240 s, not 25 min (#58743): this wait holds the one signing Mac after its compile, and a tree run takes
+# 27 to 109 min (cmux-tui artifacts on feat-cmux-next, 2026-11-27), so 25 min rarely caught the tree and
+# cost each nightly 19 to 26 min of its 45 (runs 46065369073, 46057516701, 46081075392; 46065369073 waited
+# the full 25 min on a tree run still compiling, then shipped the fallback). Leo, 2026-11-25: "Just keep the train going like 24/7,
+# constantly." The next nightly, about 15 to 20 min later, ships the tree once it publishes; 240 s still
+# catches a tree whose builds are done and whose manifest is uploading (publish to R2 takes about 2 min).
+fallback_wait="${CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS:-240}"
 [[ "$fallback_wait" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
 if [[ "$TREE_PENDING" == true ]]; then
   read -r -a c <<<"$TREE_CANDIDATES"

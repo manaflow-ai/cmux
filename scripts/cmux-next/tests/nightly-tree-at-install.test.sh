@@ -489,10 +489,10 @@ bundle() { # [VAR=value...] -> status; outputs in $TMP/bundle-out, calls in $TMP
     bash scripts/ci/nightly-steps/app-bundle-cmux-tui-client.sh >"$TMP/bundle-stdout" 2>&1) || status=$?
 }
 bundle STUB_EXACT="$own"
-check '[[ $status == 0 ]] && grep -qx "commit=$own" "$TMP/bundle-out" && grep -qx "key=$key" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -q "^await wait=1500 " "$TMP/bundle-log" && ! grep -q "await wait=default" "$TMP/bundle-log"' \
+check '[[ $status == 0 ]] && grep -qx "commit=$own" "$TMP/bundle-out" && grep -qx "key=$key" "$TMP/bundle-out" && grep -qx "tree=exact" "$TMP/bundle-out" && grep -q "^await wait=240 " "$TMP/bundle-log" && ! grep -q "await wait=default" "$TMP/bundle-log"' \
   "the bundle installs the build commit's tree when it is already published"
 bundle
-check '[[ $status == 0 ]] && grep -qx "commit=$base" "$TMP/bundle-out" && grep -qx "key=$base_key" "$TMP/bundle-out" && grep -qx "tree=fallback" "$TMP/bundle-out" && grep -qx "version build-universal/Build/Products/Release/cmux.app $base $base_key" "$TMP/bundle-log" && grep -q "^await wait=1500 " "$TMP/bundle-log" && ! grep -q "await wait=default" "$TMP/bundle-log" && grep -q "bundling the newest published tree" "$TMP/bundle-stdout"' \
+check '[[ $status == 0 ]] && grep -qx "commit=$base" "$TMP/bundle-out" && grep -qx "key=$base_key" "$TMP/bundle-out" && grep -qx "tree=fallback" "$TMP/bundle-out" && grep -qx "version build-universal/Build/Products/Release/cmux.app $base $base_key" "$TMP/bundle-log" && grep -q "^await wait=240 " "$TMP/bundle-log" && ! grep -q "await wait=default" "$TMP/bundle-log" && grep -q "bundling the newest published tree" "$TMP/bundle-stdout"' \
   "a tree still unpublished after the bounded wait bundles the fallback tree, and says which"
 # Run 45825165164 (cec1e3c, 2026-11-26): the tip's tree published 24 min after the one look, and the
 # NIGHTLY shipped a client 75 commits behind its app. A tree that publishes within the bounded wait ships.
