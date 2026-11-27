@@ -41,6 +41,7 @@ fn cloud() -> CloudPlacement {
         dir: PathBuf::from("/home/agent/work"),
         harness: "claude".into(),
         instructions: "SUBAGENT SYSTEM TEXT".into(),
+        fleet: true,
     }
 }
 
@@ -2304,6 +2305,14 @@ fn fleet_instructions_only_on_a_host_with_the_fleet_client() {
     std::fs::write(home.join(".local/bin/cmux-ci"), "").unwrap();
     assert!(client_in(Some(&home), None));
     let task = cloud().task("a1", Some("~/fun/cmux"), "build the web page");
+    assert!(task.contains("fleet-wait: JOB_ID"), "{task}");
     assert!(!task.contains("sr2"), "{task}");
     assert!(!task.contains("fleet controller"), "{task}");
+    let without = CloudPlacement {
+        fleet: false,
+        ..cloud()
+    }
+    .task("a1", Some("~/fun/cmux"), "build the web page");
+    assert!(!without.contains("fleet-wait"), "{without}");
+    assert!(!without.contains("cmux-ci"), "{without}");
 }

@@ -356,6 +356,10 @@ pub struct CloudPlacement {
     /// The subagent system text: local presets do not exist on the peer, so
     /// it goes in front of the first message.
     pub instructions: String,
+    /// Whether the first message tells the subagent how to wait on a fleet job
+    /// ([`crate::fleet_wait::NOTE`]): this host has the fleet client
+    /// ([`crate::fleet_wait::client_here`]).
+    pub fleet: bool,
 }
 
 /// The repo a `spawn(cwd)` folder on the Mac names, for its clone on the VM
@@ -456,6 +460,7 @@ impl CloudPlacement {
                 .filter(|h| !h.trim().is_empty())
                 .unwrap_or_else(|| "claude".to_owned()),
             instructions,
+            fleet: crate::fleet_wait::client_here(),
         })
     }
 
@@ -489,7 +494,11 @@ impl CloudPlacement {
                 "" => String::new(),
                 g => format!("Group: {g}\n"),
             },
-            fleet = crate::fleet_wait::note_here(),
+            fleet = if self.fleet {
+                format!("{}\n\n", crate::fleet_wait::NOTE)
+            } else {
+                String::new()
+            },
             peer = self.peer,
         )
     }
@@ -769,6 +778,7 @@ impl Spawner {
                 dir: PathBuf::new(),
                 harness: "claude".to_owned(),
                 instructions: self.cloud_text.clone().unwrap_or_default(),
+                fleet: crate::fleet_wait::client_here(),
             },
         }
     }
