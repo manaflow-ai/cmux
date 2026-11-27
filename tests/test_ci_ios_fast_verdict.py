@@ -303,7 +303,7 @@ class WorkflowTest(unittest.TestCase):
         # unset switch enabled and still lets an explicit '0' disable the verdict.
         # The hosted control probe is recorded in the 2026-11-27-ios-fast-unset-switch workflow note.
         self.assertEqual(self.jobs["ios-fast-runner"]["if"],
-                         "${{ format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}")
+                         "${{ !cancelled() && !inputs.web_browser_only && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}")
 
     def test_the_picker_plans_then_picks_only_when_a_target_changed(self) -> None:
         runner = self.jobs["ios-fast-runner"]
@@ -322,6 +322,11 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("--lane pipeline", pick["run"])
         self.assertIn("--device-family iphone", pick["run"])
         self.assertEqual(runner["runs-on"], self.jobs["ios-runner"]["runs-on"])
+
+    def test_a_skipped_caller_need_never_skips_the_picker(self) -> None:
+        # pr-router.yml's pipeline needs fast-gates, which skips on a landing head; the implicit success() reads the
+        # caller's needs too, so without !cancelled() the picker skipped and cmux/ios-fast stayed pending (cmux#57755).
+        self.assertTrue(self.jobs["ios-fast-runner"]["if"].startswith("${{ !cancelled() && "))
 
     def test_the_mac_job_runs_the_plan_warm(self) -> None:
         job = self.jobs["ios-fast"]
@@ -369,7 +374,7 @@ class WorkflowTest(unittest.TestCase):
         cond = gh_expr.condition(self.jobs["ios-fast-runner"]["if"])
         for value, runs in ((None, True), ("", True), ("1", True), ("0", False)):
             with self.subTest(value=value):
-                self.assertIs(gh_expr.truthy(gh_expr.evaluate(cond, {"vars": {"CI_IOS_FAST_VERDICT": value}})), runs)
+                self.assertIs(gh_expr.truthy(gh_expr.evaluate(cond, {"vars": {"CI_IOS_FAST_VERDICT": value}}, {"cancelled": False})), runs)
 
     def test_a_pending_the_route_started_is_always_answered(self) -> None:
         # The route posted pending because it started pr-pipeline.yml: a skipped pipeline (red fast gates, or a job
