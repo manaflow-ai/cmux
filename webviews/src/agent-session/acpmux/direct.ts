@@ -8,6 +8,7 @@ import {
   type BrowserDeviceIdentity,
 } from "./browserDevice";
 import { pageAttention } from "./attention";
+import { pageScrollQuiet } from "./scrollQuiet";
 import { replyRowKey } from "./replyRowKey";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { stuckAttention } from "./loopEpisode";
@@ -2256,6 +2257,8 @@ export class AcpmuxDirectClient {
     this.selectedSessionId = host.sessionId;
     this.stopWantAll = onWantAllSessions(() => this.readAllSessions());
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.showChanged);
+    // Listens from the start: another page's scroll is heard only by a page already listening.
+    pageScrollQuiet();
     this.stopAttention = pageAttention()?.subscribe(this.attentionChanged);
     // The chat on screen is handed over when this page goes away as well as when it is left, so a
     // tab closed or reloaded on a chat leaves that chat warm for the next tab (keptAttachments.ts
@@ -7549,6 +7552,10 @@ export class AcpmuxDirectClient {
       this.listChangedWhileHidden = true;
       return;
     }
+    // A chat scrolling on another page of the renderer (scrollQuiet.ts), or this one: another chat's
+    // change waits for the scroll to rest and draws then, every one held in one snapshot, so the
+    // wheel's frames are the scrolled chat's own. A New Tab page, which draws every change, too.
+    if (!rebuilt && session.sessionId !== this.selectedSessionId && this.holdForScroll()) return;
     // A shown chat draws other chats' changes at most every OTHER_CHATS_DRAW_MS and never while the
     // person scrolls (`drawOtherChats`). The chats it started or offers (whose counts and cards it
     // draws, experiment or not: App.tsx `spawnedSessions`), the one it waits to reopen and a change
@@ -7594,6 +7601,20 @@ export class AcpmuxDirectClient {
       this.otherChatsDraw = undefined;
       this.drawOtherChats();
     }, wait);
+  }
+
+  /// The wait of other chats' changes held while a chat scrolls, if any: one at a time.
+  private scrollHold?: () => void;
+  /// Holds the drawing of other chats' changes while a chat scrolls; false when none does.
+  private holdForScroll(): boolean {
+    if (this.scrollHold) return true;
+    const quiet = pageScrollQuiet();
+    if (!quiet?.scrolling()) return false;
+    this.scrollHold = quiet.afterScroll(() => {
+      this.scrollHold = undefined;
+      if (!this.closed) this.emitInFrame("session changed");
+    });
+    return true;
   }
 
   /// Other chats that only ran on (their times and latest words, otherChatsLive.ts) since the last
@@ -18495,6 +18516,8 @@ export class AcpmuxDirectClient {
     this.stopWantAll?.();
     this.stopWantAll = undefined;
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
+    this.scrollHold?.();
+    this.scrollHold = undefined;
     this.stopAttention?.();
     this.stopAttention = undefined;
     if (typeof window !== "undefined") {
