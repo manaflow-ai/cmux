@@ -357,10 +357,10 @@ mod tests {
         let root = |theme: Option<&str>, rotate: Option<&str>| {
             let mut appearance = json!({"favoriteThemes": ["Nord", "Dracula", "Nord", 1, "light:A,dark:B", " ", "Rose Pine"]});
             if let Some(t) = theme {
-                appearance["theme"] = json!(t)
+                appearance["theme"] = json!(t);
             }
             if let Some(r) = rotate {
-                appearance["rotateFavoriteThemes"] = json!(r)
+                appearance["rotateFavoriteThemes"] = json!(r);
             }
             json!({"appearance": appearance})
         };
