@@ -12,6 +12,10 @@ inputs:
     description: "`warp` writes the runner provider store on Warp runners, `r2` writes the R2 bucket. Anything else writes the GitHub store."
     required: false
     default: ""
+  required:
+    description: "r2 only: `true` fails the step when nothing was saved (credentials missing, upload refused), for an entry pull requests compare against."
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -35,5 +39,6 @@ runs:
       env:
         CACHE_PATH: ${{ inputs.path }}
         CACHE_KEY: ${{ inputs.key }}
+        CACHE_REQUIRED: ${{ inputs.required }}
       run: |
         "$GITHUB_ACTION_PATH/../../../scripts/ci/r2-cache.sh" save "$CACHE_PATH" "$CACHE_KEY"

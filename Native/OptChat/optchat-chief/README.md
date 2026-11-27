@@ -116,12 +116,25 @@ id). With `OPTCHAT_GROUP_WAKE` set, a person's message in another local
 conversation the Chief takes part in is a wake of that conversation, read and
 answered as a cloud wake is (`brain/side.rs`); another Chief's message wakes
 it too (never its own; other agents never do). Loop guard: the owner's
-per-thread budget (`cmux_conversation::MAX_AGENT_TURNS`, 6): at most 6 agent
-texts in one thread (the replies of one root, or the top level) since a
-person's text in that thread; the owner refuses more (`agent_budget`), and a
+per-thread budget (`cmux_conversation::MAX_AGENT_TURNS`, 6): in a
+conversation with two or more agents, at most 6 agent texts in one thread
+(the replies of one root, or the top level) since a person's text in that
+thread (the person's own Chief chat, with one agent, has no cap); the owner refuses more (`agent_budget`), and a
 Chief pre-checks it from the messages it read (`thread_agent_streak` on the
 thread its reply goes into) so it stays quiet instead of running that turn.
-A person's text resets its own thread only. A page shows "Chiefs paused" for
+A person's text resets its own thread only. The outbox drops a refused
+message (it never loops) but keeps the refusal for the Chief: `send` answers
+an error ("refused by the conversation, nothing was posted (agent_budget)")
+when the owner refuses it at once, `outcome: queued` while it still waits in
+the outbox (the gap, an upload, link previews), and `outcome: done. sent`
+only when the owner took it; a later refusal (a queued send, a turn reply)
+is told on the Chief's next `send`. An `agent_budget` refusal in the Chief's
+conversation also starts the hold (`brain/budget_hold.rs`): while the guard
+refuses, `stop` and `sleep` are not refused for untold landed work, and the
+`[untold]` and `[no text]` notes wait instead of starting turns that could post
+nothing. The person's next message ends the hold, and its turn carries a
+`<held-news>` block naming the owed outcomes and silent starts; a Chief message
+the owner takes ends it too. A page shows "Chiefs paused" for
 a thread when `thread_agent_streak` of its newest messages is at the budget. `every` adds a constant
 "Channels" paragraph to the system prompt: the Chief acts on its own when a
 message concerns its role, and a reply of exactly `NO_REPLY` posts nothing.
@@ -257,7 +270,15 @@ Claude harness, `chief spawn|tell|zoom|date` on any other).
   and it starts no turn. A subagent that runs again later (a `tell`, the user
   writing in its chat) reports again when it finishes.
 
-- Any number of subagents work at once by default; `OPTCHAT_MAX_LIVE_SUBAGENTS=N`
+- The machine limits local subagents at work (src/machine_limits.rs): at most
+  `max(2, min(2 x cores, RAM GiB / 2))` (24 on a 15-core, 48 GB Mac), and while
+  the machine is over budget (load1 >= 2 x cores, or memory pressure warn or
+  critical) no new one starts past those at work (at least 2). Over it a
+  subagent is queued with its place in line (`a5: queued, #2 in line`), never
+  refused, and starts when a slot frees or the machine has room (checked every
+  60 s). `OPTCHAT_MACHINE_HELPERS=N` sets the ceiling, `0` lifts the machine
+  limit; an explicit cap below wins over it.
+- Otherwise any number of subagents work at once; `OPTCHAT_MAX_LIVE_SUBAGENTS=N`
   caps it (one spawn takes at most 24 tasks; call spawn again for more). A spawn
   over the cap answers `a<N>: queued`, naming the cap's source (`control cap N`
   or the env) and that `control cap 0` removes it; a queued subagent starts, with the view
@@ -389,8 +410,9 @@ the conversation, the memory, the schedules and the approvals; the brain runs
 one turn at a time from a home the Chief owns (`optchat/brains/<family>`,
 `HERMES_HOME`/`OPENCLAW_HOME` through acpmux's built-in
 `optchat-chief-<brain>-<home id>` preset), never the person's own, with its
-models through the team gateway (`--brain-base-url`, default the team
-subrouter) and its own cron, memory and logins off. OpenClaw runs only in
+models through the gateway the person sets (`chief engine set
+--brain-base-url URL` or `OPTCHAT_BRAIN_BASE_URL`; no built-in default: without
+one the brain is unavailable and the default harness answers) and its own cron, memory and logins off. OpenClaw runs only in
 sandbox mode `all` (Docker or Podman needed), with no skills, and gets cmux's
 MCP servers in its own config (its ACP bridge takes none per session); the
 host runs its Gateway on loopback. A brain that cannot run a turn (not
@@ -558,8 +580,8 @@ replies).
 | `ACPMUX_SOCKET`, `ACPMUX_HOME` | `~/.acpmux/acpmux.sock` | the acpmux daemon |
 | `ACPMUX_BIN` | none | started as `$ACPMUX_BIN daemon run` when the socket does not answer |
 | `CMUX_SOCKET_PATH` | none | the app's control socket, passed to the turn's tools |
-| `OPTCHAT_ANTHROPIC_BASE_URL` | `http://cmux-lawrences-mac-mini:31415` | the Messages API of the native engine, and of the compactor's `api` route (team subrouter) |
-| `OPTCHAT_ANTHROPIC_API_KEY` | none | `x-api-key`; else `ANTHROPIC_API_KEY` for any base URL but the subrouter; else `subrouter` |
+| `OPTCHAT_ANTHROPIC_BASE_URL` | `https://api.anthropic.com` | the Messages API of the native engine, and of the compactor's `api` route (a gateway is the person's own setting) |
+| `OPTCHAT_ANTHROPIC_API_KEY` | none | `x-api-key` for that URL; else `ANTHROPIC_API_KEY` for the official API only, or for another URL with `OPTCHAT_SEND_KEY_TO_BASE_URL=1`; else `subrouter` (no real key) |
 | `OPTCHAT_COMPACTOR` | `acpmux` | how summaries are built; `api` only when set (see Compactor routes) |
 | `OPTCHAT_COMPACTOR_HARNESS` | the Chief's harness | acpmux route: the harness of the compactor sessions |
 | `OPTCHAT_COMPACTOR_MODEL` | `claude-sonnet-5-5` on a Claude harness, else the harness's default | acpmux route: their model (the refusal fallback `claude-sonnet-5` exists on a Claude harness only) |
@@ -730,19 +752,21 @@ store's files or an export) into an empty memory.
 
 **Backup** (decision 2026-10-06). After the commit, the export's history is
 pushed to a private `manaflow-ai/chief-memory-<home id>` repository, which
-`gh repo create --private` makes on the first push; never forced, so a
-remote with other history fails the push and stays as it is. Before each
-push the lines added since the last pushed commit are scanned (gitleaks when
-it is on PATH, else built-in shapes: GitHub, Anthropic, OpenAI, AWS, Slack,
-Stripe, Google and npm tokens, private keys). A hit holds the backup:
+`gh repo create --private` makes on the first push. If another Chief moves the
+branch, the persister fetches it and merges append-only `main/` and `tree/`
+JSONL lines before retrying, so neither writer's memory is replaced. Before
+each push the lines added since the last pushed commit are scanned (gitleaks
+when it is on PATH, else built-in shapes: GitHub, Anthropic, OpenAI, AWS,
+Slack, Stripe, Google and npm tokens, private keys). A hit holds the backup:
 nothing is pushed, `optchat/backup.json` says `(backup held: possible secret
 in message N)`, a `backup_held` trace event is written, host.log says how to
 release it (the message id or summary name on a line of
-`optchat/backup-allow.txt`). A failed push is retried by the persister
-thread after 30 s, doubling to 30 min; a turn never waits on it. On by
-default when `gh auth status` succeeds, except for tagged dev homes
-(`.../tags/<tag>`), which would each make their own repository; set
-`OPTCHAT_BACKUP_REMOTE` or `settings.json` to choose.
+`optchat/backup-allow.txt`). A failed push is retried by the persister thread
+with bounded jittered backoff and becomes a visible `blocked` status after its
+retry window; a turn never waits on it. On by default when `gh auth status`
+succeeds, except for tagged dev homes (`.../tags/<tag>`), which would each
+make their own repository; set `OPTCHAT_BACKUP_REMOTE` or `settings.json` to
+choose.
 
 **Migration.** On the first start with an old home (day files in `chat/`,
 an empty database), the host copies them into
@@ -834,8 +858,9 @@ that profile is named. Any other Claude-family profile must also be kind
 proxy` replaced by a `claude-stdio` profile that runs `claude` with no
 arguments) only when its `ANTHROPIC_BASE_URL` is the team subrouter on
 cmux-lawrence (`harness_gate::TEAM_SUBROUTER_URLS`); a real `sr claude
-proxy` profile wins over it. A refused turn starts no session and posts `(turn refused:
-...)` in the chat. A session that acpmux resolved or moved onto another
+proxy` profile wins over it. A refused turn starts no session and posts a short plain reply
+(`harness_gate::refused_reply`): it quotes the message it answers, says what is missing and what
+to do, and a repeat says how many turns in a row were refused, so no two in a row read the same. A session that acpmux resolved or moved onto another
 profile is checked again by its own harness, at the start and at the end
 of the turn. Every refusal is a `harness.refused` trace event (role,
 harness, reason), and each `turn.end` records `harness_profile`,
@@ -1558,8 +1583,8 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
   `room`, `sizeCheck(tries, room)` measures against the room, and
   `finishLine(cut, line)` adds the prefix.
 - **Compactor refusals (section 4.1).** A node the compactor model declines
-  is built by `claude-sonnet-5` (fewer safeguard categories) instead of
-  being retried forever. On the acpmux route a refusal arrives as acpmux
+  keeps its input, cut to the room, as its line instead of being retried
+  forever; no other model builds it unless `Config::fallback_model` names one. On the acpmux route a refusal arrives as acpmux
   sends it: a JSON-RPC error (code -32603) whose message is Claude Code's
   refusal text, which always links `anthropic.com/legal/aup`; a usage limit
   or an overload is not a refusal and is retried. Other failures retry with

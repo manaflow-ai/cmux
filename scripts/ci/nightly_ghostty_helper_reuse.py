@@ -18,8 +18,12 @@ The artifact is downloaded by ID, checked against GitHub's SHA256 digest,
 unpacked safely and must be a Mach-O with exactly the architectures this run
 ships.
 
+The input key reads the gitlink and blob ids from the checkout's own git when it
+holds the commit, and asks the contents API only for one it lacks.
+
 Writes hit, key, source_run and source_build_sha to GITHUB_OUTPUT. A miss is
-not an error: the workflow builds the helper on a Mac.
+not an error: the workflow builds the helper on a Mac. Any failure to ask GitHub
+(a 403, a timeout, an unexpected answer) is a miss, with exit 0.
 """
 from __future__ import annotations
 
@@ -30,6 +34,7 @@ import os
 from pathlib import Path
 import re
 import struct
+import subprocess
 import sys
 import tempfile
 import urllib.error
@@ -53,8 +58,58 @@ SHA = re.compile(r"[0-9a-f]{40}")
 CPU = {0x0100000C: "arm64", 0x01000007: "x86_64"}
 
 
+def git_tree_ids(sha: str) -> dict[str, tuple[str, str]] | None:
+    """{path: (type, object id)} of the helper's inputs at sha from the local clone, or None.
+
+    The object ids are the ones the contents API returns (a gitlink's commit,
+    a file's blob), so the key is the same either way; this read costs no REST
+    core budget, which 15 candidates x 3 contents reads used to spend down to
+    a 403 (nightly run 45776501690). A commit the shallow, sparse checkout
+    lacks is fetched without blobs first; None leaves the key to the API.
+    """
+    paths = ("ghostty", *INPUT_FILES)
+
+    def ls_tree() -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "ls-tree", "-z", sha, "--", *paths], capture_output=True, text=True)
+
+    try:
+        listed = ls_tree()
+        if listed.returncode != 0:
+            # --depth=1 only in a checkout that is already shallow (tests/test_ci_no_shallow_dev_fetch.py).
+            shallow = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
+                                     capture_output=True, text=True, timeout=30).stdout.strip() == "true"
+            subprocess.run(["git", "fetch", "--quiet", "--no-tags", *(["--depth=1"] if shallow else []),
+                            "--filter=blob:none", "origin", sha],
+                           capture_output=True, text=True, timeout=120)
+            listed = ls_tree()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if listed.returncode != 0:
+        return None
+    ids = {}
+    for entry in listed.stdout.split("\0"):
+        if not entry:
+            continue
+        meta, _, path = entry.partition("\t")
+        _mode, kind, oid = meta.split(" ")
+        ids[path] = (kind, oid)
+    return ids
+
+
 def input_key(repo: str, sha: str, token: str) -> str:
     """Hash of everything the helper's bytes depend on at commit sha."""
+    ids = git_tree_ids(sha)
+    if ids is not None:
+        ghostty = ids.get("ghostty")
+        if not ghostty or ghostty[0] != "commit" or not SHA.fullmatch(ghostty[1]):
+            raise SystemExit(f"ghostty is not a submodule at {sha}")
+        lines = [SCHEMA, f"ghostty={ghostty[1]}"]
+        for path in INPUT_FILES:
+            blob = ids.get(path)
+            if not blob or blob[0] != "blob" or not SHA.fullmatch(blob[1]):
+                raise SystemExit(f"{path} is missing at {sha}")
+            lines.append(f"{path}={blob[1]}")
+        return hashlib.sha256("\n".join(lines).encode()).hexdigest()
     quote = urllib.parse.quote
     ghostty = download.api_json(f"/repos/{repo}/contents/ghostty?ref={sha}", token)
     if ghostty.get("type") != "submodule" or not SHA.fullmatch(ghostty.get("sha", "")):
@@ -215,7 +270,11 @@ def main() -> None:
     archs = set(args.archs.split())
     if archs not in ({"arm64"}, {"arm64", "x86_64"}):
         raise SystemExit(f"unsupported architectures: {args.archs}")
-    key, artifact, sha = find(repo, args.build_sha, token, lambda a: fetch(a, token, args.out, archs))
+    try:
+        key, artifact, sha = find(repo, args.build_sha, token, lambda a: fetch(a, token, args.out, archs))
+    except (Exception, SystemExit) as error:  # noqa: BLE001  any failure to ask GitHub is a miss: build the helper
+        print(f"helper lookup failed ({type(error).__name__}: {error}); building")
+        key, artifact, sha = "", None, ""
     outputs = {"hit": "false", "key": key, "source_run": "", "source_build_sha": ""}
     if artifact is not None:
         outputs.update(hit="true", source_run=str(artifact["workflow_run"]["id"]), source_build_sha=sha)

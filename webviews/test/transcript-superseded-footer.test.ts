@@ -234,15 +234,84 @@ for (const family of ["claude", "codex"])
     }
   });
 
+test("a local steer still has its stretch to copy before it joins the stack", () => {
+  const previous = globalThis.cmuxExperiments;
+  globalThis.cmuxExperiments = { ...previous, "turn-fold-steered": "stacked" };
+  try {
+    const prompt = row("u", "user", { text: "Check the transfer" });
+    const before = row("r1", "assistant", { text: "First reply" });
+    const landed = row("s1", "user", { text: "Check again", steer: "landed" });
+    const after = row("r2", "assistant", { text: "Second reply" });
+    const rows = [
+      prompt,
+      before,
+      landed,
+      after,
+      row("local", "user", {
+        text: "Hold there",
+        pending: true,
+        delivery: { state: "sending", queued: true, promptId: "s2", sessionId: "test", sentAt: at + 10_000 },
+      }),
+    ];
+    const view = turnView(rows, new Set(), { working: true, agentFamily: "codex", now: at });
+    expect(ids(footers(view))).toEqual([`${SUPERSEDED}-s2`]);
+    expect(footers(view)[0]?.turnCopy).toEqual([{ text: after.text! }]);
+  } finally {
+    if (previous === undefined) delete globalThis.cmuxExperiments;
+    else globalThis.cmuxExperiments = previous;
+  }
+});
+
+for (const ending of ["summary", "next prompt"] as const)
+  test(`stacked steers keep one Copy for the whole turn when it ends on a ${ending}`, () => {
+    const previous = globalThis.cmuxExperiments;
+    globalThis.cmuxExperiments = { ...previous, "turn-fold-steered": "stacked" };
+    try {
+      const prompt = row("u", "user", { text: "Check the transfer" });
+      const reply = row("r1", "assistant", { text: "Transfer is ready." });
+      const tool = bash("b1");
+      const rows = [
+        prompt,
+        reply,
+        tool,
+        row("s1", "user", { text: "Hold there", steer: "landed" }),
+        ending === "summary"
+          ? row("sum", "turnSummary", { status: "completed", durationMs: 40_000 })
+          : row("next", "user", { text: "Check again" }),
+      ];
+      for (const expanded of [new Set<string>(), new Set(["worked-u"])]) {
+        const view = turnView(rows, expanded, { agentFamily: "codex", now: START + 1e6 });
+        const shown = footers(view);
+        expect(shown).toHaveLength(1);
+        expect(shown[0]).toMatchObject({
+          text: reply.text,
+          answerId: reply.id,
+          turnCopy: [{ text: reply.text }, { tools: tool.items }],
+        });
+        expect(markup(shown[0]!)).toContain(COPY);
+      }
+    } finally {
+      if (previous === undefined) delete globalThis.cmuxExperiments;
+      else globalThis.cmuxExperiments = previous;
+    }
+  });
+
 test("two messages in a row, then the turn ended: still no row under them", () => {
   const second = row("s2", "user", { text: "AND THIS", steer: "landed" });
   const view = turnView(steeredThenEnded([second]), new Set(), { agentFamily: "claude", now: START + 1e6 });
   expect(ids(footers(view).filter((each) => !isEmptyFooter(each)))).toEqual([`${SUPERSEDED}-s1`]);
 });
 
-test("work alone after the person's message adds no row either", () => {
+// G04 (cmuxterm-hq#13766): every finished turn ends on its row, a turn of calls alone too. Calls the
+// agent ran after his message are something to copy, so that stretch keeps its row with their Copy;
+// only a turn that said and ran nothing after his message draws none (the test above).
+test("work alone after the person's message ends on its row, copying its calls", () => {
   const view = turnView(steeredThenEnded([bash("b9")]), new Set(), { agentFamily: "claude", now: START + 1e6 });
-  expect(isEmptyFooter(view.find((each) => each.id === "sum")!)).toBe(true);
+  const under = view.find((each) => each.id === "sum")!;
+  expect(isEmptyFooter(under)).toBe(false);
+  expect(under.turnCopy?.at(-1)).toEqual({
+    tools: [expect.objectContaining({ tool: expect.objectContaining({ id: "b9" }) })],
+  });
 });
 
 test("a reply after the person's message keeps the turn's row and its Copy", () => {

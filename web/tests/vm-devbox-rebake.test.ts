@@ -6,8 +6,6 @@ import {
   REBAKE_INPUTS,
   REBAKE_INPUT_EXEMPT,
   REBAKE_SLUG_PREFIX,
-  CMUX_TUI_FILES,
-  pinCmuxTuiManifest,
   listAllSnapshots,
   pruneSelection,
   rebakeInputFiles,
@@ -17,7 +15,7 @@ import {
   settledAwaiting,
   type SnapshotRow,
 } from "../scripts/devbox-rebake";
-import { readDevboxAwaitingRebake, repoRoot, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
+import { isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Bun's YAML parser; web/tests are typed by tests/bun-test.d.ts, which has no Bun global.
@@ -154,29 +152,47 @@ describe("rebake inputs", () => {
   });
 });
 
-describe("pinCmuxTuiManifest", () => {
-  const sha = (c: string) => c.repeat(64);
-  const manifest = (commit: string, acpmux: boolean) => ({
-    commit,
-    binaries: {
-      "cmux-tui-x86_64-unknown-linux-musl": sha("a"),
-      "cmux-tui-hook-x86_64-unknown-linux-musl": sha("b"),
-      ...(acpmux ? { "cmux-tui-acpmux-x86_64-unknown-linux-musl": sha("c") } : {}),
-    },
+describe("retryFreestyleOverload", () => {
+  const overloaded = Object.assign(new Error("infrastructure overloaded: VM start capacity queue wait expired"), { status: 429, code: "INFRASTRUCTURE_OVERLOADED" });
+
+  test("asks again after a 429 overload and returns the VM", async () => {
+    let calls = 0;
+    const vm = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      if (calls < 3) throw overloaded;
+      return "vm-1";
+    }, 1_000, 1);
+    expect(vm).toBe("vm-1");
+    expect(calls).toBe(3);
   });
 
-  test("takes the newest published build that carries acpmux", async () => {
-    const [unpublished, noAcpmux, good, older] = ["1", "2", "3", "4"].map((c) => c.repeat(40));
-    const published: Record<string, unknown> = {
-      [`${CMUX_TUI_FILES}/${noAcpmux}/manifest.json`]: manifest(noAcpmux, false),
-      [`${CMUX_TUI_FILES}/${good}/manifest.json`]: manifest(good, true),
-      [`${CMUX_TUI_FILES}/${older}/manifest.json`]: manifest(older, true),
-    };
-    const url = await pinCmuxTuiManifest([unpublished, noAcpmux, good, older], async (u) => published[u] ?? null);
-    expect(url).toBe(`${CMUX_TUI_FILES}/${good}/manifest.json`);
+  test("rethrows any other error at once", async () => {
+    let calls = 0;
+    const other = Object.assign(new Error("bad snapshot"), { status: 400 });
+    await expect(retryFreestyleOverload("t", async () => { calls += 1; throw other; }, 1_000, 1)).rejects.toBe(other);
+    expect(calls).toBe(1);
   });
 
-  test("returns null when no candidate has acpmux", async () => {
-    expect(await pinCmuxTuiManifest(["5".repeat(40)], async () => null)).toBeNull();
+  test("gives up with the overload once the budget is spent", async () => {
+    let calls = 0;
+    await expect(retryFreestyleOverload("t", async () => { calls += 1; throw overloaded; }, 30, 10)).rejects.toBe(overloaded);
+    expect(calls).toBeGreaterThan(1);
+  });
+
+  test("with isFreestyleTransient asks again after a 500, as a resize needs, and still rethrows a 4xx", async () => {
+    // Rebake run 45889121287: POST /v5/vms/ID/resize answered 500 INTERNAL_ERROR once.
+    const internal = Object.assign(new Error("Internal server error"), { status: 500, code: "INTERNAL_ERROR" });
+    let calls = 0;
+    const ok = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      if (calls < 2) throw internal;
+      return "resized";
+    }, 1_000, 1, isFreestyleTransient);
+    expect(ok).toBe("resized");
+    expect(calls).toBe(2);
+    const bad = Object.assign(new Error("bad size"), { status: 400 });
+    expect(isFreestyleTransient(bad)).toBe(false);
+    expect(isFreestyleTransient(overloaded)).toBe(true);
+    await expect(retryFreestyleOverload("t", async () => { throw internal; }, 1_000, 1)).rejects.toBe(internal);
   });
 });

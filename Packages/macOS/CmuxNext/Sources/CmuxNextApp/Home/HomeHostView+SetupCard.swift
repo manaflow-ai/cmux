@@ -1,12 +1,12 @@
 import AppKit
 import CmuxNextAccounts
 import CmuxNextActions
-import CmuxNextChiefMemory
 import CmuxNextCLIInstall
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextHomeModel
 import CmuxNextOnboarding
 
 extension HomeHostView {
@@ -16,11 +16,11 @@ extension HomeHostView {
         setupCardWatch?.cancel()
         setupCardWatch = nil
         guard isChief else { return showSetupCard(nil) }
-        let onboarding = control.services.onboarding, setup = onboarding.setup
+        let onboarding = control.services.onboarding, setup = onboarding.setup, meetChief = onboarding.chief
         setup.checkChiefAgent(source: onboarding.signInHarnesses)
-        // task-owner: lives as long as this view is a Chief's; event-driven (Observation of FirstRunSetup).
+        // task-owner: lives as long as this view is a Chief's; event-driven (Observation of FirstRunSetup; Meet Chief holds it).
         setupCardWatch = Task { [weak self] in
-            for await form in ObservationStream({ setup.cardForm }) {
+            for await form in ObservationStream({ meetChief.holdsWelcome ? nil : setup.cardForm }) {
                 guard !Task.isCancelled else { return }
                 self?.showSetupCard(form)
             }
@@ -37,9 +37,7 @@ extension HomeHostView {
             cliState: { CLIInstallReport.setupRow(await CLIInstallHandlers.pathCheck(CLIPathInstaller().source)) },
             installCLI: { await CLIInstallHandlers.install(.cmux, replacing: $0, in: NSApp.keyWindow) },
             openAgents: { [weak services] in services?.onboarding.show(step: .agents) },
-            historySources: { [muxHome = HomeBrainHost.muxHome(tag: services.environment.tag).path] in
-                MemorySource.offerTitle(await ChiefMemoryImportHandlers.detectForOffer(muxHome: muxHome)) != nil },
-            importHistory: { [weak services] in services.map { TopPages.show(.page(.importHistory), services: $0) != nil } ?? false }, agentTools: services.onboarding.agentTools)
+            look: SetupCardLook(design: .shared) { [weak services] in services?.settings }, signInBackend: services.cloud.configuration.signInBackendLine)
         guard setupCard == nil, let card = SetupCardHost(setup: services.onboarding.setup, agents: services.onboarding.signInHarnesses,
                                                          environment: environment, overlayProcess: services.overlayProcess,
                                                          form: form) else { return }

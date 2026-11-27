@@ -211,10 +211,15 @@ class Page(unittest.TestCase):
             cells.Scroller(app, cells.page_facts(app)).start()
 
 
+def summary_program():
+    """perf-idle-ab.sh's summary of the runs: the heredoc fed the runs, rounds and cells (not the settings-open one)."""
+    script = (ROOT / "scripts" / "measure" / "perf-idle-ab.sh").read_text()
+    return script.split('"$out/runs" "$rounds" "$cells" <<\'PY\' || status=1\n', 1)[1].split("\nPY\n", 1)[0]
+
+
 class Summary(unittest.TestCase):
     def test_cells_are_grouped_and_the_children_count_in_the_total(self):
-        script = (ROOT / "scripts" / "measure" / "perf-idle-ab.sh").read_text()
-        program = script.split("<<'PY' || status=1\n", 1)[1].split("\nPY\n", 1)[0]
+        program = summary_program()
 
         def run(app, daemon, children, focus):
             return {"child_time_check": {"ok": True, "seen_ms": 312.5}, "samples": [
@@ -246,8 +251,7 @@ class Summary(unittest.TestCase):
         self.assertEqual({row["cell"] for row in summary}, {"1:large:rest", "1:none:rest"})
 
     def test_a_cell_that_is_not_to_be_read_is_a_fault_and_the_exit_is_1(self):
-        script = (ROOT / "scripts" / "measure" / "perf-idle-ab.sh").read_text()
-        program = script.split("<<'PY' || status=1\n", 1)[1].split("\nPY\n", 1)[0]
+        program = summary_program()
 
         def run(focus, after=None, check=True, scroll=None):
             tab = {"page": {"focus": focus}, "page_after": {"focus": focus if after is None else after}, "reads_expected": 15}
@@ -287,8 +291,7 @@ class Summary(unittest.TestCase):
                       "reads_expected 15 scroll_events 290 scroll_errors 2", done.stdout.splitlines())
 
     def test_without_cells_the_lines_are_the_ones_of_before(self):
-        script = (ROOT / "scripts" / "measure" / "perf-idle-ab.sh").read_text()
-        program = script.split("<<'PY' || status=1\n", 1)[1].split("\nPY\n", 1)[0]
+        program = summary_program()
         with tempfile.TemporaryDirectory() as scratch:
             runs = os.path.join(scratch, "runs")
             os.makedirs(runs)

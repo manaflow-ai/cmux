@@ -30,8 +30,9 @@ public final class DaemonStore: StateResourceQueries {
                 workspaceList = newValue
                 return
             }
+            let old = workspaceList
             withMutation(keyPath: \.workspaces) { workspaceList = newValue }
-            adoptUnread()
+            adoptUnread(from: old)
         }
     }
     @ObservationIgnored var workspaceList: [WorkspaceModel] = []
@@ -40,6 +41,9 @@ public final class DaemonStore: StateResourceQueries {
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Tabs the unread count read, one by one (tests: an observer of the badge reads no tab).
     @ObservationIgnored public internal(set) var unreadTabReads = 0
+    /// Workspaces whose unread contribution the store added or took out of ``unreadTotals``: what changed in the list,
+    /// never the whole list (tests: a Cmd-N among 5,000 workspaces visits one).
+    @ObservationIgnored public internal(set) var unreadWorkspaceVisits = 0
     /// The unread counts of all workspaces (``UnreadTotals``), summed from each workspace's own
     /// count when one changes and assigned only when the sum changes: an observer of the badge
     /// observes this one value, never the tabs.
@@ -106,6 +110,8 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public var onTransactionConfirmed: ((ClientTransactionID) -> Void)?
     /// `whenApplied` callbacks waiting for their transaction's echo.
     @ObservationIgnored var appliedWaiters: [AppliedWaiter] = []
+    /// ``whenLoaded(_:)`` work waiting for the first live snapshot.
+    @ObservationIgnored var loadedWaiters: [@MainActor () -> Void] = []
     /// A disconnect was applied: every waiter runs at the next flush.
     @ObservationIgnored var drainAppliedWaiters = false
     struct AppliedWaiter {
@@ -134,6 +140,8 @@ public final class DaemonStore: StateResourceQueries {
     /// build (status ticks apply batches several hundred times a second).
     @ObservationIgnored var listGeneration: UInt64 = 0
     @ObservationIgnored var checkedListGeneration: UInt64?
+    /// Workspaces `recomputeSidebar` walked (tests: its work per flattening is one walk of the list, not one per group).
+    @ObservationIgnored public internal(set) var sidebarWorkspaceVisits = 0
     /// Nesting of batch applies; the hook runs when the outermost ends.
     @ObservationIgnored var applyDepth = 0
     @ObservationIgnored let updateCycles = UpdateCycleDetector(owner: "DaemonStore.apply")
@@ -368,6 +376,11 @@ public final class DaemonStore: StateResourceQueries {
         tab(id: id).flatMap { pane(containing: $0.surface) }.flatMap { workspace(containing: $0.handle) }
     }
 
+    /// Every tab of the workspace that holds tab `id`, in screen and pane order; nil when no workspace lists it.
+    public func tabs(inWorkspaceHolding id: String) -> [TabModel]? {
+        workspace(holdingTab: id)?.allTabs
+    }
+
     // MARK: Snapshot
 
     /// Replaces the confirmed tree, reusing records by durable identity,
@@ -408,6 +421,16 @@ public final class DaemonStore: StateResourceQueries {
         }
         workspaceListMayHaveChanged()
         runAppliedWaiters(nil, snapshot: true)
+        if !loadedWaiters.isEmpty { let waiting = loadedWaiters; loadedWaiters.removeAll(); for body in waiting { body() } }
+    }
+
+    /// Runs `body` in the main-actor turn that applies the first live snapshot (``isLoaded``), after the
+    /// snapshot's own waiters; at once when one already applied. An `ObservationStream` on `isLoaded`
+    /// resumes in a later main-queue job instead, behind every job the launch queued before it: on a warm
+    /// NIGHTLY launch the window restore that shows the terminal started 50.4 ms after the tree applied
+    /// (hq step 2510611e50d84481264d625c: `daemon.first_tree_applied` 670.7, `window.restore_wait_end` 721.1).
+    public func whenLoaded(_ body: @escaping @MainActor () -> Void) {
+        if isLoaded { body() } else { loadedWaiters.append(body) }
     }
 
     /// The tree a snapshot applied up to `barrier` holds every personal change at or below it; a
@@ -464,7 +487,7 @@ public final class DaemonStore: StateResourceQueries {
     /// Seeds agent state (`list-agents`), e.g. after connect.
     public func apply(agents: [AgentStatus]) {
         self.agents.seed(agents)
-        for (surface, tab) in tabsBySurface { tab.setAgent(self.agents.bySurface[surface]) }
+        for tab in tabsBySurface.values { tab.setAgent(self.agents.status(for: tab)) }
     }
 
     /// Records a completed handshake before its `.connected` event drains, so capability checks right after connect see this daemon.
@@ -576,7 +599,8 @@ public final class DaemonStore: StateResourceQueries {
     /// What a tab learns when it is indexed: its agent, its observed folder and this Mac's former hosts.
     private func prime(_ tab: TabModel) {
         if tab.formerLocalHosts != formerLocalHosts { tab.formerLocalHosts = formerLocalHosts }
-        if tab.agent == nil, let agent = agents.bySurface[tab.surface] { tab.setAgent(agent) }
+        // By its terminal first: a tab a restore or reopen gave a new surface finds its agent (cmux#49392).
+        if let agent = agents.status(for: tab) { tab.setAgent(agent) }
         if let presence = heldPresence.removeValue(forKey: tab.surface) { tab.setPresence(presence) }
         tab.setObservedCwd(directories.directory(for: tab.surface))
     }
@@ -605,17 +629,34 @@ public final class DaemonStore: StateResourceQueries {
         onWorkspaceListChanged?()
     }
 
+    /// One walk of the list (O(workspaces + groups)), not one per group with a scan of the groups per workspace.
     func recomputeSidebar() {
         listGeneration &+= 1
-        let ungrouped = workspaces.filter { workspace in workspace.group.map { id in !groups.contains { $0.id == id } } ?? true }
+        let known = Set(groups.lazy.map(\.id))
+        var ungrouped: [WorkspaceModel] = [], grouped: [WorkspaceGroupID: [WorkspaceModel]] = [:]
+        for workspace in workspaces {
+            sidebarWorkspaceVisits &+= 1
+            if let id = workspace.group, known.contains(id) { grouped[id, default: []].append(workspace) } else { ungrouped.append(workspace) }
+        }
         var sections = [SidebarSection(group: nil, workspaces: ungrouped)]
         for group in groups.sorted(by: { $0.index < $1.index }) {
-            sections.append(SidebarSection(group: group, workspaces: workspaces.filter { $0.group == group.id }))
+            sections.append(SidebarSection(group: group, workspaces: grouped[group.id] ?? []))
         }
         let unchanged = sections.count == sidebarSections.count && zip(sections, sidebarSections).allSatisfy { new, old in
             new.group === old.group && new.workspaces.count == old.workspaces.count
                 && zip(new.workspaces, old.workspaces).allSatisfy { $0 === $1 }
         }
         if !unchanged { sidebarSections = sections }
+    }
+
+    /// The workspace ids in sidebar order, then any the sections miss. The flattening lists each workspace once
+    /// (`recomputeSidebar`), so as many as the store lists means none is missing: no set of every id per call.
+    public var sidebarOrderedIDs: [String] {
+        var ids: [String] = []
+        ids.reserveCapacity(workspaces.count)
+        for section in sidebarSections { for workspace in section.workspaces { ids.append(workspace.id) } }
+        guard ids.count != workspaces.count else { return ids }
+        let listed = Set(ids)
+        return ids + workspaces.map(\.id).filter { !listed.contains($0) }
     }
 }

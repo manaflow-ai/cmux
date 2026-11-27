@@ -39,6 +39,10 @@ struct LinkSlot {
 pub(crate) struct HolderService {
     socket: PathBuf,
     token: [u8; 32],
+    /// The session's `<host root>/holder.token`, which the holder it starts
+    /// watches (`cmux_holder::TOKEN_FILE_ENV`): once it is gone, no daemon
+    /// can link that holder again, and it ends its terminals within minutes.
+    token_file: Option<PathBuf>,
     link: Mutex<LinkSlot>,
     /// Serializes connecting, launching and re-adopting. Its holder may
     /// take a surface's terminal lock (a re-adoption's prologue), so no
@@ -82,6 +86,11 @@ pub(crate) struct HolderService {
     /// ([`RELINK_HEALTHY`]): a holder that takes every link and drops it
     /// at once is not reconnected in a tight loop.
     relink: Mutex<crate::backoff::Backoff>,
+    /// The holder could not be reached or started ([`Self::available`]):
+    /// until then a new terminal runs on a host of its own without asking
+    /// again, so a broken holder costs one start timeout per window and not
+    /// one per terminal.
+    unavailable_until: Mutex<Option<Instant>>,
 }
 
 /// A link that stayed up this long was healthy: when it ends, the next link
@@ -93,6 +102,9 @@ const RELINK_MAX: Duration = Duration::from_secs(5);
 /// How long a connect waits for the holder's answer when its caller gives no
 /// bound of its own.
 const CONNECT_WAIT: Duration = Duration::from_secs(10);
+/// After the holder failed to start or answer, new terminals run on hosts of
+/// their own this long before a create asks the holder again.
+const UNAVAILABLE_RETRY: Duration = Duration::from_secs(30);
 
 /// What one ask of the holder found ([`HolderService::reach`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -121,8 +133,10 @@ impl HolderService {
         if let Some(service) = services.get(host_root) {
             return Ok(service.clone());
         }
-        let service =
-            Arc::new(Self::new(socket_path(host_root)?, load_or_create_token(host_root)?));
+        let service = Arc::new(Self {
+            token_file: Some(host_root.join(TOKEN_FILE)),
+            ..Self::new(socket_path(host_root)?, load_or_create_token(host_root)?)
+        });
         services.insert(host_root.to_path_buf(), service.clone());
         Ok(service)
     }
@@ -132,6 +146,7 @@ impl HolderService {
         Self {
             socket,
             token,
+            token_file: None,
             link: Mutex::default(),
             connecting: Mutex::new(()),
             pending: Mutex::default(),
@@ -143,6 +158,7 @@ impl HolderService {
             superseded: AtomicBool::new(false),
             standalone_failed: AtomicBool::new(false),
             relink: Mutex::new(crate::backoff::Backoff::new(RELINK_INITIAL, RELINK_MAX)),
+            unavailable_until: Mutex::default(),
         }
     }
 
@@ -181,6 +197,45 @@ impl HolderService {
     /// made after a lost one hands every live terminal to the new holder.
     pub(crate) fn link(self: &Arc<Self>) -> io::Result<Arc<HolderLink>> {
         self.link_or_launch(true)
+    }
+
+    /// Whether a new terminal can run on this holder: its link is open, or a
+    /// connect or start made one. `false` when the holder failed to start or
+    /// answer, or another daemon of the session took it: the caller then
+    /// runs the terminal on a host of its own (the per-terminal fallback),
+    /// so a holder that cannot start never costs a terminal. After a failure
+    /// the holder is not asked again for [`UNAVAILABLE_RETRY`].
+    pub(crate) fn available(self: &Arc<Self>) -> bool {
+        if self.open_link().is_some() {
+            return true;
+        }
+        if self.superseded.load(Ordering::Acquire) {
+            return false;
+        }
+        if self
+            .unavailable_until
+            .lock()
+            .recover_poison()
+            .is_some_and(|until| Instant::now() < until)
+        {
+            return false;
+        }
+        match self.link() {
+            Ok(_) => {
+                *self.unavailable_until.lock().recover_poison() = None;
+                true
+            }
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: the terminal holder is not available ({error}); new terminals \
+                     run on hosts of their own for {}s",
+                    UNAVAILABLE_RETRY.as_secs()
+                );
+                *self.unavailable_until.lock().recover_poison() =
+                    Some(Instant::now() + UNAVAILABLE_RETRY);
+                false
+            }
+        }
     }
 
     /// The link when one is open. Never connects, launches or waits for a
@@ -704,12 +759,15 @@ fn fnv1a(bytes: &[u8]) -> u64 {
     })
 }
 
+/// The owner token's file under the host root.
+const TOKEN_FILE: &str = "holder.token";
+
 /// The owner token in `<host root>/holder.token` (0600), made on first use.
 /// A restarted daemon of the session reads it to reach the same holder.
 fn load_or_create_token(host_root: &Path) -> io::Result<[u8; 32]> {
     use std::os::unix::fs::OpenOptionsExt;
     std::fs::create_dir_all(host_root)?;
-    let path = host_root.join("holder.token");
+    let path = host_root.join(TOKEN_FILE);
     if let Ok(text) = std::fs::read_to_string(&path)
         && let Some(token) = parse_hex(text.trim())
     {

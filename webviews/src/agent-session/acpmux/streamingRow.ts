@@ -9,7 +9,7 @@
 // (`useStreamingRow`) and draws that one row. Any other change goes through the pane as before and
 // clears this store in the same turn, so the pane's own rows are the truth again. The store holds
 // one value; nothing else owns it.
-import { startTransition, useLayoutEffect, useState } from "react";
+import { startTransition, useLayoutEffect, useRef, useState } from "react";
 import type { AcpmuxRow } from "./model";
 import { keptPrefix } from "./conversation/prefixFlatMap";
 
@@ -71,14 +71,64 @@ export function drawsAsIs(row: AcpmuxRow): boolean {
 /// next frame overtakes renders the newer row; the transcript reads `live` only while its row
 /// still shows `drawnText`, so a draw that lands after the pane's own redraw shows nothing stale.
 export function useStreamingRow(active: boolean): StreamingRow | undefined {
+  return useStreamingRowCatchUp(active).live;
+}
+
+/// `useStreamingRow`, with `catchUp`: called inside a synchronous render the transcript runs anyway
+/// (a flushSync placing a row that grew), it takes the newest chunk into that render. The chunk's own
+/// transition then finds the value it would set already drawn and commits nothing. A reply's row
+/// grows a line while a chunk's transition still waits, about 70 times in 74 on a streamed reply
+/// (test/agent-pane-stream-renders.test.ts): each was a second whole transcript pass for one chunk.
+export function useStreamingRowCatchUp(active: boolean): { live: StreamingRow | undefined; catchUp: () => void } {
   const [live, setLive] = useState<StreamingRow | undefined>(() => (active ? current : undefined));
+  // Written in the effect, not the render (the React Compiler skips a hook that writes a ref while it
+  // renders). A catch-up in the render before this effect reads the last committed `active`, and the
+  // hook's own result is gated on this render's `active` either way.
+  const activeRef = useRef(active);
   useLayoutEffect(() => {
+    activeRef.current = active;
     if (!active) return;
     // A frame that landed between the render and this effect.
     setLive(current);
     return streamingRow.subscribe(() => startTransition(() => setLive(current)));
   }, [active]);
-  return active ? live : undefined;
+  const [catchUp] = useState(() => () => {
+    if (activeRef.current) setLive(current);
+  });
+  return { live: active ? live : undefined, catchUp };
+}
+
+/// `row` drawn with `live`: the reply's newer text and version, or the live line's `quietKey` naming
+/// the reply's newer version (turns.ts `quietKey`: the line stays quiet while the reply's text moves).
+export function streamedRow(row: AcpmuxRow, live: StreamingRow): AcpmuxRow {
+  if (row.kind === "assistant") {
+    if (row.id !== live.row.id || row.text !== live.drawnText) return row;
+    return { ...row, text: live.row.text, version: row.version + live.ahead };
+  }
+  const key = row.quietKey;
+  if (typeof key !== "string") return row;
+  const at = key.lastIndexOf(":");
+  if (at < 0 || key.slice(0, at) !== live.row.id) return row;
+  const version = Number(key.slice(at + 1));
+  if (!Number.isFinite(version)) return row;
+  return { ...row, quietKey: `${live.row.id}:${version + live.ahead}`, version: row.version + live.ahead };
+}
+
+/// `rows` with the streaming reply's newer text (`streamedRow`), the same array when there is none.
+/// For what reads the rows at a person's action (copy, Find as it opens), not per chunk.
+export function rowsWithStreamingRow(rows: readonly AcpmuxRow[]): readonly AcpmuxRow[] {
+  const live = current;
+  if (!live) return rows;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index]!;
+    if (row.id !== live.row.id) continue;
+    const next = streamedRow(row, live);
+    if (next === row) return rows;
+    const copy = rows.slice();
+    copy[index] = next;
+    return copy;
+  }
+  return rows;
 }
 
 /// Whether the pane may draw a streamed chunk through the row alone: false while a view that reads

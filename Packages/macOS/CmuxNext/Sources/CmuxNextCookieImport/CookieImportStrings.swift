@@ -5,7 +5,7 @@ import Foundation
 /// `CookieImport.xcstrings`.
 enum CookieImportStrings {
     private static func t(_ key: StaticString, _ english: String.LocalizationValue) -> String {
-        String(localized: key, defaultValue: english, table: "CookieImport", bundle: .module)
+        String(localized: key, defaultValue: english, table: "CookieImport", bundle: .localizedModule)
     }
 
     // MARK: Consent panel
@@ -48,6 +48,7 @@ enum CookieImportStrings {
     }
     static var denied: String { t("cookieImport.error.denied", "The person denied the cookie import. Nothing was read.") }
     static var timedOut: String { t("cookieImport.error.timedOut", "No answer to the cookie import request within the time limit. Nothing was read.") }
+    // retry-prompt-ok: cookie import needs the person's consent, one request at a time
     static var busy: String { t("cookieImport.error.busy", "Another cookie import request is waiting for the person. Try again after it is answered.") }
     static var noWindow: String { t("cookieImport.error.noWindow", "cmux has no window to ask the person in. Nothing was read.") }
     static func unknownBrowser(_ name: String, known: [String]) -> String {

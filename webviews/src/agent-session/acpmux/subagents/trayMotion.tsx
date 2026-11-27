@@ -15,16 +15,28 @@
 //   and out as the new roll in, both opaque, so no frame is blank and none shows both at once.
 // Reduce Motion, the host's motion switch (`data-agent-motion="off"`, a 0 ms token) and a page that
 // is away apply every change at once, and no copy is made.
-import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  Fragment,
+  useCallback,
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Sign, signed } from "../../../ui/Typography";
+import { onAnimationDone, TEXT_ROLL_WIDTH, TextRoll } from "../../../ui/motion/TextRoll";
 import { cssTimeMs } from "../conversation/fold";
 import { motionAllowed, sameWords } from "./trayMotionModel";
-/// Text that ticks when it changes: the old words roll up and out of one cell as the new roll up into
-/// it, both opaque, on the micro step (subagents.css `.acpmux-tick`), so every frame shows a whole
-/// line's worth of words and none shows two over each other (Leo, 2026-11-11, on the hat's status:
-/// "brief moments where it just looks like a blank tear"). The first text, and any change while motion
-/// may not run, just shows. The old words go on their `animationend`, or `animationcancel` when the
-/// host turns motion off midway; Reduce Motion's stylesheet cuts the exit to a frame.
+/// Text that ticks when it changes, on the one text roll every live label shares (ui/motion/TextRoll.tsx;
+/// Leo, 2026-11-25, on a subagent activity row: "the animation when it changes text ... is still quite
+/// jarring bc it doesn't fade at the top/bottom when switching"): the old words roll up and out of one
+/// cell as the new roll up into it, through the cell's faded top and bottom edges, so every frame shows
+/// a whole line's worth of words and none shows two over each other (Leo, 2026-11-11, on the hat's
+/// status: "brief moments where it just looks like a blank tear"). The first text, and any change while
+/// motion may not run, just shows; Reduce Motion crossfades. The cell's width eases from the old words'
+/// to the new ones' on the roll's clock, so what follows them glides instead of jumping.
 ///
 /// `steadyCounts`: a change in its numbers alone ("9 subagents" to "10 subagents") keeps the words in
 /// place, so the running tray's header never flickers as each subagent or command joins (Leo,
@@ -33,10 +45,9 @@ import { motionAllowed, sameWords } from "./trayMotionModel";
 /// 2026-11-07, on a new command or subagent joining the hat: "I think it could look really pretty").
 /// Its words changing still tick.
 ///
-/// `slide`: a change of words moves like a status line handing over (Leo, 2026-11-07, on the hat's
-/// line turning from thinking to a tool call to another: "That animation, I like that"): the roll,
-/// and the cell's width eases from the old words' to the new ones' on the same clock, so what follows
-/// them glides instead of jumping. Without it the cell takes the new width at once.
+/// `slide`: marks a tick whose width ease carries the parts after it (`useGlide` leaves them to it;
+/// Leo, 2026-11-07, on the hat's line turning from thinking to a tool call: "That animation, I like
+/// that").
 export function Tick({
   text,
   className,
@@ -48,99 +59,29 @@ export function Tick({
   steadyCounts?: boolean;
   slide?: boolean;
 }): ReactNode {
-  // `previous` is the leaving words, `entering` whether the new ones still rise; each part settles
-  // on its own animation's end (or cancel), so the shorter exit never cuts the entrance short.
-  // `rolled` is the text whose numbers are rolling out, for a numbers-only change.
-  // `turn` counts every change; `slid` only those of the words, which key the sliding spans: a count
-  // that rolls mid-slide keeps them, so the slide plays on instead of starting over.
-  type TickState = {
-    text: string;
-    previous?: string;
-    rolled?: string;
-    entering: boolean;
-    turn: number;
-    slid: number;
-  };
-  const [state, setState] = useState<TickState>({ text, entering: false, turn: 0, slid: 0 });
+  // `rolled` is the text whose numbers are rolling out, for a numbers-only change; `turn` counts them.
+  const [counts, setCounts] = useState<{ text: string; rolled?: string; turn: number }>({ text, turn: 0 });
   const cell = useRef<HTMLSpanElement>(null);
-  // The words' drawn width before this change: the cell's width eases from it (`slide`).
-  const widthFrom = useRef<number | undefined>(undefined);
-  let shown = state;
-  if (state.text !== text && steadyCounts && sameWords(state.text, text)) {
-    // Only the numbers moved: the words keep their place (an entrance still playing plays on), and
-    // the numbers that changed roll.
-    const moves = cell.current ? motionAllowed(cell.current) : false;
-    shown = { ...state, text, rolled: moves ? state.text : undefined, turn: state.turn + 1 };
-    setState(shown);
-  } else if (state.text !== text) {
-    const moves = cell.current ? motionAllowed(cell.current) : false;
-    if (moves && slide) widthFrom.current = cell.current?.getBoundingClientRect().width;
-    shown = {
-      text,
-      previous: moves ? state.text : undefined,
-      entering: moves,
-      turn: state.turn + 1,
-      slid: state.slid + 1,
-    };
-    setState(shown);
+  let shown = counts;
+  if (counts.text !== text) {
+    const numbersOnly = steadyCounts && sameWords(counts.text, text);
+    const moves = numbersOnly && cell.current ? motionAllowed(cell.current) : false;
+    shown = { text, rolled: moves ? counts.text : undefined, turn: counts.turn + 1 };
+    setCounts(shown);
   }
   const turn = shown.turn;
-  const slid = shown.slid;
-  // The cell's width eases from the old words' to the new ones' while they slide. One animation per
-  // change on the cell alone (a short row), on the slide's own clock; it ends with the slide, a newer
-  // change replaces it, and the motion gate's 0 ms token or Reduce Motion skip it.
-  useLayoutEffect(() => {
-    const from = widthFrom.current;
-    widthFrom.current = undefined;
-    const node = cell.current;
-    if (from === undefined || !node || !slide || typeof node.animate !== "function") return undefined;
-    // The new words' own width, not their span's: both spans fill one grid cell, which the leaving
-    // words still hold wide, so a long-to-short change would read the old width. A range over the
-    // text measures the words alone; the cell's padding (none today) would add to it.
-    const incoming = node.querySelector<HTMLElement>(":scope > .acpmux-tick__in");
-    if (!incoming) return undefined;
-    const range = node.ownerDocument.createRange();
-    range.selectNodeContents(incoming);
-    const text = range.getBoundingClientRect?.().width;
-    const to = text ? Math.ceil(text) : incoming.scrollWidth;
-    if (Math.abs(to - from) < 1) return undefined;
-    const style = node.ownerDocument.defaultView?.getComputedStyle(node);
-    const duration = cssTimeMs(style?.getPropertyValue("--acpmux-tick-slide") ?? "") ?? 120;
-    if (duration <= 0) return undefined;
-    const easing = style?.getPropertyValue("--agent-ease-out").trim() || "ease-out";
-    const width = node.animate([{ width: `${from}px` }, { width: `${to}px` }], { duration, easing });
-    return () => width.cancel();
-  }, [turn, slide]);
-  const settled = (part: "previous" | "entering" | "rolled") => () =>
-    setState((current) =>
-      (part === "rolled" ? current.turn !== turn : current.slid !== slid)
-        ? current
-        : part === "previous"
-          ? { ...current, previous: undefined }
-          : part === "rolled"
-            ? { ...current, rolled: undefined }
-            : { ...current, entering: false },
-    );
+  const settled = () => setCounts((current) => (current.turn !== turn ? current : { ...current, rolled: undefined }));
   return (
-    <span ref={cell} className={className ? `acpmux-tick ${className}` : "acpmux-tick"} data-slide={slide || undefined}>
-      {shown.previous !== undefined && (
-        <span
-          key={`out-${slid}`}
-          className="acpmux-tick__out"
-          aria-hidden="true"
-          ref={onAnimationDone(settled("previous"))}
-        >
-          {signed(shown.previous)}
-        </span>
-      )}
-      <span
-        key={`in-${slid}`}
-        className={shown.entering ? "acpmux-tick__in" : undefined}
-        ref={shown.entering ? onAnimationDone(settled("entering")) : undefined}
-      >
-        {shown.rolled !== undefined ? rolling(shown.rolled, shown.text, settled("rolled")) : signed(shown.text)}
-      </span>
-    </span>
+    <TextRoll
+      cellRef={cell}
+      // With steady counts the words alone name the label: a count changing rolls only itself.
+      turn={steadyCounts ? text.replace(/\d+/g, "#") : text}
+      name="acpmux-tick"
+      className={className}
+      attributes={{ "data-slide": slide || undefined }}
+    >
+      {shown.rolled !== undefined ? rolling(shown.rolled, shown.text, settled) : signed(shown.text)}
+    </TextRoll>
   );
 }
 
@@ -179,25 +120,10 @@ function rolling(from: string, text: string, done: () => void): ReactNode {
   });
 }
 
-/// A ref that calls `done` when the node's own animation ends or is cancelled (React has no
-/// animationcancel prop); its listeners go with the node.
-function onAnimationDone(done: () => void) {
-  return (node: HTMLElement | null) => {
-    if (!node) return undefined;
-    const ended = (event: Event) => {
-      if (event.target === node) done();
-    };
-    node.addEventListener("animationend", ended);
-    node.addEventListener("animationcancel", ended);
-    return () => {
-      node.removeEventListener("animationend", ended);
-      node.removeEventListener("animationcancel", ended);
-    };
-  };
-}
-
 /// The glides `useGlide` starts, told apart from a node's other animations.
 const GLIDE = "acpmux-glide";
+/// A Tick's width ease (TextRoll's): the one animation that already carries the parts after it.
+const SLIDE = TEXT_ROLL_WIDTH;
 
 /// The parts of `row` that `selector` names move to a new place as one glide instead of a jump (Leo,
 /// 2026-11-09, on the hat's "+2 more" and time: "the animations don't track properly to squishy"):
@@ -211,12 +137,23 @@ const GLIDE = "acpmux-glide";
 ///   ResizeObserver on the row's children sees the size change, and the parts glide from their last
 ///   laid-out place plus whatever offset they are still drawn at. While a width ease runs in the row,
 ///   that ease owns the movement and nothing glides on top of it.
+/// - A change a child renders that moves the parts by its own width (the subagent icons' held count,
+///   HatFaces.tsx): the child glides from the last laid-out places in its own layout effect, before
+///   the browser paints the new layout. The ResizeObserver would see it a
+///   layout too late: Chrome scores the jump as layout shift though a translate puts it back before
+///   paint (20 subagents joining: 0.013 against the feel harness's 0.01).
 /// A row that changed width (a window resize) puts every part in its place at once, cancelling a glide
 /// in flight, and so does every change while motion may not run.
-export function useGlide(row: { readonly current: HTMLElement | null }, selector: string): void {
+export function useGlide(row: { readonly current: HTMLElement | null }, selector: string): () => void {
   const before = useRef<Placed | undefined>(undefined);
   const laid = useRef<Placed | undefined>(undefined);
   const observer = useRef<ResizeObserver | undefined>(undefined);
+  const glideChild = useCallback(() => {
+    // If the row also rendered, its layout effect runs after its children's and owns this move.
+    const node = row.current;
+    if (!node || before.current || !laid.current) return;
+    laid.current = glideFrom(node, selector, stillDrawnAt(laid.current));
+  }, [row, selector]);
   const node = row.current;
   if (node) before.current = drawnPlaces(node, selector);
   useLayoutEffect(() => {
@@ -230,14 +167,33 @@ export function useGlide(row: { readonly current: HTMLElement | null }, selector
       observer.current = new ResizeObserver(() => {
         const node = row.current;
         if (!node || !laid.current) return;
-        // A width ease in the row (Tick slide) carries what follows it; don't glide on top of it.
-        const easing = node.getAnimations({ subtree: true }).some((animation) => animation.id !== GLIDE);
+        // A width ease in the row (Tick slide) carries what follows it; don't glide on top of it. A roll
+        // or a crossfade (opacity, transform) moves nothing after it, so it never stops a glide: the
+        // subagent icon row widening while the count rolls still glides the kinds after it.
+        const easing = node.getAnimations({ subtree: true }).some((animation) => animation.id === SLIDE);
         laid.current = glideFrom(node, selector, easing ? undefined : stillDrawnAt(laid.current));
       });
     observer.current?.disconnect();
     for (const child of node.children) observer.current?.observe(child);
   });
   useLayoutEffect(() => () => observer.current?.disconnect(), []);
+  return glideChild;
+}
+
+/// A child of this row can start its glide in the same commit that changes its width.
+export const GlideRow = createContext<(() => void) | undefined>(undefined);
+
+/// For a child of a gliding row whose own render moves the parts after it by `width` (HatFaces' held
+/// count): a change to `width` glides them in this commit, before the browser lays out, so the move
+/// never reads as layout shift.
+export function useGlideAround(width: number): void {
+  const glide = useContext(GlideRow);
+  const was = useRef(width);
+  useLayoutEffect(() => {
+    if (was.current === width) return;
+    was.current = width;
+    glide?.();
+  }, [glide, width]);
 }
 
 /// Where the parts sit in a row, from its left edge, and the row's width.

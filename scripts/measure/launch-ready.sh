@@ -41,6 +41,9 @@
 #   copy=fresh   each measured launch is the first exec of a new copy: just before it, the side's copy is deleted and
 #                copied again from the DMG's (new files at the same path, the same code signature), as an update in
 #                place leaves it. The home stays. Default copy=same: every launch runs the one copy.
+#   labs=KEY     every side's home gets its own settings file, cmux-next.json with labs.KEY=true (the app reads it
+#                through CMUX_NEXT_CONFIG_FILE): labs=launchShellFirst with base= measures a Labs toggle's launch against a
+#                base without it (a base ignores a key it lacks). The priming launch applies it, so measured ones see it.
 #   engines=E[,E2]  with a DMG (not dmg=build): one side per engine (chromium or webkit), named for it, each a copy of the
 #                one DMG whose home has its own settings file, cmux-next.json with browser.defaultEngine=E (the app reads
 #                it through CMUX_NEXT_CONFIG_FILE). engines=chromium,webkit interleaves Chromium as launch has it now with
@@ -54,11 +57,19 @@
 #                and every launch samples its layout from the first on-screen frame (launch-ready.swift `layout`): the
 #                window's frame and the sidebar's edge until neither changed for 1 s or 3 s passed. Each LR-RUN row gets
 #                `layout`; LR-FRAMES per side: the median and highest move (points) and change count after the first frame.
+#   layout=movequit  layout=1 in DEBUG builds (--config debug: sidebar-width is a DEBUG command), and just before every
+#                quit the probe moves the window to the other of two frames and the sidebar to the other of two widths,
+#                then quits at once: the next launch starts from a record the launch snapshot may lag (row `movequit`).
+#                It times nothing a release build pays; read only its LR-FRAMES.
 
 #   type=1       every launch types one key the moment its first window frame is in (the app's LaunchTypeProbe: a space,
 #                then Delete, so the line stays as it was) and marks terminal.probe_key_typed, terminal_input_accepted (the
 #                key left the app for the restored terminal's PTY) and terminal_echo (its echo came back): with front=tab,
 #                launch to the first key echoed in the restored terminal (startup-tti). Needs a build with the probe.
+#   record=1     with dmg=build (built --config bench): every measured launch records its windows from the first frame
+#                (`--record-launch`, DebugWindowRecord) and the summary heads each side with its medians as
+#                LR-PERCEIVED SIDE settled_match_ms=... shift_score=... tti_ms=... first_frame_is_final=... recorded=N/M
+#                (launch_shift.py: time to a frame that already looks done, CLS-style shift score, first input taken)
 #   preflight=1  just before the first launch, ~10 s of top: a system indexer (launch-ready-preflight.sh's INDEXERS)
 #                above preflight_cpu=N % CPU (default 30), or cmux-ci's CMUX_CI_HOST_NOISY=1, fails the step with
 #                LR-HOT-HOST and exit 5. preflight=0 skips it.
@@ -70,8 +81,36 @@
 #                launches sent a message holding any key. A keys=1 launch opens no terminal (state=bare's shell
 #                request moves focus). It takes no front=tab: that launch reopens a terminal, which would take the keys
 #                and run them as a command. Default keys=0: no keys.
+#   other=URL|PATH  one more side, other: another app, from a DMG or zip URL (https) or an .app on this Mac, launched and
+#                timed the same way, interleaved with head (head 1, other 1, ...). It has none of cmux's marks or socket
+#                (launch-ready.swift `plain`): its row has the times read from outside (request_to_start,
+#                finished_launching, window_on_screen, active), and app_log / app_log_at, every `NAME=N ms` the app logs
+#                about its own launch (its unified log, `log stream` for its executable's process; launch-ready-applog.py).
+#                Its restore is not judged. It takes no front=, session=stress3, snapshot=unknown, case=update, keys=1,
+#                engines=, late= or dmg=build|swap. The whole step needs the console user's Aqua session (the windows
+#                draw only there): without it, LR-FAIL no-aqua and exit 5. Run it with cmux-ci's --display.
+#   floor=1      one more side, floor: the empty one-window AppKit app (hello-floor-app.sh, built here, ad hoc signed),
+#                launched as a plain app after each measured side's launch (base 1, head 1, floor 1, ...). Its
+#                finished_launching is the floor any AppKit app pays (cmux#60432); LR-OVER-FLOOR SIDE prints each
+#                cmux side's finished_launching median minus the floor's from this same run, the number
+#                goals/dock-no-bounce.md is held to (<= 25 ms). Works beside front=, session= and dmg=build|swap; takes
+#                no case=update, copy=fresh or guest=1. Default floor=0.
+#   purge=1      with copy=fresh: `sudo -n purge` before each measured launch, so its first exec also reads its files from
+#                disk (LR-PURGE ok|refused per launch). Default purge=0.
+#   video=1      a screen video of the measured launches (screencapture -v of the console session, Screen Recording
+#                granted to the step's process): launches.mov in report.tgz, its first frame at video-start.txt's
+#                VIDEO_START_EPOCH_MS; each LR-RUN row's start_epoch_ms places its launch in it. Default video=0.
 #   preflight_wait=S  a hot host is checked again every 60 s for up to S s (default 900) before it fails the step: an
 #                indexer's batch (mediaanalysisd at 70-200 %) often ends in minutes, and the builds before it took ~20.
+#   guest=1      a run on a person's own Mac while they work on it, beside their running NIGHTLY (Leo, 2026-11-20: "why
+#                havent breakdowns of startup times ran on my cosmic things"). The copy gets its own bundle id
+#                (<id>.launch-ready, re-signed ad hoc with no entitlements, its URL schemes and document types removed,
+#                unregistered from LaunchServices at exit; LR-GUEST), so the defaults set aside, cleared and put back
+#                are the guest's domain, never the NIGHTLY's; every launch opens without activating and with
+#                CMUX_NEXT_NO_ACTIVATE=1 (the app drops every activation and opens its windows behind; no focus taken,
+#                `active` stays null); and wait_load is skipped (the caller gates load and idle itself). Takes a DMG
+#                (not dmg=build or dmg=swap) and no case=update, copy=fresh, late=, engines=, profile=1 or state=bare.
+#                An ad hoc copy's time before main is not a Developer ID copy's: compare guest runs with guest runs.
 # Each side gets one copy of the app and one home. The priming launch makes the home's state (a person's second
 # launch on), then every measured launch is a relaunch through LaunchServices, activated, as a Dock click is.
 # scripts/measure/launch-ready.swift times each one: finished_launching (the Dock's bounce ends), the first
@@ -90,11 +129,13 @@
 # measured launch must land exactly where the person was, Home included. Each case's expectation is one entry of
 # EXPECT in launch-ready-summary.py (LR-CASE, LR-REOPENED SIDE N/M):
 #   state=fresh  the same as state=bare: no saved state, so Home
-#   front=home|tab  with state=kept (and any kept case below): the priming launch's front is made Home (a workspace
-#                made, then Home shown) or a terminal tab (a workspace made and left in front) by launch-ready-seed.py
-#                --front, and every measured launch must reopen that front: Home, or that (workspace, tab). With session=stress3
-#                the stress seed leaves the same front: Home, or its last workspace's terminal tab (front=tab: typing into a
-#                restored terminal of a large session, type=1 windows=1 workspaces=120)
+#   front=home|tab|chat  with state=kept (and any kept case below): the priming launch's front is made Home (a
+#                workspace made, then Home shown), a terminal tab (a workspace made and left in front) or an agent chat
+#                tab (palette.newAgentChat in that workspace, left in front) by launch-ready-seed.py --front, and every
+#                measured launch must reopen that front: Home, or that (workspace, tab). front=chat is the case where
+#                Chromium starts at launch, so launch-ready-cef.py's cef.* marks time it against the first frame. With
+#                session=stress3 the stress seed leaves the same front: Home, or its last workspace's terminal tab
+#                (front=tab: typing into a restored terminal of a large session, type=1 windows=1 workspaces=120)
 #   case=update  with base= (dmg=build): base is the old copy, head the new one, both at head's path with head's home.
 #                The priming launch and one launch before each measured one run the old copy (its state, its front);
 #                then the copy is replaced by head's, whose first launch is measured (copy=fresh's first exec). It
@@ -112,16 +153,16 @@ set -uo pipefail
 
 main() {
   cd "$(dirname "$0")/../.." || exit 3
-  local out="$PWD/.build/launch-ready" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small workspaces="" windows=3 prerun=0 copy=same machines=0 late=0 engines="" config=release arg rc=0 i side
+  local out="$PWD/.build/launch-ready" other="" dmg=nightly nightly="" base="" headsha="" runs=5 profile=0 session=small workspaces="" windows=3 prerun=0 copy=same machines=0 late=0 engines="" labs="" config=release arg rc=0 i side floor=0
 
   local preflight=1 preflight_cpu=30 preflight_wait=900 waited=0
   rm -rf "$out" && mkdir -p "$out" && chmod 0777 "$out"
-  LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT="" LR_KEYS=0 LR_LAYOUT=0 LR_TYPE=0
+  LR_PURGE=0 LR_STATE=kept LR_CASE="" LR_DAEMON=warm LR_SNAPSHOT=own LR_FRONT="" LR_KEYS=0 LR_VIDEO=0 LR_LAYOUT=0 LR_TYPE=0 LR_RECORD=0
   # Each side's control socket (SIDE.sock). A socket path must fit sun_path (104 bytes with its NUL), and on a fleet
   # worker "$out/home-SIDE/app.sock" is 112: the app bound no socket there and stress3's seed never got an answer.
   LR_SOCKETS="$(mktemp -d /tmp/lr.XXXXXX)" && chmod 0777 "$LR_SOCKETS" || exit 3
-  LR_ASIDE=""
-  trap 'rm -rf "$LR_SOCKETS"; defaults_restore "$out" || exit 4' EXIT
+  LR_ASIDE="" LR_GUEST=0 LR_GUEST_APPS=""
+  trap 'rm -rf "$LR_SOCKETS"; guest_forget; defaults_restore "$out" || exit 4' EXIT
   for arg in "$@"; do
     case "$arg" in
       dmg=nightly|dmg=build|dmg=swap|dmg=https://*) dmg="${arg#dmg=}" ;;
@@ -135,8 +176,9 @@ main() {
       case=update) LR_CASE=update ;;
       daemon=warm|daemon=cold) LR_DAEMON="${arg#daemon=}" ;;
       snapshot=own|snapshot=unknown) LR_SNAPSHOT="${arg#snapshot=}" ;;
-      front=home|front=tab) LR_FRONT="${arg#front=}" ;;
+      front=home|front=tab|front=chat) LR_FRONT="${arg#front=}" ;;
       keys=0|keys=1) LR_KEYS="${arg#keys=}" ;;
+      video=0|video=1) LR_VIDEO="${arg#video=}" ;;
       session=small|session=stress3) session="${arg#session=}" ;;
       prerun=*) prerun="${arg#prerun=}" ;;
       copy=same|copy=fresh) copy="${arg#copy=}" ;;
@@ -145,17 +187,26 @@ main() {
       workspaces=*) workspaces="${arg#workspaces=}" ;;
       windows=*) windows="${arg#windows=}" ;;
       engines=*) engines="${arg#engines=}" ;;
+      labs=*) labs="${arg#labs=}" ;;
       preflight_wait=*) preflight_wait="${arg#preflight_wait=}" ;;
       preflight=0|preflight=1) preflight="${arg#preflight=}" ;;
       preflight_cpu=*) preflight_cpu="${arg#preflight_cpu=}" ;;
-      layout=0|layout=1) LR_LAYOUT="${arg#layout=}" ;;
+      layout=0|layout=1|layout=movequit) LR_LAYOUT="${arg#layout=}" ;;
+      guest=0|guest=1) LR_GUEST="${arg#guest=}" ;;
       type=0|type=1) LR_TYPE="${arg#type=}" ;;
+      other=*) other="${arg#other=}" ;;
+      floor=0|floor=1) floor="${arg#floor=}" ;;
+      purge=0|purge=1) LR_PURGE="${arg#purge=}" ;;
+      record=0|record=1) LR_RECORD="${arg#record=}" ;;
       *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
   done
   [[ "$runs" =~ ^([1-9]|10)$ ]] || { echo "runs= must be 1 to 10" >&2; exit 2; }
-  [[ "$LR_LAYOUT" == 0 || "$dmg" == build ]] || { echo "layout=1 takes dmg=build (the sidebar edge needs a bench build)" >&2; exit 2; }
+  [[ "$LR_LAYOUT" == 0 || "$dmg" == build ]] || { echo "layout= takes dmg=build (the sidebar edge needs a bench or debug build)" >&2; exit 2; }
+  [[ "$LR_RECORD" == 0 || "$dmg" == build ]] || { echo "record= takes dmg=build (--record-launch needs a bench or debug build)" >&2; exit 2; }
+  [[ "$LR_RECORD" == 1 && "$LR_LAYOUT" != movequit ]] && config=bench
   [[ "$LR_LAYOUT" == 1 ]] && config=bench
+  [[ "$LR_LAYOUT" == movequit ]] && config=debug
   [[ "$machines" =~ ^[0-9]+$ && "$machines" -le 200 ]] || { echo "machines= takes 0 to 200" >&2; exit 2; }
   [[ -z "$workspaces" || ( "$workspaces" =~ ^[1-9][0-9]*$ && "$workspaces" -le 200 ) ]] || { echo "workspaces= takes 1 to 200" >&2; exit 2; }
   [[ "$windows" =~ ^[1-3]$ ]] || { echo "windows= takes 1 to 3" >&2; exit 2; }
@@ -172,15 +223,27 @@ main() {
   [[ -z "$base" || ( "$dmg" =~ ^(build|swap)$ && "$base" =~ ^[0-9a-f]{40}$ ) || "$dmg:$base" == swap:nightly ]] \
     || { echo "base= takes a 40-hex commit, with dmg=build or dmg=swap (or nightly, with dmg=swap)" >&2; exit 2; }
   [[ -z "$headsha" || ( "$dmg" =~ ^(build|swap)$ && "$headsha" =~ ^[0-9a-f]{40}$ ) ]] || { echo "head= takes a 40-hex commit, with dmg=build or dmg=swap" >&2; exit 2; }
+  [[ -z "$labs" || ( -z "$engines" && "$labs" =~ ^[A-Za-z][A-Za-z0-9]{0,63}$ ) ]] \
+    || { echo "labs= takes one Labs setting key (letters and digits), without engines=" >&2; exit 2; }
   [[ -z "$engines" || "$late" == 0 ]] || { echo "engines= takes no late= (the late side would have no engine of its own)" >&2; exit 2; }
   [[ -z "$engines" || ( ! "$dmg" =~ ^(build|swap)$ && "$engines" =~ ^(chromium|webkit)(,(chromium|webkit))?$ && "$engines" != chromium,chromium && "$engines" != webkit,webkit ) ]] \
     || { echo "engines= takes chromium, webkit or both (comma), with a DMG (not dmg=build or dmg=swap)" >&2; exit 2; }
   case_args_ok "$base" "$session" || exit 2
+  other_args_ok "$other" "$dmg" "$session" "$engines" "$late" || exit 2
+  [[ "$LR_PURGE" == 0 || "$copy" == fresh ]] || { echo "purge=1 takes copy=fresh" >&2; exit 2; }
+  guest_args_ok "$dmg" "$copy" "$late" "$engines" "$profile" || exit 2
+  [[ "$floor" == 0 || ( "$LR_CASE" != update && "$copy" == same && "$LR_GUEST" == 0 ) ]] \
+    || { echo "floor=1 takes no case=update, copy=fresh or guest=1 (the floor app is built here, not copied from a DMG)" >&2; exit 2; }
   if [[ "$LR_SNAPSHOT" == unknown ]]; then LR_FRONT=tab; fi # the workspace closed is the priming launch's front tab's
   echo "LR state $LR_STATE"
   echo "LR case case=${LR_CASE:-none} daemon=$LR_DAEMON snapshot=$LR_SNAPSHOT front=${LR_FRONT:-as-left}"
   [[ "$LR_KEYS" == 0 ]] || echo "LR keys 1: one key per 100 ms from the window, then Return, read back from the daemon"
   echo "LR host $(hostname -s) chip=\"$(sysctl -n machdep.cpu.brand_string)\" macOS $(sw_vers -productVersion) session $(launchctl managername)"
+  if [[ -n "$other" ]]; then
+    local aqua; aqua="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh launchctl managername 2>/dev/null)"
+    echo "LR-AQUA ${aqua:-unknown}"
+    [[ "$aqua" == Aqua ]] || { echo "LR-FAIL no-aqua: the launches would run outside the console user's Aqua session (${aqua:-unknown}), where windows may not draw; submit with --display"; exit 5; }
+  fi
   # Everything this run reads from the checkout is compiled or copied now: the builds below check out other commits.
   xcrun swiftc -O -o "$out/launch-ready" scripts/measure/launch-ready.swift >"$out/swiftc.log" 2>&1 \
     || { echo "LR probe build failed"; cat "$out/swiftc.log"; exit 3; }
@@ -189,10 +252,13 @@ main() {
   cp scripts/measure/launch-ready-machines.py "$out/machines.py"
   cp scripts/measure/launch-ready-defaults.py "$out/defaults.py"
   cp scripts/measure/launch-ready-preflight.sh "$out/preflight.sh"
+  cp scripts/measure/hello-floor-app.sh "$out/hello-floor-app.sh" # floor=1's app
 
   cp scripts/measure/launch-ready-summary.py "$out/summary.py"
+  cp scripts/cmux-next/launch_shift.py "$out/launch_shift.py" # summary.py's PERCEIVED numbers (record=1)
   cp scripts/ci/fresh_home_launch_smoke.py "$out/fresh_home_launch_smoke.py"
   cp scripts/measure/launch-ready-cef.py "$out/cef.py"
+  cp scripts/measure/launch-ready-applog.py "$out/applog.py"
   echo "LR session $session workspaces ${workspaces:-add60} windows $windows prerun $prerun copy $copy machines $machines engines ${engines:-none}"
   local sides=(head)
   if [[ -n "$engines" ]]; then
@@ -202,6 +268,7 @@ main() {
       printf '{"browser": {"defaultEngine": "%s"}}\n' "$side" >"$out/home-$side/cmux-next.json" && chmod 0666 "$out/home-$side/cmux-next.json" || exit 3
     done
   fi
+  if [[ -n "$labs" ]]; then echo "LR labs $labs=true"; fi
   if [[ "$dmg" == swap ]]; then
     source scripts/measure/swap-nightly.sh
     swap_nightly "$out" "$nightly" ${base:+base="$base"} head="${headsha:-$(git rev-parse HEAD)}" || exit 3
@@ -221,7 +288,8 @@ main() {
     local head="${headsha:-$here}" want
     for want in $base $head; do
       git cat-file -e "$want^{commit}" 2>/dev/null \
-        || git fetch --quiet --recurse-submodules=no https://github.com/manaflow-ai/cmux.git "$want" || { echo "LR cannot fetch $want"; exit 3; }
+        || measure_quiet "LR fetch $want" "$out/fetch.log" git fetch --quiet --recurse-submodules=no https://github.com/manaflow-ai/cmux.git "$want" \
+        || { echo "LR cannot fetch $want: $(tail -n 3 "$out/fetch.log" 2>/dev/null)"; exit 3; }
     done
     if [[ -n "$base" && "$LR_CASE" != update && "$(git rev-parse "$base^{commit}")" == "$(git rev-parse "$head^{commit}")" ]]; then
       echo "LR one build: base is head ($head), so the head runs alone"
@@ -249,6 +317,8 @@ main() {
   source scripts/ci/lib/signing-runtime-guard.sh
   cmux_signing_runtime_guard || exit 3
   [[ "$late" == 0 ]] || sides+=(late)
+  if [[ -n "$other" ]]; then other_fetch "$out" "$other" || exit 3; sides+=(other); fi
+  if [[ "$floor" == 1 ]]; then floor_build "$out" || exit 3; sides+=(floor); fi
 
   # A system indexer busy now (mediaanalysisd, Spotlight) voids every launch: fail in ~10 s, not after the run.
   if [[ "$preflight" == 1 ]]; then
@@ -262,8 +332,16 @@ main() {
     local mount="$out/mnt-$side" image="$side"
     [[ "$side" != late && -z "$engines" ]] || image=head # the late side, and every engines= side, runs the head's DMG
     mkdir -p "$mount" "$out/$side"
+    if [[ -n "$labs" ]]; then
+      mkdir -p "$out/home-$side" && chmod 0777 "$out/home-$side"
+      printf '{"labs": {"%s": true}}\n' "$labs" >"$out/home-$side/cmux-next.json" && chmod 0666 "$out/home-$side/cmux-next.json" || exit 3
+    fi
     local found
-    if [[ "$dmg" == swap ]]; then
+    if [[ "$side" == other ]]; then
+      found="$(find "$out/other-src" -maxdepth 1 -name '*.app' | head -1)" # other_fetch's copy
+    elif [[ "$side" == floor ]]; then
+      found="$out/floor-src/HelloFloor.app" # floor_build's app
+    elif [[ "$dmg" == swap ]]; then
       found="$(find "$out/swap-$image" -maxdepth 1 -name '*.app' | head -1)" # swap_nightly's sealed copy
     else
       hdiutil attach "$out/$image.dmg" -nobrowse -readonly -mountpoint "$mount" >/dev/null || { echo "LR attach $side failed"; exit 3; }
@@ -271,7 +349,9 @@ main() {
     fi
     ditto "$found" "$out/$side/$(basename "$found")" || exit 3
     if [[ "$copy" == fresh || "$LR_CASE" == update ]]; then mkdir -p "$out/$side-dmg" && ditto "$found" "$out/$side-dmg/$(basename "$found")" || exit 3; fi
-    [[ "$dmg" == swap ]] || hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
+    [[ "$dmg" == swap || "$side" == other || "$side" == floor ]] || hdiutil detach "$mount" >/dev/null || hdiutil detach -force "$mount" >/dev/null
+    # guest=1: the copy's own bundle id before anything reads it (LR app, sign_line, defaults_aside, side_defaults).
+    if [[ "$LR_GUEST" == 1 ]]; then guest_copy "$out" "$side" "$out/$side/$(basename "$found")" || exit 3; fi
     local info="$out/$side/$(basename "$found")/Contents/Info.plist"
     [[ -f "$info" ]] || { echo "LR-FAIL $side $(basename "$found") has no Contents/Info.plist"; exit 3; }
     echo "LR app $side $(basename "$found") $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$info" 2>/dev/null)"
@@ -279,28 +359,47 @@ main() {
     defaults_aside "$out" "$out/$side/$(basename "$found")" || { echo "LR-FAIL $side defaults not set aside"; exit 3; }
     if [[ "$LR_CASE" == update && "$side" == base ]]; then continue; fi # the old copy: launched at head's path below
     if [[ "$LR_CASE" == update ]]; then old_copy "$out" "$side" || rc=1; fi
+    if [[ "$side" == floor ]]; then probe "$out" "$side" prime 10 0 || rc=1; continue; fi # no cmux front, session or snapshot
     if [[ -n "$LR_FRONT" ]]; then front_prime "$out" "$side" || rc=1; else probe "$out" "$side" prime 10 0 || rc=1; fi
     if [[ "$session" == stress3 ]]; then seed "$out" "$side" || rc=1; fi
     if [[ "$LR_SNAPSHOT" == unknown ]]; then unknown_seed "$out" "$side" || rc=1; fi
   done
   if [[ "$LR_CASE" == update ]]; then sides=(head); fi
+  local rec=""
+  if [[ "$LR_VIDEO" == 1 ]]; then
+    screencapture -v -x -V 3600 "$out/launches.mov" >"$out/video.log" 2>&1 &
+    rec=$!
+    echo "VIDEO_START_EPOCH_MS $(perl -MTime::HiRes=time -e 'printf "%d", time*1000')" >"$out/video-start.txt"
+    sleep 2
+    kill -0 "$rec" 2>/dev/null && echo "LR-VIDEO recording $out/launches.mov" || { echo "LR-VIDEO recorder did not start"; cat "$out/video.log"; rec=""; }
+  fi
   for ((i = 1; i <= runs; i++)); do
     for side in "${sides[@]}"; do
+      if [[ "$side" == floor ]]; then probe "$out" floor "run$i" 6 0 || rc=1; continue; fi # the empty AppKit app, plain
       if [[ "$prerun" != 0 ]]; then probe "$out" "$side" "full$i" "$prerun" 0 || rc=1; fi
       if [[ "$LR_CASE" == update ]]; then
         old_copy "$out" "$side" && probe "$out" "$side" "old$i" 6 0 || rc=1
       fi
       if [[ "$copy" == fresh || "$LR_CASE" == update ]]; then fresh_copy "$out" "$side" "$i" || rc=1; fi
+      if [[ "$LR_PURGE" == 1 ]]; then
+        if sudo -n /usr/sbin/purge 2>/dev/null; then echo "LR-PURGE $side run$i ok"; else echo "LR-PURGE $side run$i refused"; fi
+      fi
       if [[ "$LR_SNAPSHOT" == unknown ]]; then unknown_restore "$out" "$side" || rc=1; fi
       probe "$out" "$side" "run$i" 6 "$([[ $profile == 1 && $i == 1 ]] && echo 1 || echo 0)" || rc=1
     done
   done
+  if [[ -n "$rec" ]]; then # only the recorder this run started, by PID
+    kill -INT "$rec" 2>/dev/null
+    for _ in $(seq 1 30); do kill -0 "$rec" 2>/dev/null || break; sleep 1; done
+    echo "LR-VIDEO $(ls -la "$out/launches.mov" 2>&1)"
+  fi
   # Every process a launch left (the daemons a quit keeps): only ones started from this run's copies.
   end_left "$out/"
+  [[ "$floor" == 0 ]] || rm -f /tmp/hello-floor-out.json /tmp/hello-floor-out.json.tmp # the floor app's own marks file
   # Each case's expectation, LR-REOPENED, LR-SURFACE and LR-SURFACE-DIFF: launch-ready-summary.py.
   python3 -I "$out/summary.py" "$out/runs.jsonl" --state "$LR_STATE" --case "$LR_CASE" --daemon "$LR_DAEMON" \
     --snapshot "$LR_SNAPSHOT" --front "$LR_FRONT" --keys "$LR_KEYS" --out "$out"
-  tar -czf "$out.tgz" -C "$out" --exclude '*.dmg' --exclude '*.app' --exclude '*.trace' . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
+  tar -czf "$out.tgz" -C "$out" --exclude '*.dmg' --exclude '*.zip' --exclude '*.app' --exclude '*.trace' . 2>/dev/null && mv "$out.tgz" "$out/report.tgz"
   exit "$rc"
 }
 
@@ -325,6 +424,64 @@ checker_cpu() {
 checker_delta() {
   awk -v b="$1" -v a="$2" 'BEGIN { split(b, x, " "); split(a, y, " ")
     printf "syspolicyd_ms=%d xprotect_ms=%d amfid_ms=%d trustd_ms=%d taskgated_ms=%d", y[1]-x[1], y[2]-x[2], y[3]-x[3], y[4]-x[4], y[5]-x[5] }'
+}
+
+# app_exe APP: the name of APP's main executable (CFBundleExecutable), its process name in the unified log.
+app_exe() {
+  [[ -f "$1/Contents/Info.plist" ]] || return 0
+  /usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$1/Contents/Info.plist" 2>/dev/null
+}
+
+# other_args_ok OTHER DMG SESSION ENGINES LATE: other= is an https DMG or zip, or an .app path, and takes no argument
+# that drives cmux's own socket or sides.
+other_args_ok() {
+  [[ -n "$1" ]] || return 0
+  [[ "$1" =~ ^https://[^[:space:]]+\.(dmg|zip)$ || ( "$1" == /*.app && -d "$1" ) ]] \
+    || { echo "other= takes an https URL of a .dmg or .zip, or the absolute path of an .app" >&2; return 1; }
+  [[ ! "$2" =~ ^(build|swap)$ && "$3" == small && -z "$4" && "$5" == 0 ]] \
+    || { echo "other= takes no dmg=build|swap, session=stress3, engines= or late=" >&2; return 1; }
+  [[ -z "$LR_FRONT" && -z "$LR_CASE" && "$LR_SNAPSHOT" == own && "${LR_KEYS:-0}" == 0 ]] \
+    || { echo "other= takes no front=, case=, snapshot=unknown or keys=1 (they drive cmux's socket)" >&2; return 1; }
+}
+
+# floor_build OUT: floor=1's side, OUT/floor-src/HelloFloor.app (hello-floor-app.sh): the empty one-window AppKit app,
+# launched as a plain app between the measured sides' launches, so the step's LR-OVER-FLOOR (launch-ready-summary.py)
+# is cmux's finished_launching minus the floor's from one harness, one host, one run. Prints LR floor.
+floor_build() {
+  local out="$1"
+  rm -rf "$out/floor-src" && mkdir -p "$out/floor-src" || return 1
+  source "$out/hello-floor-app.sh" # the copy made before dmg=build checked out other commits
+  hello_floor_app "$out/floor-src" "dev.cmux.measure.hellofloor.launchready" >"$out/floor-build.log" 2>&1 \
+    || { echo "LR-FAIL floor app build failed"; cat "$out/floor-build.log"; return 1; }
+  echo "LR floor HelloFloor.app $(stat -f %z "$out/floor-src/HelloFloor.app/Contents/MacOS/HelloFloor") bytes $(tail -1 "$out/floor-build.log")"
+}
+
+# other_fetch OUT OTHER: other='s app, copied to OUT/other-src/NAME.app: a DMG mounted and its .app copied, a zip
+# unpacked, or a local .app copied. Prints LR other URL|PATH.
+other_fetch() {
+  local out="$1" other="$2" found=""
+  rm -rf "$out/other-src" && mkdir -p "$out/other-src" "$out/other-unpack" || return 1
+  echo "LR other $other"
+  case "$other" in
+    https://*.dmg)
+      curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-launch-ready/1 -o "$out/other.dmg" "$other" \
+        || { echo "LR-FAIL other download failed"; return 1; }
+      mkdir -p "$out/mnt-other"
+      hdiutil attach "$out/other.dmg" -nobrowse -readonly -mountpoint "$out/mnt-other" >/dev/null || { echo "LR-FAIL other attach failed"; return 1; }
+      found="$(find "$out/mnt-other" -maxdepth 1 -name '*.app' | head -1)"
+      [[ -z "$found" ]] || ditto "$found" "$out/other-src/$(basename "$found")" || found=""
+      hdiutil detach "$out/mnt-other" >/dev/null || hdiutil detach -force "$out/mnt-other" >/dev/null ;;
+    https://*.zip)
+      curl -fsSL --proto '=https' --retry 3 --retry-all-errors -A cmux-launch-ready/1 -o "$out/other.zip" "$other" \
+        || { echo "LR-FAIL other download failed"; return 1; }
+      ditto -x -k "$out/other.zip" "$out/other-unpack" || { echo "LR-FAIL other unzip failed"; return 1; }
+      found="$(find "$out/other-unpack" -maxdepth 2 -name '*.app' | head -1)"
+      [[ -z "$found" ]] || ditto "$found" "$out/other-src/$(basename "$found")" || found="" ;;
+    /*.app)
+      found="$other"
+      ditto "$found" "$out/other-src/$(basename "$found")" || found="" ;;
+  esac
+  [[ -n "$found" ]] || { echo "LR-FAIL other: no .app in $other"; return 1; }
 }
 
 # exe_stat APP: the main executable's hard-link count and ctime ("links:ctime"); a launch that changes either
@@ -363,20 +520,37 @@ probe() {
   if [[ "$label" == run* && "${LR_DAEMON:-warm}" == cold ]]; then
     cold_daemon "$out" "$side" "$label" || return 1
   fi
-  wait_load "$side" "$label"
+  [[ "${LR_GUEST:-0}" == 1 ]] || wait_load "$side" "$label" # guest=1: the caller gates load (and idle) itself
   load="$(load_1m)"
   if [[ "$profile" == 1 ]]; then
+    local log_from
+    log_from=$(($(wc -c <"$out/xctrace.log" 2>/dev/null || echo 0) + 1))
     xcrun xctrace record --template 'Time Profiler' --all-processes --time-limit 15s --output "$trace" --no-prompt \
       >>"$out/xctrace.log" 2>&1 &
     recorder=$!
-    sleep 5 # the recorder's own start (a measurement script, not runtime code)
+    # Until this recorder says it is recording ("Starting recording"), 30 s; or it exited (no profile, said below).
+    for _ in $(seq 1 300); do
+      tail -c "+$log_from" "$out/xctrace.log" 2>/dev/null | grep -q 'Starting recording' && break
+      kill -0 "$recorder" 2>/dev/null || break
+      sleep 0.1
+    done
+    tail -c "+$log_from" "$out/xctrace.log" 2>/dev/null | grep -q 'Starting recording' \
+      || echo "LR-PROFILE $side $label xctrace did not report recording within 30 s"
   fi
   if [[ "$side" == late && "$label" == run* ]]; then
     sleep "$(awk -v ms="${LR_LATE:-0}" 'BEGIN { printf "%.3f", ms / 1000 }')" # late=MS, just before the open request
   fi
+  local applog="" logger=""
+  if [[ "$side" == other ]]; then
+    applog="$out/$side-$label.applog.ndjson"
+    log stream --style ndjson --level info --predicate "process == \"$(app_exe "$app")\"" >"$applog" 2>>"$out/applog.err" &
+    logger=$!
+    sleep 1 # log stream's own start, before the open request (a measurement script, not runtime code)
+  fi
   checkers="$(checker_cpu)" exe="$(exe_stat "$app")"
   line="$(GITHUB_WORKSPACE="$PWD" scripts/ci/frame-pacing/console-session.sh "$out/launch-ready" "$app" "$out/home-$side" "$label" "$settle" "$LR_SOCKETS/$side.sock" \
-    $(probe_mode "$label") $([[ "$LR_LAYOUT" == 1 ]] && echo layout) $([[ "$LR_TYPE" == 1 ]] && echo type) 2>>"$out/probe.log" | grep '^LR-RUN ')"
+    $(probe_mode "$label" "$side") $([[ "$LR_LAYOUT" != 0 ]] && echo layout) $([[ "$LR_LAYOUT" == movequit ]] && echo movequit) \
+    $([[ "$LR_TYPE" == 1 ]] && echo type) $([[ "${LR_RECORD:-0}" == 1 && "$label" == run* ]] && echo record) $([[ "${LR_GUEST:-0}" == 1 ]] && echo guest) 2>>"$out/probe.log" | grep '^LR-RUN ')"
   checkers="$(checker_delta "$checkers" "$(checker_cpu)") exe=$exe->$(exe_stat "$app")"
   # Every launch snapshot path the launch left must be in its own home: one in the other side's means it read that.
   # Unsaved defaults fail the same way, and the stale copy goes: the side's next launch starts empty, not from it.
@@ -389,9 +563,17 @@ probe() {
   if [[ -n "$recorder" ]]; then
     kill -INT "$recorder" 2>/dev/null; wait "$recorder" 2>/dev/null
   fi
+  if [[ -n "$logger" ]]; then
+    sleep 1 # the last messages the app logged before its quit reach the stream
+    kill -INT "$logger" 2>/dev/null; wait "$logger" 2>/dev/null
+  fi
   [[ -n "$line" ]] || { echo "LR-RUN $side $label no result"; return 1; }
+  if [[ -n "$applog" ]]; then
+    local withlog
+    withlog="$(python3 -I "$out/applog.py" "$applog" "${line#LR-RUN }" 2>>"$out/applog.err")" && [[ -n "$withlog" ]] && line="LR-RUN $withlog"
+  fi
   # engines=: Chromium's start, from the app's log, added to the row's marks (launch-ready-cef.py).
-  if [[ -f "$out/home-$side/cmux-next.json" ]]; then
+  if [[ -n "$engines" && -f "$out/home-$side/cmux-next.json" ]]; then
     local withcef
     withcef="$(echo "${line#LR-RUN }" | python3 -I "$out/cef.py" 2>>"$out/cef.log")" && [[ -n "$withcef" ]] && line="LR-RUN $withcef"
   fi
@@ -406,10 +588,12 @@ probe() {
   [[ "$line" != *'"error"'* ]]
 }
 
-# probe_mode LABEL: the probe's last argument. keys=1 types into a measured launch (runN: keys) and opens no terminal;
+# probe_mode LABEL [SIDE]: the probe's last argument. The other side (other=) is plain: not cmux. keys=1 types into a measured launch (runN: keys) and opens no terminal;
 # else state=bare opens one (shell).
 probe_mode() {
-  if [[ "${LR_KEYS:-0}" == 1 ]]; then
+  if [[ "${2:-}" == other || "${2:-}" == floor ]]; then
+    echo plain
+  elif [[ "${LR_KEYS:-0}" == 1 ]]; then
     if [[ "$1" == run* ]]; then echo keys; fi
   elif [[ "$LR_STATE" == bare ]]; then
     echo shell
@@ -448,7 +632,7 @@ quiesce() {
     [[ "$left" == 0 || "$waited" -ge 60000 ]] && break
     sleep 0.1
   done
-  sleep 2
+  sleep 2  # sleep-ok: the bench's fixed cool-down between launches, the same on both sides (reported as settle_s=2)
   echo "LR-SETTLE $side $label waited_ms=$waited left=$left settle_s=2"
 }
 
@@ -590,6 +774,47 @@ except (OSError, ValueError):
 print(next((v for k, v in data.items() if k.startswith("cmuxNext.launchSnapshotPath.") and isinstance(v, str)), ""))' "$1"
 }
 
+# guest_args_ok DMG COPY LATE ENGINES PROFILE: guest=1 (LR_GUEST) takes one DMG copy per side that it can rename before
+# anything reads it, and nothing that would make another copy, record every process on the person's Mac or build there.
+guest_args_ok() {
+  [[ "${LR_GUEST:-0}" == 1 ]] || return 0
+  if [[ "$1" == build || "$1" == swap ]]; then echo "guest=1 takes a DMG (dmg=nightly or a URL), not dmg=$1: no build runs on a person's Mac" >&2; return 1; fi
+  if [[ "$LR_CASE" == update || "$2" == fresh ]]; then echo "guest=1 takes no case=update or copy=fresh: each copy from the DMG would keep the NIGHTLY's bundle id" >&2; return 1; fi
+  if [[ "$3" != 0 || -n "$4" ]]; then echo "guest=1 takes no late= or engines=: one side, one renamed copy" >&2; return 1; fi
+  if [[ "$5" == 1 ]]; then echo "guest=1 takes no profile=1: an all-processes recording of a person's Mac" >&2; return 1; fi
+  if [[ "$LR_STATE" == bare ]]; then echo "guest=1 takes no state=bare or state=fresh: a window that never takes focus never becomes key, so Home never marks window_usable and no terminal opens" >&2; return 1; fi
+  if [[ "${LR_KEYS:-0}" == 1 ]]; then echo "guest=1 takes no keys=1: it posts key events to a window that never becomes key (type=1 types inside the app and is fine)" >&2; return 1; fi
+  return 0
+}
+
+# guest_copy OUT SIDE APP: guest=1's copy made its own app: CFBundleIdentifier <id>.launch-ready (so cfprefsd's domain,
+# the one defaults_aside and side_defaults clear and fill, is not the person's running NIGHTLY's), no URL schemes,
+# document types, exported types or services (LaunchServices could hand the person's cmux links to it), and an ad hoc
+# signature with no entitlements (the edited Info.plist breaks the Developer ID seal; a restricted entitlement would
+# not launch ad hoc). Prints LR-GUEST.
+guest_copy() {
+  local out="$1" side="$2" app="$3" info="$3/Contents/Info.plist" id key
+  id="$(plutil -extract CFBundleIdentifier raw -o - "$info")" || return 1
+  [[ "$id" == *.launch-ready ]] || id="$id.launch-ready"
+  plutil -replace CFBundleIdentifier -string "$id" "$info" || return 1
+  for key in CFBundleURLTypes CFBundleDocumentTypes UTExportedTypeDeclarations NSServices; do
+    plutil -remove "$key" "$info" 2>/dev/null || true # absent is fine
+  done
+  codesign --force --deep --sign - "$app" >>"$out/guest.log" 2>&1 || { echo "LR-FAIL $side guest copy not re-signed (guest.log)"; return 1; }
+  LR_GUEST_APPS="${LR_GUEST_APPS:-}$app"$'\n'
+  echo "LR-GUEST $side bundle=$id signed=adhoc"
+}
+
+# guest_forget: at exit, each guest copy unregistered from LaunchServices, so no record of it outlives the run.
+guest_forget() {
+  local lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister app
+  [[ -n "${LR_GUEST_APPS:-}" && -x "$lsregister" ]] || return 0
+  while IFS= read -r app; do
+    [[ -z "$app" ]] || "$lsregister" -u "$app" >/dev/null 2>&1 || true
+  done <<<"$LR_GUEST_APPS"
+  return 0
+}
+
 # case_args_ok BASE SESSION: the restore case arguments (LR_STATE, LR_CASE, LR_DAEMON, LR_SNAPSHOT, LR_FRONT) and
 # LR_KEYS combine.
 case_args_ok() {
@@ -600,10 +825,10 @@ case_args_ok() {
   [[ "$LR_SNAPSHOT" != unknown || ( "$LR_FRONT" != home && "$2" == small ) ]] \
     || { echo "snapshot=unknown closes the front tab's workspace: it takes no front=home or session=$2" >&2; return 1; }
   # keys=1 types into Home's box from the window on; front=tab's launch reopens a terminal, which takes the keys and
-  # runs them as a command at Return. front=home and the default front are Home's: no conflict (the priming launch,
-  # where front= seeds, types nothing).
-  [[ "${LR_KEYS:-0}" != 1 || "$LR_FRONT" != tab ]] \
-    || { echo "keys=1 types into Home: it takes no front=tab (a terminal in front would take the keys)" >&2; return 1; }
+  # runs them as a command at Return, and front=chat's reopens a chat, whose composer takes them. front=home and the
+  # default front are Home's: no conflict (the priming launch, where front= seeds, types nothing).
+  [[ "${LR_KEYS:-0}" != 1 || ( "$LR_FRONT" != tab && "$LR_FRONT" != chat ) ]] \
+    || { echo "keys=1 types into Home: it takes no front=tab or front=chat (a terminal or chat in front would take the keys)" >&2; return 1; }
   return 0
 }
 

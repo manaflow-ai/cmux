@@ -1,12 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import cliGenerated from "../data/next-docs/cli-reference.generated.json";
-import paletteGenerated from "../data/next-docs/palette-reference.generated.json";
-import settingsGenerated from "../data/next-docs/settings-reference.generated.json";
 import { nextDocHref, nextDocPage, nextDocPages, nextDocPublicPath, repoSourceHref } from "../data/next-docs/pages";
 import { buildLlmsText, resolveAgentPageVariant } from "../app/lib/agent-page-paths";
+import { buildLocalGuide, buildNextDocsFullText } from "../app/lib/next-docs-text";
+import { NEXT_START_MARKDOWN_PATH, NEXT_START_MARKDOWN_URL, nextStartMarkdown } from "../data/next-docs/markdown";
 import { sitemapEntries } from "../app/sitemap";
 import {
   buildCliReference,
@@ -25,21 +24,16 @@ import {
 
 // The cmux-next docs reference pages are generated from the action catalog and
 // the settings schema (plans/cmux-next/docs-DESIGN.md). web/ never reads those
-// at build time, so these tests read them and require the copies to match.
+// at build time; the pages render copies in web/data/next-docs that only the
+// base autofix writes (RFD 0048), so a pull request's copy may lag its inputs by
+// one autofix run. These tests build the data from the catalog and the schema
+// at the head and judge that, never the copies.
 
 const repo = fileURLToPath(new URL("../..", import.meta.url));
 const surfaces = JSON.parse(readFileSync(join(repo, "plans/cmux-next/action-surfaces.json"), "utf8"));
 const schema = JSON.parse(readFileSync(join(repo, "schemas/settings/settings-schema.json"), "utf8"));
 
 describe("cmux-next docs", () => {
-  test("the CLI and MCP reference is fresh against the action catalog", () => {
-    expect(buildCliReference(surfaces)).toEqual(cliGenerated as never);
-  });
-
-  test("the command palette and shortcuts reference is fresh against the action catalog", () => {
-    expect(buildPaletteReference(surfaces)).toEqual(paletteGenerated as never);
-  });
-
   test("MCP tool names follow the server's rule", () => {
     // cmux-tui/crates/cmux-tui/src/cli/mcp/action_tools.rs `tool_name` and its tests.
     expect(mcpToolName("workspace rename")).toBe("app_workspace_rename");
@@ -81,10 +75,6 @@ describe("cmux-next docs", () => {
     expect(repoSourceHref("cmux-tui/spec/resource-api-v2.md", "file")).toBe("https://github.com/manaflow-ai/cmux/blob/feat-cmux-next/cmux-tui/spec/resource-api-v2.md");
   });
 
-  test("the settings reference is fresh against the settings schema", () => {
-    expect(buildSettingsReference(schema)).toEqual(settingsGenerated as never);
-  });
-
   // docs/configuration.md is written by hand, while the settings schema is the
   // app's own source of truth. #23844 widened cmux Classic Mode to Cmd-N, the
   // sidebar's + and new windows and updated the schema's help, but not the page,
@@ -99,7 +89,7 @@ describe("cmux-next docs", () => {
     expect(sections.size).toBe(headings.length);
     const shortcut = /Cmd-(?:Shift-|Opt-|Ctrl-)*[A-Z0-9]/g;
     const missing: string[] = [];
-    for (const section of settingsGenerated.sections) {
+    for (const section of buildSettingsReference(schema).sections) {
       for (const row of section.rows) {
         const written = sections.get(row.key);
         if (!written) continue; // a setting the page does not cover at all
@@ -113,19 +103,85 @@ describe("cmux-next docs", () => {
     expect(missing).toEqual([]);
   });
 
+  // One prompt, not copies that drift: the Cloud page's "Paste this into your agent" block is
+  // the cloud_session prompt of `cmux setup` (cmux-tui/.../cli/setup.rs), as generated into
+  // docs/chief-setup-prompts.md.
+  test("the Cloud page's agent prompt is cmux setup's cloud_session prompt", () => {
+    const generated = readFileSync(join(repo, "docs/chief-setup-prompts.md"), "utf8");
+    const section = generated.split("\n## ").find((part) => part.startsWith("Work in cmux Cloud"));
+    const prompt = section?.match(/```text\n([^\n]+)\n```/)?.[1]?.replace("--agent AGENT", "--agent claude");
+    const blocks = nextDocPage("cloud")!.body.flatMap((block) => ("code" in block && block.lang === "text" ? [block.code] : []));
+    expect(prompt).toBeDefined();
+    expect(blocks).toEqual([prompt!]);
+  });
+
+  // Start here repeats two of cmux setup's prompts, and its one-line agent entry names its own
+  // Markdown URL, which llms.txt sends an agent to first.
+  test("the Start here page's prompts are cmux setup's, and llms.txt points an agent at it", () => {
+    const generated = readFileSync(join(repo, "docs/chief-setup-prompts.md"), "utf8");
+    const promptOf = (heading: string) =>
+      generated.split("\n## ").find((part) => part.startsWith(heading))?.match(/```text\n([^\n]+)\n```/)?.[1];
+    const body = nextDocPage("start")!.body;
+    const blocks = body.flatMap((block) => ("code" in block && block.lang === "text" ? [block.code] : []));
+    const url = `https://cmux.com${nextDocPublicPath("start")}.md`;
+    expect(blocks).toHaveLength(3);
+    // The pasted line names the repo copy, which serves today; the nightly docs zone is built from main and has no
+    // cmux-next pages, so cmux.com/docs/nightly/next/start.md answered 404 to every agent the old line sent there.
+    expect(blocks[0]).toContain(NEXT_START_MARKDOWN_URL);
+    expect(blocks[0]).not.toContain("cmux.com/docs/nightly/next");
+    expect(blocks.slice(1)).toEqual([promptOf("Start a chat on cmux Cloud")!, promptOf("Use cmux from an iPhone")!]);
+    // The heading the entry line and llms.txt both name.
+    expect(body).toContainEqual({ h2: "If you are an agent" });
+    const llms = buildLlmsText("https://cmux.com");
+    expect(llms.indexOf(url)).toBeGreaterThan(-1);
+    expect(llms.indexOf(url)).toBeLessThan(llms.indexOf("## What cmux is"));
+  });
+
+  test("the Start and Cloud pages keep every onboarding level on one journey", () => {
+    const start = nextDocPage("start")!;
+    const cloud = nextDocPage("cloud")!;
+    const startText = JSON.stringify(start.body);
+    const cloudText = JSON.stringify(cloud.body);
+    for (const level of ["In the app", "From the CLI", "Point an agent at this page", "From your phone"]) {
+      expect(startText).toContain(level);
+    }
+    expect(startText).toContain("session_id");
+    expect(startText).toContain("cmux cloud diagnostics");
+    expect(start.links).toEqual(expect.arrayContaining(["machines", "mcp", "network-requirements"]));
+    expect(cloudText).toContain(".cmux/machine.toml");
+    expect(cloudText).toContain("cmux acp machine status");
+    expect(cloud.links).toEqual(expect.arrayContaining(["machines", "remote", "vault", "plans"]));
+  });
+
+  // docs/cmux-next/start.md is what the pasted setup line sends an agent to: it must be the Start page as it is now.
+  test("docs/cmux-next/start.md is the Start page, regenerated", () => {
+    const committed = readFileSync(join(repo, NEXT_START_MARKDOWN_PATH), "utf8");
+    // Stale: run `bun web/scripts/export-next-start.ts` and commit docs/cmux-next/start.md.
+    expect(committed).toBe(nextStartMarkdown());
+    expect(committed).toContain("## If you are an agent");
+    expect(NEXT_START_MARKDOWN_URL.endsWith(`/feat-cmux-next/${NEXT_START_MARKDOWN_PATH}`)).toBe(true);
+  });
+
   test("every cmux command written in a hand-written page is a real CLI verb", () => {
     const verbs = new Set(buildCliReference(surfaces).nouns.flatMap((noun) => noun.verbs.map((verb) => verb.command)));
     // Commands of the Rust CLI itself, not app actions (cmux --help). `cmux harness` and
     // `cmux acp` are acpmux's CLI (cmux-tui/crates/acpmux/src/cli/harness.rs, ledger.rs,
     // host_enroll.rs); `cloud secret` and `machine vault` are cmux-tui's
-    // (src/cli/cloud_secret.rs, src/cli/machine_join/vault.rs); `server …` is
+    // (src/cli/cloud_secret.rs, src/cli/machine_join/vault.rs, src/cli/setup.rs); `server …` is
     // cmux-server's (cmux-tui/crates/cmux-server/src/cli/args.rs).
     const allowed = new Set([
       "cmux action list", "cmux action run", "cmux <noun> <verb>", "cmux mcp serve", "cmux mcp tools",
       "cmux settings set", "cmux version", "cmux harness add", "cmux harness secret", "cmux harness doctor",
-      "cmux acp ledger", "cmux acp machine", "cmux cloud secret", "cmux machine vault",
+      "cmux acp ledger", "cmux acp machine", "cmux cloud secret", "cmux machine vault", "cmux setup mcp",
       "cmux server install", "cmux server uninstall", "cmux server status", "cmux server up",
       "cmux server down", "cmux server logs",
+      // acpmux's sessions and daemon (cmux-tui/crates/acpmux/docs/cli-sessions.md, cli-daemon.md),
+      // and `cmux device` (src/devices/mod.rs).
+      "cmux acp ls", "cmux acp new", "cmux acp send", "cmux acp wait", "cmux acp last", "cmux acp daemon",
+      "cmux device list", "cmux device doctor", "cmux device revoke",
+      // The Rust CLI's sign-in and chat commands, as cmux setup's cloud_chat prompt writes them
+      // (docs/chief-setup-prompts.md), and classic's machine verbs.
+      "cmux login", "cmux whoami", "cmux chat --on", "cmux vm pause",
     ]);
     const unknown: string[] = [];
     for (const page of nextDocPages) {
@@ -138,6 +194,17 @@ describe("cmux-next docs", () => {
       }
     }
     expect(unknown).toEqual([]);
+  });
+
+  // The architecture pages point at the code of each part. A move or rename of that code would
+  // leave the page pointing at nothing, so every cited path must still exist.
+  test("every repository path a hand-written page cites exists", () => {
+    const cited = nextDocPages.flatMap((page) =>
+      page.body.flatMap((block) => ("files" in block ? block.files.map(({ path }) => ({ slug: page.slug, path })) : [])),
+    );
+    expect(cited.length).toBeGreaterThan(0);
+    const missing = cited.filter(({ path }) => path.startsWith("/") || path.includes("..") || !existsSync(join(repo, path)));
+    expect(missing.map(({ slug, path }) => `${slug}: ${path}`)).toEqual([]);
   });
 
   test("the sidebar lists every page once, in nightly only", () => {
@@ -162,6 +229,32 @@ describe("cmux-next docs", () => {
     }
     expect(nextDocPublicPath("getting-started")).toBe("/docs/nightly/next");
     expect(nextDocPublicPath("own-keys")).toBe("/docs/nightly/next/own-keys");
+  });
+
+  // Agents read the docs more than people do: llms-full.txt gives them every page in one fetch.
+  test("llms-full.txt carries every page's headings, commands and cited code paths", () => {
+    const full = buildNextDocsFullText("https://cmux.com");
+    expect(buildLlmsText("https://cmux.com")).toContain("https://cmux.com/llms-full.txt");
+    expect(resolveAgentPageVariant("/llms-full.txt")).toBeNull();
+    for (const page of nextDocPages) {
+      expect(full).toContain(`# ${page.title}\n\nURL: https://cmux.com${nextDocPublicPath(page.slug)}`);
+      for (const block of page.body) {
+        if ("h2" in block) expect(full).toContain(`## ${block.h2}`);
+        if ("code" in block) expect(full).toContain(block.code);
+        if ("files" in block) for (const file of block.files) expect(full).toContain(`[\`${file.path}\`]`);
+      }
+    }
+  });
+
+  // The cmux CLI embeds docs/cmux-next/guide/pages.json (`cmux docs guide`), so agents read the
+  // pages with no network. The files are generated; this fails when they are stale.
+  test("the local guide in docs/cmux-next/guide is fresh against the pages", () => {
+    const expected = buildLocalGuide();
+    const dir = join(repo, "docs/cmux-next/guide");
+    expect(readdirSync(dir).sort()).toEqual(Object.keys(expected).sort());
+    for (const [name, text] of Object.entries(expected)) expect([name, readFileSync(join(dir, name), "utf8")]).toEqual([name, text]);
+    expect(expected["architecture.md"]).toContain("](acpmux.md)");
+    expect(expected["llms-full.txt"]).not.toContain("](https://cmux.com/docs");
   });
 
   test("Markdown variants resolve on cmux.com and in the nightly zone", () => {

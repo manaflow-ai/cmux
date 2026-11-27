@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::io::{Read, Write};
 use std::os::fd::FromRawFd;
 
 use super::*;
@@ -231,7 +231,7 @@ fn a_paste_bigger_than_the_input_queue_waits_for_a_slow_program() {
         got == expected
     });
     let pty = cmux_pty::adopt_master(master.try_clone().unwrap()).unwrap();
-    let mut writer = WaitingWriter { inner: pty.take_writer().unwrap(), master };
+    let mut writer = crate::pty_write::WaitingWriter { inner: pty.take_writer().unwrap(), master };
     writer.write_all(&paste).expect("the paste waits for room instead of failing");
     writer.flush().unwrap();
     assert!(program.join().unwrap(), "the program got every byte, in order");

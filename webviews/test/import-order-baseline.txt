@@ -72,7 +72,6 @@ test/chat-under-glass.test.ts
 test/chief-usage-page.test.tsx
 test/chief-views-page.test.tsx
 test/classic-new-tab-composer.test.tsx
-test/cloud-environment-chip.test.tsx
 test/cloud-signin-card.test.tsx
 test/cmux-exec-rows.test.tsx
 test/cmux-link-chip-followups.test.tsx
@@ -92,7 +91,6 @@ test/composer-draft-survives-load.test.tsx
 test/composer-drop-overlay.test.tsx
 test/composer-field-growth.test.ts
 test/composer-folderless-cloud-chip.test.tsx
-test/composer-hat-plan.test.tsx
 test/composer-inbound-keeps-caret.test.tsx
 test/composer-kept-attachments.test.tsx
 test/composer-key-skips-queue.test.tsx
@@ -153,7 +151,6 @@ test/home-chief-page.test.tsx
 test/home-composer-menu.test.tsx
 test/home-header-presence.test.tsx
 test/home-message-actions.test.tsx
-test/home-messages-composer.test.tsx
 test/home-palette-rank.test.tsx
 test/home-quote-selection.test.tsx
 test/home-run-cost.test.tsx
@@ -162,7 +159,6 @@ test/home-transcript.test.tsx
 test/host-glass.test.ts
 test/hover-intent-cards.test.tsx
 test/imessage-connector.test.tsx
-test/import-history-tools.test.tsx
 test/inbox-thread-in-place.test.tsx
 test/incoming-minimal-collapse.test.tsx
 test/incoming-sender-chip.test.tsx
@@ -174,7 +170,6 @@ test/latency/adapter-measure.test.ts
 test/latency/rail-adapter.test.ts
 test/link-store-limits.test.tsx
 test/machine-card.test.tsx
-test/machines-section.test.tsx
 test/markdown-comments.test.ts
 test/markdown-field-blockwise.test.ts
 test/markdown-field-inline-gate.test.tsx
@@ -184,7 +179,6 @@ test/markdown-html-anchor-name.test.ts
 test/markdown-remote-images.test.ts
 test/menu-press-guard.test.ts
 test/message-times.test.tsx
-test/mobile-pairing-page.test.tsx
 test/model-button-default-effort.test.tsx
 test/model-menu-compact.test.tsx
 test/model-menu-short-list.test.tsx
@@ -288,7 +282,6 @@ test/session-info-gallery-replace.test.tsx
 test/session-info-local-wakeup-call.test.tsx
 test/session-info-no-flicker.test.tsx
 test/session-info-outputs.test.tsx
-test/session-info-progress.test.tsx
 test/session-info-scheduled-row-lights.test.tsx
 test/session-info-section-order-browser.test.tsx
 test/session-info-subagent.test.tsx
@@ -540,7 +533,6 @@ src/agent-session/acpmux/machineHarnesses.test.tsx
 src/agent-session/acpmux/menuPressGuard.test.ts
 src/agent-session/acpmux/multiplayer/Faces.test.tsx
 src/agent-session/acpmux/newtab/AllChatsList.test.tsx
-src/agent-session/acpmux/newtab/NewTabAppPage.test.tsx
 src/agent-session/acpmux/newtab/NewTabScreen.test.tsx
 src/agent-session/acpmux/newtab/adoption.test.tsx
 src/agent-session/acpmux/newtab/agentHomeTrust.test.tsx
@@ -608,10 +600,6 @@ src/pages/github/GitHubPage.empty.test.tsx
 src/pages/github/githubHTML.test.tsx
 src/pages/home-channels/DaemonGate.test.tsx
 src/pages/home-channels/messageHoverTime.test.tsx
-src/pages/home-messages/cards/pills/agentModel.test.tsx
-src/pages/home-messages/list/ConversationList.test.tsx
-src/pages/home-messages/sheets/NewChiefSheet.test.tsx
-src/pages/home-messages/sheets/RecipientField.test.tsx
 src/pages/markdown/MarkdownPage.disconnected.test.tsx
 src/pages/onboarding/importExpress.test.tsx
 src/pages/onboarding/importList.test.tsx
@@ -663,7 +651,6 @@ src/ui/findPaint.test.ts
 src/ui/lasting.test.tsx
 src/ui/mediaPreviewPolicy.test.ts
 src/ui/motion/motion.test.tsx
-src/ui/motion/useTextSwap.test.tsx
 src/ui/nativePopup.lifecycle.test.tsx
 src/ui/openOverlay.test.ts
 src/ui/popoverTrigger.test.tsx

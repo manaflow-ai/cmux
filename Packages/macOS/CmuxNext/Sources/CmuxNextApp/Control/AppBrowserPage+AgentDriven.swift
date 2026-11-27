@@ -13,13 +13,13 @@ extension AppBrowserPage {
     /// Chromium page was not marked yet, whatever it shows (an `about:blank`
     /// tab a page opened shares its opener's origin and keeps `window.opener`).
     /// A hibernated or deferred placeholder holds no document: the page that
-    /// replaces it is marked when it installs.
-    static func markAgentDriven(_ tabID: String, services: AppServices) -> Bool {
+    /// replaces it is marked when it installs. A read's marks leave passkeys be.
+    static func markAgentDriven(_ tabID: String, services: AppServices, reading: Bool = false) -> Bool {
         let page = services.cache.existingBrowser(tabID)?.tab
         let stale = page.map { !$0.isAgentDriven && $0.engineKind == .cef && !($0 is HibernatedBrowserTab) && !($0 is DeferredBrowserTab) } ?? false
-        services.cache.markAgentDriven(tabID)
+        services.cache.markAgentDriven(tabID, reading: reading)
         // A popup's opener is the old page: once that is rebuilt, the tab's script reaches the popup no more.
-        for popup in services.popups.pages(openedBy: tabID) { popup.takeOpenersAgentMark() }
+        for popup in services.popups.pages(openedBy: tabID) { popup.takeOpenersAgentMark(reading: reading) }
         return stale
     }
 

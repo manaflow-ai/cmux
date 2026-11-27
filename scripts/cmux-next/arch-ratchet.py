@@ -74,8 +74,8 @@ When a count drops, it passes, and prints `lower plans/cmux-next/arch-ratchet.js
 scripts/cmux-next/arch-ratchet.py --update` with the rows the pushed json leaves stale, judged over the
 range (none when the push carries an `--update` measured after the drop; see
 stale_rows for the one case it can still name wrongly). An internal error prints a warning and lets the
-push through (fail open). Never runs
-under GitHub Actions (Lawrence 2026-10-23: no new CI gates, nothing that slows pushes). Its cost is the files
+push through (fail open). Never runs under GitHub Actions (Lawrence 2026-10-23: no new CI gates and nothing that slows
+pushes; the CI part was lifted 2026-11-18). Its cost is the files
 it reads: the changed files, and for a type lookup the declaring and mentioning files, each analyzed once per
 content (arch_counts.FactsCache); the report prints the count. Measured 2026-10-23 at load 50-70 (method v3,
 before the v4 observer count): an 80-file cross-package move about 2 s warm, 8 s on the first run after
@@ -103,7 +103,8 @@ ran the installer (a `wt` mirror, a lane VM, whose `git push` goes through lane-
 landed on feat-cmux-next: 60 "base red" arch fixes in the 7 days to 2026-11-05, each a lane moving another PR's
 App lines out (#35386 took back +26 from #35294, pushed from a lane VM; the ratchet refuses that commit in 7 s).
 The fleet's global pre-push hook (leo-workspace tools/git-hooks/pre-push) runs `--pre-push` for a push to
-manaflow-ai/cmux when the clone has no cmux pre-push hook of its own. Still no CI job (Lawrence 2026-10-23).
+manaflow-ai/cmux when the clone has no cmux pre-push hook of its own. Still no CI job (Lawrence 2026-10-23,
+since lifted).
 """
 
 from __future__ import annotations
@@ -1024,6 +1025,22 @@ def commit_rises(repo: Path, sha: str, rows: set[str]) -> dict[str, int] | None:
     return {row: delta.total(row) for row in rows}
 
 
+def prefetch_range(repo: Path, since: str, until: str, paths: list[str]) -> int:
+    """Fetch every blob raised_by's walk of SINCE..UNTIL reads in one fetch, and return how many the clone lacked:
+    each commit's changed files under PATHS at both ends (`log --raw`) and PATHS at SINCE. Read commit by commit, a
+    blobless checkout fetched them one at a time, a pack each, into the host's shared wt mirror (fs-agent-lane-10,
+    2026-11-24: 2372 packs in an hour)."""
+    blobs: set[str] = set()
+    code, raw = git(repo, "log", "--no-merges", "--raw", "--no-abbrev", "--format=", f"{since}..{until}", "--", *paths)
+    if code == 0:
+        blobs |= {oid for line in raw.splitlines() if line.startswith(":") for oid in line.split()[2:4]}
+    code, listed = git(repo, "ls-tree", "-r", "--format=%(objecttype) %(objectname)", since, "--",
+                       *[p for p in paths if not p.startswith(":(")])  # ls-tree takes no pathspec magic
+    if code == 0:
+        blobs |= {line.split()[1] for line in listed.splitlines() if line.startswith("blob ")}
+    return load_counts().Git(repo).fetch_missing(blobs)
+
+
 def raised_by(repo: Path, since: str, until: str, rows: set[str]) -> dict[str, list[tuple[str, int, str]]]:
     """{row: [(sha, rise, "author: subject")]} of the non-merge commits in SINCE..UNTIL that raised a row.
 
@@ -1047,6 +1064,8 @@ def raised_by(repo: Path, since: str, until: str, rows: set[str]) -> dict[str, l
     code, out = git(repo, "log", "--no-merges", "--reverse", "--format=%H%x1f%an%x1f%s", f"{since}..{until}", "--", *paths)
     if code != 0:
         return found
+    if counts.Git(repo).remote():
+        prefetch_range(repo, since, until, paths)
     for line in out.splitlines():
         sha, author, subject = (line.split("\x1f") + ["", ""])[:3]
         rises = commit_rises(repo, sha, rows)

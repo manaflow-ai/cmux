@@ -16,7 +16,7 @@ import Testing
         let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources/CmuxNextApp")
         let text = try String(contentsOf: sources.appendingPathComponent("Control/AppControl.swift"), encoding: .utf8)
-        #expect(text.contains("}.controlMethods())"))
+        #expect(text.contains("}.controlMethods(sources:"))
         let names = AgentChatPerfControl { _ in .missing }.controlMethods().map(\.name)
         #expect(names == [AgentChatPerfControl.method, AgentChatDriveControl.method])
         #expect(!AgentChatDriveControl.method.hasPrefix("debug."))

@@ -16,6 +16,8 @@ use std::path::PathBuf;
 const MAX_DISPLAY_NAME: usize = 256;
 const MAX_DISPLAY_MIME: usize = 128;
 const MAX_DISPLAY_RANGE: u64 = 4 * 1024 * 1024;
+/// The largest picture side a video's display part keeps (`width`, `height`): 16K and then some.
+const MAX_DISPLAY_SIDE: u64 = 32_768;
 const MAX_SOURCE_NAME: usize = 64;
 
 fn dir() -> PathBuf {
@@ -23,7 +25,7 @@ fn dir() -> PathBuf {
 }
 
 /// The records that name a prompt's images.
-const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
+pub(super) const NAMING_KINDS: [&str; 3] = ["user_message", "queued", "queue_updated"];
 
 /// The type a kept file's bytes are, from their magic number: PNG, JPEG, GIF, WebP, BMP, TIFF,
 /// HEIC/HEIF, AVIF and PDF. `None` for anything else (an SVG is text: its record names it).
@@ -97,7 +99,7 @@ fn iso_media_type(bytes: &[u8]) -> Option<&'static str> {
 }
 
 /// A kept image's name: 64 lowercase hex digits, never a path.
-fn valid_id(id: &str) -> bool {
+pub(super) fn valid_id(id: &str) -> bool {
     id.len() == 64 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
@@ -115,14 +117,103 @@ pub(crate) fn image_path(id: &str) -> Option<PathBuf> {
     valid_id(id).then(|| dir().join(id))
 }
 
+/// The bundle folder a moved chat's images go in (`transfer.rs` export and import).
+pub(super) const BUNDLE_DIR: &str = "attachments";
+
+/// The ids of the images a log record names, when it is a record that names them.
+pub(super) fn ids_named_by(kind: &str, msg: &Value) -> Vec<String> {
+    if !NAMING_KINDS.contains(&kind) {
+        return Vec::new();
+    }
+    named_ids(msg).filter(|id| valid_id(id)).map(str::to_owned).collect()
+}
+
+/// The images a pre-copied prefix's prompts name (records through seq `through`), read through
+/// the log's kind index: a move with a prefix bundles only the records past it, and the images
+/// its earlier prompts sent go along all the same.
+pub(super) fn prefix_ids(
+    store: &dyn crate::store::Store,
+    chat: &str,
+    through: u64,
+    into: &mut std::collections::BTreeSet<String>,
+) -> anyhow::Result<()> {
+    store.scan_kinds(chat, &NAMING_KINDS, &mut |e| {
+        if e.seq > through {
+            return false;
+        }
+        into.extend(ids_named_by(&e.kind, &e.msg));
+        true
+    })
+}
+
+/// A moved chat takes its images along (Leo, 2026-11-22: "moving sessions back and forth, the
+/// histories the pausing the images"): each kept image `ids` names goes into the bundle's
+/// `attachments/`, so the target shows the chat's images, not a hole. An id this machine no
+/// longer holds is left out: the chat shows it as missing here too. Answers how many went.
+pub(super) fn bundle_images<'a>(
+    ids: impl IntoIterator<Item = &'a String>,
+    bundle: &std::path::Path,
+) -> std::io::Result<usize> {
+    let to = bundle.join(BUNDLE_DIR);
+    let mut copied = 0;
+    for id in ids {
+        let Some(from) = image_path(id).filter(|p| p.is_file()) else { continue };
+        if copied == 0 {
+            crate::home_fs::create_dirs(&to)?;
+        }
+        crate::home_fs::copy(&from, to.join(id))?;
+        copied += 1;
+    }
+    Ok(copied)
+}
+
+/// A moved chat's images, kept on this machine as its own prompts' are. Each is kept under the
+/// SHA-256 of its bytes and only when the bytes have that hash, so a bundle cannot replace
+/// another chat's image. Answers how many were kept.
+pub(super) fn restore_images(bundle: &std::path::Path) -> std::io::Result<usize> {
+    use sha2::Digest;
+    let from = bundle.join(BUNDLE_DIR);
+    let Ok(entries) = std::fs::read_dir(&from) else { return Ok(0) };
+    let mut kept = 0;
+    for entry in entries {
+        let entry = entry?;
+        let Some(id) = entry.file_name().to_str().map(str::to_owned) else { continue };
+        let Some(dest) = image_path(&id) else { continue };
+        if dest.is_file() {
+            kept += 1;
+            continue;
+        }
+        let bytes = std::fs::read(entry.path())?;
+        let hash: String =
+            sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
+        if hash != id {
+            tracing::warn!(id, "a moved image whose bytes are not its id: not kept");
+            continue;
+        }
+        crate::home_fs::create_dirs(dir())?;
+        // Written aside under a name of its own and renamed, as `keep_indexed` does: two moves
+        // arriving with one image never write the same partial file, and the rename goes
+        // through the folder this daemon holds (`home_fs`).
+        let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));
+        let written = write_owner_only(&partial, &bytes)
+            .and_then(|()| crate::home_fs::rename(&partial, &dest));
+        if let Err(e) = written {
+            let _ = crate::home_fs::remove_file(&partial);
+            return Err(e);
+        }
+        kept += 1;
+    }
+    Ok(kept)
+}
+
 /// The ids of the images a record's `msg` names (`images: [{id, ..}]`).
 pub(crate) fn named_ids(msg: &Value) -> impl Iterator<Item = &str> {
     let images = msg.get("images").and_then(Value::as_array).into_iter().flatten();
     images.filter_map(|named| named.get("id").and_then(Value::as_str))
 }
 
-/// An `image` block's bytes, and what a record names it by (`{id, mimeType, name?}`, the id
-/// the SHA-256 of the bytes). `None` for any other block, or image data that is not base64.
+/// An `image` block's bytes, and what a record names it by (`{id, mimeType, name?, width?,
+/// height?}`, the id the SHA-256 of the bytes, the size read from the image's header). `None` for any other block, or image data that is not base64.
 fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     use base64::Engine;
     use sha2::Digest;
@@ -134,6 +225,13 @@ fn decode(block: &Value) -> Option<(Vec<u8>, Value)> {
     let id: String = sha2::Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect();
     let mime = block.get("mimeType").and_then(Value::as_str).unwrap_or("image/png");
     let mut named = json!({"id": id, "mimeType": mime});
+    // Its pixel size from the header, as a browser draws it (EXIF orientation applied), so every
+    // view reserves the image's own box before it reads the bytes and a decoded image never moves
+    // a row (`image_size.rs`; agent-transcript-clean-slate.md, step 2).
+    if let Some((width, height)) = super::image_size::pixel_size(&bytes) {
+        named.set("width", json!(width));
+        named.set("height", json!(height));
+    }
     if let Some(name) = block.get("name").and_then(Value::as_str) {
         named.set("name", json!(name));
     }
@@ -456,6 +554,21 @@ pub(crate) fn validated_display_parts(
                 out.insert(key.into(), Value::Number(value.into()));
             }
         }
+        // A video link's picture size, which the app reads before it sends: its sent tile takes
+        // its box from it on the first frame after a reload. Both or neither, each a real side.
+        let side = |key: &str| {
+            object
+                .get(key)
+                .and_then(Value::as_u64)
+                .filter(|value| (1..=MAX_DISPLAY_SIDE).contains(value))
+        };
+        if kind == "file"
+            && block_type == "resource_link"
+            && let (Some(width), Some(height)) = (side("width"), side("height"))
+        {
+            out.insert("width".into(), json!(width));
+            out.insert("height".into(), json!(height));
+        }
         // The app's composer put this attachment in the prompt's text: the web transcript draws
         // a prompt in its recorded order only when it was placed. Only `true` is kept; a prompt
         // without it (the old unplaced shape, or one from an older app) never gains it.
@@ -489,9 +602,19 @@ pub(crate) fn validated_display_parts(
 
 fn copy_display_fields(part: &mut Value, display: &Value) {
     let Some(object) = display.as_object() else { return };
-    for key in
-        ["name", "mimeType", "size", "pageCount", "start", "end", "companionOf", "placed", "source"]
-    {
+    for key in [
+        "name",
+        "mimeType",
+        "size",
+        "pageCount",
+        "start",
+        "end",
+        "companionOf",
+        "placed",
+        "source",
+        "width",
+        "height",
+    ] {
         if let Some(value) = object.get(key) {
             part[key] = value.clone();
         }
@@ -572,16 +695,18 @@ impl Hub {
         set_inline_parts(&mut msg, ordered);
         super::session::mark_pasted(&mut msg, blocks);
         // The immutable cmux snapshot is saved in metadata and can be appended again
-        // by turns.rs. Only unrecorded client context prevents Retry/restart replay.
+        // by turns.rs. Only unrecorded client context prevents Retry/restart replay; the tools
+        // note follows from the words, and a rebuild adds it again (`tool_mentions.rs`).
         let mut saved_context = Vec::new();
         crate::context_inventory::append_snapshot(
             session.meta().cmux_context.as_deref(),
             &mut saved_context,
         );
-        if blocks
-            .iter()
-            .any(|block| crate::prompt_context::is_context(block) && !saved_context.contains(block))
-        {
+        if blocks.iter().any(|block| {
+            crate::prompt_context::is_context(block)
+                && !saved_context.contains(block)
+                && !crate::tool_mentions::is_own_note(block, blocks)
+        }) {
             msg.set("hiddenContext", Value::Bool(true));
         }
         // Purged once its creator is done: the log keeps no long body (`ephemeral.rs`).
@@ -647,301 +772,5 @@ impl Hub {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{
-        checked_source, decode, inline_parts, name_image_sources, sniffed_type,
-        validated_display_parts,
-    };
-    use serde_json::{Value, json};
-
-    #[test]
-    fn a_kept_files_type_comes_from_its_magic_number() {
-        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR";
-        assert_eq!(sniffed_type(png), Some("image/png"));
-        assert_eq!(sniffed_type(b"\xff\xd8\xff\xe0\0\x10JFIF"), Some("image/jpeg"));
-        assert_eq!(sniffed_type(b"GIF89a\x01\0\x01\0"), Some("image/gif"));
-        assert_eq!(sniffed_type(b"GIF87a\x01\0\x01\0"), Some("image/gif"));
-        assert_eq!(sniffed_type(b"RIFF\x24\0\0\0WEBPVP8 "), Some("image/webp"));
-        assert_eq!(sniffed_type(b"BM\x36\0\0\0\0\0\0\0\x36\0\0\0"), Some("image/bmp"));
-        assert_eq!(sniffed_type(b"II*\0\x08\0\0\0"), Some("image/tiff"));
-        assert_eq!(sniffed_type(b"MM\0*\0\0\0\x08"), Some("image/tiff"));
-        assert_eq!(sniffed_type(&ftyp(b"heic", &[b"mif1", b"heic"])), Some("image/heic"));
-        assert_eq!(sniffed_type(&ftyp(b"mif1", &[b"mif1", b"miaf"])), Some("image/heif"));
-        assert_eq!(sniffed_type(&ftyp(b"avif", &[b"avif", b"mif1", b"miaf"])), Some("image/avif"));
-        assert_eq!(sniffed_type(b"%PDF-1.7\n"), Some("application/pdf"));
-        // Text, a short or truncated header, another ISO brand, or nothing: no type.
-        assert_eq!(sniffed_type(b"<svg xmlns='http://www.w3.org/2000/svg'/>"), None);
-        assert_eq!(sniffed_type(b"\x89PNG"), None);
-        assert_eq!(sniffed_type(b"BM"), None);
-        assert_eq!(sniffed_type(&ftyp(b"isom", &[b"isom", b"mp41"])), None);
-        assert_eq!(sniffed_type(b"\0\0\0\x18ftyp"), None);
-        assert_eq!(sniffed_type(b""), None);
-    }
-
-    /// An ISO-BMFF `ftyp` box with `major` and `compatible` brands, its size its own length,
-    /// followed by the start of the next box (as a file's `meta` follows its `ftyp`).
-    fn ftyp(major: &[u8; 4], compatible: &[&[u8; 4]]) -> Vec<u8> {
-        let size = 16 + 4 * compatible.len() as u32;
-        let mut out = size.to_be_bytes().to_vec();
-        out.extend_from_slice(b"ftyp");
-        out.extend_from_slice(major);
-        out.extend_from_slice(&0u32.to_be_bytes());
-        for brand in compatible {
-            out.extend_from_slice(*brand);
-        }
-        out.extend_from_slice(b"\0\0\0\x08meta");
-        out
-    }
-
-    /// An HEIF file's type is its whole `ftyp` box (major and compatible brands, as libavif's
-    /// read.c reads it), never its major brand alone; a box cut short names no type.
-    #[test]
-    fn an_iso_media_files_type_comes_from_its_whole_ftyp_box() {
-        // AVIF named only among the compatible brands, behind an HEIF major brand.
-        assert_eq!(sniffed_type(&ftyp(b"mif1", &[b"mif1", b"avif", b"miaf"])), Some("image/avif"));
-        assert_eq!(sniffed_type(&ftyp(b"msf1", &[b"msf1", b"avis"])), Some("image/avif"));
-        // HEIC the same way.
-        assert_eq!(sniffed_type(&ftyp(b"mif1", &[b"mif1", b"heic"])), Some("image/heic"));
-        // A brand past the end of the box is the next box's, not this one's.
-        let mut outside = ftyp(b"mif1", &[b"mif1"]);
-        outside.truncate(20);
-        outside.extend_from_slice(b"avif");
-        assert_eq!(sniffed_type(&outside), Some("image/heif"));
-        // Cut short: 12 bytes of an AVIF header, a box longer than the file, a box shorter than
-        // its header, and compatible brands that are not whole.
-        assert_eq!(sniffed_type(b"\0\0\0\x18ftypavif"), None);
-        let whole = ftyp(b"avif", &[b"avif", b"mif1"]);
-        assert_eq!(sniffed_type(&whole[..20]), None);
-        assert_eq!(sniffed_type(b"\0\0\0\x08ftypavif\0\0\0\0"), None);
-        assert_eq!(sniffed_type(b"\0\0\0\x12ftypavif\0\0\0\0av"), None);
-        // A box that runs to the end of the file (size 0), and one with a 64-bit size.
-        assert_eq!(sniffed_type(b"\0\0\0\0ftypmif1\0\0\0\0mif1avif"), Some("image/avif"));
-        let mut large = 1u32.to_be_bytes().to_vec();
-        large.extend_from_slice(b"ftyp");
-        large.extend_from_slice(&28u64.to_be_bytes());
-        large.extend_from_slice(b"mif1\0\0\0\0heic");
-        assert_eq!(sniffed_type(&large), Some("image/heic"));
-        // A 64-bit size cut off, one below its own header and brands, and one past any file.
-        assert_eq!(sniffed_type(&large[..12]), None);
-        let mut small = large.clone();
-        small[8..16].copy_from_slice(&20u64.to_be_bytes());
-        assert_eq!(sniffed_type(&small), None);
-        let mut huge = large.clone();
-        huge[8..16].copy_from_slice(&u64::MAX.to_be_bytes());
-        assert_eq!(sniffed_type(&huge), None);
-    }
-
-    #[test]
-    fn an_attachments_source_is_kept_only_when_it_is_one() {
-        let image = json!({"type": "image", "mimeType": "image/png", "data": "AQID"});
-        let link = json!({"type": "resource_link", "uri": "file:///tmp/a.png", "name": "a.png"});
-        let blocks = [image.clone(), link];
-        let chrome =
-            json!({"name": "Google Chrome", "bundleId": "com.google.Chrome", "site": "github.com"});
-        let finder = json!({"name": "Finder", "bundleId": "com.apple.finder"});
-        let display = json!([
-            {"kind": "image", "blockIndex": 0, "source": chrome},
-            {"kind": "file", "blockIndex": 1, "name": "a.png", "source": finder},
-        ]);
-        let parts = inline_parts(&blocks, &[], Some(&display));
-        assert_eq!(parts[0]["source"], chrome);
-        assert_eq!(parts[1]["source"], finder);
-        let mut images = vec![(0, decode(&image).unwrap().1)];
-        name_image_sources(&mut images, &blocks, Some(&display));
-        assert_eq!(images[0].1["source"], chrome);
-        // Byte-identical images share an id; each record keeps only its own block's source.
-        let twins = [image.clone(), image.clone(), image.clone()];
-        let display = json!([
-            {"kind": "image", "blockIndex": 1, "source": chrome},
-            {"kind": "image", "blockIndex": 2, "source": finder},
-        ]);
-        let mut images: Vec<_> = (0..3).map(|index| (index, decode(&image).unwrap().1)).collect();
-        name_image_sources(&mut images, &twins, Some(&display));
-        assert!(images[0].1.get("source").is_none());
-        assert_eq!(images[1].1["source"], chrome);
-        assert_eq!(images[2].1["source"], finder);
-        assert_eq!(checked_source(&json!({"name": " cmux "})), Some(json!({"name": "cmux"})));
-        for bad in [
-            json!({"name": ""}),
-            json!({"name": "x".repeat(65)}),
-            json!({"name": "A", "bundleId": "no dots"}),
-            json!({"name": "A", "bundleId": ".com.x"}),
-            json!({"name": "A", "bundleId": 7}),
-            json!({"name": "A", "site": "Example.com"}),
-            json!({"name": "A", "site": "a.com/path"}),
-            json!("cmux"),
-        ] {
-            assert_eq!(checked_source(&bad), None, "{bad}");
-            let display = json!([{"kind": "image", "blockIndex": 0, "source": bad}]);
-            let parts = inline_parts(&blocks[..1], &[], Some(&display));
-            assert!(parts[0].get("source").is_none());
-        }
-        // A block's own `_meta` names no source: it never reaches the record.
-        let meta = json!({"type": "image", "mimeType": "image/png", "data": "AQID", "_meta": {"cmux": {"source": chrome}}});
-        assert!(decode(&meta).unwrap().1.get("source").is_none());
-    }
-
-    #[test]
-    fn inline_parts_keep_acp_order_without_attachment_bytes() {
-        let image = json!({
-            "type": "image",
-            "mimeType": "image/png",
-            "name": "one.png",
-            "data": "AQID"
-        });
-        let kept = vec![decode(&image).unwrap().1];
-        let blocks = vec![
-            json!({"type": "text", "text": "before", "_meta": {"cmux": {"pasted": true}}}),
-            image,
-            json!({"type": "text", "text": "after"}),
-            json!({"type": "document", "mimeType": "application/pdf", "name": "brief.pdf", "data": "JVBERi0="}),
-            json!({"type": "resource_link", "uri": "attachment://notes.txt", "name": "notes.txt"}),
-        ];
-
-        let parts = inline_parts(&blocks, &kept, None);
-        assert_eq!(
-            parts.iter().map(|part| part["kind"].as_str().unwrap()).collect::<Vec<_>>(),
-            ["text", "image", "text", "document", "file"]
-        );
-        assert_eq!(parts[0]["pasted"], true);
-        assert_eq!(parts[1]["id"], kept[0]["id"]);
-        assert_eq!(parts[3]["size"], 5);
-        assert!(parts.iter().all(|part| part.get("data").is_none()));
-    }
-
-    #[test]
-    fn inline_parts_preserve_a_failed_middle_image_identity() {
-        let image = |data: &str, name: &str| json!({"type": "image", "mimeType": "image/png", "name": name, "data": data});
-        let first = image("AQID", "first.png");
-        let middle = image("BAUG", "middle.png");
-        let last = image("BwgJ", "last.png");
-        let blocks =
-            vec![first.clone(), json!({"type": "text", "text": "caption"}), middle, last.clone()];
-        let kept = vec![decode(&first).unwrap().1, decode(&last).unwrap().1];
-
-        let parts = inline_parts(&blocks, &kept, None);
-        let ids: Vec<_> =
-            parts.iter().filter_map(|part| part.get("id").and_then(Value::as_str)).collect();
-        assert_eq!(ids.len(), 3, "all image slots retain their content ids");
-        assert_eq!(parts[1]["kind"], "text");
-        assert_eq!(parts[2]["persisted"], false);
-        assert_eq!(parts[3]["id"], kept[1]["id"]);
-    }
-
-    #[test]
-    fn inline_parts_rehydrate_text_file_chip_from_display_metadata() {
-        let blocks = vec![json!({"type": "text", "text": "notes.txt\n```\nbody\n```"})];
-        let display = json!([{"kind": "file", "blockIndex": 0, "name": "notes.txt", "mimeType": "text/plain", "size": 4}]);
-        let parts = inline_parts(&blocks, &[], Some(&display));
-        assert_eq!(
-            parts,
-            vec![
-                json!({"kind": "file", "name": "notes.txt", "mimeType": "text/plain", "size": 4, "text": "notes.txt\n```\nbody\n```"})
-            ]
-        );
-    }
-
-    #[test]
-    fn nameless_text_file_metadata_falls_back_to_text() {
-        let blocks = vec![json!({"type": "text", "text": "body"})];
-        let display = json!([{"kind": "file", "blockIndex": 0}]);
-        assert_eq!(
-            inline_parts(&blocks, &[], Some(&display)),
-            vec![json!({"kind": "text", "text": "body"})]
-        );
-    }
-
-    #[test]
-    fn display_metadata_matches_blocks_and_bounds_ranges() {
-        let blocks = vec![
-            json!({"type": "text", "text": "abcd"}),
-            json!({"type": "image", "mimeType": "image/png", "data": "AQID"}),
-        ];
-        let valid = json!([
-            {"kind": "pasted", "blockIndex": 0, "name": "Pasted text", "start": 1, "end": 3},
-            {"kind": "image", "blockIndex": 1, "name": "one.png"}
-        ]);
-        assert_eq!(validated_display_parts(Some(&valid), &blocks).len(), 2);
-        let wrong_kind = json!([{"kind": "image", "blockIndex": 0}]);
-        assert!(validated_display_parts(Some(&wrong_kind), &blocks).is_empty());
-        let out_of_bounds = json!([{"kind": "pasted", "blockIndex": 0, "start": 1, "end": 5}]);
-        assert!(validated_display_parts(Some(&out_of_bounds), &blocks).is_empty());
-        let empty_resource = json!([{"kind": "file", "blockIndex": 0, "name": "archive.zip"}]);
-        let resource_block =
-            vec![json!({"type": "resource_link", "uri": "", "name": "archive.zip"})];
-        assert!(validated_display_parts(Some(&empty_resource), &resource_block).is_empty());
-    }
-    /// The app marks the attachments its composer placed in the text (`placed`); the web
-    /// transcript draws only those prompts in their recorded order. The marker survives
-    /// validation and the copy onto every part kind it can name; a prompt without it (the old
-    /// unplaced shape, or one recorded before the marker) never gains one, and only `true` counts.
-    #[test]
-    fn inline_parts_keep_the_placed_marker_only_when_sent() {
-        let image =
-            json!({"type": "image", "mimeType": "image/png", "name": "one.png", "data": "AQID"});
-        let blocks = vec![
-            json!({"type": "text", "text": "look"}),
-            image,
-            json!({"type": "text", "text": "pasted", "_meta": {"cmux": {"pasted": true}}}),
-            json!({"type": "resource_link", "uri": "file:///tmp/key.pem", "name": "key.pem"}),
-        ];
-        let placed = json!([
-            {"kind": "image", "blockIndex": 1, "name": "one.png", "placed": true},
-            {"kind": "pasted", "blockIndex": 2, "name": "Pasted text", "placed": true},
-            {"kind": "file", "blockIndex": 3, "name": "key.pem", "placed": true}
-        ]);
-        let validated = validated_display_parts(Some(&placed), &blocks);
-        assert!((1..=3).all(|index| validated[&index]["placed"] == true));
-        let parts = inline_parts(&blocks, &[], Some(&placed));
-        assert_eq!(
-            parts.iter().map(|part| part.get("placed").cloned()).collect::<Vec<_>>(),
-            [None, Some(json!(true)), Some(json!(true)), Some(json!(true))]
-        );
-
-        let unplaced = json!([{"kind": "file", "blockIndex": 3, "name": "key.pem"}]);
-        assert!(
-            inline_parts(&blocks, &[], Some(&unplaced))
-                .iter()
-                .all(|part| part.get("placed").is_none())
-        );
-        assert!(inline_parts(&blocks, &[], None).iter().all(|part| part.get("placed").is_none()));
-        for invalid in [json!(false), json!("yes"), json!(1)] {
-            let display = json!([{"kind": "image", "blockIndex": 1, "placed": invalid}]);
-            assert!(
-                inline_parts(&blocks, &[], Some(&display))
-                    .iter()
-                    .all(|part| part.get("placed").is_none())
-            );
-        }
-    }
-
-    #[test]
-    fn inline_parts_validate_companion_relation() {
-        let image = json!({"type": "image", "mimeType": "image/png", "data": "AQID"});
-        let file =
-            json!({"type": "resource_link", "name": "one.png", "uri": "file:///tmp/one.png"});
-        let blocks = vec![
-            image.clone(),
-            file.clone(),
-            json!({"type": "text", "text": "between"}),
-            image,
-            file,
-        ];
-        let display = json!([
-            {"kind": "file", "blockIndex": 1, "companionOf": 0},
-            {"kind": "file", "blockIndex": 4, "companionOf": 3}
-        ]);
-        let parts = inline_parts(&blocks, &[], Some(&display));
-        assert_eq!(parts[0]["id"], parts[3]["id"], "same bytes, distinct block identities");
-        assert_eq!(parts[0]["blockIndex"], 0);
-        assert_eq!(parts[1]["companionOf"], 0);
-        assert_eq!(parts[3]["blockIndex"], 3);
-        assert_eq!(parts[4]["companionOf"], 3);
-        assert_eq!(parts[1]["uri"], "file:///tmp/one.png", "the file is still delivered");
-        for (block, target) in [(1, 2), (1, 99), (1, -1), (0, 3), (4, 0)] {
-            let invalid = json!([{"kind": if block == 0 { "image" } else { "file" }, "blockIndex": block, "companionOf": target}]);
-            let parts = inline_parts(&blocks, &[], Some(&invalid));
-            assert!(parts.iter().all(|part| part.get("companionOf").is_none()));
-        }
-    }
-}
+#[path = "prompt_images_tests.rs"]
+mod tests;

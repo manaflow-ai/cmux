@@ -43,32 +43,34 @@ FORK_ONLY = re.compile(
     r"|(?<!!)github\.event\.pull_request\.head\.repo\.fork(?!\s*(?:==\s*false|!=\s*true))"
 )
 
-# (workflow file name, job id) -> why the job keeps a literal Linux label. Keep it small. Every pool but
-# `provenance` is Blacksmith, so a job that must stay GitHub-hosted for a reason other than provenance keeps
-# its hosted literal here.
-_NIGHTLY_HOSTED = ("nightly job: never Blacksmith (CLAUDE.md, tests/test_ci_nightly_off_blacksmith.py); stays on "
-                   "GitHub-hosted ubuntu-24.04, and RUNNER_POOLS has no hosted Linux pool but provenance")
+# (workflow file name, job id) -> why the job keeps a literal Linux label. Keep it small. GitHub-hosted labels
+# are never an exception: they start nothing in manaflow-ai (check_no_hosted_runs_on.py; Leo, 2026-11-21: "the ci
+# must flow"), so the nightly's secret-holding Linux jobs take the one-job cmux-gcp-nightly-jit-x64 label.
 EXCEPTIONS: dict[tuple[str, str], str] = {
-    **{("nightly.yml", job): _NIGHTLY_HOSTED for job in (
-        "publish-nightly", "publish-nightly-next-github", "keep-published-dsyms", "sentry-dsyms-nightly",
-        "republish-nightly-deltas", "sign-release-notes", "publish-release-notes", "publish-nightly-reel")},
-    ("nightly-tag-permission-probe.yml", "probe"): _NIGHTLY_HOSTED,
-    # .github/language-boundaries.toml: a PR that changes this workflow fails the check unless Leo labels it
-    # (the boundaries are his call), so its fallback label moves only in a PR he approves.
+    # .github/language-boundaries.toml: a PR that changes this workflow fails the check unless Leo labels it (the boundaries
+    # are his call), so its fallback label moves only in a PR he approves.
     ("language-boundaries.yml", "language-boundaries"): "language-boundaries.yml is Leo's to change",
-    # The Linux nightly jobs that hold signing secrets (2e164b5e610c): rule 7 of
-    # tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py needs an ephemeral runner, and the hosted
-    # route is pinned by tests/test_ci_self_hosted_guard.sh's signer-route exceptions.
-    **{key: _NIGHTLY_HOSTED + "; holds signing secrets (rule 7: ephemeral runner)" for key in (
-        ("auto-resume-nightly-notarization.yml", "poll"), ("auto-resume-nightly-notarization.yml", "poll-outer"),
-        ("auto-resume-nightly-notarization.yml", "poll-stapled"), ("auto-resume-nightly-notarization.yml", "publish"),
-        ("ios-internal-nightly.yml", "previous-build"), ("nightly-next-train.yml", "drive"))},
-    ("cmux-next-guards.yml", "signing-runner-variables"): "checks the runner variables, so it must not read one: "
-                                                          "rule 7 of tests/test_ci_signing_keychain_is_deleted_"
-                                                          "before_bundle_code.py pins its literal Blacksmith label",
-    ("ci-cloud-overflow-probe.yml", "watch"): "github-hosted-required: it must run while Blacksmith starts nothing, "
-                                              "to switch overflow on",
 }
+
+# A runs-on line frozen to the literal it resolved to (scripts/ci/one_linux_label.py freeze_line, 2026-11-24: "no
+# runs-on line that reads a variable") keeps its reason in a comment: a credentialed, signing or write-token job on its
+# ephemeral vendor label, a provenance job on GitHub-hosted Ubuntu. MARK names which comment admits which kind.
+EPHEMERAL_MARK = re.compile(r"#.*\b(?:ephemeral-required|owned-pool-unfit|frozen-label):")
+HOSTED_MARK = re.compile(r"#.*\bgithub-hosted-required:")
+JOB_HEADER = re.compile(r"^  ([A-Za-z_][\w-]*):\s*(?:#.*)?$")
+RUNS_ON_LINE = re.compile(r"^    runs-on:")
+
+
+def marked_jobs(text: str, mark: re.Pattern[str]) -> set[str]:
+    """Job ids whose `runs-on:` line carries MARK's comment."""
+    found, job = set(), ""
+    for line in text.splitlines():
+        if header := JOB_HEADER.match(line):
+            job = header.group(1)
+        elif job and RUNS_ON_LINE.match(line) and mark.search(line):
+            found.add(job)
+    return found
+
 
 COMPARISON = re.compile(r"(?:==|!=)\s*$")
 COMPARED = re.compile(r"^\s*(?:==|!=)")
@@ -195,12 +197,15 @@ def hits(files: list[Path]) -> list[tuple[str, str, list[str]]]:
 
     found = []
     for path in files:
-        doc = yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader) or {}
+        text = path.read_text(encoding="utf-8")
+        doc = yaml.load(text, Loader=yaml.BaseLoader) or {}
         jobs = doc.get("jobs") if isinstance(doc, dict) else None
+        marked = marked_jobs(text, EPHEMERAL_MARK) | marked_jobs(text, HOSTED_MARK)
         for job_id, job in (jobs or {}).items():
             if not isinstance(job, dict) or (path.name, job_id) in EXCEPTIONS:
                 continue
-            labels = job_hits(job)
+            labels = [label for label in job_hits(job)
+                      if not (job_id in marked and (label.startswith("blacksmith-") or job_id in marked_jobs(text, HOSTED_MARK)))]
             if labels:
                 found.append((path.name, job_id, labels))
     return found

@@ -58,6 +58,12 @@ pub struct FeedSnapshot {
 }
 
 impl FeedSnapshot {
+    /// The display name this read kept for `provider`, kept or not.
+    #[cfg(test)]
+    pub fn name_of(&self, provider: &str) -> Option<&str> {
+        self.names.get(provider).map(String::as_str)
+    }
+
     /// Whether this read kept `provider`'s models (a rule named it when it was parsed).
     pub fn has_models_of(&self, provider: &str) -> bool {
         self.models.contains_key(provider)
@@ -88,14 +94,32 @@ struct RawProvider {
     models: Value,
 }
 
+/// A provider the rules do not name: its name only, its models skipped unread.
+#[derive(Deserialize)]
+struct RawProviderName {
+    #[serde(default)]
+    name: Value,
+}
+
 /// Reads one feed body (models.dev's `{provider: {name, models: {id: model}}}`), keeping the
 /// models of `keep`. A malformed model is skipped; only a body that is not that object fails.
+/// Each provider is first borrowed as its raw bytes, and only a kept one's models are built as
+/// values: the whole body read as one value tree held about 50 MB at once for a 5 MB feed, at
+/// every daemon start and hourly refresh, the largest transient of a restart (goal
+/// infinite-chats, `god_daemon` `chat_size_sweep` `/restartPeakRss`).
 pub fn parse(body: &[u8], keep: &BTreeSet<String>) -> Result<FeedSnapshot, String> {
-    let raw: BTreeMap<String, Value> = serde_json::from_slice(body)
+    let raw: BTreeMap<String, &serde_json::value::RawValue> = serde_json::from_slice(body)
         .map_err(|e| format!("the model feed is not an object: {e}"))?;
     let mut snapshot = FeedSnapshot::default();
     for (id, value) in raw {
-        let Ok(provider) = RawProvider::deserialize(value) else { continue };
+        let provider = if keep.contains(&id) {
+            serde_json::from_str::<RawProvider>(value.get()).ok()
+        } else {
+            serde_json::from_str::<RawProviderName>(value.get())
+                .ok()
+                .map(|p| RawProvider { name: p.name, models: Value::Null })
+        };
+        let Some(provider) = provider else { continue };
         snapshot.names.insert(id.clone(), text(&provider.name).unwrap_or_else(|| id.clone()));
         if !keep.contains(&id) {
             continue;
@@ -293,16 +317,19 @@ fn matches(id: &str, pattern: &str) -> bool {
             parts.push(None);
             rest = after;
         } else {
-            let c = rest.chars().next().unwrap_or_default();
-            parts.push(Some(c));
-            rest = &rest[c.len_utf8()..];
+            let mut chars = rest.chars();
+            parts.push(Some(chars.next().unwrap_or_default()));
+            rest = chars.as_str();
         }
     }
     let chars: Vec<char> = id.chars().collect();
     if parts.len() > chars.len() {
         return false;
     }
-    chars[chars.len() - parts.len()..].iter().zip(&parts).all(|(c, part)| match part {
+    let Some(tail) = chars.get(chars.len() - parts.len()..) else {
+        return false;
+    };
+    tail.iter().zip(&parts).all(|(c, part)| match part {
         Some(want) => c == want,
         None => c.is_ascii_digit(),
     })
@@ -336,10 +363,10 @@ fn harness_model(
                 .unwrap_or_else(|| f.clone())
         })
     };
-    let short_name = match rules.short_name_prefix.as_deref() {
-        Some(prefix) if model.name.starts_with(prefix) && model.name.len() > prefix.len() => {
-            model.name[prefix.len()..].to_owned()
-        }
+    let short =
+        rules.short_name_prefix.as_deref().and_then(|prefix| model.name.strip_prefix(prefix));
+    let short_name = match short {
+        Some(rest) if !rest.is_empty() => rest.to_owned(),
         _ => model.name.clone(),
     };
     let default_effort = rules.default_effort.clone().filter(|e| efforts.contains(e));
@@ -363,7 +390,8 @@ fn clean_name(name: &str) -> String {
     let trimmed = name.trim_end();
     let lower = trimmed.to_ascii_lowercase();
     match lower.strip_suffix("(latest)") {
-        Some(rest) => trimmed[..rest.len()].trim_end().to_owned(),
+        // ASCII lowercasing keeps every byte offset, so `rest.len()` is a boundary of `trimmed`.
+        Some(rest) => trimmed.get(..rest.len()).unwrap_or(trimmed).trim_end().to_owned(),
         None => trimmed.to_owned(),
     }
 }
@@ -410,7 +438,7 @@ impl Default for FeedFetcher {
 impl FeedFetcher {
     async fn get(&self, etag: Option<&str>) -> Result<FetchOutcome, String> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let client = reqwest::Client::builder()
+        let client = crate::happy_dial::http_client()
             .https_only(true)
             .redirect(reqwest::redirect::Policy::none())
             .timeout(TIMEOUT)

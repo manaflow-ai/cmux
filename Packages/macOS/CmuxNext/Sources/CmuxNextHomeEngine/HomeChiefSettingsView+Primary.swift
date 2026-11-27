@@ -3,23 +3,23 @@ import CmuxNextCompat
 import CmuxNextDesign
 
 /// The Primary Chief row (Lawrence 2026-11-02): texts to the cmux line go to the account's
-/// primary Chief. The box is on and fixed for the primary one (another Chief is made primary
+/// primary Chief. The switch is on and fixed for the primary one (another Chief is made primary
 /// instead); on another Chief, a click makes it primary through ``HomeChiefSettingsView/onMakePrimary``.
 extension HomeChiefSettingsView {
-    func addPrimaryRow() {
+    func addPrimaryRow(to group: HomeChiefFormGroup) {
         primaryBox.target = self
         primaryBox.action = #selector(primaryClicked)
-        primaryBox.font = Typography.body
+        primaryBox.controlSize = .small
         primaryBox.setAccessibilityIdentifier("cmux.home.chief.primary")
-        primaryNote.preferredMaxLayoutWidth = Self.width - 2 * Self.inset
-        addFullWidth(primaryBox)
-        addFullWidth(primaryNote)
-        stack.setCustomSpacing(Metrics.space4, after: primaryNote)
+        primaryBox.setAccessibilityLabel(HomeEngineStrings.primaryRow)
+        // Its row only: what Primary means is the switch's tooltip, not a paragraph under it.
+        primaryBox.toolTip = HomeEngineStrings.primaryNote
+        group.add(primaryRowView)
         setPrimary(nil)
     }
 
     /// Wires the row to the cloud Chief whose main conversation is `conversation`: a click runs
-    /// ``HomeDirectory/setPrimaryChief(_:)``, and the box follows its default flag.
+    /// ``HomeDirectory/setPrimaryChief(_:)``, and the switch follows its default flag.
     public func bindPrimary(directory: HomeDirectory, conversation: String) {
         onMakePrimary = { [weak directory] in
             guard let directory, let record = directory.chiefs.first(where: { $0.mainConversation == conversation }) else {
@@ -40,9 +40,8 @@ extension HomeChiefSettingsView {
     /// Shows whether this Chief is primary; nil hides the row (a Chief with no account record).
     public func setPrimary(_ isPrimary: Bool?) {
         let hidden = isPrimary == nil
-        let changed = primaryBox.isHidden != hidden || (primaryBox.state == .on) != (isPrimary == true)
-        primaryBox.isHidden = hidden
-        primaryNote.isHidden = hidden
+        let changed = primaryRowView.isHidden != hidden || (primaryBox.state == .on) != (isPrimary == true)
+        primaryRowView.isHidden = hidden
         primaryBox.state = isPrimary == true ? .on : .off
         primaryBox.isEnabled = isPrimary == false
         if changed { onResize() }

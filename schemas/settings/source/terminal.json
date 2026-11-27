@@ -77,6 +77,112 @@
       ]
     },
     {
+      "name": "terminalCursor",
+      "section": "terminal",
+      "group": {
+        "key": "settings.group.terminalCursor",
+        "text": "Cursor"
+      },
+      "rows": [
+        {
+          "key": "terminal.cursorStyle",
+          "name": "cursorStyle",
+          "title": {
+            "key": "settings.terminal.cursorStyle",
+            "text": "Cursor Style"
+          },
+          "help": {
+            "key": "settings.terminal.cursorStyle.help",
+            "text": "The terminal cursor's shape. Unset, the Ghostty config's cursor-style."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "block",
+              "title": {
+                "key": "settings.choice.cursorStyle.block",
+                "text": "Block"
+              }
+            },
+            {
+              "value": "bar",
+              "title": {
+                "key": "settings.choice.cursorStyle.bar",
+                "text": "Bar"
+              }
+            },
+            {
+              "value": "underline",
+              "title": {
+                "key": "settings.choice.cursorStyle.underline",
+                "text": "Underline"
+              }
+            },
+            {
+              "value": "block_hollow",
+              "title": {
+                "key": "settings.choice.cursorStyle.blockHollow",
+                "text": "Hollow Block"
+              }
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.ghosttyConfig",
+            "text": "Ghostty Config"
+          },
+          "keywords": [
+            "cursor",
+            "caret",
+            "bar",
+            "block",
+            "underline",
+            "theme"
+          ]
+        },
+        {
+          "key": "terminal.cursorBlink",
+          "name": "cursorBlink",
+          "title": {
+            "key": "settings.terminal.cursorBlink",
+            "text": "Cursor Blink"
+          },
+          "help": {
+            "key": "settings.terminal.cursorBlink.help",
+            "text": "Whether the terminal cursor blinks. Unset, the Ghostty config's cursor-style-blink."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "on",
+              "title": {
+                "key": "settings.choice.cursorBlink.on",
+                "text": "Blink"
+              }
+            },
+            {
+              "value": "off",
+              "title": {
+                "key": "settings.choice.cursorBlink.off",
+                "text": "Steady"
+              }
+            }
+          ],
+          "default": null,
+          "default_label": {
+            "key": "settings.default.ghosttyConfig",
+            "text": "Ghostty Config"
+          },
+          "keywords": [
+            "cursor",
+            "blink",
+            "caret",
+            "theme"
+          ]
+        }
+      ]
+    },
+    {
       "name": "openingLinks",
       "section": "terminal",
       "group": {
@@ -210,6 +316,42 @@
             "name": "TerminalTerm",
             "generated": false
           }
+        }
+      ]
+    },
+    {
+      "name": "terminalTyping",
+      "section": "terminal",
+      "group": {
+        "key": "settings.group.terminalTyping",
+        "text": "Typing"
+      },
+      "note": "terminal.predictiveLocalEcho (TerminalPredictiveEchoSetting): the opt-out classic cmux documents.",
+      "rows": [
+        {
+          "key": "terminal.predictiveLocalEcho",
+          "note": "On: a terminal whose shell runs on another machine draws typed characters before the remote echoes them (the shared prediction engine, which still waits for a slow measured echo and skips password prompts and full-screen programs). Off: nothing is predicted, and glyphs already drawn go at once. Applies to running terminals.",
+          "title": {
+            "key": "settings.terminal.predictiveLocalEcho",
+            "text": "Predictive Local Echo"
+          },
+          "help": {
+            "key": "settings.terminal.predictiveLocalEcho.help",
+            "text": "Shows characters you type in a terminal on another machine right away when the link is slow, underlined until the remote confirms them. Local terminals, password prompts and full-screen programs are never predicted."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "predictive",
+            "echo",
+            "local echo",
+            "latency",
+            "lag",
+            "ssh",
+            "remote",
+            "typing"
+          ],
+          "swift_owner": "TerminalPredictiveEchoSetting"
         }
       ]
     }
