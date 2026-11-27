@@ -98,7 +98,7 @@ import { layoutWatchWanted, startLayoutWatch } from "./conversation/layoutWatch"
 import { transition, type MotionList, registerListScroll, runningTransition } from "./conversation/motionOwner";
 import { type RunDisclosure } from "./conversation/transcriptDisclosureModel";
 import { useCountedRender } from "./perfRender";
-import { drewStreamingRow, useStreamingRowCatchUp } from "./streamingRow";
+import { drewStreamingRow, noteDrewTail, useStreamingRowCatchUp } from "./streamingRow";
 import { drewThoughts, lineHeardNow, liveThoughtHeard, rowsDrawnNow } from "./liveThought";
 import { drewLiveLine, liveCallLineHeard } from "./liveCallLine";
 import { followTrace } from "./followTrace";
@@ -1065,6 +1065,18 @@ function TranscriptView({
   // What this transcript drew of the pane's streaming reply and the running turn's thoughts: the pane
   // takes their fast paths only while those are drawn as the client holds them.
   useLayoutEffect(() => {
+    if (acpmuxPerf.enabled)
+      noteDrewTail(
+        streams
+          ? `${paneRows.length}:${paneRows
+              .slice(-5)
+              .map(
+                (row) =>
+                  `${row.kind}${row.streaming ? "*" : ""}${row.kind === "activity" ? `/${String(row.items?.at(-1)?.kind)}` : ""}`,
+              )
+              .join(",")}`
+          : "no-streams",
+      );
     if (!streams) return;
     drewThoughts(paneRows);
     for (let index = paneRows.length - 1; index >= 0; index -= 1) {

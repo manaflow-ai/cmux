@@ -55,9 +55,15 @@ export function drewStreamingRow(id: string | undefined, text: string | undefine
   drawn = id === undefined || text === undefined ? undefined : { id, text };
 }
 
+/// The tail of the rows the transcript last told its draw from (measuring only, the bench's redraw table).
+export let drewTail = "never";
+export function noteDrewTail(tail: string): void {
+  drewTail = tail;
+}
+
 /// How the transcript's drawn reply stands to `row`, for the replay bench's redraw table (measuring only).
 export function drawnReplyState(row: AcpmuxRow): string {
-  if (!drawn) return "none";
+  if (!drawn) return `none@${drewTail}`;
   if (drawn.id !== row.id) return "other-id";
   const text = row.text ?? "";
   if (drawn.text === text) return "as-is";
