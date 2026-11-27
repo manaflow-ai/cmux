@@ -42,6 +42,7 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: "dedupe", on: crate::claude_stdio::dedupe_enabled },
     Feature { name: super::sidecars::FEATURE, on: || enabled(super::sidecars::FEATURE) },
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
+    Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
 ];
 
 /// The settings key of `feature`'s off switch.
