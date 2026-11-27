@@ -56,7 +56,7 @@ type Ref<T> = { current: T };
 type Inputs = {
   drawnRef: Ref<Drawn>;
   pendingDrawn: Ref<Heights>;
-  changedDrawn: Ref<Set<string>>;
+  changedDrawn: Ref<Map<string, Height | undefined>>;
   setDrawn: (update: (current: Drawn) => Drawn) => void;
 };
 const useFlush = compileFunction(
@@ -88,7 +88,18 @@ afterEach(async () => {
   saved.clear();
 });
 
-async function setup() {
+const consumeStart = source.indexOf("    if (drawnCommitted)\n");
+const consumeEnd = source.indexOf("\n  }, [measured]);", consumeStart);
+if (consumeStart < 0 || consumeEnd < 0) throw new Error("missing committed placement dirty-entry cleanup");
+const consumeCommitted = compileFunction(
+  new Bun.Transpiler({ loader: "ts" }).transformSync(`${comparison}
+const drawnCommitted = true;
+const measured = { placement: { drawn, sessionId: "chat" } };
+${source.slice(consumeStart, consumeEnd)}`),
+  ["drawn", "changedDrawn"],
+) as (drawn: Drawn, changedDrawn: Ref<Map<string, Height | undefined>>) => void;
+
+async function setup(consume = false) {
   dom = new JSDOM("<!doctype html><div id='root'></div>");
   for (const [key, value] of Object.entries({
     window: dom.window,
@@ -105,7 +116,7 @@ async function setup() {
     calls: 0,
     renders: 0,
     painted: [] as number[],
-    dirty: new Set<string>(),
+    dirty: new Map<string, Height | undefined>(),
     report: (_entries: Heights) => {},
     tick: () => {},
   };
@@ -140,6 +151,7 @@ async function setup() {
     control.tick = () => setTick((value) => value + 1);
     useLayoutEffect(() => {
       control.painted.push(drawn.get("row")!.height);
+      if (consume) consumeCommitted(drawn, changedDrawn);
     });
     return <div data-height={drawn.get("row")!.height} />;
   }
@@ -162,6 +174,27 @@ test("an equal correction supersedes a queued lower-priority height", async () =
   expect(control.painted).not.toContain(200);
 });
 
+test("committing another row's height preserves a pending correction's dirty entry", async () => {
+  const { control, h1 } = await setup(true);
+  await act(async () => {
+    startTransition(() => control.report(new Map([["row", { ...h1, height: 200 }]])));
+    flushSync(() => control.report(new Map([["unchanged", { ...h1, height: 150 }]])));
+    expect(dom!.window.document.querySelector("[data-height]")!.getAttribute("data-height")).toBe("100");
+    expect(control.dirty.get("row")?.height).toBe(200);
+    expect(control.dirty.has("unchanged")).toBe(false);
+  });
+  expect(dom!.window.document.querySelector("[data-height]")!.getAttribute("data-height")).toBe("200");
+  expect(control.dirty.size).toBe(0);
+});
+
+test("a committed session change drops abandoned corrections from the previous chat", () => {
+  const dirty = new Map<string, Height | undefined>([
+    ["old-row", { sessionId: "previous-chat", version: 1, width: 600, height: 200 }],
+  ]);
+  consumeCommitted(LayeredMap.empty<Height>(), { current: dirty });
+  expect(dirty.size).toBe(0);
+});
+
 test("idle equal-height confirmations leave no dirty placement IDs", async () => {
   const { control, h1 } = await setup();
   const before = control.renders;
@@ -180,7 +213,7 @@ test("idle equal-height confirmations leave no dirty placement IDs", async () =>
   expect(control.calls).toBe(1);
   expect(dirtyIds).toBe(0);
   expect(control.renders).toBe(before);
-  expect([...control.dirty]).toEqual([]);
+  expect([...control.dirty.keys()]).toEqual([]);
 });
 
 test("a mixed batch dirties only changed rows and applies fractional corrections", async () => {
@@ -196,5 +229,5 @@ test("a mixed batch dirties only changed rows and applies fractional corrections
     );
     expect(dom!.window.document.querySelector("[data-height]")!.getAttribute("data-height")).toBe("100.25");
   });
-  expect([...control.dirty]).toEqual(["row"]);
+  expect([...control.dirty.keys()]).toEqual(["row"]);
 });
