@@ -457,11 +457,26 @@ held_pr() {
   fi
   echo "kept #$number at ${previous:0:12}: pushed $age min ago (hold $hold_min min), no check failed; it lands first and its merge re-pins $TAG (app-ffi-repin.yml)"
 }
+# The labels (why: at label_open_repin's call before the pin push below) go on a kept PR too: the hold exits before
+# that push, and cmux#60965 was kept from 06:59Z with neither label, so its compile sat in the background tier.
+stack_blocker_label() {
+  gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$1/labels" -f 'labels[]=stack-blocker' -f 'labels[]=ready-to-land' \
+    >/dev/null 2>&1 && return 0
+  echo "::warning title=Re-pin label::could not add stack-blocker and ready-to-land to #$1; its compile waits as an ordinary PR's"
+}
+label_open_repin() {
+  local open_pr
+  open_pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" \
+    --jq '.[0] | select(. != null) | select([.labels[].name] | (index("stack-blocker") and index("ready-to-land")) | not) | .number' 2>/dev/null || true)"
+  [[ "$open_pr" =~ ^[0-9]+$ ]] && stack_blocker_label "$open_pr"
+  return 0
+}
 if [[ -n "$previous" && -n "${GH_TOKEN:-}" ]]; then
   held=0
   held_pr || held=$?
   rate_limit_gate
   if (( held == 0 )); then
+    label_open_repin
     exit 0
   elif (( held == 2 )); then
     echo "::warning title=Re-pin::could not read the re-pin pull request's state at ${previous:0:12}; left $branch alone, and the next re-pin run decides"
@@ -518,16 +533,7 @@ git fetch --no-tags origin "$pin_commit"
 # rate_limit_failed and stop the pin itself. Its failure is a warning. `ready-to-land` goes on with it: the build
 # fleet's PR-head compile (cmux-next/compile, the last required check) does not start without it, and the cheap tier
 # skips it (land-judge on cmux#60965).
-stack_blocker_label() {
-  gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$1/labels" -f 'labels[]=stack-blocker' -f 'labels[]=ready-to-land' \
-    >/dev/null 2>&1 && return 0
-  echo "::warning title=Re-pin label::could not add stack-blocker and ready-to-land to #$1; its compile waits as an ordinary PR's"
-}
-if [[ -n "${GH_TOKEN:-}" ]]; then
-  open_pr="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=feat-cmux-next&head=${GITHUB_REPOSITORY%/*}:$branch" \
-    --jq '.[0] | select(. != null) | select([.labels[].name] | (index("stack-blocker") and index("ready-to-land")) | not) | .number' 2>/dev/null || true)"
-  [[ "$open_pr" =~ ^[0-9]+$ ]] && stack_blocker_label "$open_pr"
-fi
+[[ -n "${GH_TOKEN:-}" ]] && label_open_repin
 if ! git push --force-with-lease="refs/heads/$branch:$previous" origin "$pin_commit:refs/heads/$branch"; then
   # A lost push response is harmless only if the intended commit is published.
   [[ "$(remote_head "$branch")" == "$pin_commit" ]] || exit 1
