@@ -1087,11 +1087,15 @@ async fn a_stale_move_is_ended_now_on_asking_and_a_live_one_is_not() {
 }
 
 /// A daemon taken over mid-copy (`acpmux daemon run --take-over`, 2026-11-22: the move died on
-/// `transfer_read` and its abort died the same way) leaves the move whole: the new daemon still
-/// holds the chat frozen in it, the copy goes on from the offset it reached against the new one,
-/// and the move commits with every prompt once on the target.
+/// `transfer_read` and its abort died the same way) leaves no chat frozen: no target can have
+/// the chat from a bundle nobody read to its end, so the new daemon ends the move at start
+/// (#54328, RFD 0063 item 3, "a restarted source ends an unread move"). The client's next read
+/// gets `transfer.unknown`, it starts the move anew, and that move commits with the chat's
+/// history once on the target. Until #54328 this test held the chat frozen across the take-over
+/// and went on from the offset; the restart's abort, spawned at start, raced its first read and
+/// won every run (CI run 45641669048, `moving: false`).
 #[tokio::test]
-async fn a_move_whose_source_daemon_is_taken_over_mid_copy_goes_on_from_its_offset() {
+async fn a_move_whose_source_daemon_is_taken_over_mid_copy_ends_and_starts_anew() {
     let dir = std::env::temp_dir().join(format!("acpmux-takeover-{}", uuid::Uuid::now_v7()));
     let hub = local_hub(&dir);
     let mut src = connect(&hub).await;
@@ -1124,37 +1128,26 @@ async fn a_move_whose_source_daemon_is_taken_over_mid_copy_goes_on_from_its_offs
     drop(hub);
     let hub = local_hub(&dir);
     let mut src = connect(&hub).await;
-    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(info["moving"], true, "the new daemon holds the chat in its move: {info}");
-    let refused = src.request(method::SESSION_PROMPT, prompt(&id, "p-late", "late")).await;
-    assert!(refused.is_err(), "a chat in a move takes no prompt after a take-over: {refused:?}");
-
-    // The copy goes on from where it was, against the new daemon.
-    for file in begin["files"].as_array().unwrap() {
-        let path = file["path"].as_str().unwrap();
-        let mut offset = if path == midway["path"] { reached } else { 0 };
-        loop {
-            let read = json!({"transferId": transfer_id, "path": path, "offset": offset, "limit": 4096, "epoch": epoch});
-            let part = src.request("_acpmux/transfer_read", read).await.unwrap();
-            let write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": part["data"], "epoch": epoch});
-            dst.request("_acpmux/transfer_write", write).await.unwrap();
-            offset = part["next"].as_u64().unwrap();
-            if part["eof"] == true {
-                break;
-            }
+    // The default lease is 300 s: the abort comes from the restart, not the lease.
+    let started = std::time::Instant::now();
+    loop {
+        let aborted = records(&mut src, &id, "transfer_aborted").await;
+        if !aborted.is_empty() {
+            assert_eq!(aborted[0]["transferId"], transfer_id, "{aborted:?}");
+            break;
         }
+        assert!(started.elapsed() < Duration::from_secs(20), "the cut move stayed frozen");
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
-    dst.request("_acpmux/transfer_finish", json!({"receiveId": receive_id, "epoch": epoch}))
-        .await
-        .unwrap();
+    let info = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(info["moving"], false, "the new daemon gave the chat back: {info}");
+    let read = json!({"transferId": transfer_id, "path": path, "offset": reached, "limit": 4096, "epoch": epoch});
+    let late = src.request("_acpmux/transfer_read", read).await;
+    assert!(late.as_ref().is_err_and(|e| e.contains("transfer.unknown")), "{late:?}");
+
+    // The client starts the move anew, and it commits with the chat's history once.
     let to = json!({"host": "gcp-1", "sessionId": id});
-    let committed = src
-        .request(
-            "_acpmux/transfer_commit",
-            json!({"sessionId": id, "transferId": transfer_id, "to": to, "epoch": epoch}),
-        )
-        .await
-        .unwrap();
+    let committed = move_whole(&mut src, &mut dst, &id, to.clone()).await;
     assert_eq!(committed["committed"], true, "{committed}");
     assert_eq!(texts(&mut dst, &id, "user_message").await, ["hi"], "its history moved once");
     let left = src.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();

@@ -227,6 +227,10 @@ jobs:
           python3 tests/test_ci_ios_fast_verdict.py
           python3 tests/test_indexnow_notification.py
 
+      - name: Validate the green receipts that skip unchanged checks
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_receipt.py
+
       - name: Validate CDN readers name their client
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cdn_user_agent.py
@@ -455,6 +459,10 @@ jobs:
           bash tests/test_ci_fleet_compilation_cache.sh
           python3 tests/test_ci_fleet_compilation_cache.py
 
+      - name: Validate the VM runner guest Bun cache marker check
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: bash tests/test_ci_fsr_bun_cache.sh
+
       - name: Validate feature flag linter scope
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_lint_feature_flags_review_date.py
@@ -581,6 +589,15 @@ jobs:
           else
             echo "No base revision for this event; placeholder check skipped."
           fi
+
+      # Aziz, 2026-11-25: "it says mac is asleep incorrect" (cmux#57792). The service only
+      # knows no Mac has cmux connected, so iPhone copy must not say a Mac is asleep.
+      - name: Validate iOS copy never claims a Mac is asleep
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: |
+          set -euo pipefail
+          python3 tests/test_ci_ios_presence_claims.py
+          python3 scripts/ci/check-ios-presence-claims.py
 
       - name: Validate reload shared DerivedData default
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
@@ -1314,6 +1331,10 @@ jobs:
       - name: Validate fast checks fail over from stalled labels
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_fast_checks_failover.py
+
+      - name: Test fleet submission from a plain checkout
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_submit_fleet_test.py
 
       - name: Validate the fast checks Rust setup carries the pinned cargo-nextest
         if: ${{ !cancelled() && matrix.group == 'ci' }}

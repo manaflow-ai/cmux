@@ -233,6 +233,9 @@ pub fn registry() -> Vec<MethodDecl> {
         keyed::<params::StatusParams>(method::MUX_STATUS, Request),
         // The live perf commentator (perf_watch.rs).
         untyped(method::MUX_PERF, Request),
+        // The app's and webviews' own trace spans, written to the daemon's trace sink (perf_trace.rs).
+        untyped(crate::perf_trace::METHOD_SPANS, Request),
+        untyped(crate::perf_trace::METHOD_STATUS, Request),
         // Each caller's requests over a recent window (caller_stats.rs).
         untyped(method::MUX_CALLERS, Request),
         // The felt-latency histograms (cmux-felt).
