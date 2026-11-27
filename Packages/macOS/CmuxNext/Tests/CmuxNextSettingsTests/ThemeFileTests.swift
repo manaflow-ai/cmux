@@ -354,7 +354,7 @@ import Testing
         let terminal = try #require(SettingsSchema.descriptor(for: ["appearance", "theme"]))
         let app = try #require(SettingsSchema.descriptor(for: ["appearance", "appTheme"]))
         #expect(settings.applied.chromeTheme == "Rose Pine")
-        #expect(settings.preview([(terminal, "Dracula"), (app, "followTerminal")]))
+        #expect(settings.preview([(terminal, .string("Dracula")), (app, .string("followTerminal"))]))
         #expect(settings.applied.chromeTheme == nil)
         settings.endPreview()
         #expect(settings.applied.chromeTheme == "Rose Pine")
