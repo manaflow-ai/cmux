@@ -599,6 +599,7 @@ struct TabOverview<Source: TabsDataSource>: View {
             .glassEffect(.regular.interactive(), in: .circle)
             .position(x: layout.size.width - 20 - d / 2, y: y)
             .accessibilityLabel("More")
+            .accessibilityIdentifier("tabs.overview.more")
         }
         .frame(width: layout.size.width, height: layout.size.height, alignment: .topLeading)
     }

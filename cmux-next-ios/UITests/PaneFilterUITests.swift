@@ -38,7 +38,7 @@ final class PaneFilterUITests: XCTestCase {
                        "title midpoint \(title.frame) vs screen \(app.windows.firstMatch.frame)")
         attach(app, "1-default")
 
-        let more = app.buttons["More"]
+        let more = app.buttons["tabs.overview.more"]
         XCTAssertTrue(more.waitForExistence(timeout: 5), "More\n\(app.debugDescription)")
         more.tap()
         let browsers = app.buttons["Show Browsers"].firstMatch
