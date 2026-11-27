@@ -30,8 +30,8 @@ mod composer_draft;
 #[cfg(all(test, unix))]
 mod composer_draft_tests;
 mod events;
-mod live_line;
 mod failure_copy;
+mod live_line;
 pub mod new_line;
 mod reconnect_wait;
 mod run;
