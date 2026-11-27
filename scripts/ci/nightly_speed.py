@@ -1312,9 +1312,11 @@ def render_verdict(c: Dict[str, Any], repo: str = REPO) -> str:
                 f"p50 {num(prs.get('p50'), ' min')}, p90 {num(prs.get('p90'), ' min')}."
                 + (f" Unattributed: {reasons}." if reasons else "")]
         if "matched_prs" in prs:
+            coverage_note = (" Unverified feeds are excluded and make coverage partial."
+                             if prs.get("unverified_feeds") else "")
             out.append(f"Provider-verified PRs: {prs['matched_prs']} matched, {prs.get('unmatched_prs', 0)} unmatched; "
                        f"{prs.get('excluded_commits', 0)} commits excluded. Waits end at the first verified feed; "
-                       "unverified feeds are excluded and make coverage partial.")
+                       "the head-level budget remains separate." + coverage_note)
         if prs.get("rows"):
             out += ["", f"Slowest and unattributed {len(prs['rows'])} of {prs.get('count', 0)} (every row: "
                         "`nightly_speed.py check --json`).", "",
