@@ -4102,7 +4102,7 @@ class PullRequestCompileOnTheBuildFleet(unittest.TestCase):
     compiles. The job compiles the PR's head, the commit the landing gate asks
     about; a fleet red fails it; no verdict hands the PR to the Mac Release compile."""
 
-    NAME = "cmux-next app compile (build fleet)"
+    NAME = "cmux-next app compile (shared build fleet)"
 
     def job(self) -> dict:
         return load_yaml(inline_steps(WORKFLOW.read_text(encoding="utf-8")))["jobs"]["app-compile-fleet"]

@@ -6089,6 +6089,17 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "never a base red"):
             self.judge()
 
+    def test_shared_app_compile_with_no_build_fleet_verdict_is_refused_too(self):
+        app = "cmux-next app compile (shared build fleet)"
+        step = "Compile-check the app at the pull request's head on the build fleet"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, app, step), 2: failed_job(2, 20, BASE_SHA, app, step)}
+        line = ("##[error]No build-fleet verdict for `{}` (controller unreachable or timed out: cmux-ci exit 69), "
+                "so nothing has compiled this head here.")
+        self.gh.logs[1] = log(app, step, line.format(HEAD))
+        self.gh.logs[2] = log(app, step, line.format(BASE_SHA))
+        with self.assertRaisesRegex(excuse.Refused, "never a base red"):
+            self.judge()
+
     def test_no_verdict_is_ignored_when_the_mac_release_compile_passed_at_the_head(self):
         self.release_run(6)
         text = "\n".join(self.judge())

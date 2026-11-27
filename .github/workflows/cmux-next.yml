@@ -2532,11 +2532,12 @@ jobs:
 
   # Why: note-370
   app-compile-fleet:
-    needs: [path_route, push-head-preflight, app-compile-placement]
+    # Why: docs/ci/cmux-next-workflow-notes/2026-11-27-app-shared-scheme.md
+    needs: [path_route, push-head-preflight, app-compile-placement, cmux-scheme-compile-fleet]
     # Why: note-371
     # Why: 2026-11-27-app-compile-off-verdict.md
     if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(needs.path_route.outputs.labels, ',full-ci,') && needs.path_route.outputs.mac_release == 'true' && (github.event_name != 'pull_request' || needs.path_route.result == 'success' && needs.path_route.outputs.app_compile_pr != 'false')) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
-    name: cmux-next app compile (build fleet)
+    name: cmux-next app compile (shared build fleet)
     concurrency:
       group: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || format('cmux-next-pr-{0}-app-compile-fleet', github.event.pull_request.number) }}
       cancel-in-progress: true
@@ -5657,7 +5658,7 @@ jobs:
         env:
           FLEET_RESULT: ${{ github.event_name == 'pull_request' && needs.app-compile-fleet.result || needs.release-compile-fast.result }}
           FLEET_VERDICT: ${{ github.event_name == 'pull_request' && needs.app-compile-fleet.outputs.verdict || needs.release-compile-fast.outputs.verdict }}
-          FLEET_JOB_NAME: ${{ github.event_name == 'pull_request' && 'cmux-next app compile (build fleet)' || 'cmux-next Release compile (fleet fast check)' }}
+          FLEET_JOB_NAME: ${{ github.event_name == 'pull_request' && 'cmux-next app compile (shared build fleet)' || 'cmux-next Release compile (fleet fast check)' }}
           FLEET_GATE_0: "manaflow-ai repository=${{ github.repository_owner == 'manaflow-ai' }}"
           FLEET_GATE_1: "compile gateway is set (pull requests)=${{ github.event_name != 'pull_request' || vars.CI_COMPILE_CHECK_GATEWAY != '' }}"
           FLEET_GATE_2: "same-repository pull request=${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}"

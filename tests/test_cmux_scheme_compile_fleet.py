@@ -41,6 +41,24 @@ class Workflow(unittest.TestCase):
     def step(self, job, name):
         return next(s for s in job["steps"] if s.get("name") == name)
 
+    def test_app_compile_reads_after_scheme_without_an_early_compile_webhook(self):
+        app = self.jobs["app-compile-fleet"]
+        self.assertIn("cmux-scheme-compile-fleet", app["needs"])
+        self.assertEqual(app["name"], "cmux-next app compile (shared build fleet)")
+        # A skipped/failed optional producer must not implicitly skip the app consumer.
+        self.assertIn("!cancelled()", app["if"])
+        self.assertNotIn("needs.cmux-scheme-compile-fleet.result", app["if"])
+        # The producer never depends on its consumer, directly or transitively.
+        stack, seen = ["cmux-scheme-compile-fleet"], set()
+        while stack:
+            key = stack.pop()
+            self.assertNotEqual(key, "app-compile-fleet")
+            if key in seen:
+                continue
+            seen.add(key)
+            needs = self.jobs[key].get("needs", [])
+            stack.extend([needs] if isinstance(needs, str) else needs)
+
     def test_the_fleet_job_holds_no_mac(self):
         self.assertEqual(self.fleet["runs-on"], "cmux-linux")
         self.assertEqual(self.fleet["name"], "cmux app scheme compile (build fleet)")

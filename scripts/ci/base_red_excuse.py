@@ -1520,7 +1520,8 @@ NO_VERDICT = re.compile(r"^##\[error\]\s*(?:cmux-next/compile is not a pass for 
                         r"could not post the (?:pending|handoff|overflow handoff) status|"
                         r"bad head sha |No build-fleet verdict for `)")
 # The jobs that can end without a verdict: an unreadable log of one is never comparable either.
-NO_VERDICT_JOBS = frozenset({"cmux-next fleet Release compile", "cmux-next app compile (build fleet)"})
+NO_VERDICT_JOBS = frozenset({"cmux-next fleet Release compile", "cmux-next app compile (build fleet)",
+                                  "cmux-next app compile (shared build fleet)"})
 # The shared generated-files check only reads the verdict produced by the Swift, daemon or fast tier job that built
 # the package.  A failed prerequisite (especially a cancelled-before-start runner job) leaves that value
 # empty, so this check has no result of its own.  It must be rerun together with its host job; comparing its
