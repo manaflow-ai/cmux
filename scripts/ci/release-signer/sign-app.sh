@@ -169,43 +169,9 @@ for alias in cmux-tui acpmux; do   # sign-cmux-bundle.sh:204-211
 done
 
 # 0. Stamp the cmux server launchd plists from the final bundle id, before the
-# app signature seals them. Mirrors stamp() of feat-cmux-next
-# scripts/cmux-next/bundle-server-helper.sh (blob eed69f81), with plistlib for
-# plutil; both write sorted keys.
-python3 -I - "$APP_PATH" <<'PY'
-import os, plistlib, re, sys
-contents = os.path.join(sys.argv[1], "Contents")
-bundle_id = plistlib.load(open(os.path.join(contents, "Info.plist"), "rb"))["CFBundleIdentifier"]
-drop = bundle_id == "com.cmuxterm.app"
-if not drop and not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]", bundle_id, re.ASCII):
-    sys.exit(f"error: bundle id {bundle_id!r} is not a plain reverse-DNS name")
-def stamp(kind, name, program, present, label, args, extra):
-    plist = os.path.join(contents, "Library", kind, name)
-    if drop or not present:
-        if kind == "LaunchDaemons" and os.path.lexists(os.path.join(contents, program[9:])):
-            os.remove(os.path.join(contents, program[9:]))
-        if os.path.exists(plist):
-            os.remove(plist)
-        try:
-            os.rmdir(os.path.dirname(plist))
-        except OSError:
-            pass
-        return
-    os.makedirs(os.path.dirname(plist), exist_ok=True)
-    job = {"Label": label, "BundleProgram": program, "AssociatedBundleIdentifiers": [bundle_id],
-           "ProgramArguments": args, **extra}
-    with open(plist, "wb") as handle:
-        plistlib.dump(job, handle)
-    print(f"==> stamped {kind}/{name}: {label}")
-helper = "Contents/Resources/libexec/cmux-server-helper"
-stamp("LaunchDaemons", "com.cmux.server.helper.plist", helper,
-      os.path.lexists(os.path.join(contents, helper[9:])), f"{bundle_id}.server-helper",
-      ["cmux-server-helper", "--app", bundle_id], {"MachServices": {f"{bundle_id}.server-helper": True}})
-cli = "Contents/Resources/bin/cmux"
-stamp("LaunchAgents", "com.cmux.server.plist", cli, os.path.isfile(os.path.join(contents, cli[9:])),
-      f"{bundle_id}.server", [cli, "host", "run", "--mode", "user"],
-      {"RunAtLoad": True, "KeepAlive": {"SuccessfulExit": False}, "ThrottleInterval": 10, "ProcessType": "Standard"})
-PY
+# app signature seals them. The helper keeps stable's server-only drop rule
+# separate from the optional pre-read, which stable bundles carry when present.
+python3 -I "$SCRIPTS_DIR/ci/release-signer/stamp-launchd-plists.py" "$APP_PATH"
 if [[ -d "$APP_PATH/Contents/Frameworks" ]]; then
   "$SCRIPTS_DIR/remove-sparkle-sandbox-xpc-services.sh" "$APP_PATH"
 fi

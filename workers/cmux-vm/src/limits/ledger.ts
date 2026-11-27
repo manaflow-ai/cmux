@@ -14,7 +14,7 @@ import { GeneratedCreation, GeneratedCreationPage } from "../domain/generated-cr
 import { VmCreationReceipt } from "../api/creations.ts";
 import { SnapshotId, VmId } from "../lib/ids.ts";
 import { RetainedVmCreation } from "../domain/vm-creation.ts";
-import { Reservation, type LedgerStorage } from "./storage.ts";
+import { deleteMany, getMany, Reservation, type LedgerStorage } from "./storage.ts";
 import { meshCreation, type MeshCreationCommand, type MeshCreationResult } from "./mesh-creation.ts";
 import { admitAgentSlot, bindAgentCreation, forgetAgentVm, settleAgentSlot, type AgentSlotOutcome } from "./agent-slots.ts";
 export type { LedgerStorage } from "./storage.ts";
@@ -124,6 +124,8 @@ const isGeneratedRecord = Schema.is(GeneratedRecord);
 const readRecord = (value: unknown): IdempotencyRecord | undefined => isGeneratedRecord(value)
   ? { ...value, progress: value.progress.value }
   : checked(isRecord, value);
+/** Decodes a stored idempotency record (plain or generated); exported for the scan oracle in test/support. */
+export const readIdempotencyRecord = readRecord;
 const putRecord = (storage: LedgerStorage, key: string, record: IdempotencyRecord) => storage.put(key,
   record.generated === undefined ? record : { ...record, progress: { phase: "generated", value: record.progress } },
 );
@@ -136,17 +138,32 @@ const isLock = Schema.is(Lock);
 const Coverage = Schema.Struct({ wanted: Schema.Number, applied: Schema.Number });
 const isCoverage = Schema.is(Coverage);
 
+/**
+ * Whether two journaled values are the same value, whatever order their keys are in. A resumed create reads its
+ * intent back through the Durable Object RPC decoded in the schema's field order, not the order the handler built it
+ * in, so comparing JSON.stringify output read the same intent as changed: on staging every retry of a create whose
+ * send timed out failed as "allocation intent changed" (an anonymous persistCreateIntent 503) until create_overdue.
+ */
+const canonical = (value: unknown): string => JSON.stringify(value, (_key, v: unknown) =>
+  v !== null && typeof v === "object" && !Array.isArray(v)
+    ? Object.fromEntries(Object.entries(v).filter(([, x]) => x !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    : v);
+const sameValue = (a: unknown, b: unknown): boolean => canonical(a) === canonical(b);
+
 /** A stored value of the wrong shape (from an older version) reads as absent. */
 const checked = <T>(guard: (value: unknown) => value is T, value: unknown): T | undefined => (guard(value) ? value : undefined);
 
 /** Idempotency records live for a day, as clients retry within minutes to hours. */
 export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
 /**
- * A pending claim whose request died is released after this long. It exceeds
- * the longest create or fork (snapshot, create and grow, 120 s upstream timeout
- * each), so a live request never loses its claim to a retry.
+ * A pending claim whose request died (isolate recycled, connection cut, deploy)
+ * is released this long after its last heartbeat, so a same-key resend can take
+ * it over instead of getting "still running" for the old 10 minutes. A live
+ * request renews it every IDEMPOTENCY_HEARTBEAT_MS (and on each `advance`), so
+ * it never loses its claim however long the create or fork runs.
  */
-export const IDEMPOTENCY_LEASE_MS = 10 * 60 * 1000;
+export const IDEMPOTENCY_LEASE_MS = 90 * 1000;
+export const IDEMPOTENCY_HEARTBEAT_MS = 20 * 1000;
 /** An ordinary reservation expires after this long; an uncertain allocation retains its slot. */
 export const RESERVATION_TTL_MS = 5 * 60 * 1000;
 /**
@@ -154,9 +171,23 @@ export const RESERVATION_TTL_MS = 5 * 60 * 1000;
  * twice the 120 s create timeout plus provider propagation. Only then may it be resent or its cancellation settle.
  */
 export const CREATE_SEND_GRACE_MS = 10 * 60 * 1000;
+/**
+ * After this long, a send whose outcome was never learned may be sent again under the same slug, once the caller's
+ * exact-slug read answered 404. The provider refuses a second VM at a slug ("409 CONFLICT: that slug is already used by
+ * another VM in your account"; nothing here passes `reassignSlug`), so a resend can never make a second VM: either the
+ * first send made nothing and this one creates it, or it answers 409 and the read after it adopts the first send's VM.
+ * It is the 120 s create timeout plus 30 s, so no two of this key's sends are open at once, and it sits well inside the
+ * platform's 5-minute create retry window (cmux-platform `CREATE_RETRY_WINDOW_MS`). Before this, the resend waited the
+ * whole CREATE_SEND_GRACE_MS: one provider timeout failed every retry of that create (staging vm_9fca061251a7f47ec504,
+ * 2026-11-26: 1 timed-out send, then 7 refused retries and cloud.provider.unavailable). Settling a cancellation as
+ * "nothing was made" still waits CREATE_SEND_GRACE_MS: no provider answer backs that one.
+ */
+export const CREATE_RESEND_AFTER_MS = 150 * 1000;
 type Dispatch = { readonly state: "ready" | "sent" | "rejected"; readonly at?: number | undefined };
-const sendSettled = (dispatch: Dispatch, nowMs: number | undefined) =>
-  dispatch.state !== "sent" || (nowMs !== undefined && dispatch.at !== undefined && nowMs - dispatch.at >= CREATE_SEND_GRACE_MS);
+const sentAgo = (dispatch: Dispatch, nowMs: number | undefined, ms: number) =>
+  dispatch.state !== "sent" || (nowMs !== undefined && dispatch.at !== undefined && nowMs - dispatch.at >= ms);
+const sendSettled = (dispatch: Dispatch, nowMs: number | undefined) => sentAgo(dispatch, nowMs, CREATE_SEND_GRACE_MS);
+const sendResendable = (dispatch: Dispatch, nowMs: number | undefined) => sentAgo(dispatch, nowMs, CREATE_RESEND_AFTER_MS);
 
 /**
  * Takes lock `key` for `holder` inside the caller's transaction. Every read-modify-write of a lock or a coverage key runs
@@ -211,14 +242,14 @@ export class TenantLedger {
 
   /**
    * One potentially allocating provider send at a time. An unknown outcome reopens this gate only after
-   * CREATE_SEND_GRACE_MS, and the caller sends only after its exact-slug lookup found nothing.
+   * CREATE_RESEND_AFTER_MS, and the caller sends only after its exact-slug lookup found nothing.
    */
   async beginCreateSend(key: string, vmId: string, token: string, nowMs?: number): Promise<boolean> {
     return this.storage.transaction(async (storage) => {
       const record = readRecord(await storage.get(`idem:${key}`));
       if (record === undefined) return false;
       const p = record.progress;
-      if (p.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch === undefined || !sendSettled(p.dispatch, nowMs)) return false;
+      if (p.phase !== "creating" || p.vmId !== vmId || p.cancelRequested === true || p.dispatch === undefined || !sendResendable(p.dispatch, nowMs)) return false;
       await putRecord(storage, `idem:${key}`, { ...record, progress: { ...p, dispatch: { state: "sent", token, ...(nowMs === undefined ? {} : { at: nowMs }) } } });
       return true;
     });
@@ -336,11 +367,13 @@ export class TenantLedger {
   private async admit(storage: LedgerStorage, kind: string, limit: number, liveCount: number, nowMs: number, reservationId: string, retained: boolean): Promise<boolean> {
     const live = await storage.list({ prefix: "reserve:" });
     let inFlight = 0;
+    const expired: string[] = [];
     for (const [key, value] of live) {
       const reservation = checked(isReservation, value);
-      if (reservation === undefined || (reservation.retained !== true && reservation.expiresMs <= nowMs)) await storage.delete(key);
+      if (reservation === undefined || (reservation.retained !== true && reservation.expiresMs <= nowMs)) expired.push(key);
       else if (reservation.kind === kind && key !== `reserve:${reservationId}`) inFlight += 1;
     }
+    await deleteMany(storage, expired);
     if (liveCount + inFlight >= limit) return false;
     await storage.put(`reserve:${reservationId}`, { kind, expiresMs: nowMs + RESERVATION_TTL_MS, ...(retained ? { retained: true } : {}) });
     return true;
@@ -370,7 +403,7 @@ export class TenantLedger {
       const raw = await storage.get(storageKey), record = readRecord(raw);
       if (raw !== undefined && record === undefined) throw new Error("unrecognized idempotency record");
       if (record !== undefined && (record.generated !== undefined || record.expiresMs > nowMs || record.progress.phase === "creating" || record.progress.phase === "capturing" || record.progress.phase === "cancelled" || record.progress.phase === "pending")) {
-        if (record.fingerprint !== fingerprint || (record.clientFingerprint !== undefined && clientFingerprint !== undefined && record.clientFingerprint !== clientFingerprint) || (generated !== undefined && JSON.stringify(record.generated) !== JSON.stringify(generated))) return { state: "mismatch" };
+        if (record.fingerprint !== fingerprint || (record.clientFingerprint !== undefined && clientFingerprint !== undefined && record.clientFingerprint !== clientFingerprint) || (generated !== undefined && !sameValue(record.generated, generated))) return { state: "mismatch" };
         // Older pending records may already have sent a provider create without retaining its ID.
         // They cannot safely become a new allocation, even after their former TTL.
         if (record.progress.phase === "pending") return { state: "in_progress" };
@@ -403,22 +436,22 @@ export class TenantLedger {
       if (record === undefined) throw new Error("missing idempotency claim");
       if (record.progress.phase === "cancelled" || ((record.progress.phase === "creating" || record.progress.phase === "capturing") && record.progress.cancelRequested === true)) throw new Error("creation cancellation is fenced");
       if (record.progress.phase === "done" || record.progress.phase === "snapshotDone") {
-        if (JSON.stringify(record.progress) === JSON.stringify(progress)) return;
+        if (sameValue(record.progress, progress)) return;
         throw new Error("a completed idempotency record cannot change");
       }
       if (record.leaseUntilMs <= nowMs) throw new Error("idempotency claim expired");
       if (record.progress.phase === "creating") {
         const prior = record.progress;
-        if (progress.phase === "creating" && (progress.vmId !== prior.vmId || progress.reservationId !== prior.reservationId || progress.context !== prior.context || progress.createdBy !== prior.createdBy || progress.snapshotId !== prior.snapshotId || JSON.stringify(progress.dispatch) !== JSON.stringify(prior.dispatch) || progress.cancelRequested !== prior.cancelRequested || (prior.intent !== undefined && JSON.stringify(progress.intent) !== JSON.stringify(prior.intent)))) throw new Error("allocation intent changed");
+        if (progress.phase === "creating" && (progress.vmId !== prior.vmId || progress.reservationId !== prior.reservationId || progress.context !== prior.context || progress.createdBy !== prior.createdBy || progress.snapshotId !== prior.snapshotId || !sameValue(progress.dispatch, prior.dispatch) || progress.cancelRequested !== prior.cancelRequested || (prior.intent !== undefined && !sameValue(progress.intent, prior.intent)))) throw new Error("allocation intent changed");
         if (progress.phase !== "creating" && (progress.phase !== "done" || progress.vmId !== prior.vmId)) throw new Error("allocation intent cannot be replaced");
         if (progress.phase === "done") await storage.delete(`reserve:${prior.reservationId}`);
       }
       if (record.progress.phase === "capturing") {
         const prior = record.progress;
-        if (progress.phase === "capturing" ? JSON.stringify(progress) !== JSON.stringify(prior)
+        if (progress.phase === "capturing" ? !sameValue(progress, prior)
           : progress.phase !== "creating" || progress.vmId !== prior.vmId || progress.reservationId !== prior.reservationId
             || progress.snapshotId !== prior.snapshotId || progress.createdBy !== prior.createdBy
-            || JSON.stringify(progress.intent?.receipt) !== JSON.stringify(prior.receipt)) throw new Error("fork capture intent changed");
+            || !sameValue(progress.intent?.receipt, prior.receipt)) throw new Error("fork capture intent changed");
       }
       if (progress.phase === "capturing" && progress.receipt.id !== progress.vmId) throw new Error("fork destination identity changed");
       if (progress.phase === "creating" || progress.phase === "capturing") {
@@ -435,6 +468,17 @@ export class TenantLedger {
         expiresMs: progress.phase === "done" || progress.phase === "snapshotDone" ? Math.max(record.expiresMs, nowMs + IDEMPOTENCY_TTL_MS) : record.expiresMs,
         leaseUntilMs: progress.phase === "done" || progress.phase === "snapshotDone" ? nowMs : nowMs + IDEMPOTENCY_LEASE_MS,
       });
+    });
+  }
+
+  /** Heartbeat of the request holding `key`: extends a live, unfinished claim. A lapsed claim is not revived. */
+  async renew(key: string, nowMs: number): Promise<void> {
+    await this.storage.transaction(async (storage) => {
+      const storageKey = `idem:${key}`;
+      const record = readRecord(await storage.get(storageKey));
+      if (record === undefined || record.leaseUntilMs <= nowMs) return;
+      if (record.progress.phase === "done" || record.progress.phase === "snapshotDone" || record.progress.phase === "cancelled") return;
+      await putRecord(storage, storageKey, { ...record, leaseUntilMs: nowMs + IDEMPOTENCY_LEASE_MS });
     });
   }
 
@@ -535,9 +579,11 @@ export class TenantLedger {
         if (p?.phase === "creating" && slots.has(p.reservationId)) keys.add(key.slice("idem:".length));
       }
     }
+    // One storage call per 128 intents, not one per slot: a CI principal's sweep reads every retained slot's intent.
+    const records = await getMany(this.storage, [...keys].map((key) => `idem:${key}`));
     const found: RetainedCreationSlot[] = [];
     for (const key of keys) {
-      const p = readRecord(await this.storage.get(`idem:${key}`))?.progress;
+      const p = readRecord(records.get(`idem:${key}`))?.progress;
       if (p?.phase !== "creating" || !slots.has(p.reservationId) || p.createdBy !== createdBy || p.intent === undefined || p.dispatch === undefined) continue;
       const startedMs = p.dispatch.at ?? Date.parse(p.intent.createdAt);
       if (!Number.isFinite(startedMs)) continue;
@@ -584,6 +630,12 @@ export function memoryLedgerStorage(): LedgerStorage {
   const view = (read: (key: string) => unknown, write: (key: string, value: unknown) => void, remove: (key: string) => boolean, entries: () => Map<string, unknown>, atomic: LedgerStorage["transaction"]): LedgerStorage => ({
     transaction: atomic,
     get: async (key) => structuredClone(read(key)),
+    getMany: async (keys) => {
+      const out = new Map<string, unknown>();
+      for (const key of keys) { const value = read(key); if (value !== undefined) out.set(key, structuredClone(value)); }
+      return out;
+    },
+    deleteMany: async (keys) => keys.filter((key) => remove(key)).length,
     put: async (key, value) => {
       write(key, structuredClone(value));
     },

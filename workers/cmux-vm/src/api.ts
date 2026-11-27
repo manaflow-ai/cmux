@@ -267,6 +267,38 @@ export class FileStat extends Schema.Class<FileStat>("FileStat")({
 
 export const FilePathParams = Schema.Struct({ path: GuestPath });
 
+export const SearchFilesParams = Schema.Struct({
+  path: GuestPath,
+  query: Schema.String.pipe(Schema.minLength(1), Schema.maxLength(256)).annotations({ description: "A literal, case-sensitive substring, matched line by line." }),
+  limit: Schema.optional(Schema.NumberFromString.pipe(Schema.int(), Schema.between(1, 1000)).annotations({ description: "Most matches to answer, 1 to 1000; default 100." })),
+});
+
+export const SearchSource = Schema.Literal("replica", "disk").annotations({
+  description: "replica: answered from the copy of the text seeded while this VM has been paused, in one read. disk: read from the saved disk file by file (no replica, or the VM changed since it was seeded).",
+});
+
+export class SearchMatch extends Schema.Class<SearchMatch>("SearchMatch")({
+  path: Schema.String,
+  line: Schema.Int.pipe(Schema.positive()),
+  text: Schema.String.annotations({ description: "The matching line, at most 400 characters." }),
+}) {}
+
+export class FileSearch extends Schema.Class<FileSearch>("FileSearch")({
+  source: SearchSource,
+  complete: Schema.Boolean.annotations({ description: "False when a bound (5000 files, 2000 folders, 16 MiB) left files under the path unread, or the limit cut the matches." }),
+  scanned: Schema.Int.pipe(Schema.nonNegative()).annotations({ description: "Files under the path that were searched." }),
+  matches: Schema.Array(SearchMatch),
+}) {}
+
+export class FileReplica extends Schema.Class<FileReplica>("FileReplica")({
+  root: GuestPath,
+  complete: Schema.Boolean,
+  files: Schema.Int.pipe(Schema.nonNegative()),
+  bytes: Schema.Int.pipe(Schema.nonNegative()),
+  truncated: Schema.Int.pipe(Schema.nonNegative()).annotations({ description: "Files over 256 KiB: only their first 256 KiB are searched." }),
+  seedMs: Schema.Int.pipe(Schema.nonNegative()),
+}) {}
+
 export const WriteFileParams = Schema.Struct({
   path: GuestPath,
   mode: Schema.optional(Schema.NumberFromString.pipe(Schema.int(), Schema.between(0, 0o7777)).annotations({
@@ -295,6 +327,16 @@ export const WriteFileHeaders = Schema.Struct({
 export const CreateHeaders = Schema.Struct({
   ...teamHeader,
   "idempotency-key": Schema.optional(Schema.String.pipe(Schema.minLength(1), Schema.maxLength(255))),
+});
+
+/**
+ * A create's own priority: `background` is a VM made ahead of anyone asking (the platform's spares). It waits behind
+ * every other create for the environment's provider create slots and never takes the last one. It only ever lowers
+ * the caller's own priority, so any caller may send it.
+ */
+export const CreateVmHeaders = Schema.Struct({
+  ...CreateHeaders.fields,
+  "x-cmux-create-priority": Schema.optional(Schema.Literal("background")),
 });
 
 const VmPath = Schema.Struct({ vmId: Schema.String });
@@ -351,7 +393,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
   .add(
     HttpApiEndpoint.post("createVm", "/v1/vms")
       .setPayload(CreateVmRequest)
-      .setHeaders(CreateHeaders)
+      .setHeaders(CreateVmHeaders)
       .addSuccess(CreatedVm, { status: 201 })
       .addError(BadRequest)
       .addError(Forbidden)
@@ -549,6 +591,40 @@ export class FilesGroup extends HttpApiGroup.make("files")
       .addError(Conflict)
       .addError(QuotaExceeded)
       .annotateContext(describe("List a directory in a VM", "vm:files")),
+  )
+  .add(
+    HttpApiEndpoint.get("searchFiles", "/v1/vms/:vmId/files/search")
+      .setPath(VmPath)
+      .setUrlParams(SearchFilesParams)
+      .setHeaders(TeamHeaders)
+      .addSuccess(FileSearch)
+      .addError(BadRequest)
+      .addError(NotFound)
+      .addError(Conflict)
+      .addError(QuotaExceeded)
+      .addError(ServiceUnavailable)
+      .annotateContext(describe(
+        "Search the text of files under a folder in a VM",
+        "vm:files",
+        "One request instead of a listing and a read per file. On a paused VM it never wakes the guest: it answers from the replica seeded at pause (POST files/replica) while the VM is unchanged since, and otherwise reads the saved disk and keeps what it read as the replica. On a running VM it reads the disk. Folders named .git, node_modules, target, .cache, .venv, __pycache__, .next, dist and build are skipped; binary files are not matched.",
+      )),
+  )
+  .add(
+    HttpApiEndpoint.post("seedFileReplica", "/v1/vms/:vmId/files/replica")
+      .setPath(VmPath)
+      .setUrlParams(FilePathParams)
+      .setHeaders(TeamHeaders)
+      .addSuccess(FileReplica)
+      .addError(BadRequest)
+      .addError(NotFound)
+      .addError(Conflict)
+      .addError(QuotaExceeded)
+      .addError(ServiceUnavailable)
+      .annotateContext(describe(
+        "Seed a paused VM's read replica",
+        "vm:files",
+        "Reads the text under the path from the paused VM's saved disk once and keeps it off the VM, so later searches under it answer in one read with no wake. Call it right after a pause. Replaces the previous replica. A VM that is not paused is 409. The replica answers only while the VM is unchanged; a resume makes it stale.",
+      )),
   )
   .middleware(Authentication) {}
 

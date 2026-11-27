@@ -119,20 +119,31 @@ final class TranscriptLinkElement: NSAccessibilityElement {
     var ref = PartRef(messageId: "", partIndex: 0)
 
     override func isAccessibilityElement() -> Bool { true }
-    override func accessibilityPerformPress() -> Bool { controller?.openLink(target, ref: ref) ?? false }
+    /// AXEnabled: CuaDriver (0.32.0) indexes an NSAccessibilityElement, so a client can press it, only when it
+    /// answers AXEnabled, though AppKit lists its AXPress either way (goal agent-shortcut-found, repro on
+    /// a fleet Mac 2026-11-26: the same link with this override indexed, without it not).
+    override func isAccessibilityEnabled() -> Bool { true }
+    override func accessibilityPerformPress() -> Bool {
+        guard let controller else {
+            // The transcript went away under the element: say so (category app.links), the press opens nothing.
+            ChatController.noteLink(Self.orphanLine(target))
+            return false
+        }
+        return controller.openLink(target, ref: ref)
+    }
+
+    /// The app.links line a press logs when its transcript went away.
+    static func orphanLine(_ target: PaneLinkTarget?) -> String {
+        ChatController.linkLine(ChatController.url(of: target), "taken by no transcript: opened nothing")
+    }
     /// AXPress in the element's AXActionNames, the list an AX client reads (AXUIElementCopyActionNames).
-    /// CuaDriver indexes a node, so a target can click it, only when that list is not empty (cmux-cua
-    /// ax/tree.rs). The custom action below never reached it: on Nightly 4552290304601, which has it, the
-    /// walk of 2026-11-25T06:25Z still found the link unindexed. AppKit answers AXActionNames and performs
-    /// an action through these two methods, so the press is listed and routed here.
+    /// AppKit listed it before this override too (a fleet Mac, 2026-11-26); the link stayed unindexed for
+    /// lack of AXEnabled (isAccessibilityEnabled above), not of an action.
     override func accessibilityActionNames() -> [NSAccessibility.Action] { [.press] }
     override func accessibilityPerformAction(_ action: NSAccessibility.Action) {
         if action == .press { _ = accessibilityPerformPress() }
     }
-    /// The same press as a named action. AppKit lists no AXPress in this element's AXActionNames (the
-    /// onboarding walk of 2026-11-23T05:04Z: the link sat in the tree with role AXLink but CuaDriver, which
-    /// indexes only a node that advertises an action or a settable value, gave it no index), and a custom
-    /// action is always listed, so an automation client and VoiceOver's actions menu both reach it.
+    /// The same press as a named action, so VoiceOver's actions menu and an automation client both reach it.
     override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         [NSAccessibilityCustomAction(name: CmuxStrings.openLinkAction) { [weak self] in self?.accessibilityPerformPress() ?? false }]
     }

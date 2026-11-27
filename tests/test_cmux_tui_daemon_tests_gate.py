@@ -98,7 +98,9 @@ class DaemonTestsGateTests(unittest.TestCase):
         cache = step(daemon, "Cache cargo build")["with"]
         self.assertIn("'cmux-tui-linux'", cache["shared-key"])
         self.assertEqual(cache["cache-all-crates"], "true")
-        self.assertIn("cmux_next_", step(daemon, "cargo test cmux_next_")["run"])
+        self.assertIn("scripts/ci/cmux-next-daemon-tests.sh", step(daemon, "cargo test cmux_next_")["run"])
+        script = (ROOT / "scripts/ci/cmux-next-daemon-tests.sh").read_text(encoding="utf-8")
+        self.assertIn("--locked cmux_next_", script)
         self.assertNotIn("continue-on-error", daemon)
 
     def test_a_pass_writes_the_marker_without_naming_an_os(self) -> None:
@@ -185,6 +187,43 @@ class DaemonTestsGateTests(unittest.TestCase):
                            RUN_ID="1", GITHUB_RUN_ATTEMPT="1", GITHUB_OUTPUT=str(output))
                 subprocess.run(["bash", "-c", marked["run"]], env=env, check=True, capture_output=True)
                 self.assertEqual("marked=true" in output.read_text(encoding="utf-8"), want, codes)
+    def test_every_feat_run_points_at_a_tested_tree_the_channel_skipped(self) -> None:
+        # Leo, 2026-11-23: "we own/should own the in-between". The point no longer waits on one run's own tree.
+        point = jobs()["point-feat-channel"]
+        keep = step(point, "Point the channel at any tested tree it skipped (channel keeper)")
+        self.assertEqual(flat(keep["if"]), "${{ !cancelled() }}")
+        self.assertIn("cmux_tui_channel_keeper.py drive --point-only", keep["run"])
+        for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "R2_ENDPOINT", "GH_TOKEN"):
+            self.assertIn(name, keep["env"])
+        checkout = next(s for s in point["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))
+        self.assertGreaterEqual(int(checkout["with"]["fetch-depth"]), 300)
+
+
+    def test_the_job_frees_its_own_build_need_before_the_caches_land(self) -> None:
+        # Six cold runs on 2026-11-26 lost their pool runner "No space left on device" in cargo test: the
+        # pool's start hook cleans only under one job's need (17 GiB) and this build writes a ~20 GiB target.
+        daemon = jobs()["cmux-next-daemon-tests"]
+        names = [s.get("name") for s in daemon["steps"]]
+        free = step(daemon, "Free this job's build need on a pool runner")
+        self.assertLess(names.index(free["name"]), names.index("Cache cargo build"))
+        self.assertLess(names.index(free["name"]), names.index("Make room for the cargo build (disk floor)"))
+        self.assertEqual(free["continue-on-error"], "true")
+        self.assertIn("steps.marked.outputs.marked != 'true'", free["if"])
+        with tempfile.TemporaryDirectory() as tmp:
+            seen = Path(tmp) / "seen"
+            hook = Path(tmp) / "cmux-disk-floor.sh"
+            hook.write_text(f'#!/usr/bin/env bash\necho "$1 $CMUX_DISK_JOB_BYTES" > {seen}\nexit 3\n', encoding="utf-8")
+            hook.chmod(0o755)
+            run = free["run"].replace("/opt/cmux-disk-floor.sh", str(hook))
+            env = dict(os.environ, GITHUB_WORKSPACE=tmp)
+            subprocess.run(["bash", "-e", "-c", run], env=env, check=True, capture_output=True)
+            phase, need = seen.read_text(encoding="utf-8").split()
+            self.assertEqual(phase, "started")
+            self.assertGreater(int(need), 17 << 30)
+            # Off the pool (no hook) the step does nothing and passes.
+            subprocess.run(["bash", "-e", "-c", free["run"].replace("/opt/cmux-disk-floor.sh", str(Path(tmp) / "absent"))],
+                           env=env, check=True, capture_output=True)
+
 
 
 TARGET_SCRIPT = ROOT / "scripts" / "ci" / "cmux-tui-test-target.sh"
@@ -243,6 +282,69 @@ class DaemonTestsDiskFloorTests(unittest.TestCase):
         self.assertLess(floor, names.index("Cache cargo build"))
         self.assertLess(floor, names.index("Restore the cargo build from the CI cache bucket"))
         self.assertIn("cmux-tui-test-target.sh floor", step(jobs()["cmux-next-daemon-tests"], names[floor])["run"])
+
+
+
+# A fake r2-cache.sh: FAKE_R2=hit unpacks a workspace build into the target, FAKE_R2=miss unpacks nothing.
+FAKE_R2 = """#!/usr/bin/env bash
+[[ "$1" == restore ]] || exit 0
+[[ "$FAKE_R2" == hit ]] || exit 0
+mkdir -p "$2/debug/.fingerprint/acpmux-r2" "$2/debug/.fingerprint/hyper-r2"
+"""
+
+
+class TestTargetRestoreTakesTheFullTarget(unittest.TestCase):
+    """A rust-cache restore holds third-party output only; it must not hide the bucket's full target (job 140315082442)."""
+
+    def restore(self, existing: list[str], r2: str) -> tuple[subprocess.CompletedProcess, list[str], list[str]]:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            repo = Path(tmpdir) / "repo"
+            (repo / "scripts" / "ci").mkdir(parents=True)
+            (repo / "scripts" / "ci" / "cmux-tui-test-target.sh").write_text(TARGET_SCRIPT.read_text(encoding="utf-8"))
+            (repo / "scripts" / "ci" / "r2-cache.sh").write_text(FAKE_R2)
+            (repo / "scripts" / "ci" / "timeout.sh").write_text('shift; exec "$@"\n')
+            (repo / "cmux-tui" / "rust-toolchain.toml").parent.mkdir(parents=True)
+            (repo / "cmux-tui" / "rust-toolchain.toml").write_text("[toolchain]\n")
+            for name in existing:
+                (repo / "cmux-tui" / "target" / "debug" / ".fingerprint" / name).mkdir(parents=True)
+            bin_dir = Path(tmpdir) / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "df").write_text(FAKE_DF)
+            (bin_dir / "df").chmod(0o755)
+            (Path(tmpdir) / "elsewhere").mkdir()
+            env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", FAKE_REPO=str(repo), FAKE_R2=r2,
+                       FREE_KIB_WITH_TARGET=str(80 * GIB), FREE_KIB_WITHOUT=str(80 * GIB), FREE_KIB_TMP=str(80 * GIB),
+                       TMPDIR=str(Path(tmpdir) / "elsewhere"), GITHUB_ACTIONS="true", GITHUB_REPOSITORY="manaflow-ai/cmux")
+            env.pop("CARGO_TARGET_DIR", None)
+            result = subprocess.run(["bash", str(repo / "scripts" / "ci" / "cmux-tui-test-target.sh"), "restore"],
+                                    env=env, capture_output=True, text=True, timeout=60)
+            fingerprints = repo / "cmux-tui" / "target" / "debug" / ".fingerprint"
+            left = sorted(p.name for p in fingerprints.iterdir()) if fingerprints.is_dir() else []
+            siblings = sorted(p.name for p in (repo / "cmux-tui").iterdir())
+            return result, left, siblings
+
+    def test_a_third_party_only_target_gives_way_to_a_hit(self) -> None:
+        result, left, siblings = self.restore(["hyper-rc"], "hit")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(left, ["acpmux-r2", "hyper-r2"], result.stdout)
+        self.assertEqual(siblings, ["rust-toolchain.toml", "target"], "the set-aside target is removed")
+
+    def test_a_miss_puts_the_third_party_output_back(self) -> None:
+        result, left, siblings = self.restore(["hyper-rc"], "miss")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(left, ["hyper-rc"], result.stdout)
+        self.assertEqual(siblings, ["rust-toolchain.toml", "target"])
+
+    def test_a_workspace_build_is_kept(self) -> None:
+        result, left, _ = self.restore(["acpmux-kept", "hyper-kept"], "hit")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(left, ["acpmux-kept", "hyper-kept"], result.stdout)
+        self.assertIn("already holds a workspace build", result.stdout)
+
+    def test_an_empty_workspace_takes_the_hit(self) -> None:
+        result, left, _ = self.restore([], "hit")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(left, ["acpmux-r2", "hyper-r2"], result.stdout)
 
 
 if __name__ == "__main__":

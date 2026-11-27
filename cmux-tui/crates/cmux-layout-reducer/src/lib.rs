@@ -54,8 +54,16 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+pub mod layout_model;
+pub mod pane_close;
 mod rows;
+pub mod screen_layout;
+pub mod sidebar_archive_marks;
+pub mod sidebar_chat_history;
+pub mod sidebar_doc_listing;
+pub mod sidebar_item_order;
 pub mod sidebar_nav;
+pub mod sidebar_row_index;
 pub mod sidebar_section_customization;
 mod tab_moves;
 pub use rows::{ROW_HEIGHT_PERMILLE, Row, RowId, row_layout_is_valid};
@@ -956,15 +964,20 @@ mod rows_tests;
 mod sidebar_face_tests;
 
 pub mod auto_archive;
-pub mod automatic;
-pub mod closing_panes;
+pub mod auto_archive_ledger;
+pub mod chief_panel;
 pub mod divider_insert;
+pub mod dock_model;
+pub mod drop_overlay_geometry;
+pub mod drop_rules;
 pub mod floating_panes;
 
 pub mod group_hover_summary;
 pub mod keep_awake;
+pub mod layout_state;
 pub mod new_placement;
 pub mod optimistic;
+pub mod pane_drop_zones;
 pub mod pane_focus;
 #[cfg(kani)]
 mod proofs;
@@ -974,14 +987,27 @@ pub mod shown_resize;
 pub mod sidebar_bridge;
 pub mod sidebar_caps;
 pub mod sidebar_doc;
+pub mod sidebar_doc_target;
 pub mod sidebar_drag;
+pub mod sidebar_drag_geometry;
 pub mod sidebar_drop;
 pub mod sidebar_edits;
 pub mod sidebar_face;
+pub mod sidebar_feeds;
+pub mod sidebar_hover_card_rules;
+pub mod sidebar_item_info;
 pub mod sidebar_launch_order;
 pub mod sidebar_layout;
 pub mod sidebar_layout_plan;
 pub mod sidebar_list_rules;
+pub mod sidebar_pending_records;
+pub mod sidebar_region_layout;
 pub mod sidebar_row;
 pub mod sidebar_row_layout;
+pub mod sidebar_sections;
+pub mod sidebar_session_tree;
+pub mod tab_drag_rules;
+pub mod window_registry;
+#[cfg(test)]
+mod window_registry_tests;
 pub mod workspace_port_links;

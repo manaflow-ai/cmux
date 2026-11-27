@@ -114,6 +114,23 @@ async fn codex_lists_every_page_without_hidden_models_and_the_default_first() {
     assert_eq!(catalog[0]["serviceTiers"], serde_json::json!(astra.service_tiers));
 }
 
+#[test]
+fn empty_and_legacy_speed_tiers_follow_the_running_protocol() {
+    use serde_json::json;
+    let rows = acpmux::live_models::codex::parse(&[
+        json!({"id":"legacy","serviceTiers":[],"additionalSpeedTiers":["fast"]}),
+        json!({"id":"standard","serviceTiers":[]}),
+        json!({"id":"unspecified"}),
+    ]);
+    assert_eq!(rows[0].service_tiers, [json!("fast")]);
+    assert_eq!(rows[0].fast, Some(true));
+    assert_eq!(rows[1].fast, Some(false));
+    assert_eq!(rows[2].fast, None);
+    let mut catalog = [json!({"id":"standard","serviceTiers":["priority"]})];
+    acpmux::live_models::overlay(&mut catalog, &rows);
+    assert_eq!(catalog[0]["serviceTiers"], json!([]));
+}
+
 #[tokio::test]
 async fn a_signed_out_codex_reports_why() {
     let cwd = scratch("codex-unauth");
@@ -182,8 +199,8 @@ fn a_cached_list_lasts_until_its_program_changes() {
     let key = CacheKey::of(&program).unwrap();
     cache.store("claude", &key, &models).unwrap();
     let started = Instant::now();
-    assert_eq!(cache.load("claude", Some(&program)), Some(models.clone()));
-    assert_eq!(cache.load_all().get("claude"), Some(&models));
+    assert_eq!(cache.load("claude", Some(&program)), Some((models.clone(), key.clone())));
+    assert_eq!(cache.load_all().get("claude"), Some(&(models.clone(), key.clone())));
     eprintln!("cached live list read: {} us", started.elapsed().as_micros());
     // A CLI update (another binary) discards it.
     std::fs::write(&program, "version two").unwrap();

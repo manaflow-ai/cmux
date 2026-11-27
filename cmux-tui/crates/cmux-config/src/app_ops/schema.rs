@@ -29,6 +29,9 @@
 //!   null when it is no background; missing, the op answers `{need: {selection: VALUE}}`.
 //! - `schema.palette_rows` `{developer_tools}` answers `{keys}`: the rows the Command Palette
 //!   lists, in schema order.
+//! - `schema.rows` answers the reads above for many rows in one call ([`rows`]).
+//! - `schema.json_text`, `schema.surfaces` and `schema.export` write the settings schema export
+//!   (`schemas/settings/settings-schema.json`) ([`export`]).
 
 use std::sync::OnceLock;
 
@@ -97,6 +100,10 @@ pub fn call(op: &str, request: &Value) -> Option<Result<Value, OpError>> {
             row(request).map(|row| json!({ "value": inherited(row, root(request)) }))
         }
         "schema.palette_options" => row(request).and_then(|row| palette_options_op(row, request)),
+        "schema.rows" => rows::call(request),
+        "schema.json_text" => export::json_text_op(request),
+        "schema.surfaces" => export::surfaces_op(request),
+        "schema.export" => export::export_op(request),
         "schema.palette_rows" => {
             let developer_tools =
                 request.get("developer_tools").and_then(Value::as_bool).unwrap_or(false);
@@ -161,12 +168,11 @@ pub fn stored(row: &Row, root: &Value, arts: &Map<String, Value>) -> Read {
     if let Some(value) = value_at(root, &row.path) {
         return Read::Value(Some(value.clone()));
     }
-    if let Some(replaced) = crate::schema::replaced_by_row(&row.path) {
-        // As the retired-keys table maps it; any other old value is the row's default. A plain
-        // rename (no `values`) reads the old value as is.
-        return Read::Value(
-            value_at(root, &replaced.old).and_then(|old| replaced.read(old)).cloned(),
-        );
+    if crate::schema::replaced_by_row(&row.path).next().is_some() {
+        // As the retired-keys table maps it, the first old key with a listed value winning; any
+        // other old value is the row's default. A plain rename (no `values`) reads the old value
+        // as is.
+        return Read::Value(crate::schema::replaced_value(&row.path, root).cloned());
     }
     if row.key != BACKGROUND {
         return Read::Value(None);
@@ -780,8 +786,28 @@ pub fn palette_summary(
 fn palette_options_op(row: &Row, request: &Value) -> Result<Value, OpError> {
     let current = request.get("current").filter(|value| !value.is_null());
     let inherited = request.get("inherited").filter(|value| !value.is_null()).cloned();
-    let theme_colors = match request.get("theme_colors") {
-        None | Some(Value::Null) => Vec::new(),
+    let theme_colors = theme_colors(request)?;
+    let selection = match request.get("selection") {
+        None => None,
+        Some(selection) => Some(selection_of(selection)?),
+    };
+    let context = PaletteContext { inherited, theme_colors, selection };
+    Ok(match palette_options(row, current, &context) {
+        Ok(options) => {
+            let summary = palette_summary(row, current, &options);
+            json!({
+                "options": options.iter().map(PaletteOption::to_json).collect::<Vec<_>>(),
+                "summary": summary,
+            })
+        }
+        Err(need) => json!({ "need": need }),
+    })
+}
+
+/// The request's `theme_colors`: each `{red, green, blue, alpha}` in 0...1, alpha 1 when absent.
+fn theme_colors(request: &Value) -> Result<Vec<Rgba>, OpError> {
+    match request.get("theme_colors") {
+        None | Some(Value::Null) => Ok(Vec::new()),
         Some(Value::Array(items)) => items
             .iter()
             .map(|item| {
@@ -796,36 +822,22 @@ fn palette_options_op(row: &Row, request: &Value) -> Result<Value, OpError> {
             .collect::<Option<Vec<_>>>()
             .ok_or_else(|| {
                 OpError::Invalid("expected `theme_colors` of {red, green, blue, alpha}".to_owned())
-            })?,
-        Some(_) => return Err(OpError::Invalid("expected an array `theme_colors`".to_owned())),
-    };
-    let selection = match request.get("selection") {
-        None => None,
-        Some(Value::Null) => Some(None),
-        Some(selection) => {
-            let id = selection.get("id").and_then(Value::as_str);
-            let title = selection.get("title").and_then(Value::as_str);
-            match (id, title) {
-                (Some(id), Some(title)) => Some(Some((id.to_owned(), title.to_owned()))),
-                _ => {
-                    return Err(OpError::Invalid(
-                        "expected `selection` {id, title} or null".to_owned(),
-                    ));
-                }
-            }
-        }
-    };
-    let context = PaletteContext { inherited, theme_colors, selection };
-    Ok(match palette_options(row, current, &context) {
-        Ok(options) => {
-            let summary = palette_summary(row, current, &options);
-            json!({
-                "options": options.iter().map(PaletteOption::to_json).collect::<Vec<_>>(),
-                "summary": summary,
-            })
-        }
-        Err(need) => json!({ "need": need }),
-    })
+            }),
+        Some(_) => Err(OpError::Invalid("expected an array `theme_colors`".to_owned())),
+    }
+}
+
+/// The app's resolution of a background value: `{id, title}`, or null for no background.
+fn selection_of(selection: &Value) -> Result<Option<(String, String)>, OpError> {
+    if selection.is_null() {
+        return Ok(None);
+    }
+    let id = selection.get("id").and_then(Value::as_str);
+    let title = selection.get("title").and_then(Value::as_str);
+    match (id, title) {
+        (Some(id), Some(title)) => Ok(Some((id.to_owned(), title.to_owned()))),
+        _ => Err(OpError::Invalid("expected `selection` {id, title} or null".to_owned())),
+    }
 }
 
 /// Swift `SettingDescriptor.isPaletteListed(developerTools:)`: the rows the palette offers (the
@@ -850,6 +862,11 @@ pub fn palette_rows(developer_tools: bool) -> Vec<&'static str> {
         .map(|(key, _)| *key)
         .collect()
 }
+
+#[path = "schema_export.rs"]
+pub mod export;
+#[path = "schema_rows.rs"]
+pub mod rows;
 
 #[cfg(test)]
 #[path = "schema_tests.rs"]
