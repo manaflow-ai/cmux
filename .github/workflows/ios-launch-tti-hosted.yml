@@ -40,8 +40,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - leg: profile
-            ref: dec8a3407e923697df15d4a61d668852a747f2ff
+          - leg: marks
+            ref: 3b85dd5ae9bba973ecd94832d955d87ef4a03d71
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -81,23 +81,11 @@ jobs:
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           # xctrace aborts on this virtual Mac (run 45993228691), so /usr/bin/sample (task_for_pid,
           # no kperf) samples each launch's threads for 8 s from the moment the process exists.
-          S="$RUNNER_TEMP/samples"; mkdir -p "$S"  # outside artifacts/: the sim script resets that dir (run 46000664879)
-          (
-            seen=" "
-            while :; do
-              for pid in $(pgrep -f 'CmuxMobileApp[.]app/CmuxMobileApp' || true); do
-                case "$seen" in *" $pid "*) continue ;; esac
-                seen="$seen$pid "
-                echo "$pid $(date +%s.%N)" >> "$S/pids.txt"
-                ( sleep 2; sample "$pid" 7 1 -mayDie -file "$S/sample-$pid.txt" > /dev/null 2>&1 ) &  # after dyld: sample reads the image list once, at attach (run 46009355400 had none)
-              done
-              sleep 0.02
-            done
-          ) &
-          sampler=$!
+          # No sampler this run: /usr/bin/sample at 1 ms stretched launches to 6-8 s (run 46025003942).
+          S="$RUNNER_TEMP/samples"; mkdir -p "$S"; sampler=
           st=0; bash scripts/ci/cmux-next-ios-sim.sh test ui=LaunchTTIUITests || st=$?  # the step shell is bash -e (run 46005665118)
           echo "status=$st" >> "$GITHUB_OUTPUT"
-          kill "$sampler" 2>/dev/null; sleep 9
+          [ -z "$sampler" ] || kill "$sampler" 2>/dev/null
           ls -la "$S" | head -40
           mkdir -p artifacts/ios-sim; tar -czf artifacts/ios-sim/samples.tgz -C "$RUNNER_TEMP" samples
 
