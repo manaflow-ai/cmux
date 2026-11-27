@@ -1,0 +1,37 @@
+// Grok: true black. A #000000 page and sidebar, a #0f0f0f card, off-white ink (#f5f5f5) and white as
+// the one accent: no color but the content's. Picked to evoke the Grok app, not measured.
+{
+  "name": "Grok",
+  "description": "True black: a black page and sidebar, off-white ink, white for marks.",
+
+  "appearance.theme": "Builtin Dark",
+  "appearance.appTheme": "followTerminal",
+  "colors": { "background": "#000000", "foreground": "#f5f5f5", "selection": "#3a3a3a", "accent": "#f5f5f5" },
+  "appearance.accent": "neutral",
+
+  "appearance.background": "none",
+  "appearance.borders": "none",
+  "appearance.chromeStyle": "flat-sidebar-line",
+  "appearance.titleAreaTone": "oneColor",
+  "appearance.density": "comfortable",
+
+  "appearance.metrics.sidebarWidth": 250,
+  "appearance.metrics.sidebarRowHeight": 32,
+  "appearance.metrics.chromeFontSize": 13,
+
+  "appearance.sidebarSurface": "separate",
+  "appearance.surfaces.sidebar.color": "#000000",
+  "appearance.surfaces.sidebar.opacity": 1,
+  "appearance.surfaces.agentPane.color": "#000000",
+  "appearance.surfaces.agentPane.opacity": 1,
+  "appearance.surfaces.tabBar.color": "#000000",
+  "appearance.surfaces.tabBar.opacity": 1,
+  "appearance.surfaces.newTabPage.color": "#000000",
+  "appearance.surfaces.newTabPage.opacity": 1,
+  "appearance.surfaces.splitDivider.color": "#1f1f1f",
+  "appearance.surfaces.splitDivider.opacity": 1,
+  "sidebar.border": true,
+  "sidebar.borderWidth": 1,
+  "sidebar.sectionLook": "quiet",
+  "appearance.statusIndicator.style": "dot"
+}

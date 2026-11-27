@@ -1,0 +1,17 @@
+/* Grok's chat: true black, your prompt a #1f1f1f bubble with no edge and large corners, cards a
+   hairline ring, links in the ink a step quieter. Only cmux.agentPane.style/1 tokens, on :root,
+   every color made from the theme's own. */
+:root {
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --cv-user-bubble-edge: transparent;
+  --cv-user-bubble-radius: 24px;
+  --cv-card-fill: color-mix(in srgb, var(--agent-text) 4%, transparent);
+  --cv-card-ring: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --cv-text: var(--agent-text);
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 66%, transparent);
+  --cv-text-dim: color-mix(in srgb, var(--agent-text) 56%, transparent);
+  --cv-activity-text: color-mix(in srgb, var(--agent-text) 66%, transparent);
+  --cv-link: color-mix(in srgb, var(--agent-text) 85%, var(--agent-page-bg));
+  --agent-link: color-mix(in srgb, var(--agent-text) 85%, var(--agent-page-bg));
+  --cv-composer-icon-radius: 50%;
+}

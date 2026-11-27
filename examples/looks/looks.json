@@ -68,6 +68,18 @@
       "pending": "An outside-only look on the chat layout settings (agentPane.display.layout.*): there is no built-in twin."
     },
     {
+      "id": "muse",
+      "addon": "muse",
+      "builtIn": null,
+      "pending": "An outside-only look that makes cmux a Muse bot (Muse Code on New Tab and Command-N): there is no built-in twin."
+    },
+    {
+      "id": "grok",
+      "addon": "grok",
+      "builtIn": null,
+      "pending": "An outside-only look that makes cmux a Grok bot (Grok on New Tab and Command-N): there is no built-in twin."
+    },
+    {
       "id": "grid",
       "addon": "grid",
       "builtIn": null,

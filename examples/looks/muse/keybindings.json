@@ -1,0 +1,9 @@
+[
+  {
+    "args": {
+      "harness": "muse"
+    },
+    "command": "palette.newAgentChat",
+    "key": "cmd+n"
+  }
+]

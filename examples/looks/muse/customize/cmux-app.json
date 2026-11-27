@@ -1,0 +1,18 @@
+{
+  "$schema": "https://cmux.dev/schemas/cmux-app/2.json",
+  "manifestVersion": 2,
+  "id": "local/customize",
+  "name": "Muse",
+  "version": "1.0.0",
+  "description": "Muse's home on every New Tab: a greeting, one prompt box that starts a Muse chat, a few suggestions and your recent Muse chats.",
+  "engines": { "cmux": "^2.0" },
+  "runtime": { "main": "main.js" },
+  "implements": {
+    "cmux.newtab/1": { "export": "renderHome", "title": "Muse", "symbol": "sparkle" }
+  },
+  "scopes": {
+    "agent_chat:read": "Read your agent chats, to list your recent Muse chats.",
+    "workspace:write": "Show a chat's workspace when you click it.",
+    "actions:run": "Start a Muse chat from the prompt box, or open a chat in a tab."
+  }
+}

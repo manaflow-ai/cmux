@@ -1,0 +1,50 @@
+{
+  "cmuxSetup": 1,
+  "id": "manaflow-ai/grok-look",
+  "name": "Grok",
+  "tagline": "cmux as a Grok bot: every new chat is Grok, on a true black page with white ink and a Grok home on every New Tab.",
+  "description": "A whole cmux look that turns cmux into a Grok assistant: the Grok home (a greeting, one prompt box that starts a Grok chat, suggestions, your recent Grok chats) on every New Tab, Command-N for a new Grok chat, a true black monochrome theme, soft bubbles over a pill message box centered in an empty chat and a sidebar of titles only. Built only from public surfaces; remove it and everything you had comes back.",
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "https://github.com/manaflow-ai/cmux/tree/feat-cmux-next/examples/looks/grok",
+  "screenshots": ["screenshots/grok-dark.png"],
+
+  "cmuxProfile": 1,
+  "settings": {
+    "appearance.themeFile": "grok",
+
+    // The Grok home on every New Tab (customize/: cmux.newtab/1); its prompt box starts a Grok chat.
+    "tabs.newTabApp": "local/customize",
+    "tabs.hideLoneChatTab": true,
+
+    // A chat assistant's shape: prompts in soft bubbles, a pill message box centered in an empty chat,
+    // a quiet header, and Grok's own words in the empty box.
+    "agentPane.display.presentation": "messages",
+    "agentPane.display.layout.messages": "bubbles",
+    "agentPane.display.layout.composer": "pill",
+    "agentPane.display.layout.header": "quiet",
+    "agentPane.emptyChatComposerPosition": "center",
+    "agentPane.composerPlaceholder": "What do you want to know?",
+    "agentPane.display.harnessPlacement": "symbols",
+    "agentPane.display.senderIcon.lead": "family",
+
+    "agentPane.display.font.preset": "system",
+    "agentPane.display.font.ui": "system-ui",
+    "agentPane.display.font.size": 15,
+    "agentPane.display.font.lineHeight": 1.6,
+    "agentPane.display.width": 720,
+    "agentPane.display.minimap": "off",
+
+    // A sidebar of chat titles only.
+    "sidebar.density": "comfortable",
+    "sidebar.groupBy": "none",
+    "sidebar.showTimestamps": false,
+    "sidebar.controlsOnHover": true,
+    "sidebar.detailedStatusIcons": false,
+    "sidebar.workspaceRow.icon": false,
+    "sidebar.workspaceRow.branch": false,
+    "sidebar.workspaceRow.directory": false,
+    "sidebar.workspaceRow.pullRequest": false,
+    "sidebar.workspaceRow.working": true
+  }
+}

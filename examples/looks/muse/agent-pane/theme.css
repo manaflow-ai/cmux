@@ -1,0 +1,17 @@
+/* Muse's chat: your prompt a blue-tinted bubble with large corners, cards a whisper of the accent,
+   links in the accent. Only cmux.agentPane.style/1 tokens, on :root, every color made from the
+   theme's own, so it reads over Muse and over any theme of your own. */
+:root {
+  --cv-user-bubble-tint: color-mix(in srgb, var(--agent-accent) 22%, transparent);
+  --cv-user-bubble-edge: color-mix(in srgb, var(--agent-accent) 30%, transparent);
+  --cv-user-bubble-radius: 20px;
+  --cv-card-fill: color-mix(in srgb, var(--agent-accent) 6%, transparent);
+  --cv-card-ring: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+  --cv-text: var(--agent-text);
+  --cv-text-muted: color-mix(in srgb, var(--agent-text) 72%, transparent);
+  --cv-text-dim: color-mix(in srgb, var(--agent-text) 64%, transparent);
+  --cv-activity-text: color-mix(in srgb, var(--agent-text) 72%, transparent);
+  --cv-link: color-mix(in srgb, var(--agent-accent) 70%, var(--agent-text));
+  --agent-link: color-mix(in srgb, var(--agent-accent) 70%, var(--agent-text));
+  --cv-composer-icon-radius: 50%;
+}

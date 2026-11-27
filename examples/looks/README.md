@@ -96,6 +96,8 @@ theme, stylesheet and view files are the repo's. Change a look in its repo.
 | [`workbench`](workbench) | this folder | A dense, code-first workbench: threads by project with their session tree, a mono-leaning chat, flat prompt rows, a square message box; cool neutral dark |
 | [`hearth`](hearth) | this folder | A warm chat assistant desk: serif prose on cream (or warm dark), prompts as soft cards, a quiet header |
 | [`halo`](halo) | this folder | A minimal chat assistant: near-monochrome, airy, bubbles over a pill message box, a sidebar of titles only |
+| [`muse`](muse) | this folder | cmux as a Muse bot: Muse Code on every New Tab and Command-N, deep ink with Meta blue, bubbles over a centered pill |
+| [`grok`](grok) | this folder | cmux as a Grok bot: Grok on every New Tab and Command-N, true black monochrome, bubbles over a centered pill |
 
 ```sh
 cmux setup install github.com/manaflow-ai/cmux-studio-look   # on, as one layer
