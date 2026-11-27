@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45920286186",
+  "recorded_at": "2026-11-27T01:30:30Z",
+  "reason": "image inputs changed in 2bc4a4ef426fb5a7d86791b8ccca88aa0b1a84d8..a4b53a829db9bfbffd76098bf86af6d76233ae6b; cmux-tui stays 348e8a8aff37 (latest build 3bb7a878c526 is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "348e8a8aff37009a312146c16aa19198274a3a1a",
+  "fixes": [
+    {
+      "sha": "a4b53a829db9bfbffd76098bf86af6d76233ae6b",
+      "mergedAt": "2026-11-27T01:02:48Z",
+      "subject": "devbox ws smoke: poll the pane's snapshot for its marker instead of a fixed 2 s (#59928)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-27T01:30:30Z",
+    "snapshot_id": "sh-ace2a6a18146454eace3d6afaf61d9e4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45920286186): 32 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "43fe81ea08bef51c4f1d957306a2fef7fe0f9bb0",
+    "image": "cloud-native-auto-348e8a8a-45920286186-1",
+    "revision": "ci-45920286186-1",
+    "at": "2026-11-27T01:30:30Z"
+  },
+  "rolled_back": false
+}
