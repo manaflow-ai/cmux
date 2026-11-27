@@ -659,6 +659,10 @@ path = "tests/test_ci_fork_runner_routing.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_secret_jobs_secret_jit.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_checkout_network_diagnostics.py"
 lane = "linux-guard"
 
@@ -968,6 +972,10 @@ path = "tests/test_gh_app_token.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_app_token_spread_pool.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_continuation_jobs_wait_through_rate_limits.py"
 lane = "linux-guard"
 
@@ -977,6 +985,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_nightly_next_feed_watch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_precheck_scan.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_tick_request_bound.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1912,6 +1928,10 @@ path = "tests/test_ci_runner_set.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_download_artifact_stall.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cloud_journey_prod_own_login.py"
 lane = "linux-guard"
 
@@ -2095,6 +2115,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_cron_concurrency.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_namespace_autofix_rate_limit_wait.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_publication_guard_release_read.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2423,6 +2451,10 @@ path = "tests/test_ci_dev_daily_drops_signed_handoff.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_warnings_policy.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_pr_runs_cancel_superseded.py"
 lane = "linux-guard"
 
@@ -2448,6 +2480,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_risk_tier_grades_once.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_risk_tier_rate_limit_wait.py"
 lane = "linux-guard"
 
 [[test]]
@@ -2511,7 +2547,15 @@ path = "tests/test_nightly_next_tick_checkout_retry.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_nightly_next_tick_request_bound.py"
+path = "tests/test_ci_ghostty_zig_packages_fetched.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_duplicate_keys.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_debug_labs_keys_dispatch.py"
 lane = "linux-guard"
 
 [[test]]

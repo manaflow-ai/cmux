@@ -687,6 +687,108 @@ def started_nothing_while_queued(snapshot: Mapping[str, Any], label: str, load: 
 # not full (label_evidence()). A few idle runners are a reading's noise (one finishing its job, one about to take the
 # next); hundreds are room the queue is not using. Leo, 2026-11-19, on Blacksmith: "stop ... relying on it".
 OWNED_IDLE_HEADROOM = 4
+# How long a job may wait on the Freestyle rung before its pools move to the owned GCP label after it. The Blacksmith
+# cutoff (simple_pool_picker.BLACKSMITH_STALL_MINUTES, 10) held Freestyle-led pools on a rung that started nothing for
+# ten minutes or more, while the GCP pool behind it starts a job in seconds: 2026-11-26 19:40-20:30Z, 19 jobs started
+# on cmux-freestyle-linux-x64 at p50 3.9 min and p95 13.7 min, and 20 still waited at 20:35Z, the oldest 28 min, 16 of
+# them in this repository (cmux-next.yml fast tier (cargo) x7). Every Linux job should start within 2 min
+# (cmuxterm-hq goals/ci-linux-on-pool.md), the bound cmuxterm-hq's own Freestyle pool overflows at
+# (cmuxterm-hq#29236). Leo, 2026-11-19: "We still keep Blacksmith sometimes, but stop fucking relying on it."
+OWNED_FREESTYLE_STALL_MINUTES = 2
+
+
+def owned_stalled(label: str, queued: int, oldest: float) -> bool:
+    """Whether an owned lead's queue waited its cutoff: OWNED_FREESTYLE_STALL_MINUTES on the Freestyle rung, the
+    Blacksmith rule (simple_pool_picker.blacksmith_stalled()) on every other owned label."""
+    if owned_freestyle(label):
+        return queued > 0 and oldest >= OWNED_FREESTYLE_STALL_MINUTES
+    return simple_pool_picker.blacksmith_stalled(queued, oldest)
+
+
+# cmuxterm-hq's ci_dash writes cmux's CI_FLEET_GATES every 60-120 s from GitHub's live webhook queue, and since
+# cmuxterm-hq#30170 it carries the Freestyle rung's queue under a top-level "queues" (label -> queued and
+# oldest_queued_s; never under "labels", whose reader is the queue janitor's and owns those). The janitor's snapshot
+# is 10-20 min old by the time a pass reads it, so with it alone a Freestyle wait was seen past its 2 min cutoff
+# 10-20 min late, and every Freestyle-led pool kept sending jobs to a full rung meanwhile (2026-11-26 19:40-20:30Z:
+# p95 13.7 min). A reading older than this decides nothing: the staleness bound CI_FLEET_GATES' readers use.
+FLEET_GATES_VARIABLE = "CI_FLEET_GATES"
+FLEET_GATES_MAX_AGE = dt.timedelta(minutes=5)
+
+
+def gates_queues(gates: Mapping[str, Any] | None, *, now: dt.datetime
+                 ) -> tuple[dt.datetime | None, dict[str, tuple[int, float]]]:
+    """(as_of, owned lead label -> (queued, oldest minutes)) from a fresh CI_FLEET_GATES reading's "queues", else
+    (None, {}). Only owned leads (owned_lead()) are kept: a Blacksmith size's wait means nothing without its starts."""
+    if not isinstance(gates, Mapping):
+        return None, {}
+    as_of = parse_time(gates.get("as_of"))
+    queues = gates.get("queues")
+    if as_of is None or not isinstance(queues, Mapping) or \
+            not (dt.timedelta(minutes=-1) <= now - as_of <= FLEET_GATES_MAX_AGE):
+        return None, {}
+    found: dict[str, tuple[int, float]] = {}
+    for label, row in queues.items():
+        if not (isinstance(label, str) and owned_lead(label) and isinstance(row, Mapping)):
+            continue
+        try:
+            found[label] = (int(row.get("queued") or 0), float(row.get("oldest_queued_s") or 0) / 60)
+        except (TypeError, ValueError):
+            continue
+    return as_of, found
+
+
+# The share of the Freestyle rung's started jobs that ended cancelled (GitHub reports a job's own timeout-minutes as
+# cancelled) above which the rung is marked dead, once at least CUT_MIN_FINISHED of them finished in the window.
+# cmuxterm-hq's ci_dash counts them beside the rung's queue in CI_FLEET_GATES ("queues" row: finished,
+# cancelled_after_start, window_s; ci_dash.pool_cuts(), every fsr-* runner whatever label its job asked), the way
+# build-fleet/data/ci_per_pr.py counts useless runner-hours. 2026-11-26 06Z..11-27 06Z: 989 runner-h/day were
+# cancelled after start, 295 h of it on fsr-* runners, 720 of 2,943 jobs (24%); cmux-next fast tier (cargo) there:
+# 5 success / 255 cancelled / 127 failure of 387, at its 30 min timeout (median 14 min on cmux-runner-pool-*). The GCP
+# pool's runners cancelled 2.1% (564 of 27,379, the 4 h to 11-27 09:1xZ, superseded pushes mostly), Freestyle 10.5% in
+# those 4 h once the 08:31Z queue-wait mark had moved the pools off it. Nothing marked the rung dead for its jobs timing
+# out, only a queue wait did. Leo: "fix that today, not in a writeup". The mark is label_evidence()'s full mark: a
+# start does not clear it, it renews while the share holds, and it expires DEAD_TTL after the share falls.
+CUT_SHARE_DEAD = 0.15
+CUT_MIN_FINISHED = 40
+
+
+def cut_share_dead(gates: Mapping[str, Any] | None, *, now: dt.datetime) -> dict[str, str]:
+    """owned lead label -> why, for each "queues" row of a fresh CI_FLEET_GATES reading (gates_queues()'s freshness) that
+    shows at least CUT_MIN_FINISHED finished jobs of which at least CUT_SHARE_DEAD ended cancelled after start."""
+    if gates_queues(gates, now=now)[0] is None:
+        return {}
+    found: dict[str, str] = {}
+    for label, row in (gates.get("queues") or {}).items():
+        if not (isinstance(label, str) and owned_lead(label) and isinstance(row, Mapping)):
+            continue
+        try:
+            finished = int(row.get("finished") or 0)
+            cut = int(row.get("cancelled_after_start") or 0)
+            window = int(row.get("window_s") or 0)
+        except (TypeError, ValueError):
+            continue
+        if finished >= CUT_MIN_FINISHED and 0 <= cut <= finished and cut >= CUT_SHARE_DEAD * finished:
+            found[label] = (f"{label}: {cut} of {finished} jobs started there in the last {window / 3600:g} h ended "
+                            f"cancelled ({100 * cut / finished:.0f}%, mark at {CUT_SHARE_DEAD:.0%}) in "
+                            f"{FLEET_GATES_VARIABLE}; dead")
+    return found
+
+
+def _gates(switch: Any, env: Mapping[str, str]) -> Mapping[str, Any] | None:
+    """CI_FLEET_GATES: live through the API when a client can read it, else the job's env (as _health())."""
+    raw = None
+    if switch is not None and hasattr(switch, "get_variable"):
+        try:
+            raw = switch.get_variable(FLEET_GATES_VARIABLE)
+        except Exception as error:  # noqa: BLE001 - no reading only means the snapshot alone decides
+            print(f"::warning title=Runner pools::could not read {FLEET_GATES_VARIABLE} ({error}); using the job's value")
+    if raw is None:
+        raw = env.get(FLEET_GATES_VARIABLE)
+    try:
+        value = json.loads(raw) if (raw or "").strip() else None
+    except ValueError:
+        value = None
+    return value if isinstance(value, Mapping) else None
 
 
 def owned_idle(load: Mapping[str, Any]) -> int | None:
@@ -697,7 +799,7 @@ def owned_idle(load: Mapping[str, Any]) -> int | None:
 
 
 def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None, *,
-                   now: dt.datetime) -> tuple[set[str], set[str], list[str]]:
+                   now: dt.datetime, gates: Mapping[str, Any] | None = None) -> tuple[set[str], set[str], list[str]]:
     """(dead, started, notes): the labels seen starting nothing, the labels seen starting a job.
 
     A probe's stall counts only beside a fresh, complete janitor snapshot, whose `label_started` tells a dead size
@@ -761,7 +863,7 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 # read cmux-fleet-linux-x64 1 queued, oldest 0 min, 884 running, a start at 09:03Z; at 35 min old,
                 # 0 + 35 crossed the cutoff, the label was marked full, and linux, linux_2, linux_8, linux_16 and
                 # linux_32 ran on Blacksmith until 10:25Z. Leo, 2026-11-19, on Blacksmith: "stop ... relying on it".
-                if not simple_pool_picker.blacksmith_stalled(queued, oldest):
+                if not owned_stalled(label, queued, oldest):
                     continue
                 idle = owned_idle(load)
                 if idle is not None and idle > OWNED_IDLE_HEADROOM:
@@ -785,6 +887,28 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
                 live = entry.get("live")
                 if isinstance(live, list):
                     started |= {str(label) for label in live if isinstance(label, str)}
+    # An owned lead's queue in CI_FLEET_GATES (gates_queues()), read when it is newer than the snapshot or the snapshot
+    # decides nothing: the newer wait replaces the older one. It only marks a lead full; clearing stays with starts and
+    # DEAD_TTL, so a rung the pools just left (its queue draining because nothing new goes there) is not sent jobs again.
+    as_of, queues = gates_queues(gates, now=now)
+    snapshot_fresh = generated is not None and dt.timedelta(minutes=-1) <= now - generated <= SNAPSHOT_MAX_AGE \
+        and not pr_runner_pool.snapshot_truncated(snapshot)
+    if as_of is not None and (not snapshot_fresh or as_of > generated):
+        for label, (queued, oldest) in sorted(queues.items()):
+            if owned_stalled(label, queued, oldest):
+                if label not in full:
+                    notes.append(f"{label}: {queued} queued, oldest {oldest:.1f} min in {FLEET_GATES_VARIABLE} "
+                                 f"({iso(as_of)}); full")
+                full.add(label)
+            elif label in full:
+                notes.append(f"{label}: {queued} queued, oldest {oldest:.1f} min in {FLEET_GATES_VARIABLE} "
+                             f"({iso(as_of)}), newer than the snapshot; not full")
+                full.discard(label)
+    # A rung whose started jobs keep ending cancelled (their timeout) is dead however fast it starts them
+    # (cut_share_dead()); after the queue rule, so a short wait never clears it.
+    for label, why in sorted(cut_share_dead(gates, now=now).items()):
+        notes.append(why)
+        full.add(label)
     if stalls - started:
         notes.append(f"probe stalled on {', '.join(sorted(stalls - started))} with no fresh janitor snapshot to tell a "
                      "dead size from a full vCPU cap; no new dead mark")
@@ -794,7 +918,8 @@ def label_evidence(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any]
 
 
 def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any] | None,
-                    pools: Mapping[str, Mapping[str, Any]], *, now: dt.datetime) -> set[str]:
+                    pools: Mapping[str, Mapping[str, Any]], *, now: dt.datetime,
+                    gates: Mapping[str, Any] | None = None) -> set[str]:
     """The labels this pass has fresh evidence about, so a dead mark on one may expire.
 
     The probe's health (fresh, as label_evidence() reads it) covers the labels it lists. The janitor's
@@ -816,6 +941,8 @@ def evidence_covers(health: Mapping[str, Any] | None, snapshot: Mapping[str, Any
         # A size the janitor saw start a job recently is covered too, truncated or not: label_evidence() calls it
         # started.
         covered |= recently_started(snapshot, now=now)
+    # A fresh CI_FLEET_GATES reading covers the owned leads whose queue it carries (gates_queues()).
+    covered |= set(gates_queues(gates, now=now)[1])
     return covered
 
 
@@ -949,6 +1076,111 @@ class Variables:
         self.client.set_variable(name, value)
 
 
+# The watch job (ci-cloud-overflow-probe.yml) runs a full pass every 10 minutes. Between passes --fast-watch reads
+# CI_FLEET_GATES every FAST_WATCH_EVERY seconds and runs a pass as soon as it shows an owned lead past its cutoff that
+# RUNNER_POOLS has not marked (gates_due()), until FAST_WATCH_MARGIN before the next scheduled run and at most
+# FAST_WATCH_MAX: the next run waits on the watch's concurrency group, so the watch never runs past its own slot.
+# One variable read a tick; a pass (its janitor snapshot, health and run sample reads) only when the verdict changed.
+FAST_WATCH_EVERY = 30
+FAST_WATCH_MAX = dt.timedelta(minutes=9)
+FAST_WATCH_MARGIN = dt.timedelta(seconds=20)
+FAST_WATCH_SLOT = dt.timedelta(minutes=10)
+
+
+def dead_marks(raw: str | None) -> set[str]:
+    """The labels a RUNNER_POOLS value's `_dead` names; an unreadable value names none."""
+    try:
+        value = json.loads(raw) if (raw or "").strip() else {}
+    except ValueError:
+        return set()
+    dead = value.get(DEAD_KEY) if isinstance(value, Mapping) else None
+    return {str(label) for label in dead} if isinstance(dead, Mapping) else set()
+
+
+def gates_due(gates: Mapping[str, Any] | None, pools_raw: str | None, *, now: dt.datetime) -> list[str]:
+    """The owned leads a fresh CI_FLEET_GATES reading shows past their cutoff (owned_stalled()) that RUNNER_POOLS
+    does not mark yet: a full pass now moves their pools off them."""
+    _, queues = gates_queues(gates, now=now)
+    marked = dead_marks(pools_raw)
+    return sorted(label for label, (queued, oldest) in queues.items()
+                  if owned_stalled(label, queued, oldest) and label not in marked)
+
+
+def fast_watch_deadline(start: dt.datetime) -> dt.datetime:
+    """FAST_WATCH_MARGIN before the next FAST_WATCH_SLOT boundary (the schedule's next run), at most FAST_WATCH_MAX."""
+    slot = FAST_WATCH_SLOT.total_seconds()
+    boundary = dt.datetime.fromtimestamp((start.timestamp() // slot + 1) * slot, UTC)
+    return min(boundary - FAST_WATCH_MARGIN, start + FAST_WATCH_MAX)
+
+
+def run_full_pass(env: Mapping[str, str], pools_raw: str | None) -> int:
+    """One full pass as the watch's pools step runs it: the spill entry point when checked out, else this policy
+    alone, planning from the live RUNNER_POOLS (the job-start value predates this job's own writes)."""
+    import subprocess  # noqa: PLC0415 - only the fast watch starts passes
+    child = {**env, VARIABLE: pools_raw or env.get(VARIABLE) or ""}
+    spill = (env.get("SPILL_TOOLING") or "").strip()
+    if spill and Path(spill).is_file():
+        code = subprocess.run([sys.executable, spill, "--policy-root", str(ROOT)], env=child, check=False).returncode
+        if code == 0:
+            return 0
+        print("::warning title=Runner pools::the linux pool spill failed; main's runner_pools.py runs alone")
+    return subprocess.run([sys.executable, str(Path(__file__).resolve())], env=child, check=False).returncode
+
+
+def fast_watch(env: Mapping[str, str], switch: Any, *, clock: Any = None, sleep: Any = None, run_pass: Any = None,
+               every: float = FAST_WATCH_EVERY, deadline: dt.datetime | None = None) -> int:
+    """Re-judge the owned leads from CI_FLEET_GATES every `every` seconds until `deadline`; a pass when gates_due().
+    A label one pass already ran for is not run for again this watch: a pass that did not mark it would not on the
+    next tick either, and each costs about 54 API reads."""
+    import time  # noqa: PLC0415
+    clock = clock or (lambda: dt.datetime.now(UTC))
+    sleep = sleep or time.sleep
+    run_pass = run_pass or run_full_pass
+    if switch is None or not hasattr(switch, "get_variable"):
+        print(f"::warning title=Runner pools::no switch token to read {FLEET_GATES_VARIABLE} live; no fast watch")
+        return 0
+    deadline = deadline or fast_watch_deadline(clock())
+
+    def live_pools() -> str | None:
+        try:
+            return switch.get_variable(VARIABLE)
+        except Exception as error:  # noqa: BLE001 - unread: the next tick reads again
+            print(f"::warning title=Runner pools::could not read {VARIABLE} ({error})")
+            return None
+
+    pools_raw = live_pools()
+    tried: set[str] = set()
+    ticks = passes = 0
+    while clock() + dt.timedelta(seconds=every) <= deadline:
+        sleep(every)
+        ticks += 1
+        now = clock()
+        try:
+            raw = switch.get_variable(FLEET_GATES_VARIABLE)
+            gates = json.loads(raw) if (raw or "").strip() else None
+        except Exception as error:  # noqa: BLE001 - one missed reading; the next tick reads again
+            print(f"{iso(now)} could not read {FLEET_GATES_VARIABLE} ({error})")
+            continue
+        if pools_raw is None:
+            pools_raw = live_pools()
+            if pools_raw is None:
+                continue
+        due = [label for label in gates_due(gates if isinstance(gates, Mapping) else None, pools_raw, now=now)
+               if label not in tried]
+        if not due:
+            continue
+        print(f"{iso(now)} {FLEET_GATES_VARIABLE} shows {', '.join(due)} past its cutoff, unmarked in {VARIABLE}; "
+              "running a pass")
+        tried |= set(due)
+        passes += 1
+        code = run_pass(env, pools_raw)
+        if code != 0:
+            print(f"::warning title=Runner pools::the fast watch's pass exited {code}")
+        pools_raw = live_pools()
+    print(f"fast watch: {ticks} ticks, {passes} passes, until {iso(deadline)}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None, *,
          api: Any = None, switch: Any = None, now: dt.datetime | None = None, fallback: Any = None) -> int:
     env = os.environ if env is None else env
@@ -956,7 +1188,15 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
     parser.add_argument("--check", action="store_true", help="validate the live RUNNER_POOLS and exit")
     parser.add_argument("--dry-run", action="store_true",
                         default=(env.get("DRY_RUN", "").strip().lower() in {"1", "true", "yes"}))
+    parser.add_argument("--fast-watch", action="store_true",
+                        help=f"re-judge the owned leads from {FLEET_GATES_VARIABLE} every {FAST_WATCH_EVERY} s until "
+                             "the next scheduled pass, running a pass when one is due (fast_watch())")
     args = parser.parse_args(argv)
+    if args.fast_watch:
+        repo = env.get("GH_REPO") or env.get("GITHUB_REPOSITORY") or ""
+        if switch is None and (env.get("SWITCH_TOKEN") or "").strip() and repo:
+            switch = Variables(str(env["SWITCH_TOKEN"]).strip(), repo)
+        return fast_watch(env, switch)
     now = now or dt.datetime.now(UTC)
     pools = load_pools(env=env)
     stale_override = (env.get(HOSTED_OVERRIDE) or "").strip()
@@ -1012,11 +1252,12 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                     print(f"::warning title=Runner pools::no janitor snapshot ({error}; fallback: {second}); "
                           "judging on the probe alone")
     health = _health(switch, env)
-    dead, started, notes = label_evidence(health, snapshot, now=now)
+    gates = _gates(switch, env)
+    dead, started, notes = label_evidence(health, snapshot, now=now, gates=gates)
     for note in notes:
         print(note)
     value, lines = reconcile(current, pools, dead_now=dead, served_now=started, now=now,
-                             covered=evidence_covers(health, snapshot, pools, now=now))
+                             covered=evidence_covers(health, snapshot, pools, now=now, gates=gates))
     # The mirrored and raw-label variables and the switch's record, read live: the switch step just before this
     # one may have moved them, so the job-start values could undo its failover.
     live, record, readable = _live(switch, env)

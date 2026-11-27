@@ -1337,14 +1337,14 @@ jobs:
         run: bash scripts/ci/gh_budget_wait.sh --install
 
       - name: Download all accepted variants
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6.0.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: cmux-${{ needs.preflight.outputs.channel }}-notarization-verified-*-${{ needs.preflight.outputs.short_sha }}
           path: verified
           merge-multiple: false
 
       - name: Download tested digests
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: cmux-${{ needs.preflight.outputs.channel }}-launch-tested-*-${{ needs.preflight.outputs.short_sha }}
           path: tested
@@ -1683,6 +1683,8 @@ jobs:
           fi
 
       - name: Close deferred nightly failure incident
+        # Bookkeeping after publication: never turns a published run red.
+        continue-on-error: true
         if: env.ALREADY_PUBLISHED != 'true' || env.ALREADY_PUBLISHED_SAME_SOURCE == 'true'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
@@ -1743,7 +1745,7 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       - name: Download accepted variant
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6.0.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: cmux-${{ needs.preflight.outputs.channel }}-notarization-verified-${{ matrix.variant }}-${{ needs.preflight.outputs.short_sha }}
           path: nightly-delta/input
@@ -1866,7 +1868,7 @@ jobs:
         run: bash scripts/ci/gh_budget_wait.sh --install
 
       - name: Download delta results
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6.0.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: cmux-${{ needs.preflight.outputs.channel }}-notarization-deltas-*-${{ needs.preflight.outputs.short_sha }}
           path: nightly-deltas

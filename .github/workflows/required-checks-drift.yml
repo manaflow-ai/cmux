@@ -56,7 +56,7 @@ jobs:
     name: Reconcile required checks with GitHub
     # The cmux-bot mint below holds an App key, so no variable may move this job to a reused machine
     # (RUNNER_POOLS could): LINUX_RUNNER moves it only among Blacksmith sizes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 10
     steps:
       - name: Check out the reconciliation

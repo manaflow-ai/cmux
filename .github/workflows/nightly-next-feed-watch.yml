@@ -99,7 +99,7 @@ jobs:
       - name: Resume a failed nightly-next signing from its saved unsigned app
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
           REPOSITORY: ${{ github.repository }}
           MAX_RESUMES: ${{ vars.NIGHTLY_NEXT_MAX_UNSIGNED_RESUMES || '2' }}
         run: python3 scripts/ci/nightly_next_unsigned_resume.py --repo "$REPOSITORY" --max-resumes "$MAX_RESUMES"

@@ -247,7 +247,9 @@ jobs:
               sleep $((try == 1 ? 5 : 15)); try=$((try + 1))
             done
           }
-          git_retry "fetch of the head $HEAD_SHA" 90 -C trusted fetch --quiet --no-tags --depth=1 origin "+$HEAD_SHA:refs/remotes/origin/head" || exit 1
+          # A head the runner's mirror already holds (trusted/ borrows its objects when it served the base) needs no fetch.
+          git -C trusted cat-file -e "$HEAD_SHA^{commit}" 2>/dev/null ||
+            git_retry "fetch of the head $HEAD_SHA" 90 -C trusted fetch --quiet --no-tags --depth=1 origin "+$HEAD_SHA:refs/remotes/origin/head" || exit 1
           base_tree=$(git -C trusted rev-parse --verify --quiet "$BASE_SHA:backend/db/migrations" || echo none)
           head_tree=$(git -C trusted rev-parse --verify --quiet "$HEAD_SHA:backend/db/migrations" || echo none)
           if [ "$base_tree" = "$head_tree" ]; then echo "same=true" >> "$GITHUB_OUTPUT"; else echo "same=false" >> "$GITHUB_OUTPUT"; fi
@@ -274,6 +276,7 @@ jobs:
           route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
           bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
           bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          pool-tokens: ${{ secrets.CI_POOL_TOKEN_1 }} ${{ secrets.CI_POOL_TOKEN_2 }}
           owner: ${{ github.repository_owner }}
           repositories: ${{ github.event.repository.name }}
           permission-pull-requests: read

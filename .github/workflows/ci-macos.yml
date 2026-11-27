@@ -208,6 +208,10 @@ env:
   # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh, fetched at a fixed commit when the checkout has no copy).
   BASH_ENV: '$({ w="${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh"; t="${RUNNER_TEMP:-/nonexistent}/api-call-log-src"; if [ -f "$w" ]; then echo "$w"; elif [ -n "${RUNNER_TEMP:-}" ]; then if [ ! -f "$t/env.sh" ] && [ ! -e "$t.tried" ] && { [ "${RUNNER_OS:-}" = Linux ] || [ "${RUNNER_OS:-}" = macOS ]; } && [ "$(date -u +%Y%m%d%H)" -lt 2026112300 ]; then : > "$t.tried"; mkdir -p "$t.part" && for x in env.sh gh sitecustomize.py isolated.py; do curl -fsSL --max-time 5 -o "$t.part/$x" "https://raw.githubusercontent.com/manaflow-ai/cmux/27647ffd3ae838c63be28ca3e5883dcd68c34518/scripts/ci/api_call_log/$x" || break; done; [ -s "$t.part/isolated.py" ] && mv "$t.part" "$t"; fi; if [ -f "$t/env.sh" ]; then echo "$t/env.sh"; else echo unset BASH_ENV > "$t.off.sh" && echo "$t.off.sh"; fi; fi; } 2>/dev/null)'
   CI_CACHE_R2_PUBLIC_URL: ${{ vars.CI_CACHE_R2_PUBLIC_URL || 'https://ci-cache.cmux.com' }}
+  # Warnings never fail a pull request's compile (Leo, 2026-11-19): the Swift warning budget and the package
+  # lane's -warnings-as-errors only warn there; merge queues, pushes, nightly and release keep them errors.
+  # scripts/ci/warnings_policy.py.
+  CI_WARNINGS: ${{ github.event_name == 'pull_request' && 'soft' || 'deny' }}
   # Which schemes the producer builds, and the profile the product's identity
   # records. A purely CLI-routed change only feeds cli-product-tests, which
   # needs the cmux-cli product and its test bundle -- not the app, and not the
@@ -221,6 +225,10 @@ env:
   # -- a consumer recomputing a different profile's identity simply declines
   # the artifact, which would silently cost a compile instead of reusing one.
   CMUX_PRODUCT_PROFILE: ${{ inputs.macos == 'true' && (inputs.full_suite == 'true' || inputs.unit_suite == 'true' || inputs.compile_admitted != 'true') && 'app-host' || 'cli' }}
+  # Production app-cache enablement is a bounded canary. Keep the historical
+  # safe default off; set the repository variable to 1 only while collecting
+  # a real Mac hit/miss and compile-time receipt for the RFD0165 decision.
+  CMUX_CI_ENABLE_APP_COMPILATION_CACHE: ${{ vars.CMUX_CI_ENABLE_APP_COMPILATION_CACHE || '0' }}
 
 jobs:
   admission-placement:
@@ -237,7 +245,7 @@ jobs:
     # no gap to take the pinned runner first. Any failure outputs "" and
     # admission keeps pr_admission_runner on attempt 1, its label after.
     if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'workflow_dispatch') && vars.CI_OWNED_SPREAD == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (startsWith(inputs.pr_root_runner, 'glaeda-root-') || startsWith(inputs.pr_root_runner, 'glaeda-aws-root-')) && contains(inputs.pr_owned_jobs, ' admission ') && (inputs.macos == 'true' || inputs.cli == 'true') && (inputs.compile_admitted != 'true' || inputs.full_suite == 'true' || inputs.cli == 'true') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 3
     permissions:
       contents: read
@@ -1782,7 +1790,7 @@ jobs:
     needs:
       - macos-compile-admission
     if: ${{ !cancelled() && needs.macos-compile-admission.result == 'success' && github.repository_owner == 'manaflow-ai' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.CI_PR_POOL_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != '' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     timeout-minutes: 3
     permissions:
       contents: read
@@ -3905,6 +3913,7 @@ jobs:
             --script scripts/ci/package-test-lane.sh --ref "$GITHUB_SHA" \
             --arg=run --arg="--event=$EVENT_NAME" --arg="--full-suite=$FULL_SUITE" \
             --env "CMUX_CI_XCODE_APP=$STEP_XCODE_APP" \
+            --env "CI_WARNINGS=$CI_WARNINGS" \
             --env CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=26 | tee "$lane_log" || status=$?
           # The fleet step has no GITHUB_OUTPUT; its fingerprint receipt comes
           # back as one line of the streamed log.
@@ -4471,7 +4480,7 @@ jobs:
     env:
       # The owned label's Xcode exactly when runs-on took it, as swift-package-tests.
       CMUX_CI_XCODE_APP: ${{ (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
-      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: ${{ contains(((github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) && (inputs.pr_xcode_app || vars.CMUX_CI_XCODE_APP_PR) || vars.CMUX_CI_XCODE_APP_MACOS_26), 'Xcode_27') && '27' || '26' }}
       CMUX_SKIP_ZIG_BUILD: "1"
       CMUX_PRODUCT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && !contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && 'blacksmith-6vcpu-macos-26' || github.event_name == 'pull_request' && inputs.pr_grant != '' && fromJSON(inputs.pr_grant)[0] || (github.event_name == 'pull_request' && contains(fromJSON(inputs.owned_head_repos), github.event.pull_request.head.repo.full_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') || github.event_name == 'workflow_dispatch' && github.run_attempt <= 2) && contains(inputs.pr_owned_jobs, ' release-build ') && (inputs.pr_side_runner || inputs.pr_runner) || contains(fromJSON('["pull_request","workflow_dispatch"]'), github.event_name) && vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
       CMUX_RELEASE_SOURCE_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}

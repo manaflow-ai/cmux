@@ -52,8 +52,8 @@ jobs:
     concurrency:
       group: risk-evidence-${{ github.event.pull_request.number }}${{ (((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'risk:human-ok' && github.event.label.name != 'risk:waived' && (github.event.label.name != 'freeze-ok' || vars.MERGE_FREEZE_OWN_RUNNER == '1')) || (github.event.action == 'edited' && !github.event.changes.body && !github.event.changes.base)) && format('-ignored-{0}', github.run_id) || '' }}
       cancel-in-progress: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token
-    timeout-minutes: 8
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }} # ephemeral-required: trusted pull-request-write token
+    timeout-minutes: 10  # the grade, plus the grade step's RATE_LIMIT_WAIT_S (420 s) wait for a refused budget; at most cron_concurrency's TRIVIAL_TIMEOUT_MINUTES
     permissions:
       contents: read
       pull-requests: write
@@ -228,6 +228,13 @@ jobs:
           gh api rate_limit --jq
           '"app-budget \(env.PROBE) used=\(.resources.core.used) reset=\(.resources.core.reset) at=\(now | floor)"'
 
+      # A grade both tokens' budgets refused (risk_tier.py's `risk-evidence.rate-limited {json}` marker, tier=ungraded)
+      # is graded again once after the sooner of the two resets the markers name, when that is at most
+      # RATE_LIMIT_WAIT_S away, on the token that resets first. It stays red (exit 1, no verdict) when the reset is
+      # further off or the regrade is refused again: an ungraded pull request never passes as graded. Before this the
+      # red went to a rerun that, inside the same hour, was refused the same way: cmux#61052 run 45967298587 was red
+      # on two attempts, the App's budget back at 08:51:11Z and GITHUB_TOKEN's at 08:54:41Z, 5.7 and 9.2 min after
+      # the 08:45:29Z refusals (tests/test_ci_risk_tier_rate_limit_wait.py).
       - name: Grade the pull request
         id: grade
         env:
@@ -235,15 +242,48 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
+          RATE_LIMIT_WAIT_S: '420'
         run: |
           grade() {
             : > "$RUNNER_TEMP/grade.out"; : > "$RUNNER_TEMP/grade.md"
             python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER" ${BASE_HISTORY:+--repo-dir "$BASE_HISTORY"} \
-              --github-output "$RUNNER_TEMP/grade.out" --summary "$RUNNER_TEMP/grade.md"
+              --github-output "$RUNNER_TEMP/grade.out" --summary "$RUNNER_TEMP/grade.md" | tee "$RUNNER_TEMP/grade.log"
+            return "${PIPESTATUS[0]}"
+          }
+          # The reset epoch of the last grade's quota refusal, or nothing when it was graded or failed otherwise.
+          refused_until() {
+            grep -qx 'tier=ungraded' "$RUNNER_TEMP/grade.out" || return 0
+            sed -n 's/^risk-evidence\.rate-limited .*"reset": \([0-9][0-9]*\).*/\1/p' "$RUNNER_TEMP/grade.log" | tail -n 1
           }
           if [ -z "${READ_TOKEN:-}" ] || ! GH_TOKEN="$READ_TOKEN" grade; then
-            [ -z "${READ_TOKEN:-}" ] || echo "::warning::the glaeda-route App's read failed; grading on GITHUB_TOKEN"
-            grade
+            app_reset=""
+            if [ -n "${READ_TOKEN:-}" ]; then
+              app_reset="$(refused_until)"
+              echo "::warning::the glaeda-route App's read failed; grading on GITHUB_TOKEN"
+            fi
+            rc=0
+            grade || rc=$?
+            if [ "$rc" != 0 ]; then
+              job_reset="$(refused_until)"
+              token="" reset=""
+              if [ -n "$job_reset" ]; then token="$GH_TOKEN" reset="$job_reset"; fi
+              if [ -n "$app_reset" ] && { [ -z "$reset" ] || [ "$app_reset" -lt "$reset" ]; }; then
+                token="$READ_TOKEN" reset="$app_reset"
+              fi
+              if [ -n "$reset" ] && [ -n "$job_reset" ] && { [ -z "${READ_TOKEN:-}" ] || [ -n "$app_reset" ]; }; then
+                wait=$(( reset - $(date +%s) + 5 ))
+                [ "$wait" -ge 1 ] || wait=1
+                if [ "$wait" -le "$RATE_LIMIT_WAIT_S" ]; then
+                  echo "::notice::risk evidence: every token's budget refused the grade; grading again in ${wait}s, after the reset at $(date -u -d "@$reset" +%H:%M:%SZ)"
+                  sleep "$wait"
+                  rc=0
+                  GH_TOKEN="$token" grade || rc=$?
+                else
+                  echo "::warning::risk evidence: ungraded, the soonest budget reset ($(date -u -d "@$reset" +%H:%M:%SZ)) is past the ${RATE_LIMIT_WAIT_S}s wait; rerun after it"
+                fi
+              fi
+            fi
+            [ "$rc" = 0 ] || exit "$rc"
           elif ! grep -qx 'ready=true' "$RUNNER_TEMP/grade.out" && ! grep -qx 'signoff_unread=false' "$RUNNER_TEMP/grade.out"; then
             # A held verdict whose sign-off read was refused (comments, reviews or label events) is read
             # again on GITHUB_TOKEN: the classifier treats an unreadable sign-off as none, so the App's
@@ -252,8 +292,18 @@ jobs:
             # and is not graded again: that cost about ten calls on this self-hosted job's GITHUB_TOKEN hour,
             # about 220 an hour, the hour the production promote gates read (2026-11-21). A base whose
             # risk_tier.py predates the line keeps the second grade (tests/test_ci_risk_tier_grades_once.py).
+            # A second grade the job token's budget refused keeps the App's grade (a verdict, its sign-off read as
+            # none) rather than ending red ungraded over a read the App already graded.
             echo "held on the App's read with the sign-off unread; grading again on GITHUB_TOKEN"
-            grade
+            cp "$RUNNER_TEMP/grade.out" "$RUNNER_TEMP/grade.app.out"; cp "$RUNNER_TEMP/grade.md" "$RUNNER_TEMP/grade.app.md"
+            rc=0
+            grade || rc=$?
+            if [ "$rc" != 0 ] && [ -n "$(refused_until)" ]; then
+              echo "::warning::GITHUB_TOKEN's budget refused the second grade; keeping the App's grade"
+              cp "$RUNNER_TEMP/grade.app.out" "$RUNNER_TEMP/grade.out"; cp "$RUNNER_TEMP/grade.app.md" "$RUNNER_TEMP/grade.md"
+            elif [ "$rc" != 0 ]; then
+              exit "$rc"
+            fi
           fi
           cat "$RUNNER_TEMP/grade.out" >> "$GITHUB_OUTPUT"
           cat "$RUNNER_TEMP/grade.md" >> "$GITHUB_STEP_SUMMARY"
