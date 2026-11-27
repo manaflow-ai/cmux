@@ -221,7 +221,14 @@ def machine_channel_follows_an_adopted_manifest(all_jobs):
              if line.strip().startswith("scripts/ci/cmux-machine-channel-point.sh")]
     _check(calls[:1] == ['scripts/ci/cmux-machine-channel-point.sh "$dir/payload.json" "$dir" --same-tree'],
            f"point-machine-channel keeps a channel of the same tree key ({calls[:1]})")
-    _check(len(calls) == 2 and "--same-tree" not in calls[1], f"only the Cloud machine call takes --same-tree ({calls})")
+    # #60636 moved the Linux release file's call into scripts/ci/linux-release-sign.sh: the step calls the
+    # Cloud machine point directly, then runs that script, whose own call never takes --same-tree.
+    sign = Path(ROOT, "scripts/ci/linux-release-sign.sh").read_text()
+    sign_calls = [line.strip() for line in sign.splitlines()
+                  if line.strip().startswith("scripts/ci/cmux-machine-channel-point.sh")]
+    _check(len(calls) == 1 and "scripts/ci/linux-release-sign.sh" in script
+           and len(sign_calls) == 1 and "--same-tree" not in sign_calls[0],
+           f"only the Cloud machine call takes --same-tree ({calls}, {sign_calls})")
     channel = yaml.safe_load(Path(ROOT, ".github/workflows/cmux-machine-channel.yml").read_text())["jobs"]
     for name in ("point-x86_64", "point-linux"):
         _check(not any("--same-tree" in str(step.get("run", "")) for step in channel[name]["steps"]),
@@ -421,16 +428,24 @@ def main():
     _check(DAEMON not in all_needs(all_jobs, "mark-tree-commits"),
            f"mark-tree-commits does not wait for the daemon tests ({sorted(all_needs(all_jobs, 'mark-tree-commits'))})")
     _check(set(tree_publishers) <= set(needs(mark)), f"mark-tree-commits follows every tree publisher ({needs(mark)})")
-    for event in ("push", "workflow_dispatch"):
-        for published in ("success", "skipped"):
-            values = context("refs/heads/feat-cmux-next", event=event, daemon_result=None)
-            values.update({f"needs.{name}.result": published for name in tree_publishers})
-            _check(runs(all_jobs, "mark-tree-commits", values),
-                   f"a feat-cmux-next {event} marks its commits with publish {published}, its daemon tests still queued")
-        failed = context("refs/heads/feat-cmux-next", event=event, daemon_result=None)
-        failed.update({f"needs.{name}.result": "failure" for name in tree_publishers})
-        _check(not runs(all_jobs, "mark-tree-commits", failed),
-               f"a feat-cmux-next {event} whose publish failed marks nothing")
+    # A nightly-next push marks too: it publishes the build commit's tree while that commit's
+    # feat-cmux-next run coalesced into it (run 45987983838 waited 17.9 min for the marker).
+    for ref in ("refs/heads/feat-cmux-next", "refs/heads/nightly-next"):
+        branch = ref.rsplit("/", 1)[-1]
+        for event in ("push", "workflow_dispatch"):
+            for published in ("success", "skipped"):
+                values = context(ref, event=event, daemon_result=None)
+                values.update({f"needs.{name}.result": published for name in tree_publishers})
+                _check(runs(all_jobs, "mark-tree-commits", values),
+                       f"a {branch} {event} marks its commits with publish {published}, its daemon tests still queued")
+            failed = context(ref, event=event, daemon_result=None)
+            failed.update({f"needs.{name}.result": "failure" for name in tree_publishers})
+            _check(not runs(all_jobs, "mark-tree-commits", failed),
+                   f"a {branch} {event} whose publish failed marks nothing")
+    for ref in ("refs/heads/main", "refs/heads/lane/x"):
+        values = context(ref, event="push", daemon_result=None)
+        values.update({f"needs.{name}.result": "success" for name in tree_publishers})
+        _check(not runs(all_jobs, "mark-tree-commits", values), f"a {ref} push marks nothing")
 
     # The run that ends unpublished still reports, whichever job would have published.
     notify = all_jobs["notify-unpublished-tree"]

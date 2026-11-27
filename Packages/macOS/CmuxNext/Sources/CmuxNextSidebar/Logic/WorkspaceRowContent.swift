@@ -87,10 +87,8 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var treeFold: SidebarTreeFold?
     /// The session tree: a folded parent's descendants by state, drawn as chips.
     public var rollUp: SidebarTreeRollUp?
-    /// Its chats' subagents under the name: a line each (a click opens one) or one stacked line; nil without any.
-    public var subagents: SidebarSubagentStrip?
-    /// Failed subagents of its chats while it lists none (folded, or the tree off): counted in the title line's failed
-    /// chip (`SidebarTreeRollUpView`), the row's one failed mark. 0 while the rows show them.
+    /// Failed subagents of its chats: counted in the title line's failed chip (`SidebarTreeRollUpView`), the row's
+    /// one failed mark.
     public var subagentsFailed = 0
     /// What the title line's roll-up draws: the tree's hidden sessions with the failed subagents added to its failed
     /// count, so a failed session or subagent reads as one mark; nil with neither.

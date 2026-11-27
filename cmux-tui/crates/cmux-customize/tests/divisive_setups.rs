@@ -93,6 +93,14 @@ fn every_setup_is_settings_only_on_one_axis() {
 }
 
 #[test]
+fn terminal_first_starts_new_tabs_in_a_terminal() {
+    assert_eq!(
+        value(&json!(read("terminal-first").profile.settings), "tabs.newTabTemplate"),
+        Some(json!("terminal"))
+    );
+}
+
+#[test]
 fn rivals_share_a_key_and_every_other_pair_shares_none() {
     for (i, a) in SETUPS.iter().enumerate() {
         for b in &SETUPS[i + 1..] {

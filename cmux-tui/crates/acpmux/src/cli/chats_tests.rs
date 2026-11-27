@@ -15,3 +15,12 @@ fn search_text_prints_each_chat_with_its_snippet_and_what_was_left_out() {
     let none = json!({"ready": true, "enabled": true, "hits": [], "nextCursor": null});
     assert_eq!(search_text(&none), "no chat says that\n");
 }
+
+/// `ready_page` asks again only while the index scans and chats are on.
+#[test]
+fn only_a_scanning_index_is_asked_again() {
+    assert!(scanning(&json!({"ready": false, "enabled": true})));
+    assert!(!scanning(&json!({"ready": true, "enabled": true})));
+    assert!(!scanning(&json!({"ready": false, "enabled": false})), "chats are off");
+    assert!(!scanning(&json!({})), "an older daemon says nothing: taken as ready");
+}
