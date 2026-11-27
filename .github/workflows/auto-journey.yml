@@ -207,7 +207,7 @@ jobs:
           AT: ${{ inputs.ref }}
         run: |
           set -euo pipefail
-          if [ -n "$AT" ] || ! printf '%s' "$BUILD" | grep -Eqx '[0-9]{3,}'; then
+          if [ -n "$AT" ] || ! printf '%s' "$BUILD" | grep -Eqx '[0-9]{3,20}'; then
             echo '::error::nightly_build must be a numbered publication and ref must be empty'
             exit 1
           fi
