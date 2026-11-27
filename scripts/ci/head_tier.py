@@ -86,6 +86,26 @@ green-head rule does not see. It shares that rule's switch, its labels and its `
 diffs come from the compare API (`contents: read`); a compare of 300 files or more, a file without a patch, or an
 unread answer keeps the head's usual tier.
 
+Labelled base merge rule (goal ci-runner-min-per-day-500k, cut a): the green-head base merge rule and the same-patch
+rule apply to a `ready-to-land` head too. On 11-25 13Z..11-26 13Z, 83% of cmux PR heads were base merges (about
+792k of 932k PR-head runner-min/day), and base merges onto a green previous head of a labelled PR, which those rules
+left alone, cost about 185k runner-min/day: most were heads a later push or update-branch replaced before land. Such
+a head runs nothing and its `cmux/land-tier` stays pending with the cheap tier's description, so land-judge pulses
+`ready-to-land` (tools/land_judge/rules/land_tier.py: off, then on) and the land tier runs on the exact head it merges,
+on that `labeled` event (the green rule only reads a synchronize). `full-ci` still gives a head the full tier.
+CI_LABELLED_BASE_MERGE_SKIP=0 turns this off (a labelled base merge runs its usual tier again).
+
+Red-head base merge rule (goal ci-runner-min-per-day-500k, cut b): into feat-cmux-next, a head that only merges the
+base onto a previous head where some Actions run did not pass reruns only what was not green there. Per workflow:
+a workflow whose newest run at the previous head ended `success` gets the tier `none` for this head (head_tier reads
+its own workflow from $GITHUB_WORKFLOW_REF); one that was red, cancelled, skipped, still going or missing runs its
+usual tier. Inside the router (pr-router.yml), when its own previous run was not green, the callees and pr pipeline
+table jobs whose jobs all passed there, and took a minute or more, stay off (pr_router.rerun_plan); a red, cancelled
+or short one starts. On 11-25 13Z..11-26 13Z base merges onto a red head were about 362k runner-min/day, most of it
+jobs that had passed at the previous head. Anything unread (the runs or jobs answer, the workflow's own name) runs
+everything: the rule fails open. `full-ci` runs everything; the land tier runs at the land as above.
+CI_RED_BASE_MERGE_RERUN=0 turns this off.
+
 Ask rule (goal ask-to-nightly-under-2h): a ready pull request whose body names one of Leo's asks (`ask-` and ten hex
 digits, the id leo-asks gives it) is handed off to land from its first head, as if `ready-to-land` were on it: it runs
 the landing tier and `cmux/land-tier` is `success` at once. Agents waited for green before asking to land, so an ask's
@@ -100,7 +120,8 @@ full); the repository variable CI_LAND_TIER=0 turns the land rule off (every rea
 repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gives every draft head
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
 off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule and the same-patch rule off; CI_LAND_CARRY=0 turns the land carry rule
-off (a landing base merge runs the full tier again); CI_LAND_FULL_PER_PR=1 turns the hourly full tier rule off (a
+off (a landing base merge runs the full tier again); CI_LABELLED_BASE_MERGE_SKIP=0 turns the labelled base merge rule
+off; CI_RED_BASE_MERGE_RERUN=0 turns the red-head base merge rule off; CI_LAND_FULL_PER_PR=1 turns the hourly full tier rule off (a
 landing head runs the full tier again). Stdlib only; anything unreadable gives
 `full`.
 """
@@ -117,6 +138,8 @@ import sys
 import time
 
 FULL_CI = "full-ci"
+# The start of the red-head base merge rule's reason (head_tier docstring, cut b).
+RERUN_REASON = "rerun red only"
 LAND_LABEL = "ready-to-land"  # next_autoland.LABEL: the PR is handed off to land
 LAND_BASE = "feat-cmux-next"
 # A Leo ask's id (leo-asks): a pull request body naming one is handed off to land from its first head (the ask rule).
@@ -335,16 +358,58 @@ def carried(decided: tuple[str, str]) -> bool:
 
 
 def green_rule_applies(event: dict, green_switch: str = "1", land_switch: str = "0",
-                       one_shot: str | None = None) -> bool:
+                       labelled_switch: str = "1", one_shot: str | None = None) -> bool:
     """Whether the green-head base merge rule can apply to EVENT (before reading any fact): a synchronize into
-    feat-cmux-next (land_rule_applies) with both switches on, no ready-to-land, and no full-ci that applies
-    (full_ci_applies)."""
-    pr = event.get("pull_request") or {}
+    feat-cmux-next (land_rule_applies) with both switches on, without a `full-ci` that applies (full_ci_applies),
+    and (with LABELLED_SWITCH off, the labelled base merge rule) without `ready-to-land`."""
     labels = labels_of(event)
-    base = str((pr.get("base") or {}).get("ref") or "")
+    held = set() if (labelled_switch or "1").strip() != "0" else {LAND_LABEL}
     return ((green_switch or "1").strip() != "0" and (land_switch or "0").strip() not in ("0", "")
             and event.get("action") == "synchronize" and land_rule_applies(event)
-            and LAND_LABEL not in labels and not full_ci_applies(event, one_shot))
+            and not labels & held and not full_ci_applies(event, one_shot))
+
+
+def rerun_rule_applies(event: dict, rerun_switch: str = "1", land_switch: str = "0",
+                       one_shot: str | None = None) -> bool:
+    """Whether the red-head base merge rule can apply to EVENT (before reading any fact): a synchronize into
+    feat-cmux-next (land_rule_applies) with both switches on and without a `full-ci` that applies (full_ci_applies)."""
+    return ((rerun_switch or "1").strip() != "0" and (land_switch or "0").strip() not in ("0", "")
+            and event.get("action") == "synchronize" and land_rule_applies(event)
+            and not full_ci_applies(event, one_shot))
+
+
+def workflow_file(ref: str | None) -> str:
+    """The workflow file a run is of, from $GITHUB_WORKFLOW_REF (`owner/repo/.github/workflows/F@ref`), or ""."""
+    m = re.search(r"\.github/workflows/([^/@]+)@", str(ref or ""))
+    return m.group(1) if m else ""
+
+
+def newest_runs(runs: list | None) -> dict:
+    """{workflow path: the newest run of it} for a commit's Actions runs; {} when a run is not a dict."""
+    newest: dict = {}
+    for run in runs or []:
+        if not isinstance(run, dict):
+            return {}
+        key = str(run.get("path") or run.get("workflow_id") or run.get("name") or "")
+        if key not in newest or int(run.get("id") or 0) > int(newest[key].get("id") or 0):
+            newest[key] = run
+    return newest
+
+
+def passed_there(runs: list | None, workflow: str) -> bool:
+    """Whether WORKFLOW (a file name) ran at a commit and its newest run there ended `success`. Skipped, neutral,
+    any other conclusion, a run still going, no run, or no workflow name is not passed."""
+    if not workflow:
+        return False
+    for path, run in newest_runs(runs).items():
+        if path.split("@")[0].rsplit("/", 1)[-1] == workflow:
+            return run.get("status") == "completed" and run.get("conclusion") == "success"
+    return False
+
+
+def rerun(decided: tuple[str, str]) -> bool:
+    """Whether a decide() answer is the red-head base merge rule's (this workflow passed at the previous head)."""
+    return decided[0] == "none" and str(decided[1]).startswith(RERUN_REASON)
 
 
 def land_affected(decided: tuple[str, str]) -> bool:
@@ -356,7 +421,7 @@ def land_affected(decided: tuple[str, str]) -> bool:
 def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = None, now: float | None = None,
          idle_switch: str = "1", land_switch: str = "0", sync_switch: str = "1",
          green_switch: str = "1", carry_switch: str = "1", land_full_switch: str = "1",
-         one_shot: str | None = None) -> tuple[str, str]:
+         labelled_switch: str = "1", rerun_switch: str = "1", one_shot: str | None = None) -> tuple[str, str]:
     """(tier, reason) for one event. Anything not a draft, idle, green-head or agent-made base merge or (with
     LAND_SWITCH on) not-yet-landing pull request head is `full`."""
     if event_name not in ("pull_request", "pull_request_target"):
@@ -371,16 +436,22 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
             facts, time.time() if now is None else now):
         return "none", (f"this head only merges the base into a pull request with no commit of its own for "
                         f"{IDLE_HOURS} h: nothing runs until a new commit, the land's merge run, or full-ci")
-    if (not landing and facts and facts.get("base_merge_only") and facts.get("previous_green") is True
-            and green_rule_applies(event, green_switch, land_switch, one_shot)):
+    if (facts and facts.get("base_merge_only") and facts.get("previous_green") is True
+            and green_rule_applies(event, green_switch, land_switch, labelled_switch, one_shot)):
         return "none", (f"this head only merges the base onto {str(facts.get('previous') or '')[:10]}, whose every "
                         f"run passed: nothing runs until a new commit, {LAND_LABEL} (the land), or {FULL_CI}; "
                         f"{LAND_STATUS} stays pending")
-    if (not landing and facts and facts.get("same_patch_green") is True
-            and green_rule_applies(event, green_switch, land_switch, one_shot)):
+    if (facts and facts.get("same_patch_green") is True
+            and green_rule_applies(event, green_switch, land_switch, labelled_switch, one_shot)):
         return "none", (f"this head carries the same change as {str(facts.get('before') or '')[:10]} (rebased or "
                         f"merged onto a newer base), whose every run passed: nothing runs until a new change, "
                         f"{LAND_LABEL} (the land), or {FULL_CI}; {LAND_STATUS} stays pending")
+    if (facts and facts.get("base_merge_only") and facts.get("previous_green") is False
+            and facts.get("workflow_passed") is True and rerun_rule_applies(event, rerun_switch, land_switch, one_shot)):
+        return "none", (f"{RERUN_REASON}: this head only merges the base onto "
+                        f"{str(facts.get('previous') or '')[:10]}, where {facts.get('workflow')} passed and another "
+                        f"run did not: only what was not green there runs again; {FULL_CI} or {LAND_LABEL} (the "
+                        f"land) runs everything, {LAND_STATUS} stays pending")
     if (sync_switch or "1").strip() != "0" and not landing and event.get("action") == "synchronize"\
             and sync_merge(facts):
         return "cheap", ("this head only merges the base into the pull request, with a merge commit that was made "
@@ -485,6 +556,11 @@ def same_patch_facts(event: dict) -> dict:
 
 def decide(event_name: str, event: dict) -> tuple[str, str]:
     """tier() for this run: its switches from the environment, the head's facts read only when they can matter."""
+    return decide_with_facts(event_name, event)[0]
+
+
+def decide_with_facts(event_name: str, event: dict) -> tuple[tuple[str, str], dict | None]:
+    """(decide()'s answer, the facts it read): pr_router.rerun_plan reads `previous_runs` from them."""
     switch = os.environ.get("CI_DRAFT_CHEAP_TIER", "1")
     idle_switch = os.environ.get("CI_IDLE_BASE_MERGE_SKIP", "1")
     land_switch = os.environ.get("CI_LAND_TIER", "1")
@@ -492,18 +568,25 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
     green_switch = os.environ.get("CI_GREEN_BASE_MERGE_SKIP", "1")
     land_full_switch = os.environ.get("CI_LAND_FULL_PER_PR", "0")
     carry_switch = os.environ.get("CI_LAND_CARRY", "1")
+    labelled_switch = os.environ.get("CI_LABELLED_BASE_MERGE_SKIP", "1")
+    rerun_switch = os.environ.get("CI_RED_BASE_MERGE_RERUN", "1")
     one_shot = os.environ.get(ONE_SHOT_VAR, "1")
     pull = event_name in ("pull_request", "pull_request_target")
-    green_wanted = pull and green_rule_applies(event, green_switch, land_switch, one_shot)
+    green_wanted = pull and green_rule_applies(event, green_switch, land_switch, labelled_switch, one_shot)
     carry_wanted = pull and carry_rule_applies(event, carry_switch, land_switch, one_shot)
-    wanted = (pull and (idle_switch.strip() != "0" or sync_switch.strip() != "0" or green_wanted or carry_wanted)
-              and not full_ci_applies(event, one_shot))
+    rerun_wanted = pull and rerun_rule_applies(event, rerun_switch, land_switch, one_shot)
+    wanted = (pull and (idle_switch.strip() != "0" or sync_switch.strip() != "0" or green_wanted or carry_wanted
+                        or rerun_wanted) and not full_ci_applies(event, one_shot))
     facts = head_facts(event) if wanted else None
-    if facts and facts.get("base_merge_only") and green_wanted:
+    if facts and facts.get("base_merge_only") and (green_wanted or rerun_wanted):
         if idle_switch.strip() == "0" or not idle(facts, time.time()):
             runs = runs_at(os.environ.get("GITHUB_REPOSITORY", ""), str(facts.get("previous") or ""),
                            os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or "")
             facts = {**facts, "previous_green": green_previous(runs) if runs is not None else None}
+            if rerun_wanted and runs is not None:
+                workflow = workflow_file(os.environ.get("GITHUB_WORKFLOW_REF"))
+                facts = {**facts, "previous_runs": runs, "workflow": workflow,
+                         "workflow_passed": passed_there(runs, workflow)}
     if green_wanted and not (facts and facts.get("previous_green")) and (
             idle_switch.strip() == "0" or not idle(facts, time.time())):
         facts = {**(facts or {}), **same_patch_facts(event)}
@@ -515,7 +598,7 @@ def decide(event_name: str, event: dict) -> tuple[str, str]:
         runs = runs_at(repo, previous, token) if landed else None
         facts = {**facts, "previous_landed": landed and runs is not None and green_previous(runs)}
     return tier(event_name, event, switch, facts, None, idle_switch, land_switch, sync_switch, green_switch,
-                carry_switch, land_full_switch, one_shot)
+                carry_switch, land_full_switch, labelled_switch, rerun_switch, one_shot), facts
 
 
 def _load(path: str) -> dict:
