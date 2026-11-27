@@ -484,10 +484,17 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // (`daemon/listener_keeper.rs`), and the egress proxy serves its own at once.
     #[cfg(unix)]
     {
-        if handed.ws.is_none() && handed.egress.is_none() {
+        if handed.unix.is_none() || handed.ws.is_none() || handed.egress.is_none() {
             let held = listener_keeper::take_held(&home());
-            handed.ws = held.ws;
-            handed.egress = held.egress;
+            if handed.unix.is_none() {
+                handed.unix = held.unix;
+            }
+            if handed.ws.is_none() {
+                handed.ws = held.ws;
+            }
+            if handed.egress.is_none() {
+                handed.egress = held.egress;
+            }
         }
         if let Some(egress) = handed.egress.take() {
             crate::vault::egress::serve_handed(egress);
