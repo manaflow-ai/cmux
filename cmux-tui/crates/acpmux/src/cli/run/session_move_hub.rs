@@ -539,6 +539,8 @@ mod tests {
         let timing = |carried| Timing {
             started: std::time::Instant::now(),
             begin_ms: 10,
+            begun_ms: 20,
+            sent_ms: 30,
             answer_ms: 50,
             carried,
             target: json!({"via": "circuit"}),
