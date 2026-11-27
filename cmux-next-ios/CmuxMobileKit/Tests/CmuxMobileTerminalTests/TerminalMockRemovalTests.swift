@@ -41,7 +41,8 @@ private final class LiveStub: TerminalSession {
         #expect(chosen is PendingTerminalSession)
         #expect(!(chosen is MockTerminalSession))
         #expect(chosen.connectionState == .connecting(mac: "Aziz's Mac Studio"))
-        #expect(chosen.connectionState.quietLine == "Connecting to Aziz's Mac Studio…")
+        // Connecting stays silent: no connection notice (#57933).
+        #expect(chosen.connectionState.quietLine == nil)
         #expect(chosen.programName == "zsh")
     }
 
@@ -112,7 +113,7 @@ private final class LiveStub: TerminalSession {
         session.send(Data("ls\r".utf8))
         session.resize(columns: 80, rows: 24)
         #expect(events == [.connection(.connecting(mac: nil))])
-        #expect(session.connectionState.quietLine == "Connecting to your Mac…")
+        #expect(session.connectionState.quietLine == nil)
     }
 }
 
@@ -125,7 +126,9 @@ private final class LiveStub: TerminalSession {
         // Bytes from the Mac mean attached, even without a `.connection` event.
         #expect(connecting.applying(.output(Data("$ ".utf8))) == .attached)
         #expect(TerminalConnectionState.attached.applying(.connection(.reattaching(mac: "mini"))) == .reattaching(mac: "mini"))
-        #expect(TerminalConnectionState.reattaching(mac: "mini").quietLine == "Reconnecting to mini…")
+        // Reattaching stays silent too; offline still says so (#57933).
+        #expect(TerminalConnectionState.reattaching(mac: "mini").quietLine == nil)
+        #expect(TerminalConnectionState.offline(mac: "mini").quietLine == "mini is offline")
         #expect(TerminalConnectionState.attached.quietLine == nil)
     }
 }

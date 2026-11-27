@@ -75,7 +75,8 @@ public enum TerminalConnectionState: Sendable, Equatable {
 
     /// The quiet line by the composer once an outage has lasted
     /// `QuietStatusGate.threshold`. Connecting and reattaching stay silent;
-    /// offline and failed states use plain words, never transport errors.
+    /// offline and failed states use plain words, never transport errors
+    /// (#57933; `TerminalConnectionStateTests` and `TerminalSessionChoiceTests` pin it).
     public var quietLine: String? {
         switch self {
         case .connecting, .reattaching: return nil
