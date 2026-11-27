@@ -143,6 +143,38 @@ fn a_reply_past_the_kept_text_is_never_quiet() {
 }
 
 #[test]
+fn a_turn_that_changed_a_file_is_never_quiet() {
+    let call = |kind: &str| json!({"sessionUpdate": "tool_call", "toolCallId": "t1", "kind": kind, "title": "Edit"});
+    // A finished review woke the agent: it read, edited and replied in one short line.
+    let mut b = BackgroundTurns::default();
+    b.on_line("claude.system.task_notification", &json!({}), false, 1);
+    b.on_line("claude.system.init", &json!({}), false, 2);
+    b.on_update(&call("read"), false, 3).unwrap();
+    b.on_update(&call("edit"), false, 0);
+    b.on_update(&chunk("m1", "The fix is committed locally."), false, 0);
+    let ended = b.on_line("claude.result.success", &json!({}), false, 5);
+    assert_eq!(ended[0]["quiet"], false);
+    // A turn whose calls only read or ran stays quiet on a short reply.
+    b.on_line("claude.system.init", &json!({}), false, 6);
+    b.on_update(&call("execute"), false, 7).unwrap();
+    b.on_update(&chunk("m2", "Still waiting on CI."), false, 0);
+    let ended = b.on_line("claude.result.success", &json!({}), false, 9);
+    assert_eq!(ended[0]["quiet"], true);
+    // The kind can come on the call's update; a delete or a move changes files too.
+    for kind in ["delete", "move"] {
+        b.on_line("claude.system.init", &json!({}), false, 10);
+        b.on_update(&chunk("m3", "Done."), false, 11).unwrap();
+        b.on_update(
+            &json!({"sessionUpdate": "tool_call_update", "toolCallId": "t2", "kind": kind}),
+            false,
+            0,
+        );
+        let ended = b.on_line("claude.result.success", &json!({}), false, 12);
+        assert_eq!(ended[0]["quiet"], false, "{kind}");
+    }
+}
+
+#[test]
 fn a_prompt_ends_the_running_one() {
     let mut b = BackgroundTurns::default();
     b.on_line("claude.system.init", &json!({}), false, 1);

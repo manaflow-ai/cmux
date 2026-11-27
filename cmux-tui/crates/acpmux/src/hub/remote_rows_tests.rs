@@ -147,6 +147,28 @@ fn agrees(rows: &RemoteRows, model: &Model) -> Result<(), String> {
     if rows.peer_counts() != counts {
         return fail(format!("peer_counts {:?} != model {counts:?}", rows.peer_counts()));
     }
+    // The list order, closed rows too and live ones only, from the top: a sort of every row.
+    let place = |r: &RemoteSession| {
+        (
+            std::cmp::Reverse(r.summary.updated_ms()),
+            r.summary.session_id().unwrap_or("").to_owned(),
+            r.summary.peer().map(str::to_owned),
+            r.receipt.qualified_id(),
+        )
+    };
+    for open_only in [false, true] {
+        let mut want: Vec<_> =
+            model.values().filter(|r| !open_only || !r.summary.closed()).map(place).collect();
+        want.sort();
+        let got: Vec<_> = rows.in_order(None, open_only).map(|r| place(r)).collect();
+        if got != want {
+            return fail(format!("in_order(open_only {open_only}) {got:?} != {want:?}"));
+        }
+    }
+    let closed = model.values().filter(|r| r.summary.closed()).count();
+    if rows.closed_count() != closed {
+        return fail(format!("closed_count {} != model {closed}", rows.closed_count()));
+    }
     for p in 0..PEERS {
         let peer = peer_of(p);
         let mut want: Vec<&String> =
@@ -202,12 +224,14 @@ fn apply(rows: &mut RemoteRows, model: &mut Model, op: &Op) -> Result<(), String
     match *op {
         Op::Insert(p, m, s, pair) => {
             let (key, mut r) = row(&peer_of(p), &format!("s{m}"), STATUSES[s as usize]);
+            let mut summary = r.summary.value();
+            // A few times, with ties: the list order moves with each write.
+            summary["updatedAt"] = json!((u64::from(m) * 7 + u64::from(s)) % 5);
             if let Some(pair) = pair {
                 let (parent, handle) = pair_of_ix(pair);
-                let mut summary = r.summary.value();
                 summary["tags"] = json!({"mux.parent": parent, "mux.handle": handle});
-                r.summary = summary.into();
             }
+            r.summary = summary.into();
             model.insert(key.clone(), r.clone());
             rows.insert(key, r);
         }

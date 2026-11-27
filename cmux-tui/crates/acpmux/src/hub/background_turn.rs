@@ -35,8 +35,11 @@
 //!
 //! `quiet` says how the transcript draws it, and is decided here only: a turn whose reply is at
 //! most one short line ([`SHORT_LINE`] characters), with no question and no link, is quiet and
-//! draws as one muted line that opens on a click. Any other one draws in full, still without a
-//! ping. Turns the person started are unchanged.
+//! draws as one muted line that opens on a click. A turn that changed a file (a call of kind
+//! [`CHANGES`]) is never quiet, whatever its reply says: the person must see what it did and why
+//! (claude-97, 2026-11-25: a finished review woke the agent, it edited two files and committed,
+//! and its one-line reply hid under the muted line, so the edits looked as if no prompt started
+//! them). Any other one draws in full, still without a ping. Turns the person started are unchanged.
 
 use super::*;
 use std::collections::VecDeque;
@@ -49,6 +52,9 @@ pub const SHORT_LINE: usize = 160;
 
 /// The most reply text kept to decide `quiet`: past it the reply is long anyway.
 const TEXT_KEPT: usize = 4 * SHORT_LINE;
+
+/// The ACP tool kinds that change files: a background turn with one of these calls is never quiet.
+const CHANGES: [&str; 3] = ["edit", "delete", "move"];
 
 /// The updates that start a pending background turn: the model at work.
 const WORK: [&str; 4] = ["agent_message_chunk", "agent_thought_chunk", "tool_call", "plan"];
@@ -67,6 +73,8 @@ pub(super) struct Running {
     long: bool,
     /// A permission or structured question needs the person's attention.
     attention: bool,
+    /// It called a tool that changes files ([`CHANGES`]): never quiet.
+    changed: bool,
 }
 
 /// A session's background-turn state, read and written by its tap.
@@ -156,10 +164,21 @@ impl BackgroundTurns {
                 fields.insert("cause".into(), cause);
             }
             started = Some(record);
-            self.running =
-                Some(Running { id, trigger, text: String::new(), long: false, attention: false });
+            self.running = Some(Running {
+                id,
+                trigger,
+                text: String::new(),
+                long: false,
+                attention: false,
+                changed: false,
+            });
         }
         let Some(running) = self.running.as_mut() else { return started };
+        if matches!(kind, "tool_call" | "tool_call_update")
+            && update.get("kind").and_then(Value::as_str).is_some_and(|k| CHANGES.contains(&k))
+        {
+            running.changed = true;
+        }
         if kind != "agent_message_chunk" {
             return started;
         }
@@ -187,7 +206,7 @@ impl BackgroundTurns {
         let r = self.running.take()?;
         Some(json!({
             "state": "ended", "id": r.id, "trigger": r.trigger,
-            "quiet": !r.attention && !r.long && is_quiet(&r.text), "reason": reason,
+            "quiet": !r.attention && !r.long && !r.changed && is_quiet(&r.text), "reason": reason,
         }))
     }
 
@@ -227,6 +246,7 @@ impl Hub {
                 text: String::new(),
                 long: true,
                 attention: false,
+                changed: false,
             });
     }
 
@@ -245,6 +265,7 @@ impl Hub {
             text: String::new(),
             long: false,
             attention: false,
+            changed: false,
         });
         drop(state);
         if let Some(msg) = previous {

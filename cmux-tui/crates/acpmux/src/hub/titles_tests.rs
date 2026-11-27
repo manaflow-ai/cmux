@@ -1,6 +1,74 @@
 use super::*;
 
 #[test]
+fn a_fork_opens_under_its_parents_title_with_one_fork_mark() {
+    // #50024: forks opened untitled (`title: null`) until their first prompt.
+    assert_eq!(
+        inherited_title(Some("Remember Codeword PELICAN-41")),
+        (Some("Remember Codeword PELICAN-41 (fork)".to_owned()), Some(INHERITED.to_owned()))
+    );
+    // A fork of a fork is not "(fork) (fork)".
+    assert_eq!(
+        inherited_title(Some("Remember Codeword PELICAN-41 (fork)")).0.as_deref(),
+        Some("Remember Codeword PELICAN-41 (fork)")
+    );
+    // An untitled parent, or one only a probe titled, gives the fork nothing to inherit.
+    for none in [None, Some(""), Some("  "), Some("Reply with only: OK")] {
+        assert_eq!(inherited_title(none), (None, None), "{none:?}");
+    }
+}
+
+#[test]
+fn a_forks_first_prompt_refines_its_inherited_title_and_never_replaces_it_alone() {
+    let (mut title, mut source) = inherited_title(Some("Remember Codeword PELICAN-41"));
+    let mut prompt = None;
+    // A probe changes nothing.
+    fallback_title_fields(&mut title, &mut source, &mut prompt, "Reply with only: OK");
+    assert_eq!(source.as_deref(), Some(INHERITED));
+    let ask = "Without tools: list every codeword I gave you.";
+    fallback_title_fields(&mut title, &mut source, &mut prompt, ask);
+    // The inherited title still shows; the prompt only feeds the refining request.
+    assert_eq!(title.as_deref(), Some("Remember Codeword PELICAN-41 (fork)"));
+    assert_eq!(source.as_deref(), Some(FORK_PROMPT));
+    assert_eq!(prompt.as_deref(), Some(ask));
+    // The request reads the chat's title with the prompt, never the prompt alone.
+    let req = fork_request(title.as_deref().unwrap(), ask);
+    assert!(req.contains("a fork of a chat titled \"Remember Codeword PELICAN-41\""), "{req}");
+    assert!(req.contains(ask));
+    // A later prompt does not ask again.
+    fallback_title_fields(&mut title, &mut source, &mut prompt, "and another");
+    assert_eq!(prompt.as_deref(), Some(ask));
+}
+
+#[test]
+fn a_forks_refined_title_keeps_the_mark_when_it_only_repeats_the_parent() {
+    let inherited = "Remember Codeword PELICAN-41 (fork)";
+    assert_eq!(refined_title(inherited, "remember codeword pelican-41".into()), inherited);
+    assert_eq!(
+        refined_title(inherited, "List Remembered Codewords".into()),
+        "List Remembered Codewords"
+    );
+}
+
+#[test]
+fn a_forks_title_is_not_its_harnesss_until_it_settles() {
+    // #50098: a harness title from the fork's first prompt (acpmux's banner) does not win.
+    for held in [INHERITED, FORK_PROMPT, FORK_ASKED] {
+        assert!(!takes_harness_title(Some(held)), "{held}");
+    }
+    for open in [None, Some(PROMPT), Some(ASKED), Some(GENERATED), Some(NAMED), Some(HARNESS)] {
+        assert!(takes_harness_title(open), "{open:?}");
+    }
+    // A rename of a fork is final.
+    for unsettled in [INHERITED, FORK_PROMPT, FORK_ASKED] {
+        let mut source = Some(unsettled.to_owned());
+        assert!(renamed_source(&mut source));
+        assert_eq!(source.as_deref(), Some(NAMED));
+    }
+    assert!(asking(Some(FORK_ASKED)) && asking(Some(ASKED)) && !asking(Some(FORK_PROMPT)));
+}
+
+#[test]
 fn only_thin_first_messages_are_eligible_for_a_refresh() {
     for prompt in ["hi", "continue", "OK", "thanks"] {
         assert!(is_thin_prompt(prompt), "{prompt}");

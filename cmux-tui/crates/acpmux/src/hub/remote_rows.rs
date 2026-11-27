@@ -36,11 +36,51 @@ pub(crate) struct RemoteRows {
     names: Names,
     /// Writes so far: a shared session list is rebuilt after one (`list_guard.rs`).
     pub(crate) writes: u64,
+    /// Changes that can alter name or prefix lookup, including whether a candidate is closed.
+    pub(super) route_changes: u64,
     /// The summary each row had before a dropped link marked it stale
     /// ([`Self::mark_peer_stale`]): a follow of the peer's list after the link is back sends only
     /// the rows that changed (`row_log.rs`), so the rest are put back as they were. Any other
     /// write of the row drops it.
     stale_from: PMap<String, Arc<RemoteSession>>,
+    /// Every row's key in list order (newest first, ties by session id, then by peer, as
+    /// `page_first.rs` sorts), the closed rows apart: a page reads its own rows from here and a
+    /// live list (`excludeStatus: [closed]`) reads no closed row, never a sort of every row.
+    open_order: PSet<ListPlace>,
+    closed_order: PSet<ListPlace>,
+    /// How many rows each peer lists, kept by every write: `_acpmux/status` reads it per peer,
+    /// not per row.
+    per_peer: PMap<String, usize>,
+    /// Every row's key by its byte-page key (`session_pages::page_key_of`, fixed by its id and
+    /// peer): a byte page of the whole list (`_acpmux/sessions` with no `limit`) reads its own
+    /// rows from here, not a hash and a sort of every row.
+    by_page_key: PSet<(u128, Box<str>)>,
+}
+
+/// A row's place in list order: newest first, then its session id, then its peer (none first),
+/// then its key (two rows alike in all three stay apart).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct ListPlace {
+    at: std::cmp::Reverse<u64>,
+    id: Box<str>,
+    peer: Option<Box<str>>,
+    key: Box<str>,
+}
+
+impl ListPlace {
+    fn of(key: &str, row: &RemoteSession) -> Self {
+        Self {
+            at: std::cmp::Reverse(row.summary.updated_ms()),
+            id: row.summary.session_id().unwrap_or("").into(),
+            peer: row.summary.peer().map(Box::from),
+            key: key.into(),
+        }
+    }
+
+    /// The first place of a row no newer than `at`.
+    fn from(at: u64) -> Self {
+        Self { at: std::cmp::Reverse(at), id: "".into(), peer: None, key: "".into() }
+    }
 }
 
 impl std::ops::Deref for RemoteRows {
@@ -62,6 +102,7 @@ impl RemoteRows {
         if let Some(old) = self.rows.get_mut(&key)
             && Self::same_index(old, &row)
         {
+            self.route_changes += u64::from(old.summary.closed() != row.summary.closed());
             *old = row;
             self.stale_from.remove(&key);
             self.writes += 2;
@@ -69,21 +110,36 @@ impl RemoteRows {
         }
         self.take(&key);
         self.writes += 1;
+        self.route_changes += 1;
         if let Some(pair) = row.summary.pair() {
             self.by_pair.entry(pair).or_default().insert(key.clone());
         }
+        *self.per_peer.entry(row.peer.clone()).or_default() += 1;
+        self.by_page_key.insert((page_key(&row), key.as_str().into()));
         let peer = self.by_peer.entry(row.peer.clone()).or_default();
         peer.entry(row.receipt.mux_session_id.clone()).or_default().insert(key.clone());
         self.names.add(&key, &row);
+        let place = ListPlace::of(&key, &row);
+        if row.summary.closed() {
+            self.closed_order.insert(place);
+        } else {
+            self.open_order.insert(place);
+        }
         self.rows.insert(key, row);
     }
 
-    /// Whether two rows file under the same index keys (`Names::entries`, `by_pair`, `by_peer`).
+    /// Whether two rows file under the same index keys (`Names::entries`, `by_pair`, `by_peer`,
+    /// the list order's `ListPlace` and open or closed set, `by_page_key`).
     fn same_index(a: &RemoteSession, b: &RemoteSession) -> bool {
         a.peer == b.peer
             && a.receipt.mux_session_id == b.receipt.mux_session_id
+            && a.summary.updated_ms() == b.summary.updated_ms()
+            && a.summary.closed() == b.summary.closed()
+            && a.summary.session_id() == b.summary.session_id()
+            && a.summary.peer() == b.summary.peer()
             && a.summary.name() == b.summary.name()
             && a.summary.alias() == b.summary.alias()
+            && a.summary.former_names() == b.summary.former_names()
             && a.summary.same_pair(&b.summary)
     }
 
@@ -96,13 +152,27 @@ impl RemoteRows {
         let row = self.rows.remove(key)?;
         self.stale_from.remove(key);
         self.writes += 1;
+        self.route_changes += 1;
         self.names.remove(key, &row);
+        let place = ListPlace::of(key, &row);
+        if row.summary.closed() {
+            self.closed_order.remove(&place);
+        } else {
+            self.open_order.remove(&place);
+        }
         if let Some(pair) = row.summary.pair()
             && let Some(keys) = self.by_pair.get_mut(&pair)
         {
             keys.remove(key);
             if keys.is_empty() {
                 self.by_pair.remove(&pair);
+            }
+        }
+        self.by_page_key.remove(&(page_key(&row), key.into()));
+        if let Some(count) = self.per_peer.get_mut(&row.peer) {
+            *count = count.saturating_sub(1);
+            if *count == 0 {
+                self.per_peer.remove(&row.peer);
             }
         }
         if let Some(peer) = self.by_peer.get_mut(&row.peer) {
@@ -214,12 +284,56 @@ impl RemoteRows {
         keys.into_iter().filter_map(|key| self.take(&key).map(|row| (key, row))).collect()
     }
 
-    /// How many rows each peer lists.
+    /// The rows in list order from the first no newer than `from` (the top when None), the
+    /// closed ones too unless `open_only`: each read costs the rows it takes, never a walk or a
+    /// sort of every row.
+    pub(crate) fn in_order<'a>(
+        &'a self,
+        from: Option<u64>,
+        open_only: bool,
+    ) -> impl Iterator<Item = &'a Arc<RemoteSession>> + 'a {
+        let start = ListPlace::from(from.unwrap_or(u64::MAX));
+        let range = |set: &'a PSet<ListPlace>| set.range(start.clone()..);
+        let open = range(&self.open_order).peekable();
+        let closed = (!open_only).then(|| range(&self.closed_order)).into_iter().flatten();
+        Merged { a: open, b: closed.peekable() }.filter_map(|place| self.rows.get(&*place.key))
+    }
+
+    /// The rows in byte-page key order from the first with a key past `after` (every row when
+    /// None), each with its key: a byte page costs the rows it takes.
+    pub(crate) fn by_page_key<'a>(
+        &'a self,
+        after: Option<u128>,
+    ) -> impl Iterator<Item = (u128, &'a Arc<RemoteSession>)> + 'a {
+        let start = after.map_or(0, |after| after.saturating_add(1));
+        let past_max = after == Some(u128::MAX);
+        self.by_page_key
+            .range((start, Box::<str>::from(""))..)
+            .filter(move |_| !past_max)
+            .filter_map(|(hash, key)| self.rows.get(&**key).map(|row| (*hash, row)))
+    }
+
+    /// How many rows are closed, counted as they are written.
+    pub(crate) fn closed_count(&self) -> usize {
+        self.closed_order.len()
+    }
+
+    /// How many rows each peer lists: one read per peer, counted as rows are written.
     pub(crate) fn peer_counts(&self) -> HashMap<String, usize> {
-        self.by_peer
-            .iter()
-            .map(|(peer, ids)| (peer.clone(), ids.values().map(|keys| keys.len()).sum()))
-            .collect()
+        self.per_peer.iter().map(|(peer, count)| (peer.clone(), *count)).collect()
+    }
+
+    /// Only the rows that actually had this former name.
+    pub(super) fn formerly_named(
+        &self,
+        name: &str,
+    ) -> impl Iterator<Item = (&String, &Arc<RemoteSession>)> {
+        self.names
+            .by_former
+            .get(name)
+            .into_iter()
+            .flatten()
+            .filter_map(|key| Some((key, self.rows.get(key)?)))
     }
 
     /// The rows tagged with `pair`.
@@ -285,6 +399,28 @@ impl RemoteRows {
     }
 }
 
+/// `row`'s byte-page key, as a whole list's byte pages order it.
+fn page_key(row: &RemoteSession) -> u128 {
+    super::session_pages::page_key_of(row.summary.session_id().unwrap_or(""), row.summary.peer())
+}
+
+/// Two iterators in ascending order, merged into one.
+struct Merged<A: Iterator, B: Iterator<Item = A::Item>> {
+    a: std::iter::Peekable<A>,
+    b: std::iter::Peekable<B>,
+}
+
+impl<T: Ord, A: Iterator<Item = T>, B: Iterator<Item = T>> Iterator for Merged<A, B> {
+    type Item = T;
+    fn next(&mut self) -> Option<T> {
+        match (self.a.peek(), self.b.peek()) {
+            (Some(a), Some(b)) if b < a => self.b.next(),
+            (Some(_), _) => self.a.next(),
+            (None, _) => self.b.next(),
+        }
+    }
+}
+
 /// The lookup indexes of [`RemoteRows`]: each row's key under its name, its name without
 /// `PEER/`, its name's last segment (names with a `/` only: a short name is a later segment),
 /// and in sorted sets its key and its peer's session id, for prefixes.
@@ -293,6 +429,7 @@ struct Names {
     by_name: PMap<String, PSet<String>>,
     by_bare_name: PMap<String, PSet<String>>,
     by_alias: POrdMap<String, PSet<String>>,
+    by_former: PMap<String, PSet<String>>,
     by_last_segment: PMap<String, PSet<String>>,
     keys: PSet<String>,
     muxes: PSet<(String, String)>,
@@ -321,6 +458,9 @@ impl Names {
                 self.map(which).entry(value).or_default().insert(key.to_owned());
             }
         }
+        for name in row.summary.former_names() {
+            self.by_former.entry(name.to_string()).or_default().insert(key.to_owned());
+        }
         if let Some(alias) = row.summary.alias() {
             self.by_alias.entry(alias.to_owned()).or_default().insert(key.to_owned());
         }
@@ -336,6 +476,14 @@ impl Names {
                 keys.remove(key);
                 if keys.is_empty() {
                     map.remove(&value);
+                }
+            }
+        }
+        for name in row.summary.former_names() {
+            if let Some(keys) = self.by_former.get_mut(&**name) {
+                keys.remove(key);
+                if keys.is_empty() {
+                    self.by_former.remove(&**name);
                 }
             }
         }
@@ -356,6 +504,7 @@ impl Names {
         self.by_name.is_empty()
             && self.by_bare_name.is_empty()
             && self.by_alias.is_empty()
+            && self.by_former.is_empty()
             && self.by_last_segment.is_empty()
             && self.keys.is_empty()
             && self.muxes.is_empty()

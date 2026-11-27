@@ -99,6 +99,26 @@ pub(crate) fn typed_note(found: &crate::agent_text::Detected) -> String {
     )
 }
 
+/// Whether `title` is (the start of) one of acpmux's own marks of who wrote a prompt, not the
+/// person's words: a harness that titles a chat from its first prompt's text (pi) titled chats
+/// "[Part of this prompt reads as another agent (...)'s" (#50098). Such a title names nothing.
+pub(crate) fn is_mark_title(title: &str) -> bool {
+    const OPENINGS: [&str; 6] = [
+        "From another agent (",
+        "From a program that ",
+        "From the program ",
+        "[Pasted by the person, not their own words",
+        "[Part of this prompt reads as ",
+        "[End of pasted text]",
+    ];
+    let title = title.trim_start();
+    OPENINGS.iter().any(|open| {
+        title.starts_with(open)
+            // A harness cuts its title short: a cut of a long enough opening is one too.
+            || (title.chars().count() >= 16 && open.starts_with(title.trim_end_matches(['…', '.'])))
+    })
+}
+
 /// One lead mark, its own text block, tagged so a reader that picks blocks (`cli/cli_agent.rs`
 /// `prompt_text`, a test's fake agent) keeps it ahead of the prompt and out of its block choice;
 /// a harness passes on its text.

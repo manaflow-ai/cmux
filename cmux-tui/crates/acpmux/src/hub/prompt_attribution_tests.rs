@@ -245,3 +245,27 @@ fn a_slash_command_keeps_its_first_block() {
     mark(&mut params, Some("lane-a"), None);
     assert_eq!(params["prompt"], prompt);
 }
+
+#[test]
+fn a_title_made_from_an_attribution_mark_is_no_title() {
+    // pi titled forks after the banner (#50098): every opening line acpmux writes.
+    let found = crate::agent_text::Detected::default();
+    for line in [
+        agent_line("lane-a"),
+        unverified_line(None),
+        unverified_line(Some("bot")),
+        checked_program_line("cmux", Some("mac")),
+        pasted_line(&found),
+        typed_note(&found),
+        PASTED_END.to_owned(),
+    ] {
+        assert!(is_mark_title(&line), "{line}");
+        // As a harness cuts it.
+        let cut: String = line.chars().take(40).collect();
+        assert!(is_mark_title(&cut), "{cut}");
+    }
+    assert!(is_mark_title("[Part of this prompt reads as another agent (Codex)'s"));
+    for title in ["Remember Codeword PELICAN-41", "From the start: plan a menu", "[Part"] {
+        assert!(!is_mark_title(title), "{title}");
+    }
+}
