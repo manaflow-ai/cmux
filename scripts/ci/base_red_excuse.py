@@ -46,6 +46,9 @@ No failure is exit 0: asked about no red run or check (or about a green ws-check
 red run or check it was named that shows no failed job is still refused (2026-11-05: land-judge asks it about
 every merge, and a green head read as exit 1).
 
+Exit 3 is "not judged, a retry" (a rate limit, a read that never happened); exit 4 is "not judged, a tool error": the
+lane-gh broker refused one of its queries for its shape, which no retry clears, and the words name the fix.
+
 Every run is bounded: past DEADLINE_SECONDS of wall clock (BASE_RED_EXCUSE_DEADLINE_SECONDS) it stops and refuses as
 infra, not a verdict. A --sha that is one character forty times (a test's "a" * 40, an all-zero sha) is refused at
 once, before any read, unless BASE_RED_EXCUSE_FIXTURE_SHA=1 says a test fixture answers for it. 2026-11-05: a
@@ -110,6 +113,9 @@ RateLimited = getattr(_evidence, "RateLimited", ())
 # A read that never happened (main_fix_evidence.Unread: a request past its deadline, an answer over the size cap, a
 # `gh` that failed): exit 3, "not judged, a retry", never a verdict on the red. A reader without it leaves ().
 Unread = getattr(_evidence, "Unread", ())
+# A read the lane-gh broker refuses for its shape (main_fix_evidence.BrokerRefused): exit 4, a tool error naming the
+# fix, never a retry (exit 3) and never a verdict on the red (exit 1). A reader without it leaves ().
+BrokerRefused = getattr(_evidence, "BrokerRefused", ())
 
 
 class RateLimitedRead(Exception):
@@ -130,6 +136,13 @@ class UnreadRead(Exception):
     rerun clears. leo-workspace#9276 and #9153 both sat unlandable on that line (2026-11-24). Not a Refused, so only
     main() catches it.
     """
+
+
+class BrokerRefusedRead(Exception):
+    """A read the lane-gh broker refused for its shape, as rate_limit_aware re-raises it so the comparison cannot
+    swallow it: UnreadRead's reason exactly. Before it, the refusal was an Unread, so main() exited 3 and land-judge
+    refused hq#30852 "quota: not judged, retry after 02:24Z (reset)" twice (2026-11-27) over a query the broker
+    refuses on every call. Not a Refused, so only main() catches it: exit 4, its words naming the fix."""
 
 
 class JobBudgetCut(Exception):
@@ -156,6 +169,11 @@ def unread_classes() -> tuple:
     rate_limited_classes: a reader without Unread leaves it the empty tuple, and `except ((), UnreadRead)` is a
     TypeError on every other refusal. Read at call time, so a caller that loads a reader with Unread is honoured."""
     return ((Unread,) if isinstance(Unread, type) else tuple(Unread)) + (UnreadRead,)
+
+
+def broker_refused_classes() -> tuple:
+    """What main() reports as a broker refusal (exit 4): rate_limited_classes' shape and reason."""
+    return ((BrokerRefused,) if isinstance(BrokerRefused, type) else tuple(BrokerRefused)) + (BrokerRefusedRead,)
 
 
 def json_shape(route: str, found, *, paginate: bool = False, none: bool = False):
@@ -199,7 +217,7 @@ def read_once(key: tuple, read: Callable[[], object]):
     if key not in memo:
         try:
             memo[key] = (True, read())
-        except (Refused, RateLimitedRead, UnreadRead) as why:
+        except (Refused, RateLimitedRead, UnreadRead, BrokerRefusedRead) as why:
             memo[key] = (False, why)
     ok, found = memo[key]
     if not ok:
@@ -293,6 +311,10 @@ def rate_limit_aware(github):
             def go(*args, **kwargs):
                 try:
                     found = attribute(*args, **kwargs)
+                except broker_refused_classes() as error:
+                    # First: a Refused subclass on main's reader, and a query the broker always refuses is no read
+                    # that a retry clears (UnreadRead) nor one a quota refused.
+                    raise BrokerRefusedRead(str(error)) from None
                 except unread_classes() as error:
                     # Before RateLimited: both are Refused subclasses on main's reader, and a read that never
                     # happened must not be answered as one that a quota refused.
@@ -2867,7 +2889,9 @@ SETUP_ONLY_STEPS = {
             # cache, the archive seeder, and the release download helper behind them.
             "scripts/cmux-next/zig-fetch-all.sh", "scripts/ci/zig-packages.lock", "scripts/ci/zig-packages-r2.sh",
             "scripts/ci/seed-zig-package-archives.sh", "scripts/ci/r2-cache.sh",
-            "scripts/ci/github-release-download.sh", "scripts/ci/github_release_asset.py", *XCODE_PINS),
+            "scripts/ci/github-release-download.sh", "scripts/ci/github_release_asset.py",
+            # install-zig-ci.sh reads the pinned Zig tarball from the CI cache bucket first (#55341).
+            "scripts/ci/zig-tarball-r2.sh", *XCODE_PINS),
         # Picks the runner's Xcode from the pins (toolchain setup).
         "Select Xcode": ("scripts/select-ci-xcode.sh", *XCODE_PINS),
         # xcrun and xcodebuild only, of the selected Xcode: the runner's simulator runtime (toolchain setup).
@@ -4922,15 +4946,17 @@ class SuiteChecks:
             try:
                 found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"name={name}"],
                                                    repo=self.repo))
-            except (Refused, UnreadRead) as why:
+            except (Refused, UnreadRead, BrokerRefusedRead) as why:
                 # The broker's refusal reaches here as a read that never happened (main_fix_evidence's Unread, a
                 # failed `gh`), which rate_limit_aware raises as UnreadRead: catching only Refused let it out, so
                 # every lane-VM judgement with a red exited 3, "not judged", and land-judge parked it as quota
-                # (cmux#60059 parked seven times, 2026-11-27). A refused `nodes` is answered by commit instead.
+                # (cmux#60059 parked seven times, 2026-11-27). A refused `nodes` is answered by commit instead. A
+                # main_fix_evidence that names the broker's refusal raises BrokerRefused (BrokerRefusedRead here):
+                # for `nodes` the same fallback, never exit 4; any other refused shape is still exit 4, a tool error.
                 if NODES_REFUSED in str(why):
                     self.rooted = True
-                elif isinstance(why, UnreadRead):
-                    raise  # a timeout or another failed read: not judged, a retry (exit 3), as before
+                elif isinstance(why, (UnreadRead, BrokerRefusedRead)):
+                    raise  # a timeout or another failed read: not judged, a retry (exit 3); a refused shape: exit 4
                 else:
                     return  # read over REST instead, as before
             except ValueError:
@@ -4951,8 +4977,10 @@ class SuiteChecks:
         query = SUITE_COMMITS_QUERY.format(commits=" ".join(SUITE_COMMIT.format(n=n, sha=json.dumps(sha))
                                                             for n, sha in enumerate(shas)))
         try:
+            # Scoped to the repo twice: the owner and name variables (the broker's call repo, lane_gh_vm.graphql_repo)
+            # and GH_REPO, so a judge started from another checkout never reads another repo's suites (hq#22832).
             found = json.loads(self.github.run(["api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}",
-                                                "-f", f"name={repo}", "-f", f"check={name}"]))
+                                                "-f", f"name={repo}", "-f", f"check={name}"], repo=self.repo))
         except (Refused, ValueError):
             return
         data = found.get("data") if isinstance(found, dict) and not found.get("errors") else None
@@ -6140,6 +6168,12 @@ GUARD_WORKFLOWS = {
         "tooling-tests-base-red": "decides whether tooling-tests skips while the base is red (base_red_skip.py); "
                                   "it checks nothing itself",
         "tooling-tests-fail-fast": _FAIL_FAST,
+        # #59643: on a full-ci or ready-to-land label, decides which tier the base merge reruns (head_tier.py).
+        "full-carry": "decides which tier a labelled base merge reruns (head_tier.py), continue-on-error; it "
+                      "checks nothing itself",
+        # #56527: actionlint over the merge commit, failing only a finding the change adds against its first parent.
+        "workflow-start-lint": "judges the workflow findings the change's own diff adds against the base "
+                               "(workflow_start_lint.py), not a declared tree read",
     },
     "ci-guards.yml": {
         "workflow-guard-submodule-forward-only": "reads the submodules' remote history, not only the tree",
@@ -6290,6 +6324,9 @@ PACKAGE_JOBS = {
                   "cmux-tui/crates/cmux-tailnet-join/", "cmux-tui/crates/cmux-tailnet/",
                   "cmux-tui/crates/cmux-terminal-sizing/", "cmux-tui/crates/ghostty-vt-sys/",
                   "cmux-tui/crates/ghostty-vt/",
+                  # cmux-remote reaches cmux-proxy (#53785); ghostty-vt-sys and cmux-tui-core reach
+                  # cmux-transport-rewrite (#56272)
+                  "cmux-tui/crates/cmux-proxy/", "cmux-tui/crates/cmux-transport-rewrite/",
                   # files those crates include_str! and paths the kit's Swift names as literals (same date)
                   "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/BackdropArt/van-gogh-starry-night.avif",
                   "cmux-tui/crates/acpmux/src/share_approval_vectors.json", "design/icons/source/agent-composer.json",
@@ -10705,6 +10742,11 @@ def main(argv: list[str] | None = None) -> int:
     except rate_limited_classes() as error:
         print(f"rate-limited: {error}", file=sys.stderr)
         return 3
+    except broker_refused_classes() as error:
+        # Not judged, and not a retry: the broker refuses this query on every call. Exit 4, which land-judge reads as
+        # a tool error (broker_refused) naming the fix in these words, never as a quota or a red.
+        print(f"not judged, tool error: {error}", file=sys.stderr)
+        return 4
     except unread_classes() as error:
         # Not "not excused": nothing was read, so nothing was judged. land-judge reads 3 as a retry
         # (classifier_rate_limited), never as the red_not_excused strike an exit 1 would record.
