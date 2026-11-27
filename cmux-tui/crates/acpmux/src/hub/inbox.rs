@@ -138,6 +138,8 @@
 //! the session weakly.
 
 use super::*;
+#[path = "inbox_point.rs"]
+pub(super) mod inbox_point;
 #[path = "inbox_page_rule.rs"]
 pub(super) mod page_rule;
 #[path = "inbox_reader.rs"]
@@ -2440,7 +2442,10 @@ impl Hub {
         let mut any_item = false;
         let mut noticed: std::collections::HashMap<String, String> = Default::default();
         let mut read: std::collections::HashSet<String> = Default::default();
-        let mut removed: std::collections::HashSet<String> = Default::default();
+        // Withdrawn before the point too: a later record of one is withdrawn, as the whole log
+        // read it.
+        let mut removed: std::collections::HashSet<String> =
+            point.as_ref().map(|p| p.removed.iter().cloned().collect()).unwrap_or_default();
         let mut answered: std::collections::HashMap<String, super::queue::Answer> =
             Default::default();
         let kinds = Self::INBOX_KINDS;

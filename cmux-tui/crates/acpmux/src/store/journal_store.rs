@@ -953,6 +953,12 @@ impl Store for JournalStore {
     fn save_restore_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
         Store::save_restore_point(&self.inner.local, id, bytes)
     }
+    fn inbox_point(&self, id: &str) -> Option<Vec<u8>> {
+        Store::inbox_point(&self.inner.local, id)
+    }
+    fn save_inbox_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        Store::save_inbox_point(&self.inner.local, id, bytes)
+    }
     fn scan_kinds(
         &self,
         id: &str,
