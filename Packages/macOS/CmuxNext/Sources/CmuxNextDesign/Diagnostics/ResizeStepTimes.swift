@@ -65,6 +65,25 @@ public struct ResizeStepTimes {
     /// host runs the message pump work CEF already asked for here (`CEFMessagePump.runIfDueAtStep`, lever 4e).
     public var stepWillLayOut: (@MainActor (StepKind) -> Void)?
 
+    /// Runs at the end of every window step's layout (``windowStep(if:input:detail:_:)``), after its `set_frame` and
+    /// before its turn's display and commit (every build; nil: none). The CEF host runs the work CEF asked for during the
+    /// step here (`CMUX_NEXT_CEF_PUMP_AT_STEP=2`): a page's ack of the step's size, posted while AppKit and cmux laid
+    /// the window out, runs in that step, where the gap after it gets no pump pass (a cut gap runs no run-loop turn at
+    /// all; a committed one is the step's own display and commit, design note 2026-11-27).
+    public var stepDidLayOut: (@MainActor (StepKind) -> Void)?
+
+    /// A window live resize's step around `body` (`ShellWindow.setFrame`: AppKit's resize and cmux's layout): it
+    /// begins (``beginStep(_:if:input:)``, the start hook), `body` runs, its `set_frame` is recorded with `detail`, then
+    /// the end hook runs (``stepDidLayOut``). Out of a live resize `body` alone. A step inside a pass is hooked at
+    /// neither end.
+    public static func windowStep(if inLiveResize: Bool, input: @autoclosure () -> Double?,
+                                  detail: @autoclosure () -> String, _ body: () -> Void) {
+        guard inLiveResize else { return body() }
+        let start = beginStep(.window, input: input())
+        body()
+        recordLive("set_frame", since: start, detail: detail())
+    }
+
     /// Passes running now (``pass(_:_:)``), and the steps and timed phases that ran inside one: a pass's callbacks that
     /// reached cmux's views mid-step. Counted, logged, never hidden.
     var passDepth = 0

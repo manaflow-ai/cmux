@@ -516,12 +516,11 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     override func setFrame(_ frameRect: NSRect, display flag: Bool) { // perf-hot: 16ms window-resize-step
         let frameRect = WindowPlacement.containedOnTestScreen(frameRect)
         // A live resize's step: its main-thread time by phase (`ResizeStepTimes`: `debug.layout_counters` `resize_steps`
-        // in DEBUG and bench builds, the live-resize log in every build while someone streams it).
-        guard inLiveResize, let start = ResizeStepTimes.beginStep(.window, input: NSApp.currentEvent?.timestamp) else {
-            return windowControlsAvoiders.batching(in: self) { super.setFrame(frameRect, display: flag) }
+        // in DEBUG and bench builds, the live-resize log in every build while someone streams it), and its hooks.
+        ResizeStepTimes.windowStep(if: inLiveResize, input: NSApp.currentEvent?.timestamp,
+                                   detail: " x=\(Int(frame.minX)) w=\(Int(frame.width)) h=\(Int(frame.height))") {
+            windowControlsAvoiders.batching(in: self) { super.setFrame(frameRect, display: flag) }
         }
-        windowControlsAvoiders.batching(in: self) { super.setFrame(frameRect, display: flag) }
-        ResizeStepTimes.recordLive("set_frame", since: start, detail: " x=\(Int(frame.minX)) w=\(Int(frame.width)) h=\(Int(frame.height))")
     }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { WindowPlacement.constrainsToScreen ? super.constrainFrameRect(frameRect, to: screen) : frameRect }
 

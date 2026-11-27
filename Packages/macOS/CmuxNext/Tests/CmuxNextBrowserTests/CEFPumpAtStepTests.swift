@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CmuxNextWakeups
 import Foundation
 import Testing
@@ -137,5 +138,33 @@ import Testing
         rig.pump.request(milliseconds: 0)
         rig.timer.fire()
         #expect(box.runs == 2, "and the timer still runs the work asked for after it")
+    }
+
+    /// `CMUX_NEXT_CEF_PUMP_AT_STEP=2`: the work a Chromium thread asks for during a window step's layout (a page's ack
+    /// of the step's size) runs at that step's end, in the step, not at the next step's start. Nothing was due at the
+    /// step's start, so its start pass runs nothing.
+    @Test func theEndPassRunsTheWorkAskedForDuringTheStep() {
+        let box = Box()
+        let rig = Self.rig(box)
+        defer {
+            ResizeStepTimes.live.stepWillLayOut = nil
+            ResizeStepTimes.live.stepDidLayOut = nil
+        }
+        CEFMessagePump.installStepPasses(rig.pump, start: true, end: true)
+        ResizeStepTimes.windowStep(if: true, input: nil, detail: "") {
+            #expect(box.runs == 0, "the start pass ran work that was not due")
+            rig.gate.immediatePosted() // a page's ack, on its way from a Chromium thread during the layout
+        }
+        #expect(box.runs == 1, "the step's end pass did not run the work asked for during its layout")
+        rig.gate.immediateDelivered()
+    }
+
+    /// The knob's values: `1` and `steps` a start pass, `2` a start and an end pass, anything else none.
+    @Test func theKnobsValuesChooseThePasses() {
+        #expect(CEFMessagePump.stepPasses("1") == .init(start: true, end: false))
+        #expect(CEFMessagePump.stepPasses("steps") == .init(start: true, end: false))
+        #expect(CEFMessagePump.stepPasses("2") == .init(start: true, end: true))
+        #expect(CEFMessagePump.stepPasses(nil) == .init(start: false, end: false))
+        #expect(CEFMessagePump.stepPasses("0") == .init(start: false, end: false))
     }
 }
