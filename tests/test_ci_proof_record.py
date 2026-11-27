@@ -216,6 +216,99 @@ class Plan(unittest.TestCase):
              ios_verify.fetch) = saved
 
 
+class VisualDiff(unittest.TestCase):
+    URL = "https://github.com/manaflow-ai/cmux/pull/7#issuecomment-123"
+
+    def record(self):
+        rec = copy.deepcopy(RECORD)
+        rec["baseline"] = {"source": "nightly", "nightly_sha": OTHER}
+        rec["captures"] = [{"name": "a.png", "verdict": "same", "diff_ratio": 0.0},
+                           {"name": "b.png", "verdict": "changed", "diff_ratio": 0.5}]
+        return rec
+
+    def test_measured_changed_and_unchanged(self):
+        line = ios_verify.visual_diff_line(self.record(), self.URL)
+        self.assertIn("1 changed, 1 unchanged", line)
+        self.assertIn(self.URL, line)
+        self.assertIn(HEAD, line)
+
+    def test_unproved_runs_never_claim_a_visual_diff(self):
+        cases = []
+        for source in ("merged", "none"):
+            rec = self.record()
+            rec["baseline"]["source"] = source
+            cases.append(rec)
+        for captures in ([], [{"name": "x", "verdict": "same"}],
+                         [{"name": "x", "verdict": "changed", "diff_ratio": None}],
+                         [{"name": "x", "verdict": "unbaselined"}],
+                         [{"name": "x", "verdict": "new"}],
+                         [{"name": "x", "verdict": "missing"}]):
+            rec = self.record()
+            rec["captures"] = captures
+            cases.append(rec)
+        rec = self.record()
+        rec["verdict"] = "fail"
+        cases.append(rec)
+        rec = self.record()
+        rec["runs"][0]["result"] = "fail"
+        cases.append(rec)
+        for rec in cases:
+            with self.subTest(record=rec):
+                self.assertIsNone(ios_verify.visual_diff_line(rec, self.URL))
+        self.assertIsNone(ios_verify.visual_diff_line(self.record(), None))
+
+    def test_preserves_user_text_and_footer_and_is_idempotent(self):
+        body = "\nUser text\nVisual-diff: hand-written evidence\n\nAgent-Session: footer\n"
+        line = ios_verify.visual_diff_line(self.record(), self.URL)
+        updated = ios_verify.visual_diff_body(body, line)
+        self.assertTrue(updated.endswith(body))
+        self.assertEqual(ios_verify.visual_diff_body(updated, line), updated)
+        self.assertEqual(ios_verify.visual_diff_body(updated, None), body)
+
+    def test_head_move_before_comment_has_no_effects(self):
+        from unittest import mock
+        with mock.patch.object(ios_verify, "pr_view", return_value={"headRefOid": OTHER}), \
+                mock.patch.object(ios_verify, "sh") as run:
+            self.assertFalse(ios_verify.post_proof("manaflow-ai/cmux", 7, HEAD, self.record(), "proof", pathlib.Path("/unused")))
+            run.assert_not_called()
+
+    def test_post_reads_fresh_body_and_removes_stale_claim_on_failure(self):
+        from unittest import mock
+        import tempfile
+        user_body = "Body edited during verification\n\nAgent-Session: footer\n"
+        old = ios_verify.visual_diff_body(user_body, "Visual-diff: stale")
+        for failed in (False, True):
+            rec = self.record()
+            if failed:
+                rec["verdict"] = "fail"
+            views = [{"headRefOid": HEAD, "body": "outdated"},
+                     {"headRefOid": HEAD, "body": old}]
+            calls = []
+            def run(*args):
+                calls.append(args)
+                if args[2] == "comment":
+                    return self.URL + "\n"
+                self.assertEqual(args[2], "edit")
+                got = pathlib.Path(args[-1]).read_text()
+                self.assertTrue(got.endswith(user_body))
+                self.assertEqual(ios_verify.VISUAL_DIFF_START in got, not failed)
+                return ""
+            with tempfile.TemporaryDirectory() as temp, \
+                    mock.patch.object(ios_verify, "pr_view", side_effect=views), \
+                    mock.patch.object(ios_verify, "sh", side_effect=run):
+                self.assertTrue(ios_verify.post_proof("manaflow-ai/cmux", 7, HEAD, rec, "proof", pathlib.Path(temp)))
+                self.assertEqual(len(calls), 2)
+
+    def test_head_move_after_comment_does_not_edit_body(self):
+        from unittest import mock
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp, \
+                mock.patch.object(ios_verify, "pr_view", side_effect=[{"headRefOid": HEAD}, {"headRefOid": OTHER}]), \
+                mock.patch.object(ios_verify, "sh", return_value=self.URL) as run:
+            self.assertFalse(ios_verify.post_proof("manaflow-ai/cmux", 7, HEAD, self.record(), "proof", pathlib.Path(temp)))
+            self.assertEqual(run.call_count, 1)
+
+
 class Launcher(unittest.TestCase):
     def test_cmux_ios_verify_runs_this_script(self):
         dev = (ROOT / "cmux-tui/crates/cmux-tui/src/cli/dev.rs").read_text()

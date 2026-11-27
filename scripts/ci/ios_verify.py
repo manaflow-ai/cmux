@@ -271,7 +271,7 @@ def visual(captures: list[dict], base_meta: dict | None, video: str | None) -> d
 
 def pr_view(pr: str | None, repo: str | None) -> dict:
     args = ["pr", "view"] + ([pr] if pr else []) + ["--json",
-            "number,headRefName,headRefOid,baseRefName,url,isCrossRepository"]
+            "number,headRefName,headRefOid,baseRefName,url,isCrossRepository,body"]
     if repo:
         args += ["--repo", repo]
     return gh_json(*args)
@@ -325,6 +325,58 @@ def public_runs(runs: list[dict]) -> list[dict]:
     PR text names no fleet host (public-body-guard refused the proof on cmux#61688 for naming two); no gate reads the
     worker, and the step id still leads to it. The worker stays in this run's stderr."""
     return [{k: v for k, v in r.items() if k not in ("tail", "worker")} for r in runs]
+
+
+VISUAL_DIFF_START = "<!-- cmux-ios-visual-diff:start -->"
+VISUAL_DIFF_END = "<!-- cmux-ios-visual-diff:end -->"
+VISUAL_DIFF_URL = re.compile(r"https://github\.com/[^\s]+#issuecomment-\d+")
+
+
+def visual_diff_line(record: dict, proof_url: str | None) -> str | None:
+    """A claim only for a passing proof with measured comparisons against NIGHTLY."""
+    baseline = record.get("baseline") or {}
+    captures = record.get("captures") or []
+    if record.get("verdict") != "pass" or baseline.get("source") != "nightly" or not captures:
+        return None
+    if proof_record.problems(record) or not proof_url or not VISUAL_DIFF_URL.fullmatch(proof_url):
+        return None
+    if not all(c.get("verdict") in ("same", "changed")
+               and type(c.get("diff_ratio")) in (int, float) and 0 <= c["diff_ratio"] <= 1 for c in captures):
+        return None
+    changed = sum(c["verdict"] == "changed" for c in captures)
+    return (f"Visual-diff: {proof_url} ({changed} changed, {len(captures) - changed} unchanged "
+            f"vs NIGHTLY at `{baseline.get('nightly_sha', '')[:10]}`; head `{record['head_sha']}`)")
+
+
+def visual_diff_body(body: str, line: str | None) -> str:
+    """Replace only our prepended block; keep user text and the final footer intact."""
+    block = re.compile(rf"(?ms)^{re.escape(VISUAL_DIFF_START)}\n.*?^{re.escape(VISUAL_DIFF_END)}\n?")
+    clean = block.sub("", body)
+    if not line:
+        return clean
+    return f"{VISUAL_DIFF_START}\n{line}\n{VISUAL_DIFF_END}\n" + clean
+
+
+def post_proof(repo: str, number: int, head: str, record: dict, body: str, work: Path) -> bool:
+    """Check the head before publishing and again before updating its current body."""
+    current = pr_view(str(number), repo)
+    if current["headRefOid"] != head:
+        return False
+    comment = work / "comment.md"
+    comment.write_text(body)
+    output = sh("gh", "pr", "comment", str(number), "--repo", repo, "--body-file", str(comment))
+    urls = VISUAL_DIFF_URL.findall(output)
+    proof_url = urls[-1] if urls else None
+    current = pr_view(str(number), repo)
+    if current["headRefOid"] != head:
+        return False
+    original = current.get("body") or ""
+    updated = visual_diff_body(original, visual_diff_line(record, proof_url))
+    if updated != original:
+        description = work / "pr-body.md"
+        description.write_text(updated)
+        sh("gh", "pr", "edit", str(number), "--repo", repo, "--body-file", str(description))
+    return True
 
 
 def summary_md(record: dict) -> str:
@@ -416,9 +468,9 @@ def main(argv: list[str] | None = None) -> int:
     if a.out:
         Path(a.out).write_text(json.dumps(record, indent=1))
     if not a.no_post:
-        f = work / "comment.md"
-        f.write_text(body)
-        sh("gh", "pr", "comment", str(view["number"]), "--repo", repo, "--body-file", str(f))
+        if not post_proof(repo, view["number"], head, record, body, work):
+            print("ios verify: PR head moved; proof was not applied to the new head", file=sys.stderr)
+            return 1
         print(rerun_gate(repo, head), file=sys.stderr)
     else:
         print(body)
