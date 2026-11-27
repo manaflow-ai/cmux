@@ -140,7 +140,8 @@ import Testing
 
     /// First-run findings row 19: a new Mac's first terminal read "admin", the login name (`HomeShellLoginNameTests`).
     @Test func aShellAtThisMacsHomeReadsTerminal() throws {
-        #expect(try Self.title(cwd: "/Users/leo", machine: mac) == "Terminal", "never the login name, \"leo\"")
-        #expect(try Self.title(cwd: "/Users/leo/site", machine: mac) == "site")
+        #expect(try Self.title(cwd: NSHomeDirectory(), machine: mac) == "Terminal", "never the login name")
+        #expect(try Self.title(cwd: NSHomeDirectory() + "/site", machine: mac) == "site")
+        #expect(try Self.title(cwd: "/Users/cmux-someone-else", machine: mac) == "cmux-someone-else", "another account's home")
     }
 }

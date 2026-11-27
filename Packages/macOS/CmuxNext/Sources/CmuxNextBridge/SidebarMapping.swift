@@ -39,14 +39,22 @@ public struct SidebarMapping {
     /// another computer's home gives its workspace, the account's name, not the work. Only a shell's: a tab the person
     /// named, a chat, a terminal running an agent, or one whose shell or program set its own title (OSC 0/2) keeps a
     /// label that happens to be that word. A title that is only the folder's path or the shell's name (`zsh`) is the
-    /// shell saying where it is.
+    /// shell saying where it is. A Mac home (`/Users/<name>`) counts only when it is this Mac's own: on this Mac, a shell
+    /// in another account's home keeps that folder's name (review of first-run findings row 19).
     static func namesHome(_ label: String?, tab: TabModel?) -> Bool {
         guard let label, let tab, let cwd = tab.cwd.map(Self.trimmingSlash), abbreviateRemote(cwd) == "~",
+              !cwd.hasPrefix("/Users/") || cwd == shared.home,
               tab.kind == .pty || tab.kind == .remoteTerminal, tab.name?.isEmpty ?? true,
               tab.titleText.isEmpty || TerminalTitle.isBareShell(tab.titleText) || Self.trimmingSlash(tab.titleText) == cwd,
               tab.agent == nil, tab.agentSession == nil else { return false }
         return label == (cwd as NSString).lastPathComponent || Self.trimmingSlash(label) == cwd
     }
+
+    /// Whether an idle shell at a machine's home names its account there, not the work: this Mac (a new Mac's first
+    /// terminal read "admin", its login name; first-run findings row 19) and a Cloud machine ("cmux", #36283). Such a
+    /// workspace reads `terminalTitle` ("Terminal"). An SSH computer or a paired server keeps its folder: the account
+    /// there names which computer it is.
+    public static func homeNamesAccount(_ kind: SidebarMachine.Kind) -> Bool { kind == .local || kind == .cloud }
 
     /// `title` when `workspace` is unnamed and `label`, the name its face tab `face` gives it, is only its shell's home
     /// (`namesHome`), else nil: the one rule the sidebar row and the titlebar, palette and rename prompt
@@ -104,7 +112,8 @@ public struct SidebarMapping {
     /// (for example, an acpmux session that was purged while its tab lingers).
     /// `listing`, when given, answers whether each workspace lists (the Home rule and `workspaceFilter`) from its own
     /// observation, so the pass reads no workspace's tabs (`SidebarRowFeed`).
-    /// `terminalTitle` (localized by the App) names a Cloud machine's unnamed workspace whose shell idles at its home.
+    /// `terminalTitle` (localized by the App) names an unnamed workspace whose shell idles at its home on this Mac or a
+    /// Cloud machine (`homeNamesAccount`).
     public func sections(_ daemonSections: [DaemonSidebarSection], machine: SidebarMachine,
                                 collapsedGroups: Set<String> = [],
                                 hidesHomeWorkspace: Bool = true,
@@ -129,7 +138,7 @@ public struct SidebarMapping {
             machine: machine.id, showsUnread: showsUnread, selectedTab: selectedTab, focusedPane: focusedPane,
             newTabTitle: newTabTitle, pageFace: pageFace,
             tabTitle: tabTitle, notificationText: notificationText, iconAsset: iconAsset, harnessIcons: harnessIcons,
-            homeShellTitle: machine.kind == .cloud ? terminalTitle : nil, faces: faces))
+            homeShellTitle: Self.homeNamesAccount(machine.kind) ? terminalTitle : nil, faces: faces))
         // The home workspace (`kind` "home") and a window's own Home (cmux#27880) are what
         // the Home item in the top section shows; neither is also a workspace row (nxdog28)
         // while that item is in the layout (`hidesHomeWorkspace`).

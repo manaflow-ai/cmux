@@ -24,6 +24,12 @@ final class MachineRegistry {
         machineID != localID && !nonCloudIDPrefixes.contains { machineID.hasPrefix($0) }
     }
 
+    /// Whether an idle shell at `machineID`'s home names its account, not the work (`SidebarMapping.homeNamesAccount`):
+    /// this Mac and a Cloud machine, never an SSH computer or a paired server.
+    static func homeNamesAccount(_ machineID: String) -> Bool {
+        machineID == localID || isCloudMachineID(machineID)
+    }
+
     /// The id prefixes of machines that are not Cloud machines, from the types that make their ids.
     private static let nonCloudIDPrefixes = [SSHHost.machineIDPrefix, ServerReach.machineIDPrefix]
 

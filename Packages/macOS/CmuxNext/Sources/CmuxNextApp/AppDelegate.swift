@@ -68,6 +68,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var ghosttyConfigLiveReload: GhosttyConfigLiveReload?
     /// The system's handler for other apps' sign-ins (`WebAuthSessionHandler`, which owns their broker).
     private var webAuthHandler: WebAuthSessionHandler?
+    /// Brings macOS's developer-tools installer in front of cmux when a terminal command starts it (first-run row 17).
+    private var installerFront: SystemInstallerFront?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment,
@@ -132,6 +134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         defer { DebugTimings.markLaunch("did_finish_launching_end") }
         // No system caret bubble over cmux's own native text fields (before any field edits).
         NativeCaretAccessory.install()
+        installerFront = SystemInstallerFront()
         // Every window, shell or auxiliary, opens by one placement rule.
         WindowPlacement.noActivate = environment.noActivate
         WindowPlacement.testScreen = environment.testWindow?.screen

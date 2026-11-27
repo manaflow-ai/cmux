@@ -8,12 +8,14 @@ import Foundation
 import Testing
 
 /// First-run findings row 19 (clean macOS 26 VM, user `admin`): the first terminal idled at the home folder, so its
-/// workspace read "admin", the person's login name. An unnamed workspace whose shell idles at this Mac's home reads
-/// "Terminal", as a Cloud machine's does (#36283); a folder under home, a title the shell or program set, or an SSH
-/// computer's home keeps its own name. The rows come from a daemon store through the sidebar mapping, and the label
-/// from the auto-name rule the app runs (`NewWorkspaceName.forTab`).
+/// workspace read "admin", the person's login name; here the test host's own home stands in for it. An unnamed
+/// workspace whose shell idles at this Mac's home reads "Terminal", as a Cloud machine's does (#36283); a folder under
+/// home, a title the shell or program set, another account's home, or an SSH computer's home keeps its own name. The
+/// rows come from a daemon store through the sidebar mapping, and the label from the auto-name rule the app runs
+/// (`NewWorkspaceName.forTab`).
 @MainActor struct HomeShellLoginNameTests {
-    private static let home = "/Users/admin"
+    private static let home = NSHomeDirectory()
+    private static var login: String { (home as NSString).lastPathComponent }
 
     /// A workspace with the daemon's default name and one idle shell in `cwd`, titled `title`.
     private static func store(cwd: String, title: String = "") -> DaemonStore {
@@ -41,7 +43,7 @@ import Testing
     @Test func aShellAtThisMacsHomeNeverReadsTheLoginName() {
         for title in ["", "zsh", "-zsh", Self.home] {
             let titles = Self.rowTitle(Self.store(cwd: Self.home, title: title), machine: Self.mac)
-            #expect(titles == ["Terminal"], "titled \"\(title)\": never \"admin\"")
+            #expect(titles == ["Terminal"], "titled \"\(title)\": never the login name")
         }
     }
 
@@ -51,7 +53,12 @@ import Testing
     }
 
     @Test func anSSHComputersHomeKeepsItsFolder() {
-        #expect(Self.rowTitle(Self.store(cwd: Self.home), machine: Self.ssh) == ["admin"])
+        #expect(Self.rowTitle(Self.store(cwd: Self.home), machine: Self.ssh) == [Self.login])
+    }
+
+    /// A shell in another account's home on this Mac names that account's folder, not "Terminal".
+    @Test func anotherAccountsHomeOnThisMacKeepsItsFolder() {
+        #expect(Self.rowTitle(Self.store(cwd: "/Users/cmux-someone-else"), machine: Self.mac) == ["cmux-someone-else"])
     }
 
     /// The app's titlebar, palette and pinned tiles read the same rule by machine id.

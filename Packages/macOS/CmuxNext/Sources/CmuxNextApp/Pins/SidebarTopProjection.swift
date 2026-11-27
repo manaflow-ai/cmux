@@ -56,8 +56,9 @@ struct SidebarWorkspaceItems {
             ?? SidebarItemInfo(workspaceRow: SidebarMapping.unmapped(workspace, machine: machine), color: nil)
     }
 
-    /// A Cloud machine's unnamed workspace whose shell idles at its home reads "Terminal" while workspaces auto-name.
+    /// An unnamed workspace whose shell idles at its home on this Mac or a Cloud machine reads "Terminal" while
+    /// workspaces auto-name (`MachineRegistry.homeNamesAccount`).
     private static func homeShellTitle(_ autoNames: Bool) -> (MachineID) -> String? {
-        { autoNames && MachineRegistry.isCloudMachineID($0.rawValue) ? Strings.untitledTerminal : nil }
+        { autoNames && MachineRegistry.homeNamesAccount($0.rawValue) ? Strings.untitledTerminal : nil }
     }
 }
