@@ -1898,7 +1898,7 @@ class SaturatedOwnedPool(unittest.TestCase):
     host serves) has a fallback within minutes ... The target is zero queue (Leo, 2026-10-24: 'THERE SHOULD
     BE 0 QUEUE EVER HERE')." GitHub never moves a queued job, and a run with no free Blacksmith slot takes
     the refusals-only marker, so the rescue leaves its queue alone: the placement is the only lever.
-    cmux#26723's fast tier (run 40810932618, 2026-10-29) queued on glaeda-side-std-xcode-27.2 from 03:14Z
+    cmux#26723's fast tier (run 40810932618, 2026-10-29) queued on glaeda-side-std-xcode-26.6 from 03:14Z
     for hours: no idle side runner, a stale pool snapshot, and so "no job leaves the minis' queue".
     """
 
@@ -2893,7 +2893,7 @@ class RerunPastTheAttemptCap(unittest.TestCase):
 
 
 # vars.CI_BLACKSMITH_MACOS=pr-rescue (hq#11523): Blacksmith macOS for cmux-next.yml's pull-request jobs only.
-# 2026-11-15 17:32Z glaeda-side-std-xcode-27.2 had 76 jobs queued, the oldest 150 min, and `on` would also have
+# 2026-11-15 17:32Z glaeda-side-std-xcode-26.6 had 76 jobs queued, the oldest 150 min, and `on` would also have
 # moved the nightly, promote, signing and release jobs, which stay off Blacksmith.
 RESCUE = cascade.PR_RESCUE
 CMUX_NEXT_REF = "manaflow-ai/cmux/.github/workflows/cmux-next.yml@refs/pull/43039/merge"
@@ -2987,7 +2987,7 @@ class BlacksmithPrRescue(unittest.TestCase):
                 self.assertEqual((result.retry_runner, result.retry_jobs), ("", ()))
 
     def test_a_pull_requests_same_tree_dispatch_is_placed_like_its_pull_request(self):
-        """cmux#44529's scheme compile (run 43879624016) queued on glaeda-side-std-xcode-27.2 from 13:50Z on 2026-11-16.
+        """cmux#44529's scheme compile (run 43879624016) queued on glaeda-side-std-xcode-26.6 from 13:50Z on 2026-11-16.
         cmux#44673 sent such a dispatch's bot re-run off the side lane; cmux#45176 moved every re-run to the
         placement's retry label, and placement honored pull_request runs only, so the dispatch was stuck again."""
         jobs = " fast-tier swift-canary cmux-scheme-compile release-compile "
@@ -3075,7 +3075,7 @@ class BlacksmithPrRescue(unittest.TestCase):
 
     def test_a_bot_rerun_of_a_pull_requests_dispatch_takes_only_the_placements_label(self):
         """cmux#44529's scheme compile (job 133341854319) in same-tree run 43879624016, `cmux-next · <head>`, queued
-        on glaeda-side-std-xcode-27.2 from 13:50Z on 2026-11-16 (cmuxterm-hq#12109). Its re-run took the plain
+        on glaeda-side-std-xcode-26.6 from 13:50Z on 2026-11-16 (cmuxterm-hq#12109). Its re-run took the plain
         fallback, vars.MACOS_RUNNER_26, until cmux#44966 showed that label can have no runner online: a re-run now
         takes Blacksmith macOS only through the placement's retry label, as the pull_request run's does."""
         job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["cmux-scheme-compile"]

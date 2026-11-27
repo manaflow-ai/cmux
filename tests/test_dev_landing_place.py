@@ -310,7 +310,7 @@ class DailyPickerTests(unittest.TestCase):
         self.assertEqual((json.loads(result["runs_on"]), result["runner_label"], result["pool"]), (SMALL, SMALL, "blacksmith"))
 
     def test_with_nothing_owned_idle_it_overflows_to_a_moving_blacksmith_label_not_the_busy_dev_slot(self):
-        # 2026-11-02: from 10:12Z 15 DEV daily compiles queued up to 1.5 h on glaeda-dev-std-xcode-27.2, whose two
+        # 2026-11-02: from 10:12Z 15 DEV daily compiles queued up to 1.5 h on glaeda-dev-std-xcode-26.6, whose two
         # runners were busy and offline: a label one or two runners serve is a reservation, and
         # every reservation has a fallback within minutes. Blacksmith macOS is the routing order's last resort.
         busy = [slot("cmux8s-glaeda-2", busy=True), slot("cmux11s-glaeda-2", status="offline"),
@@ -327,7 +327,7 @@ class DailyPickerTests(unittest.TestCase):
         self.assertEqual(json.loads(result["runs_on"]), LARGE)
 
     def test_only_with_every_blacksmith_label_stalled_it_waits_on_a_busy_dev_slot_not_behind_the_side_queue(self):
-        # 2026-10-30: five DEV daily compiles queued on glaeda-side-std-xcode-27.2 from 13:55Z behind about 184 PR
+        # 2026-10-30: five DEV daily compiles queued on glaeda-side-std-xcode-26.6 from 13:55Z behind about 184 PR
         # and side jobs (GitHub hands a label's queue out oldest first), while the DEV slots, which admit only feed
         # work, ran DEV compiles. Waiting on the slot label puts it behind DEV work only.
         stalled = snapshot({SMALL: 49, LARGE: 30})

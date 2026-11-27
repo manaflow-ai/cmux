@@ -1120,7 +1120,7 @@ FRESH = "glaeda-dev-std-xcode-27.2"
 
 
 class SessionSpill(unittest.TestCase):
-    """2026-11-15 03:15Z: glaeda-side-std-xcode-27.2 had 57 jobs queued (oldest 76 min) on 8 online runners while
+    """2026-11-15 03:15Z: glaeda-side-std-xcode-26.6 had 57 jobs queued (oldest 76 min) on 8 online runners while
     glaeda-session-std-xcode-27.2 had none queued on 13 online. A same-repo PR's daemon tests and generated files
     take the session label while its queue is the shorter one; a push already does (session_runner)."""
 
@@ -1216,7 +1216,7 @@ class SessionSpill(unittest.TestCase):
 
 class PlacementTakesTheShallowerOwnedQueue(unittest.TestCase):
     """Placement judges owned queues by the rescue's depth rule (#43799's deeper_queue()): more jobs queued, or as
-    many with an older oldest one. On 2026-11-15 glaeda-side-std-xcode-27.2 had 61 queued, the oldest 203 min, while
+    many with an older oldest one. On 2026-11-15 glaeda-side-std-xcode-26.6 had 61 queued, the oldest 203 min, while
     glaeda-gui-std-xcode-27.2 had 1; no runner was idle and no session runner took the job, yet a PR's daemon tests
     still queued on the side label."""
 
@@ -1314,7 +1314,7 @@ class PlacementTakesTheShallowerOwnedQueue(unittest.TestCase):
 
 
 class BorrowIdlePool(unittest.TestCase):
-    """2026-11-16 03:16Z, macos-pool-load: glaeda-side-std-xcode-27.2 had 44 queued (oldest 113 min) and
+    """2026-11-16 03:16Z, macos-pool-load: glaeda-side-std-xcode-26.6 had 44 queued (oldest 113 min) and
     glaeda-std-xcode-27.2 48 (oldest 178 min) while glaeda-gui-std-xcode-27.2 had 0 queued, and the slowest PR
     verdicts ended on the Release compile. A PR's Release compile with no idle side runner borrows an idle gui
     runner, bounded: never while the gui label has a queue, always leaving BORROW_RESERVE idle for the gui pool's
@@ -1581,7 +1581,9 @@ class GatewayRoute(unittest.TestCase):
             free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
             with mock.patch.object(placement.pool, "GitHub") as github, \
                     mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), None)), \
+                    mock.patch.object(placement, "fleet_queue_p90", return_value=None), \
                     contextlib.redirect_stdout(io.StringIO()):
+                # fleet_queue_p90 would read the live build-fleet controller; a busy fleet made this flip.
                 github.return_value.runners.return_value = runners
                 placement.main(values)
             return dict(line.split("=", 1) for line in output.read_text().splitlines())

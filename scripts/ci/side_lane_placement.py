@@ -513,7 +513,7 @@ def session_spill(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] |
                   route: str, taken: Sequence[str] = ()) -> tuple[str, tuple[str, ...]]:
     """(the owned label, the SESSION_SPILL_JOBS that take it), else ("", ()): the shorter of the owned queues.
 
-    On 2026-11-15 at 03:15Z glaeda-side-std-xcode-27.2 had 57 jobs queued, the oldest 76 minutes, on its 8
+    On 2026-11-15 at 03:15Z glaeda-side-std-xcode-26.6 had 57 jobs queued, the oldest 76 minutes, on its 8
     online runners, while glaeda-session-std-xcode-27.2 had none queued on 13 online (3 listening). A same-repo
     PR's daemon tests and generated files could run on either, yet their runs-on reached `deferred_runner` (the
     side queue) before `session_runner`, which only a push reaches. With Blacksmith macOS off (#43103) nothing
@@ -529,7 +529,7 @@ def session_spill(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] |
 
     When the session label takes none, the gui label is the other owned queue these jobs run on (a push's
     daemon tests and generated files take it whenever the session label has no room): they take it while the
-    side route's queue is deeper by that rule (_shallower_jobs()). On 2026-11-15 glaeda-side-std-xcode-27.2 had
+    side route's queue is deeper by that rule (_shallower_jobs()). On 2026-11-15 glaeda-side-std-xcode-26.6 had
     61 queued, the oldest 203 min, and glaeda-gui-std-xcode-27.2 had 1, yet a PR's daemon tests queued on side.
     """
     if runners is None:
@@ -879,7 +879,7 @@ def borrow_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | 
                  taken: Sequence[str] = (), lender_own: int = 0) -> tuple[str, tuple[str, ...]]:
     """(a lender label, the BORROW_JOBS its idle runners take), else ("", ()): an idle pool lends to a backed-up one.
 
-    2026-11-16 03:16Z, macos-pool-load: glaeda-std-xcode-27.2 had 48 queued (oldest 178 min) and
+    2026-11-16 03:16Z, macos-pool-load: glaeda-std-xcode-26.6 had 48 queued (oldest 178 min) and
     glaeda-side-std-xcode-27.2 44 (oldest 113 min), and the slowest PR verdicts ended on the Release compile, while
     glaeda-gui-std-xcode-27.2 had 0 queued. Side jobs only ever took the side label, its wider classes, the session
     label or Blacksmith, never an idle gui runner.
@@ -993,7 +993,7 @@ def gateway_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] |
     hand a commit to the fleet controller over the tailnet, so any owned runner
     that carries the gateway label or a wider class of it can host them. They
     took vars.CI_COMPILE_CHECK_GATEWAY as is, and nothing moved them: at 06:00Z
-    on 2026-10-26 glaeda-side-light-xcode-27.2 had 5 jobs running and 44 queued,
+    on 2026-10-26 glaeda-side-light-xcode-26.6 had 5 jobs running and 44 queued,
     the oldest for 58 minutes, with four of its minis reserved, and PR #24155's
     app compile was queued there three times until each newer push cancelled
     it. So a label is taken only while it has an idle runner for each of
@@ -1141,7 +1141,7 @@ FEAT_BRANCH = "refs/heads/feat-cmux-next"
 # on) runs its Mac jobs on the std minis' nightly slot, glaeda-nightly-std-xcode-27.2, a label no other PR job asks
 # for, so a busy side label's queue never holds it. GitHub hands a label's queued jobs out in arrival order, so on
 # 2026-11-17 cmux#45498, the repair of a daemon-test red on every feat-cmux-next head, queued behind about 70 PR jobs
-# on glaeda-side-std-xcode-27.2. claude-sr2-coord, 2026-11-17: "A base-red repair jumping the Mac queue is a route we
+# on glaeda-side-std-xcode-26.6. claude-sr2-coord, 2026-11-17: "A base-red repair jumping the Mac queue is a route we
 # need every day ... build it as the standing mechanism (the stack-blocker path), with a test." glaeda's runner hook
 # admits such a job on the slot (STACK_SLOT there) and ranks it right after nightly jobs. The workflow sets STACK_SLOT
 # only on attempt 1 of a labelled same-repository pull request; it overrides every route a Mac job's runs-on reads

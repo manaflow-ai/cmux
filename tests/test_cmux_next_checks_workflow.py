@@ -3827,7 +3827,7 @@ class BuildFleetGatewayJobsFallBack(unittest.TestCase):
     (vars.CI_COMPILE_CHECK_GATEWAY, a side-light label, or macos-placement's gateway_runner) runs only on
     a gateway runner macos-placement saw idle in the same attempt; in every other case it skips and its
     Mac fallback runs, in the cascade (an idle owned mini, then Blacksmith). 2026-10-26 06:00Z: 44 jobs
-    queued on glaeda-side-light-xcode-27.2, the oldest 58 minutes, and PR #24155's app compile queued
+    queued on glaeda-side-light-xcode-26.6, the oldest 58 minutes, and PR #24155's app compile queued
     there three times without running. A new job pinned to the gateway fails here until it is in
     FALLBACKS, with the guard."""
 

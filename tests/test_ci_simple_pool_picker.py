@@ -346,13 +346,13 @@ class LiveRunnerReadTests(unittest.TestCase):
     def test_owned_order_uses_numeric_versions_and_namespace_tie_break(self):
         labels = [
             "glaeda-aws-std-xcode-26.10",
-            "glaeda-std-xcode-27.2",
-            "glaeda-aws-std-xcode-27.2",
+            "glaeda-std-xcode-26.6",
+            "glaeda-aws-std-xcode-26.6",
             "glaeda-std-xcode-26.10",
         ]
         self.assertEqual(sorted(labels, key=picker.owned_order), [
-            "glaeda-std-xcode-27.2",
-            "glaeda-aws-std-xcode-27.2",
+            "glaeda-std-xcode-26.6",
+            "glaeda-aws-std-xcode-26.6",
             "glaeda-std-xcode-26.10",
             "glaeda-aws-std-xcode-26.10",
         ])

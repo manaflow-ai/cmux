@@ -1821,7 +1821,7 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
 
 class BuildRescueToBlacksmith(unittest.TestCase):
     """hq#3690: a build no owned runner took in 20 minutes is re-dispatched to Blacksmith macOS (scripts/ci/
-    app_ffi_rescue.py). On 2026-11-16 run 43978720557's build sat queued on glaeda-side-std-xcode-27.2 from 23:23Z to
+    app_ffi_rescue.py). On 2026-11-16 run 43978720557's build sat queued on glaeda-side-std-xcode-26.6 from 23:23Z to
     02:38Z with no runner and was cancelled having never run."""
 
     SMALL, LARGE = "blacksmith-6vcpu-macos-26", "blacksmith-12vcpu-macos-26"
@@ -2073,7 +2073,7 @@ class BuildRescueNeverToAnOffOrDeadBlacksmith(unittest.TestCase):
 
 
 class BuildRescueAgainToAnUntriedPool(unittest.TestCase):
-    """2026-11-20: rescued run 44734106982 (dispatched 12:14Z) sent its build to glaeda-side-std-xcode-27.2, the pool
+    """2026-11-20: rescued run 44734106982 (dispatched 12:14Z) sent its build to glaeda-side-std-xcode-26.6, the pool
     its rescue picked; it sat there 110 min with no runner and was cancelled at 14:04Z, while a push run's build got
     another owned Mac in 15 s. A rescued run never rescued again, so nothing moved it, and the app FFI pin passed its
     120 min bound (goal fix-running-ffi-pin). A rescued run now rescues again, to an owned pool no build of its chain

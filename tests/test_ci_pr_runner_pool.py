@@ -3739,7 +3739,7 @@ class IOSRouting(unittest.TestCase):
                                (ios_pool.ephemeral(SMALL), {"overflow": "cmux-mac", "requested": ""})):
             self.assertEqual(json.loads(ios_pool.granted_default(route, **{**base, **changes}).runs_on),
                              ["cmux-mac", IOS_SIM, "xcode-27.2"], changes)
-        self.assertEqual(ios_pool.pinned_xcode("26"), "26.6")
+        self.assertEqual(ios_pool.pinned_xcode("26"), "27.2")
         self.assertEqual(json.loads(ios_pool.granted_default(ios_pool.ephemeral(SMALL),
                                                              **{**base, "pr_xcode_app": ""}).runs_on),
                          ["cmux-mac", IOS_SIM, f"xcode-{ios_pool.pinned_xcode('26')}"])

@@ -122,7 +122,7 @@ vars.CI_FAST_LANE_RUNNER is the fast tier's own reserved runner label
 placement's fast_runner, set while one of its runners is idle, and only on
 attempt 1: a re-run reuses attempt 1's placement, whose idle reading is stale.
 With no fast runner idle, fast_runner names an idle light side runner instead
-(glaeda-side-light-xcode-27.2, side_lane_placement.light_fast_route(); Leo, 2026-11-08:
+(glaeda-side-light-xcode-26.6, side_lane_placement.light_fast_route(); Leo, 2026-11-08:
 "the light minis are largely idling"), never while a nightly job waits on the light minis.
 Otherwise the tier takes the current cascade allocation. With every
 alternative excluded, deferred_runner preserves the base owned queue;
@@ -3246,7 +3246,7 @@ placement, so the runs-on fell through to `fromJSON(vars.RUNNER_POOLS).macos_26`
 `tests/test_ci_next_macos_cascade.py` `test_every_blacksmith_macos_job_is_behind_the_off_switch` refuses a
 Mac job whose runs-on can name a Blacksmith macOS label while the switch is off.
 
-The scoped value `pr-rescue` (hq#11523, 2026-11-15: `glaeda-side-std-xcode-27.2` had 76 jobs queued, the oldest
+The scoped value `pr-rescue` (hq#11523, 2026-11-15: `glaeda-side-std-xcode-26.6` had 76 jobs queued, the oldest
 150 min, and no owned Mac was free) is Blacksmith macOS for this workflow's pull-request jobs only. Its
 placement (`next_macos_cascade.pr_rescue()`, `rescue_open()`) opens the Blacksmith labels only when the event is
 `pull_request`, `GITHUB_WORKFLOW_REF` is this file, and the owned route's oldest queued job has waited
@@ -3261,7 +3261,7 @@ refusal rescue, or a person's re-run of failed jobs) takes Blacksmith macOS; att
 `tip_daemon_suite`, `base_tier` or `no_reuse` set, so its run name is the default `cmux-next · <sha>` that
 main's `owned_pool_rescue.same_tree_pull_dispatch()` reads. Without it the stall move skipped every such run under
 `pr-rescue`, its re-run rejoining the side lane: cmux#44529's scheme compile (run 43879624016, job 133341854319)
-queued on `glaeda-side-std-xcode-27.2` from 13:50Z on 2026-11-16 (cmuxterm-hq#12109). The stall move admits such a
+queued on `glaeda-side-std-xcode-26.6` from 13:50Z on 2026-11-16 (cmuxterm-hq#12109). The stall move admits such a
 run only when its head's cmux-next.yml carries this clause. DEV daily, the tip suites, the base tier and a push's
 same-tree run keep the side lane. Every other
 workflow compares the variable with exactly `on`, so nightly, promote, signing and release read `pr-rescue` as

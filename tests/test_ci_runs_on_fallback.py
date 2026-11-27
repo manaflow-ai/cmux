@@ -554,7 +554,7 @@ def session_label_problems(text: str) -> list[str]:
     """Why a runs-on can send a job to a session label without a placement having judged that label's queue.
 
     The session label's runners are often online and busy on gui jobs while it starts nothing: on 2026-10-29
-    cmux#24295's daemon tests waited 90 minutes on glaeda-session-std-xcode-27.2, twice, with five session
+    cmux#24295's daemon tests waited 90 minutes on glaeda-session-std-xcode-26.6, twice, with five session
     runners online (36 offline) and the gui label beside it starting jobs within a minute, and the janitor
     opened "Runner label starved" issues for it twice that day. The gui-or-session rule above passed those
     jobs, because it counts ci-owned-pool-rescue.yml's watch as the way off; but the rescue watches a cmux-next
