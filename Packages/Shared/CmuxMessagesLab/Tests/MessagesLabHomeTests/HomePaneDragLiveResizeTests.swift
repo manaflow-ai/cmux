@@ -18,8 +18,9 @@ import Testing
     static let me = ParticipantID("user_me")
     static let them = ParticipantID("agent_chief")
 
-    /// Home in an offscreen window at 900 pt with a short conversation and an empty draft.
-    private func home() -> (NSWindow, NSView, MessagesLabHomeView) {
+    /// Home in an offscreen window at 900 pt with a short conversation and an empty draft. `beforeInstall` runs once Home
+    /// is in its window, before its transcript comes (Home installs it at the first data).
+    private func home(beforeInstall: (MessagesLabHomeView) -> Void = { _ in }) -> (NSWindow, NSView, MessagesLabHomeView) {
         let people = [CmuxHomeCore.Participant(id: Self.me, kind: .human, displayName: "Me"),
                       CmuxHomeCore.Participant(id: Self.them, kind: .agent, displayName: "Chief", agentClass: .chief)]
         let base = Date(timeIntervalSince1970: 1_800_000_000)
@@ -42,6 +43,7 @@ import Testing
         window.contentView = container
         view.frame = container.bounds
         container.addSubview(view)
+        beforeInstall(view)
         view.controller.install(conv, windowStart: w.start, total: w.total)
         container.layoutSubtreeIfNeeded()
         return (window, container, view)
@@ -105,5 +107,53 @@ import Testing
         view.followPaneResize(false)
         container.layoutSubtreeIfNeeded()
         #expect(compose.textView.clip.frame.width < textWidth)
+    }
+
+    /// A drag keeps the rows' fade under the pane's top (a see-through window's top fade, the soft mask, a bare top):
+    /// only the window's own live resize pauses it. Before, the drag took the clip's mask off and the rows showed at full
+    /// strength under the avatar and the pill until the drag ended (PR 59620 review).
+    @Test func aPaneDragKeepsTheRowsFadeUnderTheTop() throws {
+        let (window, container, view) = home()
+        defer { window.close() }
+        let demo = try #require(view.controller.demo)
+        view.setTopFadeStyle(.softMask)
+        container.layoutSubtreeIfNeeded()
+        try #require(!demo.topMaskStops.isEmpty, "fixture: the soft mask fades no rows")
+        let mask = try #require(demo.clip.layer.mask, "fixture: the rows have no mask")
+        view.followPaneResize(true)
+        resize(view, in: container, to: 840)
+        #expect(demo.clip.layer.mask === mask, "a divider drag took the rows' fade under the top off")
+        view.followPaneResize(false)
+        #expect(demo.clip.layer.mask === mask, "the drag's end left the rows without their mask")
+    }
+
+    /// A mask that fades nothing clips nothing the pane's bounds do not: the drag still takes it off (the render server
+    /// then draws no offscreen pass at each width), and its end puts it back.
+    @Test func aPaneDragTakesOffAMaskThatFadesNothing() throws {
+        let (window, container, view) = home()
+        defer { window.close() }
+        let demo = try #require(view.controller.demo)
+        view.setTopFadeStyle(.glassBand)
+        container.layoutSubtreeIfNeeded()
+        try #require(demo.topMaskStops.isEmpty && demo.topFade == 0, "fixture: the glass band's mask fades the rows")
+        let mask = try #require(demo.clip.layer.mask, "fixture: the rows have no mask")
+        view.followPaneResize(true)
+        #expect(demo.clip.layer.mask == nil, "a divider drag kept a mask that fades nothing")
+        view.followPaneResize(false)
+        #expect(demo.clip.layer.mask === mask, "the drag's end left the rows without their mask")
+    }
+
+    /// A drag that began before the transcript came still gives the field its width at the drag's end. Before, the
+    /// drag's start found no transcript and was not recorded, so its end placed nothing and the width kept waiting
+    /// (PR 59620 review).
+    @Test func aDragBegunBeforeTheTranscriptCameEndsWithTheFieldsWidth() throws {
+        let (window, container, view) = home(beforeInstall: { $0.followPaneResize(true) })
+        defer { window.close() }
+        let compose = try #require(view.controller.demo?.compose)
+        try #require(compose.textView.view.string.isEmpty, "fixture: the draft is not empty")
+        resize(view, in: container, to: 820)
+        try #require(compose.textView.widthWaiting != nil, "fixture: the drag kept no width waiting")
+        view.followPaneResize(false)
+        #expect(compose.textView.widthWaiting == nil, "a width still waits after a drag that began before the transcript came")
     }
 }
