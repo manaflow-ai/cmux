@@ -72,28 +72,22 @@ public struct VaultScreen: View {
 
     @ViewBuilder private var content: some View {
         switch model.phase {
-        case .loading:
-            // placeholder-ok: the vault's status has not answered yet on this page.
+        case .failed(let message) where autoRetry.isQuietLineShown:
+            // Loads again on its own (AutoRetry): the spinner stays, then one quiet line, no button.
+            ContentUnavailableView {
+                Label("Couldn't load the vault", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(message)
+            } actions: {
+                AutoRetryQuietLine(autoRetry)
+            }
+            .accessibilityIdentifier("vault.failed")
+        case .loading, .failed:
+            // placeholder-ok: the vault's status has not answered yet on this page (a first load or a quiet retry).
             CmuxSpinner(label: Text("Loading vault…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("vault.loading")
                 .placeholderBound("vault.loading", .milliseconds(2000))
-        case .failed(let message):
-            // Loads again on its own (AutoRetry): the spinner stays, then one quiet line, no button.
-            if autoRetry.isQuietLineShown {
-                ContentUnavailableView {
-                    Label("Couldn't load the vault", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(message)
-                } actions: {
-                    AutoRetryQuietLine(autoRetry)
-                }
-                .accessibilityIdentifier("vault.failed")
-            } else {
-                CmuxSpinner(label: Text("Loading vault…"))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .accessibilityIdentifier("vault.loading")
-            }
         case .loaded:
             List {
                 switch model.state {
