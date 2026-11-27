@@ -80,6 +80,7 @@ import { registerHarnessesPage } from "./harnesses/harnessesPage";
 import {
   injectedNewTabContext,
   useEarlyNewTabContext,
+  useLostSharedPart,
   useNewTabAdoption,
   useNewTabPlaces,
   adoptionPlan,

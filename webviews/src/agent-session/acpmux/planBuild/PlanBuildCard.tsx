@@ -25,6 +25,7 @@ import {
 } from "./planBuild";
 import "./planBuild.css";
 import { signed } from "../../../ui/Typography";
+import { Tooltip } from "../../../ui/Tooltip";
 
 export type PlanBuildCardProps = {
   build: PlanBuild;
@@ -136,9 +137,11 @@ export function PlanBuildCard({
     >
       <header className="acpmux-plan-builds-head">
         <span className="acpmux-plan-builds-title">{title}</span>
-        <span className="acpmux-plan-builds-note" role={error ? "alert" : undefined} title={note || undefined}>
-          {note}
-        </span>
+        <Tooltip label={note} disabled={!note}>
+          <span className="acpmux-plan-builds-note" role={error ? "alert" : undefined}>
+            {note}
+          </span>
+        </Tooltip>
       </header>
       <div className="acpmux-plan-builds-columns" data-count={build.builds.length}>
         {build.builds.map((child) => (
@@ -263,18 +266,20 @@ function PlanBuildColumn({
           <SenderIcon harness={child.harness} tone={agentTone(child.sessionId)} size={14} fallback="agent.chat" />
         </span>
         <span className="acpmux-plan-builds-name">{label ?? child.name ?? child.harness ?? child.sessionId}</span>
-        <span className="acpmux-plan-builds-state" title={outcome === "stayed" ? why : undefined}>
-          <span className="acpmux-plan-builds-dot" aria-hidden />
-          {outcome === "kept"
-            ? t("planBuild.kept")
-            : outcome === "archived"
-              ? t("planBuild.archived")
-              : outcome === "removed"
-                ? t("planBuild.removed")
-                : outcome === "stayed"
-                  ? t("planBuild.stayed")
-                  : statusText(t, state)}
-        </span>
+        <Tooltip label={why} disabled={outcome !== "stayed" || !why}>
+          <span className="acpmux-plan-builds-state">
+            <span className="acpmux-plan-builds-dot" aria-hidden />
+            {outcome === "kept"
+              ? t("planBuild.kept")
+              : outcome === "archived"
+                ? t("planBuild.archived")
+                : outcome === "removed"
+                  ? t("planBuild.removed")
+                  : outcome === "stayed"
+                    ? t("planBuild.stayed")
+                    : statusText(t, state)}
+          </span>
+        </Tooltip>
       </div>
       <div className="acpmux-plan-builds-branch">{branch ?? " "}</div>
       <div className="acpmux-plan-builds-stats">
