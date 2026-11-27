@@ -125,7 +125,8 @@ repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gi
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
 off; CI_GREEN_BASE_MERGE_SKIP=0 turns the green-head base merge rule and the same-patch rule off; CI_LAND_CARRY=0 turns the land carry rule
 off (a landing base merge runs the full tier again); CI_LABELLED_BASE_MERGE_SKIP=0 turns the labelled base merge rule
-off; CI_RED_BASE_MERGE_RERUN=0 turns the red-head base merge rule off; CI_FULL_CI_BASE_MERGE_CARRY=0 turns the full-ci base
+off; CI_RED_BASE_MERGE_RERUN=0 turns the red-head base merge rule off; CI_CONTENT_BASE_MERGE=0 counts a merge as a
+base merge by its message only again (same_change_as); CI_FULL_CI_BASE_MERGE_CARRY=0 turns the full-ci base
 merge carry rule off; CI_LAND_FULL_PER_PR=1 turns the hourly full tier rule off (a
 landing head runs the full tier again). Stdlib only; anything unreadable gives
 `full`.
@@ -560,8 +561,12 @@ def head_facts(event: dict, depth: int = 30, actions: tuple[str, ...] = ("synchr
             fetch(sha, 1)
         parents, _, message = commit(sha)
         by_github = github_made  # the head's own committer; the walk below reads older commits
-        if len(parents) != 2 or not merge.match(message):
+        read = "message"
+        if len(parents) == 2 and not merge.match(message):
+            read = "content" if same_change_as(base, sha, parents[0]) else ""
+        if len(parents) != 2 or not read:
             return {"base_merge_only": False, "own_last": None, "by_github": by_github}
+        more = {"merge_read": "content"} if read == "content" else {}
         previous = rev = parents[0]
         base_parent = parents[1]
         for _ in range(depth):  # first parents: past earlier base merges to the branch's own last commit
@@ -570,12 +575,12 @@ def head_facts(event: dict, depth: int = 30, actions: tuple[str, ...] = ("synchr
             parents, when, message = commit(rev)
             if not (len(parents) == 2 and merge.match(message)):
                 return {"base_merge_only": True, "own_last": when, "by_github": by_github, "previous": previous,
-                        "base_parent": base_parent}
+                        "base_parent": base_parent, **more}
             rev = parents[0]
     except (subprocess.SubprocessError, OSError, StopIteration, ValueError, IndexError):
         return None
     return {"base_merge_only": True, "own_last": None, "by_github": by_github, "previous": previous,
-            "base_parent": base_parent}
+            "base_parent": base_parent, **more}
 
 
 def full_carry_facts(event: dict, facts: dict) -> dict:
@@ -601,6 +606,23 @@ def full_carry_facts(event: dict, facts: dict) -> dict:
     workflow = workflow_file(os.environ.get("GITHUB_WORKFLOW_REF"))
     return {**out, "own_change_kept": kept, "previous_runs": runs, "previous_green": green_previous(runs),
             "workflow": workflow, "workflow_passed": passed_there(runs, workflow)}
+
+
+def same_change_as(base: str, sha: str, first_parent: str) -> bool:
+    """Whether merge commit SHA only merged the base into FIRST_PARENT, read by its content, not its message: the
+    change SHA makes over its merge base with BASE is the change FIRST_PARENT made (own_patch_key, the same-patch
+    rule's key). So nothing was hand-resolved or edited in the merge and nothing but base commits came in (a merge of
+    another branch adds that branch's change). An agent's `git merge` with its own wording ("Merge commit 'SHA' into
+    lane/x", "Merge feat-cmux-next to resync PR head") did not match base_merge_message, so the head ran every tier
+    as a new change: 238 such heads on 2026-11-25 22Z..11-26 22Z, about 24k runner-min (ci-min-per-pr-140). Two
+    compare reads, made only for a two-parent head whose message is not a base merge's; unread is no."""
+    repo = os.environ.get("GITHUB_REPOSITORY", "")
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
+    if (os.environ.get("CI_CONTENT_BASE_MERGE", "1").strip() == "0"
+            or not re.fullmatch(r"[0-9a-f]{40}", first_parent)):
+        return False
+    key = own_patch_key(repo, base, sha, token)
+    return key is not None and own_patch_key(repo, base, first_parent, token) == key
 
 
 def same_patch_facts(event: dict) -> dict:

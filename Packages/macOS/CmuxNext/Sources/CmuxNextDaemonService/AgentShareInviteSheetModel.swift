@@ -15,7 +15,7 @@ public final class AgentShareInviteSheetModel {
     public struct Row: Hashable, Identifiable, Sendable {
         /// Trimmed and lowercased by the daemon.
         public var account: String
-        /// `view` or `talk`.
+        /// `view`, `talk` or `drive`.
         public var role: String
         /// A device of the account is in the chat now.
         public var joined: Bool
@@ -60,8 +60,12 @@ public final class AgentShareInviteSheetModel {
     /// The chat's tab title.
     public let chat: String
     /// What the account field holds.
-    public var account = ""
-    /// The role the next invite gets: `talk` (the default) or `view`.
+    public var account = "" {
+        didSet {
+            if account != oldValue, role == "drive" { role = "talk" }
+        }
+    }
+    /// The role the next invite gets. Drive must be chosen for each new account.
     public var role: String
     /// The invited accounts, oldest first.
     public private(set) var rows: [Row] = []
@@ -97,7 +101,7 @@ public final class AgentShareInviteSheetModel {
     public init(chat: String, session: String, role: String = "talk", work: Work) {
         self.chat = chat
         self.session = session
-        self.role = role
+        self.role = role == "drive" ? "talk" : role
         self.work = work
     }
 
