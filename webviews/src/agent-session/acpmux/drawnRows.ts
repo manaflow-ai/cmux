@@ -30,6 +30,9 @@ export function drewRunningTurn(rows: readonly AcpmuxRow[] | undefined): void {
   shownUnderFold = folded ? shown : undefined;
 }
 
+/// Whether the transcript last drew the running turn's work under its closed "Working for".
+export const drewUnderClosedFold = (): boolean => shownUnderFold !== undefined;
+
 /// Whether `rows[index]` is one of the running turn's rows that its closed "Working for" hides
 /// (`shownUnderFold`): no prompt after it, so it is that turn's, and the transcript drew no row of
 /// its id. In a long chat nearly every thought chunk and tool call lands there (the default arm,
