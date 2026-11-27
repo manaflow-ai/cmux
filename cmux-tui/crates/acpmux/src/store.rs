@@ -127,6 +127,22 @@ pub trait Store: Send + Sync {
     fn save_kept(&self, meta: &SessionMeta) -> Result<()> {
         self.save(meta)
     }
+    /// `save` (`ShowAfter::Durable`) or `save_kept` (`Written`), and the digest of what it wrote
+    /// when the store keeps one ([`Store::digest`]): the metadata writer compares memory with it
+    /// at shutdown instead of serializing and hashing every chat again after each save
+    /// (`hub/meta_save.rs`). None: the caller makes its own.
+    fn save_digest(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<Option<MetaDigest>> {
+        match keep {
+            ShowAfter::Durable => self.save(meta)?,
+            ShowAfter::Written => self.save_kept(meta)?,
+        }
+        Ok(None)
+    }
+    /// What `save_digest` returns for metadata equal to `meta`, from `meta` alone; None for a
+    /// store that keeps no digest.
+    fn digest(&self, _meta: &SessionMeta) -> Option<MetaDigest> {
+        None
+    }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()>;
     /// Flush one session's event log and metadata to stable storage.
     ///
@@ -758,6 +774,9 @@ pub fn catch_up_journal(config: &StoreConfig, home: &Path) -> Result<()> {
 
 mod durability;
 pub use durability::{Durability, FULL_WAIT, ShowAfter};
+
+/// A saved image's digest ([`Store::save_digest`]): equal metadata gives an equal one.
+pub type MetaDigest = [u8; 32];
 pub(crate) use durability::{RecordClass, record_class, streamed};
 mod journal_store;
 #[cfg(test)]
@@ -2081,7 +2100,7 @@ impl LocalStore {
         // The segment that holds `after + 1`, found from the segments' kept first seqs: the read
         // opens only the segments it reads (`store/segment_starts.rs`).
         let start = self.segment_starts.start(id, &segments, after)?;
-        for (_, path) in &segments[start..] {
+        for (_, path) in segments.get(start..).unwrap_or_default() {
             let mut reader =
                 BufReader::with_capacity(256 * 1024, cold_segments::open_segment(path)?);
             loop {

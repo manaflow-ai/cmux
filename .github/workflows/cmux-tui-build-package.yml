@@ -139,6 +139,13 @@ on:
         required: false
         default: "mac"
         type: string
+      # A commit of the base branch whose scripts/ci/macos-stubs lay over this tree's (a PR head built on
+      # older stubs links what the base added since). Empty: this tree's own stubs.
+      macos_stubs_ref:
+        description: "Base-branch commit whose framework stubs are merged into this tree's before the Linux cross link"
+        required: false
+        default: ""
+        type: string
     # The R2 cargo cache's write credentials. A called workflow sees only the secrets its caller passes, so with
     # none declared the save steps read empty values and saved nothing (run 45200352920, 2026-11-23). Optional:
     # cmux-tui-artifacts.yml passes them on feat-cmux-next only, every other caller and ref only reads. A secret
@@ -359,7 +366,7 @@ jobs:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -376,7 +383,7 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1089,12 +1096,22 @@ jobs:
           WARM_DISK: ${{ steps.pool-warm-darwin.outputs.disk || '/home/runner/cmux-tui-fat-warm' }}
           # An exact R2 hit (its key holds the toolchain stamp) seeds a new pool tree as built.
           MACHINE_CHANNEL_WARM_SEED_EXACT: ${{ steps.r2-cargo-target.outputs.cache-hit == 'true' }}
+          MACOS_STUBS_REF: ${{ inputs.macos_stubs_ref }}
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           unset CMUX_GHOSTTY_SRC
           sha="$(git rev-parse HEAD)"
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
+          # DARWIN_STUBS_FROM_BASE: a retry of a link that failed on a symbol the base branch's stubs
+          # already hold. Merge them over this tree's (the build's output is unchanged: stubs only name symbols).
+          if [[ -n "${MACOS_STUBS_REF:-}" ]]; then
+            newer="$(mktemp -d)"
+            gh api "repos/$GITHUB_REPOSITORY/contents/scripts/ci/macos-stubs?ref=$MACOS_STUBS_REF" --jq '.[] | select(.type=="file") | .name' |
+              while read -r f; do gh api -H 'Accept: application/vnd.github.raw' "repos/$GITHUB_REPOSITORY/contents/scripts/ci/macos-stubs/$f?ref=$MACOS_STUBS_REF" > "$newer/$f"; done
+            python3 scripts/ci/macos_stubs.py merge scripts/ci/macos-stubs "$newer"
+          fi
           # Start from the shipped legs' warm target (mounted on feat-cmux-next pushes only);
           # "Record the warm target", after "Stage binary", prunes and records it. Without a
           # mounted disk (or a pool runner's own directory) restore does nothing.
@@ -1353,10 +1370,18 @@ jobs:
 
       # What this leg built on top of the dependency entry, packed before the strip below removes it;
       # every run prints its size, feat-cmux-next pushes save it. Why: docs/ci/cmux-next-workflow-notes/2026-11-26-cargo-target-delta.md
+      # On an exact dependency hit nothing after the pack reads cmux-tui/target (the strip and the
+      # dependency save run only on a miss), so the build tree goes once the pack has hard-linked what
+      # it keeps: the leg holds the delta, not the delta plus every group's unpacked output, while the
+      # delta's archive is written. Job 140250090793 (x86_64 musl, pool) ran the VM's disk to zero in
+      # the save below and the runner died writing its _diag log; r2-cache.sh now also skips a save
+      # without room for its archive.
       - name: Pack the workspace delta
         id: r2-cargo-ws-pack
         if: ${{ success() && steps.r2-cargo-ws-apply.outcome == 'success' }}
         continue-on-error: true
+        env:
+          TARGET_HIT: ${{ steps.r2-cargo-target.outputs.cache-hit }}
         shell: bash
         run: |
           set -euo pipefail
@@ -1364,6 +1389,11 @@ jobs:
           scripts/ci/cargo-target-delta.sh pack cmux-tui/target "$RUNNER_TEMP/cargo-delta.stamp" \
             "$RUNNER_TEMP/cargo-delta-out" "${{ matrix.target }}" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "cargo delta: pack took $((SECONDS - start)) s" | tee -a "$GITHUB_STEP_SUMMARY"
+          before="$(df -Pk . | awk 'NR == 2 { print $4 }')"
+          if [[ "$TARGET_HIT" == true ]]; then rm -rf cmux-tui/target; fi
+          after="$(df -Pk . | awk 'NR == 2 { print $4 }')"
+          echo "cargo delta: $((before >> 20)) -> $((after >> 20)) GiB free after the pack (target hit: ${TARGET_HIT:-false})" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Save the workspace delta to R2
         if: ${{ success() && steps.r2-cargo-ws-pack.outcome == 'success' && github.ref == 'refs/heads/feat-cmux-next' && github.event_name != 'pull_request' }}
@@ -1400,7 +1430,7 @@ jobs:
           du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Save the cargo build to R2
-        if: ${{ success() && github.event_name != 'pull_request' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && steps.r2-cargo-strip.outcome == 'success' }}
+        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -1430,7 +1460,7 @@ jobs:
           key: ${{ steps.r2-zig-local-key.outputs.key }}
 
       - name: Save the cargo registry to R2
-        if: ${{ success() && github.event_name != 'pull_request' && (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
+        if: ${{ success() && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -1482,7 +1512,7 @@ jobs:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1499,7 +1529,7 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1512,9 +1542,7 @@ jobs:
 
       - name: Resolve Ghostty Zig version
         id: ghostty-zig-version
-        run: |
-          version="$(GHOSTTY_ZIG_SOURCE=ghostty-next bash ./scripts/ghostty-zig-version.sh)"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(GHOSTTY_ZIG_SOURCE=ghostty-next bash ./scripts/ghostty-zig-version.sh)" >> "$GITHUB_OUTPUT"
 
       - name: Install zig
         uses: mlugg/setup-zig@8d6198c65fb0feaa111df26e6b467fea8345e46f # v2.0.5
@@ -1533,13 +1561,6 @@ jobs:
       - name: Install Rust target
         run: rustup target add x86_64-pc-windows-gnu
 
-      - name: Restore the reviewed MinGW-Builds sysroot
-        id: mingw-sysroot
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
-          key: cmux-windows-gnu-sysroot-${{ hashFiles('cmux-tui/dist/notices/package-notices.json', 'scripts/ci/windows-gnu-cross-build.sh') }}
-
       # The sysroot must be the reviewed archive (sha256) with mingw-w64 13.0.0, UCRT and GCC
       # 15.2.0's runtime (package_notices.py check-windows-sysroot), and every binary may name
       # no GCC build but the reviewed one (check-windows-binary); the script runs both.
@@ -1557,13 +1578,6 @@ jobs:
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
           bash scripts/ci/windows-gnu-cross-build.sh build dist
-
-      - name: Save the reviewed MinGW-Builds sysroot
-        if: ${{ (github.ref == 'refs/heads/feat-cmux-next' || github.ref == 'refs/heads/main') && steps.mingw-sysroot.outputs.cache-hit != 'true' }}
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ${{ runner.temp }}/cmux-windows-gnu-sysroot
-          key: ${{ steps.mingw-sysroot.outputs.cache-primary-key }}
 
       # The cmux-tui-core unit tests that must run on Windows, built here, run by build-windows.
       - name: Build the Windows long-path test binary
@@ -1627,7 +1641,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1673,7 +1687,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1768,7 +1782,7 @@ jobs:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1785,7 +1799,7 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1855,7 +1869,7 @@ jobs:
       - name: Checkout caller or requested ref
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -1872,7 +1886,7 @@ jobs:
 
       - name: Retry checkout caller or requested ref after a stalled fetch
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -2159,7 +2173,7 @@ jobs:
       PYPI_VERSION: ${{ inputs.pypi_version != '' && inputs.pypi_version || inputs.version }}
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
@@ -2228,7 +2242,7 @@ jobs:
       attestations: write
     steps:
       - name: Checkout caller or requested ref
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ inputs.checkout_ref }}
           persist-credentials: false
