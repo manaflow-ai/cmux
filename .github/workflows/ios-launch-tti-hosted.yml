@@ -213,5 +213,7 @@ jobs:
             artifacts/ios-sim/launch-premain.json
             artifacts/ios-sim/premain-sample-*.txt
             artifacts/ios-sim/SUMMARY.md
+            artifacts/ios-sim/ui-tests-failures.txt
+            artifacts/ios-sim/launch-tti-error.txt
           retention-days: 3
           if-no-files-found: warn

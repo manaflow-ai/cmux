@@ -17,7 +17,10 @@ fn reason(e: &RpcError) -> Option<&str> {
 #[tokio::test]
 async fn a_peer_reads_connected_only_once_its_handshake_finished() {
     let (tx, mut notices) = mpsc::channel(64);
-    let peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+    let mut peer = Peer::new("box", "ws://127.0.0.1:9", None, None, tx);
+    // The refusal itself is what this checks: no wait for the handshake to finish
+    // (`a_request_waits_only_for_a_link_on_its_way_back` covers the wait).
+    Arc::get_mut(&mut peer).unwrap().timings.reconnect_wait = Duration::ZERO;
     let (ours, theirs) = tokio::io::duplex(1 << 16);
     let client = WebSocketStream::from_raw_socket(ours, Role::Client, None).await;
     let mut server = WebSocketStream::from_raw_socket(theirs, Role::Server, None).await;

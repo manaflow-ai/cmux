@@ -315,6 +315,32 @@ struct MacScreenActionRoutingTests {
         #expect(services.pages.tabIDs(in: pane.paneKey).count == before.count + 1)
     }
 
+    /// cmd+shift+s, File > Screen Sharing, the + chevron and the palette run `macScreen.open` as a person: with Home as
+    /// the window's top page the tab opened under Home, selected but never drawn (feature-flows walk 11-27 04:04Z read
+    /// Home's transcript and composer, no macScreen.home). The open now leaves the top page, as the sidebar's does.
+    @Test func aPersonsOpenLeavesHomeSoTheTabShows() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.windows.ordersWindowsIn = false
+        services.daemon.store.apply(snapshot: screenTree())
+        _ = services.windows.registry.apply { $0.openWindow(id: "screen-route-window", workspaceIDs: ["screen-route"]) }
+        let window = services.windows.makeController(for: try #require(services.windows.registry.value.window("screen-route-window")))
+        defer { window.teardown(); window.window?.close() }
+        window.state.showWorkspace("screen-route")
+        window.showWorkspace(requested: "screen-route")
+        let pane = try #require(window.content?.panes.values.first)
+        AgentHandlers.bind(into: services.registry, context: AppActionContext(services: services))
+        window.state.page = .home
+        let before = services.pages.tabIDs(in: pane.paneKey)
+        let invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: .user)
+        let refusal = services.registry.capturingRefusal { #expect(services.registry.perform("macScreen.open", invocation: invocation)) }
+        #expect(refusal == nil, "\(refusal ?? "")")
+        let opened = services.pages.tabIDs(in: pane.paneKey).filter { !before.contains($0) }
+        defer { opened.forEach { services.pages.close($0) } }
+        #expect(opened.count == 1 && opened.allSatisfy { LocalPageTab.page(of: $0) == .macScreen }, "one Screen Sharing tab: \(opened)")
+        #expect(window.state.page == nil, "the window still shows Home over the new tab")
+    }
+
     /// `cmux action run macScreen.open --target pane:… --device X --autoconnect --wait` on a pane whose workspace its
     /// window does not show (an agent's probe while the person works elsewhere): the tab opens in that pane and asks
     /// the hub at once, and the window still shows the person's workspace and tab, nothing selected or focused. Before,
