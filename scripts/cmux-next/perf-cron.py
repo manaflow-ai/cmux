@@ -2445,21 +2445,75 @@ def gh_shape(path):
     return re.sub(r"/[0-9a-f]{40}(\.\.\.[0-9a-f]{40})?|/\d+", "/N", path.split("?")[0].replace("https://api.github.com", ""))
 
 
+# The tick's own github.token shares the repository's GITHUB_TOKEN hour with every workflow, and on 2026-11-27 other
+# workflows spent it within minutes of each reset: from 12:20Z every tick's first read (the artifacts list) got 403,
+# so no tick read the state and the cron measured nothing for hours (cmux#24569), while the CI pool Apps
+# (CI_POOL_TOKEN_1/2, the tokens pr-router and the UI proof gate fall back to) had their own hours. A read GitHub
+# refuses for the limit goes on with the next token, and a spent token is not tried again in this process; only when
+# every token is spent is the tick a RateLimited one. Writes stay on GH_TOKEN (the pool Apps may not hold issues: write).
+SPENT_TOKENS = set()
+
+
+def read_tokens():
+    """GH_TOKEN, then PERF_CRON_POOL_TOKENS (space-separated), each once, without the ones spent in this process."""
+    first = os.environ.get("GH_TOKEN", "")
+    pool = os.environ.get("PERF_CRON_POOL_TOKENS", "").split()
+    return [t for t in dict.fromkeys(t for t in [first, *pool] if t) if t not in SPENT_TOKENS]
+
+
+def with_read_tokens(what, read):
+    """READ(token) with each read token in turn while GitHub refuses for the rate limit. The last refusal raises
+    RateLimited (its wait the soonest reset seen); any other error raises at once."""
+    tokens = read_tokens()
+    if not tokens:
+        # Every token was spent earlier in this process: KeyError without GH_TOKEN, as before.
+        if not os.environ.get("GH_TOKEN"):
+            raise KeyError("GH_TOKEN")
+        raise RateLimited(f"{what}: every token spent")
+    waits = []
+    for i, token in enumerate(tokens):
+        try:
+            return read(token)
+        except urllib.error.HTTPError as error:
+            if not rate_limited(error):
+                raise
+            SPENT_TOKENS.add(token)
+            refused = refused_for_the_limit(what, error)
+            if refused.wait is not None:
+                waits.append(refused.wait)
+            if i == len(tokens) - 1:
+                refused.wait = min(waits) if waits else None
+                if len(tokens) > 1:
+                    refused.args = (f"{what}: HTTP {error.code} with each of {len(tokens)} tokens",)
+                raise refused from error
+            print(f"perf-cron: {what} refused for the rate limit with token {i + 1} of {len(tokens)}; trying the next",
+                  flush=True)
+    raise AssertionError("unreachable")
+
+
 def gh_request(path, method="GET", body=None, raw=False, timeout=30):
     api = os.environ.get("GITHUB_API_URL", "https://api.github.com")
     url = path if path.startswith("http") else f"{api}{path}"
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, method=method, headers={
-        "Authorization": f"Bearer {os.environ['GH_TOKEN']}", "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-perf-cron"})
-    GH_CALLS[f"{method} {gh_shape(path)}"] += 1
-    try:
+    what = f"{method} {gh_shape(path)}"
+
+    def call(token):
+        req = urllib.request.Request(url, data=data, method=method, headers={
+            "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cmux-perf-cron"})
+        GH_CALLS[what] += 1
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            payload = r.read()
-    except urllib.error.HTTPError as error:
-        if rate_limited(error):
-            raise refused_for_the_limit(f"{method} {gh_shape(path)}", error) from error
-        raise
+            return r.read()
+
+    if method == "GET":
+        payload = with_read_tokens(what, call)
+    else:
+        try:
+            payload = call(os.environ["GH_TOKEN"])
+        except urllib.error.HTTPError as error:
+            if rate_limited(error):
+                raise refused_for_the_limit(what, error) from error
+            raise
     return payload if raw else (json.loads(payload) if payload else {})
 
 
@@ -2561,18 +2615,23 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 def download_redirected(url, timeout=120):
     """An artifact archive: GitHub answers 302 to a signed storage URL, which refuses the GitHub token, so the
     redirect is followed without it."""
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                                               "Accept": "application/vnd.github+json", "User-Agent": "cmux-perf-cron"})
-    GH_CALLS[f"GET {gh_shape(url)}"] += 1
-    try:
-        with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
-            return r.read()
-    except urllib.error.HTTPError as error:
-        if rate_limited(error):
-            raise refused_for_the_limit(f"GET {gh_shape(url)}", error) from error
-        if error.code not in (301, 302, 303, 307, 308) or not error.headers.get("Location"):
-            raise
-        location = error.headers["Location"]
+    what = f"GET {gh_shape(url)}"
+
+    def call(token):
+        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}",
+                                                   "Accept": "application/vnd.github+json", "User-Agent": "cmux-perf-cron"})
+        GH_CALLS[what] += 1
+        try:
+            with urllib.request.build_opener(_NoRedirect).open(req, timeout=timeout) as r:
+                return r.read(), None
+        except urllib.error.HTTPError as error:
+            if rate_limited(error) or error.code not in (301, 302, 303, 307, 308) or not error.headers.get("Location"):
+                raise
+            return None, error.headers["Location"]
+
+    blob, location = with_read_tokens(what, call)
+    if location is None:
+        return blob
     with urllib.request.urlopen(urllib.request.Request(location, headers={"User-Agent": "cmux-perf-cron"}), timeout=timeout) as r:
         return r.read()
 
@@ -3975,6 +4034,7 @@ def cmd_fetch_state(o):
             print(f"perf-cron: GitHub rate limit ({error}); waiting {error.wait} s for its reset to keep this run's result",
                   flush=True)
             time.sleep(error.wait + LIMIT_WAIT_SLACK_S)  # sleep-ok: GitHub's named rate-limit reset time
+            SPENT_TOKENS.clear()  # the soonest reset has passed: each token may answer again
             fetch_state(o.repo, o.dir)
     except RateLimited as error:
         # No state read: the plan must not start from an empty one. It and the report see the mark and do nothing.
