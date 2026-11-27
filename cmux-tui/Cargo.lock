@@ -3122,6 +3122,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-sign-clone-sweep"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-signed-bundle"
 version = "0.1.0"
 dependencies = [
@@ -3469,6 +3476,7 @@ dependencies = [
  "cmux-sdk",
  "cmux-server",
  "cmux-server-core",
+ "cmux-sign-clone-sweep",
  "cmux-signed-bundle",
  "cmux-stack-auth",
  "cmux-sync",
@@ -3562,6 +3570,10 @@ dependencies = [
  "cmux-cloud-wire",
  "cmux-egress",
  "cmux-json",
+ "cmux-relay-snapshot",
+ "hex",
+ "p256",
+ "rand_core 0.6.4",
  "serde",
  "serde_json",
  "url",
@@ -3789,6 +3801,14 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "tempfile",
+]
+
+[[package]]
+name = "cmux-update-prewarm-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
