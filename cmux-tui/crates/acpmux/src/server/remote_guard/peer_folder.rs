@@ -271,7 +271,7 @@ fn folder_inside_home(canonical: &Path, home: &Path) -> bool {
     for part in parts {
         let Component::Normal(name) = part else { return false };
         let name = name.to_string_lossy();
-        if name.starts_with('.') || (first && name == "Library") {
+        if name.starts_with('.') || (first && name.eq_ignore_ascii_case("Library")) {
             return false;
         }
         first = false;
@@ -347,6 +347,11 @@ mod tests {
         assert!(!folder_inside_home(&home.join("src/.git/hooks"), home), "hidden on the way");
         assert!(!folder_inside_home(&home.join("Library"), home));
         assert!(!folder_inside_home(&home.join("Library/Keychains"), home));
+        assert!(
+            !folder_inside_home(&home.join("library/Keychains"), home),
+            "APFS is case-insensitive"
+        );
+        assert!(!folder_inside_home(&home.join("LIBRARY"), home));
         assert!(folder_inside_home(&home.join("src/Library"), home), "only home's own Library");
     }
 
