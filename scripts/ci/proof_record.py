@@ -9,8 +9,8 @@ A record is a JSON object (version 1):
 
   kind "cmux-proof-record", version 1, suite (ios-flows | mac-flows | web-flows | gui-flows), repo, pr, head_sha
   (the commit the runs built, the PR's head when it was posted), base_ref, base_sha (the base commit under the head),
-  selection (the suite's selector output: flows and the tests behind them), runs ([{name, step, worker, args,
-  result, seconds}]), captures ([{name, sha256, verdict, diff_ratio}] against baseline), baseline ({source, sha,
+  selection (the suite's selector output: flows and the tests behind them), runs ([{name, step, args, result,
+  seconds}]; no worker: PR text names no fleet host), captures ([{name, sha256, verdict, diff_ratio}] against baseline), baseline ({source, sha,
   pr, step} or null), video, verdict ("pass" | "fail"), timing ({pushed_at, proof_at, push_to_proof_s}), tool.
 
 On the PR it is one comment whose first line is the marker `<!-- cmux-proof-record SUITE HEAD_SHA -->` and whose body
