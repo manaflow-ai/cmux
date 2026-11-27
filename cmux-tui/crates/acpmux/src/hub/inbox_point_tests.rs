@@ -92,7 +92,7 @@ impl Store for PointStore {
         kinds: &[&str],
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> anyhow::Result<()> {
-        if kinds == Hub::INBOX_KINDS && after > 0 {
+        if kinds == Hub::INBOX_KINDS {
             self.from.lock().unwrap().push(after);
         }
         self.inner.scan_kinds_after(id, after, kinds, visit)
