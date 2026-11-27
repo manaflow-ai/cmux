@@ -8,7 +8,7 @@ from benchlib.bench import Bench, BenchError
 class CIMacMinutes(Bench):
     name = "ci-mac-minutes"
     summary = "Observed CI duration by workflow, job and runner OS, with unknowns retained"
-    units = "min, count"
+    units = "s, count"
     owner = "CI Linux routing"
     hosts = ("anywhere", "local-readonly")
     harness = "scripts/measure/ci-mac-minutes.py"
@@ -31,7 +31,7 @@ class CIMacMinutes(Bench):
             if group["untimed_jobs"]:
                 ctx.notes.append(f"{group['workflow']}/{group['job']}: incomplete duration; minutes omitted")
             else:
-                ctx.row("job_minutes", group["minutes"], "min", better="none", labels=labels)
+                ctx.row("job_seconds", group["seconds"], "s", better="none", labels=labels)
 
 
 BENCH = CIMacMinutes()

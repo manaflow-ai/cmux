@@ -46,14 +46,14 @@ class MinutesTests(unittest.TestCase):
             report["coverage"] = "exporter reports complete; window and count verified"
             path.write_text(json.dumps(report))
             BENCH.ingest(ctx, path)
-            value = next(r for r in ctx.rows if r["metric"] == "job_minutes")
-            self.assertEqual(value["value"], 0.15)
+            value = next(r for r in ctx.rows if r["metric"] == "job_seconds")
+            self.assertEqual(value["value"], 9)
             self.assertEqual(value["labels"]["os"], "unknown")
             ctx.rows.clear()
             report["inventory"][0]["untimed_jobs"] = 1
             path.write_text(json.dumps(report))
             BENCH.ingest(ctx, path)
-            self.assertFalse(any(r["metric"] == "job_minutes" for r in ctx.rows))
+            self.assertFalse(any(r["metric"] == "job_seconds" for r in ctx.rows))
 
     def test_unknown_is_not_linux_or_measured_zero(self):
         row = {"id": 1, "repo": "manaflow-ai/cmux", "at": "2026-11-25T00:00:00Z",
