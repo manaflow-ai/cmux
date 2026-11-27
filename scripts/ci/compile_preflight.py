@@ -7,6 +7,10 @@ we can analyze them".
   web-touched ROOT BASE HEAD   prints `web=true` when a file BASE..HEAD changes is one web-bundle-key.py --routed
                                names (the web bundles' own inputs, imports outside webviews/ included), else
                                `web=false`; the reason goes to stderr.
+  never-web-check ROOT         exits 1 naming each web bundle input (every file web-bundle-key.py --routed names, and
+                               any file under its directory inputs) that pr_router.json's compile preflight
+                               `paths-ignore` ignores: pr-router.yml skips this job on a change made only of such
+                               paths, so one that is a web input would turn the build off for a change to it.
   merge-live-base ROOT BASE PR  re-merges the pull request's head onto the base branch's tip as it is now (the
                                checkout's merge commit is GitHub's, computed when the head last moved: cmux#51044's
                                was 73 min behind the base, so it did not see the `layoutGeometry` import #60849
@@ -68,6 +72,51 @@ def cmd_web_touched(root: Path, base: str, head: str) -> int:
     else:
         print(f"none of the {len(files)} changed files is a web bundle input", file=sys.stderr)
     print(f"web={'true' if hit else 'false'}")
+    return 0
+
+
+ROUTER_MANIFEST = "scripts/ci/pr_router.json"
+PREFLIGHT_CALLEE = "cmux-next-compile-preflight.yml"
+# A file of each ignored kind under a directory input: a new file there must still start the job.
+PROBE_NAMES = ("probe.rs", "Cargo.toml", "Cargo.lock", "Probe.swift", "probe.py", "probe.md", "probe.yml")
+
+
+def router_ignores(root: Path):
+    """A predicate: True for a path pr_router.json's compile preflight `paths-ignore` ignores (GitHub's filter
+    semantics, scripts/ci/workflow_paths_cover_inputs.py admits, as pr_router.py matches_filter reads them)."""
+    import json
+
+    patterns = json.loads((root / ROUTER_MANIFEST).read_text())["callees"][PREFLIGHT_CALLEE].get("paths-ignore") or []
+    spec = importlib.util.spec_from_file_location("workflow_paths_cover_inputs",
+                                                  root / "scripts/ci/workflow_paths_cover_inputs.py")
+    filters = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = filters  # its dataclasses look their module up here
+    spec.loader.exec_module(filters)
+    return lambda path: bool(patterns) and not filters.admits("paths-ignore", patterns, path)
+
+
+def never_web_problems(root: Path, routed: list[str], ignored) -> list[str]:
+    """The web bundle inputs (ROUTED pathspecs: their tracked files, and a probe file of each ignored kind under each
+    directory input) the IGNORED predicate skips."""
+    listed = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--", *routed], check=True,
+                            capture_output=True, text=True).stdout
+    paths = [p for p in listed.split("\0") if p]
+    for spec in routed:
+        if not spec.startswith(":(") and (root / spec).is_dir():
+            paths += [f"{spec.rstrip('/')}/{name}" for name in PROBE_NAMES]
+    return sorted({p for p in paths if ignored(p)})
+
+
+def cmd_never_web_check(root: Path) -> int:
+    routed = key_module(root).routed_inputs(str(root))
+    problems = never_web_problems(root, routed, router_ignores(root))
+    for path in problems[:MAX_ANNOTATIONS]:
+        print(f"::error title=compile preflight paths-ignore::{path} is a web bundle input (web-bundle-key.py --routed) "
+              f"that {ROUTER_MANIFEST}'s {PREFLIGHT_CALLEE} paths-ignore skips; add a `!{path}` line there")
+    if problems:
+        print(f"compile preflight: {len(problems)} web bundle input(s) the router would skip", file=sys.stderr)
+        return 1
+    print(f"compile preflight: no web bundle input ({len(routed)} pathspecs) is a path the router skips", file=sys.stderr)
     return 0
 
 
@@ -148,6 +197,8 @@ def cmd_web_build(root: Path, out: str) -> int:
 def main(argv: list[str]) -> int:
     if len(argv) == 5 and argv[1] == "web-touched":
         return cmd_web_touched(Path(argv[2]).resolve(), argv[3], argv[4])
+    if len(argv) == 3 and argv[1] == "never-web-check":
+        return cmd_never_web_check(Path(argv[2]).resolve())
     if len(argv) == 5 and argv[1] == "merge-live-base":
         return cmd_merge_live_base(Path(argv[2]).resolve(), argv[3], argv[4])
     if len(argv) == 4 and argv[1] == "web-build":

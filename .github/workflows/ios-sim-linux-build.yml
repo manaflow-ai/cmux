@@ -43,7 +43,7 @@ jobs:
     name: Build the iPhone app and UI tests for the simulator
     if: github.repository_owner == 'manaflow-ai' && vars.CI_EVAL_STEP_GATEWAY != ''
     # The literal fallback never schedules: the job's if: skips outside manaflow-ai and when the variable is unset.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (cmux#54437)
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'glaeda-gateway-xcode-26.6' }} # frozen-label: CI_EVAL_STEP_GATEWAY (#54437)
     timeout-minutes: 45  # the client waits up to 600 s queued plus 1800 s running
     steps:
       - name: Resolve the commit
@@ -216,7 +216,7 @@ jobs:
       (inputs.screens || startsWith(github.ref_name, 'lane/ios-sim-linux-screen-parity'))
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     continue-on-error: true
-    timeout-minutes: 75  # the step may run 3600 s after its queue wait
+    timeout-minutes: 135  # a queue wait of at most 3600 s (FLEET_QUEUE_S), then a 3600 s run, then the artifact
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -235,6 +235,10 @@ jobs:
         env:
           REF: ${{ inputs.ref || github.sha }}
           GH_TOKEN: ${{ github.token }}
+          FLEET_QUEUE_S: '3600'
+          # On feat-cmux-next this render is filed as the golden for its key (file-goldens): rendered once, then every
+          # later run of the same inputs skips the Mac, so it ranks as pr. A lane's render stays a plain agent step.
+          FLEET_PRIORITY: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'pr' || 'agent' }}
         run: |
           set -euo pipefail
           if [[ "$REF" =~ ^[0-9a-f]{40}$ ]]; then sha="$REF"
