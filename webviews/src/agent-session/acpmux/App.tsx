@@ -132,6 +132,7 @@ import {
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { findSession } from "./sessionIndex";
+import { useSettledToasts } from "./settledToasts";
 import {
   DRAFT_SETTLE_MS,
   hasPendingDraftWrite,
@@ -579,6 +580,7 @@ import {
 import { NewestSteerContext, SteerChatContext } from "./conversation/pendingSteerModel";
 import { CapacityWaitContext } from "./capacityWait";
 import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
+import { CloudAgentStartContext } from "./conversation/CloudAgentStartLine";
 import type { TranscriptView } from "./conversation/transcriptView";
 import { isWorkedFold, NO_FOLD_TOGGLES, viewFolds, type Folds } from "./conversation/viewFolds";
 import { type PaneFolds } from "./conversation/wakeFolds";
@@ -1425,6 +1427,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         ),
       ),
     [clientSnapshot, switchView, catalog, shownStarting],
+  );
+  // Unsettle (a settle toast's Undo, the home's Settled shelf): Unarchive by id (direct.ts
+  // `unsettle`); a refusal says so in a toast.
+  const unsettleChat = useCallback(
+    (entry: AcpmuxSessionEntry) => {
+      const client = directClient.current;
+      if (!client) return notices.failed(translate("error.notOpen"));
+      client.unsettle(entry.sessionId).catch((error: unknown) => notices.failed(errorMessage(error) || String(error)));
+    },
+    [notices],
+  );
+  // The chats this pane has shown: the app's relay holds each in the pane's scope from then on
+  // (AcpmuxPaneSessions, which never drops one), so only these may be unsettled from here.
+  const [shownChats, setShownChats] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const shown = snapshot.sessionId;
+    if (shown) setShownChats((held) => (held.has(shown) ? held : new Set(held).add(shown)));
+  }, [snapshot.sessionId]);
+  const holdsChat = useCallback(
+    (entry: AcpmuxSessionEntry) => !entry.peer && shownChats.has(entry.sessionId),
+    [shownChats],
   );
   // The dialog belongs to the chat it opened on: switching chats closes it.
   const [shareChat, setShareChat] = useState(snapshot.sessionId);
@@ -4298,6 +4321,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
     );
   }, []);
+  // A chat acpmux settles while the pane is open says so (settledToasts.ts): Undo on a chat this
+  // pane holds, else Open, which selects it as a Home row does.
+  useSettledToasts({
+    sessions: snapshot.sessions,
+    toasts: paneToasts,
+    holds: holdsChat,
+    unsettle: unsettleChat,
+    open: selectSession,
+    t,
+  });
   /// What the DEBUG automation verbs (automation.ts) read and run: this render's chat and the
   /// same selection and changes-view paths the sidebar and the edited-files card use.
   const automationView = useRef<{
@@ -4369,6 +4402,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     return undefined;
   }, [snapshot.rows]);
   const cloudPreviewChat = snapshot.summary?.hostKind === "cloud" || cloudMachineID !== undefined;
+  // A Cloud chat's agent by name: its first prompt's line names it while it starts on the machine
+  // (conversation/CloudAgentStartLine.tsx).
+  const cloudAgentStart = cloudPreviewChat ? (snapshot.switching?.name ?? asker) : undefined;
   const cloudPreviewPortList = useCloudPreviewPorts();
   // Only a Cloud pane with a card to show gets an after-latest footer: an empty one would still
   // take the composer's room below the transcript and shorten it.
@@ -8452,6 +8488,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       sessionId: snapshot.sessionId,
       archived,
       local: localCwd !== undefined,
+      settled: findSession(snapshot.sessions, snapshot.sessionId)?.settled !== undefined,
     },
     (archived) => ignoreFailure(archiveChat(archived)),
     t,
@@ -10011,7 +10048,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     <PresentationContext.Provider value={chatPresentation}>
       <ThinkingVerbsContext.Provider value={thinkingVerbs}>
         <SteerChatContext.Provider value={snapshot.sessionId ?? ""}>
-          <CapacityWaitContext.Provider value={snapshot.capacityWait}>{transcriptContent}</CapacityWaitContext.Provider>
+          <CapacityWaitContext.Provider value={snapshot.capacityWait}>
+            <CloudAgentStartContext.Provider value={cloudAgentStart}>
+              {transcriptContent}
+            </CloudAgentStartContext.Provider>
+          </CapacityWaitContext.Provider>
         </SteerChatContext.Provider>
       </ThinkingVerbsContext.Provider>
     </PresentationContext.Provider>

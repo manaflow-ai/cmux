@@ -44,6 +44,8 @@ mod auto_give;
 // What Auto mode asks of a chat (`auto_session/`): its work, its record, its freeze.
 mod auto_hold;
 pub(crate) mod auto_resume;
+// Chats settle on their own: a merged or closed pull request, or idle days.
+pub(crate) mod auto_settle;
 mod away_recap;
 mod background_cause;
 pub mod background_turn;
@@ -421,6 +423,8 @@ mod tailnet_controller;
 mod tap;
 mod task_names;
 pub(crate) mod tasks;
+mod team_directory;
+pub use team_directory::{TeamView, view_of_book};
 mod team_information;
 mod team_sent;
 mod terminal_input;
@@ -1214,6 +1218,8 @@ pub struct Hub {
     pending_peer_routes: StdMutex<peer_idle::PendingRoutes>,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
+    /// RFD 0170's team directory for the navigator, picker and Session Info (`team_directory.rs`).
+    pub(super) team_directory: team_directory::TeamDirectoryCell,
     /// The health of the machines only the mesh hub reaches, read through it (`hub_health.rs`).
     pub(crate) hub_health: Arc<StdMutex<hub_health::HubHealth>>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
@@ -1843,6 +1849,7 @@ impl Hub {
             remote_sessions: Default::default(),
             pending_peer_routes: Default::default(),
             mesh_book: Default::default(),
+            team_directory: Default::default(),
             hub_health: Default::default(),
             mesh_read_parts: Default::default(),
             mesh_read_flights: Default::default(),
