@@ -44,6 +44,8 @@ pub(crate) mod health;
 pub(crate) mod overlay;
 #[path = "peer_tailnet.rs"]
 mod tailnet_path;
+#[path = "peer_wg_learn.rs"]
+pub(crate) mod wg_learn;
 
 #[path = "peer_demand.rs"]
 mod demand;
@@ -338,7 +340,7 @@ pub struct Peer {
     /// Test transport belongs to this instance, even when another peer has the same name.
     #[cfg(test)]
     ssh_mux_override: std::sync::OnceLock<wanted::SshMux>,
-    wireguard: std::sync::OnceLock<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>,
+    wireguard: StdMutex<Option<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>>,
     /// The daemon's hub carrier and the hub `daemonId` this peer's config names (its WireGuard
     /// key), if any (`peer_hub.rs`).
     #[cfg(feature = "hub-carrier")]
@@ -348,6 +350,10 @@ pub struct Peer {
     /// The peer's config names its own route (`wireguard` or `linkHost`): no overlay path is
     /// found or recalled for it (`peer_overlay.rs`).
     explicit_route: AtomicBool,
+    /// The daemon's WireGuard transport, for a plain `ssh://` peer that may get a route found
+    /// for it at runtime (`peer_wg_learn.rs`), and whether a find is running.
+    wg_learner: std::sync::OnceLock<Arc<crate::wireguard::Transport>>,
+    wg_learning: AtomicBool,
     /// The opt-in tailnet path (`peer_tailnet.rs`).
     tailnet: StdMutex<tailnet_path::State>,
     /// The cmux link's socket when known ahead of its registration (tests); else read per dial.
@@ -455,7 +461,7 @@ pub struct Peer {
     /// `github_broker.rs`), and how many of its actions may run at once: the slots of its name
     /// (`owner_slots`), which a reconnect's new peer shares with the old one.
     github_broker: AtomicBool,
-    github_slots: Arc<tokio::sync::Semaphore>,
+    github_slots: Arc<crate::github_broker::OwnerSlots>,
     /// The link (`link_epoch` + 1; 0 for none) whose handshake's watch was answered by the peer
     /// serving this daemon as a peer: the only link a GitHub action is taken on.
     github_link: AtomicU64,
@@ -955,7 +961,7 @@ struct Outbound {
 /// is stalled. It was not sent, so retrying it never runs it twice.
 fn queue_timed_out(name: &str, waited: Duration) -> RpcError {
     RpcError::internal(format!(
-        "peer_unreachable: the link to {name} took no new request for {}s; the request was not sent; run `acpmux machine ls` and retry",
+        "peer_unreachable: the link to {name} took no new request for {}s, so the request was not sent; `acpmux machine ls` shows the link's state",
         waited.as_secs()
     ))
     .with_data(json!({
@@ -1540,6 +1546,7 @@ mod link_epoch_tests {
             &peer.name,
             peer.github_ready(link),
             &peer.github_slots,
+            &json!({"action": "read", "repo": "o/r"}),
         )
         .unwrap();
         peer.stop();
@@ -1561,14 +1568,36 @@ mod link_epoch_tests {
         let (tx, _rx) = mpsc::channel(8);
         let old = Peer::new("slots-across-reconnects", "ws://127.0.0.1:9", None, None, tx.clone());
         let running: Vec<_> = (0..crate::github_broker::OWNER_SLOTS)
-            .map(|_| crate::github_broker::admit_owner(&old.name, true, &old.github_slots).unwrap())
+            .map(|_| {
+                crate::github_broker::admit_owner(
+                    &old.name,
+                    true,
+                    &old.github_slots,
+                    &json!({"action": "token"}),
+                )
+                .unwrap()
+            })
             .collect();
         old.stop();
         let new = Peer::new("slots-across-reconnects", "ws://127.0.0.1:9", None, None, tx);
-        let e = crate::github_broker::admit_owner(&new.name, true, &new.github_slots).unwrap_err();
+        let e = crate::github_broker::admit_owner(
+            &new.name,
+            true,
+            &new.github_slots,
+            &json!({"action": "token"}),
+        )
+        .unwrap_err();
         assert_eq!(e.data.unwrap()["reason"], "github.busy");
         drop(running);
-        assert!(crate::github_broker::admit_owner(&new.name, true, &new.github_slots).is_ok());
+        assert!(
+            crate::github_broker::admit_owner(
+                &new.name,
+                true,
+                &new.github_slots,
+                &json!({"action": "token"})
+            )
+            .is_ok()
+        );
     }
 }
 

@@ -370,6 +370,20 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -383,7 +397,7 @@ jobs:
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -502,9 +516,23 @@ jobs:
         if: ${{ startsWith(runner.name, 'fsr-') }}
         run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       # Restore only: the react-apps-check shards save this key.
       - name: Restore the Bun package cache
-        if: ${{ steps.fsr-bun-cache.outputs.hit != 'true' }}
+        if: ${{ (steps.fsr-bun-cache.outputs.hit != 'true') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -602,6 +630,20 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -615,7 +657,7 @@ jobs:
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -674,6 +716,20 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -687,7 +743,7 @@ jobs:
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -762,6 +818,20 @@ jobs:
         if: ${{ startsWith(runner.name, 'fsr-') }}
         run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -775,7 +845,7 @@ jobs:
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' && steps.fsr-bun-cache.outputs.hit != 'true' }}
+        if: ${{ (github.ref != 'refs/heads/feat-cmux-next' && steps.fsr-bun-cache.outputs.hit != 'true') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -891,6 +961,20 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -904,7 +988,7 @@ jobs:
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -1131,6 +1215,20 @@ jobs:
         if: ${{ startsWith(runner.name, 'fsr-') }}
         run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       # The source build installs webviews dependencies before the test suite;
       # cache Bun's package blobs on this lane so a new source key
       # does not redownload the lockfile from scratch.
@@ -1147,7 +1245,7 @@ jobs:
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ ((steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref != 'refs/heads/feat-cmux-next') && steps.fsr-bun-cache.outputs.hit != 'true' }}
+        if: ${{ (((steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref != 'refs/heads/feat-cmux-next') && steps.fsr-bun-cache.outputs.hit != 'true') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -1181,23 +1279,6 @@ jobs:
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
-
-      # Shard 1's independent checks overlap the steps they do not read (scripts/ci/shard1_background.sh): the merge
-      # driver test (80 s in job 137332637156) needs only git and Python, so it starts here and runs beside the source
-      # checks and the bundle build; its own step below waits for it and keeps its id and outcome. Leo, 2026-11-22:
-      # "if it's relaly so big then you guys need to be hurrying up and thining more innovatively".
-      - name: Start the merge driver test
-        id: merge-driver-start
-        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' }}
-        continue-on-error: true
-        run: |
-          # The same skip as its wait step below: a pull request that changes none of its inputs never starts it.
-          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ -f "$CMUX_PR_CHANGED_FILES" ] &&
-            ! grep -qE '^(scripts/|tests/|\.gitattributes|\.claude/|\.codex/|\.github/workflows/ci-web\.yml|webviews/[^/]+$)' "$CMUX_PR_CHANGED_FILES"; then
-            echo "no input of this check changed: skipped on this pull request"
-            exit 0
-          fi
-          scripts/ci/shard1_background.sh start merge-driver -- python3 tests/test_install_git_hooks.py
 
       # The web bundles are build output (cx-vn5): this builds them into the
       # gitignored resource paths that the budget, React Compiler and webviews
@@ -1279,6 +1360,23 @@ jobs:
             done > "$RUNNER_TEMP/hook-suites"
           fi
           tee -a "$GITHUB_OUTPUT" < "$RUNNER_TEMP/hook-suites"
+
+      # Shard 1's independent checks overlap the steps they do not read (scripts/ci/shard1_background.sh): the merge
+      # driver test (80 s in job 137332637156) needs only git and Python, so it starts here and runs beside the source
+      # checks and the bundle build; its own step below waits for it and keeps its id and outcome. Leo, 2026-11-22:
+      # "if it's relaly so big then you guys need to be hurrying up and thining more innovatively".
+      - name: Start the merge driver test
+        id: merge-driver-start
+        if: ${{ matrix.shard == 1 && steps.receipt.outputs.hit != 'true' && steps.hook-suites.outputs.merge_driver != 'false' }}
+        continue-on-error: true
+        run: |
+          # The same skip as its wait step below: a pull request that changes none of its inputs never starts it.
+          if [ "$GITHUB_EVENT_NAME" = pull_request ] && [ -f "$CMUX_PR_CHANGED_FILES" ] &&
+            ! grep -qE '^(scripts/|tests/|\.gitattributes|\.claude/|\.codex/|\.github/workflows/ci-web\.yml|webviews/[^/]+$)' "$CMUX_PR_CHANGED_FILES"; then
+            echo "no input of this check changed: skipped on this pull request"
+            exit 0
+          fi
+          scripts/ci/shard1_background.sh start merge-driver -- python3 tests/test_install_git_hooks.py
 
       # ci-guards runs this on main; feat-cmux-next PRs skip ci-guards.
       # The checks from here to the engines do not depend on the shard, so
@@ -1418,7 +1516,7 @@ jobs:
             echo "warn-only webviews checks run on the base's pushes, not on a pull request"
             exit "$status"
           fi
-          for check in check:design-tokens check:menu-gutters check:transcript-icons check:key-hints check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:look-addons check:surface-roles check:layout-grid check:design-scale check:instrument-tokens check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors check:one-material check:component-manifest; do
+          for check in check:duplicate-bindings check:design-tokens check:menu-gutters check:transcript-icons check:key-hints check:icon-scale check:layers check:type-scale check:motion-scale check:theme-slots check:look-addons check:surface-roles check:layout-grid check:design-scale check:instrument-tokens check:status-glyphs check:system-blue check:text-focus check:toast-targets check:dialog-keys check:switch-fetches check:session-info-names check:attachment-caps check:pane-selectors check:one-material check:component-manifest; do
             bun run "$check" || echo "::warning title=webviews $check (warn-only)::see the step log"
           done
           # Format and lint apart: `vp check` stops at its first red, so a format red hid every lint finding.
@@ -2011,6 +2109,20 @@ jobs:
         if: ${{ steps.pick.outputs.files != '0' }}
         run: scripts/cmux-next/private-bun.sh
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -2024,7 +2136,7 @@ jobs:
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ (steps.pick.outputs.files != '0') && github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ ((steps.pick.outputs.files != '0') && github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
@@ -2292,6 +2404,20 @@ jobs:
         if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
         run: scripts/cmux-next/private-bun.sh
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -2305,7 +2431,7 @@ jobs:
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ (steps.head.outputs.reds != '0') && github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ ((steps.head.outputs.reds != '0') && github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
@@ -2918,6 +3044,20 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -2931,7 +3071,7 @@ jobs:
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
@@ -3018,6 +3158,20 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md (detector: tests/test_ci_bun_cache_warm.py).
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
@@ -3031,7 +3185,7 @@ jobs:
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ (github.ref != 'refs/heads/feat-cmux-next') && steps.bun-warm.outputs.warm != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache

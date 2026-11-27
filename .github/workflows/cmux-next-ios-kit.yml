@@ -62,7 +62,7 @@ jobs:
   runner:
     if: ${{ (github.event_name != 'pull_request' || github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'full-ci') || (vars.CI_DRAFT_CHEAP_TIER || '1') == '0') }}
     environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'cmux-fleet-linux-x64' }} # frozen-label: credentialed job, frozen to today's label
     timeout-minutes: 5
     permissions:
       contents: read
@@ -389,6 +389,7 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
           PRODUCTS: ${{ github.run_id }}/kit-sim-fleet-products-${{ github.run_id }}-${{ github.run_attempt }}
           LABEL: fleet pool on the build fleet's build (shadow)
+          CMUX_IOS_SIM_LINUX: shadow
         run: bash scripts/ci/kit_sim_fleet.sh pool
 
   kit-tests:
@@ -811,14 +812,12 @@ jobs:
       # the same runner class), plus chat_reconnect_catch_up and terminal_chat_swap_to_terminal swinging 2-5x on
       # some runners. The numbers stay in the report below, the job summary and the instant-perf-* artifact,
       # and the report step names each bench step that missed as a warning.
-      # On a pull request, a red step before the bench is already the verdict: the bench there is advisory, so it is
-      # skipped rather than holding the red PR check longer (2026-11-24: all 7 readable kit jobs of Aziz's newest iOS
-      # heads were red before the bench, at Connection notices or swift test, and then ran it for 3.3-10.3 min more;
-      # goal ios-ci-under-5min in cmuxterm-hq). Base pushes and dispatches still bench after a red step, so base's numbers
-      # never go missing (tests/test_ios_kit_bench_runs_after_red_step.py).
+      # Pull requests do not need this advisory measurement: it adds 3-10 minutes after the required kit verdict while
+      # the same bench still runs on feat-cmux-next pushes and dispatch/nightly runs. Keeping measurements on those
+      # lanes preserves the base trend without charging every PR (goal ios-ci-under-5min in cmuxterm-hq).
       - name: Instant list bench (macOS swift test)
         id: bench-macos
-        if: ${{ !cancelled() && (github.event_name != 'pull_request' || success()) }}
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         continue-on-error: true
         env:
           CMUX_INSTANT_PERF_OUT: ${{ runner.temp }}/instant-perf/macos.jsonl
@@ -828,7 +827,7 @@ jobs:
       # variable through to the test process).
       - name: Instant list bench (iOS simulator)
         id: bench-ios
-        if: ${{ !cancelled() && (github.event_name != 'pull_request' || success()) && !(github.event_name == 'pull_request' && startsWith(runner.name, 'blacksmith')) }}
+        if: ${{ !cancelled() && github.event_name != 'pull_request' }}
         # Advisory, as the macOS bench above.
         continue-on-error: true
         # The same bound as the test step above: a hung simulator ends the step.
@@ -1039,6 +1038,7 @@ jobs:
           HEAD_SHA: ${{ github.sha }}
           PRODUCTS: ${{ needs.kit-sim-pool.outputs.products }}
           LABEL: fleet pool (owned Mac submit)
+          CMUX_IOS_SIM_LINUX: ${{ vars.CMUX_IOS_SIM_LINUX || 'shadow' }}
         run: bash scripts/ci/kit_sim_fleet.sh pool
 
       - name: Upload the fleet pool result

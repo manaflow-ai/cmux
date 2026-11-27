@@ -61,7 +61,8 @@ jobs:
     # Use the gateway when configured, then the overflow pool, then the owned
     # Linux pool. The job remains a thin cmux-ci client on every route.
     runs-on: ${{ vars.CI_EVAL_STEP_GATEWAY || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
-    timeout-minutes: 140  # the client waits up to 3600 s queued plus 3600 s running
+    # The client waits up to QUEUE_WAIT_S (20 min) queued plus 3600 s running, with slack.
+    timeout-minutes: 90
     permissions: {}
     strategy:
       fail-fast: false
@@ -69,6 +70,12 @@ jobs:
         arch: [arm64, x86_64]
     env:
       KEY: ${{ fromJSON(needs.route.outputs.keys)[matrix.arch] }}
+      # The longest this job holds its gateway runner while the step waits in the fleet queue. Before
+      # 2026-11-27 it was 3600 s: in 05:30-11:36Z that day 36 of the 102 jobs held a Mac mini gateway token
+      # for about 60 min each, waiting out the queue (class light, p90 41-55 min), and then gave "no verdict".
+      # That was about 2.2k of the job's 4.4k runner-min. Past this wait the job cancels the queued step (a
+      # step left queued keeps its place and builds for no reader), and the check reads "not judged" as before.
+      QUEUE_WAIT_S: "1200"
     steps:
       - name: Look up a pass with the same inputs
         id: cache
@@ -92,9 +99,20 @@ jobs:
             exit 0
           fi
           status=0
+          # No --key: KEY fingerprints the inputs, so every PR whose Nightly inputs match shares it at a different
+          # --ref, and the controller refuses the second with HTTP 409 "step_key already names a different step"
+          # (run 45969778703 attempt 2). The client's default key is per run and attempt; the cache step above
+          # is what skips a build whose inputs already passed.
+          log="$RUNNER_TEMP/nightly-pr-build-$ARCH.log"
           "$client" run --class isolated --script scripts/cmux-next/check-release-compile.sh --ref "$SHA" \
-            --repo "$GITHUB_REPOSITORY" --arg=--archs --arg="$ARCH" --arg=--nightly --key "$KEY" \
-            --reason "nightly pr build #$PR $ARCH" --timeout 3600 --queue-timeout 3600 || status=$?
+            --repo "$GITHUB_REPOSITORY" --arg=--archs --arg="$ARCH" --arg=--nightly \
+            --reason "nightly pr build #$PR $ARCH" --timeout 3600 --queue-timeout "$QUEUE_WAIT_S" 2>&1 \
+            | tee "$log" || status=${PIPESTATUS[0]}
+          step="$(grep -o -E 'step [0-9a-f]{24}' "$log" | head -1 | cut -d' ' -f2)"
+          if [[ "$status" == 75 && -n "$step" ]] && grep -q 'is still queued after' "$log"; then
+            # Not started within QUEUE_WAIT_S: the step would stay queued and build for nobody.
+            "$client" cancel "$step" --reason "nightly pr build: not started within ${QUEUE_WAIT_S}s" || true
+          fi
           case "$status" in
             0) echo "passed=true" >> "$GITHUB_OUTPUT" ;;
             69|75|124) echo "::warning title=nightly app compile::the fleet job gave no verdict (exit $status: 69 controller unavailable, 75 or 124 did not finish); not judged" ;;

@@ -19,6 +19,19 @@ on:
         required: false
         type: string
         default: ""
+      # The steps the jobs run only, space-separated (pr-router.yml's `only` output: on a landing head of the affected
+      # tier, the steps the nightly also runs that the change routes, pr_router.py nightly_gate_table). Empty: every
+      # routed step.
+      only:
+        required: false
+        type: string
+        default: ""
+      # The commit the ios fast verdict checks out; empty: the event's (a pull request's merge commit).
+      # ios-fast-verdict-dispatch.yml passes the PR's merge commit, since its own event's commit is the base tip.
+      ref:
+        required: false
+        type: string
+        default: ""
     # The ios fast verdict, for pr-router.yml's ios-fast-status (the `cmux/ios-fast` commit status): whether its plan
     # builds anything, its summary, and the ios-fast job's result (empty when it never finished).
     outputs:
@@ -56,10 +69,10 @@ jobs:
     # once on 2 CPUs) and the `alone` steps (ci-artifact-worker, web-production-build, the package conventions gate
     # and the four web test shards 6 min each, the cmux_next_ daemon tests 65 min, the cmux_next_ tests of acpmux,
     # cmux-tui-core and cmux-tui 45 min each, the iOS matrix protocol 45 min, the App Store shelf 45 min, the acpmux
-    # instruction counts 40 min, the compile canary 30 min, the cmux VM Rust clients 30 min, the nightly and cmux-tui
-    # release guards 20 min, the cmux cloud CLI 15 min): 629 min with 47 shared steps (24 waves) and the setup and
+    # instruction counts 40 min, the compile canary 30 min, the Rust notices 20 min, the cmux VM Rust clients 30 min, the nightly and cmux-tui
+    # release guards 20 min, the cmux cloud CLI 15 min): 649 min with 47 shared steps (24 waves) and the setup and
     # tool bounds, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 629
+    timeout-minutes: 649
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.
@@ -90,11 +103,26 @@ jobs:
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
           cd "$GITHUB_WORKSPACE"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-          git init -q .
-          echo "$mirror" > .git/objects/info/alternates
-          git config gc.auto 0
-          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
+          # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
+          reuse=fresh
+          if [[ -d .git && "$(cat .git/objects/info/alternates 2>/dev/null)" == "$mirror" ]] \
+            && [[ -z "$(git config --get remote.origin.promisor || true)$(git config --get extensions.partialclone || true)$(git config --get remote.origin.partialclonefilter || true)" ]] \
+            && [[ "$(git config --get remote.origin.url || true)" == "https://github.com/$GITHUB_REPOSITORY" ]] \
+            && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+            reuse=reused
+            if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
+            # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which
+            # overrides the core.sparseCheckout this step writes: keep .git/config the only config.
+            git config --unset-all extensions.worktreeConfig || true
+          fi
+          if [[ $reuse == fresh ]]; then
+            find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            git init -q .
+            echo "$mirror" > .git/objects/info/alternates
+            git config gc.auto 0
+            git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          fi
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           # GitHub sends only keepalives while it builds a pack: abort a transfer under 1 B/s for 60 s (never
           # 1000 B/s), bound each try and try 3 times (handbook network-transfer-stalls-the-whole-job). The mirror holds
@@ -105,8 +133,9 @@ jobs:
             [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
             echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
           done
-          git checkout -q --detach "$SHA"
-          echo "checked out $(git rev-parse HEAD) from the pool mirror"
+          git checkout -q -f --detach "$SHA"
+          [[ $reuse == fresh ]] || git sparse-checkout disable
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
       - name: List the changed paths
         # Every path the merge commit changes against the base tip, both sides of a rename (what the
         # router read). With no merge commit there is no list, and ci/run then runs every step.
@@ -143,9 +172,15 @@ jobs:
           # tooling-tests-1..5 leave a step only a wide reach selects to the post-merge batch, as the job does.
           CI_TOOLING_TESTS_PR_SCOPE: ${{ vars.CI_TOOLING_TESTS_PR_SCOPE || '1' }}
           TOOLING_TESTS_BASE_RED: ${{ steps.tooling-tests-base-red.outputs.base_red }}
+          ROUTER_ONLY: ${{ inputs.only }}
         run: |
           scope=()
           [ "${CI_PR_PIPELINE_LINUX_PR_SCOPE:-0}" = 1 ] && scope=(--pr-scope)
+          # The router's nightly gate (a landing head of the affected tier): only the steps the nightly also runs.
+          if [ -n "${ROUTER_ONLY:-}" ]; then
+            echo "Nightly gate: running only ${ROUTER_ONLY} (the steps the nightly also runs that this change routes)."
+            exec ci/run run --job linux ${PATHS_FILE:+--paths-file "$PATHS_FILE"} --only "$ROUTER_ONLY" "${scope[@]}"
+          fi
           # The routed linux steps less tooling-tests-N; a route that cannot be read runs every step (fails open).
           only=""
           if [ "${TOOLING_TESTS_BASE_RED:-}" = true ] && only="$(ci/run route ${PATHS_FILE:+--paths-file "$PATHS_FILE"} "${scope[@]}" \
@@ -244,11 +279,26 @@ jobs:
           mirror=/var/lib/cmux-git/cmux.git/objects
           [[ -d "$mirror" ]] || { echo "::error::no git mirror at $mirror on this pool VM"; exit 1; }
           cd "$GITHUB_WORKSPACE"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-          git init -q .
-          echo "$mirror" > .git/objects/info/alternates
-          git config gc.auto 0
-          git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          # Reuse a .git this step made (borrows the mirror, no promisor or partial-clone filter): `git checkout` then
+          # writes only what changed since the last job on this VM, not the whole tree (~10.7 s of ~13 s, rnd rc-0e8e7c8b).
+          reuse=fresh
+          if [[ -d .git && "$(cat .git/objects/info/alternates 2>/dev/null)" == "$mirror" ]] \
+            && [[ -z "$(git config --get remote.origin.promisor || true)$(git config --get extensions.partialclone || true)$(git config --get remote.origin.partialclonefilter || true)" ]] \
+            && [[ "$(git config --get remote.origin.url || true)" == "https://github.com/$GITHUB_REPOSITORY" ]] \
+            && git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+            reuse=reused
+            if ! git reset -q --hard || ! git clean -ffdxq; then reuse=fresh; fi
+            # `git sparse-checkout disable` (another job on this VM) moves sparsity into config.worktree, which
+            # overrides the core.sparseCheckout this step writes: keep .git/config the only config.
+            git config --unset-all extensions.worktreeConfig || true
+          fi
+          if [[ $reuse == fresh ]]; then
+            find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+            git init -q .
+            echo "$mirror" > .git/objects/info/alternates
+            git config gc.auto 0
+            git remote add origin "https://github.com/$GITHUB_REPOSITORY"
+          fi
           auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 -w0)
           # GitHub sends only keepalives while it builds a pack: abort a transfer under 1 B/s for 60 s (never
           # 1000 B/s), bound each try and try 3 times (handbook network-transfer-stalls-the-whole-job). The mirror holds
@@ -259,8 +309,9 @@ jobs:
             [[ $try -lt 3 ]] || { echo "::error::merge ref fetch failed on all 3 tries (240 s each) on runner ${RUNNER_NAME:-unknown}"; exit 1; }
             echo "::warning::merge ref fetch failed on try $try of 3, trying again"; sleep $((try == 1 ? 5 : 15))
           done
-          git checkout -q --detach "$SHA"
-          echo "checked out $(git rev-parse HEAD) from the pool mirror"
+          git checkout -q -f --detach "$SHA"
+          [[ $reuse == fresh ]] || git sparse-checkout disable
+          echo "checked out $(git rev-parse HEAD) from the pool mirror workspace=$reuse"
       - name: List the changed paths
         run: |
           if git rev-parse -q --verify 'HEAD^2' >/dev/null; then
@@ -663,9 +714,11 @@ jobs:
   # vars.CI_IOS_FAST_VERDICT=0 turns it off. format() because GitHub compares an unset variable (null) to '0' as
   # 0 == 0: the bare comparison skipped this job whenever the variable was unset, the pipeline
   # with it on a landing head, and left `cmux/ios-fast` pending at the head (cmux#57010, run 45957942340).
+  # !cancelled(): in a called workflow the implicit success() also reads the caller's needs, and pr-router.yml's
+  # pipeline needs fast-gates, which skips on a landing head (cmux#57755, router run 45952045688).
   ios-fast-runner:
     name: ios fast verdict runner
-    if: ${{ format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
+    if: ${{ !cancelled() && format('{0}', vars.CI_IOS_FAST_VERDICT) != '0' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
     timeout-minutes: 5
     permissions:
@@ -681,6 +734,7 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: ${{ inputs.ref }}
           fetch-depth: 2
           sparse-checkout: |
             ci/
@@ -825,6 +879,7 @@ jobs:
       - name: Checkout the merge commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
           fetch-depth: 1
           submodules: false
