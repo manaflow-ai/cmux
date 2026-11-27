@@ -463,6 +463,26 @@ def ios_status(event: dict, files: list[str] | None, start: list[str], land: str
     return "pending", "iOS-affecting: the fast verdict runs when ready-to-land or full-ci is added"
 
 
+def ui_status(event: dict, files: list[str] | None) -> tuple[str, str]:
+    """The `cmux/ui-proof` commit status for EVENT's head (pr-router.yml posts it; its ui-proof-status job replaces a
+    `pending` one with the proof record's verdict, scripts/ci/ui_proof_verdict.py): ("", "") where the land rule does
+    not apply. `success` at once for a head that changes nothing a desktop user sees, so a ruleset can require it;
+    `pending` for a visual head until a look at that head is on the PR. Leo, 2026-11-27: "obviously for visuals
+    we'll need to do better before getting them in but you know"."""
+    if not head_tier.land_rule_applies(event):
+        return "", ""
+    if os.environ.get("CI_UI_PROOF", "").strip() == "0":
+        return "success", "UI proof is off (vars.CI_UI_PROOF=0)"
+    try:
+        import ui_proof_verdict
+        need = "app" if files is None else ui_proof_verdict.affects(files)
+    except Exception:  # noqa: BLE001 - unreadable routes more, never less
+        need = "app"
+    if not need:
+        return "success", "Touches nothing a user sees (docs, copy, tests, CI, iOS has cmux/ios-fast)"
+    return "pending", f"Visual change ({need}): waiting for a look at this head (hot-verify.py look --record)"
+
+
 def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tuple[set[str], set[str]]:
     """rerun_plan for this head when the red-head base merge rule reached the router: the head only merges the base
     onto a previous head where some run was not green and the router's own run there was not green either (a green
@@ -478,13 +498,16 @@ def plan_for(decided: tuple[str, str], facts: dict | None, callees: dict) -> tup
 
 
 def write_outputs(start: list[str], why: dict[str, str], files: list[str] | None,
-                  table: list[str] | None = None, status: str = "", ios: tuple[str, str] = ("", "")) -> None:
+                  table: list[str] | None = None, status: str = "", ios: tuple[str, str] = ("", ""),
+                  ui: tuple[str, str] = ("", "")) -> None:
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
         out.write(f"start={json.dumps(start, separators=(',', ':'))}\n")
         out.write(f"table={json.dumps(table or [], separators=(',', ':'))}\n")
         out.write(f"land_status={status}\n")
         out.write(f"ios_status={ios[0]}\n")
         out.write(f"ios_status_description={ios[1]}\n")
+        out.write(f"ui_status={ui[0]}\n")
+        out.write(f"ui_status_description={ui[1]}\n")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     lines = ["### pr router", "",
              f"changed files: {len(files) if files is not None else 'unknown'}", "",
@@ -517,7 +540,8 @@ def main(argv: list[str]) -> int:
                 f" (table jobs that ran green at the previous head stay off: {', '.join(sorted(rows))})")
         status = land_status(event, decided)
         status = "pending" if status and (carried or rows) else status
-        write_outputs(start, why, files, table, status, ios_status(event, files, start, status))
+        write_outputs(start, why, files, table, status, ios_status(event, files, start, status),
+                      ui_status(event, files))
         return 0
     if mode == "check":
         problems = check(callees, ENTRY.read_text(), ENTRY.parent)
