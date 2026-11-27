@@ -400,9 +400,10 @@ impl Hub {
                 "this machine names no webRoots, so no moved chat may work here",
             ));
         }
-        // Built here, from this daemon's own config: the message names no rule.
-        let guard_value = json!({"control": "peer", "roots": roots});
-        let guard = Guard::parse(&guard_value).await?;
+        // Built here, from this daemon's own config: the message names no rule. A root that
+        // fails the guard's checks is left out, not fatal to every move.
+        let guard = Guard::from_config_roots(&roots).await?;
+        let guard_value = guard.to_value();
         let cwd = self.pull_folder(&guard, body.get("folder")).await?;
         // The freeze's split, in the answer: the circuit's open (relay and handshake; none for
         // a parked one), the pages (one round trip each) and the import.

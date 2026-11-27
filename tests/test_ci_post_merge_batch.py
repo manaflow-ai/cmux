@@ -111,8 +111,8 @@ class TickTest(unittest.TestCase):
         self.assertEqual(pmb.tick_decision("a" * 40, own, NOW, 120, unjudged, 10, lambda base: 12)[0], "skip")
 
     def test_every_merges_value(self) -> None:
-        self.assertEqual(pmb.every_merges(None), 10)
-        self.assertEqual(pmb.every_merges("bad"), 10)
+        self.assertEqual(pmb.every_merges(None), 100)
+        self.assertEqual(pmb.every_merges("bad"), 100)
         self.assertEqual(pmb.every_merges("0"), 0)
         self.assertEqual(pmb.every_merges("25"), 25)
 
@@ -142,8 +142,8 @@ class TickTest(unittest.TestCase):
         self.assertIn("inputs.mode != 'probe'", last["if"])
 
     def test_window_value(self) -> None:
-        self.assertEqual(pmb.window_minutes(""), 120)
-        self.assertEqual(pmb.window_minutes("bad"), 120)
+        self.assertEqual(pmb.window_minutes(""), 240)
+        self.assertEqual(pmb.window_minutes("bad"), 240)
         self.assertEqual(pmb.window_minutes("45"), 45)
 
 
@@ -228,17 +228,37 @@ class PlanAndJudgeTest(unittest.TestCase):
 
     def test_a_stuck_red_waits_for_its_running_bisect_and_stops_after_rebisects(self) -> None:
         verdicts, runs, older = self.stuck_setup()
+        start = lambda good, bad: "c" * 40
         probe = run(4, "c" * 40, "2026-11-21T08:30:00Z", status="in_progress", title=f"probe rust test at {'c' * 40}")
-        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs, lambda rid: older[rid], self.suites), [])
+        older[4] = ({}, True)
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs, lambda rid: older[rid], self.suites, start), [])
         probe["status"] = "completed"
-        self.assertEqual(len(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs, lambda rid: older[rid], self.suites)), 1)
-        red = older[3][0]
-        more = [run(10 + i, f"{i:x}" * 40, f"2026-11-21T0{i}:30:00Z") for i in range(5, 5 + pmb.MAX_REBISECTS)]
+        self.assertEqual(len(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs, lambda rid: older[rid], self.suites, start)), 1)
+        # MAX_REBISECTS judged bisects started at the chain's first sha: named only.
+        again = [run(5 + i, "c" * 40, f"2026-11-21T09:{i:02d}:00Z", title=f"probe rust test at {'c' * 40}")
+                 for i in range(pmb.MAX_REBISECTS - 1)]
+        for r in again:
+            older[r["id"]] = ({}, True)
+        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, again + [probe] + runs, lambda rid: older[rid], self.suites, start), [])
+
+    def test_a_bisect_whose_judge_died_is_not_a_rebisect(self) -> None:
+        # 2026-11-27: web-typecheck and five more reds were capped after chains whose judge hit the rate limit
+        # (cmux#60709); red batch runs were counted, not finished bisects.
+        verdicts, runs, older = self.stuck_setup()
+        start = lambda good, bad: "c" * 40
+        dead = [run(4 + i, "c" * 40, f"2026-11-21T08:3{i}:00Z", title=f"probe rust test at {'c' * 40}")
+                for i in range(pmb.MAX_REBISECTS + 1)]
+        for r in dead:
+            older[r["id"]] = ({}, False)
+        more = [run(20 + i, f"{i:x}" * 40, f"2026-11-21T09:{i:02d}:30Z") for i in range(5)]
         for r in more:
-            older[r["id"]] = (red, True)
-        # More red batch runs since the first red one than MAX_REBISECTS, with a bisect done: named only.
-        runs2 = [run(3, "b" * 40, "2026-11-21T10:00:00Z")] + more[::-1] + runs[1:]
-        self.assertEqual(pmb.stuck_reds("a" * 40, verdicts, [probe] + runs2, lambda rid: older[rid], self.suites), [])
+            older[r["id"]] = (older[3][0], True)
+        runs2 = more[::-1] + runs
+        # A probe at another sha (a later step of a chain) is not a chain start either.
+        step = run(30, "e" * 40, "2026-11-21T08:50:00Z", title=f"probe rust test at {'e' * 40}")
+        older[30] = ({}, True)
+        got = pmb.stuck_reds("a" * 40, verdicts, [step] + dead + runs2, lambda rid: older[rid], self.suites, start)
+        self.assertEqual(len(got), 1)
 
     def test_a_stuck_red_needs_a_green_in_reach(self) -> None:
         verdicts, runs, older = self.stuck_setup()
@@ -568,13 +588,17 @@ class GuardTest(unittest.TestCase):
 
     def test_a_conflicted_revert_still_red_tells_the_culprits_pr_once(self) -> None:
         api, calls, args = self._conflict_api("failure")
-        culprit = pmb.git("rev-parse", "HEAD~1").strip()
-        line = pmb.revert_conflict(args, culprit, "123", ["scripts/ci/post_merge_batch.py"], api=api)
+        # Fleet source bundles and shallow checkouts need not contain a parent.
+        culprit = "d" * 40
+        with mock.patch.object(pmb, "git", return_value="abc1234 Fix forward\n") as history:
+            line = pmb.revert_conflict(args, culprit, "123", ["scripts/ci/post_merge_batch.py"], api=api)
+        history.assert_called_once_with("log", "--format=%h %s", f"{culprit}..HEAD", "--", "scripts/ci/post_merge_batch.py")
         posts = [c for c in calls if c[1].get("method") == "POST"]
         self.assertEqual([p[0] for p in posts], ["repos/o/r/issues/123/comments"])
         body = posts[0][1]["fields"]["body"]
         self.assertIn(pmb.CONFLICT_MARK.format(culprit=culprit, job=args.job), body)
         self.assertIn("`web / Web tests 1/2`", body)
+        self.assertIn("abc1234 Fix forward", body)
         self.assertIn("told #123's owner", line)
         mark = pmb.CONFLICT_MARK.format(culprit=culprit, job=args.job)
         api, calls, args = self._conflict_api("failure", comments=[{"body": mark}])
@@ -844,9 +868,12 @@ class KnownVerdictTest(unittest.TestCase):
 
     def test_earlier_verdicts_are_read_instead_of_probed_again(self) -> None:
         # e failed (this run); c passed and d failed earlier: d is the culprit with no new probe.
+        # It is confirmed before any revert: CONFIRM_RUNS more runs at d and at its parent c, all at once.
         sent, out = self.judge({"c": "success", "d": "failure"})
-        self.assertEqual(sent, [])
-        self.assertEqual((out["culprit"], out["good"]), ("d" * 40, "c" * 40))
+        self.assertEqual(sorted((p.confirm, p.sha, p.good, p.bad) for p in sent),
+                         sorted((f"{side}-{n}", sha * 40, "c" * 40, "d" * 40) for n in range(1, pmb.CONFIRM_RUNS + 1)
+                                for side, sha in (("red", "d"), ("green", "c"))))
+        self.assertEqual(out["culprit"], "")
 
     def test_an_earlier_probe_without_verdict_is_probed_again(self) -> None:
         sent, _ = self.judge({"c": "cancelled"})
@@ -855,6 +882,82 @@ class KnownVerdictTest(unittest.TestCase):
     def test_an_earlier_skipped_probe_is_not_probed_again(self) -> None:
         sent, out = self.judge({"c": "skipped"})
         self.assertEqual((sent, out["culprit"]), ([], ""))
+
+
+class FlakeAwareConfirmTest(unittest.TestCase):
+    """Before a culprit's revert opens, it fails CONFIRM_RUNS more times and its parent passes CONFIRM_RUNS more times
+    (Henderson et al., Flake Aware Culprit Finding, ICST 2023)."""
+
+    job = "web / Web tests (2/4)"
+    culprit, parent = "d" * 40, "c" * 40
+
+    def judge(self, me: str, conclusion: str, others: dict[str, tuple[str, str]], run_id: int = 90):
+        """The judge of confirm run me (verdict conclusion, run run_id); others: each other confirm run's
+        (verdict, run status), by its label. Run ids follow the labels' order, so red-1 is the oldest."""
+        labels = [p.confirm for p in pmb.confirm_probes(pmb.Probe("web", self.job, "web-tests", "", "", "", "60"), self.culprit, self.parent)]
+        runs, jobs = [], {run_id: [{"name": self.job, "conclusion": conclusion}]}
+        for n, label in enumerate(labels):
+            if label not in others:
+                continue
+            verdict, status = others[label]
+            sha = self.culprit if label.startswith("red") else self.parent
+            rid = 80 + n
+            runs.append({"id": rid, "status": status, "display_title": f"{pmb.PROBE} web web-tests at {sha} confirm {label}"})
+            jobs[rid] = [{"name": self.job, "conclusion": verdict}] + ([{"name": "judge", "conclusion": "success"}] if status == "completed" else [])
+        sha = self.culprit if me.startswith("red") else self.parent
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id=str(run_id),
+                         sha="f" * 40, suite="web", job=self.job, only="web-tests", probe_sha=sha, good=self.parent,
+                         bad=self.culprit, origin="60", tries="0", pieces="", confirm=me, dry_run=False, summary=None,
+                         github_output=None)
+        sent: list = []
+        out: dict = {}
+        with mock.patch.object(pmb, "run_jobs", lambda repo, rid: jobs.get(int(rid), [])), \
+                mock.patch.object(pmb, "gh_api", lambda *a, **k: {"id": 60}), \
+                mock.patch.object(pmb, "list_runs", return_value=runs), \
+                mock.patch.object(pmb, "probe_refusal", return_value=""), \
+                mock.patch.object(pmb, "suite_verdicts", lambda js, suites: {j["name"]: ("web", j["conclusion"]) for j in js if j["name"] != "judge"}), \
+                mock.patch.object(pmb, "dispatch_probe", lambda repo, branch, probe: sent.append(probe)):
+            with mock.patch.object(pmb, "write_outputs", lambda path, values: out.update(values)):
+                self.assertEqual(pmb.cmd_judge(args), 0)
+        return sent, out
+
+    def test_a_flaky_red_mid_bisect_is_caught_at_confirm_and_opens_no_revert(self) -> None:
+        # The bisect named d off one flaky red run: d passes on a confirm run, so no revert, wherever that run lands.
+        done = "completed"
+        sent, out = self.judge("green-2", "success", {"red-1": ("success", done), "green-1": ("success", done), "red-2": ("failure", done)})
+        self.assertEqual((sent, out["culprit"]), ([], ""))
+        sent, out = self.judge("red-1", "success", {})
+        self.assertEqual((sent, out["culprit"]), ([], ""))  # a disagreeing run decides at once, with the rest pending
+        sent, out = self.judge("red-2", "failure", {"red-1": ("failure", done), "green-1": ("failure", done), "green-2": ("success", done)})
+        self.assertEqual(out["culprit"], "")  # the parent failed again: the red is not d's
+
+    def test_a_real_culprit_still_reverts_once(self) -> None:
+        done = "completed"
+        # The newest confirm run's judge, with the rest settled and agreeing: the revert opens.
+        sent, out = self.judge("green-2", "success", {"red-1": ("failure", done), "green-1": ("success", done), "red-2": ("failure", done)})
+        self.assertEqual(sent, [])
+        self.assertEqual((out["culprit"], out["good"], out["job"], out["origin"]), (self.culprit, self.parent, self.job, "60"))
+        # An older run's judge sees every verdict while the newest run's judge is still to come: it leaves it to that one.
+        _, out = self.judge("red-1", "failure", {"green-1": ("success", "in_progress"), "red-2": ("failure", done), "green-2": ("success", "in_progress")}, run_id=70)
+        self.assertEqual(out["culprit"], "")
+        # A run still going with no verdict yet: wait.
+        _, out = self.judge("green-2", "success", {"red-1": ("failure", done), "green-1": ("", "in_progress"), "red-2": ("failure", done)})
+        self.assertEqual(out["culprit"], "")
+
+    def test_a_confirm_run_with_no_verdict_runs_again(self) -> None:
+        sent, out = self.judge("red-1", "cancelled", {})
+        self.assertEqual([(p.confirm, p.sha, p.tries) for p in sent], [("red-1", self.culprit, 1)])
+        self.assertEqual(out["culprit"], "")
+
+    def test_the_guard_accepts_the_round_and_refuses_a_forged_one(self) -> None:
+        g = GuardTest()
+        ok = lambda sha, good, bad, c: g.refusal(pmb.Probe("s", "s / j", "j", sha, good, bad, "50", confirm=c))
+        self.assertEqual(ok("c3", "c2", "c3", "red-1"), "")
+        self.assertEqual(ok("c2", "c2", "c3", "green-2"), "")
+        self.assertEqual(ok("g", "g", "c1", "green-1"), "")  # the culprit is the first covered commit: its parent is the last green
+        self.assertIn("parent", ok("c1", "c1", "c3", "green-1"))
+        self.assertIn("culprit or parent", ok("c4", "c2", "c3", "red-1"))
+        self.assertIn("bad", ok("x", "x0", "x", "red-1"))
 
 
 class SkippedProbeTest(unittest.TestCase):
@@ -868,6 +971,14 @@ class SkippedProbeTest(unittest.TestCase):
         probe = pmb.Probe("s", "s / j", "j", "c1", "g", "c3", "1")
         self.assertEqual(pmb.probe_conclusion({"s / j": ("s", "skipped"), "s / plan": ("s", "cancelled")}, probe), "")
         self.assertEqual(pmb.probe_conclusion({"s / j": ("s", "skipped"), "s / plan": ("s", "success")}, probe), "skipped")
+
+    def test_a_matrix_leg_skipped_behind_a_lost_plan_is_no_verdict(self) -> None:
+        # Probe run 45969411338: plan lost its runner (failure), the leg is listed by its bare name as skipped.
+        probe = pmb.Probe("gallery-health", "gallery-health / health (0)", "health", "c6", "g", "c6", "1")
+        lost = {"gallery-health / plan": ("gallery-health", "failure"), "gallery-health / health": ("gallery-health", "skipped")}
+        self.assertEqual(pmb.probe_conclusion(lost, probe), "")
+        ran = {"gallery-health / plan": ("gallery-health", "success"), "gallery-health / health (0)": ("gallery-health", "failure")}
+        self.assertEqual(pmb.probe_conclusion(ran, probe), "failure")
 
 
 class FirstUnknownProbeTest(unittest.TestCase):
