@@ -3,7 +3,7 @@ import type { ApprovedPlan } from "./approvedPlan";
 import { experimentArm } from "../../experiments/experiment";
 import type { PromptHeads } from "./promptHeads";
 import { nextStepCardHeight, permissionCardHeight } from "./permissions/cardHeight";
-import { freshMeasureContext } from "./measureContext";
+import { ensureMeasureContext, freshMeasureContext } from "./measureContext";
 import type { SentFrom } from "./conversation/sentFromHarness";
 import type { PeerLinkDetail } from "./linkState";
 import type { ComposerStatus } from "./composerStatusModel";
@@ -14,6 +14,7 @@ import {
   MARK_FOOTER,
   MARK_FOOTER_ROW,
   MARK_LIVE_STEP,
+  MARK_LIVE_THOUGHT,
   MARK_CARD,
   MARK_STATUS,
   MARK_STEP,
@@ -34,6 +35,7 @@ import {
   transcriptGap,
 } from "./transcriptGrid";
 import type { MachineResources } from "./machineResources";
+import type { PeerGroup } from "./environments";
 import type { AutoResumeStatus } from "./autoResumeStatus";
 import type { AutoSession } from "./autoSession/autoSession";
 import type { CapacityWaitState } from "./capacityWait";
@@ -162,6 +164,7 @@ export type AcpmuxCompaction = {
   /// Failed because its turn ended while it ran, not because it said so; a later end replaces it.
   inferred?: boolean;
   reason?: string;
+  trigger?: "auto" | "manual";
   /// Why a failed compaction failed, in Claude Code's words ("Prompt is too long").
   error?: string;
   preTokens?: number;
@@ -505,6 +508,10 @@ export type ClaimCheck = {
   command?: string;
 };
 
+/// The chat a fork came from, on the fork's "Forked from" notice row (direct.ts `forked`): its
+/// session, and its title as the row's text names it (conversation/ForkedFromLine.tsx links it).
+export type ForkedFrom = { parentId: string; chat: string };
+
 export type AcpmuxRow = {
   id: string;
   version: number;
@@ -519,8 +526,17 @@ export type AcpmuxRow = {
   /// transcript rows that belong to one turn use this identity when it is available.
   turnId?: string;
   text?: string;
+  /// A fork's "Forked from" notice: the chat its name links to (conversation/ForkedFromLine.tsx).
+  forkedFrom?: ForkedFrom;
   /// Codex's explicit message phase; absent for harnesses and history without phase metadata.
   assistantPhase?: "commentary" | "final_answer";
+  /// The message's text is whole: no further delta will grow it, though the row can still be
+  /// `streaming` until its turn ends. Codex says so by stamping a message's phase a second time, on
+  /// `item/completed` (direct.ts; acpmux codex_app_server/message_phases.rs), and a reply that
+  /// arrives in one chunk with its phase (a watched rollout, replayed history) is whole as it comes.
+  /// What a final answer says is read out of it only then: a half-written tagged ask parses
+  /// differently with every delta (turns.ts `answerComplete`).
+  textComplete?: boolean;
   /// A reply or summary's actual turn start, retained after the snapshot's live clock clears.
   turnStartedAtMs?: number;
   /// A finished reply's checked claims ("tests pass"), from acpmux's `claim_checks` at its turn's
@@ -672,6 +688,9 @@ export type AcpmuxRow = {
   /// A finished turn footer's timed tool calls and thoughts, in order, for its waterfall
   /// (conversation/waterfallSpans.ts `turnWork`, TurnWaterfall.tsx); undefined when none was timed.
   turnWork?: AcpmuxActivity[];
+  /// The model calls that ended on this row, as acpmux timed them (claude_stdio/model_calls.rs): its
+  /// turn's footer draws each on its Timeline (conversation/waterfallSpans.ts `turnWork`).
+  modelCalls?: AcpmuxModelCall[];
   /// The chat's last turn's GitHub call that found no GitHub connection for this chat
   /// (conversation/githubConnect.ts): its footer draws the Connect GitHub card.
   githubConnect?: GitHubConnectNeed;
@@ -740,6 +759,9 @@ export type AcpmuxRow = {
   /// hub/turn_retry.rs): on the client's `TURN_RETRY` row while it retries, and on the live line,
   /// which then says the model cannot be reached instead of "Thinking" (conversation/Thinking.tsx).
   retry?: AcpmuxTurnRetry;
+  /// On the live line while it retries: when the retries began, on this computer's clock, so "Can't
+  /// reach the model" waits out the shared bound from then, not from when the line was drawn.
+  retryAt?: number;
   /// On the `TURN_RETRY` row: how long the turn's finished retries took, which the live line's
   /// "Thinking" time leaves out (conversation/turns.ts `withRetry`).
   retriedMs?: number;
@@ -841,6 +863,9 @@ export type AcpmuxRow = {
   /// A finished turn's "Worked for" line: every call the turn made, said after its time (turnFoldStyle.ts
   /// `countsCalls`).
   workedCalls?: number;
+  /// A finished turn's "Worked for" whose turn said nothing to the person: tool rows alone, no reply
+  /// (conversation/turns.ts `said`). Closed, its line draws no rule (conversation.css `[data-alone]`).
+  workedAlone?: true;
   /// The prompt of other agents' messages a finished turn's "Worked for" folds (conversation/turns.ts
   /// `shapedTurn`): the line stands for that prompt where the closed fold draws none, so the turn
   /// keeps its minimap tick (threadMinimap/model.ts `minimapTurns`).
@@ -949,14 +974,30 @@ export type AcpmuxRow = {
   subagentReportFirst?: true;
 };
 
+/// One model call of the chat's own, as acpmux timed it where it read the call's stream
+/// (claude_stdio/model_calls.rs, `_meta.acpmux.timing` on the call's `usage_update`), unix ms on the
+/// daemon's clock: its request went out, its first byte came, its last token came.
+export type AcpmuxModelCall = {
+  requestAt?: number;
+  firstTokenAt: number;
+  lastTokenAt: number;
+  /// The call streamed thinking.
+  thought?: true;
+};
+
 export type AcpmuxActivity = {
   kind: string;
   text: string;
   status?: string;
   /// A thought's first and latest chunk (epoch ms), for a folded thought's "Thought for 12s"
-  /// (conversation/ThoughtRow.tsx `thoughtDuration`).
+  /// (conversation/ThoughtRow.tsx `thoughtDuration`). A Timeline's model call (kind `model`,
+  /// waterfallSpans.ts `turnWork`): its request to its last token.
   startedAt?: number;
   endedAt?: number;
+  /// A Timeline model call's first byte (epoch ms), for its hover's wait.
+  firstTokenAt?: number;
+  /// A Timeline model call that thought.
+  thought?: true;
   tool?: {
     id: string;
     title: string;
@@ -1160,6 +1201,7 @@ export type AcpmuxCatalogModel = {
   curated?: boolean;
   declared?: boolean;
   unavailable?: string;
+  codexUpdateVersion?: string;
   shortName?: string;
   family?: string;
   efforts?: string[];
@@ -1355,6 +1397,8 @@ export type AcpmuxSnapshot = {
   peerLinks?: Record<string, PeerLinkDetail>;
   /// Each peer's cached one-minute resource reading, as bounded by the pane's native status filter.
   peerResources?: Record<string, MachineResources>;
+  /// Each peer's group (`peers[].group`, environments.ts peerGroupsFromStatus): own or agent.
+  peerGroups?: Record<string, PeerGroup>;
   /// The open chat is a fork: the seq of its `forked` event, where the copied history ends (cx-ncc.61).
   forkedAtSeq?: number;
   /// The chat's held surge, its newest snapshot (conversation/surgeHold.ts): Session Info's Background
@@ -1527,6 +1571,13 @@ export type AcpmuxSnapshot = {
   /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
   /// in one frame (AgentPaneView+Loading.swift).
   drewKeptTail?: true;
+  /// The kept tail drawn while the open connects ends inside a turn (the chat was kept while it ran,
+  /// as on a revive after an update), and neither acpmux's list nor its attach has said yet whether
+  /// that turn still runs. The transcript draws the turn's rows as running (its live line at the
+  /// bottom, as the last launch's copy drew them) so the attach that says it runs moves nothing;
+  /// `isWorking` stays false, so no Stop, clock or queue acts on it (Leo, 2026-11-24, on a revive:
+  /// "tons of layout shifts ... juts show the latest bit").
+  tailMidTurn?: true;
   /// The chat on screen was opened from acpmux's settled view of it (`settled-attach-v1`,
   /// cmuxterm-hq#9655): where that frame ends and the turn ends a fork can go through. The page tells
   /// the host once the frame is drawn (`pane.painted` with `settled: true`).
@@ -1837,13 +1888,6 @@ const MESSAGE_GAP = 0;
 /// rhythm margins. Expanded Markdown is measured by the virtual transcript after the reader opens it.
 const cardHeight = (_state: string) => 32;
 
-/// A sub-session reply under its card (SubsessionCallCard.tsx `Cut`): up to three 16px detail lines of
-/// about 60 characters, and the toggle once it is cut.
-function replyHeight(reply: string): number {
-  const lines = reply.split("\n").reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 60)), 0);
-  return Math.min(lines, 3) * 16 + (lines > 3 ? 20 : 0);
-}
-
 /// The compact tool run rhythm (`conversation.css --cv-tool-row-height` and its run bottom gap).
 const TOOL_RUN_TOP = 0;
 /// A step row: a tool run, the live run line over its work, or a one-line row (transcriptGrid.ts
@@ -1864,12 +1908,22 @@ export const isLiveLine = (row: AcpmuxRow) => row.below === true && (row.kind ==
 /// spacing and formatting"; design/transcript-spacing.md rule 3).
 export const isLiveStep = (row: AcpmuxRow, prev: AcpmuxRow | undefined) =>
   isLiveLine(row) && prev !== undefined && (isStepRow(prev) || isStatusRow(prev));
+/// The live line right under a step row that ends on a thought (transcriptGrid.ts MARK_LIVE_THOUGHT): it stands the
+/// run gap the reply that follows the thought stands, so the reply takes its place and nothing over it moves more than
+/// the reply's own lines.
+export const isLiveThought = (row: AcpmuxRow, prev: AcpmuxRow | undefined) => {
+  if (prev?.kind !== "activity" || !isLiveStep(row, prev)) return false;
+  const last = prev.items?.at(-1);
+  return last !== undefined && isThought(last);
+};
 /// A row's kind for the gap rules (transcriptGrid.ts transcriptGap), `prev` the drawn row above it.
 /// A live line under a step is MARK_LIVE_STEP, not another step, which would sit flush.
 /// `above`, the drawn row over `prev`, tells a received line under its own turn's "Working for" apart
 /// from one that opens its turn over that line (`headsIncomingTurn`).
 export const gridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: AcpmuxRow): number =>
-  (wokenUnderFooter(row, prev) && wokenGapLook() === "tail" ? MARK_STATUS : rowGridMark(row, prev)) |
+  ((wokenUnderFooter(row, prev) && wokenGapLook() === "tail") || noticeUnderFooter(row, prev)
+    ? MARK_STATUS
+    : rowGridMark(row, prev)) |
   (opensBackgroundTurn(row, prev) ? MARK_OPENS_TURN : 0) |
   (headsIncomingTurn(row, prev, above) ? MARK_HEADS_TURN : 0) |
   (topsIncomingTurn(row, prev) ? MARK_TOPS_TURN : 0);
@@ -1917,6 +1971,16 @@ const headsIncomingTurn = (row: AcpmuxRow, prev: AcpmuxRow | undefined, above?: 
 /// Whether `line` is the "Working for" / "Worked for" line of the turn `user` opened. O(1).
 const isOwnTurnLine = (line: AcpmuxRow | undefined, user: AcpmuxRow): boolean =>
   line !== undefined && isWorkedLine(line) && line.id === `${WORKED}-${user.id}`;
+/// Whether `row` is a notice line ("Background command finished", a task's end that woke the agent)
+/// right under the footer row of the turn before: it opens the turn it woke as a status line does,
+/// flush under the footer (transcriptGrid.ts), not a step row's run gap away. Another agent's
+/// message keeps its own gap (footer-to-received). O(1).
+const noticeUnderFooter = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean =>
+  row.kind === "user" &&
+  !row.received &&
+  row.incoming?.kind === "notice" &&
+  prev !== undefined &&
+  rowMark(prev) === MARK_FOOTER_ROW;
 /// Whether `row` is the first tool row of a turn the agent ran on its own, right under the footer
 /// row of the turn before it: a background task's end woke the agent after that turn ended, and the
 /// task's line between them draws nothing (backgroundTurns.ts `drawsBackgroundLine`). O(1).
@@ -1928,7 +1992,7 @@ const wokenUnderFooter = (row: AcpmuxRow, prev: AcpmuxRow | undefined): boolean 
   rowMark(prev) === MARK_FOOTER_ROW;
 /// How that row stands under the footer (gallery `agent-pane.woken-turn-gap`, `<html data-woken-gap>`):
 /// `block`, shipped, the block gap any row under a footer stands; `turn`, the turn gap it stood
-/// before; `tail`, the 8 a status line under a footer stands, in the hidden line's place. Read only
+/// before; `tail`, flush, as a status line under a footer stands, in the hidden line's place. Read only
 /// for such a row, so a layout pass pays nothing for it.
 export function wokenGapLook(): "block" | "turn" | "tail" {
   const set = typeof document === "undefined" ? undefined : document.documentElement.dataset.wokenGap;
@@ -1973,21 +2037,28 @@ const rowGridMark = (row: AcpmuxRow, prev: AcpmuxRow | undefined): number =>
       : isStepRow(row)
         ? MARK_STEP
         : isLiveStep(row, prev)
-          ? MARK_LIVE_STEP
+          ? isLiveThought(row, prev)
+            ? MARK_LIVE_THOUGHT
+            : MARK_LIVE_STEP
           : isStatusRow(row)
             ? MARK_STATUS
             : rowMark(row);
 const LIVE_STEP_EDGE = "+step";
 /// One-line activity rows are one row apart top to top (design/chat-transcript.md "One-line row pitch",
-/// #29965), `--cv-tool-row-height`: their 22 line and the row air (transcriptGrid.ts ROW_AIR_LOOKS).
-/// The room around "Worked for"'s rule (Lucas, 2026-11-07; Leo, 2026-11-09): 4 under its words, 8 over the next row,
-/// conversation.css `.cv-worked.has-divider.is-toggle`; no stack gap follows (MARK_WORKED).
-const WORKED_GAP_PT = gridLength("gap-foot") + gridLength("gap");
+/// #29965), `--cv-tool-row-height`: their 22 line and the row air (transcriptGrid.ts ROW_AIR_LOOKS), the
+/// shared row metric's height (rowMetric.ts ROW_METRIC).
+/// The room around "Worked for"'s rule (rowMetric.ts: `ruleAbove` under its words, `ruleBelow` over
+/// the next row; Leo, 2026-11-17: "these are too big"), conversation.css `.cv-worked.has-divider.is-toggle`;
+/// no stack gap follows (MARK_WORKED).
+const WORKED_GAP_PT = ROW_METRIC.ruleAbove + ROW_METRIC.ruleBelow;
 /// Read once per layout pass (layoutConversation). `--cv-tool-row-height` is 22px plus the row air at every
 /// Interface Size (conversation.css `:root`), so the row is too: scaled with the grid, a closed group's line was
 /// placed 22 × (scale − 1) px too tall at a larger Interface Size.
 let lineRowPt = TRANSCRIPT_LINE_ROW;
 const toolRowHeight = () => (editsEstimateOn() ? lineRowPt : lineRowPt * chromeScale);
+/// A call in an opened run, the estimate for a call whose drawn height is not yet known: one row, as a
+/// run's calls stack flush (`.cv-tools` gap 0, transcriptSpacing.ts call-pitch).
+const callRow = () => toolRowHeight();
 /// Settings > Advanced > Experiments > Expanded Edits Estimate (`experiments.expandedEditsEstimate`, default off;
 /// Leo, 2026-11-24, ask-82b08b7ed7: UI changes wait behind a switch). On: an opened edits group is estimated at
 /// its files' diff cards (`openEditsBody`) and a tool row at its drawn 22 px line at every Interface Size. Off:
@@ -2043,7 +2114,7 @@ function activityStepHeight(item: AcpmuxActivity, width: number, state: StepStat
       const open = state.thought !== undefined && thoughtChoices.get(state.thought) === true;
       return toolRowHeight() + (open ? openThoughtBody(item.text, width) : 0);
     }
-    return 26;
+    return callRow();
   }
   // A message to another agent (SendMessage, `acpmux send`, a sub-session's `send_message`) is one
   // line on the tool rows' line (AgentMessageRow.tsx), as every one-line row is; opened, an `acpmux
@@ -2053,7 +2124,7 @@ function activityStepHeight(item: AcpmuxActivity, width: number, state: StepStat
   const mcp = mcpCall(tool);
   if (mcp) {
     const subsession = subsessionCall(tool, mcp);
-    if (!subsession) return 26;
+    if (!subsession) return callRow();
     // Each card (cardHeight), a finished one's reply under it (replyHeight), and the Raw toggle's row.
     if ((subsession.tool === "wait" || subsession.tool === "list") && !subsession.running)
       return Math.max(
@@ -2088,7 +2159,7 @@ function activityStepHeight(item: AcpmuxActivity, width: number, state: StepStat
     case "fetch":
       return toolRowHeight() + (webSources(tool).length ? 28 : 0);
     default:
-      return 26;
+      return callRow();
   }
 }
 /// The steps of a run's `items`, each as `activityStepHeight` estimates it, with its thoughts numbered
@@ -3342,6 +3413,7 @@ function textHeight(
   let measured = prepared.get(key);
   if (measured === undefined) {
     try {
+      ensureMeasureContext();
       measured = prepare(text, measureFont, { whiteSpace: "pre-wrap" });
       notePreparedText(text.length);
     } catch {
@@ -3560,7 +3632,7 @@ function measuredRowHeight(
           : member.id;
       if (!row.pendingMessages.flat && member.kind !== LANE_NOTICE_BATCH && !senders.has(from)) {
         senders.add(from);
-        height += 22;
+        height += toolRowHeight();
       }
       // A Stop-held queued message's lead note sits above its received line. Keep the
       // virtualized group estimate in sync with `.cv-received__queued-head`'s 18px line.
@@ -3605,7 +3677,8 @@ function measuredRowHeight(
     const whole = shown ? textHeight(shown, Math.max(80, width - 44), receivedPrepared) : lineHeight;
     const cut = card && whole > CLAMPED_LINES * lineHeight + 1;
     const lines = cut && !opened ? CLAMPED_LINES * lineHeight : whole;
-    const details = opened && message.raw.trim() !== text ? 24 : 0;
+    // Opened, Details' 24px line, and where it was sent from (SentFromLine.tsx) on one row over it.
+    const details = (opened && message.raw.trim() !== text ? 24 : 0) + (opened && row.sentFrom ? toolRowHeight() : 0);
     return finish(line + 2 + 4 + 16 + lines + (cut ? CLAMP_MORE_HEIGHT : 0) + (row.images?.length ? 128 : 0) + details);
   }
   if (row.incoming?.kind === "notice") return finish(lineRow());
@@ -3828,6 +3901,7 @@ function preparedLines(
   let measured = prepared.get(key) as PreparedTextWithSegments | null | undefined;
   if (measured === undefined) {
     try {
+      ensureMeasureContext();
       measured = prepareWithSegments(text, font, {
         whiteSpace: "pre-wrap",
       });
@@ -4122,6 +4196,114 @@ function withHeight(
 /// like chatgpt").
 export const isOverlayFooter = (row: AcpmuxRow) => row.kind === "turnSummary" && isEmptyFooter(row);
 
+type LayoutArrays = { gaps: Float64Array; marks: Uint8Array; tops: Float64Array; heights: Float64Array };
+
+/// New arrays of `length` rows holding `previous`'s first `start` rows.
+function freshLayoutArrays(previous: ConversationLayout | undefined, start: number, length: number): LayoutArrays {
+  const arrays = {
+    gaps: new Float64Array(length),
+    marks: new Uint8Array(length),
+    tops: new Float64Array(length),
+    heights: new Float64Array(length),
+  };
+  if (previous && start > 0) copyLayoutRows(arrays, previous, 0, start);
+  return arrays;
+}
+
+function copyLayoutRows(into: LayoutArrays, from: ConversationLayout, begin: number, end: number): void {
+  if (end <= begin) return;
+  if (from.gaps) into.gaps.set(from.gaps.subarray(begin, end), begin);
+  else into.gaps.fill(0, begin, end);
+  if (from.marks) into.marks.set(from.marks.subarray(begin, end), begin);
+  else into.marks.fill(0, begin, end);
+  into.tops.set(from.tops.subarray(begin, end), begin);
+  into.heights.set(from.heights.subarray(begin, end), begin);
+}
+
+/// How many layouts' arrays a transcript keeps before it writes over the oldest. The transcript
+/// reads the newest estimate and its last committed placement (`hold`), which reads an older
+/// estimate's arrays, so three leave one to write.
+const LAYOUT_BUFFER_SETS = 3;
+
+/// A transcript's layout arrays, kept from one layout to the next (chat-instant-under-load.md piece
+/// 4). Before, every new rows array (a streamed token) allocated four arrays of the chat's row count
+/// and copied every unchanged row into them: about 128 KB of garbage a token in a 4,000-row chat, the
+/// god chat's extra collector time. Now a set's capacity grows by doubling, and a layout writes
+/// into the set written longest ago, copying only the rows that changed since that set was written.
+export class LayoutBuffers {
+  private sets: { arrays?: LayoutArrays; generation: number; unchanged: number }[] = Array.from(
+    { length: LAYOUT_BUFFER_SETS },
+    () => ({ generation: -1, unchanged: 0 }),
+  );
+  private generation = 0;
+  private last: { layout?: ConversationLayout; set: number } = { set: -1 };
+  private pending?: { set: number; from: number };
+  private held?: ArrayBufferLike;
+
+  // perf-hot: O(changed rows) per streamed token chat-100k-flat
+  take(previous: ConversationLayout | undefined, start: number, length: number): LayoutArrays {
+    // The set written longest ago that neither the last layout nor the held one reads.
+    let index = -1;
+    for (let at = 0; at < this.sets.length; at += 1) {
+      const each = this.sets[at]!;
+      if (at === this.last.set || (this.held !== undefined && each.arrays?.gaps.buffer === this.held)) continue;
+      if (index < 0 || each.generation < this.sets[index]!.generation) index = at;
+    }
+    const set = this.sets[index]!;
+    let arrays = set.arrays;
+    const lineal = previous !== undefined && previous === this.last.layout;
+    if (!arrays || arrays.tops.length < length) {
+      const capacity = Math.max(length, (arrays?.tops.length ?? 0) * 2, 64);
+      arrays = {
+        gaps: new Float64Array(capacity),
+        marks: new Uint8Array(capacity),
+        tops: new Float64Array(capacity),
+        heights: new Float64Array(capacity),
+      };
+      set.arrays = arrays;
+      set.generation = -1;
+    }
+    // Rows this set already holds as `previous` does: those before the first row any layout written
+    // since this set changed. Anything else is copied from `previous`.
+    const agree = lineal && set.generation >= 0 ? Math.min(start, set.unchanged) : 0;
+    if (previous && start > agree) copyLayoutRows(arrays, previous, agree, start);
+    // Rows a layout leaves alone (a row that draws nothing keeps no gap) read 0, as in new arrays.
+    arrays.gaps.fill(0, start, length);
+    // Until `wrote`, the set holds no generation's layout whole (a layout that throws leaves it so).
+    set.generation = -1;
+    this.pending = { set: index, from: lineal ? start : 0 };
+    return {
+      gaps: arrays.gaps.subarray(0, length),
+      marks: arrays.marks.subarray(0, length),
+      tops: arrays.tops.subarray(0, length),
+      heights: arrays.heights.subarray(0, length),
+    };
+  }
+
+  /// The layout the transcript keeps past the next estimates (its last committed placement,
+  /// VirtualTranscript previousLayout). A placement reads its estimate's arrays (placedFromEstimate
+  /// keeps gaps and marks, its geometry reads tops and heights), and several estimates can come
+  /// before the next commit (a send during a running call), so `take` never writes the set it reads.
+  hold(layout: { gaps?: Float64Array } | null): void {
+    this.held = layout?.gaps?.buffer;
+  }
+
+  /// Records the layout `take`'s arrays went into.
+  wrote(layout: ConversationLayout): void {
+    const pending = this.pending;
+    if (!pending) return;
+    this.pending = undefined;
+    // Each set needs only the prefix it still shares with this layout, even when a placement
+    // holds its arrays through thousands of estimates.
+    for (const set of this.sets) set.unchanged = Math.min(set.unchanged, pending.from);
+    const written = this.sets[pending.set]!;
+    written.unchanged = layout.tops.length;
+    written.generation = this.generation;
+    this.generation += 1;
+    this.last = { layout, set: pending.set };
+  }
+}
+
 /** DOM-free row geometry. Only visible rows need their React elements painted. */
 export function layoutConversation(
   rows: readonly AcpmuxRow[],
@@ -4160,11 +4342,9 @@ export function layoutConversation(
   /// prepared). The layout is then `rough`, and the transcript lays it out whole after the first
   /// paint. The open's first frame costs the rows it mounts, not the whole page of history.
   roughAbove?: number,
+  /// The caller's reusable arrays (LayoutBuffers): one per transcript, never shared between two.
+  buffers?: LayoutBuffers,
 ): ConversationLayout {
-  const gaps = new Float64Array(rows.length);
-  const marks = new Uint8Array(rows.length);
-  const tops = new Float64Array(rows.length);
-  const heights = new Float64Array(rows.length);
   const messages = new MessagePlacement(rows, previous?.layout);
   const scale = gridScale();
   chromeScale = scale;
@@ -4174,7 +4354,9 @@ export function layoutConversation(
   const gapScale = scale * gapFactor;
   let start = 0;
   // Kept rows keep their gaps only at the scale they were placed at.
-  if (previous && (previous.layout.scale ?? 1) === scale && (previous.layout.gapScale ?? 1) === gapFactor) {
+  const keeps =
+    previous !== undefined && (previous.layout.scale ?? 1) === scale && (previous.layout.gapScale ?? 1) === gapFactor;
+  if (keeps) {
     // Asked of the same two row arrays by the pane's other passes too: walked once a pair, or not at
     // all where the rows' maker said how many it kept (prefixFlatMap.ts `noteKeptPrefix`).
     start = keptPrefix(previous.rows, rows);
@@ -4188,11 +4370,13 @@ export function layoutConversation(
         rowEdge(rows[drawn]!, nextDrawnRow(previous.rows, drawn), prevDrawnRow(previous.rows, drawn))
     )
       start = drawn;
-    if (previous.layout.gaps) gaps.set(previous.layout.gaps.subarray(0, start));
-    if (previous.layout.marks) marks.set(previous.layout.marks.subarray(0, start));
-    tops.set(previous.layout.tops.subarray(0, start));
-    heights.set(previous.layout.heights.subarray(0, start));
   }
+  // The rows before `start` keep the last layout's places. With `buffers` (the transcript's own), the
+  // arrays are reused and only what changed since they were last written is copied: a delta to the
+  // last row writes O(1) entries and allocates nothing. Without, new arrays as before.
+  const { gaps, marks, tops, heights } = buffers
+    ? buffers.take(keeps ? previous.layout : undefined, start, rows.length)
+    : freshLayoutArrays(keeps ? previous.layout : undefined, start, rows.length);
   let top = start > 0 ? tops[start - 1]! + heights[start - 1]! : 0;
   // Kept rows may hold a remembered height of their own.
   let remembered = start > 0 && previous?.layout.remembered === true;
@@ -4341,6 +4525,7 @@ export function layoutConversation(
   };
   trimPreparedRows(cache);
   messages.finish(rows, layout);
+  buffers?.wrote(layout);
   return layout;
 }
 
@@ -4802,6 +4987,8 @@ import { CLAMP_MORE_HEIGHT, CLAMPED_LINES } from "./conversation/lineCut";
 import { laneNotice } from "./conversation/laneReport";
 import { receivedLook } from "./conversation/receivedLook";
 import { MESSAGE_PREVIEW_LINE_PT, messageLineLook } from "./conversation/messageLineLook";
+import { ROW_METRIC } from "./rowMetric";
+import { replyHeight } from "./replyHeight";
 import { isDiagram, isUnlabeledLang } from "./conversation/codeShape";
 import type { SurgeHold } from "./conversation/surgeHold";
 
