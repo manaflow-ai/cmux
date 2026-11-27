@@ -261,3 +261,18 @@ fn a_background_step_or_a_build_only_test_run_backs_nothing() {
         assert!(check("All tests pass.", &runs).iter().all(|c| c.verdict == "none"), "{command}");
     }
 }
+
+#[test]
+fn named_tripwire_requires_path_in_test_step() {
+    for command in [
+        "bun test tests/other.test.ts && cat tests/login.test.ts",
+        "cat tests/login.test.ts && bun test tests/other.test.ts",
+    ] {
+        let runs = turn(&[("run", command, 0)]);
+        assert!(runs.last_named_test("tests/login.test.ts").is_none(), "{command}");
+    }
+    let runs = turn(&[("run", "cd webviews && bun test tests/login.test.ts", 0)]);
+    assert!(runs.last_named_test("tests/login.test.ts").unwrap().ok);
+    let runs = turn(&[("run", "bun test tests/login.test.ts && false", 1)]);
+    assert!(runs.last_named_test("tests/login.test.ts").is_none());
+}

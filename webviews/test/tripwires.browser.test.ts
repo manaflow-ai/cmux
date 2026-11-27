@@ -5,7 +5,7 @@ import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
-import { galleryFrame } from "./support/galleryFrame";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("tripwires.browser.test.ts", async () => {
@@ -24,6 +24,7 @@ await requireBrowserLane("tripwires.browser.test.ts", async () => {
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, entry, { browser });
   });
 
   afterAll(async () => {

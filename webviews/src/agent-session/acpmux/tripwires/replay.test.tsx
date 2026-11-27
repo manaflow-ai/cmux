@@ -121,10 +121,20 @@ type Snapshot = {
   rows: Array<{ kind?: string; turnId?: string; tripwires?: TripwireState }>;
 };
 
-async function replayTurn(fixture: TripwireState, nextTurn?: TripwireState): Promise<Snapshot> {
+async function replayTurn(
+  fixture: TripwireState,
+  nextTurn?: TripwireState,
+  attachState?: TripwireState,
+): Promise<Snapshot> {
   const { AcpmuxDirectClient } = await import("../direct");
   const { MockAcpmuxSocket, mockHost } = await import("../mock");
   const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  if (attachState) {
+    const sessions = (socket as unknown as { sessions: Array<Record<string, unknown>> }).sessions;
+    const session = sessions.find((row) => row.sessionId === mockHost.sessionId);
+    if (!session) throw new Error("mock session missing");
+    session.tripwires = attachState;
+  }
   const turnId = fixture.turnId ?? `tripwire-${fixture.revision}`;
   const daemon = socket as unknown as { record: (target: string, step: unknown, at?: number) => unknown };
   daemon.record(mockHost.sessionId!, { mux: "user_message", msg: { text: "Run the tripwires" } });
@@ -233,5 +243,16 @@ test("a replayed older mux event does not replace the current red header", async
     expect(latest?.summary?.tripwires?.items[1]?.verdict).toBe("failed");
   } finally {
     client.close?.();
+  }
+});
+
+test("attach summary does not discard equal or older turn recap evidence", async () => {
+  const finished = state(50, green, "tripwire-finished");
+  for (const attached of [finished, state(51, red, "tripwire-newer")]) {
+    const snapshot = await replayTurn(finished, undefined, attached);
+    expect(snapshot.summary?.tripwires).toEqual(attached);
+    expect(
+      snapshot.rows.find((row) => row.kind === "turnSummary" && row.turnId === finished.turnId)?.tripwires,
+    ).toEqual(finished);
   }
 });

@@ -167,9 +167,14 @@ impl ClaimRuns {
     pub(super) fn last_named_test(&self, path: &str) -> Option<RunEvidence> {
         self.runs.iter().rev().find_map(|run| {
             (run.kinds & ClaimKind::Tests.bit() != 0
-                && run.command.split_whitespace().any(|token| {
-                    let token = token.trim_matches(|c: char| matches!(c, '\'' | '"' | '`' | ','));
-                    token == path || token == format!("./{path}")
+                && (run.ok || steps(&run.command).len() == 1)
+                && steps(&run.command).iter().any(|(step, speaks)| {
+                    *speaks
+                        && classify_simple(step) & ClaimKind::Tests.bit() != 0
+                        && step.split_whitespace().any(|token| {
+                            let token = token.trim_matches(|c: char| matches!(c, '\'' | '"'));
+                            token == path || token.strip_prefix("./") == Some(path)
+                        })
                 }))
             .then(|| RunEvidence {
                 tool_call_id: run.id.clone(),
