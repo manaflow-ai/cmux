@@ -3628,3 +3628,28 @@ describe("requestTimedOut", () => {
     expect(requestTimedOut(undefined)).toBe(false);
   });
 });
+
+describe("a machine create with one overall deadline (run 45874526877: cold create waited 847 s)", () => {
+  /** A local API that records each request's bearer, and answers a create only after `holdMs`. */
+  async function api<T>(holdMs: number, run: (url: string, bearers: string[], creates: () => number) => Promise<T>): Promise<T> {
+    const bearers: string[] = [];
+    let creates = 0;
+    const server = Bun.serve({ port: 0, hostname: "127.0.0.1", async fetch(req) {
+      bearers.push(req.headers.get("authorization") ?? "");
+      const body: any = await req.json().catch(() => ({}));
+      if (body?.op === "cloud.machine.create") { creates++; await Bun.sleep(holdMs); }
+      return Response.json({ ok: true, value: { host: "h" } });
+    } });
+    try { return await run(`http://127.0.0.1:${server.port}`, bearers, () => creates); } finally { server.stop(true); }
+  }
+
+  test("an op with a deadline is not sent again past it (the cold create's 2 x 300 s, run 45874526877)", async () => {
+    await api(3_000, async (url, _b, creates) => {
+      const a = new Api(url);
+      const t0 = Date.now();
+      await expect(a.op("cloud.machine.create", {}, "k", {}, 1_000, Date.now() + 1_500)).rejects.toThrow("no answer within its bound");
+      expect(Date.now() - t0).toBeLessThan(2_500);
+      expect(creates()).toBeLessThanOrEqual(2);
+    });
+  });
+});

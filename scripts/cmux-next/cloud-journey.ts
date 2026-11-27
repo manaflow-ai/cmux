@@ -532,16 +532,21 @@ export class Api {
   }
   /** `extra`: headers for this op only (a send's trace headers, cloud-start-trace.ts mintSendTrace).
    *  `timeoutMs` is one attempt's wait; a machine create gets CREATE_OP_TIMEOUT_MS by default. */
-  async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}, timeoutMs = op === "cloud.machine.create" ? CREATE_OP_TIMEOUT_MS : 60_000): Promise<any> {
+  /** `deadlineAt` (epoch ms): no attempt waits past it and none starts after it, so the op's whole wait has one
+   *  bound; without it each of OP_ATTEMPTS attempts gets the full `timeoutMs`. */
+  async op(op: string, params: unknown, key?: string, extra: Record<string, string> = {}, timeoutMs = op === "cloud.machine.create" ? CREATE_OP_TIMEOUT_MS : 60_000, deadlineAt?: number): Promise<any> {
     let ownerRetried = false;
     await this.fresh();
     for (let attempt = 1; ; attempt++) {
       let r: Answer;
+      const left = deadlineAt === undefined ? timeoutMs : Math.min(timeoutMs, deadlineAt - Date.now());
+      if (left <= 0) throw new Error(`${op}: no answer within its bound (${attempt - 1} attempts)`);
       try {
-        r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...this.headers(), ...extra }, timeoutMs, !!key);
+        r = await http("POST", `${this.origin}/v1/ops`, { op, params, ...(key ? { idempotency_key: key } : {}) }, { ...(await this.headers()), ...extra }, left, !!key);
       } catch (error) {
         // A keyed op the client stopped waiting on: ask again under the same key, which cannot apply it twice.
-        if (key && attempt < OP_ATTEMPTS && requestTimedOut(error)) { await sleep(2000 * attempt); continue; }
+        if (key && attempt < OP_ATTEMPTS && requestTimedOut(error) && (deadlineAt === undefined || Date.now() + 2000 * attempt < deadlineAt)) { await sleep(2000 * attempt); continue; }
+        if (deadlineAt !== undefined && requestTimedOut(error)) throw new Error(`${op}: no answer within its bound (${attempt} attempts)`);
         throw error;
       }
       // A provider call cut off mid-way is safe to repeat under the same key; without it a cleanup delete leaks the VM.
@@ -566,7 +571,7 @@ export class Api {
     const until = Date.now() + budgetMs;
     await this.fresh();
     for (let attempt = 1; ; attempt++) {
-      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, this.headers(), 60_000, true);
+      const r = await http("POST", `${this.origin}/v1/ops`, { op: "cloud.machine.delete", params: { machine }, idempotency_key: key }, await this.headers(), 60_000, true);
       if (opRetryable(r.body) && Date.now() < until) { await sleep(Math.min(2000 * attempt, 15_000)); continue; }
       if (r.status !== 200 || r.body.ok !== true) throw new Error(`cloud.machine.delete: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
       return r.body.value;
@@ -579,7 +584,7 @@ export class Api {
     if (ownerUnreachable(r.body)) {
       stepNotes.getStore()?.push(OWNER_RETRY_NOTE);
       await sleep(OWNER_RETRY_MS);
-      r = await http("POST", `${this.origin}/v1/read`, { op, params }, this.headers(), timeoutMs, true);
+      r = await http("POST", `${this.origin}/v1/read`, { op, params }, await this.headers(), timeoutMs, true);
     }
     if (r.status !== 200 || (r.body.ok === false)) throw new Error(`${op}: HTTP ${r.status} ${short(r.body.error ?? r.body)}`);
     return r.body.value;
@@ -2075,6 +2080,15 @@ export async function waitMachine(api: Api, machine: string, want: (m: any) => b
  * (cmux-platform NeverBoundProbe.ts); a delete before then leaves no cause in its log (prod journey 45767907054).
  */
 export const PLATFORM_VERDICT_GRACE_MS = 90_000;
+/**
+ * The cold create's one bound, from its request to running: the platform's own (a create not settled 300 s after its
+ * bind token is failed cloud.machine.create_overdue) plus the up to 30 s before that token is minted. Run 45874526877
+ * spent 847 s on this cell: two 300 s create attempts the client cut and sent again under the same key, the third
+ * answered with the platform's create_overdue, then a 180 s delete of the failed machine, all inside the step.
+ */
+export const COLD_CREATE_BOUND_MS = 330_000;
+/** After that bound, how long the cell waits for the platform's verdict on a machine it never saw running. */
+export const COLD_CREATE_VERDICT_GRACE_MS = 45_000;
 
 /** The platform's failure code for a machine stuck before running, waited at most graceMs; null if it never failed. */
 export async function platformVerdict(api: Api, machine: string, graceMs = PLATFORM_VERDICT_GRACE_MS, pollMs = 3000): Promise<string | null> {
@@ -4936,6 +4950,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     await saveSendTrace(api, sendTrace.id, firstTextEpoch(J.firstText, createSentAt), outDir, Date.now, settle)
       .catch((e) => console.log(`send trace ${sendTrace.id}: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
   };
+  // The cold create cell's deletes, started in its step and awaited by cleanup.
+  const coldDeletes: Promise<void>[] = [];
+  const deleteByName = async (name: string, key: string): Promise<void> => {
+    const rows = await listAllMachines((params) => api.read("cloud.machine.list", params, 30_000)).catch(() => [] as any[]);
+    const id = rows.find((r) => r?.name === name && r.status !== "deleted")?.id;
+    if (!id) return;
+    await api.deleteMachine(id, key).then(() => undefined, (e) => console.log(`delete ${name} (${id}) failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+  };
   // This run's install (install token step), revoked at cleanup.
   let journeyInstall: string | null = null;
   // Delete what this run made, pass, fail or cancel. A create whose reply was lost leaves `machine`
@@ -4969,6 +4991,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return { value: null, detail: before };
       }).catch(() => undefined);
     }
+    // The cold create cell's machine, deleted off that step's clock (even with --keep, as the cell always did).
+    await Promise.all(coldDeletes.splice(0));
     if (keep || !api.bearer) return;
     // This run's own install, so it never adds to the account's live installs (a sweep takes a killed run's).
     if (journeyInstall) {
@@ -5448,11 +5472,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (only.has("cold") || reuse) J.skip(COLD_CREATE_STEP, reuse ? "--machine" : "--skip cold");
       else {
         await J.step(COLD_CREATE_STEP, async () => {
-          const v = await api.op("cloud.machine.create", { name: `${machineName} cold`, size: COLD_CREATE_SIZE }, `${tag}-cold-create`);
+          const coldName = `${machineName} cold`;
+          const deadline = Date.now() + COLD_CREATE_BOUND_MS;
+          let v: any;
+          try {
+            v = await api.op("cloud.machine.create", { name: coldName, size: COLD_CREATE_SIZE }, `${tag}-cold-create`, {}, CREATE_OP_TIMEOUT_MS, deadline);
+          } catch (error) {
+            // No answer, so no id: cleanup finds the machine by its name and deletes it off the step's clock.
+            coldDeletes.push(deleteByName(coldName, `${tag}-cold-delete`));
+            throw error;
+          }
           const id = v.machine.id as string;
           const spare = spareFields(v);
           try {
-            const m = await waitRunning(api, id, 300_000);
+            const m = await waitRunning(api, id, Math.max(5_000, deadline - Date.now()), COLD_CREATE_VERDICT_GRACE_MS);
             const r = await directExec(api, id, J)(SIZE_READ);
             if (r.code !== 0 || !r.stdout.includes("journey-ok")) throw new Error(`${id}: exit ${r.code} ${r.stdout.slice(-200)} ${r.stderr.slice(-200)}`);
             const reading = r.stdout.trim().split("\n").slice(2).join(" ");
@@ -5462,7 +5495,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (why) throw new Error(`${id} ${asked}: ${why}${listed}`);
             return { value: null, detail: `${id} ${asked}: ${reading}${listed}; spare fallback ${spare.spare_fallback ?? "none"}` };
           } finally {
-            await api.deleteMachine(id, `${tag}-cold-delete`).catch((e) => console.log(`cold create: delete ${id} failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`));
+            // Off the step's clock: a failed machine's delete can retry an indeterminate answer for DELETE_BUDGET_MS
+            // (180 s in run 45874526877). Cleanup awaits it.
+            coldDeletes.push(api.deleteMachine(id, `${tag}-cold-delete`).then(() => undefined, (e) => console.log(`cold create: delete ${id} failed: ${String((e as Error)?.message ?? e).slice(0, 200)}`)));
           }
           // Recorded as failed, and the run fails on it, but the checks after it still run.
         }).catch(() => undefined);

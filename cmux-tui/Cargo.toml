@@ -122,6 +122,7 @@ members = [
     "crates/cmux-bounded",
     "crates/cmux-no-checkout",
     "crates/cmux-remote-protocol",
+    "crates/cmux-remote-web",
     "crates/cmux-braid-session",
     "crates/cmux-build-identity",
     "crates/cmux-netwatch",
@@ -693,6 +694,7 @@ ring = "0.17"
 # TCP keepalive on accepted daemon WebSocket sockets (cmux-tui-core).
 socket2 = { version = "0.6", features = ["all"] }
 snow = "0.10"
+wasm-bindgen = "0.2"
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
 tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-native-roots"] }
 tokio-util = { version = "0.7", features = ["rt"] }

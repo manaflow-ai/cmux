@@ -46,6 +46,27 @@ fi
 phase="${JOURNEY_PHASE:-}"
 status=0
 regressed=0
+# JOURNEY_DEADLINE_EPOCH (backend.yml journey-staging: its job's start plus 47 min): the epoch second the whole
+# script must be done by, so a slow run ends as a red with its summary and verdict instead of a step-timeout kill
+# with neither. Each journey run is stopped (SIGTERM, which runs its cleanup) JOURNEY_TAIL_S before it, and a
+# failed run is run again only when the time left holds another run as long as the first one: run 45874526877's
+# first pass took 1702 s of a 32 min step, and its retry was killed 3 min in, with no verdict. Unset, no bound.
+tail_s="${JOURNEY_TAIL_S:-120}"
+left_s() { echo $(( JOURNEY_DEADLINE_EPOCH - $(date +%s) - tail_s )); }
+bounded() { # command... (under the deadline when one is set)
+  if [ -z "${JOURNEY_DEADLINE_EPOCH:-}" ]; then "$@"; return; fi
+  local left; left="$(left_s)"
+  if [ "$left" -le 0 ]; then echo "::warning title=Cloud journey::no time left before the job's deadline; not run"; return 124; fi
+  timeout --signal=TERM --kill-after=90 "$left" "$@"
+}
+room_for_retry() { # first run's seconds; true when another run that long fits before the deadline
+  [ -z "${JOURNEY_DEADLINE_EPOCH:-}" ] && return 0
+  local need=$(( $1 + ${JOURNEY_RETRY_DELAY_S:-15} )) left; left="$(left_s)"
+  if [ "$left" -lt "$need" ]; then
+    echo "::warning title=Cloud journey not retried::$TARGET ${phase:+$phase }$2: the first run took $1 s and $left s are left before the job's deadline; judged on the first run"
+    return 1
+  fi
+}
 # JOURNEY_RUST=1 (backend.yml journey-staging): the journey's core again on the shipped client,
 # `cmux cloud journey` in CMUX_PATH (cmux-tui cli/cloud_journey.rs; cmuxterm-hq ARCHITECTURE-2026-11 M1b):
 # create machine, running, first exec, model stub, pass Claude login, start agent, send chat, reply,
@@ -57,12 +78,17 @@ rust_run() { # label, ts dir, extra args...
   local dir="$ts-rust"
   local args=(cloud journey --backend "$TARGET" --out "$dir")
   if [ "${JOURNEY_MODEL:-}" = stub ]; then args+=(--model-stub "$here/../../tests/fixtures/model-stub/model_stub.py"); fi
-  if ! "$CMUX_PATH" "${args[@]}" "$@"; then
-    { printf '### %s%s, Rust driver (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
-    echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label (Rust driver) failed once; running it again"
-    rm -rf "$dir.first" && mv "$dir" "$dir.first" && mkdir -p "$dir"
-    sleep "${JOURNEY_RETRY_DELAY_S:-15}"
-    if "$CMUX_PATH" "${args[@]}" "$@"; then :; else status=1; fi
+  local t0; t0="$(date +%s)"
+  if ! bounded "$CMUX_PATH" "${args[@]}" "$@"; then
+    if ! room_for_retry $(( $(date +%s) - t0 )) "$label (Rust driver)"; then
+      status=1
+    else
+      { printf '### %s%s, Rust driver (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
+      echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label (Rust driver) failed once; running it again"
+      rm -rf "$dir.first" && mv "$dir" "$dir.first" && mkdir -p "$dir"
+      sleep "${JOURNEY_RETRY_DELAY_S:-15}"
+      if bounded "$CMUX_PATH" "${args[@]}" "$@"; then :; else status=1; fi
+    fi
   fi
   { printf '### %s%s, Rust driver (cmux cloud journey)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
   python3 -I - "$ts/journey.json" "$dir/journey.json" >> "$summary" 2>/dev/null <<'PY' || true
@@ -92,12 +118,17 @@ run() { # label, extra args...
   if [ -n "${JOURNEY_MODEL:-}" ]; then args+=(--model "$JOURNEY_MODEL"); fi
   # cmux-autocloud (RFD 0139) chats over the carrier after the journey's own dial; needs --cmux.
   if [ -n "${AUTOCLOUD_TUI_PATH:-}" ] && [ -n "${CMUX_PATH:-}" ]; then args+=(--autocloud-tui "$AUTOCLOUD_TUI_PATH"); fi
-  if ! bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then
-    { printf '### %s%s (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
-    echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label failed once; running it again (first run's steps in the job summary)"
-    rm -rf "$dir.first" && mv "$dir" "$dir.first" && mkdir -p "$dir"
-    sleep "${JOURNEY_RETRY_DELAY_S:-15}"  # sleep-ok: backoff before the one retry
-    if bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then :; else status=1; fi
+  local t0; t0="$(date +%s)"
+  if ! bounded bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then
+    if ! room_for_retry $(( $(date +%s) - t0 )) "$label"; then
+      status=1
+    else
+      { printf '### %s%s (first run, failed; run again)\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
+      echo "::warning title=Cloud journey retried::$TARGET ${phase:+$phase }$label failed once; running it again (first run's steps in the job summary)"
+      rm -rf "$dir.first" && mv "$dir" "$dir.first" && mkdir -p "$dir"
+      sleep "${JOURNEY_RETRY_DELAY_S:-15}"  # sleep-ok: backoff before the one retry
+      if bounded bun "$here/cloud-journey.ts" "${args[@]}" "$@"; then :; else status=1; fi
+    fi
   fi
   { printf '### %s%s\n\n' "${phase:+$phase: }" "$label"; cat "$dir/summary.md" 2>/dev/null || echo "(no summary written)"; echo; } >> "$summary"
   # The send's Chrome trace (Perfetto), where journey-live uploads it: $RUNNER_TEMP/<target>/send-trace.json for the

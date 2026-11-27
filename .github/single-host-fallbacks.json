@@ -345,6 +345,11 @@
   },
   "nightly_workflow_marker": "nightly",
   "nightly_terminal_labels": {
+    "glaeda-gateway-xcode-26.6": {
+      "fallback": "the gateway job is skipped when its CI_*_GATEWAY variable is unset; an operator restores the gateway pool before enabling it again",
+      "after_minutes": 10,
+      "served_by": "the build-fleet gateway runners"
+    },
     "blacksmith-12vcpu-macos-26": {
       "fallback": "blacksmith-6vcpu-macos-26, then an owned Mac through the controller",
       "after_minutes": 10,

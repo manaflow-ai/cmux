@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var launchSnapshot: Task<LaunchSnapshotRead, Never>?  // started in `main` (readAtLaunch): the snapshot and the launch kind; nil once the launch took its result
     private var settingsTask: Task<SettingsController.LaunchRead, Never>? = SettingsController.startLaunchRead(buildDefaults: .thisBuild)
     /// The first live terminal frame (or no daemon), never before the first window frame: deferrable warm-up waits for it.
-    private let launchSettle: LaunchSettle
+    private let launchSettle: LaunchSettle; private let launchHold: LaunchBackgroundHold  // launchHold: what nobody sees waits for the open workspace (CMUX-629)
     /// Launch work that starts after the first window frame (perf-launch-memory).
     let firstFrame: FirstFrameGate
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
@@ -79,7 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.firstFrame = firstFrame
         launchSettle = LaunchSettle(firstFrame: firstFrame); DebugTimings.markLaunch("main.delegate.first_frame_gate")
         let mainWork = MainWorkScheduler.app(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
-        self.mainWork = mainWork; DebugTimings.markLaunch("main.delegate.main_work")
+        self.mainWork = mainWork; DebugTimings.markLaunch("main.delegate.main_work"); launchHold = LaunchBackgroundHold(budget: mainWork.budget) { DebugTimings.markLaunch($0) } // the hold: before anything queues background work
         control = AppControl(mainWork: mainWork); DebugTimings.markLaunch("main.delegate.control")
         super.init()
     }
@@ -201,7 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             openAll: { [weak services] in try? services?.settingsWindow.show(section: nil, route: SettingsDeepLink.customizeRoute) }))
         DebugTimings.markLaunch("dfl.menu")
         WindowActivation.activateApp()
-        launchSettle.install(daemon: services.daemon)
+        launchSettle.install(daemon: services.daemon); launchHold.install(settled: launchSettle.whenSettled, firstFrame: firstFrame)
         daemonPrompts = DaemonPrompts.start(services)
         services.healthFeeds.start() // app health: before the daemon's first ensure
         let daemonPrestart = await withTaskCancellationHandler { await preparedDaemon.value } onCancel: { preparedDaemon.cancel() }
@@ -292,7 +292,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         firstFrame.whenOpen { [weak services] in services?.windows.recordSaver.launchRecord.schedule(); services?.windows.recordSaver.layoutCache.note() }
         DebugTimings.markLaunch("dfl.windows")
         // The runtime pack check wires the engine reason at once; its download waits until asked.
-        services.startChromiumRuntime()
+        services.startChromiumRuntime(); launchHold.whenReleased { [weak services] in services?.startHiddenPageSpares() } // pages nobody sees (CMUX-629)
         // Other apps' sign-ins, before any request a launch by one delivers.
         // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
@@ -335,8 +335,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// One palette warm-up step per idle moment (`PaletteController.prepare`), then `done` at the next idle moment.
     private static func preparePalette(_ palette: PaletteController?, step: Int, done: @escaping @MainActor () -> Void) {
-        IdleOnce.schedule {
-            guard let palette, palette.prepare(step: step) else { return IdleOnce.schedule(done) }
+        IdleOnce().schedule {
+            guard let palette, palette.prepare(step: step) else { return IdleOnce().schedule(done) }
             preparePalette(palette, step: step + 1, done: done)
         }
     }

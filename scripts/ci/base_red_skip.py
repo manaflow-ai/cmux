@@ -14,7 +14,8 @@ A pre-job the PR job already waits on (or a one-step job) runs `decide`. It read
 job's workflow on the base branch, newest first, and takes that job's newest decided verdict (success or failure;
 skipped, cancelled and unfinished runs are passed over, at most --runs runs, none created over --max-age-hours
 ago: a red no base push has re-judged in that long, say a workflow whose paths the fixing push did not touch,
-runs the job again). When it is a failure the PR job is
+runs the job again; base push runs skip the job often (cmux-next.yml's cargo tier: 462 of 548 on 2026-11-25, so
+12 runs held no verdict about 14% of the time), and the caller sets --runs past that). When it is a failure the PR job is
 skipped, and the annotation names the base run that is red. A green, a missing verdict, or any read that fails or
 runs past the deadline runs the job: the skip fails open.
 
@@ -118,7 +119,7 @@ def base_verdicts(repo: str, workflow: str, jobs: list[str], base: str, runs: in
         titled = event == "workflow_dispatch" and bool(dispatch_title)
         # A titled list reads one page of 100 (about 12 h of cmux-next.yml dispatches, 2026-11-24) and keeps --runs.
         query = urllib.parse.urlencode({"branch": base, "event": event, "status": "completed",
-                                        "per_page": 100 if titled else runs})
+                                        "per_page": 100 if titled else min(runs, 100)})
         listed = read(f"/repos/{repo}/actions/workflows/{urllib.parse.quote(workflow)}/runs?{query}")
         kept = 0
         for run in listed.get("workflow_runs") or []:
@@ -146,7 +147,13 @@ def base_verdicts(repo: str, workflow: str, jobs: list[str], base: str, runs: in
             break  # no readable age: no verdict past here to skip on
         if age_h > max_age_hours:
             break
-        listed_jobs = read(f"/repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
+        try:
+            listed_jobs = read(f"/repos/{repo}/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")
+        except Exception:
+            # A slow GitHub ends the walk, not the verdicts already read: a red found on a newer run still skips.
+            if found:
+                break
+            raise
         for item in listed_jobs.get("jobs") or []:
             name = item.get("name")
             if name in want and name not in found and item.get("conclusion") in DECIDED:

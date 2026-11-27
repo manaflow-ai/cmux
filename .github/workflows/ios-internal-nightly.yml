@@ -126,7 +126,7 @@ jobs:
     # "Pin Xcode 27" fails: no INTERNAL build shipped after 08:16Z 11-25. The picker's `fallback` (a
     # Blacksmith Mac) replaces that label set when the runner census shows no online runner carrying
     # xcode-27.0: run 45717448413 waited 2 h 23 min on it with no Mac offering Xcode 27.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.CI_OVERFLOW_MAC || needs.pick-archive-runner.outputs.fallback != '' && needs.pick-archive-runner.outputs.fallback || fromJSON('["cmux-mac","xcode-27.0"]') }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-archive-runner.outputs.attempt == format('{0}', github.run_attempt) && needs.pick-archive-runner.outputs.dedicated != '' && needs.pick-archive-runner.outputs.dedicated || vars.CI_OVERFLOW_MAC || needs.pick-archive-runner.outputs.fallback != '' && needs.pick-archive-runner.outputs.fallback || fromJSON('{"labels":["cmux-mac","xcode-27.0"]}').labels }}
     timeout-minutes: 90
     outputs:
       marketing: ${{ steps.stamp.outputs.marketing }}

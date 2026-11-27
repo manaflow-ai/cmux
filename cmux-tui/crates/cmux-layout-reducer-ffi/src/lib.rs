@@ -100,6 +100,7 @@ pub mod focus;
 mod imessage;
 pub mod input;
 pub mod keychain;
+mod notification_rings;
 mod pane_focus;
 mod pane_placement;
 mod screen;
@@ -650,6 +651,9 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
             operation if screen::handles(operation) => screen::respond(operation, request)?,
             operation if tab_discard::handles(operation) => {
                 tab_discard::respond(operation, request)?
+            }
+            operation if notification_rings::handles(operation) => {
+                notification_rings::respond(operation, request)?
             }
             operation if browser_rules::handles(operation) => {
                 browser_rules::respond(operation, request)?

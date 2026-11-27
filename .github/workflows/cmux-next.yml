@@ -1009,15 +1009,15 @@ jobs:
           # carries cmux/land-tier success (head_tier.py's land carry rule); 0 turns that off.
           CI_LAND_CARRY: ${{ vars.CI_LAND_CARRY || '1' }}
         run: bash -e scripts/ci/cmux-next-steps/classify-pull-request-paths.sh
-      # Why: 2026-11-24-path_route-3.md
+      # Why: 2026-11-24-path_route-3.md, 2026-11-26-route-retry.md
       - name: Jobs red on the base right now
         id: base-red
-        if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(steps.route.outputs.labels, ',full-ci,')
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && format('{0}', vars.CI_SKIP_WHILE_BASE_RED) != '0' && !contains(steps.route.outputs.labels, ',full-ci,') }}
         continue-on-error: true
         timeout-minutes: 3
         env:
           GH_TOKEN: ${{ github.token }}
-        run: python3 -I scripts/ci/base_red_skip.py decide-many --workflow cmux-next.yml --runs 12 --job "cmux-next fast tier (cargo)" >> "$GITHUB_OUTPUT"
+        run: python3 -I scripts/ci/base_red_skip.py decide-many --workflow cmux-next.yml --runs 60 --job "cmux-next fast tier (cargo)" >> "$GITHUB_OUTPUT"
 
       # Why: note-359
       - name: Probe the same-tree cmux-tui

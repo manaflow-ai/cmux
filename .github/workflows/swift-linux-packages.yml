@@ -37,6 +37,10 @@ on:
       - scripts/ci/swift-test-debug-info.sh
       - scripts/ci/swiftpm-binary-module-guard.sh
       - scripts/ci/github-egress-direct.sh
+      - scripts/ci/app_ffi_linux.py
+      - scripts/cmux-next/build-app-ffi.sh
+      - cmux-tui/crates/**
+      - cmux-tui/Cargo.lock
       - .github/workflows/swift-linux-packages.yml
   workflow_dispatch:
 
@@ -163,7 +167,9 @@ jobs:
 
       # python3 for the lane's watchdog; CmuxMobilePairedMac links the system SQLite and CmuxVNC the system
       # zlib, and the image ships only their runtimes. CmuxNext's ChromiumRuntime tests pack and unpack
-      # .tar.xz with the system tar: macOS's bsdtar reads xz itself, GNU tar here needs xz-utils.
+      # .tar.xz with the system tar: macOS's bsdtar reads xz itself, GNU tar here needs xz-utils. CmuxNext's
+      # Linux shape links CCmuxAppFFI as libcmux_app_ffi.a, which the lane builds with scripts/ci/app_ffi_linux.py
+      # (rustup under the package's .build, so the cache below keeps it; clang compiles the crates' C).
       - name: Install python3, SQLite and zlib headers, xz
         if: env.REACHED == '1'
         run: apt-get update -qq && apt-get install -y -qq --no-install-recommends python3 libsqlite3-dev zlib1g-dev xz-utils

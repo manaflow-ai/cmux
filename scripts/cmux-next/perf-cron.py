@@ -4569,7 +4569,10 @@ def cmd_run_linux_part(o):
             for line in webui_wakeup_lines(stdout):
                 print(f"perf-cron web-ui: {line}")
             if isinstance(value, dict):
-                report = value
+                # The suite's report becomes the part's, keeping what ran before it: the web-ui-god part's paired
+                # rounds run first (cmux#57939), and a bare `report = value` dropped them, so the board kept the
+                # one-run ratio 4 more days (perf cron run 45853686955: 6 rounds, token 1.163, nothing stored).
+                report = {**value, **{k: v for k, v in report.items() if k == "paired"}}
                 failed = [f for f in value.get("failed") or [] if isinstance(f, dict)]
                 if failed:
                     report["incomplete"] = [f"{f.get('bench')}: {f.get('why')}" for f in failed]
@@ -5366,8 +5369,13 @@ def result_plan(o, state, t):
 # The controller's error for a step that never started: its source download (the checkout's fetch) failed every
 # try (build-fleet ci_step.go). On 2026-11-26 GitHub refused cmux20-bench's fetch with HTTP 403 and tip c2b1760e's
 # build part failed so; result_files called it a build failure, which ended all 25 Mac parts (tabs among them) as
-# build_failed though no build ran.
-NOT_STARTED_RE = re.compile(r"source download failed \d+ times?, before the job started")
+# build_failed though no build ran. The same day tip 60a23ed3's build failed in the controller's reviewed-script check
+# while the controller restarted ("ci-step reviewed check: no reviewed tip could be fetched for
+# scripts/measure/split-spring.sh ... git: unable to access '<controller>/v1/git/...'"): the check gates
+# the step's script before the step runs, so it too ran nothing of the commit, yet it ended motion, switch and tabs
+# as build_failed, and with c2b1760e's 403 before it last_tip_build_failed read "the base is likely broken". Every
+# refusal the controller makes before a step starts is a yield, whatever its words: the source fetch and the check.
+NOT_STARTED_RE = re.compile(r"source download failed \d+ times?, before the job started|^ci-step reviewed check: ")
 
 
 def result_files(value):
