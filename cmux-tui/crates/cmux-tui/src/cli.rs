@@ -143,6 +143,7 @@ mod key_broker;
 mod mac_screen_view;
 #[cfg(unix)]
 mod notification_banners;
+mod vault;
 pub(crate) use completion::refuse_in_help_reader;
 #[cfg(unix)]
 mod autocloud;
@@ -163,6 +164,7 @@ mod federation;
 mod fix_command;
 #[cfg(unix)]
 mod frontend_browser;
+mod hook_emit_deadline;
 #[cfg(unix)]
 mod host_mount;
 mod hosts;
@@ -296,6 +298,8 @@ mod machine_doctor;
 mod machine_join;
 #[cfg(unix)]
 mod machine_link;
+#[cfg(unix)]
+mod machine_list_reads;
 #[cfg(unix)]
 mod machine_request;
 #[cfg(unix)]
@@ -959,10 +963,22 @@ fn agent_card_if_requested(args: &[String]) -> Option<i32> {
 }
 
 pub fn run(args: &[String], startup_usage: &str) -> i32 {
-    let surface = Surface::current();
     if let Ok((_, command)) = parse_globals(args) {
         vm_words::activate_for(&command);
+        match command::hook_emit_budget(&command) {
+            Ok(Some(deadline)) => {
+                let (args, usage) = (args.to_vec(), startup_usage.to_owned());
+                return hook_emit_deadline::within(deadline, move || run_unbounded(&args, &usage));
+            }
+            Err(error) => return early_usage_error(args, &error.0),
+            Ok(None) => {}
+        }
     }
+    run_unbounded(args, startup_usage)
+}
+
+fn run_unbounded(args: &[String], startup_usage: &str) -> i32 {
+    let surface = Surface::current();
     // `cmux completion zsh|bash|fish` and the scripts' `cmux __complete -- WORDS`.
     if let Some(code) = completion::run_if_requested(args) {
         return code;
@@ -1171,6 +1187,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| vnc::run_if_requested(args))
         .or_else(|| cloud_environment::run_if_requested(args))
         .or_else(|| cloud_secret::run_if_requested(args))
+        .or_else(|| vault::run_if_requested(args))
         .or_else(|| env_command::run_if_requested(args))
         .or_else(|| cloud_connect::run_if_requested(args))
         .or_else(|| cloud_team_keys::run_if_requested(args))
@@ -1753,8 +1770,8 @@ fn scan_globals(
     Ok((global, command))
 }
 
-/// `machine add|vault`'s value-less switches (`machine_join::own_switch`) and the chat
-/// commands' (`chat_start::own_switch`); none on Windows, where those verbs do not exist.
+/// `machine add|revoke|rotate|vault`'s value-less switches (`machine_join::own_switch`) and
+/// the chat commands' (`chat_start::own_switch`); none on Windows, where those verbs do not exist.
 fn own_switch(command: &[String], flag: &str) -> bool {
     #[cfg(unix)]
     {
@@ -2161,7 +2178,7 @@ USAGE
   cmux agent <agent> focus
   cmux agent report --terminal <selector> --state working|blocked|idle|ended|unknown --source <value>
   cmux agent hook install|uninstall|status [provider...]
-  cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>]
+  cmux agent hook emit --source <agent> --event <native-event> [--terminal <id>] [--deadline-ms <n>]
   cmux agent plugin list
   cmux agent plugin install <git-url> [--name <value>] [--force]
   cmux agent plugin use|update|remove <name-or-id>
