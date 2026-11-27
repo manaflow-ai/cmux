@@ -440,6 +440,32 @@ fn a_namer_keeps_one_submission_per_workspace() {
 }
 
 #[test]
+fn a_large_workspace_list_keeps_only_its_live_attempts() {
+    use crate::namer::{Ledger, Slot, Submission};
+
+    let mut ledger = Ledger::default();
+    let mut listed = Vec::new();
+    let mut attempts = Vec::new();
+    for index in 0..2_000 {
+        for machine in ["local", "remote"] {
+            let slot = Slot { machine_id: machine.into(), workspace_id: index.to_string() };
+            let attempt = ledger.begin(&slot, Submission::default()).unwrap();
+            let keep = machine == "local";
+            if keep {
+                listed.push(slot.clone());
+            }
+            attempts.push((slot, attempt, keep));
+        }
+    }
+    listed.reverse();
+    listed.push(listed[0].clone());
+    ledger.list(&listed);
+    for (slot, attempt, keep) in attempts {
+        assert_eq!(ledger.may_send(&slot, attempt, true).send, keep);
+    }
+}
+
+#[test]
 fn unknown_and_malformed_ops_are_refused() {
     let mut naming = WorkspaceNaming::new();
     assert!(matches!(
