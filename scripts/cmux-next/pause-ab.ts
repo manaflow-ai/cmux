@@ -53,7 +53,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  Api, CHAT_START_SIZE, JOURNEY_STUB_SCRIPT, Journey, MODEL_STUB_PY, STACK, directExec, http,
+  Api, CHAT_START_SIZE, JOURNEY_STUB_SCRIPT, Journey, MODEL_STUB_PY, STACK, directExec, expiresAtMs, http,
   idleHeldBy, launchCredentialStartProgram, listAllMachines, oidcSignIn, passwordSignIn, readEnvFile, resolveBackend, sharedCleanup,
   type Exec,
 } from "./cloud-journey.ts";
@@ -366,6 +366,35 @@ export function pairTable(results: MachineResult[], arms: string[]): string {
     };
     return `| ${p} | ${ms[0]?.seed ?? "?"} | ${(ms[0]?.gaps_s ?? []).join(",")} | ${arms.map(cell).join(" | ")} |`;
   })].join("\n");
+}
+
+/** A session's end as ms since the epoch: an ISO time or epoch seconds/ms; a missing or "?" one reads as never. */
+export function sessionExpiresAt(v: string): number {
+  const n = Number(v);
+  if (v.trim() !== "" && Number.isFinite(n)) return expiresAtMs(n);
+  const t = Date.parse(v);
+  return Number.isFinite(t) ? t : Infinity;
+}
+
+/** A JWT's exp claim as ms since the epoch; a token that is no JWT reads as never. */
+export function jwtExpiresAt(token: string): number {
+  try {
+    return expiresAtMs(Number(JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")).exp));
+  } catch {
+    return Infinity;
+  }
+}
+
+/**
+ * Signs this job in with a fresh GitHub OIDC token each call. Run 45926298791 signed in once and held that session
+ * past its end (~70 min in): every call after it got auth.unauthenticated 401, so the run's 20 deletes failed and
+ * its machines leaked. Set as the Api's remint, every call signs in again with under a minute left.
+ */
+export function oidcMint(apiOrigin: string, env: Record<string, string | undefined>, secrets: string[], fetchJson: typeof http = http): () => Promise<{ token: string; expiresAt: number }> {
+  return async () => {
+    const s = await oidcSignIn(apiOrigin, env, secrets, fetchJson);
+    return { token: s.token, expiresAt: sessionExpiresAt(s.expiresAt) };
+  };
 }
 
 /**
@@ -774,13 +803,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     });
     api.bearer = await J.step("sign in (agent test account)", async () => {
       if (signIn === "oidc") {
-        const s = await oidcSignIn(backend.api, process.env, J.secrets);
+        const mint = oidcMint(backend.api, process.env, J.secrets);
+        const s = await mint();
+        api.expiresAt = s.expiresAt;
+        api.remint = mint;
         return { value: s.token, detail: "GitHub OIDC" };
       }
       if (!email || !password) throw new Error("no agent test account: set CMUX_DOGFOOD_STACK_EMAIL and CMUX_DOGFOOD_STACK_PASSWORD, or --credentials FILE");
-      const s = await passwordSignIn(STACK[backend.stack], email, password);
-      J.secrets.push(s.access, s.refresh);
-      return { value: s.access, detail: "password" };
+      const mint = async () => {
+        const s = await passwordSignIn(STACK[backend.stack], email, password);
+        J.secrets.push(s.access, s.refresh);
+        return { token: s.access, expiresAt: jwtExpiresAt(s.access) };
+      };
+      const s = await mint();
+      api.expiresAt = s.expiresAt;
+      api.remint = mint;
+      return { value: s.token, detail: "password" };
     });
     await J.step("user.ensure", async () => ({ value: await api.op("user.ensure", {}, `pab-${tag}-ensure`), detail: "ok" }));
     {

@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
+import { Api, JOURNEY_STUB_SCRIPT, MODEL_STUB_PY } from "./cloud-journey.ts";
 import {
   GUEST_CMUX,
   accountCensus,
@@ -31,6 +31,9 @@ import {
   missingCapability,
   reportLine,
   stalePauseAbMachines,
+  jwtExpiresAt,
+  oidcMint,
+  sessionExpiresAt,
   type MachineResult,
   laterCapabilities,
 } from "./pause-ab.ts";
@@ -383,5 +386,38 @@ describe("laterCapabilities (run 45898762249 attempt 2: turn 1 read a just-resta
     expect(laterCapabilities(old, { capabilities: null, version: null }, 5)).toEqual({});
     expect(laterCapabilities({ arm: "aggressive", capabilities: null, daemon_version: null }, full, 2)).toEqual({});
     expect(laterCapabilities({ arm: "turn_end", capabilities: full.capabilities, daemon_version: "x" }, full, 3)).toEqual({});
+  });
+});
+
+describe("sign-in refresh", () => {
+  test("sessionExpiresAt reads ISO, epoch seconds and a missing end", () => {
+    expect(sessionExpiresAt("2026-11-27T05:00:00.000Z")).toBe(Date.parse("2026-11-27T05:00:00.000Z"));
+    expect(sessionExpiresAt("1795000000")).toBe(1795000000_000);
+    expect(sessionExpiresAt("?")).toBe(Infinity);
+    expect(sessionExpiresAt("")).toBe(Infinity);
+  });
+  test("jwtExpiresAt reads exp, and never for a token that is no JWT", () => {
+    const body = Buffer.from(JSON.stringify({ exp: 1795000000 })).toString("base64url");
+    expect(jwtExpiresAt(`h.${body}.s`)).toBe(1795000000_000);
+    expect(jwtExpiresAt("opaque")).toBe(Infinity);
+  });
+  test("an Api with oidcMint signs in again when its session is about to end", async () => {
+    let n = 0;
+    const fetchJson = (async (_m: string, url: string) => {
+      if (url.includes("audience=")) return { status: 200, body: { value: `gh-${n}` } };
+      n += 1;
+      const end = new Date(Date.now() + (n === 1 ? 30_000 : 3_600_000)).toISOString();
+      return { status: 200, body: { access_token: `tok-${n}`, user: "u", session_expires_at: end } };
+    }) as any;
+    const mint = oidcMint("https://api.example", { ACTIONS_ID_TOKEN_REQUEST_URL: "https://gh.example/t", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "b" }, [], fetchJson);
+    const api = new Api("https://api.example");
+    const first = await mint();
+    api.bearer = first.token;
+    api.expiresAt = first.expiresAt;
+    api.remint = mint;
+    await api.fresh();
+    expect(api.bearer).toBe("tok-2");
+    await api.fresh();
+    expect(api.bearer).toBe("tok-2");
   });
 });
