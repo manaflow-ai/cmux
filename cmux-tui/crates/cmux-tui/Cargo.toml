@@ -97,6 +97,8 @@ pulldown-cmark = { version = "0.13", default-features = false }
 cmux-tui-core.workspace = true
 cmux-palette-ranker.workspace = true
 cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
+# The held remote tree (session/remote/held_tree.rs).
+cmux-tag-cache.workspace = true
 # The tab a pane shows after a close (close_focus::tab), the app's and the daemon's rule.
 cmux-focus-core.workspace = true
 # The daemon client every SDK user shares (cli/chief/link.rs talks through it).
@@ -201,6 +203,8 @@ cmux-device-kind = { path = "../cmux-device-kind" }
 cmux-computer-use = { workspace = true, features = ["desktop", "server"] }
 
 [target.'cfg(unix)'.dependencies]
+# `cmux sign-clones sweep [--dry-run]`: the app's leftover Chromium clones (cli/sign_clones.rs).
+cmux-sign-clone-sweep = { path = "../cmux-sign-clone-sweep" }
 # The UI-loop watchdog's stack sample of the loop thread (ui_watchdog/sampler.rs); the lockfile
 # already has it through other crates.
 backtrace = "0.3"
@@ -243,6 +247,7 @@ plist = "1.10"
 # it, so an edit does not recompile cmux-remote (cmux-build-identity docs).
 cmux-build-identity.workspace = true
 cmux-host-budget.workspace = true
+cmux-proxy.workspace = true
 cmux-remote.workspace = true
 cmux-braid-path.workspace = true
 cmux-remote-protocol.workspace = true

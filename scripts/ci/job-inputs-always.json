@@ -438,6 +438,14 @@
       "tooling-tests-fail-fast": {
         "why": "head fail-fast: runs only once the job it needs has failed on a same-repo pull request (scripts/ci/head_fail_fast.py); it reads no paths, so it has no inputs to declare",
         "suggested_inputs": []
+      },
+      "workflow-start-lint": {
+        "why": "runs on every pull request on purpose: a feat pull request without full-ci skips fast-check-route, and a broken workflow must be caught there; a change that touches no workflow and not the lint ends at its own first step after a sparse depth-2 checkout",
+        "suggested_inputs": [
+          ".github/",
+          "scripts/ci/install-actionlint.sh",
+          "scripts/ci/workflow_start_lint.py"
+        ]
       }
     },
     ".github/workflows/cmux-next-pr-autofix-closed-cancel.yml": {
@@ -782,6 +790,17 @@
           "scripts/ci/",
           "scripts/ci/affected-jobs.json",
           "scripts/ci/affected_jobs_replay.py"
+        ]
+      },
+      "remote-web-wasm": {
+        "why": "builds the cmux-remote-web crate for wasm32-unknown-unknown on Linux",
+        "suggested_inputs": [
+          ".github/workflows/cmux-tui-spec.yml",
+          ".github/actions/setup-cmux-tui-rust/",
+          "cmux-tui/Cargo.lock",
+          "cmux-tui/Cargo.toml",
+          "cmux-tui/crates/cmux-remote-web/",
+          "scripts/ci/apt-ensure.sh"
         ]
       }
     },
