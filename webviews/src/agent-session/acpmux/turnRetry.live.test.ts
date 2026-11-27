@@ -8,7 +8,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { TURN_RETRY, type AcpmuxRow } from "./model";
 import { THINKING, withRetry } from "./conversation/turns";
-import { retryParts } from "./conversation/thinkingModel";
+import { retryParts, formatCountdown } from "./conversation/thinkingModel";
 import { readTurnRetry } from "./direct";
 import { settleReact } from "../../../test/support/domTeardown";
 
@@ -158,4 +158,29 @@ test("a turn_retrying record keeps only counts and words it can show", () => {
   });
   expect(readTurnRetry({ attempt: 0, maxRetries: "10", error: "" })).toEqual({});
   expect(readTurnRetry({ attempt: 12, maxRetries: 10 })).toEqual({ attempt: 12 });
+});
+
+test("a classified outage names the host and counts down to acpmux's deadline", () => {
+  const t = (key: string, vars?: Record<string, unknown>) => `${key}${vars ? JSON.stringify(vars) : ""}`;
+  const retry = readTurnRetry({
+    attempt: 3,
+    maxRetries: 10,
+    cause: "dns",
+    host: "api.anthropic.com",
+    retryAt: 100_000,
+  });
+  expect(retry.cause).toBe("dns");
+  const parts = retryParts(t as Parameters<typeof retryParts>[0], retry, 55_000);
+  expect(parts.label).toContain("outage.dns");
+  expect(parts.label).toContain("api.anthropic.com");
+  expect(parts.countdown).toContain("45s");
+  expect(retryParts(t as Parameters<typeof retryParts>[0], retry, 100_001).countdown).toContain("retryingNow");
+});
+
+test("a retry with no classification or deadline shows neither", () => {
+  const t = (key: string) => key;
+  const parts = retryParts(t as Parameters<typeof retryParts>[0], { attempt: 1, maxRetries: 10, errorStatus: 503 }, 5);
+  expect(parts.label).toContain("retry.unreachable");
+  expect(parts.countdown).toBeUndefined();
+  expect(formatCountdown(75)).toBe("1m 15s");
 });

@@ -44,7 +44,7 @@ pub const IR_VERSION: &str = "1";
 /// Additive changes are announced by `features` and `capabilities` instead. A peer that sends no
 /// `abi` is read as 0 ([`peer_abi`]): an older build that degrades, never an error.
 /// `protocol::tests::abi_is_the_compat_files_newest_revision` keeps the two equal.
-pub const ABI: u32 = 2;
+pub const ABI: u32 = 3;
 
 /// The ABI a peer's initialize reply or hello names in `_meta.acpmux.abi`; 0 when it names none
 /// (a build from before the field), so callers degrade instead of failing.
