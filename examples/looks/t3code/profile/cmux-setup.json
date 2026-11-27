@@ -87,6 +87,6 @@
     "agentPane.display.thinking.shimmerPeriod": 2200,
     "agentPane.display.thinking.shimmerBand": 72
     // Popovers, menus and tooltips (150 ms, cubic-bezier(0.4, 0, 0.2, 1)) and folds (200 ms) are timed
-    // by agent-pane/theme.css's motion tokens. Pending: a 0.97 press scale and 180 ms step rows.
+    // by agent-pane/theme.css's motion tokens. Not set: the 0.97 press scale (a chip press draws nothing in cmux).
   }
 }
