@@ -24,7 +24,7 @@
 # delta. With an empty OVERLAY it only touches STAMP (cold workspace build, as before).
 #
 # pack (after "Stage binary" and the uploads, before the dependency strip): OUT gets hard links of every
-# file under TARGET written after STAMP plus every file apply copied (a crate Cargo found fresh is not
+# file under TARGET written after STAMP (or, under incremental/, linked after it) plus every file apply copied (a crate Cargo found fresh is not
 # rewritten, and the next leg needs it too), the source mtimes of this checkout and the commit. OUT is
 # then saved to R2 under a per-commit key; its archive is the delta against the dependency entry, never
 # a delta of a delta.
@@ -97,7 +97,11 @@ pack() {
   mkdir -p "$out"
   local files="$out.files"
   {
-    (cd "$target" && find . \( -type f -o -type l \) -newer "$stamp" -printf '%P\n')
+    # rustc's incremental cache hard-links every codegen unit it reuses into a new session directory
+    # (target/<triple>/release/incremental/<crate>/s-*), keeping the old mtime: -cnewer (the link
+    # changed its ctime) keeps them, or the next leg would find the session missing them and
+    # recompile those units. acpmux 2026-11-27: 16 of the session's 20 files were linked, 4 written.
+    (cd "$target" && find . \( -type f -o -type l \) \( -newer "$stamp" -o \( -path '*/incremental/*' -cnewer "$stamp" \) \) -printf '%P\n')
     [[ ! -f "$list" ]] || while IFS= read -r path; do
       [[ -n "$path" && ( -f "$target/$path" || -L "$target/$path" ) ]] && printf '%s\n' "$path"
     done < "$list"
