@@ -310,8 +310,10 @@ pub fn respond(operation: &str, request: &[u8]) -> Result<Value, JsonError> {
             if raw.len() != w * h * 4 {
                 return Err(JsonError::Invalid("pixels: not width*height*4 bytes".into()));
             }
-            let pixels: Vec<u32> =
-                raw.chunks_exact(4).map(|p| u32::from_le_bytes([p[0], p[1], p[2], p[3]])).collect();
+            let pixels: Vec<u32> = raw
+                .chunks_exact(4)
+                .map(|p| u32::from_le_bytes(p.try_into().unwrap_or([0; 4])))
+                .collect();
             let zrle = demo::uses_zrle(&r.connection);
             let encoding = if zrle { demo::ENCODING_ZRLE } else { demo::ENCODING_RAW };
             let payload = if zrle { demo::zrle_tiles(&pixels, w, h) } else { demo::raw(&pixels) };

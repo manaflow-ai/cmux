@@ -24,15 +24,15 @@ pub struct Address {
 pub fn parse_address(raw: &str) -> Option<Address> {
     let mut text = raw.trim();
     if text.get(..6).is_some_and(|scheme| scheme.eq_ignore_ascii_case("vnc://")) {
-        text = &text[6..];
+        text = text.get(6..).unwrap_or_default();
     }
     if let Some(cut) = text.find(['/', '?']) {
-        text = &text[..cut];
+        text = text.get(..cut).unwrap_or_default();
     }
     let (mut username, mut password) = (None, None);
     if let Some(at) = text.rfind('@') {
-        let info = &text[..at];
-        text = &text[at + 1..];
+        let info = text.get(..at).unwrap_or_default();
+        text = text.get(at + 1..).unwrap_or_default();
         match info.split_once(':') {
             Some((user, pass)) => {
                 username = percent_decode(user);

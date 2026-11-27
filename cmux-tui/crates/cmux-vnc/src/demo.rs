@@ -82,12 +82,12 @@ pub struct Step {
     pub failure: Option<String>,
 }
 
-fn u16_at(bytes: &[u8], offset: usize) -> u16 {
-    u16::from_be_bytes([bytes[offset], bytes[offset + 1]])
+fn u16_at(bytes: &[u8], offset: usize) -> Option<u16> {
+    Some(u16::from_be_bytes(bytes.get(offset..offset + 2)?.try_into().ok()?))
 }
 
-fn u32_at(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_be_bytes([bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]])
+fn u32_at(bytes: &[u8], offset: usize) -> Option<u32> {
+    Some(u32::from_be_bytes(bytes.get(offset..offset + 4)?.try_into().ok()?))
 }
 
 /// The server's pixel format: 32-bit little-endian BGRX, as the scene draws.
@@ -116,7 +116,7 @@ pub fn receive(
 ) -> Step {
     let mut step = Step::default();
     loop {
-        let rest = &input[step.consumed..];
+        let rest = input.get(step.consumed..).unwrap_or_default();
         let take = |count: usize, step: &mut Step| -> Option<usize> {
             (rest.len() >= count).then(|| {
                 step.consumed += count;
@@ -136,7 +136,10 @@ pub fn receive(
                 if take(1, &mut step).is_none() {
                     return step;
                 }
-                match (rest[0], config.password.is_some()) {
+                let Some(&security_type) = rest.first() else {
+                    return step;
+                };
+                match (security_type, config.password.is_some()) {
                     (2, true) => {
                         connection.challenge = challenge.to_vec();
                         step.reply.extend(challenge);
@@ -158,7 +161,7 @@ pub fn receive(
                 }
                 let sent: [u8; 16] = connection.challenge.as_slice().try_into().unwrap_or([0; 16]);
                 let password = config.password.as_deref().unwrap_or("");
-                if rest[..16] != des::vnc_response(password.as_bytes(), sent) {
+                if rest.get(..16) != Some(des::vnc_response(password.as_bytes(), sent).as_slice()) {
                     step.failure = Some("Authentication failed".into());
                     return step;
                 }
@@ -192,18 +195,22 @@ pub fn receive(
                         if rest.len() < 4 {
                             return step;
                         }
-                        let count = u16_at(rest, 2) as usize;
+                        let Some(count) = u16_at(rest, 2).map(usize::from) else {
+                            return step;
+                        };
                         if take(4 + count * 4, &mut step).is_none() {
                             return step;
                         }
-                        connection.encodings =
-                            (0..count).map(|i| u32_at(rest, 4 + i * 4) as i32).collect();
+                        connection.encodings = (0..count)
+                            .map(|i| u32_at(rest, 4 + i * 4).map(|encoding| encoding as i32))
+                            .collect::<Option<Vec<_>>>()
+                            .unwrap_or_default();
                     }
                     3 => {
                         if take(10, &mut step).is_none() {
                             return step;
                         }
-                        if rest[1] == 0 {
+                        if rest.get(1) == Some(&0) {
                             step.events.push(Event::FullUpdate);
                         }
                         connection.requested = true;
@@ -213,8 +220,10 @@ pub fn receive(
                         if take(8, &mut step).is_none() {
                             return step;
                         }
-                        let keysym = u32_at(rest, 4);
-                        let down = rest[1] != 0;
+                        let Some(keysym) = u32_at(rest, 4) else {
+                            return step;
+                        };
+                        let down = rest.get(1) != Some(&0);
                         if keysym == 0xFFE1 || keysym == 0xFFE2 {
                             connection.shift = down;
                         }
@@ -224,19 +233,27 @@ pub fn receive(
                         if take(6, &mut step).is_none() {
                             return step;
                         }
-                        connection.buttons = rest[1];
-                        step.events.push(Event::Pointer {
-                            x: u16_at(rest, 2),
-                            y: u16_at(rest, 4),
-                            left_down: rest[1] & 1 != 0,
-                        });
+                        let Some(&buttons) = rest.get(1) else {
+                            return step;
+                        };
+                        let Some(x) = u16_at(rest, 2) else {
+                            return step;
+                        };
+                        let Some(y) = u16_at(rest, 4) else {
+                            return step;
+                        };
+                        connection.buttons = buttons;
+                        step.events.push(Event::Pointer { x, y, left_down: buttons & 1 != 0 });
                     }
                     // ClientCutText: skipped.
                     6 => {
                         if rest.len() < 8 {
                             return step;
                         }
-                        if take(8 + u32_at(rest, 4) as usize, &mut step).is_none() {
+                        let Some(length) = u32_at(rest, 4) else {
+                            return step;
+                        };
+                        if take(8 + length as usize, &mut step).is_none() {
                             return step;
                         }
                     }
@@ -306,9 +323,12 @@ fn cpixel(pixel: u32, out: &mut Vec<u8>) {
 }
 
 fn tile(tile: &[u32], out: &mut Vec<u8>) {
-    if tile.iter().all(|p| *p == tile[0]) {
+    let Some(&first) = tile.first() else {
+        return;
+    };
+    if tile.iter().all(|p| *p == first) {
         out.push(1);
-        cpixel(tile[0], out);
+        cpixel(first, out);
         return;
     }
     let mut runs: Vec<(u32, usize)> = Vec::new();
@@ -341,7 +361,11 @@ fn tile(tile: &[u32], out: &mut Vec<u8>) {
 /// A `width`×`height` rectangle of `pixels` (BGRX values, row after row) as
 /// ZRLE tiles before compression: solid tiles, plain RLE when it is smaller,
 /// raw otherwise (three of the client's tile decoders).
+/// Returns no tiles for an empty, overflowing, or incomplete rectangle.
 pub fn zrle_tiles(pixels: &[u32], width: usize, height: usize) -> Vec<u8> {
+    if width == 0 || height == 0 || width.checked_mul(height).is_none_or(|len| len > pixels.len()) {
+        return Vec::new();
+    }
     let mut out = Vec::new();
     let mut scratch = Vec::with_capacity(64 * 64);
     for tile_y in (0..height).step_by(64) {
@@ -350,7 +374,11 @@ pub fn zrle_tiles(pixels: &[u32], width: usize, height: usize) -> Vec<u8> {
             let w = 64.min(width - tile_x);
             scratch.clear();
             for row in tile_y..tile_y + h {
-                scratch.extend_from_slice(&pixels[row * width + tile_x..row * width + tile_x + w]);
+                let start = row * width + tile_x;
+                let Some(row_pixels) = pixels.get(start..start + w) else {
+                    return Vec::new();
+                };
+                scratch.extend_from_slice(row_pixels);
             }
             tile(&scratch, &mut out);
         }
@@ -371,8 +399,10 @@ pub fn cursor_rectangle() -> Vec<u8> {
             let edge = col == 0 || col == row || row == H - 5 && col > 6;
             let colour = if inside && !edge { 255 } else { 0 };
             colours.extend([colour, colour, colour, 0]);
-            if inside || edge {
-                mask_row[col / 8] |= 0x80 >> (col % 8);
+            if (inside || edge)
+                && let Some(byte) = mask_row.get_mut(col / 8)
+            {
+                *byte |= 0x80 >> (col % 8);
             }
         }
         mask.extend(mask_row);
