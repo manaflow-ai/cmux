@@ -5496,7 +5496,9 @@
     "errorInvalidTotp": "Bu iki adımlı doğrulama kodu geçersiz.",
     "errorSignUpNotAllowed": "Şu anda yeni hesap oluşturulamıyor.",
     "errorPasskey": "Geçiş anahtarıyla giriş tamamlanmadı. Tekrar dene veya başka bir yöntem kullan.",
-    "errorGeneric": "Bir sorun oluştu. Tekrar dene."
+    "errorGeneric": "Bir sorun oluştu. Tekrar dene.",
+    "errorRedirectNotAllowed": "Bu derlemenin giriş adresine {backend} üzerinde izin verilmiyor.",
+    "backendDevelopment": "geliştirme arka ucu"
   },
   "MobileRelease106": {
     "title": "1.0.6 sürümündeki yenilikler",

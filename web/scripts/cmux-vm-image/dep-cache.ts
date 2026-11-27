@@ -12,7 +12,7 @@
  * at bake time, so the cache is as fresh as the agents layer; an older version only costs a download.
  * clean.py keeps exactly ~/.npm/_cacache (the content and index) and drops npm's logs.
  */
-import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/images/workUser";
+import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "../../services/vms/workUser";
 import { sq } from "./lock";
 import prefillDeps from "./prefill-deps.json";
 
@@ -35,6 +35,21 @@ export const PREFILL_NODE_DEPS: readonly string[] = prefillNodeDeps();
 
 /** The cache directory npm uses for the work user, the one directory clean.py keeps. */
 export const NPM_CACHE_DIR = `${DEVBOX_WORK_HOME}/.npm/_cacache`;
+
+/** Login profile shipped only on images baked with --labs-npm-host-cache. */
+export const NPM_HOST_CACHE_PROFILE = "/etc/profile.d/cmux-npm-host-cache.sh";
+
+export function npmHostCacheProfileCheck(enabled: boolean): string {
+  if (!enabled) return `test ! -e ${NPM_HOST_CACHE_PROFILE} && echo "host cache profile absent"`;
+  return [
+    `test -s ${NPM_HOST_CACHE_PROFILE}`,
+    `test "$(stat -c '%U:%G %a' ${NPM_HOST_CACHE_PROFILE})" = 'root:root 644'`,
+    `sh -n ${NPM_HOST_CACHE_PROFILE}`,
+    // A smoke clone has no host cache mounted, so npm must still use the baked cache.
+    `runuser -u ${DEVBOX_WORK_USER} -- bash -lc ${sq(`test "$(npm config get cache)" = ${DEVBOX_WORK_HOME}/.npm`)}`,
+    'echo "host cache profile installed and unmounted clone uses baked cache"',
+  ].join(" && ");
+}
 
 /** The most the baked npm cache may take on disk. */
 export const NPM_CACHE_CAP_MB = 300;
