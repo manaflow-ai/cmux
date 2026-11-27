@@ -109,6 +109,17 @@ pub(super) async fn handle(
     if conn.origin != Origin::Local {
         return Err(crate::hub::outbox::local_only());
     }
+    queue(hub, conn, params, false).await
+}
+
+/// A send's queueing, after its caller was checked: a local `send_queue`, or a peer's one-hop
+/// relay (`hop_in`, `send_hop.rs`), which never hops again.
+pub(super) async fn queue(
+    hub: &Arc<Hub>,
+    conn: &Arc<Conn>,
+    params: &Value,
+    hop_in: bool,
+) -> Result<Value, RpcError> {
     let mut request =
         params.get("request").filter(|r| r.is_object()).cloned().ok_or_else(|| {
             RpcError::invalid_params("request (the session/prompt params) is required")
@@ -160,6 +171,16 @@ pub(super) async fn handle(
         // refusal (`Hub::mesh_may_route`).
         // A hub that fails in a way that passes (a 503 from overload, no answer) never fails the
         // send: it is kept here and the outbox posts it again (RFD 0049 R1).
+        // HOST/NAME on a host this daemon does not peer: one hop through a peer that does and
+        // takes hops (`send_hop.rs`); the refusal names the route it tried.
+        let mut hop_tried: Vec<Value> = vec![];
+        if !hop_in {
+            match super::send_hop::try_hop(hub, conn, &request, &target).await {
+                super::send_hop::Hop::Sent(answer) => return Ok(answer),
+                super::send_hop::Hop::Failed(e) => return Err(e),
+                super::send_hop::Hop::NoRoute(tried) => hop_tried = tried,
+            }
+        }
         if let Some(mesh) = hub.mesh.get()
             && hub.mesh_may_route(&target)
         {
@@ -170,7 +191,8 @@ pub(super) async fn handle(
         } else {
             // The machine is reachable and has no such session: refused now, never queued,
             // with the closest names there so the sender can pick one (`hub/no_session.rs`).
-            let (text, data) = hub.no_session_text(&target);
+            let (mut text, mut data) = hub.no_session_text(&target);
+            super::send_hop::note_route(&mut text, &mut data, &hop_tried);
             return Err(
                 RpcError::invalid_params(format!("no session: {target} ({text})")).with_data(data)
             );
@@ -1240,7 +1262,7 @@ fn gate_wait(reopens_at: tokio::time::Instant, jitter: f64) -> Duration {
 /// Whether `delivery`, a message (not a projection intent, which keeps its own schedule), is
 /// past [`RETRY_FOR_MS`] since it was handed over and still not delivered.
 fn expired(delivery: &Delivery, now: u64) -> bool {
-    !delivery.projection_only() && now >= delivery.created_at.saturating_add(RETRY_FOR_MS)
+    delivery.past_retry_window(now)
 }
 
 /// The wait before the next attempt of `delivery`: the next of [`RETRY_DELAYS_SECS`], then

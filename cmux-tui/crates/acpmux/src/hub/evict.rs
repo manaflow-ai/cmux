@@ -255,7 +255,11 @@ impl Tier {
             return (0, 0, 0);
         }
         v.sort_unstable();
-        let at = |q: f64| v[(((v.len() - 1) as f64) * q).round() as usize];
+        let last = v.len().saturating_sub(1);
+        let at = |q: f64| {
+            let rank = ((last as f64) * q).round() as usize;
+            v.get(rank.min(last)).copied().unwrap_or(0)
+        };
         (v.len(), at(0.5), at(0.99))
     }
 

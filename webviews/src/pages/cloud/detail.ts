@@ -20,6 +20,7 @@ import {
   type BrowserTabOpenArgs,
   type CloudSnapshot,
   type PortForward,
+  type PortForwardScheme,
   type PortListResult,
   type SnapshotListResult,
 } from "./ops";
@@ -170,10 +171,10 @@ export class DetailReader {
     return this.native(CloudOps.snapshotDelete, { snapshot }, "snapshots");
   }
 
-  /** Forwards a port of the machine to 127.0.0.1 on this Mac; the answer names the local port. */
-  forwardPort(machine: string, port: number): Promise<boolean> {
+  /** Forwards a port of the machine to 127.0.0.1 on this Mac; the answer includes its URL. */
+  forwardPort(machine: string, port: number, scheme: PortForwardScheme = "http"): Promise<boolean> {
     return this.portAction(machine, port, "forward", async () => {
-      const forward = await this.change<PortForward>(CloudOps.portForward, { machine, port });
+      const forward = await this.change<PortForward>(CloudOps.portForward, { machine, port, scheme });
       const latest = this.host.get();
       if (!forward?.localPort || latest?.machine !== machine) return false;
       this.portChanges.set(forward.port, { revision: ++this.portRevision, forward });

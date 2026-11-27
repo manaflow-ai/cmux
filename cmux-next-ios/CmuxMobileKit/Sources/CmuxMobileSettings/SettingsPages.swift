@@ -36,6 +36,8 @@ struct AccountPage: View {
     @State private var checkingDeletion = false
     @State private var deleting = false
     @State private var deletionError: String?
+    /// A failed sign-in methods read is read again on its own (no Retry).
+    @State private var methodsRetry = AutoRetry()
     /// The sign-in glyph grows with Dynamic Type like the other row icons.
     @ScaledMetric(relativeTo: .body) private var signInGlyph: CGFloat = 18
 
@@ -70,7 +72,7 @@ struct AccountPage: View {
                         Text("Loading").foregroundStyle(theme.colors.label2)
                     }
                 case .failed(let message):
-                    SettingsLoadError(message: message) { Task { await loadMethods() } }
+                    SettingsLoadError(message: message, autoRetry: methodsRetry, loading: "Loading")
                 case .loaded(let list) where list.isEmpty:
                     Text("No sign-in methods are linked.").foregroundStyle(theme.colors.label2).cmuxMobileTextColumn()
                 case .loaded(let list):
@@ -115,6 +117,7 @@ struct AccountPage: View {
         }
         .settingsPage("Account")
         .task(id: auth.user?.id) { await loadMethods() }
+        .autoRetry(methodsRetry, failing: methods.failed) { await loadMethods(retrying: true) }
         .task(id: checkingDeletion) { if checkingDeletion { await askBeforeDeleting() } }
         // An alert, not a confirmation dialog: on iOS 26 a confirmation
         // dialog opens as a popover with no Cancel button, closed only by a
@@ -175,16 +178,18 @@ struct AccountPage: View {
         } catch let error as CmuxMobileAuthModel.AccountDeletionError {
             deletionError = error.message
         } catch {
+            // retry-prompt-ok: deleting the account is permanent; asking again is the person's choice
             deletionError = "Your account couldn't be deleted. Try again."
         }
     }
 
-    private func loadMethods() async {
+    private func loadMethods(retrying: Bool = false) async {
         // The page reloads each time it is shown again (a tab switch back to Settings): it keeps
         // the rows it has instead of swapping them for "Loading" and back, as the Team page does.
-        // Only a first load or another account shows "Loading".
+        // Only a first load or another account shows "Loading". A retry keeps the failure until
+        // it answers, so the row does not blink.
         let userID = auth.user?.id
-        if case .loaded = methods, methodsUserID == userID {} else { methods = .loading }
+        if case .loaded = methods, methodsUserID == userID {} else if !(retrying && methodsUserID == userID) { methods = .loading }
         methodsUserID = userID
         do {
             methods = .loaded(try await auth.signInMethods())
@@ -200,21 +205,36 @@ enum SettingsLoad<Value: Sendable>: Sendable {
     case loading
     case loaded(Value)
     case failed(String)
+
+    /// The load failed (its page retries on its own).
+    var failed: Bool {
+        if case .failed = self { return true }
+        return false
+    }
 }
 
-/// A failed load with a Retry button.
+/// A failed load, read again on its own (`autoRetry`, no Retry button): the loading row stays
+/// through a short failure; past the quiet bound the row says why, with the quiet line.
 struct SettingsLoadError: View {
     let message: String
-    let retry: () -> Void
+    let autoRetry: AutoRetry
+    let loading: LocalizedStringKey
 
     var body: some View {
-        CmuxMobileGutterRow {
-            SettingsIcon("exclamationmark.triangle").foregroundStyle(theme.colors.label2)
-        } content: {
-            HStack {
-                Text(message).font(theme.type.meta).foregroundStyle(theme.colors.label2)
-                Spacer(minLength: 8)
-                Button("Retry", action: retry).font(theme.type.rowTitle)
+        if autoRetry.isQuietLineShown {
+            CmuxMobileGutterRow {
+                SettingsIcon("exclamationmark.triangle").foregroundStyle(theme.colors.label2)
+            } content: {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(message).font(theme.type.meta).foregroundStyle(theme.colors.label2)
+                    AutoRetryQuietLine(autoRetry)
+                }
+            }
+        } else {
+            CmuxMobileGutterRow {
+                CmuxSpinner()
+            } content: {
+                Text(loading).foregroundStyle(theme.colors.label2)
             }
         }
     }
@@ -228,6 +248,8 @@ struct TeamPage: View {
     private let cache: LastKnownList?
     @State private var members: SettingsLoad<[TeamMember]>
     @State private var memberRequest = 0
+    /// A failed members read is read again on its own (no Retry).
+    @State private var membersRetry = AutoRetry()
 
     init(team: Team, auth: CmuxMobileAuthModel, cache: LastKnownList?, edit: @escaping () -> Void, invite: @escaping () -> Void) {
         self.team = team
@@ -268,7 +290,7 @@ struct TeamPage: View {
                         Text("Loading members").foregroundStyle(theme.colors.label2)
                     }
                 case .failed(let message):
-                    SettingsLoadError(message: message) { Task { await loadMembers() } }
+                    SettingsLoadError(message: message, autoRetry: membersRetry, loading: "Loading members")
                 case .loaded(let list):
                     ForEach(list) { member in
                         CmuxMobileGutterRow {
@@ -300,12 +322,14 @@ struct TeamPage: View {
         .settingsPage(LocalizedStringKey(team.name))
         .task(id: team.id) { await loadMembers() }
         .refreshable { await loadMembers() }
+        .autoRetry(membersRetry, failing: members.failed) { await loadMembers(retrying: true) }
     }
 
-    private func loadMembers() async {
+    private func loadMembers(retrying: Bool = false) async {
         memberRequest += 1
         let request = memberRequest
-        if case .loaded = members {} else { members = .loading }
+        // A retry keeps the failure until it answers, so the row does not blink.
+        if case .loaded = members {} else if !retrying { members = .loading }
         let userID = auth.user?.id
         do {
             let list = try await auth.teamMembers(teamID: team.id)
@@ -432,6 +456,8 @@ struct TerminalPage: View {
 struct ComposerPage: View {
     let settings: SettingsStore
     let voice: VoiceCallPreferences
+    /// `ComposerFooterFactsMode` (CmuxMobileAgentChat), stored by its raw value.
+    @AppStorage(CmuxMobilePreferences.Key.composerFooterFacts) private var footerFacts = "off"
 
     var body: some View {
         @Bindable var settings = settings
@@ -444,6 +470,16 @@ struct ComposerPage: View {
                 Toggle(isOn: $settings.swipeDownCollapsesComposer) {
                     SettingsLabel("Swipe down to collapse", symbol: "chevron.compact.down")
                 }
+                // RFD 0130: the session's facts in the composer, off by default ("default MAY need a call").
+                Picker(selection: $footerFacts) {
+                    Text("Off").tag("off")
+                    Text("Counters").tag("pulse")
+                    Text("Card Only").tag("door")
+                } label: {
+                    SettingsLabel("Session Facts", symbol: "info.circle")
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("settings.composer.sessionFacts")
                 Picker(selection: $settings.followUp) {
                     ForEach(FollowUpBehavior.allCases) { Text($0.title).tag($0) }
                 } label: {
@@ -618,6 +654,7 @@ struct TransportPage: View {
     @AppStorage(DeveloperOptions.proxyOnlyKey) private var proxyOnly = false
     @AppStorage(DeveloperOptions.dropWireGuardKey) private var dropWireGuard = false
     @AppStorage(DeveloperOptions.browserVideoOnChannelKey) private var browserVideoOnChannel = false
+    @AppStorage(DeveloperOptions.paintLatencyOverlayKey) private var paintLatencyOverlay = false
     #endif
 
     var body: some View {
@@ -740,6 +777,10 @@ struct TransportPage: View {
                     Text("Browser video on channel")
                 }
                 .accessibilityIdentifier("settings.transport.browserVideoOnChannel")
+                Toggle(isOn: $paintLatencyOverlay) {
+                    Text("Paint latency overlay")
+                }
+                .accessibilityIdentifier("settings.transport.paintLatencyOverlay")
             } header: {
                 Text("Developer")
             }

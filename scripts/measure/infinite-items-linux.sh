@@ -174,7 +174,9 @@ elif [[ "$before" == ref:* ]]; then
         exit 2
       }
     else
-      git fetch -q ${depth[@]+"${depth[@]}"} origin "$ref"
+      # A fleet step's source has no origin: the helper falls back to the public repository.
+      source "$root/scripts/measure/fetch-commit.sh"
+      measure_fetch_commit "$root" "$ref" || exit 2
     fi
   fi
   base_sha="$(git rev-parse --verify -q "$ref^{commit}" || git rev-parse FETCH_HEAD)"
