@@ -65,4 +65,15 @@ extension Palette {
         return CmuxDialogButtonLook.readable(ink.rgb(tokens).withAlpha(1), over: CmuxDialogButtonLook.cardSurfaces(tokens),
                                              minimum: ink.minimumContrast).nsColor
     }
+
+    /// A floating prompt's text (``SurfaceRole/prompt``): `ink` fitted to read on the prompt over any app
+    /// (``CmuxDialogButtonLook/promptCardSurfaces(_:lift:)``), as its buttons are. theme-scoped
+    /// - Parameter ink: the theme text colour the label draws.
+    /// - Returns: the colour to draw.
+    public static func promptText(_ ink: ThemeInk) -> NSColor {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        return CmuxDialogButtonLook.readable(ink.rgb(tokens).withAlpha(1),
+                                             over: CmuxDialogButtonLook.promptCardSurfaces(tokens, lift: ChromeTunables.opaqueOverlayLift.value),
+                                             minimum: ink.minimumContrast).nsColor
+    }
 }

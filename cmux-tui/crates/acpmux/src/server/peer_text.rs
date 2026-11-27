@@ -53,6 +53,13 @@ pub fn masked(msg: &Message) -> Option<Message> {
     }
 }
 
+/// A session row (a summary) as a peer reads it; None when nothing in it changed. What
+/// `session_patch.rs` diffs for a peer, so a patch carries only masked text.
+pub fn masked_row(row: &Value) -> Option<Value> {
+    let mut row = row.clone();
+    mask_text(&mut row).then_some(row)
+}
+
 /// How much of one field a peer reads: a prompt may be megabytes, and
 /// masking all of it for every summary sent would stall the connection.
 const PEER_TEXT_CHARS: usize = 16_384;
@@ -77,7 +84,7 @@ fn mask_text(v: &mut Value) -> bool {
                 changed |= mask_field(map.get_mut("waitingPrompt"));
                 if let Some(turn) = map.get_mut("turn") {
                     // What it does now: a tool call's title, often a command with its arguments.
-                    for key in ["prompt", "activity", "planStep"] {
+                    for key in ["prompt", "activity"] {
                         changed |= mask_field(turn.get_mut(key));
                     }
                 }
@@ -112,7 +119,8 @@ fn mask_text(v: &mut Value) -> bool {
     changed
 }
 
-/// The keys every session summary has (`Hub::session_summary`), this daemon's or a peer's.
+/// The keys every session summary has (`Hub::session_summary`), this daemon's or a peer's. A
+/// page cut by `fields` keeps them (`hub/page_first.rs` `KEPT_FIELDS`), or it would go unmasked.
 const SUMMARY_KEYS: [&str; 3] = ["sessionId", "harness", "lastSeq"];
 
 fn is_summary(v: &Value) -> bool {

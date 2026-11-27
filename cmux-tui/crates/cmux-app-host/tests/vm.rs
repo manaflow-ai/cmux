@@ -54,6 +54,38 @@ mod apps {
         assert_eq!(ops.last().expect("ops")["op"], "root");
     }
 
+    /// `Particles {choreography}`: the host passes a valid document through and sends a refused one
+    /// as null, with a warning naming the first bad path (particles.rs).
+    #[test]
+    fn a_refused_choreography_leaves_the_host_as_null_with_a_warning() {
+        let mut h = Harness::new(&app(
+            r#"const doc = (duration) => ({ "$schema": "cmux.particles/1", particle: { size: 3 },
+                phases: { dot: { duration, frames: [{ at: 0, dots: [[0, 0, 1]] }] } } })
+            return { render: () => VStack([
+                Particles({ choreography: doc(400), trigger: "read" }),
+                Particles({ choreography: doc(10) }),
+            ]) }"#,
+        ));
+        assert_eq!(h.mount("m1", "render", json!({})), None);
+        let ops = &h.batches("m1")[0];
+        let fields: Vec<&Value> = ops
+            .iter()
+            .filter(|o| o["type"] == "Particles")
+            .map(|o| &o["props"]["choreography"])
+            .collect();
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0]["phases"]["dot"]["duration"], 400);
+        assert_eq!(fields[1], &Value::Null);
+        let warnings: Vec<&String> =
+            h.logs.iter().filter(|(level, _)| level == "warn").map(|(_, m)| m).collect();
+        assert_eq!(warnings.len(), 1, "{:?}", h.logs);
+        assert!(
+            warnings[0].ends_with("phases.dot.duration: must be from 50 to 30000"),
+            "{}",
+            warnings[0]
+        );
+    }
+
     #[test]
     fn render_errors_and_missing_exports_are_error_strings() {
         let mut h = Harness::new(&app(r#"return { render: () => { throw new Error("boom") } }"#));
@@ -379,8 +411,9 @@ mod apps {
 
     #[test]
     fn settings_and_strings_reach_the_app() {
+        // `main`'s top level reads them too (`init` runs before it), not only a render.
         let mut h = Harness::with(
-            "",
+            "globalThis.atLoad = [cmux.app.settings().login, cmux.app.locale]",
             json!({ "settings": { "login": "octo" }, "locale": "ja", "strings": { "greeting": "こんにちは {name}" } }),
             Limits::default(),
         );
@@ -388,6 +421,7 @@ mod apps {
             h.eval(r#"[cmux.t("greeting", { name: "Ada" }), cmux.app.locale]"#),
             json!(["こんにちは Ada", "ja"])
         );
+        assert_eq!(h.eval("globalThis.atLoad"), json!(["octo", "ja"]));
         h.vm.set_settings(&json!({ "login": "hubot" })).expect("settings");
         h.pump().expect("pump");
         assert_eq!(h.eval("cmux.app.settings().login"), json!("hubot"));

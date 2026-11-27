@@ -33,7 +33,7 @@ export default agentPaneEntry({
       snapshot: retrying({ attempt: 7, maxRetries: 10, errorStatus: 503, error: "server_error" }),
     },
     "retrying-busy": {
-      note: "A rate limit or an overloaded model (429, 529): The model is busy, not unreachable.",
+      note: "A rate limit or an overloaded model (429, 529): Waiting for capacity with the count, calm; the 529 only in the tooltip.",
       snapshot: retrying({ attempt: 2, maxRetries: 10, errorStatus: 529, error: "overloaded_error" }),
     },
     "given-up": {

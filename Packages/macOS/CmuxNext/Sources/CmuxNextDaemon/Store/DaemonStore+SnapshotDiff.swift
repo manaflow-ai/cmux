@@ -14,12 +14,17 @@ extension DaemonStore {
     }
 
     /// What differs between `tree` and the last applied live snapshot when the memo can vouch for
-    /// the rest, else nil (apply in full): no live snapshot of this connection yet, a launch
-    /// snapshot shown, another daemon generation or registry, or a confirmed write since that named
-    /// no workspace. `diff` is used when it was computed against the current memo; otherwise the
-    /// comparison runs here.
+    /// the rest, else nil (apply in full): no live snapshot yet, a launch snapshot shown, another
+    /// daemon generation or registry, or a confirmed write since that named no workspace.
+    /// A reconnect to the same daemon (same generation and registry) keeps the memo: what the daemon
+    /// changed while the link was down is in its tree, so the diff finds it, and what applied here
+    /// before the drop is marked dirty (hq#19373, Leo: "a graceful if not imperceptible state
+    /// transition all around"; the full pass held main ~109 ms at 3,000 workspaces). A tree that names
+    /// no generation cannot prove it is the same daemon, so a new connection's first one applies in full.
+    /// `diff` is used when it was computed against the current memo; otherwise the comparison runs here.
     func incrementalDiff(_ tree: DaemonTree, diff: SnapshotDiff?) -> SnapshotDiff? {
-        guard !isProvisional, !snapshotMemo.untracked, snapshotMemo.epoch == connectionEpoch, !snapshotMemo.applied.isEmpty,
+        guard !isProvisional, !snapshotMemo.untracked, !snapshotMemo.applied.isEmpty,
+              snapshotMemo.epoch == connectionEpoch || tree.generation != nil,
               snapshotMemo.generation == tree.generation, snapshotMemo.registryID == tree.registryID else { return nil }
         if let diff, diff.revision == snapshotMemo.revision { return diff }
         snapshotWorkspacesWalkedOnMain &+= tree.workspaces.count

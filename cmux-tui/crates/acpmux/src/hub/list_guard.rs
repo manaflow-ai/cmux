@@ -138,6 +138,14 @@ impl Events {
         self.streamed.lock().unwrap_or_else(|e| e.into_inner()).waiting.insert(session.to_owned());
     }
 
+    /// The rows waiting to be told for their agent's stream: their `updatedAt` may have moved
+    /// with no list position yet, so the kept list order (`list_order.rs`) places them again at
+    /// each read. As many as the chats streaming now.
+    pub(super) fn stream_waiting(&self) -> Vec<String> {
+        let streamed = self.streamed.lock().unwrap_or_else(|e| e.into_inner());
+        streamed.waiting.iter().cloned().collect()
+    }
+
     /// Tells a streamed row at most once per `every` (a test's short window).
     #[cfg(test)]
     pub(super) fn set_stream_tell_every(&self, every: std::time::Duration) {
@@ -295,6 +303,7 @@ impl Events {
             }),
             remote: Some(RemoteRef { peer: peer.to_owned(), summary: Value::Null.into() }),
             update_line: Default::default(),
+            event_params: Default::default(),
             row: Default::default(),
             list_seq: rows.head(),
             peer_batch: false,
@@ -608,6 +617,13 @@ impl PageRow for BuiltRow {
         match self {
             Self::Tree(row) => PageRow::status(row),
             Self::Peer(_, r) => r.summary.status(),
+        }
+    }
+
+    fn top_level(&self) -> bool {
+        match self {
+            Self::Tree(row) => PageRow::top_level(row),
+            Self::Peer(_, r) => r.summary.top_level(),
         }
     }
 }

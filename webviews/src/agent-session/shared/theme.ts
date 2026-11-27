@@ -2,40 +2,9 @@ import { MOTION_MS, MOTION_SEND_MS, MOTION_SEND_POP_MS } from "../../motion/scal
 import type { AgentSessionTheme } from "./types";
 import { codeFontFamily } from "../../appearance";
 import { configureThemeSlots } from "../../slots/registry";
+import { AGENT_THEME_VARIABLES } from "./themeVariables";
 
-const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
-  isDark: null,
-  pageBackground: "--agent-page-bg",
-  surfaceBackground: "--agent-surface",
-  surfaceElevatedBackground: "--agent-surface-elevated",
-  inputBackground: "--agent-input-bg",
-  border: "--agent-border",
-  borderStrong: "--agent-border-strong",
-  text: "--agent-text",
-  mutedText: "--agent-muted",
-  softText: "--agent-soft",
-  accent: "--agent-accent",
-  accentSoft: "--agent-accent-soft",
-  litGlyph: "--agent-lit-glyph",
-  accentText: "--agent-accent-text",
-  onAccent: "--agent-on-accent",
-  danger: "--agent-danger",
-  warning: "--agent-warning",
-  success: "--agent-success",
-  highlight: "--agent-highlight",
-  highlightText: "--agent-highlight-text",
-  shadow: "--agent-shadow",
-  palette: null,
-  borders: null,
-  focusRingEnabled: null,
-  toolRunLook: null,
-  turnActionsPlacement: null,
-  motion: null,
-  statusIndicators: null,
-  workingLook: null,
-  slots: null,
-  subagentTrayPlacement: null,
-};
+const cssVariables = AGENT_THEME_VARIABLES;
 
 const motionVariables = {
   hover: "--agent-motion-hover",
@@ -45,6 +14,11 @@ const motionVariables = {
   fadeOut: "--agent-motion-out",
   move: "--agent-motion-move",
 } as const;
+
+/** The `data-home-cards` value of an `appearance.homeCardStyle`: null for `standard` (today's cards) or an unknown value. */
+export function homeCardStyle(value: unknown): "flat" | "raised" | "glass" | null {
+  return value === "flat" || value === "raised" || value === "glass" ? value : null;
+}
 
 export function applyAgentTheme(theme: AgentSessionTheme): void {
   if (typeof document === "undefined") {
@@ -68,6 +42,11 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   // How agent work shows on running rows (conversation.css WORKING-LOOK).
   if (theme.workingLook) root.dataset.workingLook = theme.workingLook;
   else delete root.dataset.workingLook;
+  // appearance.homeCardStyle: Home's and the New Tab page's cards (newtab/screen.css HOME-CARDS). `standard`, absent
+  // or a value this page does not know draws today's cards.
+  const homeCards = homeCardStyle(theme.homeCardStyle);
+  if (homeCards) root.dataset.homeCards = homeCards;
+  else delete root.dataset.homeCards;
   // The theme's slot choices (schemas/theme/slots.json): each slot draws the variant the look names;
   // a look without `slots` (every host today) leaves every slot on its default.
   configureThemeSlots(theme.slots);

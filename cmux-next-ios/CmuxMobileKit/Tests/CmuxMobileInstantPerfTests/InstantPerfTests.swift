@@ -1,6 +1,6 @@
 import CmuxMobileAgentChat
 import CmuxMobileChief
-import CmuxMobileLive
+@testable import CmuxMobileLive
 import CmuxMobileTransport
 import Foundation
 import Testing
@@ -237,14 +237,23 @@ struct InstantPerfTests {
             let newest = try #require(log.lastTurn(before: log.count))
             let fake = InstantPerfAcpmux(log, end: cut)
             let link = fake.link()
-            let (hub, store) = try await Self.openedChat(fake, link: link)
+            let (hub, opened) = try await Self.openedChat(fake, link: link)
+            // A hole wider than one page opens the chat again on its newest page: the coordinator
+            // builds its store again then (`onReset`), and so does this.
+            final class Chat { var store: AgentChatStore; init(_ store: AgentChatStore) { self.store = store } }
+            let chat = Chat(opened)
+            let source = hub.source(sessionID: "s1", summary: Self.summary)
+            source.onReset = { [weak source] in
+                guard let source else { return }
+                chat.store = AgentChatStore(source: source)
+            }
             // The phone goes away; the Mac writes the rest of the log meanwhile.
             await hub.bind(nil)
             fake.end = log.count
             let start = ContinuousClock.now
             await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
-            let shown = await Self.waitUntil { Self.shows(store, newest) }
-            return (hub, store, start, shown)
+            let shown = await Self.waitUntil { Self.shows(chat.store, newest) }
+            return (hub, chat.store, start, shown)
         }
         func reconnect(_ log: AgentChatLog, missing: Int, runs: Int) async throws -> (runs: [Double], missed: Int, bytes: Int) {
             let cut = log.boundary(near: log.count - missing)
@@ -258,8 +267,9 @@ struct InstantPerfTests {
             }
             return (samples, log.count - cut, log.bytes[cut...].reduce(0, +))
         }
-        /// After the newest turn showed, the gap fills in the background (untimed by the
-        /// metric): how long it takes, and that every turn is then shown once, in order.
+        /// After the newest turn showed, a narrow gap fills in the background and a wide one opens
+        /// none (untimed by the metric): how long it takes, and that every turn shown is there
+        /// once, in order.
         func fill(_ log: AgentChatLog, missing: Int) async throws -> Double {
             let run = try await reconnected(log, cut: log.boundary(near: log.count - missing))
             #expect(run.shown)
@@ -279,8 +289,9 @@ struct InstantPerfTests {
         InstantPerfReport.record(
             "chat_reconnect_catch_up", target: 150, small: small.runs, god: god.runs,
             // Green since the tail-first reattach: a gap longer than one page reads the newest
-            // page (as an open does) and one empty read after it, shows them, and fills the gap after.
-            note: String(format: "missed \(small.missed) records (\(Self.mb(small.bytes))) vs \(god.missed) records (\(Self.mb(god.bytes))); timed from the link coming back (bind) to the newest turn shown. God's gap then filled in the background in %.0f ms (untimed)", godFill))
+            // page (as an open does) and one empty read after it, and shows them. A hole wider than
+            // one page (god's) is not read: the chat opens on that page, with older history above.
+            note: String(format: "missed \(small.missed) records (\(Self.mb(small.bytes))) vs \(god.missed) records (\(Self.mb(god.bytes))); timed from the link coming back (bind) to the newest turn shown. God's reconnect settled (no gap left open) in %.0f ms (untimed)", godFill))
     }
 
     @Test("chat_older_page")

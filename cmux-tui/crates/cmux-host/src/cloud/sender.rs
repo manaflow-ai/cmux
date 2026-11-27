@@ -235,12 +235,19 @@ pub struct Reporter {
     activity: Activity,
     /// The updater's block (`updater/look.rs`), when this machine's updater checked.
     updater: Option<Value>,
+    /// The last finished wake's timing block (`wake_echo.rs`) until a report carrying it is
+    /// accepted.
+    wake: Option<Value>,
+    /// The wake block the report in flight carries.
+    wake_in_flight: Option<Value>,
     state: MachineState,
     dirty: bool,
     pending: Vec<String>,
     in_flight: Option<Vec<String>>,
     last_sent_at: Option<u64>,
     window_at: Option<u64>,
+    /// A report is due past the floor ([`Reporter::trigger_now`]); cleared by the send.
+    urgent: bool,
     retry_at: Option<u64>,
     heartbeat_at: Option<u64>,
     backoff: Backoff,
@@ -255,12 +262,15 @@ impl Reporter {
             daemon,
             activity: Activity::default(),
             updater: None,
+            wake: None,
+            wake_in_flight: None,
             state: MachineState::Running,
             dirty: false,
             pending: Vec::new(),
             in_flight: None,
             last_sent_at: None,
             window_at: None,
+            urgent: false,
             retry_at: None,
             heartbeat_at: None,
             backoff: Backoff::new(5_000, 600_000),
@@ -289,6 +299,15 @@ impl Reporter {
         }
         self.dirty = true;
         self.schedule(now)
+    }
+
+    /// Marks a report due now, past the `min_interval_ms` floor: a machine running short
+    /// (`Session::pressure`). A report in flight or a retry's backoff still comes first; the
+    /// report goes the moment that one is answered.
+    pub fn trigger_now(&mut self, reason: &str, now: u64) -> Option<OpRequest> {
+        self.urgent = true;
+        self.window_at = None;
+        self.trigger(reason, now)
     }
 
     /// The activity the next report carries.
@@ -321,6 +340,22 @@ impl Reporter {
     ) -> Option<OpRequest> {
         self.updater = updater;
         if report { self.trigger("updater", now) } else { None }
+    }
+
+    /// A wake's timing finished: the next report carries its block, and one is due.
+    pub fn set_wake(&mut self, block: Value, now: u64) -> Option<OpRequest> {
+        self.wake = Some(block);
+        self.trigger("wake", now)
+    }
+
+    /// Replaces the wake block the next report carries without making one due.
+    pub fn replace_wake(&mut self, block: Option<Value>) {
+        self.wake = block;
+    }
+
+    /// The wake block the next report carries.
+    pub fn wake(&self) -> Option<&Value> {
+        self.wake.as_ref()
     }
 
     /// The daemon block changed (`activity` on while the stream is live).
@@ -356,8 +391,13 @@ impl Reporter {
     /// one is due at once.
     pub fn finished(&mut self, answer: &Answer, now: u64, random: f64) -> Option<OpRequest> {
         let reasons = self.in_flight.take().unwrap_or_default();
+        let carried = self.wake_in_flight.take();
         if answer.ok() {
             self.backoff.reset();
+            // Delivered: later reports leave it out (a newer wake that finished meanwhile stays).
+            if carried.is_some() && carried == self.wake {
+                self.wake = None;
+            }
             // The server counts its 10 s from when it received this report, which is
             // after the send and before `now` (the answer): count from the answer, so
             // the next report never lands inside the server's window and is held.
@@ -425,7 +465,11 @@ impl Reporter {
         {
             return None;
         }
-        let due = self.last_sent_at.map_or(now, |last| last + self.min_interval_ms);
+        let due = if self.urgent {
+            now
+        } else {
+            self.last_sent_at.map_or(now, |last| last + self.min_interval_ms)
+        };
         if due <= now {
             return Some(self.send(now));
         }
@@ -435,6 +479,7 @@ impl Reporter {
 
     fn send(&mut self, now: u64) -> OpRequest {
         self.dirty = false;
+        self.urgent = false;
         self.last_sent_at = Some(now);
         let reasons = std::mem::take(&mut self.pending);
         let reason = if reasons.is_empty() { "retry".to_owned() } else { reasons.join("+") };
@@ -448,6 +493,10 @@ impl Reporter {
         if let (Some(updater), Some(map)) = (&self.updater, params.as_object_mut()) {
             map.insert("updater".to_owned(), updater.clone());
         }
+        if let (Some(wake), Some(map)) = (&self.wake, params.as_object_mut()) {
+            map.insert("wake".to_owned(), wake.clone());
+        }
+        self.wake_in_flight = self.wake.clone();
         OpRequest { op: STATUS_REPORT_OP, params, reason }
     }
 }
@@ -469,6 +518,7 @@ pub enum EventOutcome {
 
 /// Events a backed-off queue holds before it refuses more (each is at most
 /// 4 KB of data, so about 1 MB).
+/// Measured: at most 4 KB an event held in memory while Cloud is unreachable: about 1 MB.
 pub const EVENT_QUEUE_MAX: usize = 256;
 
 /// `cloud.vm.event.emit` in order: a rate limit waits `retry_after_ms`, a

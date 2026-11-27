@@ -21,6 +21,8 @@ final class MacScreenCardView: MacScreenThemedView {
         var look = MacScreenViewerLook.current
         /// The session's link is up (read only by a full-pane look, whose connect steps name it).
         var linkConnected = false
+        /// The pane retries the card's failure on its own, so it offers no Try Again (``MacScreenPaneModel/retriesOnItsOwn(_:)``).
+        var retriesOnItsOwn = false
         /// The offline card's Start cmux on NAME and its run (``MacScreenDeviceSetupRow/none`` on every other card).
         var setup = MacScreenDeviceSetupRow.none
     }
@@ -36,6 +38,9 @@ final class MacScreenCardView: MacScreenThemedView {
     /// The card's spinner: the side of a regular `ProgressView`.
     static let spinnerSide: CGFloat = 32
     private static let textWidth = width - 48
+    /// The info circle after a status line, and the gap before it.
+    private static let infoGap: CGFloat = 6
+    private static let infoRoom: CGFloat = 20
 
     private let model: MacScreenPaneModel
     private let actions: MacScreenChromeActions
@@ -112,6 +117,7 @@ final class MacScreenCardView: MacScreenThemedView {
     private func render() {
         let next = withObservationTracking { () -> Shown in
             var next = Shown(card: model.card, name: model.name, failedDetail: Self.failedDetail(model.card, model), look: model.viewerLook, setup: Self.setup(model))
+            next.retriesOnItsOwn = model.retriesOnItsOwn(next.card)
             if next.look.style.cardLayout == .fullPane { next.linkConnected = model.session?.linkConnected ?? false }
             return next
         } onChange: { [weak self] in
@@ -164,36 +170,43 @@ final class MacScreenCardView: MacScreenThemedView {
         }
     }
 
-    /// The failure's detail for `card`: the failed card's (``MacScreenPaneModel/failedDetail``), or
-    /// for a hub end that says the stream failed, the host's reason when it gave one; else empty.
+    /// The failure's detail for `card`: a retry's cover says the failure's as it was when it failed
+    /// (``MacScreenRetryCover``), else the state's (``stateFailedDetail(_:_:)``).
     static func failedDetail(_ card: MacScreenCard?, _ model: MacScreenPaneModel) -> String {
-        switch card {
-        case .failed?: model.failedDetail
-        case .hubEnded(.failed)?, .hubRevoked(.failed)?: model.hubFailureDetail ?? ""
+        if let cover = model.retryCover, cover.card == card { return cover.detail }
+        return stateFailedDetail(card, model)
+    }
+
+    /// The failure's detail for `card` now: the failed card's (``MacScreenPaneModel/failedDetail``), or
+    /// for a hub end that says the stream failed, the host's reason when it gave one; else empty.
+    static func stateFailedDetail(_ card: MacScreenCard?, _ model: MacScreenPaneModel) -> String {
+        switch RdUI.call("card.failedDetailSource", ["card": card?.rd ?? NSNull()]) as? String {
+        case "failed": model.failedDetail
+        case "hub": model.hubFailureDetail ?? ""
         default: ""
         }
     }
 
     // MARK: Pieces
 
+    /// The card's one line of status. Anything more it has to say hangs on an info circle at the line's end (``detail(_:)``).
     private func title(_ text: String) {
-        stack.addArrangedSubview(MacScreenText(text, font: quiet ? MacScreenType.body : MacScreenType.cardTitle, ink: quiet ? \.secondary : \.primary,
-                                               wraps: true, alignment: .center, width: Self.textWidth))
+        let line = MacScreenText(text, font: quiet ? MacScreenType.body : MacScreenType.cardTitle, ink: quiet ? \.secondary : \.primary,
+                                 wraps: true, alignment: .center, width: Self.textWidth - Self.infoRoom)
+        stack.addArrangedSubview(MacScreenStack.make(.horizontal, spacing: Self.infoGap, alignment: .centerY, [line]))
     }
 
+    /// An explanation, behind an info circle after the status line with a hover: the card never prints it (Leo, 2026-11-23:
+    /// "THERE ARE HOVERS AND QUESTION MARK CIRCLES AND INFO CIRCLES"). A quiet card has none.
     private func detail(_ text: String) {
-        guard !quiet else { return }
-        stack.addArrangedSubview(MacScreenText(text, font: MacScreenType.body, ink: \.secondary, wraps: true, alignment: .center,
-                                               width: Self.textWidth))
-    }
-
-    private func glyph(_ name: String, ink: KeyPath<MacScreenColors, NSColor> = \.secondary) {
-        let font = MacScreenType.glyph
-        let glyph = MacScreenGlyph(name, font: font, ink: ink)
-        // SwiftUI's `Image(systemName:).font(glyph)` took the font's line height, not the symbol's: the
-        // card keeps the same room above its title.
-        glyph.heightAnchor.constraint(equalToConstant: ceil(font.ascender - font.descender)).isActive = true
-        stack.addArrangedSubview(glyph)
+        guard !quiet, !text.isEmpty, let line = stack.arrangedSubviews.last as? NSStackView else { return }
+        let info = MacScreenGlyph("info.circle", font: MacScreenType.body, ink: \.secondary)
+        info.toolTip = text
+        info.setAccessibilityElement(true)
+        info.setAccessibilityRole(.staticText)
+        info.setAccessibilityLabel(text)
+        info.setAccessibilityIdentifier("macScreen.card.info")
+        line.addArrangedSubview(info)
     }
 
     private func spinner() {
@@ -214,155 +227,73 @@ final class MacScreenCardView: MacScreenThemedView {
         stack.addArrangedSubview(MacScreenStack.make(.horizontal, spacing: 8, alignment: .centerY, buttons))
     }
 
-    private func closeTab(id: String? = nil) -> MacScreenButton {
-        MacScreenButton(L.t("macScreen.card.closeTab", "Close Tab"), id: id) { [weak self] in self?.actions.closeTab() }
-    }
-
-    private func cancel(_ run: @escaping @MainActor (MacScreenChromeActions) -> Void, id: String? = nil) -> MacScreenButton {
-        MacScreenButton(L.t("macScreen.card.cancel", "Cancel"), id: id) { [weak self] in
-            guard let self else { return }
-            run(actions)
-        }
-    }
-
-    private func primary(_ title: String, hint: CmuxDialogKeyHint? = nil, id: String? = nil,
-                         _ run: @escaping @MainActor (MacScreenChromeActions) -> Void) -> MacScreenButton {
-        MacScreenButton(title, role: .primary, hint: hint, id: id) { [weak self] in
-            guard let self else { return }
-            run(actions)
-        }
-    }
-
     // MARK: Cards
 
     private var name: String { shown?.name ?? model.name }
-    /// A hub end's host reason, when the shown card has one (``failedDetail(_:_:)``).
-    private var hostReason: String? { shown?.failedDetail.isEmpty == false ? shown?.failedDetail : nil }
 
+    /// The card's spinner, status line, its one explanation and buttons, as Rust's `card.content` decides them.
     private func content(_ card: MacScreenCard) {
-        switch card {
-        case .unsupported:
-            glyph("link.badge.plus", ink: \.attention)
-            title(L.t("macScreen.card.linksGoneTitle", "Pairing Links Are No Longer Supported"))
-            detail(L.t("macScreen.card.linksGoneBody", "Screen Sharing now connects the Macs signed in to your cmux account. Open Screen Sharing to see them."))
-            buttons([closeTab(id: "macScreen.card.closeTab"), primary(L.t("macScreen.card.openHome", "Open Screen Sharing")) { $0.openHome() }])
-        case let .connecting(reconnecting):
-            spinner()
-            title(reconnecting ? L.t("macScreen.card.reconnecting", "Reconnecting…")
-                : String(format: L.t("macScreen.card.connecting", "Connecting to %@…"), name))
-            buttons([cancel { $0.disconnect() }])
-        case .waitingForPicture:
-            spinner()
-            title(L.t("macScreen.card.waiting", "Waiting for the screen…"))
-        case .failed:
-            // The session's free-form message can quote the signaling URL (with the room id): never
-            // shown. Only a cause a side named (the host's reason, the link's) is, in failedDetail.
-            glyph("exclamationmark.triangle", ink: \.attention)
-            title(L.t("macScreen.card.failedTitle", "Couldn’t connect"))
-            detail(shown?.failedDetail ?? model.failedDetail)
-            buttons([closeTab(), primary(L.t("macScreen.card.retry", "Try Again"), hint: .return, id: "macScreen.card.retry") { $0.connect() }])
-        case .ended:
-            glyph("display")
-            title(L.t("macScreen.card.endedTitle", "Disconnected"))
-            buttons([closeTab(), primary(L.t("macScreen.card.reconnect", "Reconnect"), hint: .return, id: "macScreen.card.reconnect") { $0.connect() }])
-        case .hubConnect, .hubRequesting, .hubWaiting, .hubDeclined, .hubRefused, .hubRevoked, .hubAccessLowered, .hubEnded:
-            hubContent(card)
+        let failedDetail = shown?.failedDetail ?? model.failedDetail
+        let setup = shown?.setup ?? .none
+        let answer = RdUI.call("card.content", [
+            "card": card.rd, "quiet": quiet, "hasFailedDetail": !failedDetail.isEmpty, "showsStart": setup.showsStart,
+            "platform": model.platform?.rawValue ?? NSNull(),
+            // No Try Again or Reconnect while the pane retries the failure on its own (#50358).
+            "retriesOnItsOwn": shown?.retriesOnItsOwn ?? model.retriesOnItsOwn(card),
+        ]) as? [String: Any] ?? [:]
+        let text = { (value: Any?) in Self.text(value, card: card, name: self.name, failedDetail: failedDetail) }
+        if answer["spinner"] as? Bool == true { spinner() }
+        title(text(answer["title"]))
+        if let line = answer["line"] as? [String: Any] {
+            if line["printed"] as? Bool == true {
+                stack.addArrangedSubview(MacScreenText(text(line["text"]), font: MacScreenType.body, ink: \.secondary, wraps: true,
+                                                       alignment: .center, width: Self.textWidth))
+            } else {
+                detail(text(line["text"]))
+            }
+        }
+        // Offline: Start cmux on NAME, the card's default button, on its own line (the card is too
+        // narrow for three buttons), then the run's steps. Try Again steps down to a plain button.
+        if answer["start"] as? Bool == true { startCmux(setup) }
+        var row: [NSView] = (answer["buttons"] as? [[String: Any]] ?? []).map(button)
+        // Not signed in: Sign In, the shared button every "sign in" place shows (msg 3790).
+        if answer["signIn"] as? Bool == true { row.append(signInButton()) }
+        if !row.isEmpty { buttons(row) }
+        // Under the row: the backend this Sign In signs in to ("Signs in to cmux.com").
+        if answer["signIn"] as? Bool == true, let line = SignInButton.backendLineLabel(actions.signInBackend()) { stack.addArrangedSubview(line) }
+    }
+
+    /// One of Rust's card buttons: its title localized, its run one of the chrome's actions.
+    private func button(_ spec: [String: Any]) -> MacScreenButton {
+        let run = spec["run"] as? String ?? ""
+        let scope: SessionScope = spec["scope"] as? String == "full" ? .full : .view
+        return MacScreenButton(Self.buttonTitle(spec["title"] as? String), role: spec["primary"] as? Bool == true ? .primary : .plain,
+                               hint: spec["returnKey"] as? Bool == true ? .return : nil, id: spec["id"] as? String) { [weak self] in
+            guard let actions = self?.actions else { return }
+            switch run {
+            case "closeTab": actions.closeTab()
+            case "openHome": actions.openHome()
+            case "disconnect": actions.disconnect()
+            case "cancelRequest": actions.cancelRequest()
+            case "connect": actions.connect()
+            case "request": actions.requestScope(scope)
+            default: break
+            }
         }
     }
 
-    /// A device hub tab's cards: Connect, waiting, and every way a request or session ends.
-    private func hubContent(_ card: MacScreenCard) {
-        switch card {
-        case .hubConnect:
-            glyph("desktopcomputer")
-            title(String(format: L.t("macScreen.hub.connectTitle", "Connect to %@"), name))
-            detail(L.t("macScreen.hub.connectBody", "View Only shows the screen. Full Control also sends your clicks and keys."))
-            scopeButtons(primary: .full)
-        case let .hubRequesting(scope):
-            spinner()
-            title(String(format: L.t("macScreen.hub.requesting", "Connecting to %@…"), name))
-            detail(scope.title)
-            buttons([cancel({ $0.cancelRequest() }, id: "macScreen.hub.cancel")])
-        case let .hubWaiting(scope):
-            spinner()
-            title(String(format: L.t("macScreen.hub.waitingTitle", "Waiting for %@ to approve…"), name))
-            detail(String(format: L.t("macScreen.hub.waitingOwnerBody", "You asked for %@. Its owner needs to allow it."), scope.title))
-            buttons([cancel({ $0.cancelRequest() }, id: "macScreen.hub.cancel")])
-        case let .hubDeclined(scope):
-            glyph("hand.raised", ink: \.attention)
-            title(L.t("macScreen.hub.declinedTitle", "Declined"))
-            detail(String(format: L.t("macScreen.hub.declinedBody", "%@ declined your request."), name))
-            buttons([closeTab(), primary(L.t("macScreen.hub.askAgain", "Ask Again"), id: "macScreen.hub.askAgain") { $0.requestScope(scope) }])
-        case let .hubRefused(refusal, requested):
-            refusedContent(refusal, requested: requested)
-        case let .hubRevoked(reason):
-            // Ends from either side come as revocations too: only a lost permission or device reads as removed access.
-            let removed = reason.removesAccess
-            glyph(removed ? "lock" : "display", ink: removed ? \.danger : \.secondary)
-            title(removed ? L.t("macScreen.hub.revokedTitle", "Access Removed") : L.t("macScreen.card.endedTitle", "Disconnected"))
-            detail(hostReason ?? reason.text(host: name))
-            var row = [closeTab()]
-            if reason.canReconnect {
-                row.append(primary(L.t("macScreen.hub.connectAgain", "Connect Again"), id: "macScreen.hub.connectAgain") { $0.connect() })
-            }
-            buttons(row)
-        case .hubAccessLowered:
-            glyph("eye", ink: \.attention)
-            title(L.t("macScreen.hub.loweredTitle", "Access Changed to View Only"))
-            detail(String(format: L.t("macScreen.hub.loweredBody", "%@ now lets this Mac view its screen but not control it."), name))
-            buttons([closeTab(), primary(L.t("macScreen.hub.viewInstead", "View Instead"), id: "macScreen.hub.viewInstead") { $0.requestScope(.view) }])
-        case let .hubEnded(reason):
-            glyph(reason.removesAccess ? "lock" : "display", ink: reason.removesAccess ? \.danger : \.secondary)
-            title(reason.removesAccess ? L.t("macScreen.hub.revokedTitle", "Access Removed") : L.t("macScreen.card.endedTitle", "Disconnected"))
-            detail(hostReason ?? reason.text(host: name))
-            var row = [closeTab()]
-            if reason.canReconnect {
-                row.append(primary(L.t("macScreen.card.reconnect", "Reconnect"), hint: .return, id: "macScreen.card.reconnect") { $0.connect() })
-            }
-            buttons(row)
-        default:
-            break
-        }
-    }
-
-    private func refusedContent(_ refusal: MacScreenHubRefusal, requested: SessionScope) {
-        switch refusal {
-        case .permissionNone:
-            glyph("nosign", ink: \.danger)
-            title(L.t("macScreen.hub.noneTitle", "No Access"))
-            detail(String(format: L.t("macScreen.hub.noneBodyBlocked", "%1$@ doesn’t allow this Mac. Change it on %2$@ in Settings › Devices."), name, name))
-            buttons([closeTab()])
-        case .scopeExceeds:
-            glyph("eye", ink: \.attention)
-            title(L.t("macScreen.hub.viewOnlyTitle", "View Only Access"))
-            detail(String(format: L.t("macScreen.hub.viewOnlyBody", "This Mac may only view %@, not control it."), name))
-            buttons([closeTab(), primary(L.t("macScreen.hub.viewInstead", "View Instead"), id: "macScreen.hub.viewInstead") { $0.requestScope(.view) }])
-        case .hostOffline, .notShared, .notFound, .notSignedIn, .other:
-            glyph(refusal == .hostOffline ? "wifi.slash" : "exclamationmark.triangle", ink: \.attention)
-            title(Self.refusedTitle(refusal, host: name))
-            detail(Self.refusedBody(refusal, host: name, platform: model.platform))
-            // Offline: Start cmux on NAME, the card's default button, on its own line (the card is too
-            // narrow for three buttons), then the run's steps. Try Again steps down to a plain button.
-            let setup = shown?.setup ?? .none
-            if refusal == .hostOffline, setup.showsStart {
-                startCmux(setup)
-            }
-            var row: [NSView] = [closeTab()]
-            if refusal == .notSignedIn {
-                // Not signed in: Sign In, the shared button every "sign in" place shows (msg 3790); Try Again
-                // asks once more after it.
-                row.append(MacScreenButton(L.t("macScreen.card.retry", "Try Again"), id: "macScreen.card.retry") { [weak self] in
-                    self?.actions.requestScope(requested)
-                })
-                row.append(signInButton())
-            } else if refusal.canRetry, refusal == .hostOffline, setup.showsStart {
-                row.append(MacScreenButton(L.t("macScreen.card.retry", "Try Again"), id: "macScreen.card.retry") { [weak self] in
-                    self?.actions.requestScope(requested)
-                })
-            } else if refusal.canRetry {
-                row.append(primary(L.t("macScreen.card.retry", "Try Again"), id: "macScreen.card.retry") { $0.requestScope(requested) })
-            }
-            buttons(row)
+    private static func buttonTitle(_ key: String?) -> String {
+        switch key {
+        case "macScreen.card.closeTab": L.t("macScreen.card.closeTab", "Close Tab")
+        case "macScreen.card.cancel": L.t("macScreen.card.cancel", "Cancel")
+        case "macScreen.card.openHome": L.t("macScreen.card.openHome", "Open Screen Sharing")
+        case "macScreen.card.reconnect": L.t("macScreen.card.reconnect", "Reconnect")
+        case "macScreen.hub.connectAgain": L.t("macScreen.hub.connectAgain", "Connect Again")
+        case "macScreen.hub.viewInstead": L.t("macScreen.hub.viewInstead", "View Instead")
+        case "macScreen.hub.askAgain": L.t("macScreen.hub.askAgain", "Ask Again")
+        case "macScreen.hub.view": L.t("macScreen.hub.view", "View Only")
+        case "macScreen.hub.control": L.t("macScreen.hub.control", "Full Control")
+        default: L.t("macScreen.card.retry", "Try Again")
         }
     }
 
@@ -391,40 +322,124 @@ final class MacScreenCardView: MacScreenThemedView {
 
     /// The refused card's title for `refusal` from `host`.
     static func refusedTitle(_ refusal: MacScreenHubRefusal, host name: String) -> String {
-        switch refusal {
-        case .hostOffline: String(format: L.t("macScreen.hub.offlineTitle", "%@ Is Offline"), name)
-        case .notShared: L.t("macScreen.hub.notSharedTitle", "Not Shared")
-        case .notFound: L.t("macScreen.hub.notFoundTitle", "Not in Your Devices")
-        case .notSignedIn: L.t("macScreen.hub.signedOutTitle", "Not Signed In")
-        case .permissionNone, .scopeExceeds, .other: L.t("macScreen.card.failedTitle", "Couldn’t connect")
-        }
+        text(RdUI.call("card.refusedTitle", ["card": MacScreenCard.hubRefused(refusal, requested: .view).rd]), card: nil, name: name)
     }
 
     /// The refused card's text: a known code's own step, else the hub's words when it gave any.
     /// `platform` is the host's, when the hub lists it: a Linux desktop has no cmux app to open or Settings to change,
     /// so its offline and not-shared steps name its screen host instead.
     static func refusedBody(_ refusal: MacScreenHubRefusal, host name: String, platform: DevicePlatform? = nil) -> String {
-        switch refusal {
-        // Zero touch (remote-screen-share-zero-touch Z7): no state sends the person to the other machine. Its daemon
-        // comes back on its own; the screen shows once it does.
-        case .hostOffline: L.t("macScreen.hub.offlineBodyWaits", "Its screen shows here as soon as it is back online.")
-        case .notShared where platform == .linux:
-            String(format: L.t("macScreen.hub.notSharedBodyLinux", "%@ does not share its screen. To share it, run cmux-rd linux-host share on there."), name)
-        case .notShared: String(format: L.t("macScreen.hub.notSharedBodyNamed", "%@ does not share its screen. To share it, turn on Allow Mac Screen in Settings › Devices on that Mac."), name)
-        case .notFound: L.t("macScreen.hub.notFoundBody", "This device was removed from your devices.")
-        case .notSignedIn: L.t("macScreen.hub.signedOutBody", "Sign in to cmux to see your devices.")
-        case let .other(reason?):
-            String(format: L.t("macScreen.hub.otherBodyReason", "The device hub could not start the session: %@"), reason)
-        case .permissionNone, .scopeExceeds, .other: L.t("macScreen.hub.otherBody", "The device hub could not start the session. Try again.")
+        let card = MacScreenCard.hubRefused(refusal, requested: .view)
+        let rd = card.rd
+        return text(RdUI.call("card.refusedBody", ["refusal": rd["refusal"] ?? NSNull(), "otherReason": rd["otherReason"] ?? NSNull(),
+                                                    "platform": platform?.rawValue ?? NSNull()]), card: card, name: name)
+    }
+
+    /// Rust's card Text in this person's language: its key localized, its tokens the values only Swift has.
+    static func text(_ value: Any?, card: MacScreenCard?, name: String, failedDetail: String = "") -> String {
+        let value = value as? [String: Any] ?? [:]
+        let token = { (token: String) -> String in
+            switch token {
+            case "$name": name
+            case "$failedDetail": failedDetail
+            case "$scopeTitle": card?.scope?.title ?? ""
+            case "$endText": card?.endReason?.text(host: name) ?? ""
+            case "$otherReason": if case let .hubRefused(.other(reason?), _)? = card { reason } else { "" }
+            default: ""
+            }
+        }
+        if let only = value["token"] as? String { return token(only) }
+        let words = cardWords(value["key"] as? String ?? "")
+        let args = value["args"] as? [String] ?? []
+        return args.isEmpty ? words : String(format: words, arguments: args.map(token))
+    }
+
+    private static func cardWords(_ key: String) -> String {
+        switch key {
+        case "macScreen.card.linksGoneTitle": L.t("macScreen.card.linksGoneTitle", "Pairing Links Are No Longer Supported")
+        case "macScreen.card.linksGoneBody":
+            L.t("macScreen.card.linksGoneBody", "Screen Sharing now connects the Macs signed in to your cmux account. Open Screen Sharing to see them.")
+        case "macScreen.card.reconnecting": L.t("macScreen.card.reconnecting", "Reconnecting…")
+        case "macScreen.card.connecting": L.t("macScreen.card.connecting", "Connecting to %@…")
+        case "macScreen.card.waiting": L.t("macScreen.card.waiting", "Waiting for the screen…")
+        case "macScreen.card.endedTitle": L.t("macScreen.card.endedTitle", "Disconnected")
+        case "macScreen.hub.connectTitle": L.t("macScreen.hub.connectTitle", "Connect to %@")
+        case "macScreen.hub.connectBody": L.t("macScreen.hub.connectBody", "View Only shows the screen. Full Control also sends your clicks and keys.")
+        case "macScreen.hub.requesting": L.t("macScreen.hub.requesting", "Connecting to %@…")
+        case "macScreen.hub.waitingTitle": L.t("macScreen.hub.waitingTitle", "Waiting for %@ to approve…")
+        case "macScreen.hub.waitingOwnerBody": L.t("macScreen.hub.waitingOwnerBody", "You asked for %@. Its owner needs to allow it.")
+        case "macScreen.hub.declinedTitle": L.t("macScreen.hub.declinedTitle", "Declined")
+        case "macScreen.hub.declinedBody": L.t("macScreen.hub.declinedBody", "%@ declined your request.")
+        case "macScreen.hub.revokedTitle": L.t("macScreen.hub.revokedTitle", "Access Removed")
+        case "macScreen.hub.loweredTitle": L.t("macScreen.hub.loweredTitle", "Access Changed to View Only")
+        case "macScreen.hub.loweredBody": L.t("macScreen.hub.loweredBody", "%@ now lets this Mac view its screen but not control it.")
+        case "macScreen.hub.noneTitle": L.t("macScreen.hub.noneTitle", "No Access")
+        case "macScreen.hub.noneBodyBlocked":
+            L.t("macScreen.hub.noneBodyBlocked", "%1$@ doesn’t allow this Mac. Change it on %2$@ in Settings › Devices.")
+        case "macScreen.hub.viewOnlyTitle": L.t("macScreen.hub.viewOnlyTitle", "View Only Access")
+        case "macScreen.hub.viewOnlyBody": L.t("macScreen.hub.viewOnlyBody", "This Mac may only view %@, not control it.")
+        case "macScreen.hub.offlineTitle": L.t("macScreen.hub.offlineTitle", "%@ Is Offline")
+        case "macScreen.hub.notSharedTitle": L.t("macScreen.hub.notSharedTitle", "Not Shared")
+        case "macScreen.hub.notFoundTitle": L.t("macScreen.hub.notFoundTitle", "Not in Your Devices")
+        case "macScreen.hub.signedOutTitle": L.t("macScreen.hub.signedOutTitle", "Not Signed In")
+        // Zero touch (remote-screen-share-zero-touch Z7): no state sends the person to the other machine.
+        case "macScreen.hub.offlineBodyWaits": L.t("macScreen.hub.offlineBodyWaits", "Its screen shows here as soon as it is back online.")
+        case "macScreen.hub.notSharedBodyLinux":
+            L.t("macScreen.hub.notSharedBodyLinux", "%@ does not share its screen. To share it, run cmux-rd linux-host share on there.")
+        case "macScreen.hub.notSharedBodyNamed":
+            L.t("macScreen.hub.notSharedBodyNamed", "%@ does not share its screen. To share it, turn on Allow Mac Screen in Settings › Devices on that Mac.")
+        case "macScreen.hub.notFoundBody": L.t("macScreen.hub.notFoundBody", "This device was removed from your devices.")
+        case "macScreen.hub.signedOutBody": L.t("macScreen.hub.signedOutBody", "Sign in to cmux to see your devices.")
+        case "macScreen.hub.otherBodyReason": L.t("macScreen.hub.otherBodyReason", "The device hub could not start the session: %@")
+        case "macScreen.hub.otherBody": L.t("macScreen.hub.otherBody", "The device hub could not start the session.")
+        default: L.t("macScreen.card.failedTitle", "Couldn’t connect")
+        }
+    }
+}
+
+extension MacScreenCard {
+    /// The card as Rust's `card.*` ops take it.
+    var rd: [String: Any] {
+        var out: [String: Any] = ["kind": kind]
+        if case let .connecting(reconnecting) = self { out["reconnecting"] = reconnecting }
+        if let scope { out["scope"] = scope.rawValue }
+        if case let .hubRefused(refusal, requested) = self {
+            out["refusal"] = refusal.rdName
+            out["requested"] = requested.rawValue
+            if case let .other(reason?) = refusal { out["otherReason"] = reason }
+        }
+        if let end = endReason {
+            out["end"] = ["removesAccess": end.removesAccess, "canReconnect": end.canReconnect, "failed": end == .failed]
+        }
+        return out
+    }
+
+    /// The case's name, as Rust's `card.*` ops name a card kind and a refusal.
+    private var kind: String { rdCaseName(self) }
+
+    /// The scope a request card names.
+    var scope: SessionScope? {
+        switch self {
+        case let .hubRequesting(scope), let .hubWaiting(scope), let .hubDeclined(scope): scope
+        default: nil
         }
     }
 
-    /// Connect with View Only or Full Control; `primary` is the default button.
-    private func scopeButtons(primary: SessionScope) {
-        let view = MacScreenButton(L.t("macScreen.hub.view", "View Only"), role: primary == .view ? .primary : .plain,
-                                   id: "macScreen.hub.connectView") { [weak self] in self?.actions.requestScope(.view) }
-        let full = MacScreenButton(L.t("macScreen.hub.control", "Full Control"), role: primary == .full ? .primary : .plain, hint: .return,
-                                   id: "macScreen.hub.connectFull") { [weak self] in self?.actions.requestScope(.full) }
-        buttons([view, full])
+    /// The end a hub end card says.
+    var endReason: MacScreenEndReason? {
+        switch self {
+        case let .hubRevoked(reason), let .hubEnded(reason): reason
+        default: nil
+        }
     }
+}
+
+extension MacScreenHubRefusal {
+    /// The refusal's name in Rust's `card.*` ops.
+    var rdName: String { rdCaseName(self) }
+}
+
+/// An enum case's name (`.hubRefused(…)` → "hubRefused"): the names Swift's cases and Rust's ops share.
+private func rdCaseName(_ value: some Any) -> String {
+    Mirror(reflecting: value).children.first?.label ?? String(describing: value)
 }

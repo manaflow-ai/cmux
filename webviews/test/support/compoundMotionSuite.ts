@@ -111,7 +111,9 @@ export async function compoundMotionSuite(file: string, pick: (scenario: Scenari
         // Everything else moves: a case that reads still is not in view, or its event never ran.
         else expect(summary.travel).toBeGreaterThan(0.5);
         // The send's composer collapse and its rows: one motion with the transaction, never two.
-        // send-5-one-commit still takes a 31 px frame before its glide: #50851.
+        // send-5-one-commit still takes a 31 px frame before its glide: #50851 (the room joining the
+        // playing glide fixes it but holds the rows a frame after the composer collapsed, a one-two in
+        // agent-pane-send-one-motion's idle tall sends).
         if (arm === "transaction" && scenario.startsWith("send-") && scenario !== "send-5-one-commit")
           expect(summary.phases).toBeLessThanOrEqual(1);
       });

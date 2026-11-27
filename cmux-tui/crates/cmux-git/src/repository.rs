@@ -18,6 +18,9 @@ use crate::run::{
 pub struct Repository {
     pub root: PathBuf,
     pub overrides: Vec<Override>,
+    /// The git folder git uses for this work tree (`--absolute-git-dir`): a
+    /// linked worktree's own one, where its `HEAD` and `index` are.
+    git_dir: PathBuf,
     deadline: Option<Instant>,
 }
 
@@ -74,7 +77,8 @@ impl Repository {
         let unfiltered = Self::open_unfiltered(directory, None)?;
         let (overrides, settings) =
             diff_settings_within(&unfiltered.root, remaining(None)).map_err(OpenError::Git)?;
-        Ok((Self { root: unfiltered.root, overrides, deadline: None }, settings))
+        let Self { root, git_dir, .. } = unfiltered;
+        Ok((Self { root, overrides, git_dir, deadline: None }, settings))
     }
 
     /// The repository `directory` is in, with no filter driver blanked: for
@@ -116,21 +120,45 @@ impl Repository {
         }
         let setting = || core_worktree(&git_dir, deadline);
         own_work_tree::check(directory, &root, &git_dir, setting).map_err(OpenError::Git)?;
-        Ok(Self { root, overrides: Vec::new(), deadline })
+        Ok(Self { root, overrides: Vec::new(), git_dir, deadline })
     }
 
     /// This repository with every configured filter driver blanked, as
     /// [`Repository::open`] gives it.
     pub(crate) fn filtered(&self) -> Result<Self, GitFailure> {
         let overrides = filter_overrides_within(&self.root, remaining(self.deadline))?;
-        Ok(Self { root: self.root.clone(), overrides, deadline: self.deadline })
+        Ok(Self {
+            root: self.root.clone(),
+            overrides,
+            git_dir: self.git_dir.clone(),
+            deadline: self.deadline,
+        })
     }
 
     /// This repository with its runs stopped at `deadline` too (the earlier
     /// of the two deadlines wins).
     pub fn within(&self, deadline: Instant) -> Self {
         let deadline = Some(self.deadline.map_or(deadline, |own| own.min(deadline)));
-        Self { root: self.root.clone(), overrides: self.overrides.clone(), deadline }
+        Self {
+            root: self.root.clone(),
+            overrides: self.overrides.clone(),
+            git_dir: self.git_dir.clone(),
+            deadline,
+        }
+    }
+
+    /// The git folder of this work tree, as git named it when it opened: a
+    /// linked worktree's own folder, which holds its `HEAD` and `index`.
+    pub fn git_dir(&self) -> &Path {
+        &self.git_dir
+    }
+
+    /// Whether this repository's untracked files may be listed: not when its
+    /// top level is the person's home folder ([`crate::home`]), where they
+    /// are every file the person has. Its tracked files and refs read as
+    /// for any repository.
+    pub fn lists_untracked(&self) -> bool {
+        !crate::home::is_home_folder(&self.root)
     }
 
     /// Runs `git <arguments>` at the top level with this repository's
@@ -294,7 +322,12 @@ impl Repository {
         let mut overrides = self.overrides.clone();
         blanked.retain(|setting| !overrides.contains(setting));
         overrides.extend(blanked);
-        Ok(Self { root: self.root.clone(), overrides, deadline: self.deadline })
+        Ok(Self {
+            root: self.root.clone(),
+            overrides,
+            git_dir: self.git_dir.clone(),
+            deadline: self.deadline,
+        })
     }
 
     /// The main checkout of a linked worktree (one `git worktree add` made);

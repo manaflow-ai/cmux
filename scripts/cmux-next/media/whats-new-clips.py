@@ -220,6 +220,105 @@ def spec_problems(spec: Any) -> list[str]:
     if fixture is not None and not (app == "mac" and isinstance(fixture, dict) and set(fixture) <= {"harnesses", "health"}
                                     and isinstance(fixture.get("harnesses", {}), dict)):
         out.append('harnessFixture: a Mac tour\'s acpmux harness fixture, {"harnesses": {...}}')
+    if app == "mac" and isinstance(steps, list):
+        out += settings_problems([s for s in steps if isinstance(s, dict)])
+    return out
+
+
+# The Settings rows (settings-schema.json, generated): a clip opens a row that is there and never has the tour
+# set a row agents may not change (`agent_settable` false, a `userOnly` policy) — the app refuses the tour's
+# `cmux settings set` as it refuses any agent's, so the clip's step fails on every run.
+SETTINGS_SCHEMA = ROOT / "schemas/settings/settings-schema.json"
+# Actions that open an internal page tab: over the control socket (`rpc` action.run) the tab opens behind the
+# window unless the run asks for `"focus": true` (ActionInvocation.allowsViewChange), so the clip shows none of it.
+PAGE_ACTIONS = {"openSettings", "openDebugSettings"}
+
+
+def settings_rows(schema: Path | None = None) -> dict[str, dict]:
+    path = SETTINGS_SCHEMA if schema is None else schema  # read at call time, so a test can point it elsewhere
+    try:
+        rows = json.loads(path.read_text()).get("rows", [])
+    except (OSError, ValueError):
+        return {}
+    return {row["key"]: row for row in rows if isinstance(row, dict) and isinstance(row.get("key"), str)}
+
+
+# What the app's openSettings gate accepts (SettingsAnchor(key:), SettingsPageAnchor): a row shown on the page,
+# one of the native cards, a section header, an action button or a page-only place. The React page links more
+# cards (settingsLinks.ts), but the gate refuses a name it does not know before the page sees it: run 45837430593
+# refused card.looksGallery ("no setting card.looksGallery in Settings") and the page_hidden
+# updates.installWhenIdleMinutes, both passing the check of the time.
+SETTINGS_ANCHOR_SWIFT = ROOT / "Packages/macOS/CmuxNext/Sources/CmuxNextSettingsWindow/SettingsAnchor.swift"
+
+
+def _swift_enum_cases(text: str, name: str) -> list[tuple[str, str]]:
+    """(case, raw value) of `enum NAME`'s `case` lines; a case with no `= "..."` is its own raw value."""
+    match = re.search(r"enum " + name + r"\b[^{]*\{(.*?)\n\}", text, re.S)
+    out = []
+    for line in (match.group(1).splitlines() if match else []):
+        if not line.startswith("    case ") or ":" in line or "(" in line.split("=")[0]:
+            continue  # a switch's `case .x:` sits deeper; an associated value is not a raw name
+        line = line.strip()
+        for part in line[len("case "):].split(","):
+            label, _, raw = part.partition("=")
+            raw = raw.strip().strip('"') if raw.strip() else label.strip()
+            if label.strip():
+                out.append((label.strip(), raw))
+    return out
+
+
+def settings_cards(schema: Path | None = None, anchors: Path | None = None) -> set[str]:
+    """The names openSettings opens besides rows: `card.<id>` or `<id>` for the native cards (SettingsCardID),
+    `section.<id>` headers, `action.<section>.<id>` buttons and the page-only places (SettingsPageAnchor)."""
+    try:
+        text = (SETTINGS_ANCHOR_SWIFT if anchors is None else anchors).read_text()
+    except OSError:
+        text = ""
+    out = set()
+    for _, card in _swift_enum_cases(text, "SettingsCardID"):
+        out |= {card, f"card.{card}"}
+    out |= {raw for _, raw in _swift_enum_cases(text, "SettingsPageAnchor")}
+    try:
+        data = json.loads((SETTINGS_SCHEMA if schema is None else schema).read_text())
+    except (OSError, ValueError):
+        return out
+    out |= {f"section.{s['id']}" for s in data.get("sections") or [] if isinstance(s, dict) and isinstance(s.get("id"), str)}
+    for category in (data.get("page") or {}).get("categories") or []:
+        if isinstance(category, dict) and isinstance(category.get("id"), str):
+            for action in category.get("actions") or []:
+                out |= {action, f"action.{category['id']}.{action}"}
+    return out
+
+
+def settings_target_exists(key: str, rows: dict, places: set[str]) -> bool:
+    """The app opens `key`: a row it shows (not page_hidden, read by cmux-next) or a place it knows."""
+    row = rows.get(key)
+    if row is not None and not row.get("page_hidden") and "cmux-next" in (row.get("consumers") or ["cmux-next"]):
+        return True
+    return key in places
+
+
+def settings_problems(steps: list[dict], schema: Path | None = None, anchors: Path | None = None) -> list[str]:
+    rows, cards, out = settings_rows(schema), settings_cards(schema, anchors), []
+    for step in steps:
+        title, rpc, command = step.get("title"), step.get("rpc"), step.get("cmux")
+        if isinstance(rpc, dict) and rpc.get("method") == "action.run" and isinstance(rpc.get("params"), dict):
+            params = rpc["params"]
+            if params.get("action") in PAGE_ACTIONS and params.get("focus") is not True:
+                out.append(f'step {title!r}: {params["action"]} over the socket opens its tab behind the window; '
+                           'give the rpc params "focus": true')
+            arguments = params.get("arguments") or params.get("args") or {}
+            key = arguments.get("setting") if isinstance(arguments, dict) else None
+            if params.get("action") == "openSettings" and rows and isinstance(key, str) and not settings_target_exists(key, rows, cards) \
+                    and not step.get("optional"):
+                out.append(f"step {title!r}: Settings has no row or card {key} the app opens (a page_hidden row and a card "
+                           "SettingsCardID lacks are refused); open a shown row or section.<id>")
+        if isinstance(command, list) and len(command) >= 3 and command[:1] == ["settings"] \
+                and command[1] in ("set", "reset") and isinstance(command[2], str):
+            row = rows.get(command[2])
+            if row is not None and row.get("agent_settable") is False:
+                out.append(f"step {title!r}: agents may not change {command[2]} ({row.get('agent_refusal') or 'userOnly'}); "
+                           "show its row, the tour cannot flip it")
     return out
 
 
@@ -521,6 +620,49 @@ def published(url: str, attempts: int = 3, pause: float = 2.0) -> bool:
     print(f"::warning title=What's New clip::{url}: {problem} after {attempts} tries; planning it as unpublished",
           file=sys.stderr)
     return False
+
+
+def pr_media_files(get=None) -> set[str] | None:
+    """Every whats-new/ path on pr-media, from one GET of its tree (GET, a REST path to its JSON, defaults to
+    `gh api`), or None when the tree cannot be read whole. The plan asks this once instead of a HEAD per clip
+    on raw.githubusercontent.com, which rate-limits a runner: on 2026-11-25 its HTTP 429s read two published
+    clips as unpublished, the plan recorded them again, and iphone-pairs-without-qr waited past PLAN_LIMIT
+    (cmux run 45636169467)."""
+    if get is None:
+        def get(path):
+            return json.loads(run(["gh", "api", path], text=True).stdout)
+    try:
+        # Two plain paths: the root listing names whats-new/'s tree, then that tree whole (410 entries on
+        # 2026-11-25; GitHub truncates past 100,000).
+        sha = next(e["sha"] for e in get(f"repos/{REPO}/contents?ref={BRANCH}")
+                   if isinstance(e, dict) and e.get("name") == "whats-new" and e.get("type") == "dir")
+        tree = get(f"repos/{REPO}/git/trees/{sha}?recursive=1")
+    except Exception as error:  # ClipError, no gh, a JSON or network error: each clip is asked on its own
+        print(f"::warning title=What's New clip::no pr-media tree read ({type(error).__name__}); "
+              "asking each clip's URL", file=sys.stderr)
+        return None
+    entries = tree.get("tree") if isinstance(tree, dict) else None
+    if not isinstance(entries, list) or tree.get("truncated"):
+        return None
+    return {f"whats-new/{e['path']}" for e in entries
+            if isinstance(e, dict) and e.get("type") == "blob" and isinstance(e.get("path"), str)}
+
+
+def listed(files: set[str] | None, fallback):
+    """An `exists` or `marker` reader for plan: a URL under URL_PREFIX that FILES does not list is not there
+    (False, or None for a marker), one it lists (or any URL, when FILES is None) is asked through FALLBACK."""
+    if files is None:
+        return fallback
+    absent = False if fallback is published else None
+    def read(url: str):
+        if url.startswith(URL_PREFIX):
+            path = "whats-new/" + url.removeprefix(URL_PREFIX)
+            if path not in files:
+                return absent
+            if fallback is published:
+                return True
+        return fallback(url)
+    return read
 
 
 def tour_module():
@@ -1034,7 +1176,9 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(record_iphone(a.id, simctl, a.udid, a.bundle_id, a.app, a.out)))
             return 0
         if a.command == "plan":
-            rows = plan(a.base, a.head, a.tours, a.limit, app=a.app, marker=failure_marker, tips=nightly_tips)
+            files = pr_media_files()
+            rows = plan(a.base, a.head, a.tours, a.limit, exists=listed(files, published), app=a.app,
+                        marker=listed(files, failure_marker), tips=nightly_tips)
             a.out.write_text(json.dumps(rows, indent=2) + "\n")
             print(len(rows))
             return 0
