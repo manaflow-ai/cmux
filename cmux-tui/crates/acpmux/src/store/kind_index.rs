@@ -510,7 +510,7 @@ impl LocalStore {
             {
                 return true;
             }
-            let Ok(rec) = serde_json::from_slice::<EventRecord>(line) else { return true };
+            let Ok(rec) = parse_record(line) else { return true };
             if rec.seq >= before {
                 return true;
             }
