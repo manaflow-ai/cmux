@@ -132,6 +132,7 @@ import {
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { findSession } from "./sessionIndex";
+import { useSettledToasts } from "./settledToasts";
 import {
   DRAFT_SETTLE_MS,
   hasPendingDraftWrite,
@@ -1425,6 +1426,27 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         ),
       ),
     [clientSnapshot, switchView, catalog, shownStarting],
+  );
+  // Unsettle (a settle toast's Undo, the home's Settled shelf): Unarchive by id (direct.ts
+  // `unsettle`); a refusal says so in a toast.
+  const unsettleChat = useCallback(
+    (entry: AcpmuxSessionEntry) => {
+      const client = directClient.current;
+      if (!client) return notices.failed(translate("error.notOpen"));
+      client.unsettle(entry.sessionId).catch((error: unknown) => notices.failed(errorMessage(error) || String(error)));
+    },
+    [notices],
+  );
+  // The chats this pane has shown: the app's relay holds each in the pane's scope from then on
+  // (AcpmuxPaneSessions, which never drops one), so only these may be unsettled from here.
+  const [shownChats, setShownChats] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    const shown = snapshot.sessionId;
+    if (shown) setShownChats((held) => (held.has(shown) ? held : new Set(held).add(shown)));
+  }, [snapshot.sessionId]);
+  const holdsChat = useCallback(
+    (entry: AcpmuxSessionEntry) => !entry.peer && shownChats.has(entry.sessionId),
+    [shownChats],
   );
   // The dialog belongs to the chat it opened on: switching chats closes it.
   const [shareChat, setShareChat] = useState(snapshot.sessionId);
@@ -4298,6 +4320,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       },
     );
   }, []);
+  // A chat acpmux settles while the pane is open says so (settledToasts.ts): Undo on a chat this
+  // pane holds, else Open, which selects it as a Home row does.
+  useSettledToasts({
+    sessions: snapshot.sessions,
+    toasts: paneToasts,
+    holds: holdsChat,
+    unsettle: unsettleChat,
+    open: selectSession,
+    t,
+  });
   /// What the DEBUG automation verbs (automation.ts) read and run: this render's chat and the
   /// same selection and changes-view paths the sidebar and the edited-files card use.
   const automationView = useRef<{
@@ -8452,6 +8484,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       sessionId: snapshot.sessionId,
       archived,
       local: localCwd !== undefined,
+      settled: findSession(snapshot.sessions, snapshot.sessionId)?.settled !== undefined,
     },
     (archived) => ignoreFailure(archiveChat(archived)),
     t,
