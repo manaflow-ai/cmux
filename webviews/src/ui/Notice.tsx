@@ -1,4 +1,4 @@
-// The one system for transient and attention UI in shared web (leo-workspace design/notifications.md):
+// The one system for transient and attention UI in shared web (design/notifications.md):
 // four kinds, one card, one queue.
 //
 // - `toast`: transient information or success, optional Undo; it leaves on its own (NoticeStack).

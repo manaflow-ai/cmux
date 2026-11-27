@@ -2227,7 +2227,7 @@
       "tier": "ui",
       "kitExport": false,
       "status": "ready",
-      "summary": "One failure card for everything that stops: a turn, a host or connection, a sign-in, a New Tab start (Beyer principles P1 one of each thing, P4 name the specific thing; leo-workspace design/notifications.md).",
+      "summary": "One failure card for everything that stops: a turn, a host or connection, a sign-in, a New Tab start (Beyer principles P1 one of each thing, P4 name the specific thing; design/notifications.md).",
       "extends": [],
       "props": [
         {
@@ -2285,7 +2285,7 @@
       "tier": "ui",
       "kitExport": false,
       "status": "ready",
-      "summary": "A feature tip (leo-workspace design/feature-tips.md): a small glass callout under (or over) the control it is about, with an arrow at that control, a title, a \"New\" pill, a close X and one sentence.",
+      "summary": "A feature tip (design/feature-tips.md): a small glass callout under (or over) the control it is about, with an arrow at that control, a title, a \"New\" pill, a close X and one sentence.",
       "extends": [],
       "props": [
         {
@@ -5025,7 +5025,7 @@
           "name": "matchTrigger",
           "type": "boolean",
           "optional": true,
-          "doc": "The menu starts at its trigger's leading edge and is at least as wide (Base UI's `--anchor-width`): for a field-like trigger, a select or a host field, whose menu reads as its drop-down (leo-workspace design/menus.md). The trigger says so with `data-field-trigger`."
+          "doc": "The menu starts at its trigger's leading edge and is at least as wide (Base UI's `--anchor-width`): for a field-like trigger, a select or a host field, whose menu reads as its drop-down (design/menus.md). The trigger says so with `data-field-trigger`."
         },
         {
           "name": "onKeyDown",
@@ -5842,7 +5842,7 @@
       "tier": "ui",
       "kitExport": false,
       "status": "ready",
-      "summary": "The one system for transient and attention UI in shared web (leo-workspace design/notifications.md): four kinds, one card, one queue.",
+      "summary": "The one system for transient and attention UI in shared web (design/notifications.md): four kinds, one card, one queue.",
       "extends": [],
       "props": [
         {
@@ -5973,7 +5973,7 @@
       "tier": "ui",
       "kitExport": false,
       "status": "ready",
-      "summary": "The stacked layout of NoticeStack (leo-workspace design/notifications.md): a compact deck at one anchor.",
+      "summary": "The stacked layout of NoticeStack (design/notifications.md): a compact deck at one anchor.",
       "extends": [],
       "props": [
         {
@@ -6073,7 +6073,7 @@
       "tier": "ui",
       "kitExport": false,
       "status": "ready",
-      "summary": "The one queue and stack for toasts (leo-workspace design/notifications.md).",
+      "summary": "The one queue and stack for toasts (design/notifications.md).",
       "extends": [],
       "props": [
         {

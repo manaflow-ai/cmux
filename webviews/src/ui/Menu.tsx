@@ -392,7 +392,7 @@ export interface MenuPopupProps {
   /**
    * The menu starts at its trigger's leading edge and is at least as wide (Base UI's
    * `--anchor-width`): for a field-like trigger, a select or a host field, whose menu reads as its
-   * drop-down (leo-workspace design/menus.md). The trigger says so with `data-field-trigger`.
+   * drop-down (design/menus.md). The trigger says so with `data-field-trigger`.
    */
   matchTrigger?: boolean;
   /** False for a custom layout with its own scrolling columns. */

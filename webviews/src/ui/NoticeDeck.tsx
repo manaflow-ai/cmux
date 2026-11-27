@@ -1,4 +1,4 @@
-// The stacked layout of NoticeStack (leo-workspace design/notifications.md): a compact deck at one
+// The stacked layout of NoticeStack (design/notifications.md): a compact deck at one
 // anchor. The newest toast is in front at the anchor's edge; up to two older ones peek behind it,
 // each a step smaller, cut to the front one's height with their text hidden. While the pointer or
 // focus is in the deck it spreads into the full list, so every toast can be read, answered or

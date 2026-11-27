@@ -1,4 +1,4 @@
-// A feature tip (leo-workspace design/feature-tips.md): a small glass callout under (or over) the
+// A feature tip (design/feature-tips.md): a small glass callout under (or over) the
 // control it is about, with an arrow at that control, a title, a "New" pill, a close X and one
 // sentence. It is placed and dismissed by its caller (ui/featureTips/FeatureTipHost.tsx, which holds
 // the rules for when one may show). It never takes focus: it opens while the person is idle and

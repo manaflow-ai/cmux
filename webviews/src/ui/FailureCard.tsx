@@ -1,5 +1,5 @@
 // One failure card for everything that stops: a turn, a host or connection, a sign-in, a New Tab start
-// (Beyer principles P1 one of each thing, P4 name the specific thing; leo-workspace design/notifications.md).
+// (Beyer principles P1 one of each thing, P4 name the specific thing; design/notifications.md).
 // A title that names what stopped, a cause line (an exit code or the last line of stderr, cut to one
 // line), the one primary button that is the specific fix, and a quiet secondary ("Show log"). Today
 // the same job is a card plus button, bare text plus a pill, and underlined links; this is the shape
