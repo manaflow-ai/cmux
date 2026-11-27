@@ -32,6 +32,8 @@ on:
       # The production link keyset mint (test-node/link-keyset-mint.test.ts).
       - scripts/cmux-next/release/mint-link-keyset.mjs
       - .github/workflows/backend.yml
+      # The api-workerd shards' input-tree key (a green result is reused only for the same key).
+      - scripts/ci/paths_tree_key.py
       - scripts/cmux-next/cloud-journey.ts
       - scripts/cmux-next/cloud-journey-ci.sh
       # The journey's login copy (read from the Mac's installer) and its model stub.
@@ -59,6 +61,8 @@ on:
       # The production link keyset mint (test-node/link-keyset-mint.test.ts).
       - scripts/cmux-next/release/mint-link-keyset.mjs
       - .github/workflows/backend.yml
+      # The api-workerd shards' input-tree key (a green result is reused only for the same key).
+      - scripts/ci/paths_tree_key.py
       - scripts/cmux-next/cloud-journey.ts
       - scripts/cmux-next/cloud-journey-ci.sh
       # The journey's login copy (read from the Mac's installer) and its model stub.
@@ -89,11 +93,17 @@ permissions:
 # never started a job, so prod-promote.ts's G1 reads it as no evidence (no deploy-staging), never a red deploy.
 # The `-push` key keeps a dispatch (staging, promote, rollback) out of the pushes' group.
 # Environment job groups still serialize each complete deployment/smoke/rollback sequence.
+# Retain pending jobs: a slower older test run must not replace a newer pending deployment.
+# A pull request's opened, synchronize and reopened runs share one group (`run`; `closed` keeps its own, so the
+# preview cleanup always runs), and a newer head cancels the run of the head it replaced: a superseded head's
+# shards measured 644 runner-min a day still running after the next push (11-23T22..11-24T22), and its pending
+# successor waited for them. Not while the preview broker is on: its jobs write the shared development branch and
+# the PR's preview, and a cancel must not cut one short. Pushes keep the shared `-push` group above (never cancelled).
 concurrency:
-  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && '-push' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: backend-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && (github.event.action == 'closed' && 'closed' || 'run') || github.event.action || 'run' }}${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && '-push' || '' }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
   # A pull request's newer push supersedes its running tests (CI cut 2026-11-24: 12 api-workerd shards kept running for
-  # every superseded head); a started push run on a base branch finishes (a cancelled deploy-staging is a red deploy).
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  # every superseded head); pushes to the base branches each finish. A label that runs nothing gets its own group.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'closed' && vars.CMUX_NEXT_PREVIEW_BROKER_ENABLED != '1' }}
 
 env:
   VERCEL_ORG_ID: team_KndpHsJ15gO2OoAP2SO0thYn
@@ -121,7 +131,7 @@ jobs:
     outputs:
       run: ${{ steps.route.outputs.run }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -155,9 +165,11 @@ jobs:
       key: ${{ steps.key.outputs.key }}
       hit: ${{ steps.reuse.outputs.hit }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          sparse-checkout: scripts/ci/api_workerd_key.py
+          sparse-checkout: |
+            scripts/ci/api_workerd_key.py
+            .gitmodules
           sparse-checkout-cone-mode: false
       - name: Hash the API Worker test inputs
         id: key
@@ -199,17 +211,35 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      # A later push of a pull request that leaves every path this workflow runs on (`pull_request.paths`, this file
+      # among them) as an earlier green run of this shard had them reuses that verdict (.github/actions/tree-result,
+      # scripts/ci/paths_tree_key.py): on 11-23T22..11-24T22, 55 of 333 backend PR runs tested inputs identical to an
+      # earlier head of the same PR with no backend change on the base between. Only pull requests reuse; a push to
+      # the base runs every shard.
+      - name: This shard's input tree
+        id: inputs
+        working-directory: ${{ github.workspace }}
+        run: echo "key=$(python3 scripts/ci/paths_tree_key.py --workflow .github/workflows/backend.yml --job api-workerd-${{ matrix.shard }})" >> "$GITHUB_OUTPUT"
+      - name: Reuse a green result of this shard for the same input tree
+        id: tree
+        uses: ./.github/actions/tree-result
+        with:
+          mode: restore
+          job: api-workerd-${{ matrix.shard }}
+          key: ${{ steps.inputs.outputs.key }}
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         shell: bash
         continue-on-error: true
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore bun 1.4.4 || true
-
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         with:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Restore the Bun package cache (the test job saves it)
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         timeout-minutes: 5
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -223,6 +253,7 @@ jobs:
       # version manifest (refused when the installation's hour runs dry) nor copies a fresh download into the tool
       # cache, which on a packed cmux-linux host ran past this step's 5 min (5 shards of run 45606215566, cmux#56511).
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         shell: bash
         timeout-minutes: 3
         continue-on-error: true
@@ -230,11 +261,14 @@ jobs:
           TOOLCHAIN_R2_ALL: "1"
         run: bash "$GITHUB_WORKSPACE/scripts/ci/toolchain-r2.sh" restore node 24.22.1 || true
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         timeout-minutes: 5
         with:
           node-version: "24.22.1"
       - run: bun install --frozen-lockfile
+        if: ${{ steps.tree.outputs.hit != 'true' }}
       - name: API Worker tests (workerd), shard ${{ matrix.shard }} of 12
+        if: ${{ steps.tree.outputs.hit != 'true' }}
         working-directory: backend/apps/api
         # Worker count, the rerun of a shard's failed files and why: scripts/ci/api-workerd-shard.sh. The `test` job
         # runs the same script for a shard whose job died before this step answered (cmux#56511).
@@ -246,18 +280,20 @@ jobs:
       # and the gate reruns it (scripts/ci/api_workerd_infra_shards.py). An artifact, not a REST read of the run's
       # jobs, which the repository's GITHUB_TOKEN hour refuses when CI is busiest.
       - name: Record the shard's test verdict
-        if: ${{ !cancelled() && (steps.shard.outcome == 'success' || steps.shard.outcome == 'failure') }}
+        if: ${{ !cancelled() && (steps.tree.outputs.hit == 'true' || steps.shard.outcome == 'success' || steps.shard.outcome == 'failure') }}
         working-directory: backend
         # "<outcome> <attempt>": artifacts belong to the run, so after "Re-run failed jobs" the gate tells this
         # attempt's answer from an older one's.
         # The shard script marks "every test passed, errors outside them" as no verdict: nothing is recorded, and the
-        # gate reruns the shard.
+        # gate reruns the shard. A tree-result hit skipped the tests because this input tree already passed them, so it
+        # records `success`: no verdict would make the gate rerun a shard that is already green.
         run: |
           mkdir -p "$RUNNER_TEMP/api-workerd-verdict"
           if [ -e "$RUNNER_TEMP/api-workerd-no-verdict" ]; then echo "no test verdict (see the test step); the gate reruns this shard"; exit 0; fi
-          echo "${{ steps.shard.outcome }} ${{ github.run_attempt }}" > "$RUNNER_TEMP/api-workerd-verdict/${{ matrix.shard }}"
+          outcome="${{ steps.shard.outcome }}"; [ "${{ steps.tree.outputs.hit }}" = true ] && outcome=success
+          echo "$outcome ${{ github.run_attempt }}" > "$RUNNER_TEMP/api-workerd-verdict/${{ matrix.shard }}"
       - name: Upload the shard's test verdict
-        if: ${{ !cancelled() && (steps.shard.outcome == 'success' || steps.shard.outcome == 'failure') }}
+        if: ${{ !cancelled() && (steps.tree.outputs.hit == 'true' || steps.shard.outcome == 'success' || steps.shard.outcome == 'failure') }}
         continue-on-error: true
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -267,6 +303,13 @@ jobs:
           retention-days: 30
           overwrite: true
           if-no-files-found: ignore
+      - name: Record this shard's green result for its input tree
+        if: ${{ success() && steps.tree.outputs.hit != 'true' }}
+        uses: ./.github/actions/tree-result
+        with:
+          mode: save
+          job: api-workerd-${{ matrix.shard }}
+          key: ${{ steps.inputs.outputs.key }}
 
   test:
     # Runs after the API Worker shards whatever they end with, and fails on a red shard (its last step), so the
@@ -298,7 +341,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -501,7 +544,7 @@ jobs:
       run:
         working-directory: backend/db
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -537,7 +580,7 @@ jobs:
       run:
         working-directory: backend/db
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -576,7 +619,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -637,7 +680,7 @@ jobs:
       deployment: false
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: |
@@ -669,7 +712,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       # The guard compares the pushed tree with the previous head's: two commits and no ancestry. checkout's
@@ -770,17 +813,13 @@ jobs:
     steps:
       - id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
       # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
       # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
@@ -964,17 +1003,13 @@ jobs:
     steps:
       - id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
       # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
       # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
@@ -1086,7 +1121,12 @@ jobs:
       deployment: false
     timeout-minutes: 50
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # The journey's deadline, from the job's own start: 47 of its 50 min, whatever the build took. The journey
+      # step stops each run before it and retries only when another run fits (cloud-journey-ci.sh), so a slow
+      # run ends red with its verdict and summary instead of being killed by a step timeout with neither.
+      - name: Set the journey's deadline
+        run: echo "JOURNEY_DEADLINE_EPOCH=$(( $(date +%s) + 47 * 60 ))" >> "$GITHUB_ENV"
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false
@@ -1122,19 +1162,67 @@ jobs:
           use-cache: false
       - name: Restore the Zig global cache (feat-cmux-next pushes save it)
         uses: ./.github/actions/zig-global-cache
-      # Without it every run compiles cmux-tui cold: 39 min on run 45589784032 (job 139139653339), which left
-      # the journey 1 min under this job's 50 and cancelled it, so no promote reached production. Same cache
-      # as cloud-journey-prod.yml's identical build.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # Without a warm build every run compiles cmux-tui cold: 39 min on run 45589784032 (job 139139653339) and
+      # 36 min on run 45835919245 (job 140006782447), which left the journey under 15 of this job's 50 and
+      # cancelled it, so no promote reached production all of 2026-11-26. Its own rust-cache never filled: a
+      # cancelled job skips the post-step save (no v0-rust-journey-staging-* entry exists). So it reuses the
+      # build cmux-tui-headless-debug.yml saves on every feat-cmux-next cmux-tui push, the same key, path and
+      # build env as cmux-tui-sdks.yml's conformance job: the exact binary when the tree matches, else
+      # feat-cmux-next's shared target dir and an incremental build.
+      - name: Key the headless cmux-tui build
+        id: headless-key
+        run: |
+          set -euo pipefail
+          echo "key=cmux-tui-headless-v3-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:cmux-tui)-$(git rev-parse HEAD:ghostty)-$(git rev-parse HEAD:ghostty-next)" >> "$GITHUB_OUTPUT"
+      - name: Restore the headless cmux-tui build
+        id: headless-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          save-if: ${{ github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref) }}
-          workspaces: cmux-tui
+          path: cmux-tui/target/debug/cmux-tui
+          key: ${{ steps.headless-key.outputs.key }}
+      - name: Cache the cmux-tui target dir
+        id: headless-target
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' }}
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-210 (pool runners keep different leftover toolchains)
+          add-rust-environment-hash-key: false
           # rust-cache deletes ~/.cargo/bin otherwise (tests/test_ci_rust_cache_keeps_runner_bin.py).
           cache-bin: false
-          # Save the build even when the journey goes red: the first run after #56495 built in 13 min but its
-          # journey ran past the job's 50 (job 139905166641), and a cancelled job never runs the save, so the
-          # cache would stay cold forever.
-          cache-on-failure: true
+          workspaces: cmux-tui -> target
+          shared-key: cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}
+          cache-workspace-crates: "true"
+          # cmux-tui-headless-debug.yml owns this key; read-only here.
+          save-if: false
+      # rust-cache restores only its exact key (with the environment hash off its restore key is the key), and
+      # that key hashes Cargo.lock, which feat-cmux-next changes several times an hour. So the journey often
+      # runs on a lock hash no headless-debug run has saved yet: run 45903917201 (job 140211783694) missed both
+      # caches, compiled cmux-tui cold for 35 min and ran past its deadline. This falls back to the newest
+      # headless-debug target dir under any lock hash; cargo then rebuilds only what changed. The paths are
+      # rust-cache's own, in its order and absolute, so the entry's version matches the one it saved.
+      - name: Paths of the headless target dir
+        id: headless-target-paths
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' && steps.headless-target.outputs.cache-hit != 'true' }}
+        run: |
+          set -euo pipefail
+          cargo_home="${CARGO_HOME:-$HOME/.cargo}"
+          {
+            echo "paths<<EOF"
+            echo "$cargo_home/registry"
+            echo "$cargo_home/git"
+            echo "$GITHUB_WORKSPACE/cmux-tui/target"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - name: Restore the newest headless target dir (any Cargo.lock)
+        if: ${{ steps.headless-cache.outputs.cache-hit != 'true' && steps.headless-target.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        timeout-minutes: 5
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ steps.headless-target-paths.outputs.paths }}
+          key: v0-rust-cmux-tui-headless-debug-${{ hashFiles('cmux-tui/rust-toolchain.toml', 'cmux-tui/Cargo.lock', '.cargo/config.toml') }}-${{ runner.os }}-x64
+          restore-keys: |
+            v0-rust-cmux-tui-headless-debug-
       - name: Build Linux cmux-tui for the headless journey
         id: build-cmux-tui
         working-directory: cmux-tui
@@ -1143,10 +1231,19 @@ jobs:
           CARGO_HTTP_TIMEOUT: "120"
           GHOSTTY_ZIG_SOURCE: ghostty-next
           CMUX_GHOSTTY_SRC: ""
+          # As cmux-tui-headless-debug.yml builds it, so the shared target dir's fingerprints match and the
+          # binary is the portable one (a build-host-native libghostty-vt dies with SIGILL on other hosts).
+          CMUX_GHOSTTY_VT_ZIG_CPU: baseline
+          HEADLESS_HIT: ${{ steps.headless-cache.outputs.cache-hit }}
         run: |
           target_dir="${CARGO_TARGET_DIR:-target}"
           binary="$target_dir/debug/cmux-tui"
-          cargo build -p cmux-tui --bin cmux-tui --locked
+          if [[ "$HEADLESS_HIT" == "true" && -x "target/debug/cmux-tui" ]]; then
+            binary="target/debug/cmux-tui"
+            echo "restored the headless debug cmux-tui for this tree; no build"
+          else
+            cargo build -p cmux-tui --bin cmux-tui --locked
+          fi
           test -x "$binary"
           file "$binary" | grep -q 'ELF 64-bit'
           sha256sum "$binary"
@@ -1165,8 +1262,9 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
       - name: Cloud journey (staging)
-        # Under the job's 50 so a slow journey fails as a step and rust-cache's post step still saves the build.
-        timeout-minutes: 32
+        # A backstop past JOURNEY_DEADLINE_EPOCH (the script ends by it) and under the job's 50, so the post steps
+        # still run. 32 cut run 45874526877's retry 3 min in: a 28 min first pass left no room for one.
+        timeout-minutes: 48
         env:
           CMUX_DOGFOOD_STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
           CMUX_DOGFOOD_STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
@@ -1199,17 +1297,13 @@ jobs:
     steps:
       - id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
             /*
             !/cmux-next-ios/verify/
-            scripts/ci/toolchain-r2.sh
-            scripts/ci/toolchain-archives.sha256
-            scripts/ci/r2-cache.sh
-            scripts/ci/lan_cache_fetch.py
       # checkout's fetch retries on its own, but its `git checkout` then downloads the sparse tree's blobs from the
       # promisor remote (filter: blob:none) in one call nothing retries: "Operation too slow ... could not fetch
       # fc12c33... from promisor remote" failed deploy-development (run 45740936781, job 139645489749) and held
@@ -1386,7 +1480,7 @@ jobs:
     outputs:
       candidate: ${{ steps.gates.outputs.candidate }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       # Ancestry (the lineage recheck, rev-list, production's source SHA) needs feat-cmux-next's history, not
@@ -1491,7 +1585,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.promote-gates.outputs.candidate }}
           persist-credentials: false
@@ -1591,7 +1685,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       # feat-cmux-next's history alone, not fetch-depth 0's every branch and tag (why: promote-gates).
@@ -1648,7 +1742,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
       # feat-cmux-next's history alone, not fetch-depth 0's every branch and tag (why: promote-gates).
@@ -1682,7 +1776,7 @@ jobs:
           sha="$(bun scripts/cmux-next/release/prod-promote.ts serving)"
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::production serves no tagged commit"; exit 1; }
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ steps.serving.outputs.sha }}
           persist-credentials: false
@@ -1750,7 +1844,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
       - name: Restore pinned Bun 1.4.4 from the CI cache bucket
         shell: bash
         continue-on-error: true
@@ -1845,7 +1939,7 @@ jobs:
       contents: read
       actions: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # The rollback reads production's source tags as commits (prod-promote.ts): feat-cmux-next's history,

@@ -13,7 +13,15 @@
       "maxWidth": "infinity",
       "maxHeight": "infinity"
      },
-     "background": "#3A86D4",
+     "background": {
+      "linear": {
+       "colors": [
+        "#235C9B",
+        "#3076B4"
+       ],
+       "angle": 180
+      }
+     },
      "menu": [
       {
        "title": "Refresh weather"
@@ -131,7 +139,8 @@
      "symbol": "sun.max.fill",
      "size": 16,
      "font": 16,
-     "color": "#FFD60A"
+     "color": "#FFD60A",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -211,7 +220,16 @@
       "maxWidth": "infinity",
       "maxHeight": "infinity"
      },
-     "background": "#14203A",
+     "background": {
+      "linear": {
+       "colors": [
+        "#0B1A3A",
+        "#253B6E",
+        "#3A4E86"
+       ],
+       "angle": 180
+      }
+     },
      "menu": [
       {
        "title": "Refresh weather"
@@ -329,7 +347,8 @@
      "symbol": "moon.stars.fill",
      "size": 16,
      "font": 16,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -606,7 +625,15 @@
       "maxWidth": "infinity",
       "maxHeight": "infinity"
      },
-     "background": "#3A86D4",
+     "background": {
+      "linear": {
+       "colors": [
+        "#235C9B",
+        "#3076B4"
+       ],
+       "angle": 180
+      }
+     },
      "menu": [
       {
        "title": "Refresh weather"
@@ -670,7 +697,7 @@
      "text": "Allow network access for Weather in Settings > Apps.",
      "font": 12,
      "weight": "medium",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 3
     }
    },
@@ -719,7 +746,15 @@
       "maxWidth": "infinity",
       "maxHeight": "infinity"
      },
-     "background": "#3A86D4",
+     "background": {
+      "linear": {
+       "colors": [
+        "#235C9B",
+        "#3076B4"
+       ],
+       "angle": 180
+      }
+     },
      "menu": [
       {
        "title": "Refresh weather"
@@ -845,7 +880,8 @@
      "symbol": "sun.max.fill",
      "size": 16,
      "font": 16,
-     "color": "#FFD60A"
+     "color": "#FFD60A",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -924,7 +960,7 @@
      "text": "10 AM",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -936,7 +972,8 @@
      "symbol": "sun.max.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFD60A"
+     "color": "#FFD60A",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -986,7 +1023,7 @@
      "text": "11 AM",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -998,7 +1035,8 @@
      "symbol": "sun.max.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFD60A"
+     "color": "#FFD60A",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -1048,7 +1086,7 @@
      "text": "12 PM",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -1060,7 +1098,8 @@
      "symbol": "cloud.sun.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -1110,7 +1149,7 @@
      "text": "1 PM",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -1122,7 +1161,8 @@
      "symbol": "cloud.sun.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -1172,7 +1212,7 @@
      "text": "2 PM",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -1184,7 +1224,8 @@
      "symbol": "sun.max.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFD60A"
+     "color": "#FFD60A",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -1234,7 +1275,7 @@
      "text": "3 PM",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -1246,7 +1287,8 @@
      "symbol": "sun.max.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFD60A"
+     "color": "#FFD60A",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -1331,7 +1373,15 @@
       "maxWidth": "infinity",
       "maxHeight": "infinity"
      },
-     "background": "#4F6274",
+     "background": {
+      "linear": {
+       "colors": [
+        "#354D63",
+        "#566F85"
+       ],
+       "angle": 180
+      }
+     },
      "menu": [
       {
        "title": "Refresh weather"
@@ -1457,7 +1507,8 @@
      "symbol": "cloud.rain.fill",
      "size": 16,
      "font": 16,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -1536,7 +1587,7 @@
      "text": "15",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -1548,7 +1599,8 @@
      "symbol": "cloud.rain.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -1598,7 +1650,7 @@
      "text": "16",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -1610,7 +1662,8 @@
      "symbol": "cloud.heavyrain.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -1660,7 +1713,7 @@
      "text": "17",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -1672,7 +1725,8 @@
      "symbol": "cloud.sun.rain.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -1722,7 +1776,7 @@
      "text": "18",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -1734,7 +1788,8 @@
      "symbol": "cloud.moon.rain.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -1784,7 +1839,7 @@
      "text": "19",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -1796,7 +1851,8 @@
      "symbol": "cloud.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -1846,7 +1902,7 @@
      "text": "20",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -1858,7 +1914,8 @@
      "symbol": "cloud.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -2554,7 +2611,16 @@
       "maxWidth": "infinity",
       "maxHeight": "infinity"
      },
-     "background": "#14203A",
+     "background": {
+      "linear": {
+       "colors": [
+        "#0B1A3A",
+        "#253B6E",
+        "#3A4E86"
+       ],
+       "angle": 180
+      }
+     },
      "menu": [
       {
        "title": "Refresh weather"
@@ -2680,7 +2746,8 @@
      "symbol": "moon.stars.fill",
      "size": 16,
      "font": 16,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -2753,7 +2820,7 @@
      "text": "23",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -2765,7 +2832,8 @@
      "symbol": "moon.stars.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -2815,7 +2883,7 @@
      "text": "00",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -2827,7 +2895,8 @@
      "symbol": "moon.stars.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -2877,7 +2946,7 @@
      "text": "01",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -2889,7 +2958,8 @@
      "symbol": "cloud.moon.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -2939,7 +3009,7 @@
      "text": "02",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -2951,7 +3021,8 @@
      "symbol": "cloud.moon.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -3001,7 +3072,7 @@
      "text": "03",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -3013,7 +3084,8 @@
      "symbol": "moon.stars.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -3063,7 +3135,7 @@
      "text": "04",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -3075,7 +3147,8 @@
      "symbol": "moon.stars.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -3168,6 +3241,7 @@
      "size": 16,
      "font": 16,
      "color": "#FFD60A",
+     "symbolRendering": "multicolor",
      "frame": {
       "width": 24
      }
@@ -3187,7 +3261,7 @@
      "text": "8°",
      "font": 14,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "frame": {
       "width": 32
      }
@@ -3304,6 +3378,7 @@
      "size": 16,
      "font": 16,
      "color": "#FFD60A",
+     "symbolRendering": "multicolor",
      "frame": {
       "width": 24
      }
@@ -3323,7 +3398,7 @@
      "text": "8°",
      "font": 14,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "frame": {
       "width": 32
      }
@@ -3440,6 +3515,7 @@
      "size": 16,
      "font": 16,
      "color": "#FFFFFF",
+     "symbolRendering": "multicolor",
      "frame": {
       "width": 24
      }
@@ -3459,7 +3535,7 @@
      "text": "9°",
      "font": 14,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "frame": {
       "width": 32
      }
@@ -3576,6 +3652,7 @@
      "size": 16,
      "font": 16,
      "color": "#FFFFFF",
+     "symbolRendering": "multicolor",
      "frame": {
       "width": 24
      }
@@ -3595,7 +3672,7 @@
      "text": "9°",
      "font": 14,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "frame": {
       "width": 32
      }
@@ -3712,6 +3789,7 @@
      "size": 16,
      "font": 16,
      "color": "#FFFFFF",
+     "symbolRendering": "multicolor",
      "frame": {
       "width": 24
      }
@@ -3731,7 +3809,7 @@
      "text": "8°",
      "font": 14,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "frame": {
       "width": 32
      }
@@ -3848,6 +3926,7 @@
      "size": 16,
      "font": 16,
      "color": "#FFD60A",
+     "symbolRendering": "multicolor",
      "frame": {
       "width": 24
      }
@@ -3867,7 +3946,7 @@
      "text": "7°",
      "font": 14,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "frame": {
       "width": 32
      }
@@ -4016,7 +4095,15 @@
       "maxWidth": "infinity",
       "maxHeight": "infinity"
      },
-     "background": "#7F93A8",
+     "background": {
+      "linear": {
+       "colors": [
+        "#425B73",
+        "#60758A"
+       ],
+       "angle": 180
+      }
+     },
      "menu": [
       {
        "title": "Refresh weather"
@@ -4142,7 +4229,8 @@
      "symbol": "cloud.snow.fill",
      "size": 16,
      "font": 16,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -4215,7 +4303,7 @@
      "text": "9 AM",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -4227,7 +4315,8 @@
      "symbol": "cloud.snow.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -4277,7 +4366,7 @@
      "text": "10 AM",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -4289,7 +4378,8 @@
      "symbol": "snowflake",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -4339,7 +4429,7 @@
      "text": "11 AM",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -4351,7 +4441,8 @@
      "symbol": "cloud.snow.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -4401,7 +4492,7 @@
      "text": "12 PM",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -4413,7 +4504,8 @@
      "symbol": "cloud.snow.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -4463,7 +4555,7 @@
      "text": "1 PM",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -4475,7 +4567,8 @@
      "symbol": "cloud.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -4525,7 +4618,7 @@
      "text": "2 PM",
      "font": 11,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "lineLimit": 1
     }
    },
@@ -4537,7 +4630,8 @@
      "symbol": "cloud.fill",
      "size": 18,
      "font": 18,
-     "color": "#FFFFFF"
+     "color": "#FFFFFF",
+     "symbolRendering": "multicolor"
     }
    },
    {
@@ -4630,6 +4724,7 @@
      "size": 16,
      "font": 16,
      "color": "#FFFFFF",
+     "symbolRendering": "multicolor",
      "frame": {
       "width": 24
      }
@@ -4649,7 +4744,7 @@
      "text": "21°",
      "font": 14,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "frame": {
       "width": 32
      }
@@ -4766,6 +4861,7 @@
      "size": 16,
      "font": 16,
      "color": "#FFFFFF",
+     "symbolRendering": "multicolor",
      "frame": {
       "width": 24
      }
@@ -4785,7 +4881,7 @@
      "text": "19°",
      "font": 14,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "frame": {
       "width": 32
      }
@@ -4902,6 +4998,7 @@
      "size": 16,
      "font": 16,
      "color": "#FFD60A",
+     "symbolRendering": "multicolor",
      "frame": {
       "width": 24
      }
@@ -4921,7 +5018,7 @@
      "text": "23°",
      "font": 14,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "frame": {
       "width": 32
      }
@@ -5038,6 +5135,7 @@
      "size": 16,
      "font": 16,
      "color": "#FFD60A",
+     "symbolRendering": "multicolor",
      "frame": {
       "width": 24
      }
@@ -5057,7 +5155,7 @@
      "text": "27°",
      "font": 14,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "frame": {
       "width": 32
      }
@@ -5174,6 +5272,7 @@
      "size": 16,
      "font": 16,
      "color": "#FFFFFF",
+     "symbolRendering": "multicolor",
      "frame": {
       "width": 24
      }
@@ -5193,7 +5292,7 @@
      "text": "21°",
      "font": 14,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "frame": {
       "width": 32
      }
@@ -5310,6 +5409,7 @@
      "size": 16,
      "font": 16,
      "color": "#FFFFFF",
+     "symbolRendering": "multicolor",
      "frame": {
       "width": 24
      }
@@ -5329,7 +5429,7 @@
      "text": "25°",
      "font": 14,
      "weight": "semibold",
-     "color": "#FFFFFFB3",
+     "color": "#FFFFFF",
      "frame": {
       "width": 32
      }

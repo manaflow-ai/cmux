@@ -253,10 +253,11 @@ struct AgentShareTests {
         #expect(AgentShareInvites.sharesInviting("a@cmux.com", of: Self.session, in: shares).isEmpty, "a removed invitee is not invited")
     }
 
-    @Test func aRoleIsViewOrTalkAndTalkByDefault() {
+    @Test func aNamedInviteAcceptsDriveAndDefaultsToTalk() {
         #expect(AgentShareInvites.role(nil) == "talk")
         #expect(AgentShareInvites.role(" View ") == "view")
         #expect(AgentShareInvites.role("talk") == "talk")
+        #expect(AgentShareInvites.role("Drive") == "drive")
         #expect(AgentShareInvites.role("admin") == nil)
     }
 
@@ -286,6 +287,22 @@ struct AgentShareTests {
         #expect(missing.code == "share.not_invited" && missing.message.contains("@theo"))
         #expect(AgentShareStrings.failure(AgentShareDeclined(invite: true)).message == AgentShareStrings.inviteDeclined)
         #expect(AgentShareStrings.failure(AgentShareDeclined()).message == AgentShareStrings.declined)
+    }
+
+    /// The Invite People sheet never shows a CLI flag or the daemon's raw text: an unknown `share.*`
+    /// code reads the web Share dialog's generic line, a known one its own sentence.
+    @Test func theSheetSaysAFailureInThePersonsWords() {
+        func code(_ code: String) -> any Error {
+            DaemonError.command(cmd: "agent-session-share-invite-chat", message: "raw daemon text", code: code)
+        }
+        #expect(AgentShareStrings.sheetFailure(code("share.closed")) == AgentShareStrings.sheetGeneric)
+        #expect(AgentShareStrings.sheetFailure(code("share.invited")) == AgentShareStrings.alreadyInvited)
+        for known in ["share.limit", "share.room_unreachable", "share.room_refused"] {
+            let said = AgentShareStrings.sheetFailure(code(known))
+            #expect(said != "raw daemon text" && said != AgentShareStrings.sheetGeneric, "\(known)")
+        }
+        #expect(AgentShareStrings.sheetFailure(AgentShareRefusal(reason: AgentShareStrings.badRole)) == AgentShareStrings.sheetGeneric)
+        #expect(AgentShareStrings.sheetFailure(AgentShareBadAccount()) == AgentShareStrings.badAccount)
     }
 
     /// The sheet lists every account still invited on a live share of the chat, once (its latest
@@ -339,6 +356,8 @@ struct AgentShareTests {
         func rows() -> [AgentShareInviteRowView] { all(card).compactMap { $0 as? AgentShareInviteRowView } }
         func settle(until done: () -> Bool) async { for _ in 0..<200 where !done() { await Task.yield() } }
         #expect(!all(card).contains { String(describing: type(of: $0)).contains("NSHostingView") })
+        let drive = try #require(card.rolePopup.itemArray.first { $0.representedObject as? String == "drive" })
+        #expect(drive.isHidden)
         #expect(!card.inviteButton.isEnabled, "Invite is off with an empty field")
         await model.load()
         await settle { rows().count == 1 }
@@ -348,6 +367,12 @@ struct AgentShareTests {
         model.account = "@ana"
         await settle { card.inviteButton.isEnabled }
         #expect(card.inviteButton.isEnabled)
+        #expect(!drive.isHidden)
+        model.role = "drive"
+        await settle { card.status.stringValue == model.roleDetail }
+        #expect(card.status.stringValue == AgentShareStrings.inviteRoleLine("drive"))
+        model.account = "@bo"
+        #expect(model.role == "talk")
         shown.removePressed()
         await settle { !daemon.removed.isEmpty && rows().isEmpty }
         #expect(daemon.removed == ["@theo"])
