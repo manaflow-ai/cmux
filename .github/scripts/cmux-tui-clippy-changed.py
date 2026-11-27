@@ -288,11 +288,12 @@ def autofixed(repo: Path, command: list[str], paths: list[str], workspace: dict[
     if not re.fullmatch(r"[0-9a-f]{40}", head) or is_autofix_head(repo, head):
         return False
     own = {path for path in paths if path.startswith(f"{ROOT}/") and path.endswith(".rs")}
-    names = set()
+    names, directories = set(), set()
     for path in own:
         for directory in sorted(workspace, key=len, reverse=True):
             if path.startswith(f"{directory}/"):
                 names.add(workspace[directory])
+                directories.add(directory)
                 break
     if not names:
         return False
@@ -303,7 +304,8 @@ def autofixed(repo: Path, command: list[str], paths: list[str], workspace: dict[
     try:
         subprocess.run(["cargo", "clippy", "--fix", "--allow-dirty", "--allow-staged", "--locked", "--all-targets",
                         *packages], cwd=cwd, check=True, stdout=subprocess.DEVNULL)
-        subprocess.run(["cargo", "fmt", *packages], cwd=cwd, check=True)
+        extra = [path for directory in sorted(directories) for path in fmt_changed.it_test_files(repo, directory)]
+        subprocess.run(["cargo", "fmt", *packages, *(["--", *extra] if extra else [])], cwd=cwd, check=True)
     except subprocess.CalledProcessError:
         fmt_changed.git(repo, "checkout", "--quiet", "--", ROOT)
         return False
@@ -454,6 +456,8 @@ def name_base_reds(repo: Path, base: str, red_files: list[str]) -> None:
               f"through an API it changed, is this change's to fix)")
     if outside and len(outside) == len(red_files):
         print("cmux-tui-clippy-changed: every clippy error is in a file this change does not touch: likely a base red")
+        if verdict := os.environ.get("CMUX_CLIPPY_BASE_RED_FILE"):
+            Path(verdict).write_text("base red\n", encoding="utf-8")
 
 
 def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, out: Path, compare: str = "") -> int:

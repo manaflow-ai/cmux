@@ -111,7 +111,7 @@ impl Hub {
         };
         // A start waiting for it goes on now (`owner_credential_ready`).
         session.credential_set.notify_waiters();
-        if !meta.owner_credential {
+        if !session.read_meta(|m| m.owner_credential) {
             session.meta.lock().unwrap_or_else(|e| e.into_inner()).owner_credential = true;
             self.save_meta(&session);
         }

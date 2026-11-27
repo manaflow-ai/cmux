@@ -1,3 +1,4 @@
+import { registerViewBridge } from "./viewBridges";
 import { startDevMotionAudit } from "../devMotionAudit";
 import { openFork, openInOwnTab } from "../conversation/openFork";
 import React from "react";
@@ -50,6 +51,7 @@ import type { NewChatPrewarm } from "../newChatPrewarm";
 import type { CloudTypingPrewarm } from "../cloudTypingPrewarm";
 import { harnessProfiles } from "../harnessProfiles";
 import { setStartModeSource } from "../startMode";
+import { setAttachmentView } from "../composerSettings";
 import { setStartRecoveryPreview } from "../startRecoveryPreview";
 import { setComputerUsePreviewControls } from "../computerUse/computerUsePreview";
 import { setPromptSurfaces } from "../surfaces/promptSurface";
@@ -66,6 +68,9 @@ import { frameTally } from "../conversation/frameTally";
 import { reconciledProject } from "../newtab/startHint";
 import { streamingRow, streamingRowBlocked } from "../streamingRow";
 import { liveToolOutput, toolOutputOnly } from "../liveToolOutput";
+import { liveThought, thoughtOnly } from "../liveThought";
+import { liveSummary, usageOnly } from "../liveSummary";
+import { pageLanes } from "../schedule/lanes";
 import type { ComposerHandle, ComposerWake } from "../Composer";
 import { composerReadback, takeExternalInto } from "../composer/externalAttach";
 import type { FolderContinuation } from "../folderContinuation";
@@ -143,29 +148,32 @@ import {
   hostIsReconnecting,
   hostRefusedTooLarge,
   type HostRestoring,
-  hostRetryStep,
-  HOST_WAKE_EVENTS,
-  hostWakeAsks,
   jitteredDelay,
   lostRetryDelay,
-  lostRetryStep,
   nextRetryDelay,
   offersAcpmuxRestart,
   quickRetry,
   readHostRestoring,
   troubleSinceAfterLoss,
   hostPlannedRestart,
+  hostRetryStep,
+  HOST_WAKE_EVENTS,
+  hostWakeAsks,
+  lostRetryStep,
 } from "../hostRetry";
-import { heldStartStop, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
+import { acpmuxSendsReady, heldStartStop, paneSends, sendsHeldForHost, untilHostAnswers } from "../sendWhenReady";
+import { revealedSubagent } from "../subagents/subagentPanes";
 import { newChatFolder } from "../startFolderModel";
 import { dismissPlanScopeDrift, keepPlanScopeArea } from "../planScopeDriftStore";
 import { setPaneNotices } from "../paneNoticeStore";
 import type { HandoffReviewInput } from "../handoff/review";
 import { CmuxCommandRefused } from "../cmuxCommands";
 import { handoffStore, receiveHandedCloudStart } from "../commandPlace";
+import { holdCloudAgentPick } from "../cloudAgentPick";
 import { askPermissionFocus } from "../permissions/focusRequest";
 import type { PermissionDecision } from "../permissions/protocol";
 import { planBuildTarget } from "../permissions/planBuild";
+import { forkFirstOffer } from "../direct/permissions";
 import { type PaneSurface, readSurface } from "../paneSurface";
 import { designSelectionChips, designSelectionRemovals } from "../designSelection";
 import { setFloatingState } from "../floatingState";
@@ -177,7 +185,6 @@ import { offerPicks } from "../offer/offerChoice";
 import { offerWorktree } from "../offer/offerWorktree";
 import { setLinkPlaces, updateLinkPlaces } from "../chips/cmuxLinkPlaces";
 import { setExperimentSwitches } from "../../../experiments/switches";
-import { setSessionStatus } from "../sessionStatus";
 import { pageEditHold, pageReleaseHold } from "../../../pages/shared/webSwap";
 import type { SandboxTab } from "../sandboxRun";
 import { callNative } from "../callNative";
@@ -187,6 +194,7 @@ import { flushHeldModePick } from "../heldModePick";
 import type { NativeRegistry, OpenDiff } from "../rows/rowProps";
 import type { ScrollAnchor } from "../VirtualTranscript";
 import { emptySnapshot, saveSnapshot } from "../snapshotCache";
+import type { ShownChrome } from "../shownChrome";
 import { applyPaneTheme, applyPaneThemeCSS } from "../paneTheme";
 import { dismissFocusRing } from "../../../ui/focusModality";
 import { focusRoute } from "../../../ui/focusRoute";
@@ -205,8 +213,36 @@ import { fetchScrollAnchor, postScrollAnchor } from "./scrollAnchorHost";
 import { readWake } from "./wake";
 import { togglePlace, togglePromptRow } from "../conversation/togglePlace";
 
+/// What the chat-list stores read of a snapshot (newtab/chatStore.ts `publishSessions`,
+/// newtab/warmSnapshot.ts `publishWarmNewTab`, newtab/recentProject.ts `rememberRecentFolders`), and
+/// whether this page shows New Tab: a snapshot whose fields here are the same objects changes none
+/// of them, so the listener skips all three (a streamed chunk keeps every one).
+type ListInput = Pick<AcpmuxSnapshot, "sessions" | "listedSessions" | "sessionsWindowed" | "connection" | "origin"> & {
+  readonly showsNewTab: boolean;
+};
+
+const listInputOf = (snapshot: AcpmuxSnapshot, showsNewTab: boolean): ListInput => ({
+  sessions: snapshot.sessions,
+  listedSessions: snapshot.listedSessions,
+  sessionsWindowed: snapshot.sessionsWindowed,
+  connection: snapshot.connection,
+  origin: snapshot.origin,
+  showsNewTab,
+});
+
+const sameListInput = (a: ListInput | undefined, b: ListInput): boolean =>
+  a !== undefined &&
+  a.sessions === b.sessions &&
+  a.listedSessions === b.listedSessions &&
+  a.sessionsWindowed === b.sessionsWindowed &&
+  a.connection === b.connection &&
+  a.origin === b.origin &&
+  a.showsNewTab === b.showsNewTab;
+
 /** What AcpmuxPane's snapshot effect reads from the pane (App.tsx): its state, setters, refs and callbacks. */
 export type PaneSnapshotArgs = {
+  /// The pane view this chat is in a shared document (paneViewStore.ts); null or absent: its own page.
+  paneView?: string | null;
   scrollToBottomOnSendRef: React.RefObject<boolean>;
   sandbox: SandboxTab;
   setWorkflowLabsEnabled: React.Dispatch<React.SetStateAction<boolean>>;
@@ -337,8 +373,14 @@ export type PaneSnapshotArgs = {
   drawnSnapshot: React.RefObject<AcpmuxSnapshot | undefined>;
   receivedSnapshot: React.RefObject<AcpmuxSnapshot | undefined>;
   toolOutputEpoch: React.RefObject<number>;
+  /// The draw (liveThought.ts `redraw`) of the snapshot the pane set last.
+  thoughtEpoch: React.RefObject<number>;
   pendingPaneDraw: PendingPaneDraw;
   snapshotRef: React.RefObject<AcpmuxSnapshot | undefined>;
+  /// The chrome the page drew before its attach answered, kept until then (shownChrome.ts).
+  chrome: ShownChrome;
+  /// What the page showed first, the reload copy, until a frame replaces it.
+  firstShown: React.RefObject<AcpmuxSnapshot | undefined>;
   /// Whether a prompt naming `@computer-use` waits for Computer Use setup (App.tsx
   /// `holdsForComputerUseSetup`, #48541): `/side` forks nothing while it holds.
   holdsForComputerUseSetupRef: React.RefObject<
@@ -392,6 +434,7 @@ export type PaneSnapshotArgs = {
 
 /** The body of AcpmuxPane's snapshot effect (RFD 0046 step 2), run by that effect in App.tsx; returns its cleanup. */
 export function paneSnapshotEffect({
+  paneView = null,
   scrollToBottomOnSendRef,
   sandbox,
   setWorkflowLabsEnabled,
@@ -493,8 +536,11 @@ export function paneSnapshotEffect({
   drawnSnapshot,
   receivedSnapshot,
   toolOutputEpoch,
+  thoughtEpoch,
   pendingPaneDraw,
   snapshotRef,
+  chrome,
+  firstShown,
   holdsForComputerUseSetupRef,
   readSendAgain,
   readInterruptedResume,
@@ -684,8 +730,9 @@ export function paneSnapshotEffect({
       )
         setContinuing(true);
     },
-    receive(next) {
-      if (next.protocolVersion !== 1) return;
+    receive(given) {
+      if (given.protocolVersion !== 1) return;
+      const next = chrome.keep(snapshotRef.current ?? firstShown.current, given);
       harnessSwitch.reconcile(next);
       rowsRef.current = next.rows;
       snapshotRef.current = next;
@@ -727,9 +774,6 @@ export function paneSnapshotEffect({
     },
     applySidebarPreviewVariant(variant) {
       configureNativeSidebarPreviewVariant(variant);
-    },
-    applySessionStatus(on) {
-      setSessionStatus(on === true);
     },
     applyExperiments(value) {
       setExperimentSwitches(value);
@@ -815,9 +859,13 @@ export function paneSnapshotEffect({
       for (const chip of designSelectionChips(selection)) composerHandle.current?.attach(chip);
     },
   };
+  // In a shared pane document this chat's own host events (a command, a turn to reveal, dictation)
+  // reach its bridge by view (viewBridges.ts); window.cmuxAcpmuxBridge stays the document's.
+  const unregisterViewBridge =
+    paneView !== null && window.cmuxAcpmuxBridge ? registerViewBridge(paneView, window.cmuxAcpmuxBridge) : undefined;
   // On the shared page host the host pushes arrive as events once the bridge exists.
   const pageHost = pageHostClient();
-  if (pageHost) void startHostEvents(pageHost).catch(() => undefined);
+  if (pageHost) void startHostEvents(pageHost, paneView).catch(() => undefined);
   window.cmuxAcpmuxDebug = createAcpmuxDebug({
     replaceRows(rows, fields) {
       rowsRef.current = rows;
@@ -907,6 +955,11 @@ export function paneSnapshotEffect({
   /// Sessions a switch started whose first summary has not arrived: it names the model a new
   /// chat on that harness starts on.
   const startedSessions = new Set<string>();
+  /// The summary the harness profiles last observed, and what the chat-list stores were last
+  /// handed (`listInputOf`): a snapshot that keeps both runs neither.
+  let observedSummary: AcpmuxSnapshot["summary"] | null = null;
+  let publishedList: ListInput | undefined;
+  const lanes = pageLanes();
   /// Prompts a failed or cancelled switch held go back into the composer with their
   /// attachments, before what was typed since; while no composer is mounted they wait for one.
   /// The gesture of a send acpmux held for the folder trust answer (heldPrompt.ts).
@@ -1004,11 +1057,21 @@ export function paneSnapshotEffect({
       const received = receiveHandedCloudStart(answered, reconnect, handoffStore(), Date.now());
       const host = received.host;
       if (received.folder) setHandedFolder(received.folder);
+      // A started Cloud chat's pick of another agent: this new Cloud chat's Cloud send starts on it
+      // (cloudAgentPick.ts), and this Mac's own remembered pick stays as it was (cmux#51731).
+      if (received.agent) holdCloudAgentPick(received.agent);
       // Before anything draws the chat: its Session Info is this tab's, not another tab's of the chat.
       if (typeof host.tab === "string" && host.tab) {
         setSessionInfoTab(host.tab);
         setStashTab(host.tab);
       }
+      // A pane opened on a subagent is the subagent's before anything draws: its header and composer
+      // are the subagent's from the first frame, not the chat's until the client connects (the 41 px
+      // composer drop and 40 to 28 px header of a subagent opening into a split, Leo 2026-11-22:
+      // "they need to be able to load faster and without layout shifts"). The reveal after connect
+      // runs again and changes nothing.
+      if (typeof host.revealTurn === "string" && revealedSubagent(host.revealTurn) !== undefined)
+        revealRef.current(host.revealTurn);
       acpmuxPerf.markAgent("handshakeReady");
       acpmuxPerf.markLaunch("handshakeReady");
       if (typeof host.autoCloudStartKey === "string") setAutoCloudStartKey(host.autoCloudStartKey);
@@ -1168,11 +1231,13 @@ export function paneSnapshotEffect({
       // The page opens its own WebSocket only on the dev slot (hostRetry.ts `quickRetry`).
       browserSocket = !mock && !bridge;
       if (!mock && !bridge && !(host.transport === "acpmux-websocket" && host.endpoint && host.token)) {
-        // A host with no daemon to reach has nothing left to fail.
+        // A host with no daemon to reach has nothing left to fail, and no send waits for it.
+        paneSends.noAcpmux = true;
         setHostError(undefined);
         setHostErrorShown(false);
         return;
       }
+      paneSends.noAcpmux = false;
       // Native chats never load the in-page daemon or its fixture transcripts. Keep this
       // await in the mock branch so the native handshake still starts in the same turn.
       const mockModule = mock ? (preparedMockTransport() ?? (await import("../mock"))) : undefined;
@@ -1188,7 +1253,8 @@ export function paneSnapshotEffect({
       acpmuxPerf.markLaunch("connectStart");
       const client = await AcpmuxDirectClient.connect(
         config,
-        (next) => {
+        (given) => {
+          const next = chrome.keep(snapshotRef.current ?? firstShown.current, given);
           harnessSwitch.reconcile(next);
           rowsRef.current = next.rows;
           snapshotRef.current = next;
@@ -1201,20 +1267,45 @@ export function paneSnapshotEffect({
               sessionId: next.sessionId,
             };
           // What each harness reports feeds the next switch's first frame (harnessProfiles.ts).
+          // Only when the summary changed: a streamed chunk keeps it, and each observation
+          // serializes and stores every harness's profile. In the idle lane (schedule/), never in a
+          // key's or a frame's task, the latest summary winning; durable, so a page that hides
+          // writes it then. A switch's first summary (once per switch) is observed at once: it
+          // names its harness's start model, which a later summary must not take over.
           const summary = next.summary;
-          const started = summary?.model !== undefined && startedSessions.delete(summary.sessionId);
-          harnessProfiles.observe(summary, started);
+          const started = summary?.model !== undefined && startedSessions.has(summary.sessionId);
+          if (started) {
+            observedSummary = summary;
+            startedSessions.delete(summary!.sessionId);
+            // An older summary still waiting would land after it: it is dropped.
+            lanes.idle("pane:harness-profiles", () => {});
+            harnessProfiles.observe(summary, true);
+          } else if (summary !== observedSummary) {
+            observedSummary = summary;
+            lanes.idle("pane:harness-profiles", () => harnessProfiles.observe(summary, false), { durable: true });
+          }
           // The next New Tab page names the project used last on its first frame
-          // (newtab/recentProject.ts); the mock daemon's chats are not the app's.
-          if (!mock) {
-            rememberRecentFolders(next);
-            // Every page's New Tab lists one chat store (newtab/chatStore.ts).
-            publishSessions(next);
-            // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
-            publishWarmNewTab(
-              next,
-              (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
-              showsNewTabRef.current,
+          // (newtab/recentProject.ts); the mock daemon's chats are not the app's. Each reads the
+          // chat list alone, which a streamed chunk keeps: compared by object first, then run in
+          // the idle lane with the latest list.
+          const listInput = listInputOf(next, showsNewTabRef.current);
+          if (!mock && !sameListInput(publishedList, listInput)) {
+            publishedList = listInput;
+            const at = Date.now();
+            lanes.idle(
+              "pane:chat-list",
+              () => {
+                rememberRecentFolders(next);
+                // Every page's New Tab lists one chat store (newtab/chatStore.ts).
+                publishSessions(next, at);
+                // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
+                publishWarmNewTab(
+                  next,
+                  (warm) => void postNative("newTab.warm", { warm }).catch(() => undefined),
+                  listInput.showsNewTab,
+                );
+              },
+              { durable: true },
             );
           }
           // Only the streaming reply's text grew: its row draws it (streamingRow.ts); the pane,
@@ -1238,8 +1329,25 @@ export function paneSnapshotEffect({
             liveToolOutput.set(call.id, call.output, call.before);
             return;
           }
+          // Only a thought grew: the row that draws it reads it (liveThought.ts).
+          const thought =
+            drawn && received && !streamingRowBlocked() && !pendingPaneDraw.pending
+              ? thoughtOnly(received, next)
+              : undefined;
+          if (thought) {
+            liveThought.set(thought.id, thought.before, thought.after);
+            return;
+          }
+          // Only the usage numbers moved (the context count, usage, time breakdown): the parts that
+          // draw them read them (liveSummary.ts); the pane, transcript and header keep what they drew.
+          if (drawn && !pendingPaneDraw.pending && usageOnly(drawn, next)) {
+            liveSummary.set(drawn.summary!, next.summary!);
+            return;
+          }
           streamingRow.clear();
+          liveSummary.clear();
           toolOutputEpoch.current = liveToolOutput.redraw();
+          thoughtEpoch.current = liveThought.redraw();
           // A redraw of the whole pane is a transition a key can go before, unless it answers what
           // the person just did or opens another chat (paneSnapshotLane.ts).
           const drewBefore = drawnSnapshot.current;
@@ -1266,6 +1374,7 @@ export function paneSnapshotEffect({
           harnessSwitch.disconnect(switchPort);
           setStartModeSource(undefined);
           catalogClientId.current += 1;
+          chrome.clientLost();
           directClient.current = undefined;
           delete window.cmuxAcpmuxActions;
           notifyDraftActionsChanged();
@@ -1815,7 +1924,7 @@ export function paneSnapshotEffect({
             typeof value === "string" ? value : undefined,
             typeof keepAs === "string" ? keepAs : undefined,
           ),
-        "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId }) =>
+        "chat.permission": ({ permissionId, optionId, answers, annotations, sessionId, forkFirst }) =>
           client.permission(
             String(permissionId),
             optionId === undefined || optionId === null ? undefined : String(optionId),
@@ -1823,6 +1932,7 @@ export function paneSnapshotEffect({
             // The Needs you list answers asks of other chats too.
             typeof sessionId === "string" && sessionId ? sessionId : undefined,
             annotations && typeof annotations === "object" ? (annotations as Record<string, unknown>) : undefined,
+            forkFirstOffer(forkFirst),
           ),
         "chat.plan.build": ({ permissionId, target, sessionId, plan }) =>
           client.planBuild(
@@ -2117,6 +2227,7 @@ export function paneSnapshotEffect({
               // on (Try again); acpmux's reason (no Trust answer, an invalid file) goes to the log.
               if (refused?.code === "transport.harness_not_confirmed") return undefined;
               console.warn("agent pane: enabling the harness was refused", refused?.detail ?? error);
+              // retry-prompt-ok: enabling a harness changes the person's settings.
               notices.failed(translate("harnesses.enableUnavailable"));
               return undefined;
             },
@@ -2292,6 +2403,9 @@ export function paneSnapshotEffect({
         "chat.menu.saveImage": () => actOnReportedImage("image.save"),
         "chat.menu.quickLookImage": () => actOnReportedImage("image.quickLook"),
         "chat.menu.revealImage": () => actOnReportedImage("image.reveal"),
+        // Its Attachments Inline / Attachments at Top on a prompt I sent: `agentPane.attachmentView`,
+        // written as the composer's right-click writes it, so every bubble redraws at once.
+        "chat.menu.attachmentView": async ({ view }) => setAttachmentView(view === "inline" ? "inline" : "strip"),
         // Its Open on a path: the path chip's open, which the host checks again (link.openPath).
         "chat.menu.openPath": ({ path }) => callChipHost("link.openPath", { path: String(path ?? "") }),
         // A fork and a started Continue In… open in a tab of their own, so the chat keeps its tab
@@ -2513,7 +2627,7 @@ export function paneSnapshotEffect({
         // An inbox notice's thread the person opened: its messages, read without marking them
         // read (conversation/InboxNoticeCard.tsx).
         "chat.inbox.thread": ({ threadId }) => client.inboxThread(String(threadId ?? "")),
-        // The held surge's threads (SurgeHoldRow.tsx): the chat's inbox listing, read as its panel opens.
+        // The held surge's threads (session-info/agentSide.ts): the chat's inbox listing, on request.
         "chat.inbox.threads": () => client.inboxThreads(),
         // An agent link or `HOST/NAME` in a reply (conversation/sessionRefs.ts): the session it names.
         "chat.session.resolve": ({ query }) => client.resolveSession(String(query ?? "")),
@@ -2802,6 +2916,8 @@ export function paneSnapshotEffect({
         return sendPrompt(params);
       };
       notifyDraftActionsChanged();
+      // Sends made while the page connected go now, in their order (sendWhenReady.ts).
+      acpmuxSendsReady();
       harnessSwitch.setHandlers({
         restore: (text, attachments) => {
           // A failed New Tab start never surrendered this draft. Restoring it into the future
@@ -2886,6 +3002,7 @@ export function paneSnapshotEffect({
             // this connection, not a reason to reconnect and repeat session/new forever.
             console.warn("agent pane: the new chat on the machine did not start", error);
             if (!cancelled && directClient.current === client)
+              // retry-prompt-ok: starting a chat again makes a new session.
               client.notice(knownRefusalText(error) ?? translate("chat.newFailed"));
           },
         );
@@ -2912,6 +3029,7 @@ export function paneSnapshotEffect({
         // A chat too large to open says so in plain words; the reply's byte count stays in the log.
         const tooLarge = hostRefusedTooLarge(error);
         // hostLine.ts words the line: only the pane's own text stands on it, the rest is Details.
+        // retry-prompt-ok: "Update cmux to open this chat, then Retry": the person updates first.
         setHostError(tooLarge ? translate("host.tooLarge") : errorMessage(error) || String(error));
         setHostFailure(error);
         const restoring = readHostRestoring((error as { details?: unknown } | null)?.details, Date.now());
@@ -3005,6 +3123,7 @@ export function paneSnapshotEffect({
   void connectHost();
   return () => {
     cancelled = true;
+    unregisterViewBridge?.();
     for (const name of HOST_WAKE_EVENTS.document) document.removeEventListener(name, wake);
     for (const name of HOST_WAKE_EVENTS.window) window.removeEventListener(name, wake);
     window.removeEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);

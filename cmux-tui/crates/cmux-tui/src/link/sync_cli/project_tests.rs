@@ -30,6 +30,22 @@ fn the_manifest_holds_what_a_copy_sends_and_never_a_secret() {
 }
 
 #[test]
+fn the_sent_line_counts_only_the_file_bytes_answered() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = folder.path();
+    std::fs::write(root.join("a.txt"), "0123456789").unwrap();
+    let listed = list(&std::fs::canonicalize(root).unwrap()).unwrap();
+    let entry = listed.manifest.resolve("a.txt").unwrap();
+    let sent = Sent::default();
+    let counted = Counted { source: &listed, sent: &sent };
+    assert_eq!(Source::whole(&counted, entry), Part::ok(b"0123456789".to_vec()));
+    assert_eq!(Source::read(&counted, entry, 2, 3), Part::ok(b"234".to_vec()));
+    // A refusal is no bytes moved.
+    assert_eq!(Source::whole(&counted, 9999).status, wire::REFUSED);
+    assert_eq!(sent.line(), json!({"reads": 2, "bytes": 13}));
+}
+
+#[test]
 fn each_chat_folder_has_its_own_projection_name() {
     assert_eq!(name_of("/home/cmux/work/a"), name_of("/home/cmux/work/a"));
     assert_ne!(name_of("/home/cmux/work/a"), name_of("/home/cmux/work/b"));
@@ -83,6 +99,66 @@ fn git_in(dir: &Path, args: &[&str]) {
         .status()
         .unwrap();
     assert!(status.success(), "git {args:?}");
+}
+
+#[test]
+fn carry_lists_worktrees_and_submodules_without_packing_subfolders() {
+    let folder = tempfile::tempdir().unwrap();
+    let root = std::fs::canonicalize(folder.path()).unwrap();
+    let repo = root.join("repo");
+    std::fs::create_dir_all(repo.join("src")).unwrap();
+    std::fs::write(repo.join("src/main.rs"), "fn main() {}\n").unwrap();
+    git_in(&repo, &["init", "-q"]);
+    git_in(&repo, &["add", "."]);
+    git_in(&repo, &["commit", "-qm", "init"]);
+
+    // A supported root still publishes its carried pack.
+    let carry = projection_carry(&repo).expect("ordinary repository carries by default");
+    let listed = list_with_carry(&repo, Some(&carry)).unwrap();
+    assert!(listed.manifest.resolve(".git/cmux-carry.pack").is_some());
+    drop(carry);
+
+    let worktree = root.join("worktree");
+    git_in(&repo, &["worktree", "add", "--detach", worktree.to_str().unwrap()]);
+    git_in(
+        &repo,
+        &["-c", "protocol.file.allow=always", "submodule", "add", repo.to_str().unwrap(), "module"],
+    );
+    for at in [worktree, repo.join("module")] {
+        assert!(at.join(".git").is_file());
+        let carry = projection_carry(&at).expect("linked repositories carry by default");
+        let listed = list_with_carry(&at, Some(&carry)).unwrap();
+        assert!(listed.manifest.resolve(".git/cmux-carry.pack").is_some());
+        assert!(listed.manifest.resolve(".git/cmux-carry.base").is_some());
+        // The listing expands the gitfile into a standalone repository before carry
+        // adds its entries, so those entries never appear beneath a manifest file.
+        let git = listed.manifest.resolve(".git").unwrap();
+        assert_eq!(listed.manifest.entry(git).unwrap().kind, Kind::Dir);
+    }
+    let subfolder = repo.join("src");
+    assert!(projection_carry(&subfolder).is_none());
+    assert!(list(&subfolder).is_err(), "preserve the listing's existing root-only contract");
+}
+
+#[test]
+fn carry_skips_bare_repositories_without_a_worktree_git_directory() {
+    let folder = tempfile::tempdir().unwrap();
+    let bare = folder.path().join("bare");
+    git_in(&folder.path(), &["init", "--bare", bare.to_str().unwrap()]);
+
+    // A bare repository resolves HEAD for Git, but the projection listing treats it as a plain
+    // folder. Carry must follow that same classification and never add a synthetic `.git` path.
+    assert!(projection_carry(&bare).is_none());
+
+    let carry_root = tempfile::tempdir().unwrap();
+    let base_path = carry_root.path().join("carry.base");
+    let pack_path = carry_root.path().join("carry.pack");
+    std::fs::write(&base_path, "0".repeat(40)).unwrap();
+    std::fs::write(&pack_path, b"pack").unwrap();
+    let carry = CarryFiles { base_path, pack_path, folder: carry_root.path().to_path_buf() };
+    let listed = list_with_carry(&bare, Some(&carry)).unwrap();
+    assert!(listed.manifest.resolve(".git/cmux-carry.base").is_none());
+    assert!(listed.manifest.resolve(".git/cmux-carry.pack").is_none());
 }
 
 /// RFD 0007, "Tracked files the skip rules keep home": in a folder of repositories, a secret a
@@ -251,4 +327,26 @@ fn the_ready_line_splits_the_gate_into_listing_encoding_and_mount() {
     assert!(ready_timing(2, 1, 1, 10, 5, None)["mount_ms"].is_null());
     // One line in the log, for the start matrix to read back.
     assert!(!timing.to_string().contains('\n'));
+}
+
+/// Leo, 2026-11-25: a Cloud chat started on an empty folder must still be that folder, projected,
+/// so what the agent writes comes back to it. An empty or non-git folder lists to a manifest the
+/// machine mounts (never zero bytes, which the machine reads as a resume of a mount it has).
+#[test]
+fn an_empty_or_non_git_folder_is_projected_not_skipped() {
+    let empty = tempfile::tempdir().unwrap();
+    let listed = list(&std::fs::canonicalize(empty.path()).unwrap()).unwrap();
+    assert!(listed.served.iter().all(Option::is_none), "no file to serve");
+    assert_eq!(listed.manifest.len(), 1, "the folder itself and nothing in it");
+    let encoded = listed.manifest.encode().unwrap();
+    assert!(!encoded.is_empty(), "zero manifest bytes would ask the machine for a resume");
+    let decoded = Manifest::decode(&encoded).unwrap();
+    assert_eq!(decoded.len(), 1);
+
+    let plain = tempfile::tempdir().unwrap();
+    std::fs::write(plain.path().join("notes.txt"), "hi\n").unwrap();
+    assert!(!plain.path().join(".git").exists());
+    let listed = list(&std::fs::canonicalize(plain.path()).unwrap()).unwrap();
+    assert!(listed.manifest.resolve("notes.txt").is_some());
+    assert!(!listed.manifest.encode().unwrap().is_empty());
 }

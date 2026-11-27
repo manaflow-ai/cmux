@@ -120,6 +120,61 @@ read_ios_artifact() { echo "READ_STEP=$SIM_STEP"; REPORT_SIM="fleet simulator (a
                 self.assertIn('SIM_STARTED', r.stdout, r.stderr)
                 self.assertNotIn('reusing this head', r.stdout)
 
+    def test_a_rerun_downloads_a_passed_steps_artifact_again_instead_of_a_new_step(self):
+        # 2026-11-25: vcorp1125d's iPhone step 9fd70d54 passed but its artifact did not download; the rerun sent a new
+        # step, the controller refused its key ("409: step_key already names a different step"), and the run had
+        # nothing for the phone. The passed step is saved before the download, and a rerun fetches it again.
+        step = '9fd70d548f30e9577207cfc4'
+        again = f"""mkdir -p "$STATE"; printf '%s\\n' {step} > "$STATE/sim-passed"
+fleet_start_sim() {{ echo SIM_STARTED; }}
+fleet_finish_sim() {{ echo SIM_FINISHED; }}
+cmux_ci() {{ [ "$1" = artifact ] && echo "$2" > "$STATE/artifact-call" && echo zip > "$3"; }}
+read_ios_artifact() {{ echo "READ_STEP=$SIM_STEP ARTIFACT=$(cat "$STATE/artifact-call") ZIP=$(cat "$STATE/ios.zip")"; REPORT_SIM="fleet simulator (aws-m4pro-3, iPhone-17 on iOS-26-5), signed in: /e"; }}"""
+        r = self.run_review([(PHONE, 'iPhone')], again)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn('SIM_STARTED', r.stdout)
+        self.assertIn(f'==> iPhone app: step {step} passed before; downloading its artifact again', r.stdout)
+        self.assertIn(f'ARTIFACT={step} ZIP=zip', r.stdout)
+        self.assertIn(f'READ_STEP={step}', r.stdout)
+        # A download that fails again forgets the step and sends a new one; a malformed id is never fetched.
+        for setup in (f"""mkdir -p "$STATE"; printf '%s\\n' {step} > "$STATE/sim-passed"
+cmux_ci() {{ [ "$1" = artifact ] && return 1; return 0; }}""",
+                      'mkdir -p "$STATE"; echo not-a-step > "$STATE/sim-passed"'):
+            with self.subTest(setup=setup):
+                r = self.run_review([(PHONE, 'iPhone')], setup + '\nfleet_start_sim() { echo "SIM_STARTED KEY=$(sim_key)"; }')
+                self.assertIn('SIM_STARTED', r.stdout, r.stderr)
+        # The passed step given up after a second failed download: the new step goes out under a new key, which the
+        # controller accepts (the old key names the old step: "409: step_key already names a different step").
+        r = self.run_review([(PHONE, 'iPhone')], f"""mkdir -p "$STATE"; printf '%s\\n' {step} > "$STATE/sim-passed"
+cmux_ci() {{ [ "$1" = artifact ] && return 1; return 0; }}
+fleet_start_sim() {{ echo "SIM_STARTED KEY=$(sim_key)"; }}""")
+        self.assertIn(f'SIM_STARTED KEY=cnx-ios-handoff-{TAG}-{SHA[:12]}-r1', r.stdout, r.stderr)
+
+    def test_a_failed_simulator_check_is_never_fetched_again(self):
+        # A step that ran to its end but whose check failed (or whose artifact was rejected) is forgotten: the
+        # retry the report names sends a new step under a new key instead of downloading the same failure.
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp)
+            (state / 'sim-passed').write_text('0123456789abcdef01234567\n')
+            r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{state}" SIM_STEP=0123456789abcdef01234567
+echo not-a-zip > "$STATE/ios.zip"
+rc=0; read_ios_artifact || rc=$?; echo "RC=$rc"; echo "KEY=$(sim_key)"''', {})
+            self.assertIn('RC=1', r.stdout, r.stderr)
+            self.assertFalse((state / 'sim-passed').exists())
+            self.assertIn(f'KEY=cnx-ios-handoff-{TAG}-{SHA[:12]}-r1', r.stdout)
+
+    def test_a_passed_step_is_saved_before_its_artifact_downloads(self):
+        with tempfile.TemporaryDirectory() as temp:
+            state = Path(temp)
+            r = bash(f'''source "{REVIEW}"; SLUG={TAG} SHA={SHA} STATE="{state}"
+SIM_PID=$$; wait() {{ return 0; }}
+printf 'cmux-ci: step 0123456789abcdef01234567 (simulator)\\n' > "$STATE/sim-step.err"; : > "$STATE/sim-step.log"
+cmux_ci() {{ return 1; }}
+rc=0; fleet_finish_sim || rc=$?; echo "RC=$rc"; echo "REPORT=$REPORT_SIM"''', {})
+            self.assertIn('RC=1', r.stdout, r.stderr)
+            self.assertIn('passed but its artifact did not download', r.stdout)
+            self.assertEqual((state / 'sim-passed').read_text().strip(), '0123456789abcdef01234567')
+
     def test_two_phones_get_one_line_each(self):
         other = '00008110-000000000000001E'
         r = self.run_review([(PHONE, 'iPhone'), (other, 'Spare')], '')

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2. */
+/* cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.ts. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -604,6 +604,14 @@ export type IdMapping = {
   "short_id": string;
 };
 
+export type IdentifyRestore = {
+  "done": (bigint) | null;
+  "elapsed_ms": bigint;
+  "last_advance_ms": bigint;
+  "phase": string;
+  "total": (bigint) | null;
+};
+
 export type IdentifyResult = {
   "api_revision"?: (number) | null;
   "api_version"?: (string) | null;
@@ -631,6 +639,7 @@ export type IdentifyResult = {
   "pid": number;
   "protocol": number;
   "registry_id": string;
+  "restore"?: IdentifyRestore;
   "screen_device_id"?: (string) | null;
   "session": string;
   "session_id"?: string;
@@ -854,6 +863,10 @@ export type PaneSurfaceResult = {
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: string;
   "workspace_id"?: string;
+};
+
+export type PhoneLinkOfferResult = {
+  "offered": boolean;
 };
 
 export type PingResult = {
@@ -1156,6 +1169,7 @@ export type ServerStatsConnections = {
 };
 
 export type ServerStatsDisk = {
+  "checkpoints"?: (ServerStatsDiskCheckpoints) | null;
   "error": (string) | null;
   "files": Array<ServerStatsDiskFile>;
   "files_truncated": boolean;
@@ -1168,6 +1182,14 @@ export type ServerStatsDisk = {
   "segments": (ServerStatsDiskSegments) | null;
   "shm_bytes": bigint;
   "wal_bytes": bigint;
+};
+
+export type ServerStatsDiskCheckpoints = {
+  "budget_bytes": bigint;
+  "bytes": bigint;
+  "checkpoints": bigint;
+  "largest_bytes": bigint;
+  "over_budget": boolean;
 };
 
 export type ServerStatsDiskFile = {

@@ -315,9 +315,15 @@ _POOL_READ_WHY = ("its secretless Linux jobs read vars.RUNNER_POOLS.linux (cmux#
                   "involved for the rescue to move")
 UNRESCUED_WORKFLOW_PATHS = {
     ".github/workflows/cloud-composer-journey.yml":
-        "never takes an owned pool: pick-runner runs e2e_runner_pool.py with --owned 0 and keeps only a Blacksmith "
-        "macOS 26 label, because the journey job holds a Stack account pair; a re-run takes the declared macos_26 "
-        "pool, and the scheduled dispatcher on main starts the next run",
+        "takes no owned pool while Blacksmith macOS is on: pick-runner runs e2e_runner_pool.py with --owned 0 and "
+        "keeps only a Blacksmith macOS 26 label, because the journey job holds a Stack account pair; a re-run takes "
+        "the declared macos_26 pool, and the scheduled dispatcher on main starts the next run. With "
+        "CI_BLACKSMITH_MACOS off (note-350) the journey takes the owned side label, and its timeout clears a "
+        "stuck job for that next run",
+    ".github/workflows/auto-journey.yml":
+        "a manual feat-cmux-next journey (lane broker dispatch, nothing gates on it): its one job takes the "
+        "declared macos_26 pool, or the owned side label only while CI_BLACKSMITH_MACOS is off (note-350), so a "
+        "stuck or refused job ends at its 90-minute timeout and the dispatcher re-dispatches it",
     ".github/workflows/first-user-journey-ios.yml":
         "feat-cmux-next only (main's copy only dispatches it), nightly and manual, no pull request: the walk takes "
         "the screenshots lane's pick (an owned simulator mini when CI_IOS_OWNED allows) on attempt 1 and "
@@ -331,10 +337,10 @@ UNRESCUED_WORKFLOW_PATHS = {
         "feat-cmux-next only: its reviewer-path legs take the review-gate lane's pick in plan (an owned simulator mini) on "
         "attempt 1 and Blacksmith macOS 26 from attempt 2, so a stuck or refused leg ends at its 120-minute timeout "
         "and a person's re-run lands on Blacksmith",
-    ".github/workflows/cloud-chat-proof.yml":
-        "a manual proof that never takes an owned pool: pick-proof-runner runs e2e_runner_pool.py with --owned 0 and "
-        "keeps only a Blacksmith macOS 26 label, because each proof job holds a Stack account pair; a re-run takes "
-        "the declared macos_26 pool, and the person re-dispatches",
+    ".github/workflows/cloud-rd-link-readback.yml":
+        "a manual feat-cmux-next readback: its one job takes the owned side label on attempt 1 while "
+        "CI_PR_POOL_OWNED is 1 and the declared macos_26 pool on a re-run, so a stuck or refused job ends at its "
+        "75-minute timeout and the person re-runs it on Blacksmith",
     ".github/workflows/gateway-e2e.yml":
         "a manual proof (the inference gateway on an owned Mac on the tailnet): its mac job holds the dev stack pair "
         "and must stay on an owned Mac to reach the subscription router, so a Blacksmith rescue could only fail it; "
@@ -415,6 +421,9 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
     ".github/workflows/test-feed-reply-providers.yml",  # feat-cmux-next only
+    # feat-cmux-next's manual Cloud chat proof: both proof jobs take the owned gui pool on attempt 1 while
+    # CI_PR_POOL_OWNED is 1, and a re-run takes pick-proof-runner's Blacksmith label or the macos_26 pool.
+    ".github/workflows/cloud-chat-proof.yml",
 })
 # Side workflows whose Mac jobs take an owned label on every attempt (feat-cmux-next only), so no
 # re-run moves them off the minis (bot_rerun_leaves_owned()). This includes workflows whose

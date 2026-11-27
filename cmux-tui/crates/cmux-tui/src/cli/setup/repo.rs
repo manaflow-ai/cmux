@@ -22,13 +22,19 @@ use cmux_process::Command;
 use std::io::{BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
+use base64::Engine;
+use cmux_customize::setup::looks::{self, PreviewSource, Scheme};
 use cmux_customize::setup::{
     self, ExportHeader, ExtensionReceipt, Plan, Receipt, Reference, SETUP_FILE, SetupSource, TOPIC,
 };
 use cmux_customize::{Customize, Error};
 use serde_json::{Value, json};
 
+use super::super::customize::pr::Http;
 use super::super::{GlobalArgs, OutputMode, wire};
+
+/// How long one preview request may take.
+const PREVIEW_DEADLINE: std::time::Duration = std::time::Duration::from_secs(15);
 
 pub(super) const VERBS: &[&str] = &[
     "install",
@@ -41,6 +47,8 @@ pub(super) const VERBS: &[&str] = &[
     "on",
     "off",
     "order",
+    "gallery",
+    "preview",
     "undo",
     "redo",
     "swap",
@@ -71,8 +79,12 @@ Setups: a whole cmux customization in one git repo (theme, sidebar, shortcuts, v
   cmux setup off|on [REPO|ID|DIR]                    Turn its layer off (still installed, in its place) or back on
   cmux setup order ID [ID]...                        Put the setups in this order, top first (a higher one wins a key both set)
   cmux setup installed                               The installed setups, top layer first
-  cmux setup export DIR --id OWNER/NAME [--name N] [--description D] [--repo OWNER/REPO] [--extension REF]...
-                                                     Write your customization as a setup repo (README with badge)
+  cmux setup gallery                                 The looks cmux lists, each with its install state, and every
+                                                     installed setup top first (reads only: no network)
+  cmux setup preview ID|REPO [--scheme light|dark]   A look's preview image on the golden sample (default dark),
+                                                     fetched once and kept for 24 h
+  cmux setup export DIR --id OWNER/NAME [--name N] [--description D] [--repo OWNER/REPO] [--extension REF]... [--profile NAME]
+                                                     Write your customization (or the saved profile NAME) as a setup repo (README with badge)
 
 A setup repo has cmux-setup.json at its root; its page is cmux.com/setups/OWNER/REPO.
 Setups stack like dotfiles: each one is a layer of its own, the newest on top. Its views go to
@@ -92,6 +104,14 @@ A key cmux retired is a warning whose fix names the setting that replaced it. Wi
 {schema_version, setup_id, ok, findings: [{severity, code, path, key?, line?, message, fix?}]};
 severity is error (install refuses it, or cmux leaves that part out) or warning. --owner is the repo's
 owner for the id rule (default: the owner `repository` names, else the id's own).
+
+The looks gallery (Settings > Appearance) is a list cmux keeps of public look repos. gallery prints
+{looks: [{id, name, tagline, repo, tags, installed}], stack: [{id, name, on, position, source, commit,
+catalog}]}: a look's installed is null or its stack row; stack is every installed setup, position 1 on top,
+catalog false for one the list does not name. preview fetches only the image, preview/golden-SCHEME.png,
+then the other scheme's, then screenshots/chat.png (https, at most 4 MiB), from the commit an installed
+look is at or the repo's default branch, and prints {id, scheme, path, dataUrl, cached}; a repo with none
+of them is the error setup.preview_missing. Installing, stacking and removing a look are the verbs above.
 ";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,11 +146,19 @@ pub(super) enum Request {
     Export {
         dir: PathBuf,
         header: ExportHeader,
+        /// `--profile NAME`: that saved profile, not what is live.
+        profile: Option<String>,
     },
     Check {
         dir: PathBuf,
         owner: Option<String>,
         strict: bool,
+    },
+    Gallery,
+    /// `which` is a look's id or its repo.
+    Preview {
+        which: String,
+        scheme: Scheme,
     },
     Undo,
     Redo,
@@ -248,6 +276,29 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
         "update" => Ok(Request::Update { which: one(&words)?, yes }),
         "remove" if !yes => Ok(Request::Remove { which: one(&words)? }),
         "installed" if rest.is_empty() => Ok(Request::Installed),
+        "gallery" if rest.is_empty() => Ok(Request::Gallery),
+        "preview" if !yes => {
+            let (mut which, mut scheme) = (None, Scheme::default());
+            let mut iter = rest.iter();
+            while let Some(word) = iter.next() {
+                match word.as_str() {
+                    "--scheme" => {
+                        scheme = iter
+                            .next()
+                            .and_then(|value| Scheme::parse(value))
+                            .ok_or("cmux setup preview: --scheme needs light or dark")?;
+                    }
+                    other if other.starts_with('-') => {
+                        return Err(format!("cmux setup preview: unknown option {other:?}"));
+                    }
+                    other if which.is_none() => which = Some(other.to_owned()),
+                    other => return Err(format!("cmux setup preview: unexpected {other:?}")),
+                }
+            }
+            let which =
+                which.ok_or("cmux setup preview needs a look: cmux setup preview ID|REPO")?;
+            Ok(Request::Preview { which, scheme })
+        }
         "on" | "off" if !yes => Ok(Request::On { which: one(&words)?, on: verb == "on" }),
         "order" if !yes => {
             if words.is_empty() || words.iter().any(|word| word.starts_with('-')) {
@@ -261,6 +312,7 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
         "export" => {
             let mut dir = None;
             let mut header = ExportHeader::default();
+            let mut profile = None;
             let mut iter = words.into_iter();
             while let Some(word) = iter.next() {
                 let mut value = |name: &str| {
@@ -274,6 +326,7 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
                     "--description" => header.description = value("--description")?,
                     "--repo" => header.repo = value("--repo")?,
                     "--extension" => header.extensions.push(value("--extension")?),
+                    "--profile" => profile = Some(value("--profile")?),
                     other if other.starts_with('-') => {
                         return Err(format!("cmux setup export: unknown option {other:?}"));
                     }
@@ -290,7 +343,7 @@ pub(super) fn parse(args: &[String]) -> Result<Request, String> {
             if header.name.is_empty() {
                 header.name = header.id.split('/').next_back().unwrap_or_default().to_owned();
             }
-            Ok(Request::Export { dir, header })
+            Ok(Request::Export { dir, header, profile })
         }
         other => Err(format!("cmux setup {other}: unexpected arguments")),
     }
@@ -381,7 +434,22 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> i32 {
         }
         Request::Undo => undo_redo(&customize, &apps, false),
         Request::Redo => undo_redo(&customize, &apps, true),
-        Request::Export { dir, header } => export(&customize, &dir, &header),
+        Request::Export { dir, header, profile } => {
+            export(&customize, &dir, &header, profile.as_deref())
+        }
+        Request::Gallery => gallery(&customize),
+        Request::Preview { which, scheme } => {
+            // The client (a network runtime) starts only when the cache cannot answer.
+            let mut http: Option<Http> = None;
+            let mut get = |url: &str| -> Result<Option<Vec<u8>>, String> {
+                if http.is_none() {
+                    http = Some(Http::with_deadline(PREVIEW_DEADLINE).map_err(|f| f.message)?);
+                }
+                let Some(client) = http.as_ref() else { return Ok(None) };
+                client.get(url, looks::MAX_PREVIEW_BYTES).map_err(|f| f.message)
+            };
+            preview(&customize, &which, scheme, &mut get, now_ms())
+        }
         Request::Check { .. } => unreachable_check(),
     };
     match answer {
@@ -467,14 +535,14 @@ pub(super) fn check_text(report: &setup::Report, dir: &Path, strict: bool) -> St
     for finding in value.get("findings").and_then(Value::as_array).into_iter().flatten() {
         let text = |key: &str| finding[key].as_str().unwrap_or_default().to_owned();
         let mut place = text("path");
-        if let Some(line) = finding["line"].as_u64() {
+        if let Some(line) = at(finding, "/line").as_u64() {
             place.push_str(&format!(":{line}"));
         }
-        if let Some(key) = finding["key"].as_str() {
+        if let Some(key) = at(finding, "/key").as_str() {
             place.push_str(&format!(" ({key})"));
         }
         lines.push(format!("{}[{}] {place}: {}", text("severity"), text("code"), text("message")));
-        if let Some(fix) = finding["fix"].as_str() {
+        if let Some(fix) = at(finding, "/fix").as_str() {
             lines.push(format!("  fix: {fix}"));
         }
     }
@@ -887,7 +955,7 @@ pub(super) fn card_text(card: &Value) -> String {
             ),
             "views" => format!(
                 "views in a layer of their own, {}; your own views stay",
-                setup["layer"].as_str().unwrap_or_default()
+                at(setup, "/layer").as_str().unwrap_or_default()
             ),
             part => part.trim_end_matches('s').to_owned(),
         };
@@ -927,7 +995,7 @@ pub(super) fn card_text(card: &Value) -> String {
     if let Some(requires) = setup["requires"].as_str() {
         lines.push(format!("Requires cmux {requires}."));
     }
-    match card["undo"].as_str() {
+    match at(card, "/undo").as_str() {
         Some(undo) => lines.push(format!("Undo: {undo}")),
         None => lines.push(format!(
             "Undo: cmux setup remove {}",
@@ -1299,8 +1367,16 @@ fn order(customize: &Customize, apps: &dyn Apps, which: &[String]) -> Result<Val
     Ok(json!({"ordered": true, "setups": setups}))
 }
 
-fn export(customize: &Customize, dir: &Path, header: &ExportHeader) -> Result<Value, Failure> {
-    let exported = customize.export_setup(dir, header, now_ms())?;
+fn export(
+    customize: &Customize,
+    dir: &Path,
+    header: &ExportHeader,
+    profile: Option<&str>,
+) -> Result<Value, Failure> {
+    let exported = match profile {
+        Some(name) => customize.export_profile_setup(name, dir, header)?,
+        None => customize.export_setup(dir, header, now_ms())?,
+    };
     let repo = if header.repo.is_empty() { header.id.clone() } else { header.repo.clone() };
     Ok(json!({
         "exported": exported,
@@ -1308,8 +1384,121 @@ fn export(customize: &Customize, dir: &Path, header: &ExportHeader) -> Result<Va
             format!("cd {} && git init && git add -A && git commit -m 'My cmux setup'", dir.display()),
             format!("push it to github.com/{repo} and add the topic {TOPIC}"),
             format!("cmux setup install github.com/{repo}"),
+            format!("or, where this folder is: cmux setup install {}", dir.display()),
         ],
     }))
+}
+
+/// `cmux setup gallery`: the catalog and the receipts, nothing else read.
+pub(super) fn gallery(customize: &Customize) -> Result<Value, Failure> {
+    let gallery = looks::gallery(&looks::catalog()?, &customize.setups()?);
+    serde_json::to_value(gallery).map_err(|error| refused("setup.gallery", error.to_string()))
+}
+
+/// Fetches a URL's body: `None` on a 404.
+pub(super) type FetchBody<'a> = dyn FnMut(&str) -> Result<Option<Vec<u8>>, String> + 'a;
+
+/// `cmux setup preview ID|REPO`: the first preview file the look has, as a
+/// data URL. An installed folder is read in place; a repo's file is fetched
+/// with `get` (the URL's body, `None` on a 404) and kept under the state dir
+/// with a note of which file it was (or that there was none), reused for
+/// 24 h for the same repo and commit.
+pub(super) fn preview(
+    customize: &Customize,
+    which: &str,
+    scheme: Scheme,
+    get: &mut FetchBody<'_>,
+    now_ms: u64,
+) -> Result<Value, Failure> {
+    let catalog = looks::catalog()?;
+    let target = looks::resolve_preview(&catalog, &customize.setups()?, which)?;
+    let files = looks::look_preview_files(&catalog, &target.id, scheme);
+    let answer = |path: &str, bytes: &[u8], cached: bool| {
+        let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+        json!({
+            "id": target.id,
+            "scheme": scheme.as_str(),
+            "path": path,
+            "dataUrl": format!("data:image/png;base64,{data}"),
+            "cached": cached,
+        })
+    };
+    let missing = || Failure {
+        code: "setup.preview_missing",
+        message: format!(
+            "{} has no preview image ({}); its card still installs it",
+            target.id,
+            files.join(", ")
+        ),
+        details: json!({"id": target.id, "scheme": scheme.as_str(), "tried": files}),
+    };
+    let (reference, git_ref) = match &target.source {
+        PreviewSource::Folder { path } => {
+            for file in &files {
+                let full = path.join(file);
+                let small = std::fs::metadata(&full)
+                    .is_ok_and(|meta| meta.is_file() && meta.len() <= looks::MAX_PREVIEW_BYTES);
+                if let Some(bytes) = small.then(|| std::fs::read(&full).ok()).flatten()
+                    && looks::is_png(&bytes)
+                {
+                    return Ok(answer(file, &bytes, false));
+                }
+            }
+            return Err(missing());
+        }
+        PreviewSource::Repo { reference, git_ref } => (reference, git_ref.as_deref()),
+    };
+    let version = format!("{}@{}", reference.key(), git_ref.unwrap_or("HEAD"));
+    let dir = looks::preview_cache_dir(&customize.roots().state_dir, &target.id);
+    let image = dir.join(format!("{}.png", scheme.as_str()));
+    let note = dir.join(format!("{}.json", scheme.as_str()));
+    let kept: Option<Value> =
+        std::fs::read(&note).ok().and_then(|text| serde_json::from_slice(&text).ok());
+    if let Some(kept) = kept.filter(|kept| {
+        at(kept, "/source").as_str() == Some(version.as_str())
+            && at(kept, "/fetchedMs")
+                .as_u64()
+                .is_some_and(|at| now_ms.saturating_sub(at) < looks::PREVIEW_MAX_AGE_SECS * 1000)
+    }) {
+        let Some(path) = at(&kept, "/path").as_str() else { return Err(missing()) };
+        if let Ok(bytes) = std::fs::read(&image)
+            && looks::is_png(&bytes)
+        {
+            return Ok(answer(path, &bytes, true));
+        }
+    }
+    let mut found = None;
+    for file in &files {
+        let Some(url) = looks::raw_url(reference, git_ref, file) else {
+            return Err(Failure {
+                details: json!({"id": target.id, "scheme": scheme.as_str(), "tried": []}),
+                message: format!(
+                    "{}: previews are read from github.com repos; {} is not one",
+                    target.id, reference.host
+                ),
+                ..missing()
+            });
+        };
+        // Not there, or not a PNG: the next file.
+        if let Some(bytes) = get(&url).map_err(|why| refused("setup.preview_fetch", why))?
+            && looks::is_png(&bytes)
+        {
+            found = Some((file.clone(), bytes));
+            break;
+        }
+    }
+    // The cache is best effort: an unwritable state dir still answers.
+    let _ = std::fs::create_dir_all(&dir);
+    if let Some((_, bytes)) = &found {
+        let _ = cmux_config::fsio::write_atomic(&image, bytes);
+    }
+    let path = found.as_ref().map(|(file, _)| file.clone());
+    let kept = json!({"source": version, "path": path, "fetchedMs": now_ms});
+    let _ = cmux_config::fsio::write_atomic(&note, kept.to_string().as_bytes());
+    match found {
+        Some((file, bytes)) => Ok(answer(&file, &bytes, false)),
+        None => Err(missing()),
+    }
 }
 
 /// Runs one verb as one undo step: what was live before, the verb, then the
@@ -1545,6 +1734,48 @@ pub(super) fn reload(
 /// The answer as a person reads it.
 fn human(value: &Value) -> String {
     let value = &inert(value);
+    if let (Some(looks), Some(stack)) =
+        (value.get("looks").and_then(Value::as_array), value.get("stack").and_then(Value::as_array))
+    {
+        let mut lines = vec!["Looks (cmux setup install REPO):".to_owned()];
+        for look in looks {
+            let state = match at(look, "/installed") {
+                Value::Null => "not installed".to_owned(),
+                row if *at(row, "/on") == json!(false) => {
+                    format!("installed, off, layer {}", at(row, "/position"))
+                }
+                row => format!("installed, layer {}", at(row, "/position")),
+            };
+            lines.push(format!(
+                "  {}  {}  {} ({state})",
+                at(look, "/name").as_str().unwrap_or_default(),
+                at(look, "/repo").as_str().unwrap_or_default(),
+                at(look, "/tagline").as_str().unwrap_or_default(),
+            ));
+        }
+        if !stack.is_empty() {
+            lines.push("Installed, top layer first:".to_owned());
+            lines.extend(stack.iter().map(|row| {
+                format!(
+                    "  {}. {}  {}  {}",
+                    at(row, "/position"),
+                    at(row, "/id").as_str().unwrap_or_default(),
+                    if *at(row, "/on") == json!(false) { "off" } else { "on " },
+                    at(row, "/source").as_str().unwrap_or_default(),
+                )
+            }));
+        }
+        return lines.join("\n");
+    }
+    if value.get("dataUrl").is_some() {
+        return format!(
+            "{}: {} ({}{}).",
+            at(value, "/id").as_str().unwrap_or_default(),
+            at(value, "/path").as_str().unwrap_or_default(),
+            at(value, "/scheme").as_str().unwrap_or_default(),
+            if *at(value, "/cached") == json!(true) { ", cached" } else { "" },
+        );
+    }
     if let Some(installed) = value.get("installed") {
         let mut lines = vec![format!(
             "{} {} ({} at {}).",
@@ -1587,7 +1818,7 @@ fn human(value: &Value) -> String {
             line.push_str(&format!(" Kept the actions you changed since: {}.", names.join(", ")));
         }
         if let Some(shared) =
-            removed["shared_actions"].as_array().filter(|shared| !shared.is_empty())
+            at(removed, "/shared_actions").as_array().filter(|shared| !shared.is_empty())
         {
             let names: Vec<_> = shared.iter().filter_map(Value::as_str).collect();
             line.push_str(&format!(
@@ -1605,18 +1836,18 @@ fn human(value: &Value) -> String {
         if let Some(toggled) = value.get("toggled") {
             lines.push(format!(
                 "{} is {}.",
-                toggled["id"].as_str().unwrap_or_default(),
-                if toggled["on"] == json!(false) { "off (still installed)" } else { "on" }
+                at(toggled, "/id").as_str().unwrap_or_default(),
+                if *at(toggled, "/on") == json!(false) { "off (still installed)" } else { "on" }
             ));
         }
         lines.push("Top layer first:".to_owned());
         lines.extend(setups.iter().map(|setup| {
             format!(
                 "{}  {}  {}  {}",
-                setup["id"].as_str().unwrap_or_default(),
-                if setup["on"] == json!(false) { "off" } else { "on " },
-                setup["repository"].as_str().unwrap_or_default(),
-                setup["commit"].as_str().unwrap_or_default().get(..12).unwrap_or_default()
+                at(setup, "/id").as_str().unwrap_or_default(),
+                if *at(setup, "/on") == json!(false) { "off" } else { "on " },
+                at(setup, "/repository").as_str().unwrap_or_default(),
+                at(setup, "/commit").as_str().unwrap_or_default().get(..12).unwrap_or_default()
             )
         }));
         return lines.join("\n");

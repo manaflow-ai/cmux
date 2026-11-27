@@ -77,6 +77,22 @@
 // its open turn ended, sent ROWS_ENDED_MS (1000) after the first in its place: the rows the reload drew that the
 // ended turn folds away are then goneRows.
 // PANE_SOURCE_REF=<sha> loads that immutable App/direct/hostRetry revision under this same harness for a baseline.
+// Composer chips (Leo, 2026-11-22: "the bypass permissions appears then disappears after it loaded in"; nothing that
+// appeared on a pane's load may disappear and reappear): each frame also reads the chips the layer on top draws (the
+// access chip, the model and effort forms the row fits, the harness mark, the location chips). Per round `vanished`
+// lists each label painted after first content that a later frame lacked (seen, gone and back ms, and the layer of
+// each), `chipChanges` each slot whose label was replaced; each mode prints `CHIPS_VANISHED_JSON {...}`, and GATE=1
+// fails on any vanish. The chat is a Claude Code chat in Bypass permissions: its listed row names only
+// `currentModeId`, the attach's detail and the kept tail carry `modes` (NO_MODES=1: no mode at all, as before).
+// Knobs for the relaunch only (the warm load that writes the copy is untouched):
+//   EARLY_CHANGE=1      acpmux sends the shown chat's `_acpmux/session_changed` (its listed row, no `modes`) right
+//                       after the list answers, and the attach answers only after it;
+//   ATTACH_DELAY_MS=N   the attach answers N ms after it was asked (a slow daemon);
+//   PRESS=key|click|wheel  one input (Shift, a click in the transcript, a wheel up) 100 ms after first content,
+//                       while the copy shows: a press ends the copy (chatSnapshot/live.ts `reportChatSnapshot`).
+// Each round also notes `composerLiveMs` (when the live composer first showed through the copy: liveComposer.ts);
+// HOLE_PIXELS=1 (Chromium) screencasts each relaunch and counts the pixels that differ between the frames either side.
+// LIVE_LOG=1 prints each change of the live snapshot (connection, sessionId, summary, modes) in 400-2500 ms.
 /// <reference types="bun" />
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -95,7 +111,7 @@ import {
 import { snapshotCss } from "../scripts/agent-pane/snapshotCss.mjs";
 import { installPaintedFrames } from "../test/support/paintedFrames";
 import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
-import { classifyFrames, type FrameMetrics, type FrameRecord } from "./firstLoadFrames";
+import { classifyFrames, type FrameMetrics, type FrameRecord, type FrameRail } from "./firstLoadFrames";
 import { perfRow } from "./perfRow";
 import { newestPage } from "./daemonPage";
 import { connectDelay, LinkPipe, linkProfile } from "./linkModel";
@@ -151,6 +167,9 @@ const NO_TAIL = process.env.NO_TAIL === "1";
 const NO_COPY = process.env.NO_COPY === "1";
 const WIRE_TRACE = process.env.WIRE_TRACE === "1";
 const LINK = linkProfile(LINK_NAME);
+/// LINK_ZLIB=1: the link compresses large lines (bench/linkModel.ts `zlibWire`: 16 KiB or more, zlib level 1, both
+/// directions), as the machine link that carries a chat on another machine does once both ends support it.
+const LINK_ZLIB = process.env.LINK_ZLIB === "1";
 /// How long each relaunch is recorded from navigation: acpmux's absence, the page's next retry (at most
 /// 2 s apart while it recovers, hostRetry.ts `nextRetryDelay`), the attach and the settle after it.
 /// A slow LINK adds its round trips and the attach's bytes on the wire: ten round trips and 6 s more on a
@@ -174,7 +193,10 @@ if (!BRIDGE && (LINK.rttMs > 0 || LINK.bps > 0)) throw new Error("LINK needs TRA
 const GATE = process.env.GATE === "1";
 const TRACE = process.env.TRACE === "1";
 /// PROFILE=1 (MODE=reopen-spare): a CPU profile of each adopt, from the event to the newest answer drawn,
-/// printed as the functions with the most self time over all rounds (an unminified build).
+/// printed as the functions with the most self time over all rounds (an unminified build). In a relaunch mode
+/// (down, ...): a CPU profile of each relaunch, from first content to settled (the window the page's own fixed cost
+/// sits in), and each long task of the load with when it ran (ms from navigation) and what ran most in it. The
+/// profiler starts on a blank page of the same origin first, so the relaunch's renderer is not a cold one.
 const PROFILE = process.env.PROFILE === "1";
 /// BOUND=1: each round also times its settled page drawn from scratch in the same page (the DOM copied, the scroll
 /// offset restored, to the next painted frame; median of BOUND_DRAWS draws) as `boundMs`, the settled-page bench's
@@ -330,6 +352,76 @@ const plain = papercutEvents({
   session: REPORTED,
   ...(CONTENT === "rich" ? { answer: richAnswer } : {}),
 });
+/// The chat is a Claude Code chat in Bypass permissions, as Leo's was ("the bypass permissions appears then
+/// disappears after it loaded in", 2026-11-22): its listed row (`_acpmux/watch`, `session_changed`) names only
+/// `currentModeId`, as acpmux's list rows do; the attach's detail carries the harness's `modes` (Claude Code's
+/// menu, harnessModes.ts), and the kept tail the summary the page held (direct.ts `currentTail`), modes
+/// included. NO_MODES=1 serves the summary with no mode at all, as this bench did before.
+const NO_MODES = process.env.NO_MODES === "1";
+const CLAUDE_MODES = {
+  availableModes: [
+    { id: "auto", name: "Auto", description: "Claude handles permission decisions" },
+    { id: "default", name: "Manual", description: "Always ask before making changes" },
+    { id: "acceptEdits", name: "Accept edits", description: "Automatically accept all file edits" },
+    { id: "plan", name: "Plan", description: "Create a plan before making changes" },
+    { id: "bypassPermissions", name: "Bypass permissions", description: "Accepts all permissions" },
+  ],
+  currentModeId: "bypassPermissions",
+};
+/// EARLY_CHANGE=1: on a relaunch, acpmux sends a `_acpmux/session_changed` for the shown chat (its whole listed
+/// row, no `modes`) right after the list (`_acpmux/watch`) answers, and holds the attach's answer until it has.
+const EARLY_CHANGE = process.env.EARLY_CHANGE === "1";
+/// ATTACH_DELAY_MS=N: on a relaunch, the attach answers N ms after it was asked (a slow daemon).
+const ATTACH_DELAY_MS = Number(process.env.ATTACH_DELAY_MS ?? 0);
+if (!Number.isFinite(ATTACH_DELAY_MS) || ATTACH_DELAY_MS < 0) throw new Error("ATTACH_DELAY_MS must be >= 0");
+/// PRESS=key|click|wheel: on a relaunch, one input 100 ms after first content while the copy shows (Shift, a
+/// click in the transcript, a wheel up there): a press ends the copy (chatSnapshot/live.ts `reportChatSnapshot`).
+const PRESS = process.env.PRESS ?? "";
+if (PRESS && !["key", "click", "wheel"].includes(PRESS)) throw new Error("PRESS must be key, click or wheel");
+const PRESS_AFTER_MS = 100;
+/// HOLE_PIXELS=1 (Chromium): a screencast of each relaunch, and the pixels that differ between the last frame before the
+/// live composer showed through the copy (chatSnapshot/liveComposer.ts, `composer_live_ms`) and the first after it.
+const HOLE_PIXELS = process.env.HOLE_PIXELS === "1";
+/// LIVE_LOG=1: print each change of the live snapshot (connection, chat, summary, modes) in 400-2500 ms.
+const LIVE_LOG = process.env.LIVE_LOG === "1";
+/// The pixels that differ between two screencast PNGs (any channel), and their bounding box: decoded by the
+/// page's own image decoder, so the bench needs no PNG package.
+async function pixelDiff(page: Page, a: string, b: string): Promise<{ changed: number; box: number[] | null }> {
+  return page.evaluate(
+    async ([one, two]) => {
+      const pixels = async (data: string) => {
+        // Not `fetch(data:)`: the page's connect-src refuses it.
+        const bytes = Uint8Array.from(atob(data), (char) => char.charCodeAt(0));
+        const image = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+        const canvas = new OffscreenCanvas(image.width, image.height);
+        const context = canvas.getContext("2d")!;
+        context.drawImage(image, 0, 0);
+        return context.getImageData(0, 0, image.width, image.height);
+      };
+      const [first, second] = [await pixels(one), await pixels(two)];
+      if (first.width !== second.width || first.height !== second.height) return { changed: -1, box: null };
+      let changed = 0;
+      let [x0, y0, x1, y1] = [Infinity, Infinity, -1, -1];
+      for (let y = 0; y < first.height; y += 1)
+        for (let x = 0; x < first.width; x += 1) {
+          const at = (y * first.width + x) * 4;
+          if (
+            first.data[at] === second.data[at] &&
+            first.data[at + 1] === second.data[at + 1] &&
+            first.data[at + 2] === second.data[at + 2]
+          )
+            continue;
+          changed += 1;
+          x0 = Math.min(x0, x);
+          y0 = Math.min(y0, y);
+          x1 = Math.max(x1, x);
+          y1 = Math.max(y1, y);
+        }
+      return { changed, box: changed ? [x0, y0, x1 - x0 + 1, y1 - y0 + 1] : null };
+    },
+    [a, b] as const,
+  );
+}
 if (FIXTURE !== "plain" && (RUNNING || CONTENT !== "plain"))
   throw new Error(`FIXTURE=${FIXTURE} takes no RUNNING or CONTENT`);
 /// OPEN=1 (FIXTURE=work): the last turn never ended, as a coordinator's that keeps working does: its records stop
@@ -369,7 +461,7 @@ const worked = (FIXTURE === "work" ? workRecords : FIXTURE === "replay" ? replay
   sessionId: PAPERCUT_CHAT,
 }));
 const events = FIXTURE === "plain" ? plain.events : worked;
-const session =
+const listedBase: Record<string, unknown> =
   FIXTURE !== "plain"
     ? {
         ...plain.session,
@@ -380,6 +472,10 @@ const session =
         lastSeq: worked.length,
       }
     : plain.session;
+const listedRow: Record<string, unknown> = NO_MODES
+  ? listedBase
+  : { ...listedBase, currentModeId: "bypassPermissions" };
+const session: Record<string, unknown> = NO_MODES ? listedBase : { ...listedRow, modes: CLAUDE_MODES };
 /// The newest page before `beforeSeq`, oldest first, and whether older ones remain: the page the daemon
 /// answers an attach or an older-history read with, cut by count and by `maxBytes` (daemonPage.ts).
 const newest = (limit: number, beforeSeq = Infinity, maxBytes?: unknown, kinds?: unknown) =>
@@ -448,7 +544,7 @@ const answer = (method: string, params: Record<string, unknown> = {}): unknown =
         },
       };
     case "_acpmux/watch":
-      return { sessions: [session] };
+      return { sessions: [listedRow] };
     case "_acpmux/attach": {
       // As the daemon does: the newest `limit` events within `maxBytes`, and hasMore while older ones remain.
       const { page, hasMore } = newest(Number(params.limit ?? 400), Infinity, params.maxBytes);
@@ -492,7 +588,123 @@ type Painted = FrameRecord & {
   bottomText: string;
   /// The live root was held clear (opacity 0) with no copy over it: nothing of the chat showed.
   rootHidden: boolean;
+  /// The composer's chips the layer on top drew (`readChips` in recordFrames), and which layer drew them: the
+  /// copy, the live composer through the copy's hole (`hole`, chatSnapshot/liveComposer.ts), the live page.
+  chips: Chip[];
+  chipLayer: Layer;
+  /// The live chat's snapshot (DEBUG automation view): its connection, chat, and whether summary and its modes are set.
+  live: LiveState | null;
+  /// LIVE_LOG: while the hole is open, why the live composer's chips are not painted (`holeWhy` in recordFrames).
+  why?: string;
 };
+type LiveState = { connection: string | null; sessionId: string | null; summary: boolean; modes: string | null };
+/// The spans (ms from navigation) the copy's composer was a hole the live composer showed through, and their total.
+function holeSpans(frames: Painted[]): { spans: [number, number][]; openMs: number } {
+  const spans: [number, number][] = [];
+  for (const [at, frame] of frames.entries()) {
+    if (frame.chipLayer !== "hole") continue;
+    const end = frames[at + 1]?.t ?? frame.t;
+    const last = spans.at(-1);
+    if (last && frames[at - 1]?.chipLayer === "hole") last[1] = Math.round(end);
+    else spans.push([Math.round(frame.t), Math.round(end)]);
+  }
+  return { spans, openMs: spans.reduce((sum, [from, to]) => sum + to - from, 0) };
+}
+/// LIVE_LOG=1: each change of the live snapshot's state in 400-2500 ms, as `ms layer connection sessionId summary modes`.
+function liveLog(frames: Painted[]): string[] {
+  const lines: string[] = [];
+  let was = "";
+  for (const frame of frames) {
+    if (frame.t < 400 || frame.t > 2500) continue;
+    const live = frame.live;
+    const now = live
+      ? `${live.connection} ${live.sessionId ?? "-"} summary=${live.summary ? "yes" : "no"} modes=${live.modes ?? "no"}`
+      : "no debug view";
+    const chips = frame.chips.map((chip) => chip.slot).join(",") || "-";
+    const line = `${frame.chipLayer} ${now} chips=${chips}${frame.why ? ` why: ${frame.why}` : ""}`;
+    if (line === was) continue;
+    was = line;
+    lines.push(`${Math.round(frame.t)} ${line}`);
+  }
+  return lines;
+}
+/// One composer chip as painted: its slot (access, model, effort, harness, location:KIND) and its visible words.
+type Chip = { slot: string; label: string };
+/// The layer a frame was read from: the copy, the live page, or nothing (the live root held clear, no copy).
+type Layer = "copy" | "hole" | "live" | "hidden";
+const layerOf = (frame: Painted): Layer => frame.chipLayer;
+/// A chip label painted after first content and then absent from a later frame (Leo, 2026-11-22: "the bypass
+/// permissions appears then disappears after it loaded in"): when it first showed, when it went and came back
+/// (null: it never did), the layer of each of those frames, and what its slot showed instead (null: nothing).
+type ChipVanish = {
+  slot: string;
+  label: string;
+  seenMs: number;
+  seenLayer: Layer;
+  goneMs: number;
+  goneLayer: Layer;
+  slotThen: string | null;
+  backMs: number | null;
+  backLayer: Layer | null;
+};
+/// A slot whose label was replaced by another from one frame to the next (a placeholder, then the real one).
+type ChipChange = { slot: string; from: string; to: string; atMs: number; fromLayer: Layer; toLayer: Layer };
+type ChipReport = { vanished: ChipVanish[]; vanishedLabels: string[]; chipChanges: ChipChange[] };
+/// The composer's chips over one load's frames from its first content on: each label's disappearances, and
+/// each slot's label changes. A load that holds its chips from first content has neither.
+function chipReport(frames: Painted[], firstContentMs: number | null): ChipReport {
+  const vanished: ChipVanish[] = [];
+  const chipChanges: ChipChange[] = [];
+  if (firstContentMs === null) return { vanished, vanishedLabels: [], chipChanges };
+  const key = (chip: Chip) => `${chip.slot}\u0000${chip.label}`;
+  const firstSeen = new Map<string, { at: number; layer: Layer }>();
+  const away = new Map<string, ChipVanish>();
+  let previous: Painted | undefined;
+  for (const frame of frames) {
+    if (frame.t < firstContentMs) continue;
+    const layer = layerOf(frame);
+    const now = new Map(frame.chips.map((chip) => [key(chip), chip]));
+    for (const [id, chip] of now) {
+      if (!firstSeen.has(id)) firstSeen.set(id, { at: frame.t, layer });
+      const gone = away.get(id);
+      if (gone) {
+        gone.backMs = Math.round(frame.t);
+        gone.backLayer = layer;
+        away.delete(id);
+      }
+      const before = previous?.chips.find((one) => one.slot === chip.slot);
+      if (before && before.label !== chip.label && !now.has(key(before)))
+        chipChanges.push({
+          slot: chip.slot,
+          from: before.label,
+          to: chip.label,
+          atMs: Math.round(frame.t),
+          fromLayer: layerOf(previous!),
+          toLayer: layer,
+        });
+    }
+    for (const chip of previous?.chips ?? []) {
+      const id = key(chip);
+      if (now.has(id) || away.has(id)) continue;
+      const first = firstSeen.get(id)!;
+      const gone: ChipVanish = {
+        slot: chip.slot,
+        label: chip.label,
+        seenMs: Math.round(first.at),
+        seenLayer: first.layer,
+        goneMs: Math.round(frame.t),
+        goneLayer: layer,
+        slotThen: frame.chips.find((one) => one.slot === chip.slot)?.label ?? null,
+        backMs: null,
+        backLayer: null,
+      };
+      vanished.push(gone);
+      away.set(id, gone);
+    }
+    previous = frame;
+  }
+  return { vanished, vanishedLabels: [...new Set(vanished.map((one) => `${one.slot}: ${one.label}`))], chipChanges };
+}
 type LayoutShiftSeen = { at: number; value: number; moved: { node: string; from: number[]; to: number[] }[] };
 type Recording = {
   frames: Painted[];
@@ -520,6 +732,7 @@ type BenchWindow = {
   __cmuxChatSnapshotMiss?: string;
   __cmuxChatSnapshotShown?: {
     at: number;
+    composerAt?: number;
     swappedAt?: number;
     hold?: { by: string; at: number; differs?: string };
   };
@@ -683,8 +896,120 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
     scrollTop: number | null;
     bottomText: string;
     rootHidden: boolean;
+    chips: Chip[];
+    chipLayer: string;
+    live: LiveState | null;
+    why?: string;
+    rail: FrameRail | null;
   };
   let stopped = false;
+  /// Painted: a box, visible itself, and no ancestor up to the layer's root gone or clear. `visibility` is
+  /// read on the element alone: it inherits, and a child may set it back (liveComposer.ts shows the composer's
+  /// box in a hidden root).
+  const painted = (element: Element): boolean => {
+    const box = element.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0) return false;
+    if (getComputedStyle(element).visibility === "hidden") return false;
+    for (let at: Element | null = element; at; at = at.parentElement) {
+      const style = getComputedStyle(at);
+      if (style.display === "none" || Number(style.opacity) === 0) return false;
+    }
+    return true;
+  };
+  /// The live chat's snapshot this frame (the DEBUG automation view, App.tsx): what its chips draw from.
+  const liveState = () => {
+    const snapshot = (
+      window as unknown as {
+        cmuxAcpmuxDebug?: {
+          automation?: {
+            snapshot(): {
+              connection?: string;
+              sessionId?: string;
+              summary?: { modes?: { currentModeId?: string } };
+            };
+          };
+        };
+      }
+    ).cmuxAcpmuxDebug?.automation?.snapshot();
+    if (!snapshot) return null;
+    return {
+      connection: snapshot.connection ?? null,
+      sessionId: snapshot.sessionId ?? null,
+      summary: !!snapshot.summary,
+      modes: snapshot.summary?.modes?.currentModeId ?? (snapshot.summary?.modes ? "set" : null),
+    };
+  };
+  const words = (element: Element) =>
+    (element.getAttribute("data-label") ?? element.textContent ?? "").trim().replace(/\s+/g, " ");
+  /// The composer's chips as this layer draws them (ComposerPickers.tsx, ModelPicker.tsx, ComposerContext.tsx):
+  /// the access chip (`.acpmux-mode`: AccessMenu or the inert PendingMode), the model and effort forms the row's
+  /// fit shows (`data-fit-part`, a short form drawn from its `data-label`), the harness's mark, the location chips.
+  const readChips = (scope: ParentNode, inBox?: boolean): Chip[] => {
+    const chips: Chip[] = [];
+    // The row is `display: contents` in the composer's foot (composerLocation.css): it has no box of its own.
+    for (const row of Array.from(scope.querySelectorAll(".acpmux-chips"))) {
+      if (inBox !== undefined && !!row.closest(".acpmux-composer-box") !== inBox) continue;
+      for (const mode of Array.from(row.querySelectorAll(".acpmux-mode")).filter(painted)) {
+        const text = Array.from(mode.querySelectorAll(".acpmux-mode-text")).filter(painted).map(words).join(" ");
+        if (text) chips.push({ slot: "access", label: text });
+      }
+      for (const part of ["model", "effort"]) {
+        const text = Array.from(row.querySelectorAll(`[data-fit-part="${part}"]`))
+          .filter(painted)
+          .map(words)
+          .filter(Boolean)
+          .join(" ");
+        if (text) chips.push({ slot: part, label: text });
+      }
+      const mark = Array.from(row.querySelectorAll(".agent-mark")).find(painted);
+      if (mark)
+        chips.push({
+          slot: "harness",
+          label:
+            mark.getAttribute("data-symbol") ??
+            mark.getAttribute("aria-label") ??
+            (mark.getAttribute("src") ?? "").split("/").pop()?.slice(0, 40) ??
+            "mark",
+        });
+    }
+    for (const picker of Array.from(scope.querySelectorAll(".acpmux-location-picker")).filter(painted)) {
+      if (inBox !== undefined && !!picker.closest(".acpmux-composer-box") !== inBox) continue;
+      const text = words(picker);
+      if (text) chips.push({ slot: `location:${picker.getAttribute("data-kind") ?? ""}`, label: text.slice(0, 60) });
+    }
+    return chips;
+  };
+  /// Why the live composer's chips are not painted under the hole: where the chip row is, and for each
+  /// chip part the first thing that hides it.
+  const holeWhy = (): string => {
+    const liveBox = document.querySelector("#root .acpmux-composer-box");
+    const rows = Array.from(document.querySelectorAll("#root .acpmux-chips"));
+    const hides = (element: Element): string => {
+      const box = element.getBoundingClientRect();
+      if (box.width <= 0 || box.height <= 0) return `size ${Math.round(box.width)}x${Math.round(box.height)}`;
+      for (let at: Element | null = element; at; at = at.parentElement) {
+        const style = getComputedStyle(at);
+        const name = `${at.tagName.toLowerCase()}.${at.classList[0] ?? ""}`;
+        if (style.display === "none") return `display:none at ${name}`;
+        if (Number(style.opacity) === 0) return `opacity:0 at ${name}`;
+        if (style.visibility === "hidden") {
+          // The nearest ancestor that sets it.
+          let from: Element = at;
+          while (from.parentElement && getComputedStyle(from.parentElement).visibility === "hidden")
+            from = from.parentElement;
+          return `visibility:hidden from ${from.tagName.toLowerCase()}.${from.classList[0] ?? from.id}`;
+        }
+      }
+      return "painted";
+    };
+    const parts = rows.flatMap((row) =>
+      Array.from(row.querySelectorAll(".acpmux-mode, .acpmux-mode-text, [data-fit-part], .agent-mark")).map(
+        (part) => `${part.classList[0] ?? part.getAttribute("data-fit-part")}=${hides(part)}`,
+      ),
+    );
+    const text = (liveBox?.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+    return `rows=${rows.length} inBox=${rows.map((row) => !!liveBox?.contains(row)).join(",")} boxText="${text}" ${[...new Set(parts)].join("; ")}`;
+  };
   const recording = {
     frames: [] as Frame[],
     layoutShift: 0,
@@ -753,6 +1078,23 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
       : Array.from(scope.querySelectorAll(".acpmux-composer-box"))
           .map((element) => element.getBoundingClientRect())
           .find((box) => box.height > 0);
+    const railNode = rootHidden ? null : scope.querySelector<HTMLElement>(".acpmux-minimap__rail");
+    const railBox = railNode?.getBoundingClientRect();
+    const rail: FrameRail | null =
+      railNode && railBox && railBox.height > 0
+        ? {
+            top: railBox.top,
+            height: railBox.height,
+            rows: Number(railNode.querySelector("[aria-setsize]")?.getAttribute("aria-setsize") ?? 0),
+            listTop: railNode.querySelector<HTMLElement>(".acpmux-minimap__list")?.scrollTop ?? 0,
+            lit: Array.from(railNode.querySelectorAll<HTMLElement>("[data-tick][aria-current]"))
+              .map((tick) => tick.dataset.tick)
+              .join(","),
+            animating: railNode
+              .getAnimations({ subtree: true })
+              .filter((animation) => animation.playState === "running").length,
+          }
+        : null;
     if (!recording.latestAt && rows.some((row) => row.text.includes(latest))) recording.latestAt = performance.now();
     if (!recording.liveLatestAt && !host && !rootHidden && rows.some((row) => row.text.includes(latest)))
       recording.liveLatestAt = performance.now();
@@ -764,6 +1106,18 @@ function recordFrames({ windowMs, latest, hostTag }: { windowMs: number; latest:
       scrollTop: scroller && !rootHidden ? scroller.scrollTop : null,
       bottomText: (rows.at(-1)?.text ?? "").trim().replace(/\s+/g, " ").slice(0, 48),
       rootHidden,
+      // While the copy shows, its composer may be a hole the live composer shows through (liveComposer.ts):
+      // then the chips drawn are the live page's.
+      // the chips in the box are the live page's, the ones around it (the foot's row) still the copy's.
+      chips: rootHidden
+        ? []
+        : host?.style.clipPath
+          ? [...readChips(document, true), ...readChips(scope, false)]
+          : readChips(scope),
+      chipLayer: rootHidden ? "hidden" : host ? (host.style.clipPath ? "hole" : "copy") : "live",
+      live: liveState(),
+      ...(drawn?.style.clipPath ? { why: holeWhy() } : {}),
+      rail,
     };
   };
   window.cmuxAfterPaint(() => {
@@ -846,8 +1200,114 @@ function addProfile(profile: CpuProfile, atMs: number, untilMs: number): void {
   });
   profiled += 1;
 }
+/// PROFILE=1 in a relaunch mode: the long tasks (a busy run of samples of 20 ms or more) of each round, in order.
+const relaunchTasks: string[] = [];
+/// Adds one relaunch's samples from first content (`fromMs`, from navigation) to settled (`untilMs`), and lists its
+/// long tasks to settled. `nowMs` is the page's performance.now() just before the profiler stopped: the profile's
+/// end, so each sample's time from navigation is `nowMs - (endTime - t) / 1000`.
+function addRelaunchProfile(
+  profile: CpuProfile & { startTime: number; endTime: number },
+  nowMs: number,
+  fromMs: number,
+  untilMs: number,
+  round: number,
+): void {
+  const byId = new Map(profile.nodes.map((node) => [node.id, node]));
+  const parent = new Map<number, number>();
+  for (const node of profile.nodes) for (const child of node.children ?? []) parent.set(child, node.id);
+  const stackOf = (id: number) => {
+    const keys: string[] = [];
+    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
+      const up = byId.get(at);
+      if (!up || up.callFrame.functionName === "(root)") break;
+      if (up.callFrame.url) keys.push(nodeKey(up.callFrame));
+    }
+    return keys;
+  };
+  // What ran when, by stretch: the outermost two bundle functions on the stack and the innermost component (a
+  // capitalized function) under them, a stretch per run of samples with the same label.
+  const labelOf = (id: number) => {
+    const keys: string[] = [];
+    let component: string | undefined;
+    for (let at: number | undefined = id; at !== undefined; at = parent.get(at)) {
+      const up = byId.get(at);
+      if (!up || up.callFrame.functionName === "(root)") break;
+      if (!up.callFrame.url) continue;
+      keys.push(up.callFrame.functionName || "(anonymous)");
+      if (component === undefined && /^[A-Z]/.test(up.callFrame.functionName)) component = up.callFrame.functionName;
+    }
+    const outer = keys.slice(-2).reverse().join(" > ") || byId.get(id)!.callFrame.functionName;
+    return component ? `${outer} … ${component}` : outer;
+  };
+  let stretch: { from: number; to: number; label: string } | undefined;
+  const stretches: string[] = [];
+  const endStretch = () => {
+    if (stretch && stretch.to - stretch.from >= 3)
+      stretches.push(`    ${stretch.from.toFixed(0)}-${stretch.to.toFixed(0)} ${stretch.label}`);
+    stretch = undefined;
+  };
+  let t = profile.startTime;
+  let task: { from: number; to: number; by: Map<string, number> } | undefined;
+  const close = () => {
+    if (task && task.to - task.from >= 20) {
+      const top = [...task.by]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 6)
+        .map(([key, ms]) => `${ms.toFixed(0)} ${key}`)
+        .join("; ");
+      relaunchTasks.push(
+        `  round ${round} task ${task.from.toFixed(0)}-${task.to.toFixed(0)} ms (${(task.to - task.from).toFixed(0)} ms): ${top}`,
+      );
+    }
+    endStretch();
+    if (task && task.to - task.from >= 20) relaunchTasks.push(...stretches);
+    stretches.length = 0;
+    task = undefined;
+  };
+  profile.samples.forEach((id, index) => {
+    const ms = profile.timeDeltas[index] / 1000;
+    t += profile.timeDeltas[index];
+    const at = nowMs - (profile.endTime - t) / 1000;
+    const node = byId.get(id);
+    if (!node) return;
+    if (at > untilMs + 50) return close();
+    // (program) is the renderer's own work outside script (style, layout, paint, parsing): busy, not idle.
+    if (node.callFrame.functionName === "(idle)") {
+      if (task && at - task.to > 2) close();
+    } else {
+      if (!task) task = { from: at, to: at, by: new Map() };
+      task.to = at;
+      const label = labelOf(id);
+      if (stretch?.label !== label) {
+        endStretch();
+        stretch = { from: at, to: at, label };
+      } else stretch.to = at;
+      // Inclusive per bundle function, each once per sample.
+      for (const key of new Set(stackOf(id))) bump(task.by, key, ms);
+      if (!node.callFrame.url) bump(task.by, `${node.callFrame.functionName} (built-in)`, ms);
+    }
+    if (at < fromMs || at > untilMs || node.callFrame.functionName === "(idle)") return;
+    bump(selfMs, nodeKey(node.callFrame), ms);
+    const seen = new Set<string>();
+    let caller: string | undefined;
+    for (let up: number | undefined = id; up !== undefined; up = parent.get(up)) {
+      const one = byId.get(up);
+      if (!one || one.callFrame.functionName === "(root)") break;
+      const key = nodeKey(one.callFrame);
+      if (!seen.has(key)) bump(totalMs, key, ms);
+      seen.add(key);
+      if (caller === undefined && up !== id && one.callFrame.url) caller = key;
+    }
+    if (!node.callFrame.url && caller) bump(nativeByCaller, `${node.callFrame.functionName} <- ${caller}`, ms);
+  });
+  close();
+  profiled += 1;
+}
 function printProfile(): void {
   if (!profiled) return;
+  const relaunched = relaunchTasks.length > 0 || !MODES.includes("reopen-spare");
+  const what = relaunched ? `${LINK_NAME} relaunch, first content to settled` : "reopen-spare adopt";
+  if (relaunched) console.log(`${LINK_NAME} relaunch long tasks (ms from navigation):\n${relaunchTasks.join("\n")}`);
   const total = [...selfMs.values()].reduce((a, b) => a + b, 0);
   const top = (title: string, map: Map<string, number>, count: number) => {
     console.log(title);
@@ -855,17 +1315,29 @@ function printProfile(): void {
       console.log(`  ${(ms / profiled).toFixed(2).padStart(7)} ms  ${key}`);
   };
   top(
-    `reopen-spare adopt profile: ${(total / profiled).toFixed(1)} ms busy per adopt (n=${profiled}), top self time:`,
+    `${what} profile: ${(total / profiled).toFixed(1)} ms busy per round (n=${profiled}), top self time:`,
     selfMs,
     30,
   );
-  top("reopen-spare adopt profile, inclusive:", totalMs, 45);
-  top("reopen-spare adopt profile, built-ins by caller:", nativeByCaller, 20);
+  top(`${what} profile, inclusive:`, totalMs, Number(process.env.PROFILE_TOP ?? 45));
+  top(`${what} profile, built-ins by caller:`, nativeByCaller, 20);
 }
 
 type Round = {
   mode: Mode;
   metrics: FrameMetrics;
+  /// The composer's chips over the round (`chipReport`): what vanished after first content, what changed.
+  chips: ChipReport;
+  /// PRESS: the input sent, when (ms from navigation) and whether the copy showed then.
+  press: { kind: string; atMs: number; copyShown: boolean } | null;
+  /// EARLY_CHANGE: when the shown chat's `session_changed` went out (ms from navigation), and how many attaches
+  /// were answered with none sent first (the page asked for no list on that socket).
+  earlyChangeMs: number | null;
+  earlyChangeMissed: number;
+  /// When the live composer first showed through the copy (`chatSnapshotTimes().composer_live_ms`), else null.
+  composerLiveMs: number | null;
+  /// HOLE_PIXELS: the screencast frames either side of it (ms from navigation) and the pixels that differ.
+  hole: { beforeMs: number; afterMs: number; changed: number; box: number[] | null } | null;
   frames: Painted[];
   /// When the live page, with no copy over it, first showed the newest answer (ms from navigation),
   /// else null: a round whose copy never gave way to the read chat has not loaded.
@@ -897,8 +1369,9 @@ type Round = {
   /// navigation): the relink is the wait for that ask after acpmux came back, then the ask to the open.
   asks: number;
   lastAskMs: number | null;
-  /// Bytes the daemon sent the page over the link this round.
+  /// Bytes the daemon sent the page over the link this round, as text, and as they crossed the wire (LINK_ZLIB).
   bytesDown: number;
+  wireDown: number;
   /// ROWS_WINDOW: the row store's batches the page took (0: it drew the chat by v1).
   rowsTaken: number;
 };
@@ -955,7 +1428,25 @@ try {
   let downUntil = 0;
   let wireT0 = 0;
   /// This relaunch's socket timeline (epoch ms).
-  let load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
+  let load = {
+    refused: 0,
+    socketOpenedAt: 0,
+    initializeAnsweredAt: 0,
+    attachAnsweredAt: 0,
+    bytesDown: 0,
+    earlyChangeAt: 0,
+    earlyChangeMissed: 0,
+    wireDown: 0,
+  };
+  /// A relaunch (or reopen) round is loading: EARLY_CHANGE and ATTACH_DELAY_MS apply, not to the warm load.
+  let relaunching = false;
+  /// Per daemon socket: whether its EARLY_CHANGE went out, and the attach answers held until it has.
+  const sockets = new WeakMap<object, { changeSent: boolean; held: (() => void)[] }>();
+  const socketState = (ws: object) => {
+    let state = sockets.get(ws);
+    if (!state) sockets.set(ws, (state = { changeSent: false, held: [] }));
+    return state;
+  };
   /// TRACE: the daemon calls a spare page made before its adopt event.
   const spareCalls: string[] = [];
   let servingSpare = false;
@@ -1023,6 +1514,54 @@ try {
             // Closed: the page asks again on its next socket.
           }
         };
+        const socket = socketState(ws);
+        if (relaunching && message.method === "_acpmux/attach" && (EARLY_CHANGE || ATTACH_DELAY_MS > 0)) {
+          // EARLY_CHANGE: the attach answers only after the list answered and its change went out;
+          // ATTACH_DELAY_MS: and that long after it was asked.
+          const askedAt = Date.now();
+          const send = () => {
+            const wait = ATTACH_DELAY_MS - (Date.now() - askedAt);
+            if (wait <= 0) return reply();
+            // fixed-wait: the slow attach is the condition ATTACH_DELAY_MS measures; stops with the run.
+            const timer = setTimeout(() => {
+              delayedReplies.delete(timer);
+              reply();
+            }, wait);
+            delayedReplies.add(timer);
+          };
+          if (EARLY_CHANGE && !socket.changeSent) {
+            socket.held.push(send);
+            // A page that never lists on this socket still gets its attach (noted: no early change went out).
+            const timer = setTimeout(() => {
+              delayedReplies.delete(timer);
+              if (!socket.held.includes(send)) return;
+              socket.held.splice(socket.held.indexOf(send), 1);
+              load.earlyChangeMissed += 1;
+              send();
+            }, 5000);
+            delayedReplies.add(timer);
+          } else send();
+          return;
+        }
+        if (relaunching && EARLY_CHANGE && message.method === "_acpmux/watch") {
+          reply();
+          // The shown chat's change, its whole listed row (no `modes`), as acpmux sends one: before the attach.
+          load.earlyChangeAt ||= Date.now();
+          try {
+            ws.send(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                method: "_acpmux/session_changed",
+                params: { kind: "session_info", session: listedRow },
+              }),
+            );
+          } catch {
+            // Closed: the next socket's list sends it again.
+          }
+          socket.changeSent = true;
+          for (const held of socket.held.splice(0)) held();
+          return;
+        }
         // A slow daemon: the socket is up but its handshake answers only once acpmux is ready.
         const delay = message.method === "initialize" && downMode === "slow-init" ? downUntil - Date.now() : 0;
         // fixed-wait: the slow daemon's answer time is the condition this mode measures; stops with the run.
@@ -1277,13 +1816,15 @@ try {
         if (!opened) return { ok: false, code: "transport.connect_failed", message: "acpmux refused the socket" };
         sockets.set(connection, socket);
         // LINK: daemon to page and page to daemon each go through one pipe of the simulated link, in order.
-        const down = new LinkPipe(LINK);
-        const up = new LinkPipe(LINK);
+        const down = new LinkPipe(LINK, undefined, LINK_ZLIB);
+        const up = new LinkPipe(LINK, undefined, LINK_ZLIB);
         pipes.set(connection, { up, down });
         socket.addEventListener("message", (event) => {
           const frame = String(event.data);
           load.bytesDown += Buffer.byteLength(frame);
+          const before = down.bytes;
           down.send(frame, (arrived) => push({ connection, frames: [arrived] }));
+          load.wireDown += down.bytes - before;
         });
         socket.addEventListener("close", (event) => {
           if (!sockets.delete(connection)) return;
@@ -1424,6 +1965,12 @@ try {
       // PARK=visible: the spare parks its chat view drawn but invisible (App SPARE_PARK_VISIBLE).
       if (process.env.PARK)
         await page.addInitScript((park) => Object.assign(window, { __cmuxSparePark: park }), process.env.PARK);
+      // REHEARSE=off: the spare skips its offscreen warm-up of a sample chat (spareRehearsal.tsx).
+      if (process.env.REHEARSE)
+        await page.addInitScript(
+          (rehearse) => Object.assign(window, { __cmuxSpareRehearse: rehearse }),
+          process.env.REHEARSE,
+        );
       await page.goto(spareUrl);
       await page.waitForFunction(
         (quietMs) => {
@@ -1436,6 +1983,20 @@ try {
         SETTLE_QUIET_MS,
         { timeout: 120_000, polling: 100 },
       );
+      // The app's spare sits parked for seconds or more, so its warm-up ends before a real adopt: wait for it.
+      if (process.env.REHEARSE !== "off")
+        await page
+          .waitForFunction(
+            (quietMs) => {
+              const at = Number(document.documentElement.dataset.spareRehearsed);
+              return at > 0 && performance.now() - at > quietMs;
+            },
+            SETTLE_QUIET_MS,
+            { timeout: 15_000, polling: 100 },
+          )
+          .catch(() => console.log("reopen-spare: no rehearsal finished within 15 s"));
+      // The off side idles as long, so only the warm-up differs between the two.
+      else await page.waitForTimeout(3_000);
       if (TRACE) console.log(`reopen-spare daemon calls before its adopt event: ${spareCalls.splice(0).join(", ")}`);
       if (TRACE)
         console.log(
@@ -1515,9 +2076,16 @@ try {
       const frames = got.frames
         .filter((frame) => frame.t >= start.at)
         .map((frame) => ({ ...frame, t: frame.t - start.at }));
+      const metrics = classifyFrames(frames);
       return {
         mode: "reopen-spare",
-        metrics: classifyFrames(frames),
+        metrics,
+        chips: chipReport(frames, metrics.firstContentMs),
+        press: null,
+        earlyChangeMs: null,
+        earlyChangeMissed: 0,
+        composerLiveMs: null,
+        hole: null,
         frames,
         liveLatestMs: got.live > start.at ? got.live - start.at : null,
         layoutShift: got.layoutShift - start.shift,
@@ -1541,6 +2109,7 @@ try {
         asks: 0,
         lastAskMs: null,
         bytesDown: 0,
+        wireDown: 0,
         rowsTaken: 0,
       };
     } finally {
@@ -1571,18 +2140,79 @@ try {
           true,
         );
       }
-      load = { refused: 0, socketOpenedAt: 0, initializeAnsweredAt: 0, attachAnsweredAt: 0, bytesDown: 0 };
+      load = {
+        refused: 0,
+        socketOpenedAt: 0,
+        initializeAnsweredAt: 0,
+        attachAnsweredAt: 0,
+        bytesDown: 0,
+        earlyChangeAt: 0,
+        earlyChangeMissed: 0,
+        wireDown: 0,
+      };
+      relaunching = true;
       // acpmux is up for a reopen: only the page is new; a refusal comes from the host, the daemon is up.
       downMode = isReopen(mode) || isRefused(mode) ? undefined : mode;
       downUntil = isReopen(mode) ? 0 : Date.now() + DOWN_MS;
       const upAt = downUntil;
+      // PROFILE=1: the profiler runs in the renderer the relaunch loads in (a blank page of the same origin first).
+      const cdp = PROFILE ? await context.newCDPSession(page) : null;
+      if (cdp) {
+        await page.goto(new URL("/__profile-blank", url).href);
+        await cdp.send("Profiler.enable");
+        await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
+        await cdp.send("Profiler.start");
+      }
       wireT0 = Date.now();
+      // HOLE_PIXELS: every frame the compositor draws, with its time (epoch ms).
+      let cast: { at: number; data: string }[] | null = null;
+      const castCdp = HOLE_PIXELS && ENGINE === "chromium" ? await context.newCDPSession(page) : null;
+      if (castCdp) {
+        const frames: { at: number; data: string }[] = [];
+        cast = frames;
+        castCdp.on(
+          "Page.screencastFrame",
+          (event: { data: string; sessionId: number; metadata: { timestamp?: number } }) => {
+            frames.push({ at: (event.metadata.timestamp ?? Date.now() / 1000) * 1000, data: event.data });
+            void castCdp.send("Page.screencastFrameAck", { sessionId: event.sessionId }).catch(() => undefined);
+          },
+        );
+        await castCdp.send("Page.startScreencast", {
+          format: "png",
+          everyNthFrame: 1,
+          maxWidth: RELAUNCH_VIEWPORT.width,
+          maxHeight: RELAUNCH_VIEWPORT.height,
+        });
+      }
       endOpenTurn = OPEN_ENDS_MS > 0;
       await Promise.all(pages.map((one) => one.goto(url, { waitUntil: "commit" })));
+      // PRESS: one input PRESS_AFTER_MS after the first frame with content, as a person's would be.
+      let press: Round["press"] = null;
+      if (PRESS) {
+        await page.waitForFunction(
+          () => (window as unknown as BenchWindow).__firstLoad.frames.some((frame) => frame.rows.length > 0),
+          undefined,
+          { timeout: windowMs, polling: "raf" },
+        );
+        // fixed-wait: the press's time after first content is the condition PRESS measures.
+        await page.waitForTimeout(PRESS_AFTER_MS);
+        const before = await page.evaluate(() => {
+          const frames = (window as unknown as BenchWindow).__firstLoad.frames;
+          return { atMs: performance.now(), copyShown: frames.at(-1)?.copyShown ?? false };
+        });
+        if (PRESS === "key") await page.keyboard.press("Shift");
+        else if (PRESS === "click") await page.mouse.click(RELAUNCH_VIEWPORT.width / 2, 300);
+        else {
+          await page.mouse.move(RELAUNCH_VIEWPORT.width / 2, 300);
+          await page.mouse.wheel(0, -200);
+        }
+        press = { kind: PRESS, atMs: Math.round(before.atMs), copyShown: before.copyShown };
+      }
       await page.waitForFunction(() => (window as unknown as BenchWindow).__firstLoad.done, undefined, {
         timeout: windowMs + 60_000,
         polling: 250,
       });
+      if (castCdp) await castCdp.send("Page.stopScreencast").catch(() => undefined);
       if (TRACE) console.log(`${mode} relaunch bottom band:\n  ${(await page.evaluate(bottomBand)).join("\n  ")}`);
       if (WIRE_TRACE) {
         // The page's own launch marks (perf.ts `launchTimeline`), on the same clock as the wire lines.
@@ -1598,6 +2228,19 @@ try {
           .join(", ");
         console.log(`wire page marks (ms from the round's start): ${marks}`);
       }
+      if (process.env.RES_TRACE === "1")
+        console.log(
+          "RES " +
+            (await page.evaluate(() =>
+              [
+                ...(performance.getEntriesByType("resource") as PerformanceResourceTiming[]).map(
+                  (e) => `${e.name.split("/").pop()} ${e.startTime.toFixed(0)}-${e.responseEnd.toFixed(0)}`,
+                ),
+                ...performance.getEntriesByType("mark").map((e) => `mark:${e.name} ${e.startTime.toFixed(0)}`),
+                `dcl ${(performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming).domContentLoadedEventStart.toFixed(0)}`,
+              ].join("\n  "),
+            )),
+        );
       const got = await page.evaluate(() => {
         const w = window as unknown as BenchWindow;
         return {
@@ -1614,13 +2257,50 @@ try {
           rowsTaken: w.__benchHost.rowsTaken,
         };
       });
+      if (cdp) {
+        const nowMs = await page.evaluate(() => performance.now());
+        const { profile } = (await cdp.send("Profiler.stop")) as {
+          profile: CpuProfile & { startTime: number; endTime: number };
+        };
+        await cdp.detach();
+        const metrics = classifyFrames(got.frames);
+        const settledMs = restartSettled(got.frames, metrics, got.liveLatestAt || null).settledMs ?? nowMs;
+        addRelaunchProfile(profile, nowMs, metrics.firstContentMs ?? 0, settledMs, profiled + 1);
+      }
       if (mode.startsWith("native-ready") && got.readyAnsweredAt < DOWN_MS - 20)
         throw new Error(`native ready delay was not exercised: ${got.readyAnsweredAt}`);
       const since = (epoch: number) => (epoch ? epoch - got.origin : null);
+      const metrics = classifyFrames(got.frames);
       const boundMs = BOUND ? await drawBound(page) : null;
       return {
         mode,
-        metrics: classifyFrames(got.frames),
+        metrics,
+        chips: chipReport(got.frames, metrics.firstContentMs),
+        press,
+        earlyChangeMs: since(load.earlyChangeAt),
+        earlyChangeMissed: load.earlyChangeMissed,
+        composerLiveMs: got.shown?.composerAt ?? null,
+        hole: await (async () => {
+          const at = got.shown?.composerAt;
+          if (!cast || at === undefined) return null;
+          const epoch = got.origin + at;
+          const before = cast.filter((frame) => frame.at <= epoch).at(-1);
+          const after = cast.find((frame) => frame.at > epoch);
+          if (!before || !after) return null;
+          // The two frames, for a person to look at (cmux-ci test --artifact DIR).
+          const out = process.env.FAST_CHECKS_OUT;
+          if (out)
+            for (const [name, frame] of [
+              ["before", before],
+              ["after", after],
+            ] as const)
+              fs.writeFileSync(path.join(out, `hole-${MODE}-${name}.png`), Buffer.from(frame.data, "base64"));
+          return {
+            beforeMs: Math.round(before.at - got.origin),
+            afterMs: Math.round(after.at - got.origin),
+            ...(await pixelDiff(page, before.data, after.data)),
+          };
+        })(),
         frames: got.frames,
         liveLatestMs: got.liveLatestAt || null,
         layoutShift: got.layoutShift,
@@ -1645,6 +2325,7 @@ try {
         boundMs,
         asks: got.asks.length,
         bytesDown: load.bytesDown,
+        wireDown: load.wireDown,
         rowsTaken: got.rowsTaken,
         lastAskMs: (() => {
           const opened = since(load.socketOpenedAt);
@@ -1655,6 +2336,7 @@ try {
     } finally {
       downMode = undefined;
       downUntil = 0;
+      relaunching = false;
       servedCopy = null;
       if (context === warmContext) for (const one of pages) await one.close();
       else await context.close();
@@ -1678,6 +2360,7 @@ try {
   const PICKS = {
     blankAfterContent: (r: Round) => r.metrics.blankAfterContent,
     shiftFrames: (r: Round) => r.metrics.shiftFrames,
+    railFrames: (r: Round) => r.metrics.railFrames,
     finalFirstPaintMs: (r: Round) => r.metrics.finalFirstPaintMs,
     firstContentMs: (r: Round) => r.metrics.firstContentMs,
     layoutShift: (r: Round) => r.layoutShift,
@@ -1691,7 +2374,7 @@ try {
       `first-load-after-restart [${mode}]: ${TURNS} turns, acpmux unavailable ${DOWN_MS} ms from navigation, recorded ${recordMs(mode)} ms, ${rounds.length} rounds; content ${CONTENT}, ${HEIGHT_DELTA} px shorter, ${PAGES} pages`,
     );
     console.log(
-      "round | blank after content | shift frames | final first paint ms | first content ms | layout shift | frames | copy drawn ms | swap ms | tail asked ms | acpmux up ms | refused | socket ms | initialize ms | attach ms | live ms",
+      "round | blank after content | shift frames | rail frames | final first paint ms | first content ms | layout shift | frames | copy drawn ms | swap ms | tail asked ms | acpmux up ms | refused | socket ms | initialize ms | attach ms | live ms",
     );
     rounds.forEach((r, at) =>
       console.log(
@@ -1699,6 +2382,7 @@ try {
           at + 1,
           r.metrics.blankAfterContent,
           r.metrics.shiftFrames,
+          r.metrics.railFrames,
           ms(r.metrics.finalFirstPaintMs),
           ms(r.metrics.firstContentMs),
           r.layoutShift.toFixed(4),
@@ -1822,6 +2506,8 @@ try {
       goneFrames: median(settled.map((one) => one.goneFrames)),
       goneRowsMax: max(settled.map((one) => one.goneRows)),
       bytesDown: median(rounds.map((r) => r.bytesDown)),
+      wireDown: median(rounds.map((r) => r.wireDown)),
+      zlib: LINK_ZLIB,
       rowStore: rounds.every((r) => r.rowsTaken > 0),
       settledEach: settled.map((one) => one.settledMs),
     };
@@ -1842,8 +2528,45 @@ try {
     // recording paints no blank and no shift.
     for (const r of rounds)
       if (r.liveLatestMs === null) console.log("  failed: the live chat never showed the newest answer");
+    // The composer's chips: a label painted after first content never leaves (Leo, 2026-11-22).
+    const chipsRow = {
+      mode,
+      knobs: {
+        earlyChange: EARLY_CHANGE,
+        attachDelayMs: ATTACH_DELAY_MS,
+        press: PRESS || null,
+        noModes: NO_MODES,
+        noTail: NO_TAIL,
+      },
+      vanishedRounds: rounds.filter((r) => r.chips.vanished.length > 0).length,
+      rounds: rounds.map((r) => ({
+        firstContentMs: r.metrics.firstContentMs === null ? null : Math.round(r.metrics.firstContentMs),
+        swapMs: r.swapMs === null ? null : Math.round(r.swapMs),
+        attachMs: r.attachAnsweredMs === null ? null : Math.round(r.attachAnsweredMs),
+        earlyChangeMs: r.earlyChangeMs === null ? null : Math.round(r.earlyChangeMs),
+        earlyChangeMissed: r.earlyChangeMissed,
+        composerLiveMs: r.composerLiveMs === null ? null : Math.round(r.composerLiveMs),
+        hole: r.hole,
+        holeOpen: holeSpans(r.frames),
+        press: r.press,
+        firstChips: r.frames.find((frame) => frame.rows.length > 0)?.chips ?? [],
+        lastChips: r.frames.at(-1)?.chips ?? [],
+        vanished: r.chips.vanished,
+        chipChanges: r.chips.chipChanges,
+      })),
+    };
+    console.log(`CHIPS_VANISHED_JSON ${JSON.stringify(chipsRow)}`);
+    if (LIVE_LOG)
+      for (const [at, r] of rounds.entries())
+        for (const line of liveLog(r.frames)) console.log(`  round ${at + 1} live ${line}`);
+    for (const [at, r] of rounds.entries())
+      for (const gone of r.chips.vanished)
+        console.log(
+          `  round ${at + 1} chip vanished: ${gone.slot} "${gone.label}" seen ${gone.seenMs} ms (${gone.seenLayer}), gone ${gone.goneMs} ms (${gone.goneLayer}${gone.slotThen === null ? ", slot empty" : `, slot shows "${gone.slotThen}"`}), back ${gone.backMs === null ? "never" : `${gone.backMs} ms (${gone.backLayer})`}`,
+        );
     const bad = rounds.filter(
       (r) =>
+        r.chips.vanished.length > 0 ||
         r.metrics.blankAfterContent > 0 ||
         r.metrics.shiftFrames > 0 ||
         r.liveLatestMs === null ||
@@ -1852,13 +2575,15 @@ try {
     );
     if (bad.length > 0) failed = true;
     if (TRACE) {
-      const score = (r: Round) => r.metrics.blankAfterContent + r.metrics.shiftFrames;
+      const score = (r: Round) =>
+        r.metrics.blankAfterContent + r.metrics.shiftFrames + r.metrics.railFrames + r.chips.vanished.length;
       const worst = [...rounds].sort(
         (a, b) => score(b) - score(a) || (b.metrics.finalFirstPaintMs ?? 0) - (a.metrics.finalFirstPaintMs ?? 0),
       )[0];
       if (worst) {
         console.log(`trace of the worst ${mode} round (ms from navigation; B blank after content, S shift):`);
         const shifts = new Map(worst.metrics.shiftAt.map(({ index, why }) => [index, why]));
+        const railMoves = new Map(worst.metrics.railAt.map(({ index, why }) => [index, why]));
         const blanks = new Set(worst.metrics.blankAt);
         const final = new Set((worst.frames.at(-1)?.rows ?? []).map((row) => row.id));
         worst.frames.forEach((frame, at) => {
@@ -1875,6 +2600,9 @@ try {
               `bottom ${bottom ? `${bottom.id}@${bottom.top.toFixed(1)}` : "-"} "${frame.bottomText}"`,
               `composer ${composer}`,
               `scrollTop ${frame.scrollTop === null ? "-" : frame.scrollTop.toFixed(0)}`,
+              `chips[${frame.chipLayer}] ${frame.chips.map((chip) => `${chip.slot}=${chip.label}`).join(", ") || "-"}`,
+              `rail ${frame.rail ? `${frame.rail.top.toFixed(0)}+${frame.rail.height.toFixed(0)} ${frame.rail.rows} rows list ${frame.rail.listTop.toFixed(0)} lit ${frame.rail.lit || "-"}${frame.rail.animating ? ` anim ${frame.rail.animating}` : ""}` : "-"}`,
+              ...(railMoves.has(at) ? [`R ${railMoves.get(at)!}`] : []),
               ...(gone.length
                 ? [
                     `gone later ${gone.length}: ${gone
@@ -1971,7 +2699,7 @@ try {
   printProfile();
   if (GATE && failed) {
     console.error(
-      "first-load-after-restart: a round exceeded 2000 ms to transcript, blanked after content, moved it, or never drew live content (GATE=1)",
+      "first-load-after-restart: a round exceeded 2000 ms to transcript, blanked after content, moved it, lost a composer chip it had drawn, or never drew live content (GATE=1)",
     );
     process.exitCode = 1;
   }

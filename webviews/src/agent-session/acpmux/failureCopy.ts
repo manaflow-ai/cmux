@@ -369,24 +369,6 @@ export function isAccountLimit(kind: FailureKind): boolean {
   return kind === "usage-limit" || kind === "account-disabled";
 }
 
-/// Whether a failed turn offers cmux's own route, CodeRouter, beside Switch model (Lawrence
-/// 2026-10-23: "good opportunity for upsell here"): a key, sign-in or capacity failure that another
-/// route fixes. Never on a chat CodeRouter already serves (sending it there again does nothing), and
-/// never on a team machine's missing account, which CodeRouter itself refused.
-/// Never on a Cloud machine's chat either: it is signed in from the Mac (Set up credentials), and runs
-/// no CodeRouter (Leo, 2026-10-31: "STOP USING CODEROUTER").
-export function offersOwnRoute(kind: FailureKind, route?: FailureRoute): boolean {
-  if (route?.harness === "claude-cr" || route?.hostKind === "cloud") return false;
-  return (
-    kind === "invalid-key" ||
-    kind === "subscription-login" ||
-    kind === "auth" ||
-    kind === "rate-limited" ||
-    kind === "usage-limit" ||
-    kind === "no-credit"
-  );
-}
-
 /// The way out a failure's card offers first: send the prompt again, move to another model (with
 /// Retry after it), compact a chat that outgrew its context window, or sign the agent in again
 /// (each with Retry after it, for once that is done). Signing in is the footer's (TurnRows.tsx); a trust answer is its card's.

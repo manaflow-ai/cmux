@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """RFD 0065's serve/link/mount and clone matrix, on one harness (RFD 0065 piece 14).
 
-    measure.py projection TREE [--mode folder|plain] [--steps ls,rg,gitstatus] [--profile NAME | --rtt-ms N --mbps M]
+    measure.py projection TREE [--mode folder|plain] [--steps ls,rg,gitstatus,first,whole,edit] [--profile NAME | --rtt-ms N --mbps M]
                                [--bin SLICE_BENCH] [--build] [--out DIR] [--label NAME]
     measure.py git REPO [--branch B] [--options depth1,blobnone,sparse,gitzst,overlay] [--cone DIR,DIR]
                         [--out DIR] [--label NAME]
@@ -49,7 +49,33 @@ STEPS = {
     "ls": "find . | wc -l",
     "rg": "rg -c the . >/dev/null; true",
     "gitstatus": "git status --porcelain | wc -l",
+    # RFD 0007's read behaviour: the tree's largest file (picked from TREE, so no listing is timed), its first
+    # byte, then the whole file; down_bytes says whether the read faulted lazily or the mount copied eagerly.
+    "first": "head -c1 -- {largest} | wc -c",
+    "whole": "cat -- {largest} | wc -c",
+    # Writes on the mount: a new file, a case-only rename, a read back; "ok" or "lost" (the overlay keeps writes
+    # on the machine; kinds.py checks the Mac's tree is untouched, and the prod matrix checks they reach the Mac).
+    "edit": "printf cmuxedit > .cmux-edit-probe && mv .cmux-edit-probe .CMUX-EDIT-PROBE"
+            " && [ \"$(cat .CMUX-EDIT-PROBE)\" = cmuxedit ] && [ ! -e .cmux-edit-probe ] && rm .CMUX-EDIT-PROBE"
+            " && echo ok || echo lost",
 }
+
+
+def largest_file(tree: Path) -> tuple[str, int]:
+    """The largest regular file under TREE (outside .git), relative, shell-quoted; ("/dev/null", 0) if none."""
+    import shlex
+    best, size = None, -1
+    for root, dirs, files in os.walk(tree):
+        dirs[:] = [d for d in dirs if d != ".git"]
+        for name in files:
+            path = Path(root) / name
+            try:
+                st = path.lstat()
+            except OSError:
+                continue
+            if path.is_file() and not path.is_symlink() and st.st_size > size:
+                best, size = path, st.st_size
+    return (shlex.quote(str(best.relative_to(tree))), size) if best else ("/dev/null", 0)
 
 COLUMNS = ("kind", "label", "mode", "profile", "phase", "wall_s", "down_bytes", "up_bytes", "asks", "git_bytes",
            "tree_bytes", "st1_s", "st2_s", "rss_mb", "rc", "note")
@@ -217,11 +243,12 @@ def cmd_projection(args) -> None:
     cold_drop = can_drop_caches()
     cold_note = "" if cold_drop else "page cache not dropped (no sudo -n)"
     steps = [s for s in args.steps.split(",") if s]
+    largest, largest_bytes = largest_file(tree)
     if args.mode == "plain":
         for step in steps:
             drop_caches(cold_drop)
             for phase in ("cold", "warm"):
-                wall, rc, got = timed(STEPS[step], tree)
+                wall, rc, got = timed(STEPS[step].format(largest=largest), tree)
                 rows.add(phase=f"{step}_{phase}", wall_s=wall, rc=rc, note=f"out={got} {cold_note}".strip())
         return
     binary = slice_bench(args)
@@ -230,7 +257,7 @@ def cmd_projection(args) -> None:
     try:
         info = link.serve_info
         rows.add(phase="serve_start", wall_s=round(info.get("walk_ms", 0) / 1000, 3), tree_bytes=info.get("bytes"),
-                 note=json.dumps(info))
+                 note=json.dumps({**info, "largest": largest, "largest_bytes": largest_bytes}))
         for i, step in enumerate(steps):
             before = link.counts()
             mount = Mount(link, work / "mnt", work / f"state{i}")
@@ -242,7 +269,7 @@ def cmd_projection(args) -> None:
                 drop_caches(cold_drop)
                 for phase in ("cold", "warm"):
                     before = link.counts()
-                    wall, rc, got = timed(STEPS[step], mount.at)
+                    wall, rc, got = timed(STEPS[step].format(largest=largest), mount.at)
                     after = link.counts()
                     rows.add(phase=f"{step}_{phase}", wall_s=wall, down_bytes=after[0] - before[0],
                              up_bytes=after[1] - before[1], asks=after[2] - before[2], rss_mb=rss_mb(mount.proc.pid),
@@ -449,7 +476,7 @@ def main() -> None:
     p = sub.add_parser("projection", parents=[common])
     p.add_argument("tree")
     p.add_argument("--mode", choices=("folder", "plain"), default="folder")
-    p.add_argument("--steps", default="ls,rg,gitstatus")
+    p.add_argument("--steps", default="ls,rg,gitstatus", help="ls, rg, gitstatus, first, whole, edit (first and whole read TREE's largest file; edit writes and renames)")
     p.add_argument("--rtt-ms", type=float, default=0.0)
     p.add_argument("--mbps", type=float, default=None, help="cap each way, megabits/s (slice_bench link --mbps)")
     p.add_argument("--profile", choices=sorted(PROFILES), help="run the link at a profile's rate and RTT")

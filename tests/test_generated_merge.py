@@ -75,6 +75,14 @@ class TreeAuditTests(unittest.TestCase):
         self.assertEqual(attributes["Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxPaneMethods+Params.swift"],
                          "cmux-insertions-v1")
 
+    def test_daemon_abi_baseline_preserves_comparison_evidence(self):
+        path = "cmux-tui/spec/api-compat.surface.json"
+        self.assertEqual(generated_merge.Catalog(ROOT).family(path), path)
+        self.assertEqual(generated_merge.merge_attributes(ROOT, [path])[path], "unspecified")
+        commands, notes = generated_merge.plan([path])
+        self.assertEqual(commands, [])
+        self.assertTrue(any("refuses uncovered breaks" in note for note in notes))
+
     def test_every_here_command_names_a_tracked_script(self):
         tracked = set(generated_merge.tracked(ROOT))
         for family, entry in generated_merge.REGENERATE.items():
@@ -259,6 +267,29 @@ class MergeRegeneratesTests(unittest.TestCase):
         self.run_gen()
         self.git("add", "-A")
         self.git("commit", "-q", "-m", f"add {name}")
+
+    def test_conflicting_daemon_baselines_keep_both_sides_visible(self):
+        path = "cmux-tui/spec/api-compat.surface.json"
+        baseline = self.repo / path
+        baseline.parent.mkdir(parents=True)
+        baseline.write_text('{"operation": "original"}\n')
+        with (self.repo / ".gitattributes").open("a") as attrs:
+            attrs.write(f"{path} !merge\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "baseline")
+        self.git("checkout", "-q", "-b", "lane")
+        baseline.write_text('{"operation": "lane"}\n')
+        self.git("commit", "-qam", "lane baseline")
+        self.git("checkout", "-q", "main")
+        baseline.write_text('{"operation": "newer-base"}\n')
+        self.git("commit", "-qam", "newer baseline")
+        self.git("checkout", "-q", "lane")
+        merged = self.git("merge", "--no-edit", "main", check=False)
+        self.assertEqual(merged.returncode, 1, merged.stdout + merged.stderr)
+        self.assertIn(path, self.git("diff", "--name-only", "--diff-filter=U").stdout)
+        self.assertIn('"lane"', baseline.read_text())
+        self.assertIn('"newer-base"', baseline.read_text())
+        self.assertEqual(generated_merge.plan([path])[0], [])
 
     def test_a_generated_only_conflict_merges_and_regenerates_with_no_person(self):
         self.git("checkout", "-q", "-b", "lane")
@@ -563,6 +594,68 @@ class AMergeThatDoesNotParseIsMarkedTests(unittest.TestCase):
         self.assertEqual(run.returncode, 1, run.stderr)
         self.assertEqual(merged, f"<<<<<<< ours\n{ours}=======\n{theirs}>>>>>>> theirs\n")
         self.assertIn("config/thing.json: the merged file does not parse (duplicate key)", run.stderr)
+
+
+
+class RustModListsMergeSortedTests(unittest.TestCase):
+    """cmux#56459: acpmux `hub/mod.rs` keeps its `mod` list sorted by name. A branch made before the sort
+    adds one `mod` among the old order; merged with the sorted base, every line around it moved, and the line
+    merge stops although only the one line is new. The driver merges the three again with each list sorted."""
+
+    BASE = ("//! hub\n\nmod zeta;\n// Alpha's note.\nmod alpha;\n#[cfg(test)]\nmod mid_tests;\nmod beta;\n"
+            "pub use alpha::A;\n\nfn f() {}\nmod gamma;\n")
+    SORTED = ("//! hub\n\n// Alpha's note.\nmod alpha;\nmod beta;\nmod gamma;\n#[cfg(test)]\nmod mid_tests;\n"
+              "mod zeta;\npub use alpha::A;\n\nfn f() {}\n")
+    PATH = "cmux-tui/crates/acpmux/src/hub/mod.rs"
+
+    def drive(self, base, ours, theirs, path=PATH):
+        tmp = Path(tempfile.mkdtemp(prefix="rust-mods-merge-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        for name, text in (("base", base), ("ours", ours), ("theirs", theirs)):
+            (tmp / name).write_text(text)
+        run = subprocess.run(
+            [sys.executable, "-I", str(ROOT / "scripts/merge-insertions.py"),
+             str(tmp / "base"), str(tmp / "ours"), str(tmp / "theirs"), path, "7"],
+            capture_output=True, text=True, cwd=tmp)
+        return run, (tmp / "ours").read_text()
+
+    def test_a_branch_from_before_the_sort_merges_its_new_mod_into_place(self):
+        lane = self.BASE.replace("mod zeta;\n", "mod zeta;\n// Delta's note.\nmod delta;\n")
+        run, merged = self.drive(self.BASE, lane, self.SORTED)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertEqual(merged, self.SORTED.replace("mod gamma;\n", "// Delta's note.\nmod delta;\nmod gamma;\n"
+                                                     ).replace("mod beta;\n// Delta", "mod beta;\n// Delta"))
+        self.assertLess(merged.index("mod beta;"), merged.index("mod delta;"))
+        self.assertLess(merged.index("mod delta;"), merged.index("mod gamma;"))
+
+    def test_the_sorted_base_merged_into_the_old_branch_the_other_way_round(self):
+        lane = self.BASE.replace("mod beta;\n", "mod beta;\nmod epsilon;\n")
+        run, merged = self.drive(self.BASE, self.SORTED, lane)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("mod beta;\nmod epsilon;\nmod gamma;\n", merged)
+
+    def test_a_real_conflict_stays_a_conflict(self):
+        lane = self.BASE.replace("fn f() {}", "fn f() { 1 }")
+        sorted_edit = self.SORTED.replace("fn f() {}", "fn f() { 2 }")
+        run, merged = self.drive(self.BASE, lane, sorted_edit)
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("<<<<<<<", merged)
+
+    def test_a_file_with_macros_is_never_reordered(self):
+        base = "macro_rules! m { () => {} }\n" + self.BASE
+        lane = base.replace("mod zeta;\n", "mod zeta;\nmod delta;\n")
+        theirs = "macro_rules! m { () => {} }\n" + self.SORTED
+        run, merged = self.drive(base, lane, theirs)
+        self.assertEqual(run.returncode, 1)
+        self.assertIn("<<<<<<<", merged)
+
+    def test_two_unsorted_sides_are_left_in_their_order(self):
+        ours = self.BASE.replace("mod beta;\n", "mod beta;\nmod omega;\n")
+        theirs = self.BASE.replace("mod beta;\n", "mod beta;\nmod kappa;\n")
+        run, merged = self.drive(self.BASE, ours, theirs)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("mod zeta;\n// Alpha's note.\nmod alpha;", merged)
+        self.assertIn("mod beta;\nmod omega;\nmod kappa;\n", merged)
 
 
 if __name__ == "__main__":

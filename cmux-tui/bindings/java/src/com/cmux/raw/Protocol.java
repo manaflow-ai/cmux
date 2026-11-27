@@ -9,7 +9,7 @@ public final class Protocol {
     public static final String SDK_VERSION = "1.0.0";
     public static final int VERSION = 12;
     public static final int SCHEMA_VERSION = 2;
-    public static final String IR_SHA256 = "b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2";
+    public static final String IR_SHA256 = "8643722ab2e1cf6dc9e0ce2e96aeba4a65938fa66bf35bef074884f46ce34b95";
     private Protocol() {}
 
     public static ProtocolEvent decodeEvent(Object value) {
@@ -24,6 +24,7 @@ public final class Protocol {
             case "agent-inventory-watch-ended" -> AgentInventoryWatchEndedEvent.fromWire(value);
             case "agent-presence-changed" -> AgentPresenceChangedEvent.fromWire(value);
             case "agent-session-share-changed" -> AgentSessionShareChangedEvent.fromWire(value);
+            case "apps-cloud-machine" -> AppsCloudMachineEvent.fromWire(value);
             case "bell" -> BellEvent.fromWire(value);
             case "bookmarks-changed" -> BookmarksChangedEvent.fromWire(value);
             case "browser-state" -> BrowserStateEvent.fromWire(value);
@@ -76,6 +77,7 @@ public final class Protocol {
             case "pane-closed" -> PaneClosedEvent.fromWire(value);
             case "participant-avatar-changed" -> ParticipantAvatarChangedEvent.fromWire(value);
             case "personal-changed" -> PersonalChangedEvent.fromWire(value);
+            case "phone-open-link" -> PhoneOpenLinkEvent.fromWire(value);
             case "program-status-changed" -> ProgramStatusChangedEvent.fromWire(value);
             case "render-delta" -> RenderDeltaEvent.fromWire(value);
             case "render-state" -> RenderStateEvent.fromWire(value);

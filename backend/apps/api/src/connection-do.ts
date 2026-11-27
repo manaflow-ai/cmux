@@ -18,9 +18,19 @@ import { onDisconnect, onGmailPush, runWatchWork, startWatchSafely, stopWatchWit
 import { createRevocationTable, drainRevocations, nextRevocationAt, takeCredentialForRevocation } from "./integrations/revocations.ts"
 import * as ghTokens from "./integrations/github-tokens.ts"
 import * as ghUser from "./integrations/github-user-tokens.ts"
-import { createConfigurePageTable, githubConnectTarget, installationConfigureUrl, type GithubConnectTarget } from "./integrations/github-connect.ts"
+import { appRequestedPermissions, createConfigurePageTable, githubConnectTarget, installationPage, type GithubConnectTarget } from "./integrations/github-connect.ts"
 import { addListener, createListenerTable, githubChangeOf, GithubPushCoalescer, listeners, removeListener, type IntegrationChangedFrame } from "./integrations/github-push.ts"
-import { github, githubScopesOf, ProviderError, providerForOp, providers, scopesToRequest, type Credential, type Http } from "./integrations/providers.ts"
+import {
+  github,
+  githubScopesOf,
+  ProviderError,
+  providerForOp,
+  providers,
+  scopesToRequest,
+  type Credential,
+  type Http,
+  githubAppSlug,
+} from "./integrations/providers.ts";
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import { claimGitHubDelivery, createGitHubDeliveryTable, finishGitHubDelivery } from "./ingress/github-deliveries.ts"
@@ -42,6 +52,9 @@ const sha256 = (s: string) => createHash("sha256").update(s).digest("base64url")
  */
 /** An SSO or MDM lock, which TeamPolicy never replaces. */
 const managedBy = (source: string): "sso" | "mdm" | null => (source === "sso" || source === "mdm" ? source : null)
+
+/** How many gone installations one status read reconciles before it answers (each costs a GitHub read). */
+const MAX_STATUS_RECONCILES = 3
 
 export class ConnectionDO extends OwnerDO<ConnectionsState> {
   /** Provider HTTP. Tests replace it on the live instance. */
@@ -271,30 +284,77 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
 
   async githubStatus(entity: string, principal: Principal) {
     if (principal.team !== entity) return { configured: false, app_slug: null, connection: null }
-    return this.githubStatusOf(this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal)
+    return this.githubStatusOf(() => (this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial()), principal)
   }
 
   /** GET /status from the person's own connections here (one of their teams), under the asking team's `policy` (cmux#55104). */
   async githubStatusOwn(entity: string, principal: Principal, policy: ReturnType<typeof policyOf>) {
     if (!principal.user || principal.team === entity || !(await this.memberHere(entity, principal.user))) return { configured: false, app_slug: null, connection: null }
-    const state = this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial()
-    return this.githubStatusOf(ghTokens.ownConnectionsUnder(state, principal.user, policy), principal)
+    const user = principal.user
+    return this.githubStatusOf(() => ghTokens.ownConnectionsUnder(this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), user, policy), principal)
   }
 
-  private async githubStatusOf(state: ConnectionsState, principal: Principal) {
-    const c = ghTokens.githubStatusConnection(state, principal)
-    const installation = c ? githubInstallationOf(c) : undefined
-    // Cached per installation (one GitHub read a day at most), so the picker's status read stays cheap.
-    const configureUrl = c?.account && installation !== undefined && github.configured(this.env)
-      ? await installationConfigureUrl(this.ctx.storage.sql, this.env, this.http, installation, c.account.name, Date.now())
-      : null
-    return ghTokens.githubStatus(this.env, state, principal, configureUrl)
+  /**
+   * The status read verifies the installation it describes (cached per installation for CONFIGURE_PAGE_TTL_MS, so
+   * the picker's status read stays cheap). GitHub's 404 means the installation is gone, whether or not its
+   * `installation.deleted` webhook ever arrived: the connection is marked gone and the read starts over, so a
+   * reinstall's connection (or none) is described instead, and a deleted installation never names its settings
+   * page, GitHub's 404 (cmux#55104). `stateOf` is read again after each reconcile.
+   */
+  private async githubStatusOf(stateOf: () => ConnectionsState, principal: Principal) {
+    // The slug GitHub names the App now (providers.ts githubAppSlug, cached), read once per status read.
+    const appSlug = await githubAppSlug(this.env)
+    for (let reconciled = 0; ; reconciled++) {
+      const state = stateOf()
+      const c = ghTokens.githubStatusConnection(state, principal)
+      const installation = c ? githubInstallationOf(c) : undefined
+      if (!c?.account || installation === undefined || !github.configured(this.env) || ghTokens.githubInstallationGone(c)) return ghTokens.githubStatus(this.env, state, principal, null, appSlug)
+      const page = await installationPage(this.ctx.storage.sql, this.env, this.http, installation, c.account.name, Date.now())
+      if (!page.gone || reconciled >= MAX_STATUS_RECONCILES) return ghTokens.githubStatus(this.env, state, principal, page.url, appSlug, page.permissionsPending)
+      this.markNeedsReauth(c, ghTokens.GITHUB_GONE_DETAIL)
+    }
+  }
+
+  /**
+   * A reinstall: `fresh` links an installation on an account other connections here name with an older installation.
+   * GitHub keeps one installation of an App per account, so each older one is checked (uncached) and, when GitHub
+   * answers 404, marked gone at once, before it could be described or used instead of `fresh` (cmux#55104).
+   */
+  private async supersedeReinstalled(fresh: Connection) {
+    const id = githubInstallationOf(fresh)
+    const login = fresh.account?.name.toLowerCase()
+    if (id === undefined || !login || !github.configured(this.env)) return
+    const older = Object.values(this.boundEngine!.currentState.connections).filter((c) =>
+      c.provider === "github" && c.id !== fresh.id && c.account?.name.toLowerCase() === login && (c.status === "active" || c.status === "needs_reauth" || c.status === "error") &&
+      githubInstallationOf(c) !== undefined && githubInstallationOf(c) !== id && !ghTokens.githubInstallationGone(c))
+    for (const c of older) {
+      const page = await installationPage(this.ctx.storage.sql, this.env, this.http, githubInstallationOf(c)!, c.account!.name, Date.now(), true).catch(() => null)
+      if (page?.gone) this.markNeedsReauth(c, ghTokens.GITHUB_GONE_DETAIL)
+    }
   }
 
   /** integration.connect with a repo: which GitHub page to open (github-connect.ts), asked with this object's injectable HTTP. */
   async githubConnectTarget(entity: string, principal: Principal, repo: string): Promise<GithubConnectTarget> {
     if (principal.team !== entity) return { kind: "install" }
-    return githubConnectTarget(this.env, this.http, repo)
+    return githubConnectTarget(this.env, this.http, repo, () => appRequestedPermissions(this.ctx.storage.sql, this.env, this.http, Date.now()))
+  }
+
+  /**
+   * integration.connect: the page that accepts a pending App permission update on the installation of this team's
+   * active GitHub connection this principal would use (the one on `repo`'s owner, else the one GET /status describes),
+   * or null when nothing is pending or it is not known. Connect opens it instead of the install or authorize page.
+   */
+  async githubConnectAccept(entity: string, principal: Principal, repo?: string): Promise<string | null> {
+    if (principal.team !== entity || !this.boundTo(entity) || !github.configured(this.env)) return null
+    const state = this.bind(entity).currentState
+    const owner = repo?.split("/")[0]?.toLowerCase()
+    const c = owner === undefined
+      ? ghTokens.githubStatusConnection(state, principal)
+      : Object.values(state.connections).find((x) => x.provider === "github" && x.status === "active" && mayUse(x, principal) && x.account?.name.toLowerCase() === owner && githubInstallationOf(x) !== undefined)
+    const installation = c ? githubInstallationOf(c) : undefined
+    if (!c?.account || c.status !== "active" || installation === undefined) return null
+    const page = await installationPage(this.ctx.storage.sql, this.env, this.http, installation, c.account.name, Date.now()).catch(() => null)
+    return page?.permissionsPending && page.url ? page.url : null
   }
 
   async githubRepos(entity: string, principal: Principal, query: { readonly query?: string; readonly cursor?: string }) {
@@ -340,7 +400,16 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     return (await this.env.USER_DO.get(this.env.USER_DO.idFromName(p.user)).installGrant(p.user, p.install, p.grant)).ok
   }
 
-  private markNeedsReauth = (c: Connection, detail: string) => void this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail }, `status:${c.id}:needs_reauth:${Date.now()}`)
+  private markNeedsReauth = (c: Connection, detail: string) => {
+    this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail }, `status:${c.id}:needs_reauth:${Date.now()}`)
+    if (detail === ghTokens.GITHUB_GONE_DETAIL) this.forgetConfigurePage(c)
+  }
+
+  /** Drops the cached settings page of `c`'s installation (github-connect.ts installationConfigureUrl). */
+  private forgetConfigurePage(c: Connection) {
+    const installation = githubInstallationOf(c)
+    if (installation !== undefined) this.ctx.storage.sql.exec(`DELETE FROM github_configure_pages WHERE installation = ?`, installation)
+  }
 
   /** Provider-side revocations after disconnects (G5); the alarm retries what is left. */
   private async revokeAtProviders(now: number) {
@@ -508,6 +577,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       throw new ProviderError("integration.state_invalid", rej.message)
     }
     const active = this.boundEngine!.currentState.connections[c.id]!
+    // A reinstall replaces the account's old installation: its connections stop answering for the account at once.
+    if (active.provider === "github") await this.supersedeReinstalled(active).catch(() => undefined)
     // The person's own GitHub token, so what they start posts as them; a failure keeps the App identity.
     if (approved.user_grant) {
       await ghUser.storeUserGrant(this.ctx.storage.sql, this.env, this.http, c.id, principal.user, approved.user_grant, Date.now()).catch((e) =>
@@ -722,7 +793,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     const key = (what: string) => `${what}:${c.id}:${event.delivery_id}`
     switch (event.event) {
       case "installation.deleted":
-        this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail: "the GitHub App was uninstalled" }, `status:${c.id}:uninstalled:${event.delivery_id}`)
+        this.submitSystem("connection.status", { connection: c.id, status: "needs_reauth", detail: ghTokens.GITHUB_UNINSTALLED_DETAIL }, `status:${c.id}:uninstalled:${event.delivery_id}`)
+        this.forgetConfigurePage(c) // its settings page is a 404 now; a new installation gets a new id and its own row
         return
       case "installation.suspend":
         // A connection that already needs a relink for another reason keeps that reason.
@@ -732,6 +804,8 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
       case "installation.new_permissions_accepted": {
         const perms = p.installation?.permissions
         if (perms && typeof perms === "object") this.submitSystem("connection.github.sync", { connection: c.id, scopes_granted: githubScopesOf(perms as Record<string, unknown>) }, key("github-sync"))
+        // The cached grant said an update was pending: the next status read asks GitHub again.
+        if (event.event === "installation.new_permissions_accepted") this.forgetConfigurePage(c)
         const lifted = event.event === "installation.unsuspend" || p.installation?.suspended_at === null
         if (lifted && c.status !== "active" && c.status_detail === ghTokens.GITHUB_SUSPENDED_DETAIL) this.submitSystem("connection.status", { connection: c.id, status: "active" }, key("status:unsuspended"))
         return

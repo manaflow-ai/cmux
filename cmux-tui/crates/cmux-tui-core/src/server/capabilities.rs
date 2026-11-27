@@ -133,6 +133,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.on_cloud_host() {
         capabilities.push(agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY);
+        capabilities.push(agent_transfer::chat_folders::CHAT_FOLDER_CAPABILITY);
     }
     if mux.terminal_reaper_advertised() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
@@ -158,7 +159,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
 /// platform. The ones that depend on what the daemon installs at startup
 /// (cloud transport, WebSocket listener, search index, agent sessions, the
 /// reaper, build identity, a Chief) are [`identify_capabilities`]'s alone.
-fn always_identified() -> Vec<&'static str> {
+pub(super) fn always_identified() -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
     capabilities.push("machine-identity-v1");
     // Receipts can outlive the acpmux configuration that prepared them.
@@ -242,6 +243,7 @@ pub fn build_capabilities() -> Vec<&'static str> {
         *capability != crate::fs_ops::FS_CAPABILITY
             && *capability != crate::fs_ops::FS_SYMLINK_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY
+            && *capability != crate::fs_ops::FS_WRITE_ZSTD_CAPABILITY
             && *capability != crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY
             && *capability != crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY
             && *capability != crate::git_seed::GIT_SEED_CAPABILITY
@@ -325,6 +327,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_RESUME_BOUNDED_CAPABILITY,
         ATTACH_REPLAY_HISTORY_ROWS_CAPABILITY,
         ATTACH_OUTPUT_COALESCE_CAPABILITY,
+        ATTACH_FRAMES_CAPABILITY,
         AGENT_CLI_HYBRID_CAPABILITY,
         AGENT_CLI_HYBRID_LEAN_CAPABILITY,
         TERMINAL_SHELL_LINES_CAPABILITY,
@@ -365,6 +368,7 @@ pub(super) fn advertised_capabilities(
         WORKSPACE_METADATA_CAPABILITY,
         AGENT_PRESENCE_CAPABILITY,
         WORKSPACE_PIN_CAPABILITY,
+        WORKSPACE_KEEP_AWAKE_CAPABILITY,
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
         TAB_MARK_UNREAD_CAPABILITY,
         TAB_ATTENTION_CAPABILITY,
@@ -415,6 +419,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
         SUBSCRIBE_SCROLL_ON_ATTACH_CAPABILITY,
         SCREEN_DEVICE_IDENTITY_CAPABILITY,
+        AGENT_PRESENCE_REPLAY_CAPABILITY,
         TREE_SELECTION_DELTAS_CAPABILITY,
         conversations::CONVERSATION_THREADS_CAPABILITY,
         conversations::CONVERSATION_THREAD_READ_CAPABILITY,
@@ -448,6 +453,7 @@ pub(super) fn advertised_capabilities(
         TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY,
         SCREEN_TERMINAL_ENV_CAPABILITY,
         LAUNCH_SNAPSHOT_CAPABILITY,
+        LAUNCH_SNAPSHOT_FLUSH_CAPABILITY,
         LIST_WORKSPACES_KNOWN_CAPABILITY,
         LIST_WORKSPACES_LIMIT_CAPABILITY,
         LIST_WORKSPACES_PAGE_CAPABILITY,
@@ -480,11 +486,13 @@ pub(super) fn advertised_capabilities(
         crate::state::stash_store::CAPABILITY,
         crate::state::stash_store::WORKSPACES_CAPABILITY,
         crate::state::classic_import_router::CAPABILITY,
+        crate::state::classic_import_router::PROBE_CAPABILITY,
         crate::state::conductor_import_router::CAPABILITY,
         crate::resource_router::palette_rank::CAPABILITY,
         crate::resource_router::browser_import::CAPABILITY,
         crate::resource_router::palette_rank::BATCH_CAPABILITY,
         crate::resource_router::theme_scheme::CAPABILITY,
+        crate::resource_router::theme_scheme::SLOTS_CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
         crate::state::workspace_checklist::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,

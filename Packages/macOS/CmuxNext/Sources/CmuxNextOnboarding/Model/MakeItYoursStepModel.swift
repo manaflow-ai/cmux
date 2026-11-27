@@ -1,3 +1,4 @@
+public import CmuxNextSettings
 public import Foundation
 public import Observation
 
@@ -6,6 +7,13 @@ public import Observation
 /// or terminal-first (a new tab opens a terminal, and cmux stays out of the way).
 public enum WorkStyle: String, CaseIterable, Sendable {
     case gui, terminal
+}
+
+/// Where a new chat runs (`agentPane.newChatsIn`): on this Mac, the setting's default, or in Cloud,
+/// which needs nothing installed here, so a person with no agent CLI on this Mac has a way to start
+/// (Leo's ask c-8f5f7ff8b3: "how can someone who has no idea ... just start and keep going?").
+public enum ChatsRunIn: String, CaseIterable, Sendable {
+    case local, cloud
 }
 
 /// One density the step offers: a built-in `appearance.density` preset id and its name as Settings
@@ -51,6 +59,8 @@ public struct FirstRunChoices: Sendable, Equatable {
     public var opacity: Double?
     /// `appearance.backgroundBlur`; nil: unset (the theme's).
     public var material: FirstRunMaterial?
+    /// Where a new chat runs (`agentPane.newChatsIn`); this Mac unless the person picks Cloud.
+    public var chatsRunIn: ChatsRunIn
 
     /// GUI-first, Default density, no background, the theme's opacity and material: what a person
     /// gets who skips on a new Mac.
@@ -58,12 +68,26 @@ public struct FirstRunChoices: Sendable, Equatable {
     /// Settings' Default density.
     public static let defaultDensity = "cozy"
 
-    public init(workStyle: WorkStyle, density: String, background: String?, opacity: Double? = nil, material: FirstRunMaterial? = nil) {
+    public init(workStyle: WorkStyle, density: String, background: String?, opacity: Double? = nil, material: FirstRunMaterial? = nil,
+                chatsRunIn: ChatsRunIn = .local) {
         self.workStyle = workStyle
         self.density = density
         self.background = background
         self.opacity = opacity.map { min(max($0, 0), 1) }
         self.material = material
+        self.chatsRunIn = chatsRunIn
+    }
+}
+
+/// One write of the intro walk (a look bundle, the trust and noise rows, Tidy): a settings path and
+/// its value, nil to remove it. The page sends a screen's writes together, so they land in one publish.
+public struct FirstRunWalkWrite: Equatable, Sendable {
+    public let path: [String]
+    public let value: JSONValue?
+
+    public init(path: [String], value: JSONValue?) {
+        self.path = path
+        self.value = value
     }
 }
 
@@ -90,6 +114,17 @@ public protocol FirstRunChoicesSource: AnyObject {
     func restoreOpened() -> Bool
     /// `handler` runs when a write is refused or fails, with what went wrong.
     func observeWriteFailures(_ handler: @escaping @MainActor (String) -> Void)
+    /// The intro walk's other settings now, keyed by dotted path (absent: unset, the shipped default).
+    func walkValues() -> [String: JSONValue]
+    /// Writes the intro walk's `writes` in one publish; false (nothing written) when one is not a
+    /// path the walk may write. Skip puts these back too.
+    func applyWalk(_ writes: [FirstRunWalkWrite]) -> Bool
+    /// Waits until every queued write has landed.
+    func settled() async
+    /// `experiments.introWalk`: the step shows the intro walk's four screens (off: today's one screen).
+    func introWalk() -> Bool
+    /// `experiments.setupShelf`: the step offers the setups shelf (off: no shelf).
+    func setupShelf() -> Bool
 }
 
 public extension FirstRunChoicesSource {
@@ -97,6 +132,11 @@ public extension FirstRunChoicesSource {
     func markOpened() {}
     func restoreOpened() -> Bool { false }
     func observeWriteFailures(_ handler: @escaping @MainActor (String) -> Void) {}
+    func walkValues() -> [String: JSONValue] { [:] }
+    func applyWalk(_ writes: [FirstRunWalkWrite]) -> Bool { false }
+    func settled() async {}
+    func introWalk() -> Bool { false }
+    func setupShelf() -> Bool { false }
 }
 
 /// The first run's one setup screen (cmux#48416): how the person wants to work, the density, and a
@@ -117,9 +157,16 @@ public final class MakeItYoursStepModel {
     /// The last write the settings refused or that failed (nil: every write landed). The choices are
     /// read again then, so the page shows what the settings hold.
     public private(set) var writeFailure: String?
+    /// The intro walk's other settings, keyed by dotted path (`FirstRunChoicesSource.walkValues`).
+    public private(set) var walk: [String: JSONValue] = [:]
+    /// `experiments.introWalk`, read once when the step opens so the walk does not change shape under the person.
+    public private(set) var introWalk = false
+    /// `experiments.setupShelf`, read once when the step opens, like `introWalk`.
+    public private(set) var setupShelf = false
 
     @ObservationIgnored public let source: (any FirstRunChoicesSource)?
     @ObservationIgnored private var read: Task<Void, Never>?
+    @ObservationIgnored private var refresh: Task<Void, Never>?
 
     public init(source: (any FirstRunChoicesSource)?) {
         self.source = source
@@ -135,13 +182,17 @@ public final class MakeItYoursStepModel {
         if opened == nil {
             choices = source.currentChoices()
             opened = choices
+            introWalk = source.introWalk()
+            setupShelf = source.setupShelf()
             source.markOpened()
             source.observeWriteFailures { [weak self] reason in
                 guard let self, let source = self.source else { return }
                 writeFailure = reason
                 choices = source.currentChoices()
+                walk = source.walkValues()
             }
         }
+        walk = source.walkValues()
         densities = source.densities()
         read?.cancel()
         // task-owner: one read of the built-in backgrounds' previews; stop() cancels it.
@@ -156,12 +207,15 @@ public final class MakeItYoursStepModel {
     public func stop() {
         read?.cancel()
         read = nil
+        refresh?.cancel()
+        refresh = nil
     }
 
     /// The Opacity slider's value: the one set, else what the window shows.
     public var shownOpacity: Double? { choices.opacity ?? source?.shownOpacity() }
 
     public func setWorkStyle(_ value: WorkStyle) { update { $0.workStyle = value } }
+    public func setChatsRunIn(_ value: ChatsRunIn) { update { $0.chatsRunIn = value } }
 
     /// An id the step does not offer is refused.
     @discardableResult
@@ -191,12 +245,39 @@ public final class MakeItYoursStepModel {
 
     public func setMaterial(_ value: FirstRunMaterial) { update { $0.material = value } }
 
+    /// The intro walk's writes (a look bundle, the trust and noise rows, Tidy), in one publish. A path
+    /// the walk may not write refuses them all. The step's own choices are read again once they land
+    /// (a bundle may set the work style, density or background too).
+    @discardableResult
+    public func setWalk(_ writes: [FirstRunWalkWrite]) -> Bool {
+        guard let source, !writes.isEmpty, source.applyWalk(writes) else { return false }
+        for write in writes {
+            walk[write.path.joined(separator: ".")] = write.value
+        }
+        refresh?.cancel()
+        // task-owner: re-reads the choices once the walk's write lands; the next walk write or stop() cancels it.
+        refresh = Task { [weak self] in
+            await source.settled()
+            guard let self, !Task.isCancelled else { return }
+            choices = source.currentChoices()
+            walk = source.walkValues()
+        }
+        return true
+    }
+
     /// Skip: puts back what was set when the step opened, in one write, so the person keeps their
     /// settings exactly (the linked edits a pick made too).
     public func revert() {
         guard let opened else { return }
-        if source?.restoreOpened() == true {
+        if let source, source.restoreOpened() {
             choices = opened
+            refresh?.cancel()
+            // task-owner: re-reads the walk's settings once Skip's restore lands; stop() cancels it.
+            refresh = Task { [weak self] in
+                await source.settled()
+                guard let self, !Task.isCancelled else { return }
+                walk = source.walkValues()
+            }
             return
         }
         update { $0 = opened }

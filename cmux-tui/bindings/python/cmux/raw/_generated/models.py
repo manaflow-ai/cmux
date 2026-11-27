@@ -1006,6 +1006,16 @@ class IdMapping:
 
 
 @dataclass(frozen=True)
+class IdentifyRestore:
+    __cmux_schema_path__: ClassVar[str] = 'types/IdentifyRestore'
+    done: Union[int, None]
+    elapsed_ms: int
+    last_advance_ms: int
+    phase: str
+    total: Union[int, None]
+
+
+@dataclass(frozen=True)
 class IdentifyResult:
     __cmux_schema_path__: ClassVar[str] = 'types/IdentifyResult'
     app: Literal['cmux-tui']
@@ -1038,6 +1048,7 @@ class IdentifyResult:
     machine_symbol: Union[str, MissingType] = field(default=MISSING)
     min_api_revision: Union[int, None, MissingType] = field(default=MISSING)
     min_api_version: Union[str, None, MissingType] = field(default=MISSING)
+    restore: Union[IdentifyRestore, MissingType] = field(default=MISSING)
     screen_device_id: Union[str, None, MissingType] = field(default=MISSING)
     session_id: Union[str, MissingType] = field(default=MISSING)
     update_command: Union[str, None, MissingType] = field(default=MISSING)
@@ -1294,6 +1305,12 @@ class PaneSurfaceResult:
     terminal_incarnation: Union[str, None, MissingType] = field(default=MISSING)
     terminal_resource_id: Union[str, MissingType] = field(default=MISSING)
     workspace_id: Union[str, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class PhoneLinkOfferResult:
+    __cmux_schema_path__: ClassVar[str] = 'types/PhoneLinkOfferResult'
+    offered: bool
 
 
 @dataclass(frozen=True)
@@ -1658,6 +1675,17 @@ class ServerStatsDisk:
     segments: Union[ServerStatsDiskSegments, None]
     shm_bytes: int
     wal_bytes: int
+    checkpoints: Union[ServerStatsDiskCheckpoints, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsDiskCheckpoints:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsDiskCheckpoints'
+    budget_bytes: int
+    bytes_data: int = field(metadata={'wire_name': 'bytes'})
+    checkpoints: int
+    largest_bytes: int
+    over_budget: bool
 
 
 @dataclass(frozen=True)
@@ -3777,6 +3805,7 @@ class CreateWorkspaceRequest:
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     first_tab: Union[WorkspaceFirstTab, None, MissingType] = field(default=MISSING)
+    name_source: Union[NameSource, None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -3935,6 +3964,18 @@ class FloatPaneRequest:
 
 
 @dataclass(frozen=True)
+class FlushLaunchSnapshotRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/flush-launch-snapshot/request'
+    pass
+
+
+@dataclass(frozen=True)
+class FlushLaunchSnapshotResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/flush-launch-snapshot/result'
+    flushed: bool
+
+
+@dataclass(frozen=True)
 class FocusDirectionRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/focus-direction/request'
     dir: PaneDirection
@@ -4043,6 +4084,7 @@ class HomeInboxResult:
 class IdentifyRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/identify/request'
     machine_metadata: Union[bool, MissingType] = field(default=MISSING)
+    restore_progress: Union[bool, MissingType] = field(default=MISSING)
     revisions: Union[bool, MissingType] = field(default=MISSING)
 
 
@@ -4601,6 +4643,13 @@ class NotifyRequest:
 
 
 @dataclass(frozen=True)
+class OfferLinkToPhoneRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/offer-link-to-phone/request'
+    terminal_id: str
+    url: str
+
+
+@dataclass(frozen=True)
 class PageCredentialRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/page-credential/request'
     page: Union[str, None, MissingType] = field(default=MISSING)
@@ -5040,6 +5089,7 @@ class SendKeyRequest:
 class ServerStatsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/server-stats/request'
     include: Union[List[str], None, MissingType] = field(default=MISSING)
+    restore_progress: Union[bool, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -5297,6 +5347,7 @@ class SetWorkspaceMetadataRequest:
     expected_generation: Union[str, None, MissingType] = field(default=MISSING)
     expected_revision: Union[int, None, MissingType] = field(default=MISSING)
     icon: Union[str, None, MissingType] = field(default=MISSING)
+    keep_awake: Union[bool, None, MissingType] = field(default=MISSING)
     key: Union[str, None, MissingType] = field(default=MISSING)
     marked_unread: Union[bool, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
@@ -5787,6 +5838,16 @@ class AgentSessionShareChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/agent-session-share-changed/payload'
     event: Literal['agent-session-share-changed']
     session: str
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
+class AppsCloudMachineEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/apps-cloud-machine/payload'
+    event: Literal['apps-cloud-machine']
+    kind: Literal['record', 'live', 'lost']
+    machine: str
+    record: Union[JsonValue, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6334,6 +6395,15 @@ class PersonalChangedEvent(EventBase):
 
 
 @dataclass(frozen=True)
+class PhoneOpenLinkEvent(EventBase):
+    __cmux_schema_path__: ClassVar[str] = 'events/phone-open-link/payload'
+    terminal_id: str
+    event: Literal['phone-open-link']
+    url: str
+    raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
+
+
+@dataclass(frozen=True)
 class ProgramStatusChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/program-status-changed/payload'
     surface: Id
@@ -6794,7 +6864,7 @@ TabRef = Any
 TerminalExitOutcome = Union[TerminalExitOutcomeExit, TerminalExitOutcomeSignal, TerminalExitOutcomeUnknown]
 WorkspaceFirstTab = Union[WorkspaceFirstTabBrowser]
 
-KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentCliFrameEvent, AgentCliLeanEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, AgentSessionShareChangedEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationScheduledChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, DeviceSetupStepEvent, EmptyEvent, FeedReportsChangedEvent, FeedViewChangedEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenDeviceChangedEvent, ScreenRenamedEvent, ScrollChangedEvent, SelectionChangedEvent, SettingsChangedEvent, SizeStateEvent, StashChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspacePresentationChangedEvent, WorkspaceRenamedEvent]
+KnownEvent = Union[ActivityChangedEvent, AgentChangedEvent, AgentCliFrameEvent, AgentCliLeanEvent, AgentInventoryChangedEvent, AgentInventoryWatchEndedEvent, AgentPresenceChangedEvent, AgentSessionShareChangedEvent, AppsCloudMachineEvent, BellEvent, BookmarksChangedEvent, BrowserStateEvent, ChiefChangedEvent, ClientAttachedEvent, ClientChangedEvent, ClientDetachedEvent, ClientListInvalidatedEvent, CloudConversationChangedEvent, CloudConversationLiveEvent, CloudConversationPresenceEvent, CloudConversationResyncedEvent, CloudConversationRunChangedEvent, CloudConversationTypingEvent, CloudHostReplicaNeededEvent, CloudInboxChangedEvent, CloudInboxResetEvent, CloudMuxResyncedEvent, CloudMuxWakeEvent, CloudSessionNeededEvent, CloudSubscriptionStateEvent, ColorsChangedEvent, ConfigReloadRequestedEvent, ConversationChangedEvent, ConversationDraftEvent, ConversationInboxChangedEvent, ConversationLiveEvent, ConversationRunChangedEvent, ConversationScheduledChangedEvent, ConversationTypingEvent, DaemonShutdownEvent, DetachedEvent, DeviceSetupStepEvent, EmptyEvent, FeedReportsChangedEvent, FeedViewChangedEvent, FrameEvent, FrontendProjectionChangedEvent, GraphicsStatusEvent, HistoryChangedEvent, KeybindingsChangedEvent, LayoutChangedEvent, MachineUsageChangedEvent, NotificationEvent, OutputEvent, OverflowEvent, PairingRequestedEvent, PairingResolvedEvent, PaneAddedEvent, PaneClosedEvent, ParticipantAvatarChangedEvent, PersonalChangedEvent, PhoneOpenLinkEvent, ProgramStatusChangedEvent, RenderDeltaEvent, RenderStateEvent, ResizedEvent, ScreenAddedEvent, ScreenChangedEvent, ScreenClosedEvent, ScreenDeviceChangedEvent, ScreenRenamedEvent, ScrollChangedEvent, SelectionChangedEvent, SettingsChangedEvent, SizeStateEvent, StashChangedEvent, StatusEvent, SurfaceExitedEvent, SurfaceOutputEvent, SurfaceResizeFailedEvent, SurfaceResizedEvent, TabAddedEvent, TabChangedEvent, TabClosedEvent, TabRenamedEvent, TerminalClipboardReadEvent, TerminalClipboardReadCancelledEvent, TerminalInputUnclaimedEvent, TerminalReapedEvent, TerminalRegistryChangedEvent, TitleChangedEvent, TreeChangedEvent, UrlOpenEvent, VtStateEvent, WindowTitleRequestedEvent, WorkspaceAddedEvent, WorkspaceChangedEvent, WorkspaceClosedEvent, WorkspaceMovedEvent, WorkspacePresentationChangedEvent, WorkspaceRenamedEvent]
 AnyEvent = Union[KnownEvent, UnknownEvent]
 
 __all__ = [
@@ -6909,6 +6979,7 @@ __all__ = [
     'HostSizePolicy',
     'HostSizePolicyRequest',
     'IdMapping',
+    'IdentifyRestore',
     'IdentifyResult',
     'IdsResult',
     'KittyGraphicsState',
@@ -6937,6 +7008,7 @@ __all__ = [
     'NotifyResult',
     'PaneNeighborResult',
     'PaneSurfaceResult',
+    'PhoneLinkOfferResult',
     'PingResult',
     'ProcessInfoResult',
     'ProviderWorkspaceMutationResult',
@@ -6971,6 +7043,7 @@ __all__ = [
     'ServerStatsCommands',
     'ServerStatsConnections',
     'ServerStatsDisk',
+    'ServerStatsDiskCheckpoints',
     'ServerStatsDiskFile',
     'ServerStatsDiskJournal',
     'ServerStatsDiskJournalKind',
@@ -7221,6 +7294,8 @@ __all__ = [
     'FeedLocalListRequest',
     'FeedLocalReadRequest',
     'FloatPaneRequest',
+    'FlushLaunchSnapshotRequest',
+    'FlushLaunchSnapshotResult',
     'FocusDirectionRequest',
     'FocusPaneRequest',
     'ForgetSessionRequest',
@@ -7295,6 +7370,7 @@ __all__ = [
     'NewWorkspaceRequest',
     'NoteSizeActivityRequest',
     'NotifyRequest',
+    'OfferLinkToPhoneRequest',
     'PageCredentialRequest',
     'PairingResponseRequest',
     'PaneNeighborRequest',
@@ -7436,6 +7512,7 @@ __all__ = [
     'AgentInventoryWatchEndedEvent',
     'AgentPresenceChangedEvent',
     'AgentSessionShareChangedEvent',
+    'AppsCloudMachineEvent',
     'BellEvent',
     'BookmarksChangedEvent',
     'BrowserStateEvent',
@@ -7488,6 +7565,7 @@ __all__ = [
     'PaneClosedEvent',
     'ParticipantAvatarChangedEvent',
     'PersonalChangedEvent',
+    'PhoneOpenLinkEvent',
     'ProgramStatusChangedEvent',
     'RenderDeltaEvent',
     'RenderStateEvent',

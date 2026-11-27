@@ -1,3 +1,4 @@
+#if canImport(Network)
 import CmuxNextCompat
 import Network
 import Testing
@@ -22,3 +23,4 @@ struct UnixSocketEndpointTests {
         #expect(throws: UnixSocketPathTooLong(path: path)) { try NWEndpoint.unixSocket(path: path) }
     }
 }
+#endif

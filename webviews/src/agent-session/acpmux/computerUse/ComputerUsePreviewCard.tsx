@@ -25,7 +25,7 @@
 // same window shows as a second telepointer (PersonPointerArt): a neutral arrow labelled "You",
 // hidden while it is outside the window and dimmed once it stays still. Both are metadata from the
 // host, drawn over the frame; neither is in the frame's pixels.
-import { useRef, useState, type CSSProperties, type PointerEvent } from "react";
+import { useState, type CSSProperties, useRef, type PointerEvent } from "react";
 import { useT } from "../i18n";
 import { Check, Close, Expand } from "../conversation/icons";
 import { Icon } from "../icons/Icon";
@@ -33,18 +33,19 @@ import { useUnderSessionInfoRoom } from "../session-info/underSessionInfo";
 import { useLeavingCard, useLoadedFrame } from "./cardMotion";
 import { AgentCursorArt, PersonPointerArt } from "./cursorArt";
 import { cursorStyle, personPointerStyle } from "./cursorArtModel";
+import { usePaneView } from "../paneViewStore";
 import {
   closeComputerUsePreview,
+  computerUsePreviewTitle,
+  type ComputerUsePreview,
   COMPUTER_USE_PREVIEW_DRAG_SLOP,
   computerUsePreviewDocked,
   computerUsePreviewPlace,
-  computerUsePreviewTitle,
   dragFraction,
   moveComputerUsePreview,
   showComputerUsePreview,
   useComputerUsePreviewControls,
   useComputerUsePreviewMoves,
-  type ComputerUsePreview,
   type ComputerUsePreviewMove,
 } from "./computerUsePreview";
 import "./computerUsePreview.css";
@@ -73,6 +74,7 @@ export function ComputerUsePreviewCard({
   onShow?(session: string): void;
 }) {
   const t = useT();
+  const view = usePaneView();
   const [card, setCard] = useState<HTMLDivElement | null>(null);
   // The place while a drag runs (fractions): drawn at once, sent to the host when the drag ends.
   const [dragging, setDragging] = useState<{ x: number; y: number } | null>(null);
@@ -92,7 +94,7 @@ export function ComputerUsePreviewCard({
   const docked = computerUsePreviewDocked(shown, movable) && !dragging;
   const at = dragging ?? place;
   const move = (change: ComputerUsePreviewMove) => {
-    moveComputerUsePreview(session, change);
+    moveComputerUsePreview(session, change, view);
     onMove?.(session, change);
   };
   // The app's name is in the label only; with no name and no window title, the label names none
@@ -126,7 +128,7 @@ export function ComputerUsePreviewCard({
           type="button"
           className="acpmux-cu-preview__chip"
           onClick={() => {
-            showComputerUsePreview(session);
+            showComputerUsePreview(session, view);
             onShow?.(session);
           }}
         >
@@ -237,7 +239,7 @@ export function ComputerUsePreviewCard({
         className="acpmux-cu-preview__close"
         aria-label={t("computerUse.preview.close")}
         onClick={() => {
-          closeComputerUsePreview(session);
+          closeComputerUsePreview(session, view);
           onClose(session);
         }}
       >

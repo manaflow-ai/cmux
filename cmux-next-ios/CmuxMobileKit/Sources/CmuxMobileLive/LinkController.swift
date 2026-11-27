@@ -5,7 +5,9 @@ import enum CmuxMobileModel.UserFacingError
 import CmuxMobileTransport
 import Foundation
 import Observation
+#if canImport(OSLog)
 import OSLog
+#endif
 #if canImport(UIKit)
 import UIKit
 #endif
@@ -174,9 +176,6 @@ public final class LinkController {
         self.beat = beat
         self.events = LinkConnectivityEvents(telemetry: telemetry)
         self.accessToken = accessToken
-        #if canImport(UIKit)
-        watchKeyboard()
-        #endif
     }
 
     public var target: LinkMachine.Target? { machine.target }
@@ -204,6 +203,17 @@ public final class LinkController {
     private nonisolated static func connect(dialer: any MacLinkDialer, endpoint: LinkEndpoint, transport: TransportKind,
                                             forceRefresh: Bool, events: LinkConnectivityEvents,
                                             accessToken: @Sendable (Bool) async throws -> String) async throws -> any MacLink {
+        // The token and the dial are one "link-connect" span (``PhoneTrace``): a launch, a
+        // reconnect after a drop and a forced token refresh alike.
+        try await PhoneTrace.action("link-connect", args: ["transport": "\(transport)", "refresh": "\(forceRefresh)"]) {
+            try await dial(dialer: dialer, endpoint: endpoint, transport: transport, forceRefresh: forceRefresh,
+                           events: events, accessToken: accessToken)
+        }
+    }
+
+    private nonisolated static func dial(dialer: any MacLinkDialer, endpoint: LinkEndpoint, transport: TransportKind,
+                                         forceRefresh: Bool, events: LinkConnectivityEvents,
+                                         accessToken: @Sendable (Bool) async throws -> String) async throws -> any MacLink {
         let token = try await accessToken(forceRefresh)
         ConnectTimeline.shared.mark("token_ready")
         let link = try await dialer.dial(endpoint, transport: transport, accessToken: token)
@@ -222,30 +232,53 @@ public final class LinkController {
     /// the roam waits this long for the burst to end.
     nonisolated static let networkSettle: Duration = .milliseconds(150)
     @ObservationIgnored private var networkTask: Task<Void, Never>?
+    /// A roam is running (the dialer's `networkChanged` has not returned).
+    @ObservationIgnored private var roaming = false
+    /// A change came while a roam ran: one more roam follows it, onto the latest network.
+    @ObservationIgnored private var roamAgain: (baseURL: URL, teamID: String, deviceID: String)?
 
     /// The phone's network changed or came back: the live link moves onto it
     /// without a redial (WireGuard roams in place), and a link that already
     /// failed redials now instead of at its backoff.
+    ///
+    /// One roam at a time. A burst of changes settles first (`networkSettle`); a change during a
+    /// roam waits for it and then roams once more, however many came. Cancelling the settle never
+    /// stopped a roam already under way, so a burst ran several at once (four within 0.7 s on
+    /// a153's phone), each restarting the path and re-checking the signaling socket.
     public func networkChanged(baseURL: URL, teamID: String, deviceID: String) {
+        if roaming {
+            roamAgain = (baseURL, teamID, deviceID)
+            return
+        }
         networkTask?.cancel()
-        let dialer = dialer
-        let accessToken = accessToken
         let clock = clock
-        let events = events
         networkTask = Task { [weak self] in
             do { try await clock.sleep(for: Self.networkSettle) } catch { return }
-            ConnectTimeline.shared.mark("network_changed")
-            // Detached: the roam must not wait for the main actor.
-            let steps = await Task.detached { () -> [(String, Double)] in
-                guard let token = try? await accessToken(false) else { return [] }
-                return await dialer.networkChanged(baseURL: baseURL, teamID: teamID, deviceID: deviceID, accessToken: token)
-            }.value
-            log.info("network changed: \(steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "), privacy: .public)")
-            ConnectTimeline.shared.mark("network_roamed", detail: steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "))
-            events.roamed(steps)
-            guard let self, !Task.isCancelled else { return }
-            self.send(.networkChanged)
+            await self?.roam(baseURL: baseURL, teamID: teamID, deviceID: deviceID)
         }
+    }
+
+    private func roam(baseURL: URL, teamID: String, deviceID: String) async {
+        roaming = true
+        let dialer = dialer
+        let accessToken = accessToken
+        let events = events
+        ConnectTimeline.shared.mark("network_changed")
+        // Detached: the roam must not wait for the main actor.
+        let steps = await Task.detached { () -> [(String, Double)] in
+            guard let token = try? await accessToken(false) else { return [] }
+            return await dialer.networkChanged(baseURL: baseURL, teamID: teamID, deviceID: deviceID, accessToken: token)
+        }.value
+        roaming = false
+        log.info("network changed: \(steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "), privacy: .public)")
+        ConnectTimeline.shared.mark("network_roamed", detail: steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "))
+        events.roamed(steps)
+        if let next = roamAgain {
+            roamAgain = nil
+            networkChanged(baseURL: next.baseURL, teamID: next.teamID, deviceID: next.deviceID)
+            return
+        }
+        send(.networkChanged)
     }
 
     /// Sign-out: forget warm sockets and cached servers.
@@ -340,9 +373,11 @@ public final class LinkController {
             }
             endpoint.relayOnly = machine.relayOnly
             endpoint.blockUDP = machine.blockUDP
+            endpoint.proxyOnly = DeveloperOptions.proxyOnly
+            endpoint.dropWireGuard = DeveloperOptions.dropWireGuard
             endpoint.browserVideoOnChannel = DeveloperOptions.browserVideoOnChannel
             endpoint.forceRelay = DeveloperOptions.forceRelay
-            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public) forceRelay=\(endpoint.forceRelay, privacy: .public)")
+            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public) blockUDP=\(endpoint.blockUDP, privacy: .public) forceRelay=\(endpoint.forceRelay, privacy: .public) proxyOnly=\(endpoint.proxyOnly, privacy: .public) dropWireGuard=\(endpoint.dropWireGuard, privacy: .public)")
             let dialer = dialer
             let accessToken = accessToken
             let forceRefresh = refreshTokenNextDial
@@ -629,24 +664,12 @@ public final class LinkController {
     /// The keyboard is coming up over this link's terminal or chat: the
     /// first key follows in a few hundred ms. Waking the radio now moves
     /// the idle-to-connected promotion off that key (RFD 0142 T2). The
-    /// Rust link decides whether a datagram goes out.
+    /// coordinator calls it for the focused Mac only; the Rust link
+    /// decides whether a datagram goes out.
     public func prewake() {
         guard onScreen, !machine.isBackgrounded else { return }
         link?.prewake()
     }
-
-    #if canImport(UIKit)
-    @ObservationIgnored private var keyboardTask: Task<Void, Never>?
-
-    private func watchKeyboard() {
-        keyboardTask = Task { [weak self] in
-            for await _ in NotificationCenter.default.notifications(named: UIResponder.keyboardWillShowNotification) {
-                guard let self else { return }
-                self.prewake()
-            }
-        }
-    }
-    #endif
 
     private func adopt(_ link: any MacLink, generation: Int) {
         ConnectTimeline.shared.mark("link_adopted")
@@ -809,7 +832,7 @@ public final class LinkController {
     /// (`LiveAPI.Failure`), or the dial's signaling upgrade, which the Rust
     /// link reports as code `unauthorized`.
     nonisolated static func authRefused(_ error: any Error) -> Bool {
-        if let failure = error as? LiveAPI.Failure { return failure.status == 401 }
+        if let failure = error as? any LinkServiceFailure { return failure.status == 401 }
         if let error = error as? LinkError { return error.code == LinkError.unauthorized }
         return false
     }
@@ -827,7 +850,7 @@ public final class LinkController {
     /// The mapping lives with ``LinkError`` (`displayReason`); never a code or a type name.
     nonisolated static func reason(_ error: any Error) -> String {
         if let error = error as? LinkError { return error.displayReason }
-        if error is LiveAPI.Failure { return "the cmux service refused the request" }
+        if error is any LinkServiceFailure { return "the cmux service refused the request" }
         return String(UserFacingError.message(error, fallback: "the connection to the Mac failed").prefix(80))
     }
 }

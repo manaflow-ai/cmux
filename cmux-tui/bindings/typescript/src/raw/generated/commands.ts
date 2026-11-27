@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR b78fea3142c415dfd279b2371c233d5c3927cf9113fe109686884610a4fed8f2. */
+/* cmux-tui mux protocol 12; the IR SHA-256 is SDK_IR_SHA256 in metadata.ts. */
 
 
 import type * as T from "./types.js";
@@ -1168,6 +1168,8 @@ export interface CreateWorkspaceRequest extends CmuxRequestBase {
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "name"?: (string) | null;
+  /** user: name is exactly what the caller asked for (agents chat new --name), pinned like a rename at name_revision 1 so no automatic name or chat title replaces it. Absent or auto: a starting name the automatic namer may replace. */
+  "name_source"?: (T.NameSource) | null;
   "origin"?: (string) | null;
 }
 export type CreateWorkspaceResult = T.WorkspaceMutationResult;
@@ -1341,6 +1343,14 @@ export interface FloatPaneRequest extends CmuxRequestBase {
 }
 export type FloatPaneResult = T.JsonValue;
 
+/** Protocol v12; authority: control. */
+export interface FlushLaunchSnapshotRequest extends CmuxRequestBase {
+  cmd: "flush-launch-snapshot";
+}
+export type FlushLaunchSnapshotResult = {
+  "flushed": boolean;
+};
+
 /** Protocol v6; authority: control. */
 export interface FocusDirectionRequest extends CmuxRequestBase {
   cmd: "focus-direction";
@@ -1448,6 +1458,7 @@ export type HomeInboxResult = {
 export interface IdentifyRequest extends CmuxRequestBase {
   cmd: "identify";
   "machine_metadata"?: boolean;
+  "restore_progress"?: boolean;
   "revisions"?: boolean;
 }
 
@@ -2030,6 +2041,14 @@ export interface NotifyRequest extends CmuxRequestBase {
 }
 
 /** Protocol v12; authority: local-admin. */
+export interface OfferLinkToPhoneRequest extends CmuxRequestBase {
+  cmd: "offer-link-to-phone";
+  "terminal_id": string;
+  "url": string;
+}
+export type OfferLinkToPhoneResult = T.PhoneLinkOfferResult;
+
+/** Protocol v12; authority: local-admin. */
 export interface PageCredentialRequest extends CmuxRequestBase {
   cmd: "page-credential";
   "page"?: (string) | null;
@@ -2487,6 +2506,7 @@ export type SendKeyResult = T.EmptyResult;
 export interface ServerStatsRequest extends CmuxRequestBase {
   cmd: "server-stats";
   "include"?: (Array<string>) | null;
+  "restore_progress"?: boolean;
 }
 
 /** Protocol v12; authority: frontend. */
@@ -2760,6 +2780,7 @@ export interface SetWorkspaceMetadataRequest extends CmuxRequestBase {
   "expected_generation"?: (string) | null;
   "expected_revision"?: (bigint) | null;
   "icon"?: (string) | null;
+  "keep_awake"?: (boolean) | null;
   "key"?: (string) | null;
   "marked_unread"?: (boolean) | null;
   "mutation_id"?: (string) | null;
@@ -3313,6 +3334,7 @@ export type CmuxRequest =
   | FeedLocalListRequest
   | FeedLocalReadRequest
   | FloatPaneRequest
+  | FlushLaunchSnapshotRequest
   | FocusDirectionRequest
   | FocusPaneRequest
   | ForgetSessionRequest
@@ -3379,6 +3401,7 @@ export type CmuxRequest =
   | NewWorkspaceRequest
   | NoteSizeActivityRequest
   | NotifyRequest
+  | OfferLinkToPhoneRequest
   | PageCredentialRequest
   | PairingResponseRequest
   | PaneNeighborRequest
@@ -4483,6 +4506,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "floating-panes-v1";
     stream: null;
   };
+  "flush-launch-snapshot": {
+    request: FlushLaunchSnapshotRequest;
+    result: FlushLaunchSnapshotResult;
+    authority: "control";
+    since: 12;
+    capability: "launch-snapshot-flush-v1";
+    stream: null;
+  };
   "focus-direction": {
     request: FocusDirectionRequest;
     result: T.FocusDirectionResult;
@@ -5008,6 +5039,14 @@ export interface CmuxCommandDefinitionMap {
     result: T.NotifyResult;
     authority: "control";
     since: 6;
+    capability: null;
+    stream: null;
+  };
+  "offer-link-to-phone": {
+    request: OfferLinkToPhoneRequest;
+    result: OfferLinkToPhoneResult;
+    authority: "local-admin";
+    since: 12;
     capability: null;
     stream: null;
   };

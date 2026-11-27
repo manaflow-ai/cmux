@@ -120,6 +120,7 @@ impl Hub {
             require_asking,
             credential,
             create_key,
+            placed_by,
         } = req;
         // A create sent again after a restart cut its reply: the session the first one made
         // answers it, on this daemon or the one before (`create_key.rs`).
@@ -291,6 +292,7 @@ impl Hub {
             },
             &cwd,
             &std::env::temp_dir(),
+            dirs::home_dir().as_deref(),
         )?;
         let mut meta = draft_meta(Draft {
             id: String::new(),
@@ -452,7 +454,7 @@ impl Hub {
                 None => match self
                     .pool_claimed_name(&id)
                     .filter(|n| !sessions.values().any(|s| s.read_meta(|m| m.name == *n)))
-                    .filter(|n| !self.evicted.any_meta(|m| m.name == *n))
+                    .filter(|n| !self.evicted.any_keys(|m| m.name == *n))
                 {
                     Some(n) => n,
                     None => unique_name_among(&sessions, &self.evicted.names(), agent),
@@ -463,6 +465,7 @@ impl Hub {
             // A flag only: after a restart its agent waits for the owner's Mac (`credentials.rs`).
             meta.owner_credential = credential.is_some();
             meta.create_key = create_key;
+            meta.placed_by = placed_by;
             let session = self.make_session(meta);
             *session.codex_answer_asked.lock().unwrap_or_else(|e| e.into_inner()) = asked;
             session.person.store(person, Ordering::SeqCst);
@@ -791,6 +794,9 @@ impl Hub {
                 return Err(e);
             }
         }
+        // A transcript a cloud offload removed comes back before the agent resumes from it
+        // (`transcript_offload.rs`): one `stat` when none ever was.
+        self.restore_transcripts(session).await;
         // Boxed: a start is a deep future, and the stack a caller polls it on is not.
         let wake = self.wake_began(session);
         let child = match Box::pin(self.reach_or_start(session, profile, stops, &off)).await {
@@ -849,8 +855,9 @@ impl Hub {
         }
         self.wake_ended(session, wake, None);
         session.launch_backoff.clear();
-        // The start is over: its harness runs at its CPU class from now on (`cpu_class.rs`).
-        child.enter_run_class().await;
+        // The start is over: its harness runs at its CPU class from now on (`cpu_class.rs`); an
+        // AutoCloud-placed chat at the background class, below the owner's own work.
+        child.enter_run_class(session.read_meta(|m| m.placed_by.is_some())).await;
         // A Codex that went ahead at the head but started without the repository hook gets no
         // prompt before the whole checkout is in (repo_sync.rs).
         if super::repo_sync::start_waits_for_all(head_ok, profile, &child) {
@@ -1587,7 +1594,7 @@ impl Hub {
         // Start the inbound loop for this session once.
         self.spawn_inbound_loop(session).await;
 
-        let init = match child.request(method::INITIALIZE, self.start_params(session)).await {
+        let init = match super::acp_version::initialize(&child, self.start_params(session)).await {
             Ok(v) => v,
             Err(e) => {
                 // An agent CLI that refuses to start signed out exits before it answers
@@ -1598,6 +1605,17 @@ impl Hub {
                 return Err(e);
             }
         };
+        // An agent signed in by its key says so before its session (`acp_key_auth.rs`); one
+        // that refuses it names the sign-in as `initialize`'s failure does.
+        let family = crate::config::derive_family(&meta.harness, profile);
+        if let Some(params) = crate::acp_key_auth::authenticate_params(&family, &init, |k| {
+            crate::acp_key_auth::launch_var(&profile.env, &family, k)
+        }) && let Err(e) = child.request(method::AUTHENTICATE, params).await
+        {
+            let mut e = Self::explain_start_failure(session, e).await;
+            crate::recovery::start_sign_in(&mut e, &meta.harness);
+            return Err(e);
+        }
         let supports_load = init
             .get("agentCapabilities")
             .and_then(|c| c.get("loadSession"))

@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.failure.needsMac" : {
+      "comment" : "Agent pane: a failed turn's note on a Cloud machine that resumed and has not yet got the chat's sign-in back from the owner's Mac (offline, or cmux closed); {harness} is the agent's name",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يحتاج {harness} إلى جهاز Mac لتسجيل الدخول: افتح cmux"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} treba Mac za prijavu: otvorite cmux"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} skal bruge Mac'en for at logge ind: åbn cmux"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} braucht den Mac zum Anmelden: Öffne cmux"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "{harness} needs the Mac to sign in: open cmux"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} necesita el Mac para iniciar sesión: abre cmux"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} a besoin du Mac pour se connecter : ouvre cmux"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} ha bisogno del Mac per accedere: apri cmux"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} のサインインには Mac が必要です: cmux を開いてください"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} ត្រូវការ Mac ដើម្បីចូល៖ បើក cmux"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness}의 로그인에는 Mac이 필요합니다: cmux를 여세요"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} trenger Mac-en for å logge på: åpne cmux"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} potrzebuje Maca do zalogowania: otwórz cmux"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} precisa do Mac para entrar: abra o cmux"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} нужен Mac для входа: откройте cmux"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} ต้องใช้ Mac เพื่อลงชื่อเข้าใช้: เปิด cmux"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} oturum açmak için Mac'e ihtiyaç duyuyor: cmux'u aç"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} потрібен Mac для входу: відкрийте cmux"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} cần máy Mac để đăng nhập: hãy mở cmux"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} 需要 Mac 来登录：请打开 cmux"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "{harness} 需要 Mac 來登入：請打開 cmux"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

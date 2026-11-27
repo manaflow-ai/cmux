@@ -397,6 +397,11 @@ public final class DaemonTerminalSession: TerminalSession {
     /// Releases sent at once (``releaseNow()``) and not answered yet: a stop
     /// still sends its own, answered release before it closes the channel.
     private var releasesInFlight = 0
+    /// The write of the last release sent at once (``releaseNow()``). A
+    /// size claimed after it (shown again) waits for this write, so the Mac
+    /// reads the release and then the claim: two tasks raced for the
+    /// channel, and a claim that won left the Mac with no claim at all.
+    private var releaseWritten: Task<Void, Never>?
     /// When this view last told the Mac its size (a sized attach or a
     /// `resize-surface`). A grid the phone did not ask for that arrives
     /// within ``claimAnswerWindow`` of it is that claim's own round trip (an
@@ -420,6 +425,10 @@ public final class DaemonTerminalSession: TerminalSession {
     private var lastSize: (columns: Int, rows: Int)?
     private var attached = false
     private var attaching = false
+    /// A ``reconnect()`` came while an attach ran (the link was served meanwhile): the attach
+    /// that is out may have looked for the link before it came, so one that ends waiting for the
+    /// link attaches again at once instead of waiting for a link that is already here.
+    private var reconnectWhileAttaching = false
     /// The daemon said the surface is gone (`detached`): never reattach.
     private var ended = false
     /// Attached to the surface now.
@@ -434,8 +443,8 @@ public final class DaemonTerminalSession: TerminalSession {
     /// while the screen mirrors the Mac's terminal.
     public var connectionState: TerminalConnectionState {
         // An ended terminal shows its last screen, not a spinner; a Mac that is
-        // gone says so; a reattach that gave up (its line says to type to try
-        // again) shows its last screen too.
+        // gone says so; a reattach that gave up (it starts again on its own)
+        // shows its last screen too.
         if attached || ended { return .attached }
         if macOffline { return .offline(mac: macName) }
         // Plain words: the transport's error (`lastError`) goes to the log only.
@@ -804,6 +813,8 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     public func stop() {
+        gaveUpRetry?.cancel()
+        gaveUpRetry = nil
         streamPosition = nil
         eventTask?.cancel()
         eventTask = nil
@@ -857,15 +868,32 @@ public final class DaemonTerminalSession: TerminalSession {
         inputUnansweredSince = nil
     }
 
+    /// An attach refused because the Mac does not know the surface (its
+    /// error says "unknown surface N"), not for a field it sent.
+    static func refusesSurface(_ error: String) -> Bool {
+        error.hasPrefix("unknown surface")
+    }
+
     /// Attaches again after a dropped link. A no-op while attached or
     /// attaching, before `start`, and after the surface ended.
     public func reconnect() {
-        guard handler != nil, !attached, !attaching, !ended else { return }
+        guard handler != nil, !attached, !ended else { return }
+        // A first attach on a cold launch runs while the link pairs: its open can read "no
+        // link" just before the link is served, and the link's own `reconnect()` of every
+        // terminal landed here while that attach was still out and was dropped. The attach
+        // then waited for a link that had come already: the terminal page drew its skeleton
+        // for good (Aziz's TestFlight build, 2026-11-25). Remember it instead.
+        if attaching {
+            reconnectWhileAttaching = true
+            return
+        }
         if gaveUp {
             // A fresh round of retries, from the shortest delay.
             gaveUp = false
             attachRetries = 0
         }
+        gaveUpRetry?.cancel()
+        gaveUpRetry = nil
         handler?(.connection(connectionState))
         Task { await attach() }
     }
@@ -1067,6 +1095,93 @@ public final class DaemonTerminalSession: TerminalSession {
         return live
     }
 
+    // MARK: Fenced reattach (attach-identity-v1)
+
+    /// The daemon takes `expected_generation` and `expected_terminal_id` on
+    /// `attach-surface` and refuses an attach whose boot or terminal changed,
+    /// before any stream or size lease.
+    static let attachIdentityCapability = "attach-identity-v1"
+
+    /// The Mac daemon as its last `identify` described it.
+    struct KnownDaemon: Equatable {
+        let capabilities: Set<String>
+        let generation: String
+    }
+
+    /// This session's daemon, from the last attach's `identify`.
+    private var knownDaemon: KnownDaemon?
+    /// A fence was refused for something other than identity (a lane that
+    /// refuses the fields): reattaches ask first for the rest of the session.
+    private var fencedAttachOff = false
+    /// The last fenced attach was refused: the next one asks first.
+    private var fenceSkipOnce = false
+
+    /// One fenced reattach: the size it claims, and the identity it names.
+    struct FencedAttach {
+        let size: (columns: Int, rows: Int)?
+        let generation: String
+        let terminalID: String
+    }
+
+    struct FencedAttachRefused: Error {
+        let reason: String
+    }
+
+    /// A reattach that can go in the setup's write: the terminal has a public
+    /// id, the daemon fences, and nothing about this attach needs the replies
+    /// of the setup (a hybrid resume, a size the Mac overruled).
+    private func fencedAttach() -> FencedAttach? {
+        guard !fencedAttachOff, !fenceSkipOnce, everAttached || attachRetries > 0,
+              let terminalID, terminalID.hasPrefix("term_"),
+              let known = knownDaemon, known.capabilities.contains(Self.attachIdentityCapability),
+              !(hybridWanted && hybridResume != nil), overruled == nil else { return nil }
+        let size = claimsSize && known.capabilities.contains("attach-initial-size") ? (lastSize ?? pendingSize) : nil
+        return FencedAttach(size: size, generation: known.generation, terminalID: terminalID)
+    }
+
+    /// The fenced `attach-surface`: what the attach after `identify` would
+    /// send (size, history, a byte resume), plus the identity it expects.
+    private func fencedAttachParams(_ fenced: FencedAttach) -> sending [String: Any] {
+        var params: [String: Any] = ["surface": surface, "expected_generation": fenced.generation,
+                                     "expected_terminal_id": fenced.terminalID]
+        if let size = fenced.size {
+            params["cols"] = size.columns
+            params["rows"] = size.rows
+        }
+        if tailReplay {
+            if windowReplay, let start = historyWindowStart {
+                params["replay_history_rows"] = Self.historyWindowRows
+                params["replay_history_start"] = start
+            } else if let rows = historyAllowance {
+                params["replay_history_rows"] = rows
+            }
+        }
+        if !hybridWanted, let position = streamPosition,
+           let known = knownDaemon, known.capabilities.contains(Self.terminalResumeCapability) {
+            params["resume_offset"] = position.offset
+            params["resume_generation"] = position.generation
+            if known.capabilities.contains(Self.terminalResumeBoundedCapability) {
+                params["resume_max_bytes"] = max(Self.minResumeBytes, lastReplayBytes ?? 0)
+            }
+        }
+        return params
+    }
+
+    /// A refusal about the boot or the terminal (ask where it is, then attach),
+    /// not about a field.
+    nonisolated static func fenceRefusalIsIdentity(_ reason: String) -> Bool {
+        reason.contains("attachment_generation_mismatch") || reason.contains("attachment_terminal_mismatch")
+            || reason.contains("unknown surface")
+    }
+
+    /// The daemon an `identify` reply describes (nil: no boot generation).
+    nonisolated static func knownDaemon(_ identify: Data) -> KnownDaemon? {
+        guard let object = try? JSONSerialization.jsonObject(with: identify) as? [String: Any],
+              let data = object["data"] as? [String: Any],
+              let generation = data["generation"] as? String, !generation.isEmpty else { return nil }
+        return KnownDaemon(capabilities: Set(capabilities(identify)), generation: generation)
+    }
+
     /// `attach-surface` for this surface at `size`, with the history the
     /// next replay holds: the window far above the screen, or the newest
     /// ``historyAllowance`` rows (nil: all of them).
@@ -1162,7 +1277,8 @@ public final class DaemonTerminalSession: TerminalSession {
     static let maxScrollFramesInFlight = 2
 
     /// Sends painted redraws to the Mac (`phone-frames` `paint`); the coordinator sets it.
-    public var paintSink: (@MainActor ([TerminalPaintTally.Sample], String?) async -> Void)?
+    /// It returns hostd's join of the report when the DEBUG overlay asked for it.
+    public var paintSink: (@MainActor ([TerminalPaintTally.Sample], String?) async -> TerminalPaintSummary?)?
     private var paintInFlight = false
 
     public func reportPaint(_ samples: [TerminalPaintTally.Sample]) {
@@ -1171,8 +1287,14 @@ public final class DaemonTerminalSession: TerminalSession {
         paintInFlight = true
         let program = programName
         Task { [weak self] in
-            await sink(samples, program)
+            let summary = await sink(samples, program)
             self?.paintInFlight = false
+            // The DEBUG overlay on this session's screen shows it.
+            if let self, let summary {
+                NotificationCenter.default.post(
+                    name: TerminalPaintSummary.didArrive, object: self, userInfo: ["summary": summary]
+                )
+            }
         }
     }
 
@@ -1211,6 +1333,7 @@ public final class DaemonTerminalSession: TerminalSession {
         autoReattach?.cancel()
         autoReattach = nil
         attaching = true
+        reconnectWhileAttaching = false
         awaitingReplay = false
         defer { attaching = false }
         // A history fetch: the attach it replaces is live on this daemon.
@@ -1226,7 +1349,15 @@ public final class DaemonTerminalSession: TerminalSession {
             // verify/transport-verify-20261019.md). A history fetch does not:
             // the attach it replaces is still live on the same daemon, so the
             // surface number is current (one round trip less per fetch).
-            if let terminalID, !replacement, everAttached || attachRetries > 0 {
+            // A daemon that fences attaches (`attach-identity-v1`) needs no
+            // question either: the attach names the boot and the terminal it
+            // expects and goes in the setup's write, and the daemon refuses it,
+            // before any stream, if either changed (then this asks, below).
+            // Three round trips become one (Leo, 2026-11-17: "the gosh darn
+            // loading of everything needs to be FASTER").
+            let fenced = replacement ? nil : fencedAttach()
+            fenceSkipOnce = false
+            if fenced == nil, let terminalID, !replacement, everAttached || attachRetries > 0 {
                 let reply = try await client.request("resolve-terminal", params: ["terminal_id": terminalID])
                 guard self.client === client else { return }
                 switch Self.resolved(reply) {
@@ -1313,10 +1444,47 @@ public final class DaemonTerminalSession: TerminalSession {
             // the setting this phone holds, read in its log beside the link's path and rtt.
             log.info("attach agent_cli_hybrid=\(Self.agentCLIHybridEnabled(self.agentCLIHybridDefaults), privacy: .public) wanted=\(self.hybridWanted, privacy: .public)")
             var batch: [(cmd: String, params: [String: Any])] = [(cmd: "set-client-info", params: info), (cmd: "identify", params: [:])]
-            if let quickSize { batch.append((cmd: "attach-surface", params: historyAttachParams(size: quickSize))) }
+            // A first attach on screen sends the grid the page measured with
+            // the attach, in the same write (TerminalAttachPlan): the Mac
+            // answers with the replay at that grid one round trip after the
+            // start instead of two. Its events wait from now on.
+            let plan = TerminalAttachPlan.plan(firstAttach: quickSize == nil && !everAttached && attachRetries == 0, claimsSize: claimsSize,
+                                               size: lastSize ?? pendingSize, resumes: hybridResume != nil || bytesFrom != nil)
+            var pipelinedSize: (columns: Int, rows: Int)?
+            if case .pipelined(let columns, let rows) = plan {
+                pipelinedSize = (columns, rows)
+                var params: [String: Any] = ["surface": surface, "cols": columns, "rows": rows]
+                if let historyRows = historyAllowance { params["replay_history_rows"] = historyRows }
+                batch.append((cmd: "attach-surface", params: params))
+            } else if let quickSize {
+                batch.append((cmd: "attach-surface", params: historyAttachParams(size: quickSize)))
+            }
+            // Fenced reattaches name the boot and terminal identity in the same
+            // setup write. They are mutually exclusive with the requests above.
+            if let fenced { batch.append((cmd: "attach-surface", params: fencedAttachParams(fenced))) }
             let setup = await client.requests(batch)
             let identify = setup.dropFirst().first.flatMap { try? $0.get() }
-            let quickReply = setup.dropFirst(2).first.flatMap { try? $0.get() }.flatMap { Self.error(in: $0) == nil ? $0 : nil }
+            knownDaemon = identify.flatMap(Self.knownDaemon)
+            // The pipelined attach's reply. A link that failed under it is a
+            // failed attach (the retry below); a refusal falls back to the
+            // attach in series, with what identify listed.
+            let pipelined: (reply: Data, columns: Int, rows: Int)?
+            if let pipelinedSize, setup.count > 2 {
+                pipelined = (try setup[2].get(), pipelinedSize.columns, pipelinedSize.rows)
+            } else {
+                pipelined = nil
+            }
+            let quickReply = quickSize == nil ? nil
+                : setup.dropFirst(2).first.flatMap { try? $0.get() }.flatMap { Self.error(in: $0) == nil ? $0 : nil }
+            var fencedReply: Data?
+            if let fenced {
+                let slot = setup.dropFirst(2 + (pipelinedSize == nil && quickSize == nil ? 0 : 1)).first
+                if let slot {
+                    let reply = try slot.get()
+                    if let error = Self.error(in: reply) { throw FencedAttachRefused(reason: error) }
+                    fencedReply = reply
+                }
+            }
             // What a refused quick attach sent first is not the replay.
             if quickSize != nil, quickReply == nil { heldEvents = [] }
             // Hidden: attach without a size, so the attach claims none.
@@ -1418,11 +1586,42 @@ public final class DaemonTerminalSession: TerminalSession {
                 tailReplay = false
                 return try await send(historyRows: nil)
             }
+            // A pipelined attach refused for its surface ("unknown surface": a
+            // Mac host that just restarted) failed as an attach, not for its
+            // grid or fields: the attach in series would hear the same. It goes
+            // to the retry like any failed attach, one attach a try, keeping
+            // the last frame (termqa D3).
+            if let pipelined, let error = Self.error(in: pipelined.reply), Self.refusesSurface(error) {
+                throw LinkError(code: "attach", message: error)
+            }
+            // The Mac took the pipelined attach: its replay is already held.
+            let pipelinedReply = pipelined.flatMap { Self.error(in: $0.reply) == nil ? $0 : nil }
+            if pipelined != nil, pipelinedReply == nil { heldEvents = [] }
             // With the size in the attach the Mac builds the replay at that size
             // once; attached first and resized after, it reset the mirror and
             // replayed the whole history a second time (user report 2026-10-14).
             var reply: Data
-            if let quickReply, let quickSize {
+            if let fencedReply, let fenced {
+                // Attached in the setup's write, at the size it claimed (if any).
+                reply = fencedReply
+                if let size = fenced.size {
+                    lastSize = size
+                    attachedWithSize = size
+                    lastClaimAt = .now
+                }
+            } else if let pipelined = pipelinedReply {
+                // The Mac took the attach with the phone's grid. A daemon that
+                // does not list attach-initial-size ignored the grid: the
+                // resize after the attach claims it, as an attach in series does.
+                // The grid went out on screen: a page hidden since still
+                // holds the size the attach carried, and releases it below.
+                reply = pipelined.reply
+                if identify.map(Self.acceptsInitialSize) ?? false {
+                    lastSize = lastSize ?? (pipelined.columns, pipelined.rows)
+                    attachedWithSize = (pipelined.columns, pipelined.rows)
+                    lastClaimAt = .now
+                }
+            } else if let quickReply, let quickSize {
                 // A refused quick attach (a lane that refuses a field) takes the
                 // path below, which knows each refusal.
                 reply = quickReply
@@ -1543,6 +1742,21 @@ public final class DaemonTerminalSession: TerminalSession {
             openInputLane(for: client)
             armLiveness()
             scheduleHistoryPrefetch()
+        } catch let refused as FencedAttachRefused {
+            // The Mac restarted (another boot), the terminal moved to another
+            // surface, or the lane refused a field: nothing streamed. Attach
+            // again at once, asking where the terminal is first; a refusal
+            // that is not about identity turns the fence off for this session.
+            heldEvents = nil
+            log.notice("surface \(self.surface, privacy: .public): fenced attach refused (\(refused.reason, privacy: .public)): resolving first")
+            fenceSkipOnce = true
+            if !Self.fenceRefusalIsIdentity(refused.reason) { fencedAttachOff = true }
+            if let client = self.client { self.client = nil; Task { await client.close() } }
+            eventTask?.cancel()
+            eventTask = nil
+            inbox?.close()
+            inbox = nil
+            Task { [weak self] in await self?.attach() }
         } catch {
             heldEvents = nil
             lastError = Self.diagnostic(error)
@@ -1573,6 +1787,12 @@ public final class DaemonTerminalSession: TerminalSession {
                 attachRetries = 0
                 if let client = self.client { self.client = nil; Task { await client.close() } }
                 if handler != nil, !ended { handler?(.connection(connectionState)) }
+                // The link came while this attach was out: attach on it now (after this
+                // attach's `defer`), not on a return that already happened.
+                if reconnectWhileAttaching, handler != nil, !ended {
+                    reconnectWhileAttaching = false
+                    Task { [weak self] in self?.reconnect() }
+                }
                 return
             }
             if attachRetries < reattachBackoff.count, handler != nil, !ended {
@@ -1604,6 +1824,7 @@ public final class DaemonTerminalSession: TerminalSession {
             // it instead: the composer's quiet line with Retry, and a keystroke
             // tries again.
             gaveUp = true
+            scheduleGaveUpRetry()
             // Keys held for this reattach are dropped now, and the screen says so.
             expireInput()
             handler?(.connection(connectionState))
@@ -1725,6 +1946,11 @@ public final class DaemonTerminalSession: TerminalSession {
         case .sizeState(let state, let participant):
             sizing.apply(state, selfParticipant: participant)
             noteHostGridOwner()
+        case .openLink(let url, let terminal):
+            // The daemon sends it only on a channel attached to the terminal the program runs
+            // in; never held behind the reclaim hold, which is about the grid. The URL is never logged.
+            log.notice("surface \(self.surface, privacy: .public): a program in terminal \(terminal ?? "-", privacy: .public) opened a link: it opens on this phone")
+            handler?(.openLink(url))
         }
     }
 
@@ -1739,7 +1965,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// notice and quiet line), never the transport's error text.
     nonisolated static func unreachableMessage(_ mac: String?) -> String {
         let name = mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac"
-        return "Can't reach this terminal on \(name). Retry, or type to try again."
+        return "Can't reach this terminal on \(name). It reconnects on its own."
     }
 
     /// Writes a line into the terminal itself: only for facts about the
@@ -1812,7 +2038,11 @@ public final class DaemonTerminalSession: TerminalSession {
         let surface = surface
         lastClaimAt = .now
         reclaimsSent += 1
-        Task { _ = try? await client.request("resize-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows]) }
+        let released = releaseWritten
+        Task {
+            await released?.value
+            _ = try? await client.request("resize-surface", params: ["surface": surface, "cols": size.columns, "rows": size.rows])
+        }
     }
 
     /// Releases this view's size now, not behind the outbox: a request there
@@ -1828,10 +2058,14 @@ public final class DaemonTerminalSession: TerminalSession {
         }
         let surface = surface
         releasesInFlight += 1
+        // Written first, in order (`submit` returns once the line is on the
+        // channel); the answer is read after.
+        let written = Task { try await client.submit("release-surface-size", params: ["surface": surface]) }
+        releaseWritten = Task { _ = try? await written.value }
         Task { [weak self] in
             defer { self?.releasesInFlight -= 1 }
             do {
-                let reply = try await client.request("release-surface-size", params: ["surface": surface])
+                let reply = try await client.reply(to: try await written.value)
                 if let error = Self.error(in: reply) {
                     log.error("release-surface-size failed: \(error, privacy: .public)")
                 }
@@ -1917,6 +2151,8 @@ public final class DaemonTerminalSession: TerminalSession {
                 let reply: Data
                 switch next {
                 case .size(let columns, let rows):
+                    // A release sent at once before this claim reaches the Mac first.
+                    await releaseWritten?.value
                     // Hidden since it was queued (shown and hidden again in
                     // one turn): never sent, or it would claim a size no
                     // release follows. Hidden and shown again: the show
@@ -2001,6 +2237,11 @@ public final class DaemonTerminalSession: TerminalSession {
         Task { [weak self] in
             guard let lane = try? await openInput() else { return }
             await lane.start()
+            // The Mac's splice marks every `set-client-info` with this phone's device id and
+            // `remote`: the daemon then knows the keys on this lane are this phone's, so a link a
+            // program opens right after them comes to this phone (`phone-open-link`). Until it
+            // answers, keys keep going on the attach channel.
+            _ = try? await lane.request("set-client-info", params: [:], deadline: .seconds(5))
             guard let self, self.client === main, self.attached, self.inputClient == nil else {
                 await lane.close()
                 return
@@ -2424,11 +2665,30 @@ public final class DaemonTerminalSession: TerminalSession {
     private var awaitingReplay = false
     /// Failed reattach attempts since the last good attach.
     private var attachRetries = 0
-    /// The reattach retries ran out; the next keystroke tries again.
+    /// The reattach retries ran out; the next keystroke, or ``gaveUpRetryDelay``, starts again.
     private var gaveUp = false
     /// Delays before retrying a failed reattach (seconds); then the error shows.
     static let defaultReattachBackoff: [Double] = [0.25, 0.5, 1, 2, 4, 8]
     var reattachBackoff = DaemonTerminalSession.defaultReattachBackoff
+    /// After the retries ran out, a fresh round starts on its own this long later (as well as on
+    /// a keystroke, Retry or a new link), so a terminal never waits for the person to ask
+    /// (Leo, 2026-11-22: "vacuous decisions like that should be just done").
+    var gaveUpRetryDelay: Duration = .seconds(30)
+    private var gaveUpRetry: Task<Void, Never>?
+
+    private func scheduleGaveUpRetry() {
+        gaveUpRetry?.cancel()
+        let delay = gaveUpRetryDelay
+        gaveUpRetry = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self, !Task.isCancelled else { return }
+            self.gaveUpRetry = nil
+            // A Mac that is gone reattaches every session when its link comes back.
+            guard self.gaveUp, !self.macOffline else { return }
+            self.reconnect()
+        }
+    }
+
     /// An attach that failed for want of a link (`no-link`): it waits for the link's return,
     /// which reattaches it, and spends no retry (so never gives up on it).
     nonisolated static func waitsForTheLink(_ error: any Error) -> Bool {
@@ -2598,7 +2858,10 @@ public final class DaemonTerminalSession: TerminalSession {
     static let minResumeBytes = 64 << 10
     /// What the attach channel lists in `set-client-info`.
     static let clientCapabilities = [shortSizeLeaseCapability, sizeLeaseCapability, sharedSizingCapability, hostGridViewCapability, replayHistoryWindowCapability,
-                                     terminalResumeCapability, terminalResumeBoundedCapability]
+                                     terminalResumeCapability, terminalResumeBoundedCapability, phoneOpenLinkCapability]
+    /// `phone-open-link-v1`: this phone opens a link a program in the terminal asks a browser for
+    /// while the phone drives it (the daemon's `phone-open-link` event, `offer-link-to-phone`).
+    static let phoneOpenLinkCapability = "phone-open-link-v1"
 
     /// The Mac's daemon sends an agent CLI's terminal (Claude Code, Codex, opencode) as the
     /// cells that changed instead of its PTY bytes (`agent-cli-frame` events).

@@ -410,7 +410,6 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         usage_limits: None,
         available_commands: None,
         goal: None,
-        task_list: None,
         permission_rules: None,
         tags: Default::default(),
         unread: false,
@@ -427,6 +426,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         throwaway: false,
         owner_credential: false,
         create_key: None,
+        placed_by: None,
         agent_behind_seq: None,
         hibernated_ms: 0,
         close: None,
@@ -447,6 +447,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         harness_roots: vec![],
         watching: None,
         composer_draft: None,
+        pinned: false,
         preset_mode_approval: None,
         bookmarks: Default::default(),
         tools: Default::default(),
@@ -474,6 +475,8 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         cold: None,
         auto_session: None,
         fork_of_subagent: None,
+        // A new chat starts on Auto; a pick is the chat's own and never a default.
+        place_mode: None,
     }
 }
 
