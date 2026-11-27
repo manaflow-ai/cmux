@@ -25,9 +25,8 @@ const HELD_MAX: usize = 4;
 
 /// Notices that ask nothing now (a budget passed with the disk not low, a store compressed, a
 /// group resumed), held for their chat's next prompt when no turn runs to steer into
-/// (`take_held`). A turn of their own woke an idle lane for a turn that made no tool call: 23 of
-/// them in a day on gcp-agent-lane-19, 103 acpmux notices on gcp-agent-lane-5 (goal
-/// wakes-per-landed-pr). In memory: a daemon restart drops them, as it drops `verify`'s.
+/// (`take_held`). A turn of their own woke an idle agent for nothing to do: over 20 a day on one
+/// busy agent. In memory: a daemon restart drops them, as it drops `verify`'s.
 static HELD: std::sync::LazyLock<StdMutex<HashMap<String, Vec<String>>>> =
     std::sync::LazyLock::new(Default::default);
 
