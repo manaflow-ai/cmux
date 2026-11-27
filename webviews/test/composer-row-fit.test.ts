@@ -31,12 +31,15 @@ describe("composer row fit", () => {
     expect(at(371)).toEqual({ access: "icon", effort: "short", mic: "full", model: "family" });
     expect(at(370)).toEqual({ access: "icon", effort: "short", mic: "full", model: "icon" });
     expect(at(340)).toEqual({ access: "icon", effort: "short", mic: "full", model: "icon" });
-    expect(at(240)).toEqual({ access: "icon", effort: "short", mic: "full", model: "icon" });
+    expect(at(241)).toEqual({ access: "icon", effort: "short", mic: "full", model: "icon" });
+    // The tightest row lets the effort go whole (it stays in the model menu), Leo 2026-11-27.
+    expect(at(240)).toEqual({ access: "icon", effort: "hidden", mic: "full", model: "icon" });
   });
 
   test("a row too long for its width gives up the model's name last and never the mic", () => {
-    expect(fitForms(760, ROW_FIT_STEPS.length - 1).model).toBe("family");
-    expect(fitForms(760, ROW_FIT_STEPS.length)).toMatchObject({ model: "icon", mic: "full" });
+    expect(fitForms(760, ROW_FIT_STEPS.length - 2).model).toBe("family");
+    expect(fitForms(760, ROW_FIT_STEPS.length - 1)).toMatchObject({ model: "icon", effort: "short", mic: "full" });
+    expect(fitForms(760, ROW_FIT_STEPS.length)).toMatchObject({ model: "icon", effort: "hidden", mic: "full" });
     expect(fitForms(760, ROW_FIT_STEPS.length + 4).mic).toBe("full");
   });
 });

@@ -53,6 +53,9 @@ export const COMPOSER_FIT_STEPS = {
   newTabModelMark: 297,
   /** The row tightens its gap and padding and narrows +. */
   barTight: 260,
+  /** The effort leaves the row (it stays in the model menu): below this even "High" pushed +
+   *  into the permission chevron (Leo 2026-11-27, a ~220 px New Tab card). */
+  effortHidden: 240,
 } as const;
 
 export type FitUnit = "access" | "effort" | "mic" | "model";
@@ -69,6 +72,7 @@ export const ROW_FIT_STEPS: readonly { step: keyof typeof COMPOSER_FIT_STEPS; un
   { step: "modelFamily", unit: "model", to: "family" },
   { step: "accessLabelHidden", unit: "access", to: "icon" },
   { step: "modelMark", unit: "model", to: "icon" },
+  { step: "effortHidden", unit: "effort", to: "hidden" },
 ];
 
 const UNITS: readonly FitUnit[] = ["access", "effort", "mic", "model"];
