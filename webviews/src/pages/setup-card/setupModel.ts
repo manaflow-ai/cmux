@@ -62,7 +62,9 @@ export type SetupAction =
   | { kind: "setTextSize"; points: number | null }
   | { kind: "setDensity"; id: string }
   | { kind: "importClassic" }
-  | { kind: "declineClassic" };
+  | { kind: "declineClassic" }
+  /** A starter workspace (pages/starter-workspaces): the host makes it, tagged Example. */
+  | { kind: "tryStarter"; id: string };
 
 export interface SetupStep {
   id: SetupStepID;

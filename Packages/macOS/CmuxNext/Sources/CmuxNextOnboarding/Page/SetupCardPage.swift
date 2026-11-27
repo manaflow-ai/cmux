@@ -38,6 +38,9 @@ public struct SetupCardEnvironment {
     public var look: SetupCardLook?
     /// What the account row's Sign In signs in to ("Signs in to cmux.com"), the line under it; nil shows none.
     public var signInBackend: String?
+    /// Opens a starter workspace (`tryStarter {id}`, pages/starter-workspaces): a scratch folder and a workspace in it,
+    /// tagged Example; nil: the card offers none.
+    public var tryStarter: (@MainActor (_ id: String) -> Void)?
 
     public init(account: @escaping @MainActor () -> (signedIn: Bool, email: String?), signInAccount: @escaping @MainActor () -> Void,
                 cliState: @escaping @MainActor () async -> String, installCLI: @escaping @MainActor (_ replacing: Bool) async -> Void,
@@ -288,6 +291,11 @@ public final class SetupCardPageProvider: PageProvider {
         // cmux Classic: Import or Not Now answers the launch's classic import, which asks here instead of its dialog.
         case "importClassic" where !forChief: setup.answerClassic(.accepted)
         case "declineClassic" where !forChief: setup.answerClassic(.declined)
+        case "tryStarter" where !forChief:
+            guard let tryStarter = environment.tryStarter, ["bug", "race", "review", "web"].contains(id) else {
+                throw PageError.invalidParams("unknown starter")
+            }
+            tryStarter(id)
         case "installCLI":
             // Only the row's own offer: Install when missing, Replace for another cmux app's CLI; never over a
             // `cmux` that is no cmux app's.

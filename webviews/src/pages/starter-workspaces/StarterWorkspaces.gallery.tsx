@@ -2,13 +2,8 @@
 // Starter workspaces on Home: a first run, then after picking a repo, then with one opened.
 import { componentEntry } from "../../gallery/format";
 import { StarterWorkspaces, type Starter } from "./StarterWorkspaces";
+import { STARTER_DEMOS as DEMOS } from "./starters";
 
-const DEMOS: Starter[] = [
-  { id: "bug", kind: "demo", title: "Fix a planted bug", detail: "A small TypeScript repo with one failing test. Watch an agent find and fix it.", panes: ["Terminal", "Claude Code"], minutes: 3 },
-  { id: "race", kind: "demo", title: "Agents side by side", detail: "Claude Code and Codex on the same task in two splits. Compare the diffs.", panes: ["Claude Code", "Codex", "Diff"], minutes: 5 },
-  { id: "review", kind: "demo", title: "Review a pull request", detail: "A sample PR with its diff, a browser preview and a chat about it.", panes: ["Diff", "Browser", "Chat"], minutes: 4 },
-  { id: "web", kind: "demo", title: "Build a page live", detail: "A dev server in a terminal, the page in a browser split, an agent editing it.", panes: ["Terminal", "Browser", "Claude Code"], minutes: 5 },
-];
 const PERSONAL: Starter[] = [
   { id: "p-test", kind: "personal", title: "Fix a failing test", detail: "3 tests fail on main. Chief opens one with the log and an agent ready.", panes: ["Terminal", "Claude Code"] },
   { id: "p-explain", kind: "personal", title: "Explain this codebase", detail: "A tour of the repo's layout, entry points and how to build it.", panes: ["Chat", "Files"] },

@@ -31,13 +31,21 @@ extension HomeHostView {
         if let card = setupCard, card.form != form { card.close(); setupCard = nil; transcript.setSetupCard(nil, height: 0) }
         guard let form else { return }
         let services = control.services, auth = control.services.cloud.auth, registry = control.services.registry
-        let environment = SetupCardEnvironment(
+        var environment = SetupCardEnvironment(
             account: { (auth.isSignedIn, auth.user?.primaryEmail) },
             signInAccount: { _ = registry.perform("palette.auth.signIn", invocation: ActionInvocation(origin: .user)) },
             cliState: { CLIInstallReport.setupRow(await CLIInstallHandlers.pathCheck(CLIPathInstaller().source)) },
             installCLI: { await CLIInstallHandlers.install(.cmux, replacing: $0, in: NSApp.keyWindow) },
             openAgents: { [weak services] in services?.onboarding.show(step: .agents) },
             look: SetupCardLook(design: .shared) { [weak services] in services?.settings }, signInBackend: services.cloud.configuration.signInBackendLine)
+        environment.tryStarter = { [weak services] id in
+            guard let services else { return }
+            // A scratch folder per starter (~/cmux-starters/<id>), then a workspace with one terminal in it.
+            let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("cmux-starters/\(id)")
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            // task-owner: one workspace the person asked for with their click.
+            Task { _ = await services.windows.createWorkspace(cwd: folder.path) }
+        }
         guard setupCard == nil, let card = SetupCardHost(setup: services.onboarding.setup, agents: services.onboarding.signInHarnesses,
                                                          environment: environment, overlayProcess: services.overlayProcess,
                                                          form: form) else { return }
