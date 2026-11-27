@@ -96,7 +96,7 @@ public final class CloudMachineWire {
         _ = try buildSpace.headers() // a misconfigured dev build mints no ticket and opens no socket
         var environment = ProcessInfo.processInfo.environment
         environment["CMUX_BUILD_SPACE"] = buildSpace.childEnvironmentValue
-        let (frames, continuation) = AsyncStream.makeStream(of: Data.self)
+        let (frames, continuation) = AsyncStream.makeStream(of: Data.self, bufferingPolicy: .bufferingNewest(256)) // the main actor drains each line as it comes
         async let child: Void = Self.run(lines, stdin: stdin, environment: environment, into: continuation)
         // wakeup-allow: each turn awaits the next frame line of the child; its exit ends the stream and the loop.
         for await data in frames {
