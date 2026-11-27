@@ -10,8 +10,10 @@ extension ControlTopology {
         let workspaceIDs = Dictionary(workspaces.map { ($0.id, $0.publicID) }, uniquingKeysWith: { first, _ in first })
         func workspace(_ key: String?) -> JSONValue { .optional(key.map { workspaceIDs[$0] ?? $0 }) }
         return [
-            "loaded": .bool(isLoaded),
-            "daemon_state": .string(daemonState),
+            "loaded": .bool(isReady),
+            "settling": .bool(isSettling),
+            // The launch snapshot is drawn before the daemon answers: not connected yet, whatever the socket says.
+            "daemon_state": .string(isProvisional && daemonState == "connected" ? "connecting" : daemonState),
             "daemon_failure": daemonFailure.map { .string($0) } ?? .null,
             "sequence": JSONValue.number(Double(daemonSequence)),
             "focus": [

@@ -6,7 +6,16 @@ import Foundation
 /// the durable string ids the CLI uses; handles are the daemon's
 /// session-scoped handles, for commands.
 public struct ControlTopology: Sendable, Hashable {
+    /// The store applied a live snapshot (`DaemonStore.isLoaded`). Targets resolve against it; what the socket
+    /// reports as loaded is ``isReady``.
     public var isLoaded = false
+    /// The tree is still the daemon's launch snapshot, drawn before connecting (`DaemonStore.isProvisional`): its
+    /// panes and tabs may not exist in the daemon yet, so `snapshot.get` reports neither loaded nor connected.
+    public var isProvisional = false
+    /// The launch layout may still retire a pane this tree lists: Home's dock move is not applied yet (the app's
+    /// `HomeDockSettle`). `snapshot.get` reports `loaded: false` and `settling: true`, and the router holds the
+    /// methods that act on a pane until it ends (`ControlRouter.settledLayout`).
+    public var isSettling = false
     /// `connecting`, `connected`, `disconnected`, or `failed`.
     public var daemonState = "connecting"
     /// Why the first daemon connection has not succeeded, once the startup
@@ -29,6 +38,10 @@ public struct ControlTopology: Sendable, Hashable {
     public var sessionSequences: [String: UInt64] = [:]
 
     public init() {}
+
+    /// What `snapshot.get` reports as `loaded`: the live tree is applied and no launch step can still retire one of
+    /// its panes, so an agent or the CLI may act on the ids it lists.
+    public var isReady: Bool { isLoaded && !isProvisional && !isSettling }
 
     /// The session `id` names (a `ControlSessionInfo.id`); nil for the home session or an unknown id.
     public func session(id: String?) -> ControlSessionInfo? {

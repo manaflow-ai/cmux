@@ -192,6 +192,8 @@ final class ControlSnapshotPublisher {
         var topology = ControlTopology(store: services.daemon.store, selectedTab: selectedTab, pages: pages, cache: cache, scope: scope)
         if case .unavailable(let error) = services.daemon.startup { topology.daemonFailure = error.description }
         if sequences { topology.daemonSequence = services.daemon.store.appliedSequence }
+        // Home's first dock move may still retire the pane Home shows in: not loaded yet, and actions wait (HomeDockSettle).
+        topology.isSettling = services.homeDockSettle.isSettling(store: services.daemon.store)
         let machines = services.machines
         // Remote sessions' workspaces, qualified by session (data-model.md 1.3).
         topology.sessions = ControlSessions.sessions(machines: machines)
@@ -209,7 +211,7 @@ final class ControlSnapshotPublisher {
         // With the local daemon down, the remote sessions' workspaces are the
         // whole tree: resolve their public ids instead of passing them through.
         if !topology.isLoaded, topology.daemonFailure != nil, machines.remoteDaemons.contains(where: { $0.store.isLoaded }) {
-            topology.isLoaded = true
+            (topology.isLoaded, topology.isProvisional) = (true, false)
         }
         topology.windows = windows.controllers.map { controller in
             // One order for every reader: the sidebar's (`SidebarModel.workspaceOrder`), kept per structural change of its

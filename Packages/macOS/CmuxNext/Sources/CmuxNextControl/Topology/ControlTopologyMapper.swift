@@ -122,6 +122,7 @@ enum ControlTopologyMapper {
                          cache: ControlWorkspaceInfoCache? = nil, scope: ControlAppFactScope? = nil) -> ControlTopology {
         var topology = ControlTopology()
         topology.isLoaded = store.isLoaded
+        topology.isProvisional = store.isProvisional
         topology.daemonState = switch store.connectionState {
         case .connecting: "connecting"
         case .connected: "connected"

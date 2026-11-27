@@ -359,6 +359,8 @@ final class AppServices {
     private(set) lazy var serverMenuBar = ServerMenuBarController.app(services: self)
     /// Home: local conversations with the mux (plans/cmux-next/home.md).
     private(set) lazy var home = HomeService(services: self)
+    /// Home's dock steps while they can still retire the pane Home shows in: the control socket waits for them.
+    let homeDockSettle = HomeDockSettle()
     /// `cmux://bookmarks`: the manager pages.
     private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
     /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md); tests may set a fake owner.

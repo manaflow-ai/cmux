@@ -59,4 +59,30 @@ extension ControlRouter {
                             message: ControlStrings.text("control.error.syncBarrierUnavailable", "after: \"sync\" is not available yet; retry"),
                             data: .object(data))
     }
+
+    /// The methods that act on a pane, named or the focused one: each waits out the launch layout (``settledLayout(method:)``).
+    static let layoutDependentMethods: Set<String> = ["action.run", "action.batch", "browser.open_split", "file.open", "palette.run"]
+
+    /// Default ``Configuration/layoutSettleDeadline``: Home's first dock move is a few daemon replies, about a second
+    /// after the live tree on a fresh launch (vw4a-div-2-r2: 1.3 s).
+    public static let layoutSettleLimit: Duration = .seconds(10)
+
+    /// The launch barrier: the first published snapshot in which no launch step can still retire a pane it lists
+    /// (`ControlTopology.isSettling`: Home's first dock move closes the pane Home's page opened in). A method that
+    /// acted on the earlier snapshot could aim at that pane and reach the daemon after the move ("unknown pane").
+    /// Past ``Configuration/layoutSettleDeadline`` nothing ran, and the caller may ask again.
+    func settledLayout(method: String) async throws -> ControlSnapshot {
+        if let snapshot = await snapshots.snapshot(where: { !$0.topology.isSettling }, deadline: .now + configuration.layoutSettleDeadline) {
+            return snapshot
+        }
+        throw Self.layoutSettlingNotRun(method)
+    }
+
+    /// The launch layout did not settle in time: nothing ran, so the caller may send the request again.
+    static func layoutSettlingNotRun(_ method: String) -> ControlError {
+        ControlError(code: "unavailable",
+                     // retry-prompt-ok: a socket API reply to a script, which owns its own retry
+                     message: ControlStrings.text("control.error.layoutSettling", "cmux is still placing its windows; retry"),
+                     data: ["method": .string(method), "not_run": true, "state": "not_run", "retry_after_ms": 200])
+    }
 }
