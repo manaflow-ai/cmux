@@ -526,6 +526,31 @@ fn a_detached_projection_rejects_redial() {
     assert_eq!(refused.0, "projection.detached");
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn a_detach_while_preparing_a_manifest_prevents_the_redial_from_mounting() {
+    let home = cmux_unix_socket::short_test_dir("proj");
+    let name = "p-detached-before-mount";
+    let (state, at) = projected_state(home.path(), name);
+    // Attach passed its first check before it fetched or decoded the manifest.
+    allow_redial(&state, name).unwrap();
+    detach(&control_line(name, None, None), &state).unwrap();
+    // This fixture has no FUSE mount; remove its empty mount point ourselves.
+    std::fs::remove_dir(&at).unwrap();
+    for (redial, manifest_bytes) in [(true, 1), (false, 0)] {
+        let line: ServeLine = serde_json::from_value(json!({
+            "cmd": SERVE, "name": name, "at": at,
+            "redial": redial, "manifest_bytes": manifest_bytes
+        }))
+        .unwrap();
+        let manifest = cmux_projection::manifest::Manifest::build(1, vec![]).unwrap();
+        let refused = mount(&line, manifest, &state, &at, 0).err().unwrap();
+        assert_eq!(refused.0, "projection.detached");
+        assert!(!at.exists(), "a rejected redial recreated the mount point");
+        assert!(cmux_projection::state::read(&state).unwrap().detached.is_some());
+    }
+}
+
 /// Leo, 2026-11-25: "we'll also presumably want to deal with various cases of like them maybe
 /// adding/removing folders and files per chat?" A folder removed from its chat keeps its edits
 /// for Bring Back, records which chat removed it, and is attached again when added back.

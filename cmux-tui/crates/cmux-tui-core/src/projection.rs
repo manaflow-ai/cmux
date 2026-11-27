@@ -1355,8 +1355,7 @@ fn attach(
     let (files, bytes) = manifest.totals();
     let entries = manifest.len();
     // The upper layer and the cache: this daemon's own state, beside the folder roots, never in them.
-    let projected =
-        mount(&line.name, manifest, &state, &at, digest, line.head, line.from.as_deref())?;
+    let projected = mount(&line, manifest, &state, &at, digest)?;
     if let (Some(dir), Some(home)) = (state.parent(), std::env::var_os("HOME")) {
         if let Err(error) = git_stat::keep(dir, Path::new(&home), &at) {
             eprintln!("cmux-tui: projection {}: git settings: {error}", line.name);
@@ -1516,16 +1515,22 @@ fn mount_point(at: &str, roots: &[PathBuf]) -> Result<PathBuf, Refusal> {
 
 #[cfg(target_os = "linux")]
 fn mount(
-    name: &str,
+    line: &ServeLine,
     manifest: cmux_projection::manifest::Manifest,
     state: &Path,
     at: &Path,
     digest: u64,
-    head: bool,
-    from: Option<&str>,
 ) -> Result<Arc<Projected>, Refusal> {
     use std::os::unix::fs::MetadataExt as _;
     let mut table = projections().lock().unwrap_or_else(PoisonError::into_inner);
+    let name = &line.name;
+    let head = line.head;
+    let from = line.from.as_deref();
+    // Preparing a manifest can overlap detach. Recheck under the lock that detach
+    // holds, before replacing a mount or clearing its persisted detached state.
+    if line.redial || line.manifest_bytes == 0 {
+        allow_redial(state, name)?;
+    }
     // A barrier the old mount held at its head: a remount that is no head dial has the whole
     // folder to offer, so it opens (below, once that mount is up); another head dial takes its own.
     let mut old_barrier = None;
@@ -1711,13 +1716,11 @@ pub(crate) fn swap_link_served(at: &Path, state: &Path, home: Option<&Path>) -> 
 
 #[cfg(not(target_os = "linux"))]
 fn mount(
-    _name: &str,
+    _line: &ServeLine,
     _manifest: cmux_projection::manifest::Manifest,
     _state: &Path,
     _at: &Path,
     _digest: u64,
-    _head: bool,
-    _from: Option<&str>,
 ) -> Result<Arc<Projected>, Refusal> {
     Err(("projection.unavailable", "projected folders mount on Linux only".into()))
 }
