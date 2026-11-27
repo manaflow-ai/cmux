@@ -78,6 +78,7 @@ fn timings_name_each_phase_reached() {
         settle: Some(4),
         bind: Some(5),
         total: Some(1815),
+        step: Some("bind"),
     };
     assert_eq!(
         all.wire(),
@@ -215,6 +216,32 @@ fn a_start_acpmux_refused_says_why() {
         super::super::refusal_text(Refusal::NotAsking, &json!({"reason": "x"})),
         Refusal::NotAsking.message()
     );
+}
+
+/// A bare `refused` names the phase acpmux refused in (`data.step`, and its text "at STEP"), so a
+/// refusal with no reason code still says which call it was (the 2026-11-27T20:12Z
+/// notify-banner-click row read only "acpmux refused the request"); other refusals stay as they are.
+#[test]
+fn a_bare_start_refusal_names_its_step() {
+    let mut timings = super::StartTimings::default();
+    assert_eq!(timings.refusal_data(Refusal::Refused, None), None);
+    timings.at("session_new");
+    let bare = timings.refusal_data(Refusal::Refused, None).expect("a step");
+    assert_eq!(bare, json!({"step": "session_new"}));
+    assert_eq!(
+        super::super::refusal_text(Refusal::Refused, &bare),
+        "acpmux refused the request at session_new"
+    );
+    let coded = timings
+        .refusal_data(Refusal::Refused, Some(json!({"reason": "permission.denied"})))
+        .expect("data");
+    assert_eq!(
+        super::super::refusal_text(Refusal::Refused, &coded),
+        "acpmux refused the request (permission.denied) at session_new"
+    );
+    assert_eq!(timings.refusal_data(Refusal::UntrustedFolder, None), None);
+    let keyed = json!({"reason": "needs_keyed_start"});
+    assert_eq!(timings.refusal_data(Refusal::NeedsKeyedStart, Some(keyed.clone())), Some(keyed));
 }
 
 /// An agent the machine's acpmux catalog does not have (pi on a Cloud machine, whose image

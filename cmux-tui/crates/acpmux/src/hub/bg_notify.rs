@@ -58,8 +58,9 @@ const SENDER: &str = "acpmux";
 pub(super) const PROMPT_PREFIX: &str = "bg-done-";
 
 impl Hub {
-    /// Watches task `record` of folder `dir` and sends its end to its chat ([`Hub::bg_notify`])
-    /// once its runner is gone. Outside a runtime it watches nothing.
+    /// Watches task `record` of folder `dir` and, once its runner is gone, logs its ended row in
+    /// the process registry (`bg_registry.rs`) and sends its end to its chat ([`Hub::bg_notify`],
+    /// a task with `notify`). Outside a runtime it watches nothing.
     pub(super) fn bg_watch(self: &Arc<Self>, dir: &Path, record: &Record) {
         let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
         let lock = bg_run::lock_path(dir, &record.id);
@@ -76,6 +77,7 @@ impl Hub {
                 if let Some(hub) = hub.upgrade() {
                     // It ended: one wait fewer (`background_waits.rs`), before the end is sent.
                     hub.refresh_background_tasks_of(&session);
+                    hub.bg_ended(&dir, &session, &id);
                     hub.bg_notify(&dir, &session, &id).await;
                 }
             });
@@ -97,8 +99,9 @@ impl Hub {
         watcher().unwatch_owner(std::ptr::from_ref(self) as usize);
     }
 
-    /// At a start: watches every task of every chat folder whose end is still owed (asked for,
-    /// not marked sent). One that ended while no daemon ran is sent at once.
+    /// At a start: watches every task of every chat folder that still runs, or whose end is still
+    /// owed (asked for, not marked sent), and logs each running one's registry row
+    /// (`bg_registry.rs`). One owed that ended while no daemon ran is sent at once.
     ///
     /// It reads only the records whose folder listing shows no `.notified` mark: on the owner's
     /// Mac 5,000 of 6,043 records had one (2026-11-11).
@@ -131,13 +134,17 @@ impl Hub {
                 if names.contains(&format!("{id}.notified")) {
                     continue;
                 }
-                if let Some(record) = bg_run::read_record(&dir, id)
-                    && held.contains(&record.session_id)
-                    && record.generation == generation
-                    && record.notify
-                    && !bg_run::notified_path(&dir, &record.id).exists()
-                {
+                let Some(record) = bg_run::read_record(&dir, id) else { continue };
+                if !held.contains(&record.session_id) || record.generation != generation {
+                    continue;
+                }
+                let owed = record.notify && !bg_run::notified_path(&dir, &record.id).exists();
+                let running = record.ended_at.is_none();
+                if owed || running {
                     self.bg_watch(&dir, &record);
+                }
+                if running && let Some(session) = self.session_get(&record.session_id) {
+                    self.bg_publish(&session, &dir, &record);
                 }
             }
         }

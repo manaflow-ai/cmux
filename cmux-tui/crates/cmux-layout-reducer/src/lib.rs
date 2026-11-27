@@ -992,6 +992,7 @@ pub mod sidebar_doc_target;
 pub mod sidebar_drag;
 pub mod sidebar_drag_geometry;
 pub mod sidebar_drop;
+pub mod sidebar_drop_geometry;
 pub mod sidebar_edits;
 pub mod sidebar_face;
 pub mod sidebar_feeds;
