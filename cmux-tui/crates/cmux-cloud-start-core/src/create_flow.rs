@@ -504,11 +504,8 @@ pub fn change_key(mut key: CreateKey, change: KeyChange) -> CreateKey {
         }
         KeyChange::Renew { key: sent, new_key } => {
             if key.idempotency_key == sent {
-                key = CreateKey {
-                    idempotency_key: new_key,
-                    route: key.route,
-                    ..CreateKey::default()
-                };
+                // A new key has no route yet (the app's `idempotencyKey` didSet): its first send picks one.
+                key = CreateKey { idempotency_key: new_key, ..CreateKey::default() };
             }
         }
     }

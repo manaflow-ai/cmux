@@ -1093,6 +1093,12 @@ async fn new_on_peer(
         hub.log_unattended_start(approved, &peer.name, conn.caller(), id);
     }
     if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
+        // Findable by name at once, before the peer's own list or notice says so.
+        let name = result
+            .pointer("/_meta/acpmux/name")
+            .or_else(|| mux_meta(params).and_then(|m| m.get("name")))
+            .and_then(Value::as_str);
+        hub.note_created_remote(&peer.name, id, name);
         view::subscribe_remote(hub, conn, id, None);
         peer.mark_attached(id);
     }
@@ -2143,16 +2149,16 @@ async fn dispatch_request_with_identity(
             // alone): a refusal before the session sees it deletes them, so none is left behind.
             // Take ownership only after the lookup finishes in time. A retry after a timeout
             // can still name these uploads even if the background lookup finishes later.
-            let mut owned = crate::attach::OwnedUploads(if web {
-                Vec::new()
+            let mut owned = if web {
+                crate::attach::OwnedUploads(Vec::new())
             } else {
                 tokio::time::timeout_at(
                     admission.answer_due(),
-                    crate::prompt_uploads::owned(&s.id, &blocks),
+                    crate::prompt_uploads::owned_guard(&s.id, &blocks),
                 )
                 .await
                 .map_err(|_| crate::hub::auto_resume::retry_turn::busy())?
-            });
+            };
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
             // An `@computer-use` / `@browser-use` the person wrote gets acpmux's fixed note for the
             // agent, from any origin: its text is acpmux's, not the client's (`tool_mentions.rs`).
