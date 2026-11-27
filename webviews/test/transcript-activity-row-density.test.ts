@@ -20,10 +20,10 @@ import { ROW_METRIC, ROW_METRIC_VARIANTS, type RowMetric } from "../src/agent-se
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
-/** The prose size "Worked for" keeps (chatDisplay.ts DEFAULT_CHAT_DISPLAY.fontSize). */
-const PROSE = 14;
-
 await requireBrowserLane("transcript-activity-row-density.test.ts", async () => {
+  /** The prose size "Worked for" keeps (chatDisplay.ts DEFAULT_CHAT_DISPLAY.fontSize). */
+  const PROSE = 14;
+
   setDefaultTimeout(300_000);
   const ENTRY = "agent-pane.activity-row-density";
   const MEASURED = ["expanded", "folded", "runs-open"];
