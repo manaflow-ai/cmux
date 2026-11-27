@@ -302,3 +302,37 @@ describe("the delivered check finds an answer behind 100 queued ones", { timeout
     })
   })
 })
+
+/**
+ * integration.approval.approve (approve-one-call.ts) finds the item the Mac found over feed.list: only the create's own
+ * team's Cloud item for that request, digest and op. The answer by item id (older apps) is unchanged.
+ */
+describe("the one-call approve's feed lookup (FeedDO.cloudApprovalItem)", { timeout: 60_000 }, () => {
+  it("open, then closed once answered by item id; another team, digest, op or an integrations item is none", async () => {
+    const u = user("onecallitem1")
+    const team = "team_onecallitem1"
+    await inDO(testEnv.FEED_DO.get(testEnv.FEED_DO.idFromName(u)), async (instance) => {
+      instance.targetNamespace = fakeTargets([])
+      const post = async (source: "cloud" | "connections", request: string) => {
+        const prompt = { action: { type: "tool", tool: "cloud.machine.create", summary: "s", risk: "money", input: { approval: { team, request, digest: "sha256:abc" } } }, scopes: ["once"] }
+        const posted = await instance.integrationApproval(u, team, prompt, 3_600_000, `approval:${request}`, source)
+        expect(posted.ok, JSON.stringify(posted)).toBe(true)
+        return posted.item as string
+      }
+      const request = `apr_${"1".repeat(32)}`
+      const item = await post("cloud", request)
+      const ask = (over: Record<string, string> = {}) => instance.cloudApprovalItem(u, { request, op: "cloud.machine.create", digest: "sha256:abc", team, ...over })
+      expect(await ask()).toEqual({ open: item })
+      expect(await ask({ team: "team_onecallother" })).toBeNull()
+      expect(await ask({ digest: "sha256:other" })).toBeNull()
+      expect(await ask({ op: "cloud.machine.delete" })).toBeNull()
+      const conn = `apr_${"2".repeat(32)}`
+      await post("connections", conn)
+      expect(await instance.cloudApprovalItem(u, { request: conn, op: "cloud.machine.create", digest: "sha256:abc", team })).toBeNull()
+      // The old path: feed.answer by item id answers as before; the item then reads closed.
+      const res = await instance.submit(u, session(u), { t: "op", op: "feed.answer", params: { item, answer: { decision: "allow", scope: "once" } }, idempotency_key: `approve:${request}`, origin: "user" })
+      expect(res.frames.some((f: { t: string }) => f.t === "result"), JSON.stringify(res.frames)).toBe(true)
+      expect(await ask()).toEqual({ closed: true })
+    })
+  })
+})

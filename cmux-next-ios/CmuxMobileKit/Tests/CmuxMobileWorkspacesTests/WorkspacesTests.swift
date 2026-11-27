@@ -5,15 +5,6 @@ import Observation
 import Testing
 @testable import CmuxMobileWorkspaces
 
-/// A source that lists every pane, whatever the overview's pane filter is set to. `ws-cmux` (mock) lists
-/// t-claude (agent), t-zsh (terminal) and t-docs (browser). The default filter (#56982) hides browsers, and
-/// `PaneFilterSetting.shared` reads the test host's UserDefaults. These tests count and find tabs; they do not test the filter.
-@MainActor @discardableResult func everyPane(_ source: WorkspaceTabsSource) -> WorkspaceTabsSource {
-    source.paneFilter = PaneFilterSetting(defaults: nil)
-    source.paneFilter.showsBrowsers = true
-    return source
-}
-
 @Suite struct RelativeStampTests {
     let now = Date(timeIntervalSince1970: 1_800_000_000)
 
@@ -37,6 +28,15 @@ import Testing
 import CmuxMobileBrowserStream
 import CmuxTabsKit
 import SwiftUI
+
+/// A source that lists every pane, whatever the overview's pane filter is set to. `ws-cmux` (mock) lists
+/// t-claude (agent), t-zsh (terminal) and t-docs (browser). The default filter (#56982) hides browsers, and
+/// `PaneFilterSetting.shared` reads the test host's UserDefaults. These tests count and find tabs; they do not test the filter.
+@MainActor @discardableResult func everyPane(_ source: WorkspaceTabsSource) -> WorkspaceTabsSource {
+    source.paneFilter = PaneFilterSetting(defaults: nil)
+    source.paneFilter.showsBrowsers = true
+    return source
+}
 
 @MainActor @Suite struct WorkspaceTabsSourceTests {
     func make(_ memory: [String: String] = [:], backend: (any WorkspaceCreationBackend)? = MockWorkspaceCreationBackend(latency: .zero))
@@ -150,6 +150,23 @@ import SwiftUI
         #expect(source.toastText?.hasSuffix("doesn't allow agent chats in this folder from your iPhone.") == true)
     }
 
+    /// Leo, 2026-11-22: "vacuous decisions like that should be just done". Another + while a
+    /// tab is opening opens right after it, never "Still opening … Try again once it's open."
+    @Test func aSecondNewTabWhileOneIsOpeningOpensAfterIt() async throws {
+        let backend = MockWorkspaceCreationBackend(latency: .milliseconds(50))
+        let (_, source) = make(backend: backend)
+        let count = source.tabs.count
+        let agent = try #require(source.newTabOptions.first { $0.id == "agent" })
+        let terminal = try #require(source.newTabOptions.first { $0.title == "New Terminal" })
+        _ = await source.createTab(agent)
+        #expect(source.pendingTabTitle == agent.title)
+        _ = await source.createTab(terminal)
+        #expect(source.toastText?.contains("Try again") != true)
+        for _ in 0..<300 where source.tabs.count < count + 2 { try? await Task.sleep(for: .milliseconds(10)) }
+        #expect(source.tabs.count == count + 2)
+        #expect(source.pendingTabTitle == nil)
+    }
+
     /// User report 2026-10-14: GUI sessions must open model-agnostic, as the Mac's New Agent
     /// Chat (its default agent), never one "New Claude Chat" per harness; another agent or
     /// model is one step away (New Agent Chat With…).
@@ -253,7 +270,7 @@ import SwiftUI
         #expect(source.toastText?.contains("your Mac") == false)
         // Agents not connected yet: the entry stays, the chooser does not.
         older.kinds = [.terminal]
-        older.unavailable = [(.agentChat, "Agents on this Mac aren't connected. Try again in a moment.")]
+        older.unavailable = [(.agentChat, "Agents on this Mac aren't connected yet.")]
         #expect(source.newTabOptions.map(\.title) == ["New Terminal", "New Agent Chat"])
     }
 
