@@ -2286,6 +2286,12 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        timeout-minutes: 2
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
+
       # Why: note-174
       - name: Give this job its own bun
         if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
@@ -2324,18 +2330,20 @@ jobs:
       - name: Cache the webviews Bun package cache
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.bun-warm.outputs.warm != 'true' && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.bun-warm.outputs.warm != 'true' && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache the webviews Bun package cache (restore only off base branches)
         if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build the web bundles for this source key
         if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
@@ -3748,6 +3756,9 @@ jobs:
             echo "registry-prefix=cmux-next-fast-tier-cargo-registry-v1-"
             echo "registry-key=cmux-next-fast-tier-cargo-registry-v1-$inputs"
             echo "registry=${CARGO_HOME:-$HOME/.cargo}/registry"
+            # The workspace delta on top of that entry, one per feat-cmux-next commit (scripts/ci/cargo-target-delta.sh).
+            echo "ws-prefix=cmux-next-fast-tier-cargo-ws-v1-$workspace-$inputs-"
+            echo "ws-key=cmux-next-fast-tier-cargo-ws-v1-$workspace-$inputs-$GITHUB_SHA"
           } >> "$GITHUB_OUTPUT"
 
       - name: Restore the cargo build from R2
@@ -3784,7 +3795,32 @@ jobs:
           key: ${{ steps.r2-cargo-key.outputs.registry-key }}
           restore-keys: ${{ steps.r2-cargo-key.outputs.registry-prefix }}
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-fast-tier-cargo-delta.md
+      - name: Restore the workspace delta from R2
+        id: r2-cargo-ws
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.r2-cargo-key.outputs.ws-key != '' }}
+        timeout-minutes: 4
+        continue-on-error: true
+        uses: ./.github/actions/cache-restore
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/cargo-delta
+          key: ${{ steps.r2-cargo-key.outputs.ws-key }}
+          restore-keys: ${{ steps.r2-cargo-key.outputs.ws-prefix }}
+
+      - name: Apply the workspace delta
+        id: r2-cargo-ws-apply
+        if: ${{ steps.reuse.outputs.hit != 'true' && steps.r2-cargo-key.outputs.ws-key != '' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          scripts/ci/cargo-target-delta.sh apply cmux-tui/target "$RUNNER_TEMP/cargo-delta" \
+            "$RUNNER_TEMP/cargo-delta.stamp" host | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Run the fast tier (cargo and script entries)
+        id: fast-tier
         if: ${{ steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
         env:
           CMUX_FAST_CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
@@ -3801,10 +3837,23 @@ jobs:
         continue-on-error: true
         run: bash scripts/ci/pool-warm-target.sh record fast-tier-cargo /home/runner/cmux-next-fast-tier-cargo-warm
 
-      # Why: 2026-11-24-fast-tier-cargo-9.md
+      # What this push built on top of the dependency entry, packed (hard links) before the strip below removes it.
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-fast-tier-cargo-delta.md
+      - name: Pack the workspace delta
+        id: r2-cargo-ws-pack
+        if: ${{ !cancelled() && (steps.fast-tier.outcome == 'success' || steps.fast-tier.outcome == 'failure') && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.r2-cargo-ws-apply.outcome == 'success' }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          start=$SECONDS
+          scripts/ci/cargo-target-delta.sh pack cmux-tui/target "$RUNNER_TEMP/cargo-delta.stamp" \
+            "$RUNNER_TEMP/cargo-delta-out" host | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "cargo delta: pack took $((SECONDS - start)) s" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # Why: 2026-11-24-fast-tier-cargo-9.md, docs/ci/cmux-next-workflow-notes/2026-11-26-fast-tier-cargo-delta.md
       - name: Strip the workspace's own output before the R2 save
         id: r2-cargo-strip
-        if: ${{ success() && steps.reuse.outputs.hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && (steps.fast-tier.outcome == 'success' || steps.fast-tier.outcome == 'failure') && steps.reuse.outputs.hit != 'true' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.r2-cargo-key.outputs.target-key != '' && steps.r2-cargo-target.outputs.cache-hit != 'true' }}
         continue-on-error: true
         env:
           REGISTRY: ${{ steps.r2-cargo-key.outputs.registry }}
@@ -3819,7 +3868,7 @@ jobs:
           du -sh cmux-tui/target "$REGISTRY" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Save the cargo build to R2
-        if: ${{ success() && steps.reuse.outputs.hit != 'true' && steps.r2-cargo-strip.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.reuse.outputs.hit != 'true' && steps.r2-cargo-strip.outcome == 'success' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -3834,7 +3883,7 @@ jobs:
           key: ${{ steps.r2-cargo-key.outputs.target-key }}
 
       - name: Save the cargo registry to R2
-        if: ${{ success() && steps.reuse.outputs.hit != 'true' && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
+        if: ${{ !cancelled() && steps.reuse.outputs.hit != 'true' && steps.r2-cargo-strip.outcome == 'success' && steps.r2-cargo-registry.outputs.cache-hit != 'true' }}
         timeout-minutes: 6
         continue-on-error: true
         uses: ./.github/actions/cache-save
@@ -3847,6 +3896,21 @@ jobs:
           backend: r2
           path: ${{ steps.r2-cargo-key.outputs.registry }}
           key: ${{ steps.r2-cargo-key.outputs.registry-key }}
+
+      - name: Save the workspace delta to R2
+        if: ${{ !cancelled() && steps.r2-cargo-ws-pack.outcome == 'success' }}
+        timeout-minutes: 6
+        continue-on-error: true
+        uses: ./.github/actions/cache-save
+        env:
+          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/cargo-delta-out
+          key: ${{ steps.r2-cargo-key.outputs.ws-key }}
 
       - name: Upload fast-tier timing receipt
         if: ${{ (always()) && steps.reuse.outputs.hit != 'true' && steps.planner-reuse.outputs.hit != 'true' }}
@@ -7723,6 +7787,12 @@ jobs:
               post pending "[overflow] Results service down ($down); the overflow compile of this head posts the verdict" "$RUN_URL" \
                 || { echo "::error title=Compile check::could not post the overflow handoff status"; exit 1; }
               echo "::warning title=Compile check::results service down ($down); the overflow compile posts cmux-next/compile for $SHA"
+              exit 0
+            fi
+            # Why: 2026-11-24-compile-status-down-superseded.md
+            if tip_moved; then
+              post error "[no-verdict] [superseded] Results service down ($down); the branch moved on and its newer tip check covers this commit" "$RUN_URL" || true
+              echo "::notice title=Compile check::results service down ($down) for superseded push $SHA; the branch moved on"
               exit 0
             fi
             # Why: note-84 ([no-verdict])
