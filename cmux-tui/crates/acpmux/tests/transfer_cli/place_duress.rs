@@ -471,9 +471,15 @@ async fn duress_b_offline_during_the_move() {
     report(n, "prompt_after_stop_reason", &reply["stopReason"]);
     // Undo after a failed move.
     let undo = src.call("_acpmux/place_undo", json!({"sessionId": id})).await;
-    report(n, "undo_after_failed_move", undo);
+    report(n, "undo_after_failed_move", &undo);
     assert_ne!(info["status"], "closed");
     assert_eq!(dirty_after, dirty_before);
+    // A failed move leaves the mode as it was, and its Undo pins nothing.
+    assert_eq!(got["mode"]["mode"], "auto", "{got}");
+    assert_eq!(undo["chats"][0]["state"], "refused", "{undo}");
+    assert_eq!(undo["chats"][0]["reason"], "this chat has no move to undo", "{undo}");
+    let got = src.call("_acpmux/place_get", json!({"sessionId": id})).await;
+    assert_eq!(got["mode"]["mode"], "auto", "after undo: {got}");
 }
 
 /// (b, death) The source dies 2 s into the move (power off, the app killed) and comes back.
@@ -531,6 +537,12 @@ async fn duress_b_source_dies_during_the_move() {
             "prompt_after_restart",
             json!(reply.map(|r| r["stopReason"].clone()).unwrap_or_else(|e| e)),
         );
+        // Cut mid-move and still here: one line says why, its machine is paused, the mode is as
+        // it was.
+        let failed: Vec<_> = lines.iter().filter(|l| l["failed"] == json!(true)).collect();
+        assert_eq!(failed.len(), 1, "{lines:?}");
+        assert!(verbs(rig.scratch.path()).iter().any(|v| v == "cloud pause-machine"));
+        assert_eq!(got["mode"]["mode"], "auto", "{got}");
     }
 }
 
@@ -562,26 +574,27 @@ async fn duress_b_source_dies_while_the_move_waits_for_the_turn() {
     drop(src);
     let cmux = rig.cmux.clone();
     die_and_restart(&mut rig.source, &[("CMUX_BIN", cmux.as_str())]).await;
-    tokio::time::sleep(Duration::from_secs(10)).await;
     let mut src = Rpc::connect(&rig.source.socket).await;
+    // The move the dead daemon left goes on once the restarted one is up (its turn died with it).
+    let moved = wait_closed(&mut src, &id, Duration::from_secs(30)).await;
+    report(n, "moved_after_restart", moved.is_some());
     let info = src.call("_acpmux/info", json!({"sessionId": id})).await;
     report(n, "status_after_restart", &info["status"]);
     let got = src.call("_acpmux/place_get", json!({"sessionId": id})).await;
     report(n, "place_get", &got);
-    report(n, "lines", json!(moved_lines(&mut src, &id).await));
-    report(n, "calls", json!(verbs(rig.scratch.path())));
-    report(n, "paused", verbs(rig.scratch.path()).iter().any(|v| v == "cloud pause-machine"));
+    let lines = moved_lines(&mut src, &id).await;
+    report(n, "lines", json!(lines));
+    let calls = verbs(rig.scratch.path());
+    report(n, "calls", json!(calls));
+    report(n, "paused", calls.iter().any(|v| v == "cloud pause-machine"));
     let after = tally(&mut src, &id).await;
     report(n, "records_after", total(&after));
     report(n, "uncommitted_after", dirty(&rig.cwd).len());
-    // Another turn ends here: does the pending move go now?
-    let reply = src.try_call("session/prompt", prompt(&id, "p-9", "after restart")).await;
-    report(
-        n,
-        "prompt_after_restart",
-        json!(reply.map(|r| r["stopReason"].clone()).unwrap_or_else(|e| e)),
-    );
-    let moved = wait_closed(&mut src, &id, Duration::from_secs(15)).await;
-    report(n, "moved_after_next_turn", moved.is_some());
-    report(n, "calls_final", json!(verbs(rig.scratch.path())));
+    assert!(moved.is_some(), "the move was lost with the daemon: {info}");
+    // One machine started (none twice), the move ran on it, and one line says so.
+    assert_eq!(calls.iter().filter(|v| *v == "vm new").count(), 1, "{calls:?}");
+    assert!(calls.iter().any(|v| v.starts_with("move")), "{calls:?}");
+    assert!(!calls.iter().any(|v| v == "cloud pause-machine"), "{calls:?}");
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert_ne!(lines[0]["failed"], json!(true), "{lines:?}");
 }

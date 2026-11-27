@@ -35,9 +35,10 @@
 //!    `~/Projects/checkouts`), the chat's subfolder checked out in it; any other folder under the
 //!    home is made at the same path under the target's home; `--cwd` names it outright. With
 //!    `--carry-changes` the checkout's uncommitted work is read once the branch is pushed and
-//!    applied in the new worktree (`session_move_carry.rs`). A checkout with no `origin` has
-//!    nowhere to push: its branches and tags go as a `git bundle` over the move's ssh and become
-//!    a fresh repository at the same path under the target's home (`BUNDLE_SCRIPT`,
+//!    applied in the new worktree (`session_move_carry.rs`). A checkout with no `origin` (or one
+//!    that is not an owner/name remote) has nowhere to push: its branches and tags go as a `git
+//!    bundle` over the move's ssh and become a fresh repository at the same path under the
+//!    target's home (`BUNDLE_SCRIPT`,
 //!    `UNBUNDLE_SCRIPT`), with no remote added anywhere; its changes go the same way.
 //! 5. The rest of the move is `session transfer`'s (`transfer.rs`, `hub/transfer_out.rs`), with
 //!    the target daemon's own local socket reached through an `ssh -L` forward
@@ -973,7 +974,7 @@ async fn move_steps(
                 sub_text(subdir)
             ),
             Folder::Bundle { top, branch, subdir, .. } => format!(
-                "{top} on {branch}{} (no origin to push to: its branches go as a git bundle)",
+                "{top} on {branch}{} (no owner/name origin to push to: its branches go as a git bundle)",
                 sub_text(subdir)
             ),
         });

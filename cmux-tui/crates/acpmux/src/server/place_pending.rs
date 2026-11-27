@@ -25,13 +25,6 @@ pub(super) enum Stage {
     Moving,
 }
 
-/// The pin an Undo puts back: the one the chat had before the move it undoes (None: none).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub(super) struct Restore {
-    #[serde(default)]
-    pub pin: Option<PlaceMode>,
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct Pending {
@@ -41,12 +34,15 @@ pub(super) struct Pending {
     /// The fresh Cloud machine, once it is up.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub machine: Option<String>,
-    /// The chat's pin before the pick (None: it had none). A failed move leaves it as it is.
+    /// The chat's pin before the pick (None: it had none): a failed move puts it back.
     #[serde(default)]
     pub before: Option<PlaceMode>,
-    /// The pin an Undo puts back with the move (`place_undo`); None for a pick.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub restore: Option<Restore>,
+    /// The chat's mode before the pick, as it read: the move line's `undo.mode`, so an Undo puts
+    /// it back exactly.
+    pub was: PlaceMode,
+    /// The pin stored as the move starts, so it travels with the chat: the pick, or for an Undo
+    /// the mode the chat had before the move it undoes.
+    pub pin: PlaceMode,
     pub why: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
@@ -72,6 +68,11 @@ pub(super) fn save(p: &Pending) -> Result<(), String> {
     let bytes = serde_json::to_vec(p).map_err(|e| e.to_string())?;
     crate::home_fs::create_dir_all(dir(), 0o700).map_err(|e| e.to_string())?;
     crate::home_fs::write_durable(&path, bytes).map_err(|e| e.to_string())
+}
+
+/// Whether the chat has a move a previous daemon left (not yet taken up again).
+pub(super) fn exists(id: &str) -> bool {
+    path(id).is_some_and(|p| std::fs::metadata(p).is_ok())
 }
 
 /// Drops the chat's record once its move ended (moved, or its failure line written).
@@ -116,7 +117,8 @@ mod tests {
             to: PlaceMode::Cloud,
             machine: Some("m-1".into()),
             before: None,
-            restore: Some(Restore { pin: None }),
+            was: PlaceMode::Auto,
+            pin: PlaceMode::Cloud,
             why: "you chose it".into(),
             cwd: None,
             move_id: "mv".into(),
