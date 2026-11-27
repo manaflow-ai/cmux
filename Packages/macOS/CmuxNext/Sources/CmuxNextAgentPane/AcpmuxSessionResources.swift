@@ -1,3 +1,5 @@
+import CmuxNextDaemon
+import CmuxNextResources
 import Foundation
 
 /// One chat's agent processes, as its acpmux daemon measures them (`_acpmux/session_resources`,
@@ -39,5 +41,45 @@ public nonisolated struct AcpmuxSessionResources: Sendable, Equatable {
         guard let result = try? await AcpmuxStatusClient.call(socketPath: socketPath, method: method,
                                                                params: ["sessionId": sessionId], deadline: deadline) else { return nil }
         return AcpmuxSessionResources(result: result)
+    }
+
+    /// An agent chat to measure: its tab, its acpmux session, and the `AgentSessionRef.host` it runs on.
+    public struct Query: Sendable, Equatable {
+        public var tabID: String
+        public var session: String
+        public var host: String
+
+        public init(tabID: String, session: String, host: String) {
+            self.tabID = tabID
+            self.session = session
+            self.host = host
+        }
+    }
+
+    /// Every chat's agent processes, keyed by tab, asked all at once, each within its deadline. A chat on
+    /// this install (`localInstallID`) is this Mac's processes; a peer's chat keys them by its host, so
+    /// the hover cards never fold them into a local pid. Leo 2026-11-27: "the memory line... it should
+    /// be the ram usage. why dont we have ram usage?" The chat page alone was often unmatched
+    /// ("Memory –") and never held the agent, which runs in acpmux.
+    @concurrent public static func samples(of queries: [Query], socketPath: String?,
+                                           localInstallID: String?) async -> [String: [ProcessSample]] {
+        guard let socketPath, !queries.isEmpty else { return [:] }
+        let localHost = localInstallID.map(AgentSessionRef.host(installID:))
+        return await withTaskGroup(of: (Query, AcpmuxSessionResources?).self) { group in
+            for query in queries {
+                group.addTask { (query, await sample(socketPath: socketPath, sessionId: query.session)) }
+            }
+            var byTab: [String: [ProcessSample]] = [:]
+            for await (query, reply) in group {
+                guard let reply, !reply.processes.isEmpty else { continue }
+                let host = query.host == localHost ? ProcessKey.localHost : query.host
+                byTab[query.tabID, default: []] += reply.processes.map { process in
+                    ProcessSample(key: ProcessKey(host: host, pid: process.pid), name: process.name,
+                                  cpuNanos: process.cpuNanos, memoryBytes: process.memoryBytes,
+                                  sampledAtNanos: reply.sampledAtNanos)
+                }
+            }
+            return byTab
+        }
     }
 }
