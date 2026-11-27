@@ -295,6 +295,16 @@ cleanup() {
   if [[ -n "${script:-}" && -f "${script:-}" && -n "${EVAL_STATE:-}" ]]; then
     bash "$script" host-stop >/dev/null 2>&1 || true
   fi
+  # A stage-table viewer that ends before its ledger (no grants, a failed build, a signal) still ends the host
+  # half, which otherwise holds its Mac until the 45 min silence stop (2026-11-27: viewer exit 3 at the grant
+  # check, host served 45 min). The ledger's own /done comes first; a second one finds the server gone.
+  if [[ -n "${stage_table:-}" && -n "${viewer_of:-}" ]]; then
+    printf '%s' "$peer_token" | python3 -I -c 'import sys, urllib.request
+t = sys.stdin.read().strip()
+urllib.request.urlopen(urllib.request.Request(sys.argv[1] + "/done", data=b"{}", method="POST",
+                                              headers={"X-Eval-Token": t}), timeout=5).close()' \
+      "http://$viewer_of:4181" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 # A signal ends the run through EXIT, so cleanup runs then too.

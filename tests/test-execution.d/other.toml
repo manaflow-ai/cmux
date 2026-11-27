@@ -1053,6 +1053,11 @@ lane = "manual"
 reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_stage_table_signin.py"
 
 [[test]]
+path = "tests/test_stage_table_viewer_done.py"
+lane = "manual"
+reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_stage_table_viewer_done.py"
+
+[[test]]
 path = "tests/test_stale_agent_prs.py"
 lane = "linux-guard"
 
