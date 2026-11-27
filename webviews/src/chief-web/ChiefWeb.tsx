@@ -2,7 +2,7 @@ import "../agent-session/guest/guest.css";
 import "./chief-web.css";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useAutoRetry } from "../agent-session/acpmux/autoRetry";
-import { useLasting } from "../ui/lasting";
+import { useQuietConnect, useLasting } from "../ui/lasting";
 import { Spinner } from "../agent-session/acpmux/conversation/icons";
 import { ArrowUpIcon } from "../agent-session/acpmux/icons/arrowUpIcon";
 import { useT } from "../agent-session/acpmux/i18n";
@@ -227,6 +227,10 @@ function ChiefChat({
   const [transcript] = useState(() => new ChiefTranscript());
   const { rows, working } = useSyncExternalStore(transcript.subscribe, transcript.snapshot);
   const [connection, setConnection] = useState<ChiefConnection>("connecting");
+  // Connecting and reconnecting heal on their own and offer nothing to do: they wait out the shared
+  // bound (ui/lasting.ts `CONNECTION_QUIET_MS`, with Quiet Connections on). Signed out, not yours and offline show at once:
+  // each is a failure, the first and last with the one button that fixes it.
+  const linkDownLasting = useQuietConnect(connection === "connecting" || connection === "reconnecting");
   const [loginRun, setLoginRun] = useState<string>();
   const [expanded, setExpanded] = useState(() => new Set<string>());
   // The transcript's chunk loads beside the ticket and the socket, so it is in before the first rows.
@@ -312,10 +316,6 @@ function ChiefChat({
     };
   }, [api, identity, prompts, openSocket, transcript]);
 
-  // The wire reconnects on its own (wire.ts `reconnect`); a drop says nothing until it has lasted the
-  // house deadline.
-  const connecting = useLasting(connection === "connecting" || connection === "reconnecting");
-
   const pending = mine.filter(
     (prompt) =>
       !confirmed.has(prompt.clientId) &&
@@ -333,7 +333,7 @@ function ChiefChat({
             </>
           ) : connection === "inaccessible" ? (
             <span role="alert">{t("chiefWeb.notYours")}</span>
-          ) : connection !== "live" && connecting ? (
+          ) : connection !== "live" && linkDownLasting ? (
             <>
               <Spinner size={14} />
               <span>{connection === "connecting" ? t("guest.live.connecting") : t("guest.live.reconnecting")}</span>

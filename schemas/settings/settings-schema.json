@@ -730,7 +730,6 @@
               "sidebar.detailedStatusIcons",
               "sidebar.showTimestamps",
               "sidebar.settleFinished",
-              "sidebar.showAutomaticSessions",
               "sidebar.showAgentSessions",
               "sidebar.showColors",
               "sidebar.showLocalMachine",
@@ -85670,7 +85669,8 @@
         "cmux",
         "claude",
         "codex",
-        "studio"
+        "studio",
+        "rex"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -85702,6 +85702,13 @@
             "text" : "Studio"
           },
           "value" : "studio"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarLookRex",
+            "text" : "Rex"
+          },
+          "value" : "rex"
         }
       ],
       "consumers" : [
@@ -85727,6 +85734,9 @@
         "claude",
         "codex",
         "studio",
+        "rex",
+        "minimal",
+        "sessions",
         "like",
         "app"
       ],
@@ -87011,146 +87021,6 @@
       "title" : {
         "key" : "settings.sidebar.showAgentSessions",
         "text" : "Show Sessions Started by Agents"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.sidebar",
-        "text" : "Sidebar"
-      },
-      "help" : {
-        "key" : "settings.sidebar.showAutomaticSessions.help",
-        "text" : "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "sidebar.showAutomaticSessions",
-      "keywords" : [
-        "sidebar",
-        "automatic",
-        "auto",
-        "script",
-        "automation",
-        "background",
-        "hidden",
-        "hide",
-        "fold",
-        "sessions",
-        "tidy"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "sidebar",
-        "showAutomaticSessions"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "appearance",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "toggle",
-          "offered" : true,
-          "operations" : [
-            "palette.toggleSetting"
-          ],
-          "reason" : null,
-          "row" : "setting:sidebar.showAutomaticSessions"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.sidebar.showAutomaticSessions",
-        "text" : "Show Automatic Sessions"
       },
       "validation" : "portable"
     },
