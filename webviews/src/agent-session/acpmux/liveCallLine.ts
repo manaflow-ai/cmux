@@ -238,12 +238,12 @@ export function callOnly(previous: AcpmuxSnapshot, next: AcpmuxSnapshot): { line
 /// The pane kept its snapshot for a hidden call: the line the transcript drew is `line` now.
 export function setLiveLine(line: AcpmuxRow): void {
   if (!drawn) return;
-  const shown = entry?.from === drawn.line ? entry.to : drawn.line;
+  const kept = entry?.from === drawn.line ? entry : undefined;
   // A call that leaves the line's words, counts and look as they are (a read's end under one that runs
   // on, its status only) draws nothing new: the line keeps its render and reads `line` at its next one.
   // Before, every hidden call drew the line again (`content` 1 a tool_call record).
-  if (entry?.from === drawn.line && drawsSame(shown, line)) {
-    entry = { from: drawn.line, to: line, seq: entry.seq };
+  if (drawsSame(kept?.to ?? drawn.line, line)) {
+    entry = { from: drawn.line, to: line, seq: kept?.seq ?? 0 };
     ahead = true;
     return;
   }

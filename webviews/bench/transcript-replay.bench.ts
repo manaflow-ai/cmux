@@ -132,6 +132,10 @@ const BUDGET = {
   idleMsPerS: 1,
   /// Pane redraws per record for a record whose one changed row the running turn's closed fold hides.
   hiddenPaneRenders: 0.1,
+  /// Transcript renders per streamed token, as counted: each render counts twice (VirtualTranscript's
+  /// `useCountedRender` at commit and `acpmuxPerf.render` in the body), so 2.4 is 1.2 real renders a
+  /// token. A token is one render; more is a second pass a layout read or a listener queued.
+  tokenTranscriptRenders: 2.4,
 } as const;
 const webviews = path.resolve(import.meta.dir, "..");
 
@@ -1179,6 +1183,20 @@ export function judge(opens: Open[], lives: Live[], burstLog = "long"): { rows: 
           },
           `one ${BURST_NAMES[kind]} whose row sits under the running turn's closed fold still redraws the pane`,
         );
+        if (kind === "token") {
+          const transcript = counted.map((b) => b.renders!.byComponent.transcript ?? 0);
+          row(
+            {
+              name: "transcript_replay.long.token.transcript_renders_per_record",
+              p50: median(transcript),
+              p95: worst(transcript),
+              unit: "count",
+              target: BUDGET.tokenTranscriptRenders,
+              floor: 0.5,
+            },
+            "one streamed token renders the transcript more than once",
+          );
+        }
       }
       const growth = Math.round(slope(points) * 1000) / 1000;
       row(

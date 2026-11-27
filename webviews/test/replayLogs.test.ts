@@ -199,3 +199,34 @@ describe("renders per record kind", () => {
     expect(held).toEqual([]);
   });
 });
+
+describe("renders per token", () => {
+  const tokens = (transcript: number) => ({
+    log: "long",
+    cls: 0,
+    longTasks: 0,
+    longestTaskMs: 20,
+    heapMb: 10,
+    idleMsPerS: 0.2,
+    seconds: 1,
+    shiftNotes: [],
+    bursts: [
+      {
+        kind: "token" as const,
+        rows: 10,
+        msPerRecord: 1,
+        renders: { total: transcript, byComponent: { transcript } as Record<string, number> },
+      },
+    ],
+  });
+  const misses = (transcript: number) =>
+    judge([], [tokens(transcript)]).misses.filter((miss) => miss.includes("token.transcript_renders_per_record"));
+
+  test("a token that renders the transcript a second time misses; one render (counted twice) holds", () => {
+    // Each transcript render counts twice (commit and body): 2.2 is 1.1 renders a token.
+    expect(misses(2.2)).toEqual([]);
+    const missed = misses(4);
+    expect(missed).toHaveLength(1);
+    expect(missed[0]).toContain("BUDGET MISS transcript_replay.long.token.transcript_renders_per_record = 4");
+  });
+});
