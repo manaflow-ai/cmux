@@ -255,13 +255,15 @@ final class HostView: NSView {
     /// While the pane is resized live: the transcript clip has no mask, and the chrome's border is its nine-part
     /// image (ChromeView.liveResizing; Home hides the chrome), so no width makes the render server draw the
     /// transcript offscreen to fit the mask. The clip's mask (WindowView placeMask) clips nothing that the window
-    /// view's own bounds do not, except a bare top's fade (HeaderGlass.swift `useBareTop`), which pauses during the
-    /// drag. The empty field keeps its text width (ComposeTextView `deferWidth`). All of it comes back when the resize
-    /// ends (the still pixels are the resting ones).
+    /// view's own bounds do not, except a top fade (a bare top's, HeaderGlass.swift `useBareTop`, or a top fade style's
+    /// `topMaskStops`, HostView+TopFade.swift), which pauses during the window's resize. The empty field keeps its text
+    /// width (ComposeTextView `deferWidth`). All of it comes back when the resize ends (the still pixels are the resting
+    /// ones).
     ///
     /// cmux: the live resizes this pane follows: its window's (AppKit's `viewWillStartLiveResize` to
     /// `viewDidEndLiveResize`) and a person's drag of the pane's divider or edge (`followPaneResize`, from the cmux
-    /// layout's resize gesture). Either resizes the pane on every display frame, and both take the same paths.
+    /// layout's resize gesture). Either resizes the pane on every display frame, and both take the same paths, except
+    /// that a divider drag keeps a mask that fades (`liveResizeBegan`).
     private var windowLiveResize = false
     private(set) var paneLiveResize = false
     /// Whether a live resize, the window's or a divider drag, resizes this pane now.
@@ -294,11 +296,15 @@ final class HostView: NSView {
         if isLiveResizing { liveResizeBegan() } else { liveResizeEnded() }
     }
 
-    /// A live resize began: the clip's mask comes off and the chrome draws its nine-part border.
+    /// A live resize began: the clip's mask comes off and the chrome draws its nine-part border. A divider drag alone
+    /// keeps a mask that fades the rows under the top (a see-through window's top fade, the soft mask, a bare top): only
+    /// the window's own live resize pauses a fade. A mask that fades nothing clips nothing the pane's bounds do not.
     private func liveResizeBegan() {
         guard let demo else { return }
         liveApplied = true
         demo.chrome.liveResizing = true
+        let fades = demo.topFade > 0 || !demo.topMaskStops.isEmpty
+        if fades, !windowLiveResize, window?.inLiveResize != true { return }
         guard restingClipMask == nil, let m = demo.clip.layer.mask else { return }
         restingClipMask = m
         CATransaction.begin(); CATransaction.setDisableActions(true)
