@@ -1463,7 +1463,7 @@ class MacJobTest(unittest.TestCase):
             wf["jobs"]["mac"]["runs-on"],
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && "
             "github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
-            "vars.CI_OVERFLOW_MAC || 'cmux-mac' }}")
+            "'cmux-mac' }}")
 
     def test_its_mac_setup_steps_keep_their_names(self) -> None:
         # owned_pool_rescue.py reads "Select Xcode"; the lease's holder lives as long as the workflow step.

@@ -773,3 +773,109 @@ class DispatchProbeRetryTests(unittest.TestCase):
         with self.assertRaises(RuntimeError), unittest.mock.patch("sys.stderr"):
             pmb.dispatch_probe("o/r", "feat-cmux-next", self.probe, api=api, sleep=lambda s: None)
         self.assertEqual(calls.count("POST"), 3)
+
+
+class JudgeOriginUnreadableTest(unittest.TestCase):
+    def judge(self, tries: int):
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha="f" * 40, suite="web", job="web / Web tests (2/4)", only="web-tests", probe_sha="f" * 40,
+                         good="a" * 40, bad="b" * 40, origin="60", tries=str(tries), pieces="", dry_run=False,
+                         summary=None, github_output=None)
+        sent: list = []
+
+        def gh_api(path, *a, **k):
+            raise RuntimeError(f"gh api {path}: API rate limit exceeded (HTTP 403)")
+
+        with mock.patch.object(pmb, "run_jobs", return_value=[]), mock.patch.object(pmb, "gh_api", gh_api), \
+                mock.patch.object(pmb, "dispatch_probe", lambda repo, branch, probe: sent.append(probe)), \
+                mock.patch.object(pmb, "first_parent_range", return_value=[]):
+            return pmb.cmd_judge(args), sent
+
+    def test_an_unreadable_origin_runs_the_same_probe_again(self) -> None:
+        code, sent = self.judge(0)
+        self.assertEqual(code, 0)
+        self.assertEqual([(p.sha, p.good, p.bad, p.origin, p.tries) for p in sent], [("f" * 40, "a" * 40, "b" * 40, "60", 1)])
+
+    def test_an_origin_unreadable_past_the_retries_is_refused(self) -> None:
+        code, sent = self.judge(pmb.MAX_PROBE_RETRIES)
+        self.assertEqual((code, sent), (1, []))
+
+
+class KnownVerdictTest(unittest.TestCase):
+    commits = [c * 40 for c in "abcdefghi"]  # a good ... i bad
+
+    def judge(self, earlier: dict[str, str]):
+        """A probe at e (good a, bad i) failed; earlier finished probe runs gave the verdicts in earlier."""
+        a, e, i = "a" * 40, "e" * 40, "i" * 40
+        job = "web / Web tests (2/4)"
+        runs = [{"id": 100 + n, "status": "completed", "display_title": f"{pmb.PROBE} web web-tests at {sha * 40}"} for n, sha in enumerate(earlier)]
+        jobs = {100 + n: [{"name": job, "conclusion": c}] for n, c in enumerate(earlier.values())}
+        jobs[70] = [{"name": job, "conclusion": "failure"}]
+        args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
+                         sha=e, suite="web", job=job, only="web-tests", probe_sha=e, good=a, bad=i, origin="60",
+                         tries="0", pieces="", dry_run=False, summary=None, github_output=None)
+        sent: list = []
+        out: dict = {}
+        with mock.patch.object(pmb, "run_jobs", lambda repo, rid: jobs.get(int(rid), [])), \
+                mock.patch.object(pmb, "gh_api", lambda *a, **k: {"id": 60}), \
+                mock.patch.object(pmb, "list_runs", return_value=runs), \
+                mock.patch.object(pmb, "probe_refusal", return_value=""), \
+                mock.patch.object(pmb, "suite_verdicts", lambda js, suites: {j["name"]: ("web", j["conclusion"]) for j in js}), \
+                mock.patch.object(pmb, "dispatch_probe", lambda repo, branch, probe: sent.append(probe)), \
+                mock.patch.object(pmb, "write_outputs", lambda path, values: out.update(values)), \
+                mock.patch.object(pmb, "first_parent_range", return_value=self.commits):
+            self.assertEqual(pmb.cmd_judge(args), 0)
+        return sent, out
+
+    def test_no_earlier_probe_dispatches_the_next_one(self) -> None:
+        sent, out = self.judge({})
+        self.assertEqual([p.sha for p in sent], ["c" * 40])  # b..e, its middle
+        self.assertEqual(out["culprit"], "")
+
+    def test_earlier_verdicts_are_read_instead_of_probed_again(self) -> None:
+        # e failed (this run); c passed and d failed earlier: d is the culprit with no new probe.
+        sent, out = self.judge({"c": "success", "d": "failure"})
+        self.assertEqual(sent, [])
+        self.assertEqual((out["culprit"], out["good"]), ("d" * 40, "c" * 40))
+
+    def test_an_earlier_probe_without_verdict_is_probed_again(self) -> None:
+        sent, _ = self.judge({"c": "cancelled"})
+        self.assertEqual([p.sha for p in sent], ["c" * 40])
+
+
+class ListRunsLookbackTest(unittest.TestCase):
+    """The judge pages past probes until it holds LOOKBACK_BATCHES batch runs older than its own run."""
+
+    def runs_api(self, kinds: str, calls: list):
+        runs = [{"id": 1000 - i, "display_title": f"{'batch' if k == 'b' else 'probe'} x", "created_at": f"2026-11-27T{23 - i // 60:02d}:{59 - i % 60:02d}:00Z"}
+                for i, k in enumerate(kinds)]
+
+        def api(path, **_kw):
+            calls.append(path)
+            page = int(path.rpartition("&page=")[2]) if "&page=" in path else 1
+            return {"workflow_runs": runs[(page - 1) * pmb.RUNS_PAGE: page * pmb.RUNS_PAGE]}
+        return api
+
+    def test_pages_past_probes_to_the_batches_it_needs(self) -> None:
+        calls: list = []
+        # 250 runs, a batch every 50th; run 1000 (the judging batch) is excluded, so page 1 holds one older
+        # batch run and three need page 2.
+        api = self.runs_api("".join("b" if i % 50 == 0 else "p" for i in range(250)), calls)
+        got = pmb.list_runs("o/r", "feat", api=api, before=1000, batches=3)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(sum(map(pmb.is_batch, got)), 3)
+        self.assertTrue(all(r["id"] < 1000 for r in got))
+        self.assertTrue(pmb.is_batch(got[-1]))
+
+    def test_stops_at_the_last_page_and_at_the_page_cap(self) -> None:
+        calls: list = []
+        self.assertEqual(len(pmb.list_runs("o/r", "feat", api=self.runs_api("p" * 150, calls), batches=3)), 150)
+        self.assertEqual(len(calls), 2)
+        calls = []
+        pmb.list_runs("o/r", "feat", api=self.runs_api("p" * 2000, calls), batches=3)
+        self.assertEqual(len(calls), pmb.MAX_RUNS_PAGES)
+
+    def test_one_page_without_batches(self) -> None:
+        calls: list = []
+        self.assertEqual(len(pmb.list_runs("o/r", "feat", api=self.runs_api("p" * 250, calls))), 100)
+        self.assertEqual(len(calls), 1)
