@@ -547,13 +547,25 @@ export function ComposerContext({
   // good, so a chat that comes back to the same key (an empty New Tab id) never inherits it; a
   // machine the account stops listing ends it for good too (it does not come back with the
   // machine), and one that failed to start stops it moving.
-  const [waitingPick, setWaiting] = useState<{ key: string; id: string; name: string; folder?: string }>();
+  // `phase` is set while a pick of a kept row (the list from the last launch) waits on a fresh read:
+  // `checking` until it lands, `unreachable` when cmux Cloud still did not answer (the machine is not acted on).
+  const [waitingPick, setWaiting] = useState<{
+    key: string;
+    id: string;
+    name: string;
+    folder?: string;
+    phase?: "checking" | "unreachable";
+  }>();
+  // Each kept-row pick's turn: a fresh read that lands after another pick changes nothing.
+  const keptPicks = useRef(0);
   const clearWaiting = () => {
     setWaiting(undefined);
     if (waitingPick?.folder) onCloudFolderWaiting?.(false);
   };
   const waitMachine = waitingPick?.key === pickKey ? shownMachines.find((m) => m.id === waitingPick.id) : undefined;
   if (waitingPick && !waitMachine) setWaiting(undefined);
+  // A kept-row pick that found cmux Cloud unreachable ends once a fresh list lands: its machine reads as listed again.
+  else if (waitingPick?.phase === "unreachable" && cloudLastSeenAt === undefined) setWaiting(undefined);
   const waiting = waitMachine ? waitingPick : undefined;
   const waitFailed = waitMachine?.stage === "failed";
   const pendingFolder = Boolean(waiting?.folder);
@@ -791,14 +803,22 @@ export function ComposerContext({
       setWaiting({ key: pickKey, id: picked.id, name: picked.name, folder });
       if (folder) onCloudFolderWaiting?.(true);
     };
-    // A row of the list kept from the last launch (cloudMachines.ts lastSeenAt) never acts on it: one
-    // fresh read first, then the machine as that read lists it; still kept, or gone, does nothing.
+    keptPicks.current += 1;
+    // A row of the list kept from the last launch (cloudMachines.ts lastSeenAt) never acts on it: the
+    // control reads Checking cmux Cloud… while one fresh read runs, then the machine as that read lists
+    // it starts; cmux Cloud still unreachable says so (picking it again tries again); gone ends the wait.
     if (machine && !readOnly) {
-      if (!cloudMachines && currentCloudLastSeenAt() !== undefined)
+      if (!cloudMachines && currentCloudLastSeenAt() !== undefined) {
+        const turn = keptPicks.current;
+        setWaiting({ key: pickKey, id: machine.id, name: machine.name, folder, phase: "checking" });
         void freshCloudMachine(machine).then((fresh) => {
-          if (fresh) run(fresh);
+          if (turn !== keptPicks.current) return;
+          if (fresh.state === "fresh") run(fresh.machine);
+          else if (fresh.state === "unreachable")
+            setWaiting({ key: pickKey, id: machine.id, name: machine.name, folder, phase: "unreachable" });
+          else setWaiting(undefined);
         });
-      else run(machine);
+      } else run(machine);
     }
     return machine !== undefined;
   };
@@ -844,7 +864,15 @@ export function ComposerContext({
   };
   // The machine control's name: the machine a Cloud pick waits for, as starting, else the current one.
   const waitingName = waiting
-    ? `${waiting.name} · ${t(waitFailed ? "switch.failedShort" : "composer.envStarting")}`
+    ? `${waiting.name} · ${t(
+        waiting.phase === "checking"
+          ? "composer.envCloudChecking"
+          : waiting.phase === "unreachable"
+            ? "composer.envCloudUnreachableShort"
+            : waitFailed
+              ? "switch.failedShort"
+              : "composer.envStarting",
+      )}`
     : undefined;
   // A started chat's picker lists only where it runs and its move (EnvironmentPicker `offload`).
   const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
