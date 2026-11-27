@@ -1817,7 +1817,7 @@ fn steps(
     };
     // The machine this run makes for itself: a fresh name's, or a `--name` no listed machine or create has yet (a
     // product Cloud lane's `lane-NAME` on its first start). Either is bounded and, stuck, deleted and made again
-    // (fresh.rs). cosmic-gray 2026-11-27 21:xxZ: `start-chat --name lane-X` answered the app's "Machine `lane-X`
+    // (fresh.rs). AutoCloud, 2026-11-27 after 21:00Z: `start-chat --name lane-X` answered the app's "Machine `lane-X`
     // didn't connect, so no agent started" with no retry, because only an unnamed start's machine was bounded,
     // though the named one was just as new. A listed or still-creating name is the caller's and is never deleted.
     let own = fresh.clone().or_else(|| match (&request.environment, &machine) {

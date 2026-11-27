@@ -266,7 +266,7 @@ fn a_named_machine_is_never_replaced_or_deleted() {
     assert!(fake.said.is_empty());
 }
 
-/// A `--name` no machine has yet is made by this run, so it is as new as a fresh name's: cosmic-gray 2026-11-27,
+/// A `--name` no machine has yet is made by this run, so it is as new as a fresh name's: AutoCloud 2026-11-27,
 /// `start-chat --name lane-X` (tools/product_cloud_lanes.py) got the app's "didn't connect" and stopped there.
 /// Now that machine is deleted and the chat starts on one made again under the same name.
 #[test]
