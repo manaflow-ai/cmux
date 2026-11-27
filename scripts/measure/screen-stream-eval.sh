@@ -755,6 +755,28 @@ PY
           "$dir/ocr-calibration-$rep.json" >"$dir/ocr-$rep.json" 2>/dev/null ||
           printf '{"cer":null,"comparison_ready":false,"reason":"OCR calibration failed"}\n' >"$dir/ocr-$rep.json"
       fi
+    elif [[ ("$name" == rd-ladder || "$name" == rd-ladder-1000) && -n "${EVAL_SCENE_NONCE:-}" &&
+      -s "$dir/source-scene-$rep.json" && -s "$dir/host-$rep.png" && -s "$dir/viewer-frame-$rep" ]]; then
+      # The ladder's decoded frame is the host display at the stream size, not the screenshot's:
+      # read the shared marker at the scene's geometry in both images, require this repeat's nonce
+      # and the stream size, and crop each to the text (rd_marker_calibration.py). Else not ready.
+      rm -f "$dir/ocr-$rep.json"
+      if crops=$(python3 -I "$here/rd_marker_calibration.py" calibrate "$dir/source-scene-$rep.json" "$EVAL_SCENE_NONCE" \
+        "$dir/host-$rep.png" "$dir/viewer-frame-$rep" "$dir/ocr-calibration-$rep.json" "$EVAL_STATE/ocr-viewer-$rep.ppm" \
+        2>"$EVAL_STATE/ocr-calibration-$rep.err"); then
+        read -r host_crop viewer_crop <<<"$crops"
+        IFS=, read -r cx cy cw ch <<<"$host_crop"
+        if sips --cropOffset "$cy" "$cx" --cropToHeightWidth "$ch" "$cw" "$dir/host-$rep.png" \
+          --out "$EVAL_STATE/ocr-host-$rep.png" >/dev/null 2>&1; then
+          "$EVAL_BIN/screen-eval-ocr" "$EVAL_STATE/ocr-host-$rep.png" "$EVAL_STATE/ocr-viewer-$rep.ppm" "$dir/truth.txt" \
+            >"$dir/ocr-$rep.json" || err "ocr $rep failed"
+        else
+          err "ocr $rep: could not crop the host image"
+        fi
+      fi
+      # The receipt says not ready, and why, for every refusal above.
+      python3 -I "$here/rd_marker_calibration.py" receipt "$dir/ocr-$rep.json" "$dir/ocr-calibration-$rep.json" ||
+        err "ocr $rep: rd marker calibration receipt failed"
     elif [[ -n "${EVAL_SCENE_NONCE:-}" ]]; then
       # The common marker reserves a region above the text. Full-window OCR
       # would include it and Apple chrome; calibrated pixel crops are required.

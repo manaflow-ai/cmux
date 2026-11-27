@@ -430,7 +430,7 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(len(calls), len(files) + 2, output)
         self.assertEqual(output.count("(CMUX_WEB_TEST_RETRY_BREAKER); react-apps-base-check judges it"), 3, output)
         self.assertIn("5 failed or timed out (2 retried alone, 0 passed alone)", output)
-        line = ("alone retries skipped: 3, since the first 2 alone retries all failed again (not contention; "
+        line = ("alone retries skipped: 3, since the last 2 alone retries in a row all failed again (not contention; "
                 "react-apps-base-check judges them; CMUX_WEB_TEST_RETRY_BREAKER=0 retries every red file)")
         self.assertIn(line, output)
         self.assertIn(line, step_summary.read_text(encoding="utf-8"))
@@ -475,17 +475,17 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(calls.count("./test/x-fail.test.ts"), 2, output)
         # The first unsettled file to finish its first run goes alone and fails again; the breaker stops the other.
         self.assertEqual(sorted(calls.count(f"./{file}") for file in unsettled), [2, 3], output)
-        self.assertRegex(output, r"NO RETRY TIMEOUT test/[ab]-timed-out-then-fail\.test\.ts: the first 1 alone "
+        self.assertRegex(output, r"NO RETRY TIMEOUT test/[ab]-timed-out-then-fail\.test\.ts: the last 1 alone "
                                  r"retries all failed again")
-        self.assertIn("alone retries skipped: 1, since the first 1 alone retries all failed again", output)
-        # A pooled pass (contention) keeps every unsettled file's alone retry.
+        self.assertIn("alone retries skipped: 1, since the last 1 alone retries in a row all failed again", output)
+        # A pooled pass is not an alone retry: it no longer keeps the breaker off (11-26 logs: 13 alone retries ran after
+        # the last pass, 1 of 13 passed). The streak of failed alone retries is what trips it.
         result, _, calls = self.run_runner(["test/x-fail.test.ts", "test/y-contended.test.ts"] + unsettled,
                                            extra_env=env)
         output = result.stdout + result.stderr
         self.assertIn("  test/y-contended.test.ts (first run: TIMEOUT; passed beside other retries)", output)
-        for file in unsettled:
-            self.assertEqual(calls.count(f"./{file}"), 3, output)
-        self.assertNotIn("alone retries skipped", output)
+        self.assertEqual(sorted(calls.count(f"./{file}") for file in unsettled), [2, 3], output)
+        self.assertIn("alone retries skipped: 1, since the last 1 alone retries in a row all failed again", output)
 
     def test_ci_turns_the_retry_breaker_on_for_pull_request_shards_only(self):
         text = WORKFLOW.read_text(encoding="utf-8")

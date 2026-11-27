@@ -182,6 +182,7 @@ await requireBrowserLane("agent-pane-hidden-release-anchor.test.ts", async () =>
   }
   const read = (page: Page) => page.evaluate(() => (window as unknown as { readAnchor: () => Anchor }).readAnchor());
   /// Waits one task past the hide, as the release does (it lets the hide's own handlers read the rows).
+  // fixed-wait: the release itself runs one task after the hide; the test reads the rows past that task.
   const nextTask = (page: Page) => page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 20)));
 
   const cases: { name: string; place: (page: Page) => Promise<unknown> }[] = [

@@ -21,6 +21,14 @@ fn a_picture_round_trips_through_png() {
 }
 
 #[test]
+fn a_look_picture_encodes_as_jpeg() {
+    let picture = split(40, 20, 10);
+    let bytes = encode_jpeg(&picture).unwrap();
+    assert!(bytes.starts_with(&[0xff, 0xd8]), "not a JPEG: {bytes:02x?}");
+    assert!(bytes.ends_with(&[0xff, 0xd9]), "missing JPEG end marker");
+}
+
+#[test]
 fn an_rgba_png_decodes_to_rgb() {
     let mut bytes = Vec::new();
     {
@@ -121,6 +129,73 @@ fn customizing_the_app_is_told_from_paths_and_commands() {
     assert!(customizes_app(&run));
     let other = json!({"rawInput": {"command": "cargo test"}, "locations": [{"path": "/w/a.rs"}]});
     assert!(!customizes_app(&other));
+}
+
+fn live_turn(id: &str) -> Turn {
+    Turn {
+        id: id.to_owned(),
+        workspace: "w".to_owned(),
+        frames: Vec::new(),
+        live: true,
+        capturing: false,
+        again: None,
+        debounce: 0,
+        kinds: HashMap::new(),
+        chrome: false,
+        simulator: false,
+    }
+}
+
+#[test]
+fn a_live_build_asks_for_a_build_frame_of_the_running_turn() {
+    let session = "rfd0152-built-running";
+    turns().insert(session.to_owned(), live_turn("t1"));
+    let reply = built(session, "rust");
+    assert_eq!(reply["asked"], true, "{reply}");
+    assert_eq!(reply["turnId"], "t1");
+    let all = turns();
+    let turn = &all[session];
+    // A live build changes the app itself: its window is the fallback page.
+    assert!(turn.chrome);
+    // A pending edit frame of the same burst is this one.
+    assert_eq!(turn.debounce, 1);
+}
+
+#[test]
+fn a_live_build_with_no_running_turn_takes_nothing() {
+    assert_eq!(built("rfd0152-built-none", "swift")["asked"], false);
+    let session = "rfd0152-built-ended";
+    let mut ended = live_turn("t2");
+    ended.live = false;
+    turns().insert(session.to_owned(), ended);
+    let reply = built(session, "chromium");
+    assert_eq!(reply["asked"], false);
+    assert!(!turns()[session].chrome, "an ended turn is left as it was");
+}
+
+#[test]
+fn a_live_build_from_an_unknown_source_is_refused() {
+    let session = "rfd0152-built-unknown";
+    turns().insert(session.to_owned(), live_turn("t3"));
+    let reply = built(session, "gradle");
+    assert_eq!(reply["asked"], false);
+    assert!(reply["reason"].as_str().unwrap().contains("rust"), "{reply}");
+    assert!(!turns()[session].chrome);
+}
+
+#[test]
+fn window_frames_follow_the_swift_live_build_only_while_its_socket_is_there() {
+    let home = tempfile::tempdir().unwrap();
+    assert_eq!(live_socket(home.path()), None);
+    let named = home.path().join(LIVE_PREVIEW);
+    std::fs::create_dir_all(named.parent().unwrap()).unwrap();
+    let socket = home.path().join("cmux-debug-swift-ui.sock");
+    std::fs::write(&named, json!({"socket": socket, "tag": "swift-ui"}).to_string()).unwrap();
+    assert_eq!(live_socket(home.path()), None, "a stale name whose socket is gone");
+    std::fs::write(&socket, b"").unwrap();
+    assert_eq!(live_socket(home.path()), Some(socket));
+    std::fs::write(&named, b"{\"socket\": \"\"}").unwrap();
+    assert_eq!(live_socket(home.path()), None);
 }
 
 #[test]

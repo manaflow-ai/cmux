@@ -525,20 +525,6 @@
           "group": "Agent Chats"
         },
         {
-          "key": "agents.modelRouter.model",
-          "title": "cmux Model Router Model",
-          "help": "The model new cmux model router chats start on.",
-          "kind": "choice",
-          "default": "deepseek/deepseek-v4.1-flash-1017",
-          "group": "Agent Chat",
-          "values": [
-            "deepseek/deepseek-v4.1-flash-1017",
-            "deepseek/deepseek-v4.1-flash",
-            "deepseek/deepseek-v4-flash",
-            "deepseek/deepseek-v4-pro"
-          ]
-        },
-        {
           "key": "agents.promptCache",
           "title": "Prompt Cache",
           "help": "One hour keeps replies after a pause cheap; its cache writes cost a little more.",

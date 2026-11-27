@@ -73,6 +73,7 @@ import { turnErrorCard } from "../agent-session/acpmux/conversation/turnErrorCar
 import { settingsAskCard } from "../agent-session/acpmux/conversation/settingsAskCard.experiment";
 import { capacityWaitLook } from "../agent-session/acpmux/conversation/capacityWait.experiment";
 import { pausedMachineResume } from "../agent-session/acpmux/pausedMachine.experiment";
+import { cloudLastSeenLook } from "../agent-session/acpmux/cloudLastSeen.experiment";
 import { stoppedTurnLook } from "../agent-session/acpmux/conversation/stoppedTurn.experiment";
 import { chromiumGlassUnderlay } from "../ui/glass/chromiumUnderlay.experiment";
 import { glassEngine } from "../ui/glass/engine/glassEngine.experiment";
@@ -198,6 +199,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   settingsAskCard,
   capacityWaitLook,
   pausedMachineResume,
+  cloudLastSeenLook,
   stoppedTurnLook,
   timeHoverWording,
   timeHoverDate,

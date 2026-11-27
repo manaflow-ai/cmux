@@ -387,10 +387,11 @@ def _json_object(path: Path, diagnostics: list[Diagnostic]) -> Mapping[str, obje
     return value
 
 
-def _blank_rust_comments(text: str) -> str:
+def _blank_rust_comments(text: str, *, blank_chars: bool = False) -> str:
     """`text` with Rust `//` and (nested) `/* */` comments replaced by spaces,
     newlines kept, so offsets and lines still match `text`. String, raw string,
-    byte and char literals are copied as they are."""
+    byte and char literals are copied as they are. With `blank_chars`, character
+    literals are also blanked so their quotes cannot open a string region."""
     out = list(text)
     i, n = 0, len(text)
 
@@ -417,7 +418,7 @@ def _blank_rust_comments(text: str) -> str:
                     j += 1
             blank(i, j)
             i = j
-        elif raw := re.match(r'b?r(#*)"', text[i : i + 300]):
+        elif raw := re.match(r'(?:br|cr|r)(#*)"', text[i : i + 300]):
             if i and (text[i - 1].isalnum() or text[i - 1] == "_"):
                 i += 1
                 continue
@@ -432,6 +433,8 @@ def _blank_rust_comments(text: str) -> str:
         elif c == "'":
             # A char literal ('a', '\n', '\u{1F600}'); otherwise a lifetime.
             char = re.match(r"'(?:\\(?:u\{[0-9a-fA-F]+\}|x[0-9a-fA-F]{2}|.)|[^\\'\n])'", text[i : i + 16])
+            if char and blank_chars:
+                blank(i, i + char.end())
             i += char.end() if char else 1
         else:
             i += 1
@@ -3404,6 +3407,7 @@ def _is_test_or_example(path: Path) -> bool:
         bool(parts & {"test", "tests", "example", "examples", "e2e", "cmd"})
         or name.endswith("_test.go")
         or "_test." in name
+        or "_tests." in name
         or name.startswith("test_")
         or name in {"test.rs", "tests.rs"}
         or name.endswith("test.zig")
@@ -3426,8 +3430,14 @@ def _files_for_rule(tui: Path, rule: ScanRule) -> Iterator[Path]:
         yield path
 
 
+RUST_SOURCE_PATH_RE = re.compile(
+    r"(?:\binclude_(?:str|bytes)!\s*\(\s*|#\s*\[\s*path\s*=\s*)$"
+)
+
+
 def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
     """Yield byte-index-equivalent Python offsets for Rust string contents."""
+    text = _blank_rust_comments(text, blank_chars=True)
     index = 0
     while index < len(text):
         raw = re.match(r"(?:br|cr|r)(?P<hashes>#{0,255})\"", text[index:])
@@ -3438,8 +3448,8 @@ def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
             end = text.find(terminator, content_start)
             if end < 0:
                 return
-            # A direct include argument names a source file, not public CLI text.
-            if not re.search(r"\binclude_(?:str|bytes)!\s*\(\s*$", text[:index]):
+            # Direct include arguments and path attributes name source files.
+            if not RUST_SOURCE_PATH_RE.search(text[:index]):
                 yield content_start, end
             index = end + len(terminator)
             continue
@@ -3451,8 +3461,8 @@ def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
                     cursor += 2
                 elif text[cursor] == '"':
                     # Keep help/diagnostic strings in the scan; exclude only
-                    # direct compile-time resource paths in include macros.
-                    if not re.search(r"\binclude_(?:str|bytes)!\s*\(\s*$", text[:index]):
+                    # direct compile-time resource paths and module paths.
+                    if not RUST_SOURCE_PATH_RE.search(text[:index]):
                         yield content_start, cursor
                     cursor += 1
                     break

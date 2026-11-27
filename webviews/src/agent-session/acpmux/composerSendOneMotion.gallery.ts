@@ -81,6 +81,26 @@ export function sendWindow(frames: readonly Sample[]): Sample[] {
   return end < 0 ? [...frames] : frames.slice(0, end);
 }
 
+/// Whether the transcript still moves: the follow chase a streamed line starts (conversation/
+/// followChase.ts draws the thread back with an inline `translate` and steps it home on the display's
+/// frames, clearing it at rest), or a finite animation in the thread (a row's tail glide, tailGlide.ts;
+/// a text roll; a fold). Fades and a spinner's endless turn move no box the play samples.
+function transcriptMoving(doc: Document): boolean {
+  const thread = doc.querySelector<HTMLElement>(".acpmux-thread");
+  if (!thread) return false;
+  if (thread.style.translate !== "" && thread.style.translate !== "none") return true;
+  return doc.getAnimations().some((animation) => {
+    if (animation.playState !== "running") return false;
+    const effect = animation.effect as KeyframeEffect | null;
+    const target = effect?.target;
+    if (!(target instanceof Element) || !(target === thread || thread.contains(target))) return false;
+    if (!Number.isFinite(effect!.getComputedTiming().endTime)) return false;
+    return effect!
+      .getKeyframes()
+      .some((frame) => ["translate", "transform", "clipPath", "top", "height"].some((key) => key in frame));
+  });
+}
+
 export async function settle(ctx: PlayContext) {
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-cancel"), { capMs: 30_000 });
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-thread")?.hasAttribute("data-turn-end-folding"));
@@ -89,6 +109,11 @@ export async function settle(ctx: PlayContext) {
 function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
   return async (ctx: PlayContext) => {
     const doc = ctx.document;
+    const win = doc.defaultView! as Window & { cmuxAcpmuxMockStepMs?: number };
+    // The three earlier questions only put finished turns behind the send: the mock agent answers them
+    // at 20 ms a step, not its 350 ms (mock.ts cmuxAcpmuxMockStepMs). At 350 ms they were ~10 s of the
+    // play, and the 15-line arms ran past the runner's 20 s and never reported ready.
+    win.cmuxAcpmuxMockStepMs = 20;
     for (const line of ["first question", "second question", "third question"]) {
       await ctx.type(line, EDITOR);
       await ctx.press("Enter");
@@ -98,13 +123,17 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
       await settle(ctx);
     }
     await pause(400);
+    // The running turn and the send itself stream at the agent's own pace.
+    delete win.cmuxAcpmuxMockStepMs;
     if (busy) {
       await ctx.type("a running question", EDITOR);
       await ctx.press("Enter");
       await ctx.waitFor(() => doc.querySelector(".acpmux-row.acpmux-thinking, .acpmux-row.acpmux-working"));
     }
     for (let index = 1; index <= lines; index += 1) {
-      await ctx.type(`draft line ${index} of the tall message`, EDITOR);
+      // Short lines: the draft's height is what the send moves, and each typed key is a render the
+      // ready-time budget counts (32-character lines put the 15-line arms ~2 s of keys over it).
+      await ctx.type(`line ${index}`, EDITOR);
       if (index < lines) await ctx.press("Shift+Enter");
     }
     await pause(busy ? 250 : 600);
@@ -113,9 +142,13 @@ function sendOnce(lines: number, busy: boolean, scrolled: boolean) {
       scroller.scrollTop = Math.max(0, scroller.scrollTop - 260);
       await pause(busy ? 250 : 600);
     }
+    // The send starts from rows at rest. With a turn running, the reply's last streamed line is
+    // still chasing the thread home (followChase.ts, ~1 px a frame) when a short draft is typed:
+    // its tail read as the send's first phase, and the send turning it back as a second.
+    await ctx.waitFor(() => !transcriptMoving(doc));
     // The agent echoes the prompt a little late, as acpmux does.
     Object.assign(doc.defaultView!, { cmuxAcpmuxMockSlowMethod: "session/prompt", cmuxAcpmuxMockSlowMs: 40 });
-    const frames = sample(doc, "draft line 1 of");
+    const frames = sample(doc, "line 1");
     await pause(80);
     await ctx.press("Enter");
     const window = sendWindow(await frames.done);

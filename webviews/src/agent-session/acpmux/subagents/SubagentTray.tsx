@@ -81,6 +81,8 @@ import {
 } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
+import { Button } from "../../../ui/Button";
+import { Tooltip } from "../../../ui/Tooltip";
 import { foldMotion, useFold } from "../conversation/fold";
 import { entranceAllowed } from "../../shared/pageReveal";
 import { type PaneLanguage, usePaneLanguage, useT, type Translate } from "../i18n";
@@ -894,16 +896,12 @@ export const SubagentTray = memo(function SubagentTray({
       {hideAt === "bar" && (
         // The `bar` arm: a slim bar along the hat's top, over the header. A press hides the hat (the rim
         // over it passes a press that never dragged through to it); its eye-slash shows on hover.
-        <button
-          type="button"
-          className="acpmux-hat-hide-bar"
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          {/* icon-scale-allow: the eye-slash rides inside the 10 px bar */}
-          <Icon name="action.hide" size={10} />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button bare type="button" className="acpmux-hat-hide-bar" aria-label={t("tray.tuck")} onClick={onTuck}>
+            {/* icon-scale-allow: the eye-slash rides inside the 10 px bar */}
+            <Icon name="action.hide" size={10} />
+          </Button>
+        </Tooltip>
       )}
       {headed && (
         <button
@@ -1152,70 +1150,74 @@ export const SubagentTray = memo(function SubagentTray({
       {hidesInHead && (
         // The `hide` arm: the header's own hide button, over its slot, shown while the pointer is on
         // the hat or it has keyboard focus; the top edge keeps only the resize rim.
-        <button
-          type="button"
-          className="acpmux-running-tray__hide"
-          data-with-panel={opensPanel === "button" || undefined}
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          <Icon name="action.hide" size={ROW_ICON} row />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button
+            bare
+            type="button"
+            className="acpmux-running-tray__hide"
+            data-with-panel={opensPanel === "button" || undefined}
+            aria-label={t("tray.tuck")}
+            onClick={onTuck}
+          >
+            <Icon name="action.hide" size={ROW_ICON} row />
+          </Button>
+        </Tooltip>
       )}
       {lineHide && (
         // The one line's hide control (hatLine.experiment.ts): an eye-slash flush at the line's end, in
         // muted ink at rest, never over the words; open, it rides the header's end the same way.
-        <button
-          type="button"
-          className="acpmux-hat-hide"
-          data-at="line"
-          data-open={open || undefined}
-          data-with-panel={opensPanel === "button" || undefined}
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          <Icon name="action.hide" size={12} />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button
+            bare
+            type="button"
+            className="acpmux-hat-hide"
+            data-at="line"
+            data-open={open || undefined}
+            data-with-panel={opensPanel === "button" || undefined}
+            aria-label={t("tray.tuck")}
+            onClick={onTuck}
+          >
+            <Icon name="action.hide" size={12} />
+          </Button>
+        </Tooltip>
       )}
       {(hideAt === "eye" || hideAt === "pill") && (
         // The `eye` arm: a small eye-slash circle in the bar's trailing controls, shown at rest in muted
         // ink (never a hover-only control). The `pill` arm: a glass pill leading the bar, attached to the
         // hat's edge. Each lies over its slot in the header, outside the header's own button.
-        <button
-          type="button"
-          className="acpmux-hat-hide"
-          data-at={hideAt}
-          data-with-panel={opensPanel === "button" || undefined}
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          <Icon name="action.hide" size={hideAt === "eye" ? 12 : ROW_ICON} row={hideAt !== "eye"} />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button
+            bare
+            type="button"
+            className="acpmux-hat-hide"
+            data-at={hideAt}
+            data-with-panel={opensPanel === "button" || undefined}
+            aria-label={t("tray.tuck")}
+            onClick={onTuck}
+          >
+            <Icon name="action.hide" size={hideAt === "eye" ? 12 : ROW_ICON} row={hideAt !== "eye"} />
+          </Button>
+        </Tooltip>
       )}
       {onTuck && !hidesInHead && !hideAt && !lineHide && (
-        <button
-          type="button"
-          className="acpmux-running-tray__tuck"
-          aria-label={t("tray.tuck")}
-          title={t("tray.tuck")}
-          onClick={onTuck}
-        >
-          <Icon name="disclosure.expanded" size={12} />
-        </button>
+        <Tooltip label={t("tray.tuck")}>
+          <Button bare type="button" className="acpmux-running-tray__tuck" aria-label={t("tray.tuck")} onClick={onTuck}>
+            <Icon name="disclosure.expanded" size={12} />
+          </Button>
+        </Tooltip>
       )}
       {headed && opensPanel === "button" && (!lineHead || open) && (
-        <button
-          type="button"
-          className="acpmux-running-tray__open"
-          aria-label={t("backgroundTasks.open")}
-          title={t("backgroundTasks.open")}
-          onClick={onOpenPanel}
-        >
-          <Icon name="panel.right" size={ROW_ICON} row />
-        </button>
+        <Tooltip label={t("backgroundTasks.open")}>
+          <Button
+            bare
+            type="button"
+            className="acpmux-running-tray__open"
+            aria-label={t("backgroundTasks.open")}
+            onClick={onOpenPanel}
+          >
+            <Icon name="panel.right" size={ROW_ICON} row />
+          </Button>
+        </Tooltip>
       )}
     </section>
   );

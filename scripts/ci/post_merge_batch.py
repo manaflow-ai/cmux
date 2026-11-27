@@ -59,18 +59,26 @@ DEFAULT_EVERY_MERGES = 10
 # A batch run's run-name starts with this; a probe's with PROBE (the workflow's run-name).
 BATCH = "batch"
 PROBE = "probe"
-# Runs read back to find the last batch run where a job ran (one page, GitHub's largest: at a batch every
-# ~10 merges, about 100 a day, it reaches back about a day, plus probes).
+# Runs read back to find the last batch run where a job ran, a page at a time (GitHub's largest page).
 RUNS_PAGE = 100
+# The judge reads back this many batch runs (about a day at one every ~55 min), paging past the probes between them,
+# at most MAX_RUNS_PAGES pages. One page was the whole reach before 2026-11-27: at 01:57Z its 100 runs were 94 probes
+# and 6 batch runs (5.5 h), so a red older than that had no green in reach and stuck_reds skipped it; the 01:2xZ batch
+# run 45919537854 called 25 of its 28 reds "a known red, no bisect" (cmuxterm-hq goals/base-batch-reverts-culprit.md).
+LOOKBACK_BATCHES = 24
+MAX_RUNS_PAGES = 8
 # At most this many new reds start a bisect from one batch run; the rest are named only.
 MAX_CHAINS = 4
 # At most this many stuck reds (red on two or more batch runs in a row, see stuck_reds) start a bisect from one batch
 # run, after the new reds. Before 2026-11-26 a red that outlived one batch run was "a known red, no bisect" forever: the
 # 06:29Z batch run 45768539377 skipped 43 of its 48 reds that way, and live base reds went 62 to 91 in 22 h (cmuxterm-hq
 # goals/base-batch-reverts-culprit.md).
-MAX_STUCK_CHAINS = 4
-# A stuck red is bisected again at most this many times after the bisect its first red batch run started, so a red no
-# bisect can pin (an outside service, a red on every commit) costs a bounded number of probe chains.
+# Raised from 4 on 2026-11-27: 67 live base reds drained four at a time while the Linux pool sat idle (0.275 busy).
+MAX_STUCK_CHAINS = 12
+# A stuck red is bisected again at most this many times, so a red no bisect can pin (an outside service, a red on
+# every commit) costs a bounded number of probe chains. A bisect counts once its first probe was judged: before
+# 2026-11-27 this counted red batch runs instead, so the six reds whose chains died on the judge's rate limit
+# (cmux#60709) were capped for good without one finished bisect.
 MAX_REBISECTS = 2
 # A probe run with no verdict (cancelled, runner lost) is tried again this many times. Two: drill-8 lost two
 # runners within the hour (runs 44966393364 and 44980687386).
@@ -329,13 +337,34 @@ def is_batch(run: dict) -> bool:
     return (run.get("display_title") or run.get("name") or "").split(" ", 1)[0] == BATCH
 
 
-def list_runs(repo: str, branch: str, api=None) -> list[dict]:
-    """This workflow's runs on branch, newest first (one page)."""
+def list_runs(repo: str, branch: str, api=None, before: int = 0, batches: int = 0) -> list[dict]:
+    """This workflow's runs on branch, newest first: one page, or with batches, the runs older than run id before
+    (all, when 0) back to and including the batches-th batch run among them, paging at most MAX_RUNS_PAGES pages.
+    A batch run's judge and its probes' judges pass the same before and batches, so they read the same batch runs."""
     api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
-    data = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&per_page={RUNS_PAGE}")
-    runs = list((data or {}).get("workflow_runs") or [])
+    runs: list[dict] = []
+    for page in range(1, (MAX_RUNS_PAGES if batches else 1) + 1):
+        data = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&per_page={RUNS_PAGE}"
+                   + (f"&page={page}" if page > 1 else ""))
+        got = list((data or {}).get("workflow_runs") or [])
+        runs += got
+        older = [r for r in runs if not before or (r.get("id") or 0) < before]
+        if not batches or len(got) < RUNS_PAGE or sum(map(is_batch, older)) >= batches:
+            break
+    seen: set = set()
+    runs = [r for r in runs if not (r.get("id") in seen or seen.add(r.get("id")))]
     runs.sort(key=lambda r: (r.get("created_at") or "", r.get("id") or 0), reverse=True)
-    return runs
+    if not batches:
+        return runs
+    out, count = [], 0
+    for r in runs:
+        if before and (r.get("id") or 0) >= before:
+            continue
+        if count >= batches:
+            break
+        out.append(r)
+        count += is_batch(r)
+    return out
 
 
 def run_jobs(repo: str, run_id: int, api=None) -> list[dict]:
@@ -643,13 +672,14 @@ def new_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], j
 
 
 def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict], jobs_of,
-               suites: dict[str, "Suite"]) -> list[tuple[str, str, str, str]]:
+               suites: dict[str, "Suite"], chain_start=None) -> list[tuple[str, str, str, str]]:
     """The reds new_reds calls known that get a bisect anyway: (job name, suite, good sha, bad sha).
 
     A job red on this batch run and on the newest earlier judged batch run where it finished has a last green batch
     run further back (good) and a first red one after it (bad): the culprit is in good..bad. It is bisected there,
     with no confirming probe (two batch runs already agree it is red), unless a probe of the same suite job started
-    after the first red batch run is still running, or it was already bisected MAX_REBISECTS times since. Matrix legs
+    after the first red batch run is still running, or MAX_REBISECTS bisects of it already started and were judged
+    (chain_start(good, bad) is a bisect's first probe sha; a probe whose judge died is not a bisect done). Matrix legs
     of one suite job with the same good and bad are one bisect (gallery-health's 21 shards were 21 known reds).
     runs: this workflow's runs, newest first, none newer than the judging run, so a probe's judge reading the same
     runs (cmd_judge, before its origin) agrees with the batch run that dispatched it."""
@@ -662,7 +692,6 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
     for name in reds:
         suite = verdicts[name][0]
         first = green = None
-        red_runs = 0
         for run in earlier:
             if run["id"] not in cache:
                 cache[run["id"]] = jobs_of(run["id"])
@@ -672,7 +701,7 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
                 continue
             if before[1] == "failure":
                 if judged:
-                    first, red_runs = run, red_runs + 1
+                    first = run
                 continue
             green = run
             break
@@ -687,7 +716,17 @@ def stuck_reds(sha: str, verdicts: dict[str, tuple[str, str]], runs: list[dict],
                 and (p.get("created_at") or "") > (first.get("created_at") or "")]
         if any(p.get("status") != "completed" for p in mine):
             continue
-        if mine and red_runs > MAX_REBISECTS:
+        start = chain_start(green["head_sha"], first["head_sha"]) if chain_start else ""
+        done = 0
+        for p in mine:
+            if start and not (p.get("display_title") or "").endswith(f" at {start}"):
+                continue
+            if p["id"] not in cache:
+                cache[p["id"]] = jobs_of(p["id"])
+            got = cache[p["id"]]
+            if not isinstance(got, tuple) or got[1]:
+                done += 1
+        if done >= MAX_REBISECTS:
             continue
         seen.add(key)
         out.append((name, suite, green["head_sha"], first["head_sha"]))
@@ -706,6 +745,11 @@ def next_step(probe: Probe, conclusion: str, commits: list[str]) -> tuple[str, P
     """After a probe finished with conclusion: ('probe', next Probe), ('culprit', sha),
     ('flake', None), ('lost', None) or ('retry', Probe). commits: good..bad (or good..sha for the
     confirming probe), oldest first."""
+    if conclusion == "skipped":
+        # The job's own condition skipped it at this commit (probe_conclusion reads a skip behind a lost or red
+        # job as no verdict): the same inputs skip it again. Probes 716208d2c92 and d98c77aec8a (compile-fleet,
+        # 11-27) each ran three times, every run skipped, before the bisect stopped all the same.
+        return "lost", None
     if conclusion not in ("success", "failure"):
         if probe.tries < MAX_PROBE_RETRIES:
             return "retry", Probe(**{**probe.__dict__, "tries": probe.tries + 1})
@@ -774,13 +818,64 @@ SERVER_ERROR = re.compile(r"HTTP 5\d\d|Server Error", re.I)
 DISPATCH_WAITS = (15, 45)
 
 
+def probe_title(probe: Probe) -> str:
+    """The probe run's title (the workflow's run-name for a probe dispatch)."""
+    return f"{PROBE} {probe.suite} {probe.only or 'all'} at {probe.sha}"
+
+
+def probe_conclusion(verdicts: dict[str, tuple[str, str]], probe: Probe) -> str:
+    """A probe run's verdict: the job with the red job's name, else the worst of the suite's jobs
+    (the probe ran the whole suite when the red job had no manifest id); "" when it gave none."""
+    mine = {n: c for n, (s, c) in verdicts.items() if s == probe.suite}
+    if mine.get(probe.job) == "skipped" and any(c not in ("success", "skipped") for c in mine.values()):
+        return ""  # skipped behind a job that failed or lost its runner: no verdict, worth running again
+    return mine.get(probe.job) or ("failure" if "failure" in mine.values() else "success" if mine and all(c in ("success", "skipped") for c in mine.values()) else "")
+
+
+def known_verdict(runs: list[dict], probe: Probe, jobs_of) -> tuple[str, dict] | None:
+    """A finished probe run of the same title (suite, job, commit) from an earlier bisect, and its verdict, if it
+    gave one: a bisect the next batch starts again then reads it instead of running the same probe again (the
+    web-tests chain of 11-26 re-probed 95ef861, 1d3e443, a36597a, 2861d8b and 11d8c59 an hour after the first).
+    "skipped" counts too: the job's own condition skipped it there, and would again."""
+    title = probe_title(probe)
+    for run in runs:
+        if (run.get("display_title") or "") == title and run.get("status") == "completed":
+            conclusion = probe_conclusion(jobs_of(run["id"])[0], probe)
+            if conclusion in ("success", "failure", "skipped"):
+                return conclusion, run
+    return None
+
+
+def first_unknown_probe(runs: list[dict], probe: Probe, commits: list[str], jobs_of) -> tuple[Probe | None, list[str]]:
+    """The batch judge's first probe of a bisect, past the probes an earlier bisect already ran: while a probe's
+    verdict is known and the next step is another probe, take that one. A known verdict that would end the bisect
+    (a culprit or a flake) keeps its probe, so that probe's judge names it as before; a known skip gives None (the
+    same probe would skip again). A stuck red's bisect starts again about hourly and re-ran the same middle
+    commits: 7f0fe7d8a65 (rust-workspaces) four times, 716208d2c92 (compile-fleet) four, 11-27."""
+    notes: list[str] = []
+    for _ in range(len(commits) + 1):  # each known verdict narrows the range, so this ends
+        known = known_verdict(runs, probe, jobs_of)
+        if not known:
+            break
+        step, value = next_step(probe, known[0], commits)
+        if step == "lost":
+            notes.append(f"`{probe.job}` was already skipped at `{probe.sha[:11]}` (probe run {known[1]['id']}); no probe.")
+            return None, notes
+        if step != "probe":
+            break
+        assert isinstance(value, Probe)
+        notes.append(f"`{probe.job}` was already {known[0]} at `{probe.sha[:11]}` (probe run {known[1]['id']}); probing `{value.sha[:11]}` instead.")
+        probe = value
+    return probe, notes
+
+
 def dispatch_probe(repo: str, branch: str, probe: Probe, api=None, sleep=time.sleep) -> None:
     """Dispatch one probe. A 5xx may still have started the run, so before each retry this looks for a probe
     run of the same title (the workflow's run-name) on the branch, and stops if one is there."""
     # DISPATCH_TOKEN: the revert job's GITHUB_TOKEN (actions: write), whose GH_TOKEN may be the App's, which has none.
     api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     token = os.environ.get("DISPATCH_TOKEN") or os.environ.get("GH_TOKEN", "")
-    title = f"{PROBE} {probe.suite} {probe.only or 'all'} at {probe.sha}"
+    title = probe_title(probe)
     for attempt, wait in enumerate((*DISPATCH_WAITS, None)):
         if attempt:
             listed = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&event=workflow_dispatch&per_page=20")
@@ -875,9 +970,10 @@ def cmd_judge(args: argparse.Namespace) -> int:
 
     if args.mode != PROBE:
         # Only runs older than this one, as a probe's judge reads them (before its origin), so both agree.
-        runs = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < int(args.run_id or 0) or not args.run_id]
+        runs = list_runs(args.repo, args.branch, before=int(args.run_id or 0), batches=LOOKBACK_BATCHES)
         found, notes = new_reds(args.sha, verdicts, runs, jobs_of)
-        stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites)
+        stuck = stuck_reds(args.sha, verdicts, runs, jobs_of, suites,
+                           chain_start=lambda good, bad: stuck_probe("", "", "", good, bad, "", first_parent_range(good, bad)).sha)
         stuck_names = {name for name, *_ in stuck}
         notes = [n for n in notes if not any(n.startswith(f"`{name}` was already red") for name in stuck_names)]
         for note in notes:
@@ -894,7 +990,13 @@ def cmd_judge(args: argparse.Namespace) -> int:
             summary(args.summary, f"- New red `{name}` (green on `{good[:11]}`): over the {MAX_CHAINS}-bisect cap, named only.")
         for name, suite, good, bad in stuck[:MAX_STUCK_CHAINS]:
             inner = name.partition(" / ")[2]
-            probe = stuck_probe(name, suite, suites[suite].job_id(inner), good, bad, str(args.run_id), first_parent_range(good, bad))
+            span = first_parent_range(good, bad)
+            probe, known_notes = first_unknown_probe(runs, stuck_probe(name, suite, suites[suite].job_id(inner), good, bad, str(args.run_id), span), span, jobs_of)
+            for note in known_notes:
+                summary(args.summary, f"  - {note}")
+            if probe is None:
+                summary(args.summary, f"- Stuck red `{name}`: green on `{good[:11]}`, red since `{bad[:11]}`; its probe is known to skip, no bisect.")
+                continue
             summary(args.summary, f"- Stuck red `{name}`: green on `{good[:11]}`, red since `{bad[:11]}`; bisecting there from `{probe.sha[:11]}`.")
             if not args.dry_run:
                 dispatch_probe(args.repo, args.branch, probe)
@@ -904,16 +1006,33 @@ def cmd_judge(args: argparse.Namespace) -> int:
         return 0
 
     probe = Probe(args.suite, args.job, args.only, args.probe_sha, args.good, args.bad, args.origin, int(args.tries or 0), args.pieces or "")
+    found: list[tuple[str, str, str]] = []
     try:
         origin = gh_api(f"repos/{args.repo}/actions/runs/{probe.origin}") if probe.origin.isdigit() else None
-    except RuntimeError:
-        origin = None
-    found: list[tuple[str, str, str]] = []
-    if origin and is_batch(origin):
-        before = [r for r in list_runs(args.repo, args.branch) if (r.get("id") or 0) < origin["id"]]
-        origin_verdicts = jobs_of(origin["id"])[0]
-        found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
-        found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)]
+        if origin and is_batch(origin):
+            before = list_runs(args.repo, args.branch, before=origin["id"], batches=LOOKBACK_BATCHES)
+            # Only the probe's own job: probe_refusal reads found for it alone, and new_reds and stuck_reds walk each
+            # red job on its own. All of the origin's reds walked back to the deepest one's green: at the 24-batch
+            # lookback (cmux#60187) that was every batch run, two job pages each, in every probe's judge (run
+            # 45931127675: 24 runs for any probe, 9 for its web-typecheck job, 2 for cmux-rd-host), and the
+            # installation's rate limit ended the web-typecheck chain at its culprit (probe 45897849727, 11-26 21:37Z).
+            origin_verdicts = {name: v for name, v in jobs_of(origin["id"])[0].items() if name == probe.job}
+            found, _ = new_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of)
+            found += [(name, suite, good) for name, suite, good, _ in stuck_reds(origin.get("head_sha") or "", origin_verdicts, before, jobs_of, suites)]
+    except RuntimeError as err:
+        # GitHub would not answer (a rate limit spent past the wait budget, a lasting 5xx). That says nothing
+        # about the probe's inputs, yet refusing here ended the bisect, and the next batch began the same one
+        # again from its first probe (probe run 45910283297, 11-26 23:34Z: "origin run 45901639171 is
+        # unreadable" after the full 600 s budget; its web-tests chain was re-probed commit for commit an hour
+        # later). Run the same probe again instead: its judge checks the inputs once GitHub answers.
+        if probe.tries < MAX_PROBE_RETRIES:
+            again = Probe(**{**probe.__dict__, "tries": probe.tries + 1})
+            summary(args.summary, f"The origin run could not be read ({str(err)[-200:]}); running the probe at `{probe.sha[:11]}` again.")
+            if not args.dry_run:
+                dispatch_probe(args.repo, args.branch, again)
+            write_outputs(args.github_output, out)
+            return 0
+        origin, found = None, []
     state = None
     if probe.pieces:
         try:
@@ -931,8 +1050,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
         return 1
     # The probe ran one suite job (or the whole suite when the red job had no manifest id):
     # its verdict is the job with the red job's name, else the worst of the suite's jobs.
-    mine = {n: c for n, (s, c) in verdicts.items() if s == probe.suite}
-    conclusion = mine.get(probe.job) or ("failure" if "failure" in mine.values() else "success" if mine and all(c in ("success", "skipped") for c in mine.values()) else "")
+    conclusion = probe_conclusion(verdicts, probe)
     if state is not None:
         out.update(judge_pieces(args, probe, state, conclusion))
         write_outputs(args.github_output, out)
@@ -940,6 +1058,17 @@ def cmd_judge(args: argparse.Namespace) -> int:
     head = probe.bad or probe.sha
     commits = first_parent_range(probe.good, head)
     step, value = next_step(probe, conclusion, commits)
+    try:
+        runs = list_runs(args.repo, args.branch) if step == "probe" else []
+    except RuntimeError:
+        runs = []
+    for _ in range(len(commits)):  # each known verdict narrows the range, so this ends
+        known = known_verdict(runs, value, jobs_of) if step == "probe" and isinstance(value, Probe) else None
+        if not known:
+            break
+        summary(args.summary, f"`{value.job}` was already {known[0]} at `{value.sha[:11]}` (probe run {known[1]['id']}); not probing it again.")
+        conclusion, probe = known[0], value
+        step, value = next_step(value, known[0], commits)
     if step in ("probe", "retry"):
         assert isinstance(value, Probe)
         summary(args.summary, f"`{probe.job}` was {conclusion or 'unfinished'} at `{probe.sha[:11]}`; next probe `{value.sha[:11]}` (good `{value.good[:11]}`, bad `{value.bad[:11]}`).")
@@ -951,6 +1080,8 @@ def cmd_judge(args: argparse.Namespace) -> int:
         out.update(culprit=value, job=probe.job, good=probe.good if conclusion == "failure" else probe.sha, origin=probe.origin)
     elif step == "flake":
         summary(args.summary, f"`{probe.job}` passed again at `{probe.sha[:11]}`: the batch red did not repeat (a flake); no bisect.")
+    elif conclusion == "skipped":
+        summary(args.summary, f"`{probe.job}` was skipped at `{probe.sha[:11]}` (its own condition; the same probe would skip again): the bisect stops here.")
     else:
         summary(args.summary, f"`{probe.job}` gave no verdict at `{probe.sha[:11]}` twice; the bisect stops here.")
     write_outputs(args.github_output, out)

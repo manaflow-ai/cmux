@@ -1,7 +1,8 @@
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { Notice } from "../../ui/Notice";
 import { Clock } from "../../ui/Typography";
 import { type HostRestoring, hostRecoveryLine } from "./hostRetry";
+import { noteHostLine } from "./flickerLog";
 import { useNow } from "./subagents/subagentGroupModel";
 import { useT } from "./i18n";
 import { waitedText } from "./hostErrorModel";
@@ -60,6 +61,22 @@ export function HostError({
 /// person and the chat comes back by itself (Leo, 2026-11-12: "the recovery needs to be a lot better
 /// and it shouldn't talk so much bullshit"; "try what? no, it should just automatically do stuff").
 /// Only a failure asking again cannot clear keeps its message and its one action.
+/// Records the host line `line` in the flicker ring while it is on screen: `shown` when it mounts,
+/// `cleared` with how long it showed when it goes (flickerLog.ts `host-line`). The gallery and tests
+/// start no flicker log, so they record nothing.
+function useHostLineLog(line: string): void {
+  useEffect(() => {
+    const shown = Date.now();
+    noteHostLine(line, "shown");
+    return () => noteHostLine(line, "cleared", Date.now() - shown);
+  }, [line]);
+}
+
+function HostLineLog({ line }: { line: string }) {
+  useHostLineLog(line);
+  return null;
+}
+
 export function HostUnavailableLine({
   message,
   detail,
@@ -90,6 +107,7 @@ export function HostUnavailableLine({
   // and a narrower one shows Restart and Retry as their icons.
   return (
     <div className="acpmux-host-line-group cv-fit" role="alert">
+      <HostLineLog line="unavailable" />
       <div className="acpmux-host-line cv-fit-row">
         <p
           className="acpmux-host-line-message cv-fit-text selectable"
@@ -114,9 +132,10 @@ export function HostUnavailableLine({
           ) : (
             onRetry && (
               // retry-prompt-ok: only a failure asking again by itself cannot clear reaches here (`selfRetrying`
-              // false): a chat too large to open ("Update cmux to open this chat, then Retry"), or a refusal that
-              // waits on the person (acpmux missing or stopped, an untrusted folder). Its Retry sends `ready`, which
-              // starts a stopped agent service; the pane's own asks never do (App.tsx `retryNow`).
+              // false), and App.tsx passes `onRetry` only for a chat too large to open ("Update cmux to open
+              // this chat, then Retry") or a chat's machine the person brings back. This app's own agent
+              // service has no Retry: the pane asks again itself, forever, and starts a stopped one itself
+              // (paneSnapshot.ts `startOnAsk`; cmux#60478, a brief forwarded as Leo's, unverified).
               <button type="button" title={retryLabel} aria-label={retryLabel} onClick={onRetry} disabled={retrying}>
                 <Icon name="action.retry" size={12} />
                 <span className="cv-fit-label">{retryLabel}</span>
@@ -171,6 +190,7 @@ export function ConnectionChip({
   variant?: ConnectionChipVariant;
 }) {
   const label = typeof words === "string" ? words : undefined;
+  useHostLineLog(kind);
   return (
     <output
       className="acpmux-host-chip"

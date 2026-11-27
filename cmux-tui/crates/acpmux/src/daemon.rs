@@ -66,6 +66,8 @@ mod handover;
 mod home_watch;
 #[cfg(unix)]
 pub(crate) mod listener_handover;
+#[cfg(unix)]
+pub(crate) mod listener_keeper;
 mod managed_unit;
 // A launchd job's start stands by while another daemon holds its home (`daemon/launchd_standby.rs`).
 mod launchd_standby;
@@ -259,6 +261,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     tracing::debug!(target: HANDOFF_TIMING, "handoff timing: run");
     // The start of every startup phase in `daemon status` is timed from (`gauges.rs`).
     let gauges = crate::gauges::global();
+    // Memory stall as PSI from reclaim counters, warm by the time `machine load` asks (RFD 0182 B1).
+    crate::host_pressure::mem_stall::start_global();
     crate::cli::cloud_join::retain_own_machine_consent_requirement()?;
     // The CLI restores default SIGPIPE so `acpmux ls | head` ends quietly. A
     // daemon must not die when its launcher or a client goes away mid-write:
@@ -489,7 +493,20 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     // stale-socket removal, no bind. A take-over serves the listeners the daemon it took over
     // from handed it (`daemon/listener_handover.rs`): the same sockets, whose queues never closed.
     #[cfg(unix)]
-    let taken_over = listener_handover::take_received();
+    let mut taken_over = listener_handover::take_received();
+    // A restart through the service manager: the listeners a keeper held across it
+    // (`daemon/listener_keeper.rs`), and the egress proxy serves its own at once.
+    #[cfg(unix)]
+    {
+        if taken_over.ws.is_none() && taken_over.egress.is_none() {
+            let held = listener_keeper::take_held(&home());
+            taken_over.ws = held.ws;
+            taken_over.egress = held.egress;
+        }
+        if let Some(egress) = taken_over.egress.take() {
+            crate::vault::egress::serve_handed(egress);
+        }
+    }
     #[cfg(unix)]
     let unix_listener = match (handed.unix(&socket_path()), taken_over.unix) {
         (Some(listener), _) => listener,
@@ -1340,6 +1357,13 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
         let weak = weak.clone();
         crate::supervise::restarting("resume", &hub.fatal, move || Hub::resume_loop(weak.clone()));
     }
+    // Chats settle on their own by `agents.autoSettle.*` (`hub/auto_settle.rs`).
+    {
+        let weak = weak.clone();
+        crate::supervise::restarting("auto-settle", &hub.fatal, move || {
+            Hub::auto_settle_loop(weak.clone())
+        });
+    }
     // Claude and Codex desktop sessions listed as chats, while `agents.desktopBridge.enabled`
     // (`hub/desktop_bridge.rs`).
     crate::supervise::restarting("desktop bridge", &hub.fatal, move || {
@@ -1526,7 +1550,14 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
     if listener_handover::handed_to_live() {
         unix_accept.abort();
         hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+        crate::vault::egress::stop_accepting();
         tracing::info!("listeners handed over: stopped accepting; the next daemon serves them");
+    } else if hub.restart_requested.load(std::sync::atomic::Ordering::SeqCst)
+        && !listener_keeper::hold_for_next(&home()).is_empty()
+    {
+        // A service manager's restart: a keeper holds the TCP ports for the next daemon
+        // (`daemon/listener_keeper.rs`); new egress connects wait in its queue from now on.
+        crate::vault::egress::stop_accepting();
     }
     let shutdown_started = tokio::time::Instant::now();
     // Whether this stop execs in place is decided now, for the whole stop (`daemon/handoff.rs`).

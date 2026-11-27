@@ -47,12 +47,10 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      - name: Drop stale submodule checkouts (self-hosted reused workspace)
-        run: scripts/ci/reset-stale-submodules.sh
-
-      # Its own rules (no tier gate, no job-level if:, the build NIGHTLY runs), in about a second.
-      - name: The compile preflight's own test
-        run: python3 -I tests/test_ci_compile_preflight.py
+      # Its own test (no tier gate, no job-level if:, the build NIGHTLY runs) is the step table's
+      # compile-preflight-rules step (ci/steps.toml), routed by these files. It ran here on every head, 14-15 s of a
+      # 40 s no-op run (jobs 140303340556, 140303466828, 2026-11-27 04:00Z), about 300 runs an hour: ~1.8k
+      # runner-min/day (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period.").
 
       - name: Does this change reach a web bundle
         id: touched
@@ -65,6 +63,12 @@ jobs:
             # A dispatch (or a head with no merge commit) builds: there is no base to compare with.
             echo "web=true" >> "$GITHUB_OUTPUT"
           fi
+
+      # Only a head that builds needs the reset: a head that reaches no web bundle (about 60% of heads, a 43 s median
+      # job) passes after the diff alone (scripts/measure/ci140-pr-segment).
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        if: steps.touched.outputs.web == 'true'
+        run: scripts/ci/reset-stale-submodules.sh
 
       - name: Source key of the web bundles
         id: web-bundle-key

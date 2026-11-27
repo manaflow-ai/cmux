@@ -85,7 +85,8 @@ import { editQueued, openSenderChat } from "../rows/rowActions";
 import { HatQuestions, type HatQuestionActions } from "../question/HatQuestions";
 import { hatShows, type HatQuestion } from "../question/hatModel";
 import { keptInChat, removeQueued, sendWhenTaken, heldRefusal, heldGoesAfterTrust, type SentFrom } from "./sendHost";
-import { keptAttachments } from "./draftHost";
+import { untilAcpmuxTakesSends, paneSends } from "../sendWhenReady";
+import { keptAttachments, postComposerFilled } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
 import type { AcpmuxSnapshot, AcpmuxRow, AcpmuxPermission } from "../model";
 import type { RunMode, SandboxRun, SandboxTab, AutoRow } from "../sandboxRun";
@@ -1009,6 +1010,7 @@ export function drawPaneComposer({
             key={subagentRelay ? subagentDraftKey : undefined}
             relay={subagentRelay}
             onFocusEdge={markDockEdge}
+            onFilled={quick ? undefined : postComposerFilled}
             cloudStarting={cloudStarting}
             {...(onCloudStartQueue ? { onCloudStartQueue } : {})}
             snapshot={composerDrawn}
@@ -1109,6 +1111,56 @@ export function drawPaneComposer({
               // the prompt); a composer kept for a refused draft sends as Persistent once picked.
               // The Trust continuation uses ComposerHandle.send(force), but never bypasses auth.
               if (authBlock || cloningGitHub) return false;
+              // A send to this pane's own chat, which nothing else (a Cloud start or wake, the
+              // sandbox, the folder's trust, a held fork, Start Agent, a View Only chat) takes first:
+              // it may leave the composer at once and wait in the pane, in order, for acpmux to
+              // connect or for the sends before it. (A file still attaching never holds it either:
+              // composer/sendBehind.ts sends it ahead of the file, `onBindSendAhead`.)
+              const waitsInPane =
+                !paneSends.noAcpmux &&
+                Boolean(snapshot.sessionId) &&
+                surfaceRef.current !== "quick" &&
+                !projectDraft &&
+                !snapshot.summary?.watching &&
+                !(sandboxHoldsChat && !sandboxDraftMoved) &&
+                !cloudPicked &&
+                !sandboxPickedNotOffered &&
+                !sandboxing &&
+                !(cloudWakeChat && cloudRecovery.state !== "deleted" && !quick) &&
+                !trustHolds &&
+                !trustHeld.pending() &&
+                !heldFork(snapshot.sessionId);
+              /// Puts the prompt in the pane's queue (startingSends.ts): its row shows now, as sent
+              /// when the agent is idle, and it goes once acpmux takes prompts here and every prompt
+              /// sent before it was taken, so none overtakes another (Leo,
+              /// 2026-11-17: a message sent while another is queued must not go before it).
+              const sendInTurn = () => {
+                const before = paneSends.inFlight;
+                // It goes to the chat it was sent in: one the pane left meanwhile refuses it
+                // (`expectedSessionId`), and it comes back to the composer, never into the chat shown now.
+                const sentIn = snapshot.sessionId || undefined;
+                startingSends.add(
+                  text,
+                  shellContextAttachments(chips ?? [], (id) => shellRuns.get(id)),
+                  async (words, attachments, held) => {
+                    await before;
+                    await untilAcpmuxTakesSends();
+                    return sendWhenTaken(steer === true, sentIn)(
+                      words,
+                      shellContextAttachments(attachments, (id) => shellRuns.get(id)),
+                      held,
+                    );
+                  },
+                  gesture,
+                  gesture?.promptId,
+                  { asSent: !snapshot.isWorking },
+                );
+                return true;
+              };
+              // `@computer-use` not ready, or a chat off this Mac (`computerUsePlace`): the composer keeps
+              // the message (CMUX-682), before it can go to the pane's queue.
+              if (waitsInPane && holdsForComputerUseSetup(text, false, computerUsePlace, false)) return false;
+              if (waitsInPane && !window.cmuxAcpmuxActions?.["chat.send"]) return sendInTurn();
               if (sandboxHoldsChat && !sandboxDraftMoved) return false;
               // Auto picked: the daemon says where first; the prompt stays until it has, then sends there.
               if (autoSendGate.holds()) return false;
@@ -1200,12 +1252,27 @@ export function drawPaneComposer({
                 cloudRecovery.resume();
                 return true;
               }
-              // Until acpmux connects nothing takes a prompt; the composer keeps it.
-              if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+              // Until acpmux connects nothing takes a prompt. One to this pane's own open chat, which
+              // nothing else takes first (a held fork, the folder's trust), shows as sent now and goes
+              // in its turn once the page connects (sendWhenReady.ts `untilAcpmuxTakesSends`; Leo,
+              // 2026-11-17: "I CAN'T EVEN SEND A MESSAGE WHILE THE THING LOADS"); any other stays in
+              // the composer.
+              const connecting = !window.cmuxAcpmuxActions?.["chat.send"];
+              const waitsToConnect =
+                connecting &&
+                !paneSends.noAcpmux &&
+                Boolean(snapshot.sessionId) &&
+                surfaceRef.current !== "quick" &&
+                !projectDraft &&
+                !snapshot.summary?.watching &&
+                !heldFork(snapshot.sessionId) &&
+                !trustHolds &&
+                !trustHeld.pending();
+              if (connecting && !waitsToConnect) return false;
               // An installed harness mention is a read-only guest request. Keep the normal send
               // path untouched for ordinary @text, code, attachments, or unknown profiles; the first
               // known mention outside code gets one inline guest note at the transcript tail.
-              if (guestsHere && !chips?.length && snapshot.sessionId && directClient.current) {
+              if (!connecting && guestsHere && !chips?.length && snapshot.sessionId && directClient.current) {
                 const guest = guestMention(text, composerSnapshot.catalog);
                 if (guest) {
                   const changedFiles =
@@ -1296,19 +1363,30 @@ export function drawPaneComposer({
                 !projectDraft &&
                 !snapshot.summary?.watching
               ) {
-                // Prompts sent while the chat started still wait to go: this one goes after them.
-                if (startingSends.busy) {
-                  startingSends.add(text, attachments, sendWhenTaken(steer === true), gesture);
-                  return true;
-                }
+                // Prompts sent before it still wait to go, one is still on its way to acpmux, or the page
+                // has not connected yet: this one goes after them (`sendInTurn`).
+                if (startingSends.busy || paneSends.direct > 0 || waitsToConnect) return sendInTurn();
                 const holder = composerHandle.current;
                 const sentOn = directClient.current;
+                // Until acpmux takes it (or refuses it), a prompt sent after it waits behind it.
+                paneSends.direct += 1;
+                let landed!: () => void;
+                paneSends.inFlight = new Promise<void>((resolve) => (landed = resolve));
+                let taken = false;
+                const tookIt = () => {
+                  if (taken) return;
+                  taken = true;
+                  paneSends.direct -= 1;
+                  landed();
+                };
                 // A typed reply while the chat's own question waits answers it in the chat: the
                 // question is declined first, so the agent reads the reply instead of waiting on it
                 // (question/hatModel.ts, relevance fade). Its record then says "Answered in chat".
-                withdrawForTypedReply(individualPermission, sentOn, () =>
-                  callNative("chat.send", { text, attachments, steer, ...(gesture ? { gesture } : {}) }),
-                ).then(
+                const direct = withdrawForTypedReply(individualPermission, sentOn, () =>
+                  callNative("chat.send", { text, attachments, steer, taken: tookIt, ...(gesture ? { gesture } : {}) }),
+                );
+                direct.then(tookIt, tookIt);
+                direct.then(
                   () => {
                     rememberStart();
                     promptLanded.current();
@@ -1328,9 +1406,10 @@ export function drawPaneComposer({
                     // hold it does it come back to the composer, saying why.
                     void keepLostPrompt(error, connectedClients, sentOn, { input: text, attachments }).then(
                       (outcome) => {
-                        // A failed row keeps the host's copy (unsentPrompts.ts) for a relaunch;
+                        // A failed row keeps the host's copy (unsentPrompts.ts) for a relaunch, as
+                        // does a chat the pane left (its store draws it there, never this composer);
                         // a shown prompt is acpmux's, and one given back is the composer's.
-                        if (outcome === "failed") return;
+                        if (outcome === "failed" || outcome === "away") return;
                         sentOn?.forgetUnsentPrompt(lostPrompt(error)!.promptId);
                         if (outcome === "shown") return promptLanded.current();
                         giveBack();

@@ -21,9 +21,15 @@
 //! (`host.rs`, `still_pooled`), and the next daemon ends any left in the
 //! pool directory before it adopts hosts (`sweep_pool_hosts`).
 //!
-//! Only a daemon in a user manager's service unit moves hosts: one in a
-//! terminal, a login session scope or under launchd leaves them where they
-//! are. `ACPMUX_HOST_SCOPES=0` turns it off. Best effort: a failed move is
+//! Only a daemon in a user manager's service unit moves hosts, or one in a
+//! user manager's scope that carries a memory ceiling (`systemd-run --user
+//! --scope -p MemoryHigh=`): there every host's and harness's memory counted
+//! against the daemon's ceiling, and the duress bench's bigchat leg measured
+//! it (10417 `memory.high` events, 407 processes and 10.7 GB of RSS in the
+//! daemon's 768 MB scope, the daemon's own pages swapped out: CLI `ls` p99
+//! 517 ms; with the fork driver, the one that starts hosts, off: 10 events, 33
+//! processes, 173 ms). One in a terminal's scope with no ceiling, a login
+//! session scope or under launchd leaves them where they are. `ACPMUX_HOST_SCOPES=0` turns it off. Best effort: a failed move is
 //! logged and leaves the host in the daemon's unit, as before, and no move is
 //! tried for [`RETRY_AFTER`], so a broken bus does not slow every spawn.
 #![cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -58,6 +64,34 @@ pub(crate) fn in_user_service(cgroup: &str) -> bool {
         parts.any(|p| p.starts_with("user@") && p.ends_with(".service"))
             && parts.next_back().is_some_and(|leaf| leaf.ends_with(".service"))
     })
+}
+
+/// Whether `cgroup`, the text of a process's `/proc/<pid>/cgroup`, places it in a scope unit of a
+/// user manager (`…/user@1000.service/…/run-x.scope`), not the manager's own `init.scope`.
+pub(crate) fn in_user_scope(cgroup: &str) -> bool {
+    unified(cgroup).is_some_and(|path| {
+        let mut parts = path.split('/').filter(|p| !p.is_empty());
+        parts.any(|p| p.starts_with("user@") && p.ends_with(".service"))
+            && parts
+                .next_back()
+                .is_some_and(|leaf| leaf.ends_with(".scope") && leaf != "init.scope")
+    })
+}
+
+/// Whether a cgroup's `memory.high` or `memory.max` text (`limit`: the file's name to its text,
+/// None when unreadable) is a ceiling: a number, not `max`.
+pub(crate) fn has_memory_ceiling(limit: impl Fn(&str) -> Option<String>) -> bool {
+    ["memory.high", "memory.max"]
+        .into_iter()
+        .any(|file| limit(file).is_some_and(|t| t.trim().parse::<u64>().is_ok()))
+}
+
+/// Whether a daemon with this `/proc/self/cgroup` text moves the hosts it starts out of its own
+/// cgroup: a user manager's service unit always; a user manager's scope when its memory is
+/// capped (`limit` reads that scope's `memory.high` and `memory.max`), since every host's memory
+/// would otherwise throttle the daemon.
+pub(crate) fn moves_hosts_from(cgroup: &str, limit: impl Fn(&str) -> Option<String>) -> bool {
+    in_user_service(cgroup) || (in_user_scope(cgroup) && has_memory_ceiling(limit))
 }
 
 /// The cgroup v2 path in `/proc/<pid>/cgroup` text.
@@ -152,6 +186,7 @@ pub(crate) fn backing_off(failed: Option<std::time::Instant>, now: std::time::In
 mod linux {
     use super::*;
     use crate::no_panic::LockExt;
+    use crate::session_budget::TaskClass;
     use std::process::Stdio;
     use std::sync::{Mutex, OnceLock};
     use std::time::Instant;
@@ -175,7 +210,11 @@ mod linux {
                     return None;
                 }
                 let own = std::fs::read_to_string("/proc/self/cgroup").ok()?;
-                in_user_service(&own).then(|| unified(&own).map(str::to_owned)).flatten()
+                let path = unified(&own)?.to_owned();
+                let limit = |file: &str| {
+                    std::fs::read_to_string(format!("/sys/fs/cgroup{path}/{file}")).ok()
+                };
+                moves_hosts_from(&own, limit).then_some(path)
             })
             .as_deref()
     }
@@ -197,15 +236,16 @@ mod linux {
     /// Move the host `pid` this process just started, and has not reaped
     /// (its pid cannot be reused), into its own scope. Never fails the spawn.
     pub(crate) async fn place(pid: u32) {
-        place_in(pid, None).await;
+        place_in(pid, None, TaskClass::Task).await;
     }
 
-    /// [`place`] into `slice` (a session's, `session_total.rs`); None: [`HOST_SLICE`].
-    pub(crate) async fn place_in(pid: u32, slice: Option<String>) {
+    /// [`place`] into `slice` (a session's, `session_total.rs`); None: [`HOST_SLICE`]. `class`
+    /// is the task's CPU class (a filler task at `CPUWeight=idle` under CPU classes).
+    pub(crate) async fn place_in(pid: u32, slice: Option<String>, class: TaskClass) {
         if enabled() {
             let slice = slice.as_deref().unwrap_or(HOST_SLICE);
             let placed = match tag() {
-                Ok(tag) => try_place(&scope_unit(pid, &tag), pid, slice).await,
+                Ok(tag) => try_place(&scope_unit(pid, &tag), pid, slice, class).await,
                 Err(e) => Err(e),
             };
             report(pid, placed);
@@ -222,7 +262,7 @@ mod linux {
         );
     }
 
-    async fn try_place(unit: &str, host: u32, slice: &str) -> Result<(), String> {
+    async fn try_place(unit: &str, host: u32, slice: &str, class: TaskClass) -> Result<(), String> {
         let busctl = BUSCTL
             .iter()
             .find(|p| std::path::Path::new(p).is_file())
@@ -245,7 +285,7 @@ mod linux {
                 .kill_on_drop(true)
                 .output()
         };
-        let budget = crate::session_budget::task_budget().0.bus_properties();
+        let budget = crate::session_budget::task_budget(class).0.bus_properties();
         let output = tokio::time::timeout(PLACEMENT_WAIT, call(budget))
             .await
             .map_err(|_| format!("busctl did not answer within {PLACEMENT_WAIT:?}"))?
@@ -298,9 +338,15 @@ pub(crate) async fn place(_pid: u32) {}
 
 /// Hosts move into scopes only under a Linux user manager.
 #[cfg(not(target_os = "linux"))]
-pub(crate) async fn place_in(_pid: u32, _slice: Option<String>) {}
+pub(crate) async fn place_in(
+    _pid: u32,
+    _slice: Option<String>,
+    _class: crate::session_budget::TaskClass,
+) {
+}
 
-/// Whether hosts and tasks move into scopes here (a user manager's service unit, moves on).
+/// Whether hosts and tasks move into scopes here (a user manager's service unit, or a scope of it
+/// under a memory ceiling; moves on).
 #[cfg(target_os = "linux")]
 pub(crate) fn moves() -> bool {
     linux::moves()

@@ -4,7 +4,7 @@
  *
  * On 2026-11-16 the image roll failed four runs on it: a file write in the bake (jobs 133444252629,
  * 133446604123), the VM delete after a passing smoke (133426693737) and the agent-tools probe (133432870475).
- * The answer is HTTP 429, code TOO_MANY_REQUESTS: the provider refused the request before doing it, so
+ * The answer is HTTP 429, code TOO_MANY_REQUESTS (or, for a VM start, INFRASTRUCTURE_OVERLOADED): the provider refused the request before doing it, so
  * sending it again is safe whatever its method. Nothing else is retried here: any other status, a lost
  * response, and a stored answer of a request that ran (the background request id header) go to the caller
  * as before. The wait is bounded (CAPACITY_RETRY_DELAYS_MS, about 3 minutes), so a real outage still fails.
@@ -24,17 +24,24 @@ export type CapacityRetryDeps = {
   delaysMs?: readonly number[];
 };
 
-/** A 429 whose message says the provider is at capacity. */
+/**
+ * A 429 whose message says the provider is at capacity, or its VM start answer INFRASTRUCTURE_OVERLOADED
+ * ("infrastructure overloaded: VM start capacity queue wait expired"): the start was refused before any VM was
+ * made. Image roll runs 45939027983..45954186557 (11-27 04:17Z..06:51Z) all failed on that one, which this matcher
+ * did not know, so the bake gave up at its first create.
+ */
 export function isCapacityAnswer(status: number, body: string): boolean {
   if (status !== 429) return false;
   let message = body;
+  let code = "";
   try {
-    const parsed = JSON.parse(body) as { message?: unknown };
+    const parsed = JSON.parse(body) as { message?: unknown; code?: unknown };
     if (typeof parsed?.message === "string") message = parsed.message;
+    if (typeof parsed?.code === "string") code = parsed.code;
   } catch {
     // a plain-text body is its own message
   }
-  return /\bat capacity\b/i.test(message);
+  return code === "INFRASTRUCTURE_OVERLOADED" || /\bat capacity\b|\binfrastructure overloaded\b|\bcapacity queue wait expired\b/i.test(message);
 }
 
 /** Only a body sent whole can be sent again; a stream is spent by the first send. */

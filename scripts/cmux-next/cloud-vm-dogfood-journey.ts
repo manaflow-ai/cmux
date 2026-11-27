@@ -931,7 +931,7 @@ async function npmBenchVm(kind: "locked" | "unlocked"): Promise<string> {
       "/v1/vms",
       {
         displayName: `npm bench ${kind} ${runId}`.slice(0, 100),
-        idleTimeoutSeconds: 600,
+        idleTimeoutSeconds: 300, // dev/test VMs cap idle at 300s; exec traffic keeps it awake
         autoDeleteSeconds: 3600,
         initialNetwork,
         labels: { purpose: "npm-bench", run: runId.slice(0, 63), ...(useService ? { role: "chief" } : {}) },

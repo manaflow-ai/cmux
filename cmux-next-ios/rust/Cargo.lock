@@ -681,8 +681,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-local-url"
+version = "0.1.0"
+dependencies = [
+ "regex-automata",
+ "url",
+]
+
+[[package]]
 name = "cmux-message-preview"
 version = "0.1.0"
+dependencies = [
+ "unicode-segmentation",
+]
 
 [[package]]
 name = "cmux-mobile-auto"
@@ -721,6 +732,7 @@ dependencies = [
  "cmux-mobile-core",
  "cmux-mobile-link",
  "cmux-output-paint",
+ "cmux-phone-page",
  "cmux-rd-core",
  "cmux-rd-engine",
  "cmux-rd-proto",
@@ -825,6 +837,7 @@ dependencies = [
  "cmux-composer-send",
  "cmux-fault",
  "cmux-follow-cam",
+ "cmux-local-url",
  "cmux-mobile-auto",
  "cmux-mobile-core",
  "cmux-mobile-host",
@@ -875,6 +888,13 @@ dependencies = [
 [[package]]
 name = "cmux-output-paint"
 version = "0.1.0"
+
+[[package]]
+name = "cmux-phone-page"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
 
 [[package]]
 name = "cmux-process"
@@ -960,6 +980,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "cmux-region-pick"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-relay-snapshot"
@@ -1116,6 +1140,7 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "unicode-segmentation",
  "uuid",
 ]
 

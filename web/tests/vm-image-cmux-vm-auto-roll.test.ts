@@ -827,15 +827,16 @@ describe("auto-roll scripts", () => {
       mkdirSync(fakeBin);
       const realBun = (await runChildOk("bash", ["-c", "command -v bun"], { env: process.env })).stdout.trim();
       // files.cmux.com's latest manifest, as pin-cmux-tui.ts --latest prints it; LATEST=fail answers like a 503.
+      // --commit SHA answers for the commits in PUBLISHED (their builds are published) and 404s for the rest.
       writeFileSync(
         path.join(fakeBin, "bun"),
-        `#!/usr/bin/env bash\ncase "\${1:-}" in *pin-cmux-tui.ts)\n  [ "$LATEST" = fail ] && { echo "latest/manifest.json: 503" >&2; exit 1; }\n  printf '{"commit":"%s","unchanged":%s}' "$LATEST" "\${UNCHANGED:-false}"; exit 0;;\nesac\nexec ${realBun} "$@"\n`,
+        `#!/usr/bin/env bash\ncase "\${1:-}" in *pin-cmux-tui.ts)\n  if [ "\${2:-}" = --commit ]; then case " \${PUBLISHED:-} " in *" $3 "*) printf '{"commit":"%s","unchanged":false}' "$3"; exit 0;; esac; echo "$3/manifest.json: 404" >&2; exit 1; fi\n  [ "$LATEST" = fail ] && { echo "latest/manifest.json: 503" >&2; exit 1; }\n  printf '{"commit":"%s","unchanged":%s}' "$LATEST" "\${UNCHANGED:-false}"; exit 0;;\nesac\nexec ${realBun} "$@"\n`,
       );
       await runChildOk("chmod", ["+x", path.join(fakeBin, "bun")]);
       const script = path.join(repoRoot, "images/cmux-vm/auto-roll.ts");
-      const plan = async (latest: string, unchanged = "false") => {
+      const plan = async (latest: string, unchanged = "false", published: string[] = []) => {
         const out = await runChildOk(path.join(fakeBin, "bun"), [script, "plan", "--event", "push", "--commit", tip, "--before", before, "--tip", "HEAD", "--lock", lock, "--repo", full], {
-          env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, LATEST: latest, UNCHANGED: unchanged },
+          env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}`, LATEST: latest, UNCHANGED: unchanged, PUBLISHED: published.join(" ") },
         });
         return JSON.parse(out.stdout) as { roll: boolean; reason: string; pin: string; cmuxTui: string };
       };
@@ -858,6 +859,17 @@ describe("auto-roll scripts", () => {
         expect(kept.cmuxTui).toBe(pinned);
         expect(kept.reason).toMatch(why);
       }
+
+      // 2026-11-27: latest/ tracks main (3bb7a878, not on feat-cmux-next), so push rolls kept 348e8a8a while
+      // feat-cmux-next builds were published. The newest published build on the tip is pinned instead.
+      const onTip = await plan(offTip, "false", [older, newer]);
+      expect(onTip.pin).toBe(newer);
+      expect(onTip.cmuxTui).toBe(newer);
+      expect(onTip.reason).toMatch(/newest build published on HEAD .*latest build .* is not on HEAD/);
+      const onlyOlder = await plan(offTip, "false", [older]);
+      expect(onlyOlder.pin).toBe("");
+      expect(onlyOlder.cmuxTui).toBe(pinned);
+      expect(onlyOlder.reason).toMatch(/not on HEAD; none of the 3 newest commits after the pin has a published build/);
     }), 60_000);
 
   // Roll 44191283358's re-run (attempt 2) promoted cmux-tui 6c776483 at 2026-11-18 04:53Z over roll 44224051230's

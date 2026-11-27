@@ -42,7 +42,9 @@ impl TransportKind {
         match payload {
             SignalPayload::WebrtcOffer { media_for: Some(_), .. } => None,
             SignalPayload::WebrtcOffer { .. } => Some(Self::WebRtc),
-            SignalPayload::WgInit { .. } | SignalPayload::WgResumed { .. } => Some(Self::WireGuard),
+            SignalPayload::WgInit { .. }
+            | SignalPayload::WgRelay { .. }
+            | SignalPayload::WgResumed { .. } => Some(Self::WireGuard),
             _ => None,
         }
     }
@@ -165,6 +167,12 @@ pub struct DialOptions {
     /// after nothing reached it. On by default; off dials as a build before
     /// relay-first did (tests of the older join rules).
     pub relay_first: bool,
+    /// The phone joins the relay right after its early `wg-relay` (PROTOCOL.md "Early
+    /// join"), with its Bearer token, so the join runs beside the gather and the signaling
+    /// round trip. Needs [`Self::relay_first`] and a Mac that offers `first` too (else the
+    /// join ends unused). On by default; off dials as a build before it did (the phone
+    /// joins as its tunnel starts on the Mac's answer).
+    pub relay_join_early: bool,
     /// Where a WireGuard dial records each path's failure, for the error it
     /// returns when none works ([`DialError::Blocked`]). Shared by clones.
     pub diagnosis: diagnosis::Diagnosis,
@@ -334,6 +342,7 @@ impl Default for DialOptions {
             relay: None,
             force_relay: false,
             relay_first: true,
+            relay_join_early: true,
             diagnosis: diagnosis::Diagnosis::default(),
             relay_leave_after: None,
             include_loopback: false,
@@ -948,8 +957,14 @@ pub async fn answer(
     let dialed = match result {
         Ok(Ok(dialed)) => dialed,
         Ok(Err(error)) => {
-            let _ =
-                signaling.send_signal(&peer, &session_id, SignalPayload::Bye { reason: error.to_string() });
+            // No bye for an early cue that no `wg-init` followed.
+            if !matches!(&error, DialError::Bye(reason) if reason == wireguard::EARLY_CUE_STALE) {
+                let _ = signaling.send_signal(
+                    &peer,
+                    &session_id,
+                    SignalPayload::Bye { reason: error.to_string() },
+                );
+            }
             return Err(error);
         }
         Err(_) => {

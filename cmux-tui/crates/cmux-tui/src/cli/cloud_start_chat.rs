@@ -1497,8 +1497,10 @@ fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
                         details.entry("machine_name").or_insert_with(|| json!(name));
                     }
                 }
-                // A failure after this run made its machine names it, so the caller can delete it.
-                if let Some(id) = &progress.made {
+                // A failure names its new machine for caller cleanup only when rollback has not deleted it.
+                let deleted =
+                    details.get("cleanup").and_then(|c| c.get("deleted")) == Some(&json!(true));
+                if let Some(id) = progress.made.as_ref().filter(|_| !deleted) {
                     details.insert("machine_id".to_owned(), json!(id));
                     details.insert("new_machine".to_owned(), json!(true));
                 }
@@ -1861,11 +1863,17 @@ fn steps(
     let started = match step_result(&ran) {
         Ok(started) => started,
         Err(error) => {
+            let asked = at(&error, "message").clone();
             let error = match &fresh {
                 Some(name) => unmade_fresh_retry(runner, error, name, request),
                 None => error,
             };
+            let no_machine = progress.made.is_none() && at(&error, "message") != &asked;
             let refused = start_refused(error, &listed, request);
+            // The rewritten retry already proves no machine has this run's fresh name.
+            if no_machine {
+                return refused;
+            }
             return fresh::release_refused(
                 runner,
                 fresh.as_deref(),
@@ -2848,17 +2856,31 @@ impl PushedTurn {
     }
 }
 
-/// What a failed turn in `acp history` says about its end: its own error (a string, or an
-/// object's `message`), else its status (`the turn ended failed`).
+/// What a failed turn in `acp history` says about its end: its own error (`errorText`, as
+/// acpmux's `lastTurn` keeps it, or `error`: a string, or an object's `message`) and what to do
+/// (`recovery`), else its status (`the turn ended failed`) and that no reason was recorded.
 fn turn_failure_message(turn: &Turn) -> String {
-    let error = turn.value.get("error");
-    let said = error
-        .and_then(Value::as_str)
-        .or_else(|| error.and_then(|error| error.get("message")).and_then(Value::as_str));
-    match said.map(str::trim).filter(|said| !said.is_empty()) {
+    let said = ["errorText", "error"].into_iter().find_map(|key| {
+        let error = turn.value.get(key)?;
+        error
+            .as_str()
+            .or_else(|| error.get("message").and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|said| !said.is_empty())
+    });
+    let mut message = match said {
         Some(said) => super::wire::sanitize_remote_text(said),
-        None => format!("the turn ended {}", turn.status),
+        None if turn.status == "cancelled" => format!("the turn ended {}", turn.status),
+        None => format!("the turn ended {} and its chat recorded no reason", turn.status),
+    };
+    if let Some(recovery) = turn.value.get("recovery").and_then(Value::as_str).map(str::trim)
+        && !recovery.is_empty()
+        && !message.contains(recovery)
+    {
+        message.push_str(if message.ends_with(['.', '!', '?']) { " " } else { ". " });
+        message.push_str(&super::wire::sanitize_remote_text(recovery));
     }
+    message
 }
 
 /// Stop reasons of a turn that ended without its reply (as the history's failed statuses).

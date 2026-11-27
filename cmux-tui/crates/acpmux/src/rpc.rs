@@ -650,6 +650,11 @@ pub mod method {
     pub const MUX_TEAM_ACK: &str = "_acpmux/team/ack";
     /// Open, list and close a listen on another member's agent address, and read what it receives.
     pub const MUX_TEAM_LISTEN: &str = "_acpmux/team/listen";
+    /// RFD 0170 phase 1 views of the team directory (`server/team_directory.rs`): the navigator,
+    /// the recipient picker and a session's Session Info, each for the calling principal.
+    pub const MUX_TEAM_NAVIGATOR: &str = "_acpmux/team/navigator";
+    pub const MUX_TEAM_PICK: &str = "_acpmux/team/pick";
+    pub const MUX_TEAM_SESSION_INFO: &str = "_acpmux/team/session_info";
     /// An image a session's prompt sent, by its id (`hub/prompt_images.rs`).
     pub const MUX_ATTACHMENT: &str = "_acpmux/attachment";
     /// A turn's before and after picture of the chat's page (`hub/turn_shots.rs`).
@@ -741,6 +746,12 @@ pub mod method {
     /// The chat menu's Archive (`archived: true`) or Unarchive of one session:
     /// the `archived` tag, valued with when (milliseconds), set or removed.
     pub const MUX_ARCHIVE: &str = "_acpmux/archive";
+    /// A deleted chat back inside its grace (`hub/soft_delete.rs`): `{sessionId}` (its id, or
+    /// its name) -> its summary with `undeleted: true`.
+    pub const MUX_UNDELETE: &str = "_acpmux/undelete";
+    /// The deleted chats inside their grace (`hub/soft_delete.rs`): `{}` -> `{sessions:
+    /// [{sessionId, name, title, deletedAt, restorableUntil}]}`.
+    pub const MUX_DELETED: &str = "_acpmux/deleted";
     /// New side chat: tags the fork `sessionId` as a side chat of `chat` (the
     /// `side` tag, valued with that session), which keeps it off the lists.
     pub const MUX_SIDE: &str = "_acpmux/side";
@@ -1069,6 +1080,9 @@ pub mod method {
     pub const MUX_GOAL_SET: &str = "_acpmux/goal/set";
     pub const MUX_GOAL_UPDATE: &str = "_acpmux/goal/update";
     pub const MUX_GOAL_GET: &str = "_acpmux/goal/get";
+    /// A chat's packed history read back: an outline, a range's digest or one record by seq
+    /// (`server/history.rs`, `hub/compaction_outline.rs`).
+    pub const MUX_HISTORY_READ: &str = "_acpmux/history/read";
     /// Context surgery (`hub/surgery.rs`): mask a Claude chat's old tool output and resume it
     /// on the masked copy, with no model call.
     pub const MUX_SURGERY: &str = "_acpmux/surgery";

@@ -17,6 +17,7 @@ import type { useSessionInfo } from "../session-info/useSessionInfo";
 import type { SaveDocument } from "../conversation/ArtifactPanel";
 import { BrowserSidebar } from "../browser/BrowserSidebar";
 import { Activity } from "react";
+import { ChatViewParked } from "../pickerOpeners";
 import { LivePresenceStack, LiveTypingLine } from "../multiplayer/LivePresence";
 import { ShareDialogHost } from "../share/ShareControl";
 import { holdComposerPlace } from "../composer/composerHandover";
@@ -104,6 +105,7 @@ import type { EvacuateState } from "../place/placeModel";
 import type { EvacuateActions } from "../place/usePlace";
 import { openOfferChat } from "../rows/rowActions";
 import { VirtualTranscript } from "../VirtualTranscript";
+import { SpareRehearsal } from "../spareRehearsal";
 import { LiveTreePill } from "../header/LiveTreePill";
 import { readFolderStatus } from "./hostBindings";
 import { chatMenuHasRows } from "./chatMenu";
@@ -344,10 +346,9 @@ export type PaneBodyDeps = NewTabShown &
     showsChatView: boolean;
     premountsChatView: boolean;
     chatViewMount: React.RefObject<{ shown: boolean; key: number }>;
-    parkVisible: boolean;
     soloUnder: boolean;
     parkStyle: React.CSSProperties | undefined;
-    parkedVisible: boolean;
+    parked: boolean;
     chatName: string;
     renameFromTitle: (() => void) | undefined;
     /// What the header says: the chat's title, or a subagent's own pane's
@@ -633,10 +634,9 @@ export function drawPaneBody({
   showsChatView,
   premountsChatView,
   chatViewMount,
-  parkVisible,
   soloUnder,
   parkStyle,
-  parkedVisible,
+  parked,
   chatName,
   renameFromTitle,
   titleTrail,
@@ -1317,10 +1317,7 @@ export function drawPaneBody({
           {(showsChatView || premountsChatView) && (
             // Its own key space: the classic page beside it is keyed by `newTabGeneration` (0 and up),
             // and a shared key let React lose the page's fiber and mount the page again beside it.
-            <Activity
-              key={`chat-view-${chatViewMount.current.key}`}
-              mode={showsChatView || parkVisible ? "visible" : "hidden"}
-            >
+            <ChatViewParked.Provider key={`chat-view-${chatViewMount.current.key}`} value={parked}>
               <div
                 className={`acpmux-stage${inspectorOpen ? " acpmux-inspecting" : ""}`}
                 data-solo-tab={soloUnder ? "" : undefined}
@@ -1328,7 +1325,7 @@ export function drawPaneBody({
                 // keeps the floating stack's floor for it (bottomStack.css), so the composer keeps its height.
                 data-foot={dockFoot ? "" : undefined}
                 style={parkStyle ?? (inTabRow ? tabRowStyle(tabRow) : undefined)}
-                inert={parkedVisible || undefined}
+                inert={parked || undefined}
               >
                 {/* In the tab row the native tabs draw over this band, so a tooltip stays out of it
                       (ui/titleTooltips.ts `data-tooltip-covered`). */}
@@ -1700,7 +1697,7 @@ export function drawPaneBody({
                 ref={setDock}
                 className="acpmux-dock"
                 style={parkStyle}
-                inert={parkedVisible || undefined}
+                inert={parked || undefined}
                 // The stack holds the composer, whose card always draws its quiet row (ComposerFoot):
                 // bottomStack.css gives the transcript up first for it, from this, not from a
                 // `.acpmux-dock:has(.acpmux-composer-foot)` checked again for every inserted node.
@@ -1718,8 +1715,10 @@ export function drawPaneBody({
                 {/* A draft a refusal put back stays in reach even once the tab's run shows. */}
                 {dockFoot && composer}
               </div>
-            </Activity>
+            </ChatViewParked.Provider>
           )}
+          {/* The spare's warm-up: the hidden chat view above has no rows to run the row code on (spareRehearsal.tsx). */}
+          {premountsChatView && !showsChatView && <SpareRehearsal />}
         </div>
         {!harnessesOpen &&
           !showNewTab &&

@@ -37,6 +37,14 @@ describe("the provider's capacity answer", () => {
     expect(isCapacityAnswer(400, CAPACITY_BODY)).toBe(false);
   });
 
+  test("is the VM start's 429 INFRASTRUCTURE_OVERLOADED (image roll run 45954186557, 2026-11-27)", () => {
+    const overloaded = JSON.stringify({ code: "INFRASTRUCTURE_OVERLOADED", message: "infrastructure overloaded: VM start capacity queue wait expired" });
+    expect(isCapacityAnswer(429, overloaded)).toBe(true);
+    expect(isCapacityAnswer(429, JSON.stringify({ code: "INFRASTRUCTURE_OVERLOADED" }))).toBe(true);
+    expect(isCapacityAnswer(429, "infrastructure overloaded: VM start capacity queue wait expired")).toBe(true);
+    expect(isCapacityAnswer(503, overloaded)).toBe(false);
+  });
+
   test("the retry budget stays a few minutes, so an outage still fails", () => {
     const total = CAPACITY_RETRY_DELAYS_MS.reduce((a, b) => a + b, 0);
     expect(total).toBeGreaterThanOrEqual(120_000);

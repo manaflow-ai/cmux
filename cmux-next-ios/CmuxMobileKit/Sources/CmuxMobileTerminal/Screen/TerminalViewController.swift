@@ -927,8 +927,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // 2026-11-14: "all I did was navigate away and then it showed
             // this, but I didn't type anything"). A scroll's wheel reports, a
             // tap's click report, a key release and Ghostty's replies to
-            // terminal queries go only while attached and never make the
-            // "Keys typed while your Mac was unreachable" notice.
+            // terminal queries go only while attached and are never held for a reattach.
             if surface.isEncodingUserInput {
                 model.session.send(data)
                 // The launch marks' key: one the session took (not refused, not held for a
@@ -1012,6 +1011,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if TerminalFlickerTrace.isRequested {
             flickerTrace = TerminalFlickerTrace(host: view) { [weak self] in self?.flickerSample() }
         }
+        if TerminalPaintOverlay.enabled { installPaintOverlay() }
         #endif
     }
 
@@ -2092,6 +2092,43 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Session bytes Ghostty parsed so far, and as of the last present.
     private var paintParsed = 0
     private var paintParsedAtPresent = 0
+
+    #if DEBUG
+    /// The DEBUG paint-latency overlay (``TerminalPaintOverlay``): hostd's join of each report.
+    private var paintOverlay: UILabel?
+
+    private func installPaintOverlay() {
+        let label = UILabel()
+        label.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        label.textColor = .white
+        label.backgroundColor = UIColor.black.withAlphaComponent(0.6)
+        label.layer.cornerRadius = 4
+        label.layer.masksToBounds = true
+        label.isUserInteractionEnabled = false
+        label.accessibilityIdentifier = "terminal.paintLatencyOverlay"
+        label.numberOfLines = 2
+        label.text = TerminalPaintSummary().overlayText
+        label.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 4),
+            label.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -4),
+        ])
+        paintOverlay = label
+        // Report each second, not each 5 s, so the number is live.
+        paintTally.reportIntervalMs = TerminalPaintOverlay.reportEveryMs
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(paintSummaryArrived(_:)),
+            name: TerminalPaintSummary.didArrive, object: model.session.underlyingSession
+        )
+    }
+
+    @objc private func paintSummaryArrived(_ note: Notification) {
+        guard let summary = note.userInfo?["summary"] as? TerminalPaintSummary else { return }
+        paintOverlay?.text = summary.overlayText
+        paintOverlay?.accessibilityValue = summary.overlayText
+    }
+    #endif
 
     /// A present showed every byte parsed before it: the stamped redraws among them were painted.
     private func paintPresented() {

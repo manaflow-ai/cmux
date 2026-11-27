@@ -199,6 +199,8 @@ keyed! {
     AppReplyParams: ["sessionId", "to", "replyTo", "threadId", "text", "replyId"];
     /// `_acpmux/archive`.
     ArchiveParams: ["sessionId", "archived", "opId"];
+    /// `_acpmux/undelete`.
+    UndeleteParams: ["sessionId"];
     /// `_acpmux/attachment`.
     AttachmentParams: ["sessionId", "id"];
     /// `_acpmux/turn_shots`.
@@ -252,7 +254,9 @@ keyed! {
     /// `initialize`.
     InitializeParams: ["protocolVersion", "clientCapabilities", "clientInfo"];
     /// `_acpmux/kill`.
-    KillParams: ["sessionId", "purge", "cancelFork", "cancelToken", "ifIdle", "expectRevision"];
+    KillParams: [
+        "sessionId", "purge", "grace", "cancelFork", "cancelToken", "ifIdle", "expectRevision",
+    ];
     /// `_acpmux/mcp/reconnect`.
     McpReconnectParams: ["sessionId", "server"];
     /// `_acpmux/models`.
