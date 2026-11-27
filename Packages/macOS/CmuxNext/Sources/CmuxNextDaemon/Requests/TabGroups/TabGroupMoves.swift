@@ -17,25 +17,6 @@ public struct MoveTabGroupRequest: DaemonRequest {
     }
 }
 
-/// Drops a whole group on a pane edge.
-public struct MoveTabGroupToSplitRequest: DaemonRequest {
-    public typealias Response = TabGroupResult
-    public static let command = "move-tab-group-to-split"
-    public static let requiredCapability: String? = DaemonCapability.tabGroups.rawValue
-    public var group: TabGroupID
-    public var pane: PaneID
-    public var edge: PaneEdge
-    public var ratio: Double?
-    public var transaction: ClientTransactionID?
-    public init(group: TabGroupID, pane: PaneID, edge: PaneEdge, ratio: Double? = nil, transaction: ClientTransactionID? = nil) {
-        self.group = group
-        self.pane = pane
-        self.edge = edge
-        self.ratio = ratio
-        self.transaction = transaction
-    }
-}
-
 /// Drops a whole group between strip columns.
 public struct MoveTabGroupToColumnRequest: DaemonRequest {
     public typealias Response = TabGroupResult
