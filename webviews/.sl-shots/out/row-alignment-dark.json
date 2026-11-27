@@ -1,0 +1,129 @@
+{
+  "theme": "Catppuccin Mocha",
+  "leads": [
+    {
+      "kind": "reply",
+      "label": "Yes. The newest NEXT nightly is 12 minut",
+      "ink": 0
+    },
+    {
+      "kind": "reply",
+      "label": "Every release notes link resolves; the 4",
+      "ink": 0
+    },
+    {
+      "kind": "reply",
+      "label": "First the release commit.",
+      "ink": 0
+    },
+    {
+      "kind": "reply",
+      "label": "I started a reviewer on the docs and kep",
+      "ink": 0
+    },
+    {
+      "kind": "reply",
+      "label": "While it reads, I'm checking the build o",
+      "ink": 0
+    },
+    {
+      "kind": "reply",
+      "label": "The reviewer agrees with the docs except",
+      "ink": 0
+    },
+    {
+      "kind": "reply",
+      "label": "The background build finished cleanly.",
+      "ink": 0
+    },
+    {
+      "kind": "reply",
+      "label": "go-live confirms the feed has the new ni",
+      "ink": 0
+    },
+    {
+      "kind": "worked-for",
+      "label": "Worked for",
+      "ink": 0
+    },
+    {
+      "kind": "worked-for",
+      "label": "Working for",
+      "ink": 0
+    },
+    {
+      "kind": "footer actions",
+      "label": "first glyph",
+      "ink": 0
+    },
+    {
+      "kind": "footer actions",
+      "label": "first glyph",
+      "ink": 0
+    }
+  ],
+  "iconed": [
+    {
+      "kind": "tool",
+      "label": "Read git history",
+      "slot": 0,
+      "slotWidth": 16,
+      "text": 24
+    },
+    {
+      "kind": "subagent started",
+      "label": "Check the docs agree",
+      "slot": 0,
+      "slotWidth": 16,
+      "text": 24
+    },
+    {
+      "kind": "subagent finished",
+      "label": "Check the docs agree",
+      "slot": 0,
+      "slotWidth": 16,
+      "text": 24
+    },
+    {
+      "kind": "background command",
+      "label": "Background command completed",
+      "slot": 0,
+      "slotWidth": 16,
+      "text": 24
+    },
+    {
+      "kind": "agent message",
+      "label": "go-live",
+      "slot": 0,
+      "slotWidth": 16,
+      "text": 24
+    }
+  ],
+  "gaps": [
+    {
+      "kind": "tool",
+      "label": "Read git history",
+      "above": 16,
+      "below": 16
+    },
+    {
+      "kind": "subagent started",
+      "label": "Check the docs agree started working",
+      "above": 16,
+      "below": 16
+    },
+    {
+      "kind": "subagent finished",
+      "label": "Check the docs agree finished",
+      "above": 16,
+      "below": 16
+    },
+    {
+      "kind": "background command",
+      "label": "Background command completed bun run bui",
+      "above": 16,
+      "below": 16
+    }
+  ],
+  "problems": []
+}
