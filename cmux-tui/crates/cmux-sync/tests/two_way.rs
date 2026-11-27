@@ -304,6 +304,14 @@ fn revisions_round_trip_any_path() {
     assert_eq!(revision.id(), Revision::decode(&revision.encode()).unwrap().id());
 }
 
+#[test]
+fn revisions_reject_oversized_field_lengths() {
+    for length in [usize::MAX, usize::MAX - 1, 100] {
+        let encoded = format!("cmux-sync-revision-v1\n{length}:x");
+        assert_eq!(Revision::decode(encoded.as_bytes()), Err(two_way::BadRevision("truncated")));
+    }
+}
+
 /// A small seeded generator, so the schedule is the same on every run.
 struct Rng(u64);
 

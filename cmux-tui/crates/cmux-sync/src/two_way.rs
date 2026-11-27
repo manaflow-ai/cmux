@@ -232,9 +232,10 @@ impl Revision {
                 .ok()
                 .and_then(|s| s.parse().ok())
                 .ok_or(BadRevision("length"))?;
-            let body = rest.get(colon + 1..colon + 1 + len).ok_or(BadRevision("truncated"))?;
+            let payload = rest.get(colon + 1..).ok_or(BadRevision("truncated"))?;
+            let body = payload.get(..len).ok_or(BadRevision("truncated"))?;
             let text = String::from_utf8(body.to_vec()).map_err(|_| BadRevision("utf-8"))?;
-            rest = rest.get(colon + 1 + len..).ok_or(BadRevision("truncated"))?;
+            rest = payload.get(len..).ok_or(BadRevision("truncated"))?;
             Ok(Some(text))
         };
         let mut tree = Tree::new();
