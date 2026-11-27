@@ -1247,6 +1247,8 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                         let _packs = hub.pack_as_it_grows_worker();
                         // Archives inactive chats when set (`hub/inactive_archive.rs`).
                         hub.inactive_archive_worker();
+                        // Archives and offloads done chats when set (`hub/session_lifecycle.rs`).
+                        hub.lifecycle_worker();
                         // Every chat's held messages, once every log is read: a deadline wake the
                         // restart lost is armed again, and what no turn can take expires back to
                         // its sender (`hub/inbox_deadline.rs`).
@@ -1264,6 +1266,9 @@ pub async fn run(opts: DaemonOptions, exit_tasks: &cmux_scope::Scope) -> Result<
                 let _phase = gauges.phase("finish startup");
                 hub.finish_startup_after_prepare(reloaded).await;
             }
+            // A move to another machine the previous daemon left goes on, or says why it did not
+            // happen and pauses its fresh Cloud machine (`server/place_set.rs`).
+            crate::server::place_set::resume(&hub);
             // An agent the previous daemon left, started from a profile changed since or running
             // from a binary that an update moved, restarts on the profile and binary installed now,
             // between turns (`hub/profile_respawn.rs`, `hub/stale_host_respawn.rs`).
