@@ -261,6 +261,7 @@ mod team_directory;
 mod trigger_authority;
 mod trigger_chat;
 pub(crate) mod trust_gate;
+pub(crate) mod update_drain;
 // What one change costs the watchers at 100, 1,000 and 3,000 sessions (manual).
 #[cfg(unix)]
 mod unix_bind;

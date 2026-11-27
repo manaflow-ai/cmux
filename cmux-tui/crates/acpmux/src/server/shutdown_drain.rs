@@ -118,3 +118,10 @@ pub(crate) async fn drain_in_flight(hub: &Hub, deadline: tokio::time::Instant) -
     }
     drained
 }
+
+/// An update may proceed only after the answers already queued have left every connection.
+/// A slow reader defers the update instead of allowing shutdown to cut its response.
+pub(super) async fn flush_before_update(hub: &Hub, deadline: tokio::time::Instant) -> bool {
+    let conns = conns_of(hub);
+    wait_for(deadline, || conns.iter().all(|c| c.out.is_closed() || c.out.gauge().bytes == 0)).await
+}

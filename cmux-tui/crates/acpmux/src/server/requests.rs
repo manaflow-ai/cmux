@@ -4518,6 +4518,12 @@ async fn dispatch_request_with_identity(
                 );
                 return Ok(json!({"swapping": true, "why": why}));
             }
+            // Drain before handing away any listeners or notifying shutdown. A timed-out
+            // turn leaves the daemon serving, with admission reopened by the guard's drop.
+            let updating = params.get("restart").and_then(Value::as_bool) == Some(true)
+                || params.get("graceful").and_then(Value::as_bool) == Some(true);
+            let update_drain =
+                if updating { Some(super::update_drain::prepare(hub).await?) } else { None };
             // Name who stopped it and why: the log's "a client asked it to" alone cannot tell an
             // app's update from another build's or a script's stop. `reason` is the client's own
             // word for its trigger (`shutdown_reason`); the daily count of the app's stops reads it.
@@ -4597,6 +4603,9 @@ async fn dispatch_request_with_identity(
             }
             if params.get("restart").and_then(Value::as_bool) == Some(true) {
                 hub.restart_requested.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            if let Some(drain) = update_drain {
+                drain.commit();
             }
             hub.stop_idle_reaper();
             hub.shutdown.notify_waiters();
