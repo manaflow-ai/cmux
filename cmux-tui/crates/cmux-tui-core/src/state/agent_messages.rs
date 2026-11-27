@@ -287,24 +287,9 @@ impl Mux {
             // A hand-over went out (or one whose attempt could not be noted).
             let tried = !target.never_tried()
                 || self.agent_message_attempt_unnoted(message_id, &target.recipient);
-            // acpmux restarting (no answer) or a hand-over still on its way
-            // (not held yet) settles in moments: ask again, briefly, before
-            // the person is told it failed. A withdraw that answered is final.
-            let asked = crate::retry::Patience::new("acpmux to answer", unsend::UNSEND_WAIT)
-                .quiet()
-                .run(|| match self.acp_withdraw_message(session, message_id) {
-                    Ok(Withdrawn::NotFound) if tried && target.state == "queued" => {
-                        Err(crate::retry::Attempt::Retry(Ok(Withdrawn::NotFound)))
-                    }
-                    Err(WithdrawError::Unavailable) if tried => {
-                        Err(crate::retry::Attempt::Retry(Err(WithdrawError::Unavailable)))
-                    }
-                    answer => Ok(answer),
-                })
-                .unwrap_or_else(|last| last);
-            match asked {
+            match self.acp_withdraw_message(session, message_id) {
                 // acpmux holds no such prompt yet, but the hand-over may
-                // still reach it and run: not unsent. A session
+                // still reach it and run: not unsent, try again. A session
                 // acpmux no longer knows (`NoSession`: deleted, and no peer
                 // runs it) takes nothing late.
                 Ok(Withdrawn::NotFound) if tried && target.state == "queued" => {
