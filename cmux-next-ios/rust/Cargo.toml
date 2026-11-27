@@ -85,6 +85,9 @@ cmux-egress = { path = "../../cmux-tui/crates/cmux-egress" }
 # Mac and VMs, and the embedded tsnet node behind its `tsnet` feature.
 cmux-tailnet-join = { path = "../../cmux-tui/crates/cmux-tailnet-join" }
 cmux-tailnet = { path = "../../cmux-tui/crates/cmux-tailnet" }
+# The cmux vault (cmuxterm-hq docs/design/e2e-vault.md): end to end encrypted secrets, this phone one
+# enrolled device; it seals values to the machines it starts (crates/cmux-mobile-link-ffi/src/vault.rs).
+cmux-vault-e2e = { path = "../../cmux-tui/crates/cmux-vault-e2e" }
 anyhow = "1"
 base64 = "0.22"
 bytes = "1"
@@ -117,3 +120,12 @@ smoltcp = { path = "../../cmux-tui/vendor/smoltcp" }
 
 [profile.release]
 lto = "off"
+
+# Proc-macro and build-script dylibs keep their symbols: Rust before 1.98 strips a
+# Mach-O without padding its LINKEDIT string pool to 8 bytes (rust-lang/rust#157750),
+# and macOS 27 dyld refuses such an image built against the Xcode 27 SDK, so rustc
+# reports `E0463 can't find crate` for the macro (cmux#17311; the app FFI release
+# after the fleet's move to Xcode 27.2, #60808). Only build-time code: what ships
+# is unchanged.
+[profile.release.build-override]
+strip = false
