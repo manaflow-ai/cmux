@@ -145,6 +145,14 @@ class SpecTests(unittest.TestCase):
                     self.assertEqual(clips.check(Path(tmp), Path(tmp)), [])
                 self.assertEqual("declared waits in the cut span 8 s" in stdout.getvalue(), warned)
 
+    def test_the_capture_state_runs_the_fixture_fake_agent(self):
+        fixture = {"harnesses": {"fake": {"argv": ["/usr/bin/python3",
+                                                  "{repo}/cmux-tui/crates/acpmux/tests/fake_agent.py"]}}}
+        state = clips.capture_state({**SPEC, "harnessFixture": fixture})
+        self.assertEqual(state["fakeHarness"], {"id": "fake"})
+        self.assertNotIn("harnessFixture", state)
+        self.assertNotIn("fakeHarness", clips.capture_state(SPEC))
+
     def test_the_capture_state_drops_the_clip_marks(self):
         state = clips.capture_state({**SPEC, "settings": {"a": 1}})
         self.assertEqual(state["frameInterval"], 0.25)
