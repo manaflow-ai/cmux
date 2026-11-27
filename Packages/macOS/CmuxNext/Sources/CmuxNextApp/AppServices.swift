@@ -261,8 +261,8 @@ final class AppServices {
     /// Every keyboard focus change with its cause, while `tunable.diagnostics.focusLog` is on (``FocusLog``).
     private(set) lazy var focusLog = FocusLog(writer: FocusLogWriter(directory: FocusLogWriter.folder(tag: environment.tag), symbolicate: { StackSymbolicator().frames(for: $0).map(\.description) }),
         context: .init(classify: { r, w in (w.windowController as? WindowController).map { "\(FocusResponderClassifier.classify(r, in: $0))" } }, windowName: { ($0.windowController as? WindowController)?.state.id }, currentInput: { "\(FocusEvent.Source.current)" }))
-    /// Each divider drag's input-to-first-frame time, one line a drag beside the focus log (``TransitionFrameLog``,
-    /// `scripts/cmux-next/frame_timing.py`); always on: a drag costs one 1-point layer display and one line off-main.
+    /// Each timed transition's input, first frame and settle, one line each beside the focus log (``TransitionFrameLog``,
+    /// `scripts/cmux-next/frame_timing.py`); always on: a few 1-point layer displays, a 100 ms settle deadline, one line.
     private(set) lazy var frameTiming: TransitionFrameLog? = FocusLogWriter.folder(tag: environment.tag).map {
         TransitionFrameLog(directory: $0, build: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "", workCounts: { CEFEngine.dragWorkCounts })
     }
