@@ -778,6 +778,12 @@ impl Session {
     pub fn meta(&self) -> SessionMeta {
         self.meta.lock().unwrap().clone()
     }
+    /// Edits the metadata in place, as a test outside the crate sets up a saved state (an
+    /// integration test sees no `pub(super)` field). No row change is told.
+    #[doc(hidden)]
+    pub fn edit_meta_for_test(&self, edit: impl FnOnce(&mut SessionMeta)) {
+        edit(&mut self.meta.lock().unwrap_or_else(|e| e.into_inner()));
+    }
     /// Leaves this chat marked as on its capacity fallback, as a past switch did
     /// (`hub/auto_resume/capacity_failover.rs`). For tests outside the crate, which cannot
     /// reach `meta`.
