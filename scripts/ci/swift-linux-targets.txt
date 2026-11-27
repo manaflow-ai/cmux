@@ -7,6 +7,7 @@ Packages/Shared/CMUXAuthCore  CMUXAuthCore
 Packages/Shared/CMUXAuthCore  CMUXAuthCoreTests
 Packages/Shared/CMUXMobileCore  CMUXMobileCore
 Packages/Shared/CMUXMobileCore  CMUXMobileCoreTests
+Packages/Shared/CmuxAgentBrands  CmuxAgentBrands
 Packages/Shared/CmuxAgentCursor  CmuxAgentCursor
 Packages/Shared/CmuxAgentCursor  CmuxAgentCursorTests
 Packages/Shared/CmuxAgentQuestion  CmuxAgentQuestion

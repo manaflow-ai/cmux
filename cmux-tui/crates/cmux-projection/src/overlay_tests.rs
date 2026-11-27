@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicBool, AtomicUsize};
 
 use super::errno::ENOSPC;
 use super::*;
@@ -18,7 +18,7 @@ pub(crate) struct Fake {
     pub bytes: HashMap<u32, Vec<u8>>,
     pub calls: AtomicUsize,
     pub batches: Mutex<Vec<Vec<u32>>>,
-    pub away: bool,
+    pub away: AtomicBool,
     /// Reads at or past this offset fail (a link that drops in the middle of a big file).
     pub fail_from: Option<u64>,
 }
@@ -26,7 +26,7 @@ pub(crate) struct Fake {
 impl Fetch for Fake {
     fn read(&self, entry: u32, offset: u64, len: u32) -> Result<Vec<u8>, FetchError> {
         self.calls.fetch_add(1, Ordering::Relaxed);
-        if self.away {
+        if self.away.load(Ordering::Relaxed) {
             return Err(FetchError::Away);
         }
         if self.fail_from.is_some_and(|from| offset >= from) {
@@ -44,7 +44,7 @@ impl Fetch for Fake {
         entries
             .iter()
             .map(|entry| {
-                if self.away {
+                if self.away.load(Ordering::Relaxed) {
                     Err(FetchError::Away)
                 } else {
                     self.bytes.get(entry).cloned().ok_or(FetchError::Failed)
@@ -90,7 +90,7 @@ fn setup(away: bool) -> (tempfile::TempDir, Arc<Manifest>, Arc<Fake>) {
         link: Some("README.md".into()),
     });
     let manifest = Arc::new(Manifest::build(1, items).unwrap());
-    let mut fake = Fake { away, ..Fake::default() };
+    let mut fake = Fake { away: AtomicBool::new(away), ..Fake::default() };
     for (path, bytes) in files {
         fake.bytes.insert(manifest.resolve(path).unwrap(), bytes);
     }
@@ -249,6 +249,18 @@ fn reads_while_the_mac_is_away_make_one_report_naming_them() {
     assert_eq!(report.paths, ["README.md", "big.bin", "src/a.rs"]);
     assert_eq!(report.failed, 3);
     assert!(reports.recv_timeout(Duration::from_millis(400)).is_err());
+}
+
+#[test]
+fn a_cached_read_survives_the_mac_going_away() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let readme = path_ino(&overlay, "README.md");
+    assert_eq!(overlay.read(readme, 0, 10).unwrap(), b"readme");
+    fake.away.store(true, Ordering::Relaxed);
+    assert_eq!(overlay.read(readme, 0, 10).unwrap(), b"readme");
+    assert!(overlay.stats().cache_hits >= 1);
+    assert_eq!(overlay.read(path_ino(&overlay, "big.bin"), 0, 10), Err(112));
 }
 
 #[test]
@@ -1011,7 +1023,11 @@ fn a_pinned_folder_reads_with_the_mac_away_and_survives_the_cap() {
     drop(overlay);
 
     // A new daemon with the Mac away reads every pinned file from disk, and the pin is on record.
-    let away = Arc::new(Fake { away: true, bytes: fake.bytes.clone(), ..Fake::default() });
+    let away = Arc::new(Fake {
+        away: AtomicBool::new(true),
+        bytes: fake.bytes.clone(),
+        ..Fake::default()
+    });
     let overlay = open(state.path(), &manifest, &away).with_cache_max(4);
     assert_eq!(overlay.pins(), vec!["src".to_owned()]);
     assert_eq!(overlay.read(path_ino(&overlay, "src/deep/d.rs"), 0, 64).unwrap(), b"fn d() {}");
@@ -1553,4 +1569,57 @@ fn warm_with_the_mac_away_stops_at_the_first_absence_and_pins_nothing() {
     assert_eq!(report.first_error, Some(FetchError::Away.errno()));
     assert_eq!(report.failed, 1);
     assert!(overlay.pins().is_empty());
+}
+
+#[test]
+fn bulk_copy_brings_the_whole_tree_local_in_path_order_and_a_second_run_asks_nothing() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let options = bulk::BulkOptions { pause: Duration::ZERO, ..Default::default() };
+    let stop = AtomicBool::new(false);
+    let report = overlay.bulk_copy(&options, &stop);
+    assert!(report.complete && !report.full && !report.away, "{report:?}");
+    // Five small files in batches (a big file flushes the run before it), each in id order, and
+    // the big one by chunk.
+    assert_eq!(report.files, 6);
+    let batches = fake.batches.lock().unwrap().clone();
+    assert_eq!(batches.iter().map(Vec::len).sum::<usize>(), 5);
+    let flat: Vec<u32> = batches.concat();
+    assert!(flat.windows(2).all(|pair| pair[0] < pair[1]));
+    let asked = fake.calls.load(Ordering::Relaxed);
+    // Every read now comes off the disk.
+    let big = path_ino(&overlay, "big.bin");
+    assert_eq!(overlay.read(big, 0, 64).unwrap(), big_bytes()[..64]);
+    let readme = path_ino(&overlay, "README.md");
+    assert_eq!(overlay.read(readme, 0, 100).unwrap(), b"readme");
+    assert_eq!(fake.calls.load(Ordering::Relaxed), asked);
+    let again = overlay.bulk_copy(&options, &stop);
+    assert!(again.complete);
+    assert_eq!((again.files, again.requests), (0, 0));
+    assert_eq!(fake.calls.load(Ordering::Relaxed), asked);
+}
+
+#[test]
+fn bulk_copy_stops_short_of_the_cache_cap_and_evicts_nothing() {
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake).with_cache_max(64);
+    let options = bulk::BulkOptions { pause: Duration::ZERO, ..Default::default() };
+    let report = overlay.bulk_copy(&options, &AtomicBool::new(false));
+    assert!(report.full && !report.complete, "{report:?}");
+    assert_eq!(overlay.cache_evicted(), 0);
+    assert!(overlay.cache_bytes() <= 64);
+}
+
+#[test]
+fn bulk_copy_stops_when_the_mac_is_away_and_when_told_to() {
+    let (state, manifest, fake) = setup(true);
+    let overlay = open(state.path(), &manifest, &fake);
+    let options = bulk::BulkOptions { pause: Duration::ZERO, ..Default::default() };
+    let report = overlay.bulk_copy(&options, &AtomicBool::new(false));
+    assert!(report.away && !report.complete, "{report:?}");
+    let (state, manifest, fake) = setup(false);
+    let overlay = open(state.path(), &manifest, &fake);
+    let report = overlay.bulk_copy(&options, &AtomicBool::new(true));
+    assert_eq!(report, bulk::BulkReport::default());
+    assert_eq!(fake.calls.load(Ordering::Relaxed), 0);
 }

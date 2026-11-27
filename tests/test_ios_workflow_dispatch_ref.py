@@ -141,10 +141,11 @@ class IOSWorkflowDispatchRefTests(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertIn(resolved_ref, job_block(job))
 
-        # The routing jobs check out the workflow revision itself; every other
-        # checkout, including the retry after a failed seeded checkout, is
-        # pinned to the one resolved commit SHA.
-        routing = {"runner", "detect-ios-changes"}
+        # The routing jobs check out the workflow revision itself (full-carry:
+        # the base's scripts/ci, for head_tier.py); every other checkout,
+        # including the retry after a failed seeded checkout, is pinned to the
+        # one resolved commit SHA.
+        routing = {"runner", "detect-ios-changes", "full-carry"}
         jobs = yaml.safe_load(workflow)["jobs"]
         pinned = 0
         for name, job in jobs.items():
@@ -361,6 +362,16 @@ class IOSChangeDetectionTests(unittest.TestCase):
     def test_a_package_change_runs_only_the_lint(self) -> None:
         self.assertEqual(self.detect({"Packages/macOS/Foo.swift": "x\n"}),
                          {"should_run": "false", "should_build": "false", "should_lint": "true"})
+
+    def test_a_package_resource_change_runs_neither_lint_nor_tests(self) -> None:
+        # The conventions lint scans only .swift files.
+        self.assertEqual(self.detect({"Packages/macOS/Foo/Resources/a.json": "x\n"}),
+                         {"should_run": "false", "should_build": "false", "should_lint": "false"})
+
+    def test_the_pool_pick_waits_for_routing_and_skips_without_ios_files(self) -> None:
+        runner = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["runner"]
+        self.assertEqual(runner["needs"], "detect-ios-changes")
+        self.assertIn("needs.detect-ios-changes.outputs.should_run == 'true'", runner["if"])
 
     def test_a_base_only_ios_change_is_not_the_pull_requests(self) -> None:
         self.assertEqual(self.detect({"docs/note.md": "x\n"}, base_files={"ios/Base.swift": "x\n"}),

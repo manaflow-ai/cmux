@@ -19,12 +19,10 @@ cleanup() {
   rm -rf "$scratch"
 }
 trap cleanup EXIT
-# A depth only in a checkout that is already shallow (a CI one): never turn a full clone shallow.
-depth=()
-[[ "$(git -C "$root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+source "$root/scripts/measure/fetch-commit.sh"
 status=0
 for sha in ${shas[@]+"${shas[@]}"}; do
-  git -C "$root" cat-file -e "$sha^{commit}" 2>/dev/null || git -C "$root" fetch -q --no-tags --no-recurse-submodules ${depth[@]+"${depth[@]}"} origin "$sha"
+  measure_fetch_commit "$root" "$sha" || { status=1; continue; }
   full="$(git -C "$root" rev-parse "$sha^{commit}")"
   tree="$scratch/${full:0:12}"
   git -C "$root" worktree add -q --detach "$tree" "$full" && trees+=("$tree") || { status=1; continue; }
