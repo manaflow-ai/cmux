@@ -209,3 +209,26 @@
   pointer-events: none;
   visibility: hidden;
 }
+
+/* ---------- the one line's words win over its marks ---------- */
+/* Leo, 2026-11-27, on "10 subagents working" turning into "run…" beside a full row of marks: "hm
+   should we compact these and drop them away in favour of text when things shrink? this is just an
+   awkward looking layout". On the one line the sentence keeps its whole width, and the marks give up
+   room first: the strip shrinks, and a mark that no longer fits wraps onto a second row the strip
+   clips, so whole marks drop away from its end (the "+N more" first, then the last mark, then the next)
+   and none is ever cut in half. The words truncate only once no mark is left; the sentence still
+   counts them all. The fanned `cards` overlap by design and keep their own width. */
+.acpmux-running-tray[data-line] > .acpmux-running-tray__head > .acpmux-running-tray__title {
+  flex-shrink: 0;
+  max-width: 100%;
+}
+.acpmux-running-tray[data-line] .acpmux-hat-deck[data-look="strip"] {
+  flex: 0 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  overflow: hidden;
+}
+.acpmux-running-tray[data-line] .acpmux-hat-deck[data-look="strip"] > .acpmux-hat-deck__mark {
+  height: var(--acpmux-tray-head-height);
+}
