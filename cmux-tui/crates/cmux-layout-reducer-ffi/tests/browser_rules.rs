@@ -78,3 +78,49 @@ fn browser_rules_refuse_a_request_that_is_not_their_json() {
     let (code, _) = call("browser_rules_link_action", br#"{"gesture": "wave"}"#);
     assert_eq!(code, ERR_INVALID);
 }
+
+#[test]
+fn browser_rules_automation_load_waits_round_trips_a_wait() {
+    let step = |waits: Option<&Value>, mut body: Value| {
+        if let Some(waits) = waits {
+            body["waits"] = waits.clone();
+        }
+        let (code, reply) =
+            call("browser_rules_automation_load_waits", &serde_json::to_vec(&body).unwrap());
+        assert_eq!(code, OK);
+        reply
+    };
+    let snap = step(None, json!({"do": "snapshot"}));
+    let mut ticket = snap["ticket"].clone();
+    ticket["navigation"] = json!(1);
+    let reach =
+        step(Some(&snap["waits"]), json!({"do": "reach", "target": "load", "ticket": ticket}));
+    assert_eq!(reach["reach"], json!({"kind": "pending", "wait": 0}));
+    let started = step(
+        Some(&reach["waits"]),
+        json!({"do": "navigationEvent", "event": {"kind": "started", "id": 1}}),
+    );
+    let done = step(
+        Some(&started["waits"]),
+        json!({"do": "navigationEvent", "event": {"kind": "finished", "id": 1}}),
+    );
+    assert_eq!(done["resolved"], json!([{"wait": 0}]));
+}
+
+#[test]
+fn browser_rules_automation_cookie_clear_scopes_to_the_site() {
+    let request = json!({
+        "cookies": [
+            {"name": "a", "domain": ".example.com", "path": "/"},
+            {"name": "b", "domain": "other.example.com", "path": "/"},
+        ],
+        "host": "app.example.com",
+        "filter": {"name": "a"},
+    });
+    let (code, body) = call(
+        "browser_rules_automation_cookie_clear_matches",
+        &serde_json::to_vec(&request).unwrap(),
+    );
+    assert_eq!(code, OK);
+    assert_eq!(body, json!([true, false]));
+}
