@@ -130,4 +130,67 @@ import Testing
         log.ended(now: 100.2) // released with no move
         #expect(lines.isEmpty)
     }
+
+    static func window() -> NSWindow {
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 10, height: 10), styleMask: [], backing: .buffered, defer: true)
+        window.contentView?.wantsLayer = true
+        return window
+    }
+
+    /// The frame-timeline fields (instant-splits): the first frame's commit, the last move's commit as the settle, and
+    /// what the first frame showed, in one line at the settle.
+    @Test func aTransitionWritesItsSettleSurfaceBlankAndDriftAtTheSettle() throws {
+        let log = Self.log(), window = Self.window()
+        var lines: [String] = []
+        log.onLine = { lines.append($0) }
+        log.arm(.splitOpen)
+        log.input(now: 100, event: nil)
+        log.changed(in: window, surface: "terminal", blank: true, drift: { 0.5 }, now: 100.001)
+        log.committed(displayed: 100.010, ended: 100.012)
+        #expect(log.isSettling)
+        #expect(lines.isEmpty) // waits for its settle
+        log.moved(in: window)
+        log.committed(displayed: 100.150, ended: 100.152)
+        log.settle()
+        #expect(!log.isSettling)
+        let object = try #require(JSONSerialization.jsonObject(with: Data(try #require(lines.first).utf8)) as? [String: Any])
+        #expect(lines.count == 1)
+        #expect(object["transition"] as? String == "split_open")
+        #expect(abs((object["ms"] as? Double ?? 0) - 12) < 0.02)
+        #expect(abs((object["settled_ms"] as? Double ?? 0) - 152) < 0.02)
+        #expect(abs((object["settled_ts"] as? Double ?? 0) - 100.152) < 0.0001)
+        #expect(object["surface"] as? String == "terminal")
+        #expect(object["blank_first_frame"] as? Bool == true)
+        #expect(object["drift_px"] as? Double == 0.5)
+    }
+
+    @Test func aChangeForAnotherKindIsNotThisTransitionsAndTheNextArmSettlesTheLast() throws {
+        let log = Self.log(), window = Self.window()
+        var lines: [String] = []
+        log.onLine = { lines.append($0) }
+        log.arm(.sideOpen)
+        log.input(now: 100, event: nil)
+        log.changed(in: window, for: [.dividerDrag], now: 100.001) // a drag's change: not the sidebar's
+        #expect(log.pendingTransition == .sideOpen)
+        log.changed(in: window, for: [.sideOpen, .sideClose], now: 100.002)
+        log.committed(displayed: 100.008, ended: 100.009)
+        log.cancel() // past its first frame: kept to its settle
+        #expect(log.isSettling)
+        log.arm(.paneClose)
+        let object = try #require(JSONSerialization.jsonObject(with: Data(try #require(lines.first).utf8)) as? [String: Any])
+        #expect(object["transition"] as? String == "side_open")
+        #expect(object["settled_ts"] as? Double == object["first_frame_ts"] as? Double) // nothing moved after it
+        #expect(object["blank_first_frame"] == nil) // no signal: no field
+        #expect(log.pendingTransition == .paneClose)
+    }
+
+    @Test func aLineWithNoSettleSettlesAtItsFirstFrame() throws {
+        let line = TransitionFrameLog.line(.zoom, input: 10, displayed: 10.004, ended: 10.005, fromEvent: false, build: "1",
+                                           atMilliseconds: 1, settled: 10.001, surface: "Bad\"Kind", drift: .nan)
+        let object = try #require(JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any])
+        #expect(object["transition"] as? String == "zoom")
+        #expect(object["settled_ts"] as? Double == 10.005)
+        #expect(object["surface"] == nil) // not a plain word: not written
+        #expect(object["drift_px"] == nil)
+    }
 }

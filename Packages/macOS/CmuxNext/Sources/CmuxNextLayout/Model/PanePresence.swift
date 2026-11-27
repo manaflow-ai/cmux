@@ -20,4 +20,13 @@ public nonisolated enum PanePresence: Hashable, Sendable {
         case .visible: 2
         }
     }
+
+    /// Its name in diagnostics (a pane's `surface_status` `presence`).
+    public var name: String {
+        switch self {
+        case .visible: "visible"
+        case .keepAlive: "keep_alive"
+        case .hidden: "hidden"
+        }
+    }
 }
