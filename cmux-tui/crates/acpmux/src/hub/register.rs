@@ -522,7 +522,7 @@ impl Hub {
         }
         let short: String = holder.id.chars().filter(char::is_ascii_alphanumeric).take(8).collect();
         // Leave room in an 80-byte address for the timestamp prefix and a collision suffix.
-        let prefix = &name[..name.floor_char_boundary(55)];
+        let prefix = name.get(..name.floor_char_boundary(55)).unwrap_or(name);
         let renamed = self.unique_name(&format!("{prefix}-gone-{short}"));
         tracing::info!(session = %holder.id, %name, %renamed, "a gone registered chat yields its name");
         self.rename_as(holder, renamed, super::task_names::Naming::Address).await
