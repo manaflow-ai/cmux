@@ -395,6 +395,11 @@ pub(super) fn key_env(
 ) -> std::collections::BTreeMap<&str, &str> {
     env.iter()
         .filter(|(k, _)| k.as_str() != crate::sr2_priority::PERSON_ENV)
+        // The session manifest's markers are the session's, not its launch's (`session_manifest.rs`).
+        .filter(|(k, _)| {
+            k.as_str() != crate::session_manifest::RECORDED_ENV
+                && k.as_str() != crate::session_manifest::CODEX_ENV
+        })
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect()
 }

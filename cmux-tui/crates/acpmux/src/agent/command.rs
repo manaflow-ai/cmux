@@ -206,6 +206,7 @@ fn build_harness_command(
     env.remove(crate::agent_tools::OFF_ENV);
     // So is the manifest's tool listing (`session_manifest.rs`).
     env.remove(crate::session_manifest::RECORDED_ENV);
+    env.remove(crate::session_manifest::CODEX_ENV);
     // A person's chat asks sr2 for its reserve (`sr2_priority.rs`): the mark is the daemon's,
     // for the request header below only.
     let sr2_person = env.remove(crate::sr2_priority::PERSON_ENV).as_deref() == Some("1");

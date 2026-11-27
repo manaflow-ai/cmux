@@ -1256,7 +1256,10 @@ async fn one_start_asks_codex_once_off_the_runtime_for_everything_it_reads() {
     codex_answers(root.path(), Some("/opt/x"));
     let answer = super::CodexAnswer::default();
     super::warm_codex_answer(&work, &argv, &env, &answer).await;
-    assert!(matches!(answer.get(), Some(crate::codex_cmux_entry::CmuxEntry::Stdio { .. })));
+    assert!(matches!(
+        answer.get().map(|a| &a.entry),
+        Some(crate::codex_cmux_entry::CmuxEntry::Stdio { .. })
+    ));
     super::warm_codex_answer(&work, &argv, &env, &answer).await;
     let launch = super::CodexLaunch { cwd: &work, argv: &argv, answer: Some(&answer) };
     let tools = super::AgentTools::default();

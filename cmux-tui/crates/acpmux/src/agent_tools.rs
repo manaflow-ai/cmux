@@ -845,13 +845,29 @@ pub fn person_entry_env(
 /// (`CodexLaunch::answer`: one chat start, shared by its tool rows, its pool spec and its
 /// `session/new`; one fork), never across starts, so a config the person changes counts at the
 /// next one; how long Codex took is logged. Run it off the runtime ([`warm_codex_answer`]).
+///
+/// With the session manifest on (`session_manifest.rs`), a start, wake or fork whose profile env
+/// carries the manifest's answer (`session_manifest::CODEX_ENV`, never passed on) reads it
+/// instead of asking when the digest of what the answer depends on is the same
+/// (`codex_cmux_entry::fingerprint`); any change, or a digest that cannot be read, asks.
 pub fn persons_cmux_entry(
+    launch: CodexLaunch<'_>,
+    env: &BTreeMap<String, String>,
+) -> crate::codex_cmux_entry::CmuxEntry {
+    persons_cmux_entry_under(crate::session_manifest::on(), launch, env)
+}
+
+/// [`persons_cmux_entry`] under an explicit session manifest switch.
+pub(crate) fn persons_cmux_entry_under(
+    on: bool,
     launch: CodexLaunch<'_>,
     env: &BTreeMap<String, String>,
 ) -> crate::codex_cmux_entry::CmuxEntry {
     use crate::codex_cmux_entry::CmuxEntry;
     let ask = || {
         let mut env = env.clone();
+        let recorded = crate::session_manifest::take_codex(&mut env);
+        let unsure = |entry| Asked { entry, record: None };
         if crate::config::profiles::has_env_refs(&env)
             && crate::config::profiles::resolve_env_refs(
                 &mut env,
@@ -860,7 +876,7 @@ pub fn persons_cmux_entry(
             )
             .is_err()
         {
-            return CmuxEntry::Unknown;
+            return unsure(CmuxEntry::Unknown);
         }
         let effective = crate::login_env::effective_for(Some("codex"), &env);
         let app_server = crate::codex_app_server::is_profile_launch(launch.argv);
@@ -882,7 +898,9 @@ pub fn persons_cmux_entry(
                 })
                 .or_else(crate::managed_codex::codex_binary)
         };
-        let Some(program) = program.filter(|p| !p.is_empty()) else { return CmuxEntry::Unknown };
+        let Some(program) = program.filter(|p| !p.is_empty()) else {
+            return unsure(CmuxEntry::Unknown);
+        };
         let args: Vec<std::ffi::OsString> = if app_server {
             launch.argv.iter().skip(1).map(std::ffi::OsString::from).collect()
         } else {
@@ -890,6 +908,27 @@ pub fn persons_cmux_entry(
         };
         let child_env: Vec<(std::ffi::OsString, std::ffi::OsString)> =
             effective.iter().map(|(k, v)| (k.into(), v.into())).collect();
+        // The digest of what Codex's answer depends on, taken before it is asked: a file that
+        // changes while Codex reads it makes the next digest differ, never a stale answer read.
+        let key = if on {
+            crate::codex_cmux_entry::fingerprint(
+                std::path::Path::new(&program),
+                &args,
+                launch.cwd,
+                &child_env,
+            )
+        } else {
+            None
+        };
+        if let Some(record) = recorded.filter(|r| key.as_deref() == Some(r.key.as_str())) {
+            tracing::info!(
+                target: "acpmux::codex_cmux_entry",
+                entry = ?record.entry,
+                "codex mcp get cmux: the session manifest's answer"
+            );
+            return Asked { entry: record.entry(), record: Some(record) };
+        }
+        crate::session_manifest::count_codex_ask();
         let (entry, took) = crate::codex_cmux_entry::resolve(
             std::path::Path::new(&program),
             &args,
@@ -902,18 +941,27 @@ pub fn persons_cmux_entry(
             entry = ?entry,
             "codex mcp get cmux"
         );
-        entry
+        let record = key.and_then(|key| crate::session_manifest::CodexRecord::of(key, &entry));
+        Asked { entry, record }
     };
     match launch.answer {
-        Some(cell) => cell.get_or_init(ask).clone(),
-        None => ask(),
+        Some(cell) => cell.get_or_init(ask).entry.clone(),
+        None => ask().entry,
     }
+}
+
+/// One answer for the person's own `cmux` entry ([`persons_cmux_entry`]), and its record for the
+/// session manifest (with the manifest on and a sure answer: `session_manifest::CodexRecord`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Asked {
+    pub entry: crate::codex_cmux_entry::CmuxEntry,
+    pub record: Option<crate::session_manifest::CodexRecord>,
 }
 
 /// One start's answer for the person's own `cmux` entry ([`persons_cmux_entry`]), shared by
 /// everything that start reads it for: its tool rows, its pool spec (and the spare that spec
 /// starts), its `session/new` or `session/load`.
-pub type CodexAnswer = std::sync::Arc<std::sync::OnceLock<crate::codex_cmux_entry::CmuxEntry>>;
+pub type CodexAnswer = std::sync::Arc<std::sync::OnceLock<Asked>>;
 
 /// A start's answer ([`CodexAnswer`]) with the launch it was asked for: a later read for the same
 /// start reuses it only for that same launch (folder, argv and env), never for another. Nothing
