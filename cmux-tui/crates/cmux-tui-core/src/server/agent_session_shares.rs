@@ -8,13 +8,13 @@
 //! The verbs are the owner's own: a same-user unix connection that is neither bound (a teammate's
 //! proxy or a guest) nor a remote relay. Only the secret's SHA-256 is kept; create answers the
 //! secret once. A redeemed guest binds a connection with `agent-session-proxy-bind {link_guest}`
-//! and reaches the shared chat as `{id: "guest:<share_id>.<guest_id>", name, approval: "owner",
-//! role, avatar?}`. A guest who joined by the link alone, with no account, is always `view`,
+//! and reaches the shared chat as `{id: "guest:<share_id>.<guest_id>", name, role, avatar?}`.
+//! A guest who joined by the link alone, with no account, is always `view`,
 //! whatever its share says. A guest the room signed in (`account`, the room's attestation) who
 //! holds the link's secret but is not invited joins by the link as itself (`via: link`, a use
 //! spent): `talk` on any link unless the share was made with `signed_in_role: view`. An invitee
-//! takes its invite's role. Every
-//! prompt of any guest is held for the owner. Every guest frame re-checks the share (its
+//! takes its invite's role. Guest prompts carry `approval: "owner"` unless the guest holds its
+//! signed-in account's current Drive invite. Every guest frame re-checks the share (its
 //! state and expiry) and the guest (kicked), and a guest's live stream checks them on every
 //! record. Whatever path ends a share or a guest (a revoke, a kick, the expiry timer, or any verb
 //! that notices the expiry first) closes its bound connections in the same step (`settle`);
@@ -23,9 +23,9 @@
 //! An invite (`agent-session-share-invite {share_id, account, role}`) names a cmux account on a
 //! share. The room admits that account after its sign-in and forwards a redeem with `account`
 //! instead of the secret; the daemon admits it only while the account is invited and not removed.
-//! An invitee is a guest like any other (same `guest:` author, same hold on every prompt), whose
-//! author also names its `account` and `role`: `view` watches only, `talk` may also prompt and
-//! type. An invite spends no link use. `-uninvite` removes the account and kicks its guests.
+//! The invitee keeps its own guest identity. A viewer watches, a talker's prompts wait for
+//! approval, and a driver can send without a hold and stop the shared chat. An invite spends no link use.
+//! `-uninvite` removes the account and kicks its guests.
 //! An invite and `-list` answer `invite_url`, the link the owner hands out (`<room origin>/i/<share_id>`,
 //! no secret in it; null without a room). `-invite-chat {surface, account, role}` invites on the
 //! chat's invite share and makes that share in the same step when the chat has none (`open.rs`).
@@ -264,12 +264,14 @@ const MAX_GUESTS_PER_ACCOUNT: usize = 4;
 /// An account (an email address or a cmux `@handle`), in bytes.
 const MAX_ACCOUNT_BYTES: usize = 320;
 
-/// What an invited account may do: `view` watches, `talk` also prompts (held) and types.
+/// What an invited account may do: `view` watches, `talk` prompts (held) and types, and `drive`
+/// prompts and cancels without owner approval. Drive is accepted only for named invites.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(super) enum Role {
     View,
     Talk,
+    Drive,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -605,13 +607,17 @@ fn find<'a>(
     shares.iter_mut().find(|s| s.share_id == share_id).ok_or("share.unknown")
 }
 
-/// What `guest` may do: a signed-in guest the role it joined with (an invitee its invite's, a
-/// link guest the link's), a guest who joined by the link alone (no account, so nobody signed
-/// in) `view`, always.
-fn role_of(guest: &Guest) -> Role {
-    match guest.account {
-        Some(_) => guest.role.unwrap_or(Role::View),
-        None => Role::View,
+/// A signed-in guest's bound role. A Drive session requires the same account's live invite
+/// at every check. A previous link session or another account never gains Drive from an invite.
+fn role_of(guest: &Guest, invitees: &[Invitee]) -> Role {
+    let Some(account) = &guest.account else { return Role::View };
+    match guest.role.unwrap_or(Role::View) {
+        Role::Drive if guest.via.is_none() => invitees
+            .iter()
+            .find(|i| i.account == *account && i.state == InviteState::Invited)
+            .map_or(Role::View, |i| i.role),
+        Role::Drive => Role::View,
+        role => role,
     }
 }
 
@@ -620,18 +626,21 @@ fn role_of(guest: &Guest) -> Role {
 /// names the guest's account (often an email): that stays in the owner's own `-list`. A
 /// signed-in guest's profile picture goes as `avatar` (acpmux's provenance `fromAvatar`).
 fn author_of(share: &LinkShare, guest: &Guest) -> Value {
+    let role = role_of(guest, &share.invitees);
     let mut author = json!({"id": format!("{GUEST_PREFIX}{}.{}", share.share_id, guest.guest_id),
-        "name": guest.name, "approval": "owner"});
-    author.set("role", json!(role_of(guest)));
+        "name": guest.name, "role": role});
+    if role != Role::Drive {
+        author.set("approval", json!("owner"));
+    }
     if let Some(avatar) = &guest.avatar_url {
         author.set("avatar", json!(avatar));
     }
     author
 }
 
-/// Whether a bound guest's author may only watch: any role but `talk` (none included).
+/// Whether a bound guest's author may only watch. Unknown or missing roles may only watch.
 pub(super) fn view_only(author: &Value) -> bool {
-    author.get("role") != Some(&json!(Role::Talk))
+    !matches!(author.get("role").and_then(Value::as_str), Some("talk" | "drive"))
 }
 
 #[derive(Deserialize)]
@@ -722,7 +731,7 @@ pub(super) struct AccessAsk {
 pub(super) struct Redeem {
     pub(super) share_id: String,
     #[serde(default)]
-    pub(super) secret: String,
+    pub(super) secret: Option<String>,
     pub(super) name: String,
     pub(super) attempt_id: String,
     #[serde(default)]
@@ -1015,8 +1024,11 @@ impl LinkShares {
         let connected = || self.present();
         self.with(directory, |shares, now| {
             let share = find(shares, &p.share_id)?;
-            let secret_matches =
-                || !p.secret.is_empty() && same(&hex(&digest(&[&p.secret])), &share.secret_sha256);
+            let secret_matches = || {
+                p.secret.as_deref().is_some_and(|secret| {
+                    !secret.is_empty() && same(&hex(&digest(&[secret])), &share.secret_sha256)
+                })
+            };
             // A signed-in guest who joins by the link may send on any link unless the owner
             // limited signed-in guests to watching (`signed_in_role: view`); an anonymous one
             // watches only.
@@ -1035,6 +1047,18 @@ impl LinkShares {
                     let invitee = share.invitees.iter().find(|i| i.account == account);
                     let invited = invitee.filter(|i| i.state == InviteState::Invited);
                     match (invited, earlier_via) {
+                        // Only the account-only invite route can redeem Drive. Even the invited
+                        // account joins with the link's role and spends a use when it follows a link.
+                        (Some(i), _) if i.role == Role::Drive && p.secret.is_some() => {
+                            if !secret_matches() {
+                                return Err("share.secret");
+                            }
+                            (Some(account), Some(signed_in_role), Some(Via::Link))
+                        }
+                        // A link attempt cannot be replayed as an invite acceptance.
+                        (Some(i), Some(Some(Via::Link))) if i.role == Role::Drive => {
+                            return Err("share.not_invited");
+                        }
                         (Some(invitee), _) => (Some(account), Some(invitee.role), None),
                         // A retry of the account's earlier join by the link: that guest again
                         // (below), with the secret as it came.
@@ -1063,7 +1087,7 @@ impl LinkShares {
                     json!({"share_id": p.share_id, "guest_id": g.guest_id, "name": g.name});
                 // The guest's role: the room hands it to the page, which draws a view guest with
                 // no composer, and drops a view guest's prompts.
-                answer.set("role", json!(role_of(g)));
+                answer.set("role", json!(role_of(g, &share.invitees)));
                 answer
             };
             if let Some(guest) =
@@ -1159,7 +1183,7 @@ impl LinkShares {
         })
     }
 
-    /// Invites an account to a share (`talk` unless named `view`). Inviting it again with the
+    /// Invites an account to a share (defaults to `talk`). Inviting it again with the
     /// same role changes nothing; with another role it is refused (`share.invited`: uninvite
     /// first, so no bound guest keeps an author its role no longer matches). A removed account
     /// invited again joins anew; its earlier guests stay removed.

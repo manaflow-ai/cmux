@@ -410,6 +410,30 @@ def real_app(app: str | None) -> Path | None:
     return path
 
 
+def changed_paths(repo: Path, base: str, head: str) -> list[str]:
+    """The paths BASE..HEAD changes (no renames: a moved file is its old path and its new one)."""
+    out = git(repo, "diff", "--no-renames", "--name-only", base, head, check=False)
+    return [line for line in out.splitlines() if line]
+
+
+def webview_routed(rules: Path, paths: list[str]) -> list[str]:
+    """The PATHS cmux's webview router routes the web checks on: scripts/ci/web_subareas.py classify_paths's
+    react_apps, the one classifier CI and land-judge's webview_routes read (web-bundle-key.py's routed inputs
+    among them), so the look's web layer and the web checks never keep two lists. Rules' own copy of the router
+    is read (the base branch's, as for every other rule). On cmux#56364 at 40124f05 the look took only rust while
+    the router routed schemas/settings/source/machines.json to the webviews: live_apply files schemas/ as no-app."""
+    script = rules / "scripts/ci/web_subareas.py"
+    if not paths or not script.is_file():
+        return []
+    router = sys.modules.get("hot_verify_web_subareas")
+    if router is None or Path(getattr(router, "__file__", "")) != script:
+        spec = importlib.util.spec_from_file_location("hot_verify_web_subareas", script)
+        router = importlib.util.module_from_spec(spec)
+        sys.modules["hot_verify_web_subareas"] = router
+        spec.loader.exec_module(router)
+    return [path for path in paths if router.classify_paths([path], rules).react_apps]
+
+
 def plan(repo: Path, source: str, app: str | None = None, base: str | None = None) -> dict:
     """The plan of SOURCE against APP's commit, BASE, or the merge base with origin/feat-cmux-next."""
     h = hot()
@@ -462,6 +486,10 @@ def plan(repo: Path, source: str, app: str | None = None, base: str | None = Non
                             "on feat-cmux-next: those commits are not the change, and a look does not show them")
     left = dict(planned.get("left") or {})
     web = left.pop(LEFT_WEB, [])
+    # The web checks' router decides the web layer too: a change it routes the webview suite on (land-judge's
+    # webview_routes) is a change to what the web bundles show, wherever its path lies (the settings schema,
+    # the model catalog, the acpmux protocol IR ...).
+    web += [path for path in webview_routed(rules, changed_paths(repo, fork, head)) if path not in web]
     helpers = left.pop(LEFT_HELPERS, [])
     for kind, paths in left.items():
         out["build"][REASONS.get(kind, kind)] = list(paths)

@@ -1,5 +1,6 @@
 #if os(iOS)
 import AVFoundation
+import CmuxMobileArtifacts
 import CmuxMobileDesign
 import CmuxMobileRealtime
 import CmuxMobileTransport
@@ -97,13 +98,13 @@ struct TerminalComposer: View {
         }
         .fullScreenCover(isPresented: $showCamera) {
             TerminalCameraPicker { image in
-                guard let data = image.jpegData(compressionQuality: ComposerImageOptimizer.jpegQuality) else { return }
+                guard let data = image.jpegData(compressionQuality: AttachmentImageEncoder.jpegQuality) else { return }
                 let name = "Camera \(Self.stamp()).jpg"
                 let thumbnail = image.preparingThumbnail(of: CGSize(width: 168, height: 168))
                 // A camera frame is 12 MP: shrink it as the chat composer does, before it is attached.
                 Task {
-                    let optimized = await ComposerImageOptimizer.optimizeAsync(data)
-                    model.addAttachment(ComposerAttachment(kind: .image, name: name, thumbnail: thumbnail, data: optimized))
+                    let shrunk = await Self.shrinkImage(data, name: name)
+                    model.addAttachment(ComposerAttachment(kind: .image, name: shrunk.name, thumbnail: thumbnail, data: shrunk.data))
                 }
             }
             .ignoresSafeArea()
@@ -308,7 +309,11 @@ struct TerminalComposer: View {
         let canSend = model.composerHasText || !model.attachments.isEmpty
         let failed = model.attachmentError != nil
         return Button {
-            send()
+            if model.isUploading {
+                model.cancelAttachmentSend()
+            } else {
+                send()
+            }
         } label: {
             ZStack {
                 if model.isUploading {
@@ -316,7 +321,7 @@ struct TerminalComposer: View {
                 } else {
                     Image(systemName: failed ? "exclamationmark" : "arrow.up")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(failed ? AnyShapeStyle(Color.white) : canSend ? AnyShapeStyle(Color.cmuxMobileOnSend) : AnyShapeStyle(Color(uiColor: .tertiaryLabel)))
+                        .foregroundStyle(failed ? AnyShapeStyle(CmuxMobileTheme.standard.colors.onAccent.color) : canSend ? AnyShapeStyle(Color.cmuxMobileOnSend) : AnyShapeStyle(Color(uiColor: .tertiaryLabel)))
                         .contentTransition(.symbolEffect(.replace))
                 }
             }
@@ -324,19 +329,21 @@ struct TerminalComposer: View {
             // (`Color.cmuxMobileSend`, never a white disk). Tinted glass washed
             // it out to a pale disc (Leo, 2026-11-22: "the send button is
             // themed/coloured slightly oddly"). Empty (disabled): the faint fill.
-            .composerControlCircle(failed ? AnyShapeStyle(Color.red)
+            .composerControlCircle(failed ? AnyShapeStyle(CmuxMobileTheme.standard.colors.danger.color)
                                    : canSend || model.isUploading ? AnyShapeStyle(Color.cmuxMobileSend)
                                    : AnyShapeStyle(Color.cmuxMobileFill))
             .animation(.smooth(duration: 0.2).unlessReduceMotion, value: canSend)
         }
         .buttonStyle(.cmuxPressFillInLabel)
-        .disabled(model.isUploading || !canSend)
+        .disabled(!canSend)
         .contextMenu {
             Button("Send without Return", systemImage: "arrow.up.to.line") {
                 model.sendWithoutReturn()
             }
         }
-        .accessibilityLabel(model.isUploading ? "Sending" : failed ? "Send failed" : "Send")
+
+        .accessibilityLabel(model.isUploading ? CmuxMobileTerminalAccessibility.cancelSending : failed ? "Send failed" : "Send")
+
         .accessibilityIdentifier("terminal.composer.send")
     }
 
@@ -360,13 +367,17 @@ struct TerminalComposer: View {
                                              string: board.hasStrings ? board.string : nil)
         switch route {
         case .image:
-            guard let image = board.image, let data = image.pngData() else { return }
-            let name = "Pasted image \(Self.stamp()).png"
-            let thumbnail = image.preparingThumbnail(of: CGSize(width: 168, height: 168))
+            let stamp = Self.stamp()
+            let images = board.composerImages()
+            // A pasted screenshot is full resolution: shrink each as the chat composer does, before it is attached.
             Task {
-                let optimized = await ComposerImageOptimizer.optimizeAsync(data)
-                model.addAttachment(ComposerAttachment(kind: .image, name: ComposerImageOptimizer.filename(name, for: optimized),
-                                                       thumbnail: thumbnail, data: optimized))
+                for (index, item) in images.enumerated() {
+                    let ext = UTType(mimeType: item.mimeType)?.preferredFilenameExtension ?? "png"
+                    let suffix = index == 0 ? "" : " \(index + 1)"
+                    let thumbnail = UIImage(data: item.data)?.preparingThumbnail(of: CGSize(width: 168, height: 168))
+                    let shrunk = await Self.shrinkImage(item.data, name: "Pasted image \(stamp)\(suffix).\(ext)")
+                    model.addAttachment(ComposerAttachment(kind: .image, name: shrunk.name, thumbnail: thumbnail, data: shrunk.data))
+                }
             }
         case .file(let url):
             Task { await loadFiles([url]) }
@@ -380,6 +391,16 @@ struct TerminalComposer: View {
     // MARK: Loading attachments
 
     /// Picked photos and videos keep their bytes (a video its local copy).
+    /// The chat composer's photo size (``AttachmentImageEncoder``: 2048 px, JPEG 0.82), off the
+    /// main actor. The original bytes and name stay when the encoder declines (already small, animated).
+    private static func shrinkImage(_ data: Data, name: String) async -> (data: Data, name: String) {
+        await Task.detached(priority: .userInitiated) {
+            guard let encoded = AttachmentImageEncoder.encode(data) else { return (data, name) }
+            let base = URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent
+            return (encoded.data, "\(base).\(encoded.ext)")
+        }.value
+    }
+
     /// Photos has no file name for an item without library access, so the
     /// name says what it is and when it was attached.
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
@@ -398,9 +419,8 @@ struct TerminalComposer: View {
                 let ext = item.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
                 // The library's original (HEIC or JPEG, 12 MP) shrinks to 2048 px before it is
                 // attached, as the chat composer's photos do, so the link carries the small copy.
-                let optimized = await ComposerImageOptimizer.optimizeAsync(data)
-                let name = ComposerImageOptimizer.filename("Photo \(stamp)\(suffix).\(ext)", for: optimized)
-                model.addAttachment(ComposerAttachment(kind: .image, name: name, thumbnail: thumbnail, data: optimized))
+                let shrunk = await Self.shrinkImage(data, name: "Photo \(stamp)\(suffix).\(ext)")
+                model.addAttachment(ComposerAttachment(kind: .image, name: shrunk.name, thumbnail: thumbnail, data: shrunk.data))
             }
         }
     }
@@ -537,10 +557,11 @@ struct AttachmentStrip: View {
                                 // Opaque, ringed badge (as in Messages): readable over any thumbnail.
                                 Image(systemName: "xmark")
                                     .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(CmuxMobileTheme.standard.colors.label.color)
                                     .frame(width: 22, height: 22)
-                                    // Glass, darkened so it reads over any thumbnail (as in Messages).
-                                    .glassEffect(.regular.tint(.black.opacity(0.5)).interactive(), in: .circle)
+                                    // The theme's floating glass (its surface at the transient veil),
+                                    // so it reads over any thumbnail and follows the Mac's theme.
+                                    .cmuxMobileFloatingGlass(in: .circle, interactive: true)
                                     .frame(width: 44, height: 44)
                                     .contentShape(.rect)
                             }
