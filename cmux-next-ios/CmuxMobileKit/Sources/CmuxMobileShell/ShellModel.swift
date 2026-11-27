@@ -485,6 +485,9 @@ final class ShellModel {
             terminalTabs.macLinkUp = { [weak store] macID in store?.macConnection[macID].map { $0 == .connected } ?? true }
             terminalTabs.artifactSourceProvider = { [weak live] tab, macID in live?.terminalArtifactSource(tabID: tab.id, macID: macID) }
             terminalTabs.uploaderProvider = { [weak live] tab, macID in live?.terminalUploader(tabID: tab.id, macID: macID) }
+            terminalTabs.attachmentSenderProvider = { [weak live] tab, macID in
+                EngineAttachmentSender { [weak live] in live?.terminalAttachmentDestination(tabID: tab.id, macID: macID) }
+            }
             terminalTabs.uploaderDirectoryProvider = { [weak live] tab, macID in live?.terminalDirectory(tabID: tab.id, macID: macID) }
             terminalTabs.screenTextProvider = { [weak live] tab, macID in await live?.terminalScreenText(tabID: tab.id, macID: macID) }
             // Grid cards and the close prompt's programs follow the Mac's output, not a timer.
@@ -529,12 +532,18 @@ final class ShellModel {
             }
             // Their `localhost:<port>` pages, forwarded to the Mac when it serves `localhost`.
             NativeBrowserTabs.shared.forwarder = StreamedBrowserDirectory.shared.localhost
+            // An agent on the Mac drives a tab shown on this iPhone (`tab_…@phone`, RFD 0089).
+            PhonePageChannel.answer = { method, params, macID in
+                await NativeBrowserTabs.shared.answerPageVerb(method: method, params: params, macID: macID)
+                    .mapError { PhonePageChannel.PageError(code: $0.code, message: $0.message) }
+            }
             NativeBrowserTabs.shared.macForwardsLocalhost = { [store] macID in
                 macID.flatMap { store.macCapabilities[$0] }?.contains(NativeBrowserTabs.forwardCapability) ?? false
             }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
             StreamedBrowserDirectory.shared.macOpener = nil
+            PhonePageChannel.answer = nil
             StreamedBrowserDirectory.shared.browserTabsListed = nil
             NativeBrowserTabs.shared.readMacHTML = nil
             ChiefComputer.shared.source = nil
@@ -548,6 +557,7 @@ final class ShellModel {
             terminalTabs.macLinkUp = nil
             terminalTabs.artifactSourceProvider = nil
             terminalTabs.uploaderProvider = nil
+            terminalTabs.attachmentSenderProvider = nil
             terminalTabs.uploaderDirectoryProvider = nil
             terminalTabs.screenTextProvider = nil
             creator.backend = offlineCreation

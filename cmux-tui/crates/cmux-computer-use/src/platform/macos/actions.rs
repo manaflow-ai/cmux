@@ -3161,6 +3161,9 @@ pub(super) fn set_value(
     // the page is scrolled past is scrolled into view.
     let web = in_web_area(&el) != roles::Web::Out;
     let mut scrolled = false;
+    // What the web element is (a text input or a slider): whether the write
+    // waits for it to hold its page's focus (roles::web_write_needs_page_focus).
+    let mut web_kind = None;
     if web {
         if d.is_persons_app(&t) {
             return Err(DesktopError::Unsupported(
@@ -3174,7 +3177,9 @@ pub(super) fn set_value(
         let (field, moved) = web_field_in_view(d, &t, &el, field, roles::SecureField::Allow);
         scrolled = moved;
         roles::web_value_gate(field.as_ref(), roles::SecureField::Allow).map_err(unsupported)?;
+        web_kind = field.map(|f| f.kind);
     }
+    let page_focus = web && roles::web_write_needs_page_focus(web_kind);
     // Safari (macOS 27.0.1) writes a text field's AXValue into whichever
     // field holds the page's focus, whichever one was addressed: the field
     // takes the focus first (inside its app, which is not the person's), and
@@ -3184,7 +3189,7 @@ pub(super) fn set_value(
     // The focus is moved without the app activating itself
     // ([`web_focus`]: never an AXFocused write in WebKit).
     let mut focus_written = false;
-    if web && !roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten()) {
+    if page_focus && !roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten()) {
         let focus = web_focus(d, &t, &el)?;
         focus_written = focus.as_ref().is_some_and(|f| f.written);
         if !focus.is_some_and(|f| f.focused) {
@@ -3225,10 +3230,18 @@ pub(super) fn set_value(
     // An error that does not say the write was refused may have come after
     // it applied: delivered, with the read-back still taken.
     let cf = value_for(&el, value)?;
+    // A web slider is written as text (the number, checked above): a string
+    // write is what WebKit hands to the slider's own input
+    // (AccessibilitySlider::setValue), with its input and change events.
+    let cf = match web_kind {
+        Some(roles::WebKind::Range) => Cf::string(&requested)
+            .ok_or_else(|| DesktopError::Failed("could not build the value".into()))?,
+        _ => cf,
+    };
     // Through the gate: in the person's app only where their caret is not;
     // web content only while the field holds its page's focus.
     let gated = persons_caret_write(d, &t, &el, false, || {
-        (!web || roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten()))
+        (!page_focus || roles::holds_page_focus(el.try_bool("AXFocused").ok().flatten()))
             .then(|| el.set("AXValue", &cf).err())
     })?;
     let CaretWrite::Wrote { value: written, moved_onto } = gated else {
@@ -3257,7 +3270,7 @@ pub(super) fn set_value(
         };
     // The page puts a value write into the field holding its focus: focus
     // that moved since the check may have taken the value elsewhere.
-    let kept = (!web || kept_page_focus(&el)) && !moved_onto;
+    let kept = (!page_focus || kept_page_focus(&el)) && !moved_onto;
     let mut out = if holds && kept {
         ActionOutcome::confirmed("ax_set_value")
     } else {
