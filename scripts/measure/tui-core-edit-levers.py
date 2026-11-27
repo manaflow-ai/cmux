@@ -11,6 +11,8 @@ once per arm, each arm only an environment change, in arms order:
   cgu16       CARGO_PROFILE_DEV_CODEGEN_UNITS=16
   cgu1024     CARGO_PROFILE_DEV_CODEGEN_UNITS=1024
   opt0        our crates at opt-level 0 (dependencies stay at 3)
+  cgu1024+debug0  both
+An arm named NAME@K reruns NAME later in the run (interleave arms to see drift on the machine).
 
   python3 scripts/measure/tui-core-edit-levers.py [--n 4] [--arms base,mold,...]
 
@@ -49,6 +51,7 @@ def arms() -> dict[str, dict | None]:
         "cgu16": {"CARGO_PROFILE_DEV_CODEGEN_UNITS": "16"},
         "cgu1024": {"CARGO_PROFILE_DEV_CODEGEN_UNITS": "1024"},
         "opt0": {"CARGO_PROFILE_DEV_OPT_LEVEL": "0"},
+        "cgu1024+debug0": {"CARGO_PROFILE_DEV_CODEGEN_UNITS": "1024", "CARGO_PROFILE_DEV_DEBUG": "0"},
     }
 
 
@@ -67,7 +70,7 @@ def main() -> int:
           flush=True)
     rows = []
     for name in a.arms.split(","):
-        env_add = table.get(name)
+        env_add = table.get(name.split("@")[0])  # base@2: the same arm again, later in the run
         if env_add is None:
             print(f"LEVER {name} skipped (not available here)", flush=True)
             continue
