@@ -1099,6 +1099,31 @@ def confirm_probes(job: Probe, culprit: str, parent: str) -> list[Probe]:
             for n in range(1, CONFIRM_RUNS + 1) for side, sha in (("red", culprit), ("green", parent))]
 
 
+def earlier_confirm(runs: list[dict], job: Probe, culprit: str, parent: str, jobs_of, steps_of=None) -> tuple[str, str] | None:
+    """An earlier confirm round of this same culprit and parent (same titles: the commits, suite and job are fixed),
+    as ('running'|'culprit'|'flake', why), or None when there is none or it settled nothing (a lost run: 'unsure'),
+    so a new round runs. A stuck red's bisect starts again at each batch, reads its known probe verdicts down to the
+    same culprit, and before this ran the same four confirm runs once more for the same answer: cmux-tui-spec's
+    acpmux-protocol-ir at 569198fe/8648a5b6 ran its round at 14:35, 16:21, 19:31 and 21:12Z on 11-27, a flake each
+    time; 78 of the 297 post-merge runs 09:57-21:35Z were such repeats (~8 runner-min each)."""
+    round_ = confirm_probes(job, culprit, parent)
+    found: dict[str, dict] = {}
+    for p in round_:
+        run = next((r for r in runs if (r.get("display_title") or "") == probe_title(p)), None)
+        if run is None:
+            return None
+        found[p.confirm] = run
+    if any(r.get("status") != "completed" for r in found.values()):
+        return "running", f"its confirm round is already running (runs {', '.join(str(r['id']) for r in found.values())})"
+    first = round_[0]
+    run = found[first.confirm]
+    verdict = probe_conclusion(jobs_of(run["id"])[0], first, steps_of(run["id"]) if steps_of else None)
+    step, why = judge_confirm(first, verdict, int(run["id"]), runs, jobs_of, steps_of)
+    if step not in ("culprit", "flake"):
+        return None
+    return step, f"{why} (earlier confirm runs {', '.join(str(r['id']) for r in found.values())})"
+
+
 def judge_confirm(probe: Probe, conclusion: str, run_id: int, runs: list[dict], jobs_of, steps_of=None) -> tuple[str, str]:
     """After one confirm run: ('culprit'|'flake'|'unsure'|'wait', why). Every confirm run's judge reads the
     round's other runs (newest run per title: a retry replaces its run). Any verdict against its side (the culprit
@@ -1348,7 +1373,18 @@ def cmd_judge(args: argparse.Namespace) -> int:
     elif step == "culprit":
         assert isinstance(value, str)
         parent = probe.good if conclusion == "failure" else probe.sha
-        if CONFIRM_RUNS:
+        try:
+            runs = runs or (list_runs(args.repo, args.branch) if CONFIRM_RUNS else [])
+        except RuntimeError:
+            runs = []
+        known = earlier_confirm(runs, probe, value, parent, jobs_of, steps_of) if CONFIRM_RUNS else None
+        if known and known[0] == "culprit":
+            summary(args.summary, f"`{probe.job}` first went red at `{value}` (last green `{parent[:11]}`): {known[1]}; no new confirm round.")
+            out.update(culprit=value, job=probe.job, good=parent, origin=probe.origin)
+        elif known:
+            summary(args.summary, f"`{probe.job}` at `{value[:11]}` (parent `{parent[:11]}`): {known[1]}"
+                                  + (": a flake, no revert" if known[0] == "flake" else "") + "; no new confirm round.")
+        elif CONFIRM_RUNS:
             summary(args.summary, f"`{probe.job}` first went red at `{value}` (last green `{parent[:11]}`); confirming with "
                                   f"{CONFIRM_RUNS} more runs of each before any revert.")
             if not args.dry_run:

@@ -974,12 +974,17 @@ class JudgeProbeReadsItsOwnJobTest(unittest.TestCase):
 class KnownVerdictTest(unittest.TestCase):
     commits = [c * 40 for c in "abcdefghi"]  # a good ... i bad
 
-    def judge(self, earlier: dict[str, str]):
-        """A probe at e (good a, bad i) failed; earlier finished probe runs gave the verdicts in earlier."""
+    def judge(self, earlier: dict[str, str], confirms: dict[str, tuple[str, str]] | None = None):
+        """A probe at e (good a, bad i) failed; earlier finished probe runs gave the verdicts in earlier, and an
+        earlier confirm round of d (parent c) gave confirms: label -> (status, conclusion)."""
         a, e, i = "a" * 40, "e" * 40, "i" * 40
         job = "web / Web tests (2/4)"
         runs = [{"id": 100 + n, "status": "completed", "display_title": f"{pmb.PROBE} web web-tests at {sha * 40}"} for n, sha in enumerate(earlier)]
         jobs = {100 + n: [{"name": job, "conclusion": c}] for n, c in enumerate(earlier.values())}
+        for n, (label, (status, conclusion)) in enumerate((confirms or {}).items()):
+            sha = ("d" if label.startswith("red") else "c") * 40
+            runs.insert(0, {"id": 200 + n, "status": status, "display_title": f"{pmb.PROBE} web web-tests at {sha} confirm {label}"})
+            jobs[200 + n] = [{"name": job, "conclusion": conclusion}]
         jobs[70] = [{"name": job, "conclusion": "failure"}]
         args = Namespace(mode=pmb.PROBE, manifest=str(pmb.MANIFEST), repo="o/r", branch="feat-cmux-next", run_id="70",
                          sha=e, suite="web", job=job, only="web-tests", probe_sha=e, good=a, bad=i, origin="60",
@@ -1010,6 +1015,28 @@ class KnownVerdictTest(unittest.TestCase):
                          sorted((f"{side}-{n}", sha * 40, "c" * 40, "d" * 40) for n in range(1, pmb.CONFIRM_RUNS + 1)
                                 for side, sha in (("red", "d"), ("green", "c"))))
         self.assertEqual(out["culprit"], "")
+
+    def round(self, red: str, green: str, status: str = "completed") -> dict[str, tuple[str, str]]:
+        return {f"{side}-{n}": (status, red if side == "red" else green) for n in range(1, pmb.CONFIRM_RUNS + 1) for side in ("red", "green")}
+
+    def test_an_earlier_flake_confirm_round_is_not_run_again(self) -> None:
+        # A stuck red's bisect reached d again; its round already said flake (the parent failed): no new round, no revert.
+        sent, out = self.judge({"c": "success", "d": "failure"}, self.round("failure", "failure"))
+        self.assertEqual((sent, out["culprit"]), ([], ""))
+
+    def test_an_earlier_agreeing_confirm_round_names_the_culprit_without_running_again(self) -> None:
+        sent, out = self.judge({"c": "success", "d": "failure"}, self.round("failure", "success"))
+        self.assertEqual((sent, out["culprit"], out["good"]), ([], "d" * 40, "c" * 40))
+
+    def test_a_running_confirm_round_is_not_dispatched_twice(self) -> None:
+        sent, out = self.judge({"c": "success", "d": "failure"}, self.round("", "", status="in_progress"))
+        self.assertEqual((sent, out["culprit"]), ([], ""))
+
+    def test_an_earlier_round_with_a_lost_run_runs_again(self) -> None:
+        # Every green run lost its runner: the round settled nothing (unsure), so a new one runs.
+        confirms = self.round("failure", "cancelled")
+        sent, _ = self.judge({"c": "success", "d": "failure"}, confirms)
+        self.assertEqual(len(sent), 2 * pmb.CONFIRM_RUNS)
 
     def test_an_earlier_probe_without_verdict_is_probed_again(self) -> None:
         sent, _ = self.judge({"c": "cancelled"})
