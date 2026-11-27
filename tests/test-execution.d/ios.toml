@@ -98,8 +98,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_publication_snapshot.py"
-lane = "manual"
-reason = "No workflow step runs it (lane derived by --write). Run it yourself: python3 tests/test_ios_publication_snapshot.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ios_screen_sharing_proof.py"

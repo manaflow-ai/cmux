@@ -1,0 +1,69 @@
+name: iOS publication snapshot
+run-name: iOS publication snapshot ${{ inputs.request_id }} for ${{ inputs.head_sha }}
+
+# Metadata only. The protected builder supplies every executed byte; inputs are
+# correlation data, never checkout refs or executable code. Updating feat alone
+# does not deploy this workflow: the existing admin builder fast-forward does.
+on:
+  push:
+    branches: [rc/cnx-ios-builder]
+    paths: [.github/workflows/ios-publication-snapshot.yml]
+  workflow_dispatch:
+    inputs:
+      head_sha:
+        description: Exact source head the requesting compatibility gate tests
+        required: true
+        type: string
+      request_id:
+        description: Requesting gate run ID and attempt, separated by a colon
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    environment: release
+    steps:
+      - name: Checkout protected metadata reader
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            scripts/ci/ios_publication_snapshot.py
+            scripts/ci/ios_internal_notes.py
+
+      - name: Read available builds from App Store Connect
+        id: snapshot
+        env:
+          HEAD_SHA: ${{ inputs.head_sha }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          ASC_KEY_ID: ${{ secrets.ASC_API_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_API_ISSUER_ID }}
+          ASC_API_KEY_P8_BASE64: ${{ secrets.ASC_API_KEY_P8_BASE64 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$REQUEST_ID" =~ ^[0-9]+:[0-9]+$ ]]
+          key="$RUNNER_TEMP/ios-publication-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT.p8"
+          trap 'rm -f "$key"' EXIT
+          umask 077
+          printf '%s' "$ASC_API_KEY_P8_BASE64" | base64 --decode > "$key"
+          ASC_PRIVATE_KEY_PATH="$key" python3 -I scripts/ci/ios_publication_snapshot.py \
+            --head-sha "$HEAD_SHA" --request-id "$REQUEST_ID" \
+            --output "$RUNNER_TEMP/ios-publication.json"
+          echo "artifact_name=ios-publication-snapshot-${REQUEST_ID/:/-}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish immutable request-bound metadata
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.snapshot.outputs.artifact_name }}
+          path: ${{ runner.temp }}/ios-publication.json
+          if-no-files-found: error
+          retention-days: 1

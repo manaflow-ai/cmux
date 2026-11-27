@@ -1463,7 +1463,9 @@ jobs:
 
       - name: Validate the INTERNAL iOS builder What to Test notes
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ios_internal_notes.py
+        run: |
+          python3 tests/test_ios_internal_notes.py
+          python3 tests/test_ios_publication_snapshot.py
 
       - name: Validate the trusted web complexity workflow
         if: ${{ !cancelled() && matrix.group == 'ci' }}
