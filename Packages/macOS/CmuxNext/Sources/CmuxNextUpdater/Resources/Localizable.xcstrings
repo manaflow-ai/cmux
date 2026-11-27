@@ -1311,6 +1311,138 @@
         }
       }
     },
+    "updater.channels.prs": {
+      "comment": "Channels card: a build's pull request count, which opens the list of them. The argument is the count.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRs (%lld)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلبات الدمج (%lld)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR-ovi (%lld)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR'er (%lld)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRs (%lld)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR (%lld)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR (%lld)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR (%lld)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR（%lld件）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR (%lld)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR (%lld개)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR-er (%lld)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR-y (%lld)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRs (%lld)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR (%lld)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR (%lld)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR'ler (%lld)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR (%lld)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR (%lld)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR（%lld）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR（%lld）"
+          }
+        }
+      }
+    },
     "updater.channels.empty": {
       "extractionState": "manual",
       "localizations": {
@@ -34070,22 +34202,28 @@
             "value": "The update will try to restart again in a little while. Restart to Update installs it now."
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Das Update versucht den Neustart in Kürze erneut. „Neu starten zum Aktualisieren“ installiert es jetzt."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "La mise à jour réessaiera de redémarrer dans un moment. Redémarrer pour mettre à jour l’installe maintenant."
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
             "value": "سيحاول التحديث إعادة التشغيل مجددًا بعد قليل. يثبّته «إعادة التشغيل للتحديث» الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ažuriranje će ponovo pokušati restart za malo. Ponovo pokreni za ažuriranje ga instalira odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdateringen prøver at genstarte igen om lidt. Genstart for at opdatere installerer den nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Update versucht den Neustart in Kürze erneut. „Neu starten zum Aktualisieren“ installiert es jetzt."
           }
         },
         "es": {
@@ -34094,16 +34232,28 @@
             "value": "La actualización volverá a intentar reiniciar en un rato. Reiniciar para actualizar la instala ahora."
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "更新稍後會再次嘗試重新啟動。「重新啟動以更新」可立即安裝。"
+            "value": "La mise à jour réessaiera de redémarrer dans un moment. Redémarrer pour mettre à jour l’installe maintenant."
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "更新稍后会再次尝试重新启动。“重新启动以更新”可立即安装。"
+            "value": "L’aggiornamento proverà di nuovo a riavviare tra poco. Riavvia per aggiornare lo installa subito."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートはしばらくしてから再起動をもう一度試みます。「再起動してアップデート」で今すぐインストールできます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បច្ចុប្បន្នភាពនឹងព្យាយាមចាប់ផ្ដើមឡើងវិញម្ដងទៀតបន្តិចទៀត។ ចាប់ផ្ដើមឡើងវិញដើម្បីធ្វើបច្ចុប្បន្នភាព ដំឡើងវាឥឡូវនេះ។"
           }
         },
         "ko": {
@@ -34112,10 +34262,64 @@
             "value": "업데이트가 잠시 후 다시 재시작을 시도합니다. 재시작하여 업데이트를 누르면 지금 설치됩니다."
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "アップデートはしばらくしてから再起動をもう一度試みます。「再起動してアップデート」で今すぐインストールできます。"
+            "value": "Oppdateringen prøver å starte på nytt igjen om litt. Start på nytt for å oppdatere installerer den nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualizacja za chwilę ponownie spróbuje uruchomić aplikację. Uruchom ponownie, aby zaktualizować instaluje ją od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A atualização tentará reiniciar de novo daqui a pouco. Reiniciar para atualizar a instala agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновление снова попробует перезапуститься чуть позже. «Перезапустить для обновления» установит его сейчас."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การอัปเดตจะลองรีสตาร์ทอีกครั้งในอีกสักครู่ รีสตาร์ทเพื่ออัปเดตจะติดตั้งทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Güncelleme biraz sonra yeniden başlatmayı tekrar deneyecek. Güncellemek için yeniden başlat onu şimdi kurar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Оновлення знову спробує перезапуститися трохи згодом. «Перезапустити для оновлення» встановить його зараз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản cập nhật sẽ thử khởi động lại sau ít phút. Khởi động lại để cập nhật sẽ cài nó ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新稍后会再次尝试重新启动。“重新启动以更新”可立即安装。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新稍後會再次嘗試重新啟動。「重新啟動以更新」可立即安裝。"
           }
         }
       }
@@ -34129,22 +34333,28 @@
             "value": "Last Updated"
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zuletzt aktualisiert"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dernière mise à jour"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
             "value": "آخر تحديث"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posljednje ažuriranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senest opdateret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt aktualisiert"
           }
         },
         "es": {
@@ -34153,16 +34363,28 @@
             "value": "Última actualización"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "上次更新"
+            "value": "Dernière mise à jour"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "上次更新"
+            "value": "Ultimo aggiornamento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最終アップデート"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ធ្វើបច្ចុប្បន្នភាពចុងក្រោយ"
           }
         },
         "ko": {
@@ -34171,10 +34393,64 @@
             "value": "마지막 업데이트"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "最終アップデート"
+            "value": "Sist oppdatert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ostatnia aktualizacja"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Última atualização"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Последнее обновление"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อัปเดตล่าสุด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son Güncelleme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Останнє оновлення"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cập nhật lần cuối"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次更新"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次更新"
           }
         }
       }
@@ -34188,22 +34464,28 @@
             "value": "Next Check"
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nächste Prüfung"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Prochaine vérification"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
             "value": "الفحص التالي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sljedeća provjera"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Næste kontrol"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächste Prüfung"
           }
         },
         "es": {
@@ -34212,16 +34494,28 @@
             "value": "Próxima comprobación"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "下次檢查"
+            "value": "Prochaine vérification"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "下次检查"
+            "value": "Prossimo controllo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次回の確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការពិនិត្យបន្ទាប់"
           }
         },
         "ko": {
@@ -34230,10 +34524,64 @@
             "value": "다음 확인"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "次回の確認"
+            "value": "Neste sjekk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Następne sprawdzenie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Próxima verificação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Следующая проверка"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบครั้งถัดไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sonraki Denetim"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Наступна перевірка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lần kiểm tra tiếp theo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下次检查"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下次檢查"
           }
         }
       }
@@ -34247,22 +34595,28 @@
             "value": "Soon"
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "In Kürze"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bientôt"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
             "value": "قريبًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uskoro"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snart"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Kürze"
           }
         },
         "es": {
@@ -34271,16 +34625,28 @@
             "value": "Pronto"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "即將"
+            "value": "Bientôt"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "即将"
+            "value": "A breve"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まもなく"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឆាប់ៗនេះ"
           }
         },
         "ko": {
@@ -34289,10 +34655,64 @@
             "value": "곧"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "まもなく"
+            "value": "Snart"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wkrótce"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em breve"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Скоро"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เร็วๆ นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yakında"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Незабаром"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sắp tới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即将"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即將"
           }
         }
       }
@@ -34306,22 +34726,28 @@
             "value": "Automatic checks are off"
           }
         },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Automatische Prüfungen sind aus"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les vérifications automatiques sont désactivées"
-          }
-        },
         "ar": {
           "stringUnit": {
             "state": "translated",
             "value": "الفحوصات التلقائية متوقفة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatske provjere su isključene"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatiske kontroller er slået fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatische Prüfungen sind aus"
           }
         },
         "es": {
@@ -34330,16 +34756,28 @@
             "value": "Las comprobaciones automáticas están desactivadas"
           }
         },
-        "zh-Hant": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "自動檢查已關閉"
+            "value": "Les vérifications automatiques sont désactivées"
           }
         },
-        "zh-Hans": {
+        "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "自动检查已关闭"
+            "value": "I controlli automatici sono disattivati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動確認はオフです"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការពិនិត្យស្វ័យប្រវត្តិត្រូវបានបិទ"
           }
         },
         "ko": {
@@ -34348,10 +34786,64 @@
             "value": "자동 확인이 꺼져 있습니다"
           }
         },
-        "ja": {
+        "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "自動確認はオフです"
+            "value": "Automatiske sjekker er av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatyczne sprawdzanie jest wyłączone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As verificações automáticas estão desativadas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматические проверки выключены"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิดการตรวจสอบอัตโนมัติอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otomatik denetimler kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Автоматичні перевірки вимкнено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tự động kiểm tra đang tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动检查已关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自動檢查已關閉"
           }
         }
       }
@@ -36851,127 +37343,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ could not open chats (%2$@) and no earlier build that could is kept, so cmux stayed on it; reinstall the previous NIGHTLY in Settings > Updates."
+            "value": "Build %1$@ could not open chats (%2$@) and no earlier working build is kept; reinstall the previous NIGHTLY in Settings > Updates."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يتمكن الإصدار %1$@ من فتح المحادثات (%2$@) ولا يوجد إصدار سابق محفوظ تمكّن من ذلك، لذا بقي cmux عليه؛ أعد تثبيت إصدار NIGHTLY السابق من الإعدادات > التحديثات."
+            "value": "تعذّر على الإصدار %1$@ فتح المحادثات (%2$@) ولا يوجد إصدار سابق عامل محفوظ؛ أعد تثبيت NIGHTLY السابق من الإعدادات > التحديثات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verzija %1$@ nije mogla otvoriti razgovore (%2$@), a nije sačuvana nijedna ranija verzija koja je mogla, pa je cmux ostao na njoj; ponovo instalirajte prethodni NIGHTLY u Postavke > Ažuriranja."
+            "value": "Build %1$@ nije mogao otvoriti chatove (%2$@) i nije sačuvan nijedan raniji ispravan build; ponovo instaliraj prethodni NIGHTLY u Postavke > Ažuriranja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åbne chats (%2$@), og der er ikke gemt nogen tidligere build, der kunne, så cmux blev på den; geninstaller den forrige NIGHTLY under Indstillinger > Opdateringer."
+            "value": "Build %1$@ kunne ikke åbne chats (%2$@), og ingen tidligere fungerende build er gemt; geninstaller den forrige NIGHTLY under Indstillinger > Opdateringer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ konnte keine Chats öffnen (%2$@), und kein früherer Build, der es konnte, ist gespeichert, deshalb ist cmux dabei geblieben; installiere den vorherigen NIGHTLY erneut unter Einstellungen > Updates."
+            "value": "Build %1$@ konnte keine Chats öffnen (%2$@), und kein früherer funktionierender Build ist gespeichert; installiere den vorherigen NIGHTLY erneut unter Einstellungen > Updates."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La compilación %1$@ no pudo abrir chats (%2$@) y no se guarda ninguna compilación anterior que pudiera, así que cmux se quedó en ella; vuelve a instalar la NIGHTLY anterior en Ajustes > Actualizaciones."
+            "value": "La compilación %1$@ no pudo abrir chats (%2$@) y no se guarda ninguna anterior que funcione; reinstala la NIGHTLY anterior en Ajustes > Actualizaciones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le build %1$@ ne pouvait pas ouvrir de discussions (%2$@) et aucun build antérieur qui le pouvait n’est conservé, alors cmux y est resté ; réinstallez la NIGHTLY précédente dans Réglages > Mises à jour."
+            "value": "Le build %1$@ n’a pas pu ouvrir les discussions (%2$@) et aucun build antérieur fonctionnel n’est conservé ; réinstallez la NIGHTLY précédente dans Réglages > Mises à jour."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La build %1$@ non riusciva ad aprire le chat (%2$@) e non è conservata nessuna build precedente che ci riuscisse, quindi cmux è rimasto su questa; reinstalla la NIGHTLY precedente in Impostazioni > Aggiornamenti."
+            "value": "La build %1$@ non ha potuto aprire le chat (%2$@) e non è conservata nessuna build precedente funzionante; reinstalla la NIGHTLY precedente in Impostazioni > Aggiornamenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビルド %1$@ ではチャットを開けず (%2$@)、開けた以前のビルドも保存されていないため cmux はこのビルドのままです。設定 > アップデートで以前の NIGHTLY を再インストールしてください。"
+            "value": "ビルド %1$@ ではチャットを開けず (%2$@)、動作する以前のビルドも保存されていません。設定 > アップデートで以前の NIGHTLY を再インストールしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@) ហើយគ្មានកំណែមុនដែលអាចបើកបានត្រូវបានរក្សាទុកទេ ដូច្នេះ cmux នៅលើកំណែនេះ; សូមដំឡើង NIGHTLY មុនឡើងវិញនៅក្នុង ការកំណត់ > ការធ្វើបច្ចុប្បន្នភាព។"
+            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@) ហើយគ្មានកំណែមុនដែលដំណើរការត្រូវបានរក្សាទុកទេ; ដំឡើង NIGHTLY មុនឡើងវិញក្នុង ការកំណត់ > បច្ចុប្បន្នភាព។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "빌드 %1$@에서 채팅을 열 수 없었고(%2$@) 열 수 있었던 이전 빌드가 보관되어 있지 않아 cmux가 이 빌드에 머물렀습니다. 설정 > 업데이트에서 이전 NIGHTLY를 다시 설치하세요."
+            "value": "빌드 %1$@에서 채팅을 열 수 없었고(%2$@) 작동하는 이전 빌드가 보관되어 있지 않습니다. 설정 > 업데이트에서 이전 NIGHTLY를 다시 설치하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åpne chatter (%2$@), og ingen tidligere build som kunne er lagret, så cmux ble værende på den; installer forrige NIGHTLY på nytt under Innstillinger > Oppdateringer."
+            "value": "Bygg %1$@ kunne ikke åpne chatter (%2$@), og ingen tidligere fungerende bygg er lagret; installer forrige NIGHTLY på nytt i Innstillinger > Oppdateringer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wersja %1$@ nie mogła otwierać czatów (%2$@), a nie zachowano żadnej wcześniejszej wersji, która mogła, więc cmux na niej pozostał; zainstaluj ponownie poprzednią wersję NIGHTLY w Ustawienia > Aktualizacje."
+            "value": "Kompilacja %1$@ nie mogła otworzyć czatów (%2$@), a żadna wcześniejsza działająca nie jest zachowana; zainstaluj ponownie poprzednią NIGHTLY w Ustawienia > Aktualizacje."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A build %1$@ não conseguia abrir chats (%2$@) e nenhuma build anterior que conseguia está guardada, então o cmux ficou nela; reinstale a NIGHTLY anterior em Ajustes > Atualizações."
+            "value": "O build %1$@ não conseguiu abrir chats (%2$@) e nenhum build anterior funcional está guardado; reinstale a NIGHTLY anterior em Ajustes > Atualizações."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сборка %1$@ не могла открывать чаты (%2$@), а более ранней сборки, которая могла, не сохранено, поэтому cmux остался на ней; переустановите предыдущую NIGHTLY в разделе Настройки > Обновления."
+            "value": "Сборка %1$@ не смогла открыть чаты (%2$@), а рабочей более ранней сборки не сохранено; переустановите предыдущую NIGHTLY в разделе Настройки > Обновления."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) และไม่มีบิลด์ก่อนหน้าที่เปิดได้เก็บไว้ cmux จึงยังอยู่ที่บิลด์นี้ ติดตั้ง NIGHTLY ก่อนหน้าใหม่ใน การตั้งค่า > อัปเดต"
+            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) และไม่มีบิลด์ก่อนหน้าที่ใช้งานได้เก็บไว้ ติดตั้ง NIGHTLY ก่อนหน้าใหม่ใน การตั้งค่า > อัปเดต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ sürümü sohbet açamadı (%2$@) ve açabilen daha eski bir sürüm saklanmıyor, bu yüzden cmux bu sürümde kaldı; önceki NIGHTLY sürümünü Ayarlar > Güncellemeler bölümünden yeniden yükleyin."
+            "value": "%1$@ derlemesi sohbetleri açamadı (%2$@) ve çalışan daha eski bir derleme saklanmıyor; önceki NIGHTLY'yi Ayarlar > Güncellemeler'den yeniden kurun."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Збірка %1$@ не могла відкривати чати (%2$@), а ранішої збірки, яка могла, не збережено, тож cmux залишився на ній; перевстановіть попередню NIGHTLY у Налаштування > Оновлення."
+            "value": "Збірка %1$@ не змогла відкрити чати (%2$@), а робочої ранішої збірки не збережено; перевстановіть попередню NIGHTLY у Налаштування > Оновлення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@) và không còn lưu bản dựng cũ nào mở được, nên cmux vẫn ở bản này; hãy cài lại bản NIGHTLY trước đó trong Cài đặt > Cập nhật."
+            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@) và không còn giữ bản dựng cũ nào chạy được; hãy cài lại NIGHTLY trước đó trong Cài đặt > Cập nhật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 无法打开对话（%2$@），且未保留可以打开对话的早期版本，因此 cmux 仍停留在该版本；请在“设置 > 更新”中重新安装上一个 NIGHTLY。"
+            "value": "版本 %1$@ 无法打开对话（%2$@），且未保留可用的早期版本；请在“设置 > 更新”中重新安装上一个 NIGHTLY。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 無法開啟對話（%2$@），且未保留可以開啟對話的早期版本，因此 cmux 仍停留在此版本；請在「設定 > 更新」中重新安裝上一個 NIGHTLY。"
+            "value": "版本 %1$@ 無法開啟對話（%2$@），且未保留可用的早期版本；請在「設定 > 更新」中重新安裝上一個 NIGHTLY。"
           }
         }
       }
@@ -36982,127 +37474,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ could not open chats (%2$@) and the earlier builds kept cannot read your data, so cmux stayed on it; reinstall the previous NIGHTLY in Settings > Updates."
+            "value": "Build %1$@ could not open chats (%2$@) and the earlier builds kept cannot read your data; reinstall the previous NIGHTLY in Settings > Updates."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يتمكن الإصدار %1$@ من فتح المحادثات (%2$@) ولا تستطيع الإصدارات السابقة المحفوظة قراءة بياناتك، لذا بقي cmux عليه؛ أعد تثبيت إصدار NIGHTLY السابق من الإعدادات > التحديثات."
+            "value": "تعذّر على الإصدار %1$@ فتح المحادثات (%2$@) ولا تستطيع الإصدارات السابقة المحفوظة قراءة بياناتك؛ أعد تثبيت NIGHTLY السابق من الإعدادات > التحديثات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verzija %1$@ nije mogla otvoriti razgovore (%2$@), a sačuvane ranije verzije ne mogu čitati vaše podatke, pa je cmux ostao na njoj; ponovo instalirajte prethodni NIGHTLY u Postavke > Ažuriranja."
+            "value": "Build %1$@ nije mogao otvoriti chatove (%2$@), a sačuvani raniji buildovi ne mogu čitati tvoje podatke; ponovo instaliraj prethodni NIGHTLY u Postavke > Ažuriranja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åbne chats (%2$@), og de gemte tidligere builds kan ikke læse dine data, så cmux blev på den; geninstaller den forrige NIGHTLY under Indstillinger > Opdateringer."
+            "value": "Build %1$@ kunne ikke åbne chats (%2$@), og de gemte tidligere builds kan ikke læse dine data; geninstaller den forrige NIGHTLY under Indstillinger > Opdateringer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ konnte keine Chats öffnen (%2$@), und die gespeicherten früheren Builds können deine Daten nicht lesen, deshalb ist cmux dabei geblieben; installiere den vorherigen NIGHTLY erneut unter Einstellungen > Updates."
+            "value": "Build %1$@ konnte keine Chats öffnen (%2$@), und die gespeicherten früheren Builds können deine Daten nicht lesen; installiere den vorherigen NIGHTLY erneut unter Einstellungen > Updates."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La compilación %1$@ no pudo abrir chats (%2$@) y las compilaciones anteriores guardadas no pueden leer tus datos, así que cmux se quedó en ella; vuelve a instalar la NIGHTLY anterior en Ajustes > Actualizaciones."
+            "value": "La compilación %1$@ no pudo abrir chats (%2$@) y las anteriores guardadas no pueden leer tus datos; reinstala la NIGHTLY anterior en Ajustes > Actualizaciones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le build %1$@ ne pouvait pas ouvrir de discussions (%2$@) et les builds antérieurs conservés ne peuvent pas lire vos données, alors cmux y est resté ; réinstallez la NIGHTLY précédente dans Réglages > Mises à jour."
+            "value": "Le build %1$@ n’a pas pu ouvrir les discussions (%2$@) et les builds antérieurs conservés ne peuvent pas lire vos données ; réinstallez la NIGHTLY précédente dans Réglages > Mises à jour."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La build %1$@ non riusciva ad aprire le chat (%2$@) e le build precedenti conservate non possono leggere i tuoi dati, quindi cmux è rimasto su questa; reinstalla la NIGHTLY precedente in Impostazioni > Aggiornamenti."
+            "value": "La build %1$@ non ha potuto aprire le chat (%2$@) e le build precedenti conservate non leggono i tuoi dati; reinstalla la NIGHTLY precedente in Impostazioni > Aggiornamenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビルド %1$@ ではチャットを開けず (%2$@)、保存されている以前のビルドではデータを読み込めないため cmux はこのビルドのままです。設定 > アップデートで以前の NIGHTLY を再インストールしてください。"
+            "value": "ビルド %1$@ ではチャットを開けず (%2$@)、保存されている以前のビルドではデータを読み込めません。設定 > アップデートで以前の NIGHTLY を再インストールしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@) ហើយកំណែមុនដែលបានរក្សាទុកមិនអាចអានទិន្នន័យរបស់អ្នកបានទេ ដូច្នេះ cmux នៅលើកំណែនេះ; សូមដំឡើង NIGHTLY មុនឡើងវិញនៅក្នុង ការកំណត់ > ការធ្វើបច្ចុប្បន្នភាព។"
+            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@) ហើយកំណែមុនៗដែលរក្សាទុកមិនអាចអានទិន្នន័យរបស់អ្នកបានទេ; ដំឡើង NIGHTLY មុនឡើងវិញក្នុង ការកំណត់ > បច្ចុប្បន្នភាព។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "빌드 %1$@에서 채팅을 열 수 없었고(%2$@) 보관된 이전 빌드가 데이터를 읽을 수 없어 cmux가 이 빌드에 머물렀습니다. 설정 > 업데이트에서 이전 NIGHTLY를 다시 설치하세요."
+            "value": "빌드 %1$@에서 채팅을 열 수 없었고(%2$@) 보관된 이전 빌드는 데이터를 읽을 수 없습니다. 설정 > 업데이트에서 이전 NIGHTLY를 다시 설치하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åpne chatter (%2$@), og de lagrede tidligere buildene kan ikke lese dataene dine, så cmux ble værende på den; installer forrige NIGHTLY på nytt under Innstillinger > Oppdateringer."
+            "value": "Bygg %1$@ kunne ikke åpne chatter (%2$@), og de lagrede tidligere byggene kan ikke lese dataene dine; installer forrige NIGHTLY på nytt i Innstillinger > Oppdateringer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wersja %1$@ nie mogła otwierać czatów (%2$@), a zachowane wcześniejsze wersje nie mogą odczytać Twoich danych, więc cmux na niej pozostał; zainstaluj ponownie poprzednią wersję NIGHTLY w Ustawienia > Aktualizacje."
+            "value": "Kompilacja %1$@ nie mogła otworzyć czatów (%2$@), a zachowane wcześniejsze nie odczytają twoich danych; zainstaluj ponownie poprzednią NIGHTLY w Ustawienia > Aktualizacje."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A build %1$@ não conseguia abrir chats (%2$@) e as builds anteriores guardadas não conseguem ler seus dados, então o cmux ficou nela; reinstale a NIGHTLY anterior em Ajustes > Atualizações."
+            "value": "O build %1$@ não conseguiu abrir chats (%2$@) e os builds anteriores guardados não leem seus dados; reinstale a NIGHTLY anterior em Ajustes > Atualizações."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сборка %1$@ не могла открывать чаты (%2$@), а сохранённые более ранние сборки не могут прочитать ваши данные, поэтому cmux остался на ней; переустановите предыдущую NIGHTLY в разделе Настройки > Обновления."
+            "value": "Сборка %1$@ не смогла открыть чаты (%2$@), а сохранённые более ранние сборки не могут прочитать ваши данные; переустановите предыдущую NIGHTLY в разделе Настройки > Обновления."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) และบิลด์ก่อนหน้าที่เก็บไว้อ่านข้อมูลของคุณไม่ได้ cmux จึงยังอยู่ที่บิลด์นี้ ติดตั้ง NIGHTLY ก่อนหน้าใหม่ใน การตั้งค่า > อัปเดต"
+            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) และบิลด์ก่อนหน้าที่เก็บไว้อ่านข้อมูลของคุณไม่ได้ ติดตั้ง NIGHTLY ก่อนหน้าใหม่ใน การตั้งค่า > อัปเดต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ sürümü sohbet açamadı (%2$@) ve saklanan eski sürümler verilerinizi okuyamıyor, bu yüzden cmux bu sürümde kaldı; önceki NIGHTLY sürümünü Ayarlar > Güncellemeler bölümünden yeniden yükleyin."
+            "value": "%1$@ derlemesi sohbetleri açamadı (%2$@) ve saklanan eski derlemeler verilerinizi okuyamıyor; önceki NIGHTLY'yi Ayarlar > Güncellemeler'den yeniden kurun."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Збірка %1$@ не могла відкривати чати (%2$@), а збережені раніші збірки не можуть прочитати ваші дані, тож cmux залишився на ній; перевстановіть попередню NIGHTLY у Налаштування > Оновлення."
+            "value": "Збірка %1$@ не змогла відкрити чати (%2$@), а збережені раніші збірки не можуть прочитати ваші дані; перевстановіть попередню NIGHTLY у Налаштування > Оновлення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@) và các bản dựng cũ đã lưu không đọc được dữ liệu của bạn, nên cmux vẫn ở bản này; hãy cài lại bản NIGHTLY trước đó trong Cài đặt > Cập nhật."
+            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@) và các bản dựng cũ đã giữ không đọc được dữ liệu của bạn; hãy cài lại NIGHTLY trước đó trong Cài đặt > Cập nhật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 无法打开对话（%2$@），且保留的早期版本无法读取你的数据，因此 cmux 仍停留在该版本；请在“设置 > 更新”中重新安装上一个 NIGHTLY。"
+            "value": "版本 %1$@ 无法打开对话（%2$@），且保留的早期版本无法读取你的数据；请在“设置 > 更新”中重新安装上一个 NIGHTLY。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 無法開啟對話（%2$@），且保留的早期版本無法讀取你的資料，因此 cmux 仍停留在此版本；請在「設定 > 更新」中重新安裝上一個 NIGHTLY。"
+            "value": "版本 %1$@ 無法開啟對話（%2$@），且保留的早期版本無法讀取你的資料；請在「設定 > 更新」中重新安裝上一個 NIGHTLY。"
           }
         }
       }
@@ -37113,127 +37605,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ could not open chats (%2$@) and going back to build %3$@ failed (%4$@); reinstall the previous NIGHTLY in Settings > Updates."
+            "value": "Build %1$@ could not open chats (%2$@); going back to %3$@ failed (%4$@). Reinstall the previous NIGHTLY in Settings > Updates."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لم يتمكن الإصدار %1$@ من فتح المحادثات (%2$@) وفشلت العودة إلى الإصدار %3$@ (%4$@)؛ أعد تثبيت إصدار NIGHTLY السابق من الإعدادات > التحديثات."
+            "value": "تعذّر على الإصدار %1$@ فتح المحادثات (%2$@)؛ وفشل الرجوع إلى %3$@ (%4$@). أعد تثبيت NIGHTLY السابق من الإعدادات > التحديثات."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verzija %1$@ nije mogla otvoriti razgovore (%2$@), a vraćanje na verziju %3$@ nije uspjelo (%4$@); ponovo instalirajte prethodni NIGHTLY u Postavke > Ažuriranja."
+            "value": "Build %1$@ nije mogao otvoriti chatove (%2$@); povratak na %3$@ nije uspio (%4$@). Ponovo instaliraj prethodni NIGHTLY u Postavke > Ažuriranja."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åbne chats (%2$@), og det mislykkedes at gå tilbage til build %3$@ (%4$@); geninstaller den forrige NIGHTLY under Indstillinger > Opdateringer."
+            "value": "Build %1$@ kunne ikke åbne chats (%2$@); at gå tilbage til %3$@ mislykkedes (%4$@). Geninstaller den forrige NIGHTLY under Indstillinger > Opdateringer."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ konnte keine Chats öffnen (%2$@), und die Rückkehr zu Build %3$@ ist fehlgeschlagen (%4$@); installiere den vorherigen NIGHTLY erneut unter Einstellungen > Updates."
+            "value": "Build %1$@ konnte keine Chats öffnen (%2$@); die Rückkehr zu %3$@ ist fehlgeschlagen (%4$@). Installiere den vorherigen NIGHTLY erneut unter Einstellungen > Updates."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "La compilación %1$@ no pudo abrir chats (%2$@) y no se pudo volver a la compilación %3$@ (%4$@); vuelve a instalar la NIGHTLY anterior en Ajustes > Actualizaciones."
+            "value": "La compilación %1$@ no pudo abrir chats (%2$@); volver a %3$@ falló (%4$@). Reinstala la NIGHTLY anterior en Ajustes > Actualizaciones."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le build %1$@ ne pouvait pas ouvrir de discussions (%2$@) et le retour au build %3$@ a échoué (%4$@) ; réinstallez la NIGHTLY précédente dans Réglages > Mises à jour."
+            "value": "Le build %1$@ n’a pas pu ouvrir les discussions (%2$@) ; le retour à %3$@ a échoué (%4$@). Réinstallez la NIGHTLY précédente dans Réglages > Mises à jour."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "La build %1$@ non riusciva ad aprire le chat (%2$@) e il ritorno alla build %3$@ non è riuscito (%4$@); reinstalla la NIGHTLY precedente in Impostazioni > Aggiornamenti."
+            "value": "La build %1$@ non ha potuto aprire le chat (%2$@); il ritorno a %3$@ non è riuscito (%4$@). Reinstalla la NIGHTLY precedente in Impostazioni > Aggiornamenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ビルド %1$@ ではチャットを開けず (%2$@)、ビルド %3$@ への切り戻しにも失敗しました (%4$@)。設定 > アップデートで以前の NIGHTLY を再インストールしてください。"
+            "value": "ビルド %1$@ ではチャットを開けず (%2$@)、%3$@ への切り戻しにも失敗しました (%4$@)。設定 > アップデートで以前の NIGHTLY を再インストールしてください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@) ហើយការត្រឡប់ទៅកំណែ %3$@ បានបរាជ័យ (%4$@); សូមដំឡើង NIGHTLY មុនឡើងវិញនៅក្នុង ការកំណត់ > ការធ្វើបច្ចុប្បន្នភាព។"
+            "value": "កំណែ %1$@ មិនអាចបើកការជជែកបានទេ (%2$@); ការត្រឡប់ទៅ %3$@ បានបរាជ័យ (%4$@)។ ដំឡើង NIGHTLY មុនឡើងវិញក្នុង ការកំណត់ > បច្ចុប្បន្នភាព។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "빌드 %1$@에서 채팅을 열 수 없었고(%2$@) 빌드 %3$@(으)로 되돌리지 못했습니다(%4$@). 설정 > 업데이트에서 이전 NIGHTLY를 다시 설치하세요."
+            "value": "빌드 %1$@에서 채팅을 열 수 없었고(%2$@) %3$@(으)로 되돌리기도 실패했습니다(%4$@). 설정 > 업데이트에서 이전 NIGHTLY를 다시 설치하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Build %1$@ kunne ikke åpne chatter (%2$@), og det mislyktes å gå tilbake til build %3$@ (%4$@); installer forrige NIGHTLY på nytt under Innstillinger > Oppdateringer."
+            "value": "Bygg %1$@ kunne ikke åpne chatter (%2$@); å gå tilbake til %3$@ mislyktes (%4$@). Installer forrige NIGHTLY på nytt i Innstillinger > Oppdateringer."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wersja %1$@ nie mogła otwierać czatów (%2$@), a powrót do wersji %3$@ się nie udał (%4$@); zainstaluj ponownie poprzednią wersję NIGHTLY w Ustawienia > Aktualizacje."
+            "value": "Kompilacja %1$@ nie mogła otworzyć czatów (%2$@); powrót do %3$@ nie powiódł się (%4$@). Zainstaluj ponownie poprzednią NIGHTLY w Ustawienia > Aktualizacje."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "A build %1$@ não conseguia abrir chats (%2$@) e não foi possível voltar para a build %3$@ (%4$@); reinstale a NIGHTLY anterior em Ajustes > Atualizações."
+            "value": "O build %1$@ não conseguiu abrir chats (%2$@); voltar para %3$@ falhou (%4$@). Reinstale a NIGHTLY anterior em Ajustes > Atualizações."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Сборка %1$@ не могла открывать чаты (%2$@), а вернуться к сборке %3$@ не удалось (%4$@); переустановите предыдущую NIGHTLY в разделе Настройки > Обновления."
+            "value": "Сборка %1$@ не смогла открыть чаты (%2$@); вернуться к %3$@ не удалось (%4$@). Переустановите предыдущую NIGHTLY в разделе Настройки > Обновления."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) และย้อนกลับไปยังบิลด์ %3$@ ไม่สำเร็จ (%4$@) ติดตั้ง NIGHTLY ก่อนหน้าใหม่ใน การตั้งค่า > อัปเดต"
+            "value": "บิลด์ %1$@ เปิดแชทไม่ได้ (%2$@) และย้อนกลับไป %3$@ ไม่สำเร็จ (%4$@) ติดตั้ง NIGHTLY ก่อนหน้าใหม่ใน การตั้งค่า > อัปเดต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%1$@ sürümü sohbet açamadı (%2$@) ve %3$@ sürümüne geri dönüş başarısız oldu (%4$@); önceki NIGHTLY sürümünü Ayarlar > Güncellemeler bölümünden yeniden yükleyin."
+            "value": "%1$@ derlemesi sohbetleri açamadı (%2$@); %3$@ sürümüne dönülemedi (%4$@). Önceki NIGHTLY'yi Ayarlar > Güncellemeler'den yeniden kurun."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Збірка %1$@ не могла відкривати чати (%2$@), а повернутися до збірки %3$@ не вдалося (%4$@); перевстановіть попередню NIGHTLY у Налаштування > Оновлення."
+            "value": "Збірка %1$@ не змогла відкрити чати (%2$@); повернутися до %3$@ не вдалося (%4$@). Перевстановіть попередню NIGHTLY у Налаштування > Оновлення."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@) và không quay lại được bản dựng %3$@ (%4$@); hãy cài lại bản NIGHTLY trước đó trong Cài đặt > Cập nhật."
+            "value": "Bản dựng %1$@ không mở được cuộc trò chuyện (%2$@); quay về %3$@ thất bại (%4$@). Hãy cài lại NIGHTLY trước đó trong Cài đặt > Cập nhật."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 无法打开对话（%2$@），且回退到版本 %3$@ 失败（%4$@）；请在“设置 > 更新”中重新安装上一个 NIGHTLY。"
+            "value": "版本 %1$@ 无法打开对话（%2$@）；回退到 %3$@ 失败（%4$@）。请在“设置 > 更新”中重新安装上一个 NIGHTLY。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "版本 %1$@ 無法開啟對話（%2$@），且回復到版本 %3$@ 失敗（%4$@）；請在「設定 > 更新」中重新安裝上一個 NIGHTLY。"
+            "value": "版本 %1$@ 無法開啟對話（%2$@）；退回 %3$@ 失敗（%4$@）。請在「設定 > 更新」中重新安裝上一個 NIGHTLY。"
           }
         }
       }
@@ -37889,6 +38381,664 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "正在執行 cmux %@。正在安裝更新。"
+          }
+        }
+      }
+    },
+    "about.credits.licenses": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Third-Party Licenses"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تراخيص الجهات الخارجية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Licence trećih strana"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tredjepartslicenser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lizenzen von Drittanbietern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Licencias de terceros"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Licences tierces"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Licenze di terze parti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サードパーティライセンス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាជ្ញាប័ណ្ណភាគីទីបី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "타사 라이선스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tredjepartslisenser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Licencje stron trzecich"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Licenças de terceiros"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Лицензии третьих сторон"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สัญญาอนุญาตของบุคคลที่สาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Üçüncü Taraf Lisansları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ліцензії третіх сторін"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Giấy phép của bên thứ ba"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "第三方许可"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "第三方授權"
+          }
+        }
+      }
+    },
+    "about.credits.remoteBrowserHostOptOut": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Built without the remote browser host (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم البناء بدون مضيف المتصفح البعيد (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Izgrađeno bez hosta udaljenog preglednika (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bygget uden fjernbrowserværten (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ohne den Remote-Browser-Host gebaut (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compilado sin el host del navegador remoto (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compilé sans l’hôte du navigateur distant (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compilato senza l’host del browser remoto (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リモートブラウザホストなしでビルド (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបង្កើតដោយគ្មានម៉ាស៊ីនកម្មវិធីរុករកពីចម្ងាយ (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "원격 브라우저 호스트 없이 빌드됨 (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bygget uten den eksterne nettleserverten (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zbudowano bez hosta zdalnej przeglądarki (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Compilado sem o host do navegador remoto (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Собрано без хоста удалённого браузера (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "บิลด์โดยไม่มีโฮสต์เบราว์เซอร์ระยะไกล (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uzak tarayıcı ana bilgisayarı olmadan derlendi (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зібрано без хоста віддаленого браузера (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Được dựng mà không có máy chủ trình duyệt từ xa (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "构建时未包含远程浏览器主机 (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "建置時未包含遠端瀏覽器主機 (CMUX_NEXT_SKIP_RB_HOST=1)"
+          }
+        }
+      }
+    },
+    "about.credits.prs.title": {
+      "comment": "Heading of the list of pull requests merged into this build (since the installed one), grouped by area.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What's in this build"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ما في هذا الإصدار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Šta je u ovoj verziji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hvad er i denne build"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Was in diesem Build steckt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Qué incluye esta versión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Contenu de cette version"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cosa c'è in questa build"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このビルドの内容"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្វីដែលមានក្នុងកំណែនេះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 빌드에 포함된 내용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hva denne versjonen inneholder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Co zawiera ta wersja"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O que há nesta versão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Что вошло в эту сборку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "สิ่งที่อยู่ในบิลด์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sürümde neler var"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Що ввійшло в цю збірку"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Có gì trong bản dựng này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本包含的内容"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本包含的內容"
+          }
+        }
+      }
+    },
+    "about.credits.prs.other": {
+      "comment": "Area heading in the build's pull request list for pull requests the notes name no area for.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Other"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ostalo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Andet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sonstiges"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otros"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Autres"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Altro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "その他"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្សេងៗ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "기타"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Inne"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Outros"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Другое"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "อื่นๆ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diğer"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Інше"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "其他"
+          }
+        }
+      }
+    },
+    "about.credits.prs.internal": {
+      "comment": "Count of CI and tooling-only pull requests in the build, which the list leaves out. %@ is the number.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Internal (CI and tooling): %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "داخلي (CI والأدوات): %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interno (CI i alati): %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Internt (CI og værktøjer): %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intern (CI und Tools): %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Internos (CI y herramientas): %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interne (CI et outils) : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Interni (CI e strumenti): %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "内部(CI とツール): %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទៃក្នុង (CI និងឧបករណ៍)៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "내부(CI 및 도구): %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Internt (CI og verktøy): %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wewnętrzne (CI i narzędzia): %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Internos (CI e ferramentas): %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Внутренние (CI и инструменты): %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ภายใน (CI และเครื่องมือ): %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dahili (CI ve araçlar): %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Внутрішні (CI та інструменти): %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nội bộ (CI và công cụ): %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "内部(CI 和工具):%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "內部(CI 和工具):%@"
           }
         }
       }

@@ -20,6 +20,7 @@ pub mod packed_catalogs;
 pub mod route_table;
 /// Daemon primitives; the cmux-tui-util crate, re-exported at the old paths.
 pub use cmux_tui_util::backoff;
+pub use cmux_tui_util::retry;
 mod browser;
 pub mod browser_host;
 mod browser_host_history;
@@ -63,6 +64,7 @@ pub mod history_search;
 pub(crate) mod language_packs;
 #[cfg(unix)]
 pub mod projection;
+#[cfg(unix)]
 pub mod projection_ns;
 /// Tools few people use (`bin/cmux-mobile-host`), downloaded on first use.
 #[cfg(unix)]
@@ -110,6 +112,7 @@ mod resource_router;
 mod resource_screen;
 mod resource_selector;
 mod resource_tab;
+mod restore_progress;
 pub mod safe_mode_flag;
 mod scripts;
 mod serial_lanes;

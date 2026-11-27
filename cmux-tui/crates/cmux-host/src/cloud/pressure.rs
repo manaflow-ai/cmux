@@ -6,24 +6,39 @@
 //! and the CPU count). The block it reports names only what is short:
 //! - `"memory": "low"` while less than [`MEMORY_LOW_SHARE`] of memory is available;
 //! - `"cpu": "pegged"` while more tasks are runnable than the machine has vCPUs, on
-//!   [`CPU_PROBES`] probes in a row (and clear again after as many below);
+//!   [`CPU_PROBES`] probes in a row (held 2 s; clear again after as many below);
 //! - `"oom_rise_at"` (Unix ms) when the kernel's OOM kill count rose.
 //!
-//! A report goes only when the block changes, so a machine under steady pressure sends one. It
-//! only wakes the sizer: the sizer then samples the machine itself and decides, so the block
-//! carries no numbers. Before this, the sizer looked once a minute however starved the machine was.
+//! A report goes only when the block changes, so a machine under steady pressure sends one; a
+//! block that names something newly short goes at once, past the report's 10 s floor
+//! (`Reporter::trigger_now`). It only wakes the sizer: the sizer then samples the machine itself
+//! and decides, so the block carries no numbers. Before this, the sizer looked once a minute
+//! however starved the machine was.
+//!
+//! Timing (RFD 0133, "grows a starved machine within 5 s"): memory under its line is seen within
+//! one probe (1 s) and a pegged CPU within 2 s, and the report leaves on that probe. At the old
+//! 5 s probe with two CPU probes and the 10 s floor, the report alone took up to 15 s (memory) and
+//! 20 s (CPU) before the Cloud heard of it (development read-back, 2026-11-26: first grow 17-46 s
+//! after the load started).
 
 use std::path::Path;
 
 use serde_json::{Map, Value, json};
 
-/// How often the role reads the files: the sizer's own pressed cadence (cmux-platform
-/// `pressedSampleEveryMs`, 5 s).
-pub const PROBE_INTERVAL_MS: u64 = 5_000;
+/// How often the role reads the files: three small `/proc` files a second, and a report only
+/// when the block changes, so the cost stays flat.
+pub const PROBE_INTERVAL_MS: u64 = 1_000;
 /// Memory counts as low under this share available (the platform's memory line, 10%).
 pub const MEMORY_LOW_SHARE: f64 = 0.10;
-/// Probes in a row a CPU reading must hold to change state, so one burst does not wake the sizer.
-pub const CPU_PROBES: u8 = 2;
+/// Probes in a row a CPU reading must hold to change state (2 s at [`PROBE_INTERVAL_MS`]), so one
+/// burst does not wake the sizer.
+pub const CPU_PROBES: u8 = 3;
+/// A gap between probes longer than this (wall clock) is a pause: the machine was stopped and
+/// restored (a warmed spare at its bind, a resume). What the probe held before it is not this
+/// machine's pressure now, so the tracker starts over. Production read-back 45952116856: a spare
+/// pegged while it warmed was restored at its bind still reporting `cpu: pegged`, and the Cloud
+/// grew the user's machine 2.5 s after it was made, before any work (and a grow is not undone).
+pub const PAUSE_GAP_MS: u64 = 10 * PROBE_INTERVAL_MS;
 
 /// One read of the three files.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -100,6 +115,14 @@ impl Pressure {
     }
 }
 
+/// Whether `now` names something `before` did not (a key newly short, or a newer OOM rise): such
+/// a block goes at once; a block that only clears waits for the report's floor.
+pub fn rose(before: Option<&Value>, now: Option<&Value>) -> bool {
+    let Some(Value::Object(now)) = now else { return false };
+    let before = before.and_then(Value::as_object);
+    now.iter().any(|(k, v)| before.and_then(|b| b.get(k)) != Some(v))
+}
+
 /// The probe's memory between reads: the OOM count and the CPU streak.
 #[derive(Clone, Debug, Default)]
 pub struct Tracker {
@@ -107,12 +130,20 @@ pub struct Tracker {
     /// Probes in a row whose CPU reading disagreed with the reported state.
     cpu_streak: u8,
     pressure: Pressure,
+    /// The previous reading's wall clock, for [`PAUSE_GAP_MS`].
+    last_ms: Option<u64>,
 }
 
 impl Tracker {
-    /// One reading at `wall_ms`: the pressure as it now stands. The first reading sets the OOM
-    /// baseline (kills before the probe started are not a rise).
+    /// One reading at `wall_ms`: the pressure as it now stands. The first reading, and the first
+    /// after a pause ([`PAUSE_GAP_MS`]), sets the OOM baseline (kills before the probe started are
+    /// not a rise) and names nothing pegged.
     pub fn observe(&mut self, r: &Reading, wall_ms: u64) -> &Pressure {
+        if self.last_ms.is_some_and(|last| wall_ms.saturating_sub(last) > PAUSE_GAP_MS) {
+            // After a pause: this reading is a first one (a new OOM baseline, no CPU streak).
+            *self = Self::default();
+        }
+        self.last_ms = Some(wall_ms);
         let share = r.mem_available_kib as f64 / r.mem_total_kib as f64;
         self.pressure.memory_low = share < MEMORY_LOW_SHARE;
         if self.oom_kills.is_some_and(|before| r.oom_kills > before) {
