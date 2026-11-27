@@ -6,6 +6,10 @@ path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_agent_pane_compile_hints.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_appcast_keep_pubdates.py"
 lane = "linux-guard"
 

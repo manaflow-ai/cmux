@@ -21,7 +21,7 @@
 // started evaluates its target. Source maps (for frame-sites) are composed through the second pass.
 import { build } from "esbuild";
 import { realpathSync } from "node:fs";
-import { readFile, realpath, rename, rm } from "node:fs/promises";
+import { readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const REGISTRY = "__paneChunks";
@@ -37,6 +37,24 @@ function shimSource(chunkKey, exports) {
   });
   if (named.length) lines.push(`export { ${named.join(", ")} };`);
   return lines.join("\n");
+}
+
+/**
+ * Moves a source map from the pass's temp folder to its script's folder. Its `sources` are paths from the folder
+ * the map was written in (outdir/.classic[/chunks]), one level deeper than where it ends up: left alone they resolve
+ * one folder too high and frame-sites names no source file (a path outside webviews/ for every frame).
+ */
+async function moveMap(from, to) {
+  const text = await readFile(from, "utf8").catch(() => null);
+  if (text === null) return;
+  const map = JSON.parse(text);
+  map.sources = (map.sources ?? []).map((source) =>
+    /^[a-z][\w+.-]*:/i.test(source)
+      ? source
+      : path.relative(path.dirname(to), path.resolve(path.dirname(from), source)),
+  );
+  await writeFile(to, JSON.stringify(map));
+  await rm(from, { force: true });
 }
 
 /**
@@ -163,7 +181,7 @@ export async function classicScript({ outdir: given, outputs, staticOut, entryOu
   for (const key of written) {
     const from = path.join(tmp, key === entryKey ? "pane.js" : key);
     await rename(from, path.join(outdir, key));
-    if (maps) await rename(`${from}.map`, path.join(outdir, `${key}.map`)).catch(() => {});
+    if (maps) await moveMap(`${from}.map`, path.join(outdir, `${key}.map`));
   }
   for (const key of staticKeys.keys()) {
     await rm(path.join(outdir, key), { force: true });

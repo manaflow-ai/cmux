@@ -1619,6 +1619,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_actions_artifact_prune.py
 
+      - name: Validate the agent pane compile-hints build opt-in
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_agent_pane_compile_hints.py
+
       - name: Validate upload-artifact retention and large artifacts on R2
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_upload_artifact_retention.py
