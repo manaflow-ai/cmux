@@ -67,7 +67,9 @@ jobs:
         with:
           persist-credentials: false
           path: .floor
-          sparse-checkout: scripts/ci/ios-launch-floor.sh
+          sparse-checkout: |
+            scripts/ci/ios-launch-floor.sh
+            scripts/ci/ios-launch-premain.sh
           sparse-checkout-cone-mode: false
 
       - name: One harness for both legs
@@ -75,7 +77,7 @@ jobs:
           set -euo pipefail
           cp .harness/scripts/ci/cmux-next-ios-sim.sh scripts/ci/cmux-next-ios-sim.sh
           rm -rf .harness
-          mkdir -p "$RUNNER_TEMP/floor" && cp .floor/scripts/ci/ios-launch-floor.sh "$RUNNER_TEMP/floor/" && rm -rf .floor
+          mkdir -p "$RUNNER_TEMP/floor" && cp .floor/scripts/ci/ios-launch-floor.sh .floor/scripts/ci/ios-launch-premain.sh "$RUNNER_TEMP/floor/" && rm -rf .floor
           echo "harness: scripts/ci/cmux-next-ios-sim.sh at 3281c18a (cmux#58989)"
 
       - name: Select Xcode
@@ -154,6 +156,51 @@ jobs:
           print()
           PY
 
+      - name: Launch floor linked like the app (its system dylibs, no code)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          app="$(find .build/ios-sim -maxdepth 6 -type d -path '*/Demo-iphonesimulator/CmuxMobileApp.app' | head -n 1)"
+          [ -n "$app" ] || { echo "no Demo app; skipped"; exit 0; }
+          CMUX_LAUNCH_FLOOR_LINK_LIKE="$app/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")" \
+            bash "$RUNNER_TEMP/floor/ios-launch-floor.sh" artifacts/ios-sim/launch-floor-linked.json artifacts/ios-sim/SUMMARY.md
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          d = json.load(open("artifacts/ios-sim/launch-floor-linked.json"))
+          print(f"### launch floor linked like the app ({d['linked_like_app']} system dylibs, n={d['n']})\n")
+          print("| span | p50 | p90 |\n|---|---|---|")
+          for k in ("main_ms", "main_cpu_ms", "first_frame_ms"):
+              print(f"| {k} | {d[k]['p50']} | {d[k]['p90']} |")
+          print()
+          PY
+
+      - name: Pre-main (dylibs, initializers, XCTest inserts; simctl launches)
+        if: ${{ !cancelled() }}
+        timeout-minutes: 15
+        run: |
+          bash "$RUNNER_TEMP/floor/ios-launch-premain.sh" artifacts/ios-sim/launch-premain.json artifacts/ios-sim/SUMMARY.md
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY" || true
+          import json
+          d = json.load(open("artifacts/ios-sim/launch-premain.json"))
+          print("### pre-main (simctl launch, warm)\n")
+          print(f"linked dylibs: {d.get('linked_dylibs')}; own: {d.get('linked_own_dylibs')}; .xctestrun inserts: {d.get('dyld_insert_libraries_from_xctestrun') or 'none'}\n")
+          print("| arm | wall p50 | wall p90 | cpu p50 | cpu p90 |\n|---|---|---|---|---|")
+          for arm, v in d.get("arms", {}).items():
+              print(f"| {arm} | {v['wall']['p50']} | {v['wall']['p90']} | {v['cpu']['p50']} | {v['cpu']['p90']} |")
+          print("\n| image | bytes | static initializers |\n|---|---|---|")
+          for i in d.get("images", []):
+              print(f"| {i['image']} | {i['bytes']} | {i['static_initializers']} |")
+          print()
+          b = d.get("binary", {})
+          print(f"segments: {b.get('segments')}\n\ncounts: {b.get('counts')}; fixups: {b.get('fixups_lines')}\n")
+          for smp in d.get("sample", []):
+              print(f"\n#### sample {smp['n']} (top of stack)\n\n| frame | n | % |\n|---|---|---|")
+              for f, c, pc in smp.get("top_of_stack", [])[:15]:
+                  print(f"| `{f}` | {c} | {pc} |")
+          print()
+          PY
+
       - name: Upload launch samples
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -163,6 +210,10 @@ jobs:
             artifacts/ios-sim/launch-tti.jsonl
             artifacts/ios-sim/first-connect.json
             artifacts/ios-sim/launch-floor.json
+            artifacts/ios-sim/launch-premain.json
+            artifacts/ios-sim/premain-sample-*.txt
             artifacts/ios-sim/SUMMARY.md
+            artifacts/ios-sim/ui-tests-failures.txt
+            artifacts/ios-sim/launch-tti-error.txt
           retention-days: 3
           if-no-files-found: warn
