@@ -149,7 +149,7 @@ async fn edit(hub: &Hub, s: &Arc<Session>, kind: Kind, n: u32) {
             hub.synced_record(title_key(&s.id), json!(s.meta().name));
         }
         Kind::Read => {
-            let read = n % 2 == 0;
+            let read = n.is_multiple_of(2);
             if read {
                 hub.mark_read_answered(s).unwrap();
             } else {
@@ -178,7 +178,7 @@ fn shows(s: &Session, kind: Kind) -> Value {
 fn expected(kind: Kind, n: u32) -> Value {
     match kind {
         Kind::Title => json!(format!("title-{n}")),
-        Kind::Read => json!(n % 2 == 0),
+        Kind::Read => json!(n.is_multiple_of(2)),
         Kind::Pin => json!(n % 2 == 1),
         Kind::Draft => json!(format!("draft {n}")),
     }
