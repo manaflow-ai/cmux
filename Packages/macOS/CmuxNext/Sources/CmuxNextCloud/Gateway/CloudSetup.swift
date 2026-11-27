@@ -266,7 +266,7 @@ public final class CloudSetup {
     private var unroutedGatewayAt: [String: Date] = [:]
     /// How long a gateway that gave a machine no model route is skipped: long enough that the Set up Cloud card does not
     /// start again on it at once, short enough that the next start minutes later asks it again.
-    public static let gatewayUnroutedHold: TimeInterval = 120
+    public nonisolated static let gatewayUnroutedHold: TimeInterval = 120
     /// The clock ``unroutedGateway`` reads (tests move it).
     public var now: @Sendable () -> Date = { Date() }
 
