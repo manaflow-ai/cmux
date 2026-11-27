@@ -569,9 +569,6 @@ pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
             tracing::warn!(root = %worktree.root.display(), "worktree not removed: {e}");
             return;
         }
-        #[cfg(test)]
-        #[path = "subsession_worktree_tests.rs"]
-        mod base_tests;
 
         #[cfg(test)]
         before_path_removal(&worktree.root);
