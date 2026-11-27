@@ -3,6 +3,7 @@ import { useLocationShortcut } from "./composerControls";
 import { MacBookGlyph } from "./MacBookGlyph";
 import { COMBOBOX_VIRTUAL_AFTER, Combobox } from "../../ui/Combobox";
 import { ContextMenu } from "../../ui/ContextMenu";
+import { Button } from "../../ui/Button";
 import { KeyHint } from "../../ui/KeyHint";
 import { Popover } from "../../ui/Popover";
 import { focusRoute } from "../../ui/focusRoute";
@@ -1472,8 +1473,9 @@ export function EnvironmentPicker({
             <span className="acpmux-env-last-seen-text">
               {retrying ? t("composer.envCloudChecking") : t("composer.envCloudUnreachable", { when: lastSeenWhen })}
             </span>
-            <button
+            <Button
               type="button"
+              bare
               className="acpmux-env-last-seen-retry ui-ghost ui-ghost-sm"
               disabled={retrying}
               aria-busy={retrying || undefined}
@@ -1485,7 +1487,7 @@ export function EnvironmentPicker({
               }}
             >
               {t("composer.envCloudRetry")}
-            </button>
+            </Button>
           </output>
         )}
         <Combobox
