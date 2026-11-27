@@ -39,6 +39,7 @@ async fn until(hub: &Hub, id: &str, pred: impl Fn(&[String]) -> bool) -> Vec<Str
 
 /// A chat whose resumed subagent fails again on a dropped connection: a transport error, which
 /// keeps its configured attempts (SR2's 503 is an outage, waited out past them, #58817).
+#[allow(dead_code)]
 fn resume_fails() -> BTreeMap<String, String> {
     BTreeMap::from([("FAKE_CLAUDE_RESUME_FAILS".to_owned(), "agent-reset".to_owned())])
 }
