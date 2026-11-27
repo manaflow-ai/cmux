@@ -292,11 +292,16 @@ export function ComposerBox({
   );
   const placed = inline.inText(value);
   const { onBeforeInput, onKeyDown } = field;
-  // Select All selects the attachments with the text (Leo, 2026-11-01: "i wanna be able to select
-  // all in composer which also selects all the attachments as the copy as well"): those placed in
-  // the text are in its selection (composer/inlineNode.ts); the strip's show as selected while the
-  // whole draft is, and go with its copy, cut and delete.
-  const [whole, setWhole] = useState(false);
+  // In the inline view Select All selects the attachments with the text (Leo, 2026-11-01: "i wanna
+  // be able to select all in composer which also selects all the attachments as the copy as well"):
+  // those placed in the text are in its selection (composer/inlineNode.ts); the strip's show as
+  // selected while the whole draft is, and go with its copy, cut and delete. The strip view keeps
+  // the attachments apart from the text (Lucas, 2026-11-27: "CMD a should not select the image"):
+  // Select All, copy, cut and delete there are the text's alone, and only an attachment's × takes it
+  // out (composer/inlineNode.ts keepHidden).
+  const strip = attachmentView === "strip";
+  const [wholeDraft, setWhole] = useState(false);
+  const whole = wholeDraft && !strip;
   const [copyStatus, setCopyStatus] = useComposerCopyStatus(field.selectionKey);
   const staged = () => (attachmentsRef ?? ownAttachments).current;
   /// The strip's own attachments, those not placed in the text, go with a whole draft cut or deleted.
@@ -379,7 +384,8 @@ export function ComposerBox({
       field.onReady?.();
     },
     onCopy: (copy, cut, commitCut) => {
-      const made = composerCopy(copy.parts, copy.whole, staged());
+      // The strip view's copy is the text alone: its attachments are not in the selection.
+      const made = strip ? undefined : composerCopy(copy.parts, copy.whole, staged());
       // Text alone is the field's own copy: the last copy with attachments is gone from the pasteboard.
       if (!made) {
         forgetCopy();
@@ -450,7 +456,7 @@ export function ComposerBox({
       // Backspace at the prompt's start takes back the last chip outside the text
       // (backspacedAttachment), in the inline view only: the strip's attachments go by their ×.
       const backspaced =
-        composing || attachmentView === "strip"
+        composing || strip
           ? undefined
           : backspacedAttachment(
               event,
