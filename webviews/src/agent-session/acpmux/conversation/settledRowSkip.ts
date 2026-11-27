@@ -27,13 +27,7 @@ export function isSettledRow(row: AcpmuxRow, index: number, before: number): boo
   if (row.streaming || row.live || row.pending) return false;
   if (row.status !== undefined && RUNNING.has(row.status)) return false;
   if (index < before) return true;
-  return (
-    row.settled === true ||
-    row.turnEnded === true ||
-    row.ended === true ||
-    row.kind === WORKED ||
-    row.kind === "turnSummary"
-  );
+  return row.settled === true || row.ended === true || row.kind === WORKED || row.kind === "turnSummary";
 }
 
 /// The height a row's frame holds while the browser skips it, or undefined to draw it as before.
