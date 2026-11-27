@@ -32,13 +32,7 @@ import { Icon } from "../icons";
 import type { LibraryRun } from "../ops";
 import { rowsByKey, schema } from "../schema";
 import type { Standup } from "../ops";
-import {
-  LIBRARY_KEY,
-  libraryQuery,
-  STANDUP_KEY,
-  standupQuery,
-  type LibraryRead,
-} from "../sectionQueries";
+import { LIBRARY_KEY, libraryQuery, STANDUP_KEY, standupQuery, type LibraryRead } from "../sectionQueries";
 import { Button } from "../../../ui/Button";
 import { managedOf, managedText, valueOf } from "../store";
 import { t } from "../strings";
@@ -87,8 +81,7 @@ export function CustomizeChecklistCard() {
       const managed = managedOf(state, key);
       if (managed) return managedText(managed);
       if (busy) return t("settingsPage.customizeChecklist.busy");
-      if (!state.connected || !state.readable)
-        return t("settingsPage.customizeChecklist.connecting");
+      if (!state.connected || !state.readable) return t("settingsPage.customizeChecklist.connecting");
       return null;
     },
     library: library.data?.library ?? null,
@@ -144,9 +137,7 @@ export function CustomizeChecklistCard() {
       const look = looks.find((each) => `look:${each.id}` === item.id);
       if (!look) return;
       if (item.installs)
-        return void store.askCmux(
-          t("settingsPage.customizeChecklist.installDraft", look.name, look.reference),
-        );
+        return void store.askCmux(t("settingsPage.customizeChecklist.installDraft", look.name, look.reference));
       return void runLibrary({ verb: on ? "on" : "off", name: setupEntryName(look.id) });
     }
     void store.set(item.id, on);
@@ -174,12 +165,7 @@ export function CustomizeChecklistCard() {
 }
 
 /** Only opt-in groups offer recovery; default-on and managed switches stay unchanged. */
-const TURN_OFF_GROUPS: ReadonlySet<ChecklistGroupId> = new Set([
-  "code",
-  "experiments",
-  "labs",
-  "library",
-]);
+const TURN_OFF_GROUPS: ReadonlySet<ChecklistGroupId> = new Set(["code", "experiments", "labs", "library"]);
 
 export function turnOffTargets(group: ChecklistGroup): ChecklistItem[] {
   if (!TURN_OFF_GROUPS.has(group.id)) return [];
@@ -222,12 +208,7 @@ export function CustomizeChecklistView({
   const shown = filterGroups(groups, query);
   const searching = query.trim() !== "";
   return (
-    <section
-      className="group"
-      data-card="customizeChecklist"
-      data-checklist-layout={layout}
-      id="customize-checklist"
-    >
+    <section className="group" data-card="customizeChecklist" data-checklist-layout={layout} id="customize-checklist">
       <div className="checklist-title-row">
         <h3 className="group-title">{t("settingsPage.customizeChecklist.title")}</h3>
         {standup && standup.lines.length > 0 && (
@@ -269,9 +250,7 @@ export function CustomizeChecklistView({
         </div>
       )}
       {searching && shown.length === 0 && (
-        <div className="row-help checklist-empty">
-          {t("settingsPage.customizeChecklist.noMatch", query.trim())}
-        </div>
+        <div className="row-help checklist-empty">{t("settingsPage.customizeChecklist.noMatch", query.trim())}</div>
       )}
       {shown.map((group) => {
         const collapsible = group.id === "all" && !searching;
@@ -304,19 +283,13 @@ export function CustomizeChecklistView({
                   </button>
                 )}
                 <span className="checklist-count" data-checklist-count="">
-                  {t(
-                    "settingsPage.customizeChecklist.count",
-                    String(group.on),
-                    String(group.total),
-                  )}
+                  {t("settingsPage.customizeChecklist.count", String(group.on), String(group.total))}
                 </span>
               </span>
             </div>
             {open &&
               (group.items.length === 0 ? (
-                <div className="row-help checklist-empty">
-                  {t("settingsPage.customizeChecklist.none")}
-                </div>
+                <div className="row-help checklist-empty">{t("settingsPage.customizeChecklist.none")}</div>
               ) : (
                 <div className={layout === "chips" ? "checklist-chips" : "checklist-items"}>
                   {group.items.map((item) => (
@@ -339,15 +312,9 @@ export function StandupPanel({ standup }: { standup: Standup }) {
   return (
     <div className="checklist-standup" data-checklist-standup="">
       <div className="checklist-head">
-        <span className="checklist-group-title">
-          {t("settingsPage.customizeChecklist.standup")}
-        </span>
+        <span className="checklist-group-title">{t("settingsPage.customizeChecklist.standup")}</span>
         <span className="checklist-count">
-          {t(
-            "settingsPage.customizeChecklist.count",
-            String(standup.on),
-            String(standup.lines.length),
-          )}
+          {t("settingsPage.customizeChecklist.count", String(standup.on), String(standup.lines.length))}
         </span>
         <Button
           variant="ghost"
@@ -405,9 +372,7 @@ function ChecklistRow({
 }) {
   const labelId = useId();
   const locked = item.locked !== null;
-  const help =
-    item.locked ??
-    (item.help || (item.installs ? t("settingsPage.customizeChecklist.installHint") : ""));
+  const help = item.locked ?? (item.help || (item.installs ? t("settingsPage.customizeChecklist.installHint") : ""));
   const hover = item.detail && item.detail !== help ? item.detail : undefined;
   if (layout === "chips" || layout === "menu") {
     return (
@@ -430,11 +395,7 @@ function ChecklistRow({
     );
   }
   return (
-    <div
-      className="checklist-row"
-      data-checklist-item={item.id}
-      data-locked={locked ? "" : undefined}
-    >
+    <div className="checklist-row" data-checklist-item={item.id} data-locked={locked ? "" : undefined}>
       {/* tooltip-allow: the detail, when it differs from the help line, shows nowhere else */}
       <div className="checklist-text" title={hover}>
         <span className="row-title" id={labelId}>
@@ -453,12 +414,7 @@ function ChecklistRow({
           {t("settingsPage.customizeChecklist.install")}
         </button>
       ) : (
-        <Switch
-          checked={item.on}
-          disabled={locked}
-          labelId={labelId}
-          onToggle={(next) => onToggle(item, next)}
-        />
+        <Switch checked={item.on} disabled={locked} labelId={labelId} onToggle={(next) => onToggle(item, next)} />
       )}
     </div>
   );
