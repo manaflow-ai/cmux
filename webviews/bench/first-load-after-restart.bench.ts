@@ -1616,8 +1616,26 @@ try {
     console.log(`pane sources read at ${sourceRef}: ${changed.join(", ") || "none"}`);
   }
   console.log(`pane source: ${sourceRef ?? "worktree"}`);
+  // The app's page runs main.tsx as pane.js, preloaded in <head> (build-agent-pane-web.sh): main's code is
+  // there when the document is. dev.tsx instead imports main only after it ran (and after its own awaited
+  // imports), a fetch the app never makes, idle main-thread time a restart here waited and the app's does not.
+  // So the bench's entry keeps dev.tsx's sheet imports (the page's sheet order) and imports main statically,
+  // in the same chunk; the dev host it would install is the init script's (hostScript), as the app's is there first.
+  const devEntry = path.join(webviews, "src/agent-session/acpmux/dev.tsx");
+  const appEntry = (source: string) =>
+    `${source
+      .split("\n")
+      .filter((line) => /^import "[^"]+\.css";$/.test(line))
+      .join("\n")}\nimport "./main";\n`;
   await build({
-    plugins: [{ name: "immutable-pane-baseline", enforce: "pre", load: (id) => priorSources.get(id) }],
+    plugins: [
+      {
+        name: "immutable-pane-baseline",
+        enforce: "pre",
+        load: (id) =>
+          id === devEntry ? appEntry(priorSources.get(id) ?? fs.readFileSync(id, "utf8")) : priorSources.get(id),
+      },
+    ],
     configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
     // PROFILE=1 keeps names, so the adopt profile names the pane's own functions.
     build: { outDir: out, emptyOutDir: true, ...(PROFILE ? { minify: false } : {}) },
