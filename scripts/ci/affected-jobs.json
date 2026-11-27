@@ -48,6 +48,7 @@
         "acpmux-sim": {
           "name": "acpmux simulation (seeds)",
           "crates": ["cmux-tui/crates/acpmux"],
+          "inputs": [".github/actions/cache-restore/"],
           "features": ["sim"]
         },
         "carrier-sim": {
