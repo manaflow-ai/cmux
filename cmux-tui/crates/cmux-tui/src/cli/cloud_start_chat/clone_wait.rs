@@ -36,6 +36,7 @@
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use cmux_json::JsonSet as _;
 use serde_json::{Value, json};
 
 use super::{
@@ -139,6 +140,15 @@ pub(super) fn cannot_exec(error: &Value) -> bool {
             && at(error, "message").as_str().is_some_and(|m| m.contains(EXEC_UNAVAILABLE)))
 }
 
+/// A folder still being made: the same start later only waits longer, so a caller may send it
+/// again by itself (`retryable`).
+fn pending_retryable(mut outcome: Outcome) -> Outcome {
+    if let Outcome::Failed { error, .. } = &mut outcome {
+        error.set("retryable", json!(true));
+    }
+    outcome
+}
+
 /// A refusal that may pass if asked again: the machine busy or still starting, a timeout, the app or
 /// the machine out of reach, a rate limit.
 pub(super) fn may_pass_later(error: &Value) -> bool {
@@ -173,16 +183,17 @@ pub(super) fn wait(
     };
     let late = |runner: &mut dyn Runner| {
         let waited = runner.now().saturating_duration_since(started);
-        failed(
+        pending_retryable(failed(
             "cloud.folder_pending",
             format!(
-                "{cwd} is not ready on the machine yet: its bootstrap has not finished cloning the repository. \
-                 Run the same command again to keep waiting, or read ~/{LOG} on the machine"
+                "{cwd} is not ready on the machine yet: its bootstrap is still cloning the repository after \
+                 {} min; the clone goes on there, and its progress is in ~/{LOG} on the machine",
+                waited.as_secs() / 60
             ),
             json!({"cwd": cwd, "machine_id": machine, "log": format!("~/{LOG}"),
                    "waited_ms": waited.as_millis() as u64}),
             75,
-        )
+        ))
     };
     let out = |request: &Request| {
         Some(out_of_time(request, &Machine::Target(machine.to_owned()), Value::Null))
@@ -204,14 +215,14 @@ pub(super) fn wait(
             "cloud.folder_unknown",
             format!(
                 "whether {cwd} is ready on the machine is not known (the check was refused: {}), so the chat \
-                 did not start. Run the same command again",
+                 did not start",
                 at(&refusal, "message").as_str().unwrap_or("no reason given"),
             ),
             json!({"cwd": cwd, "machine_id": machine, "refusal": refusal}),
             75,
         );
         if let Outcome::Failed { error, .. } = &mut outcome {
-            error["retryable"] = json!(true);
+            error.set("retryable", json!(true));
         }
         outcome
     };
@@ -408,15 +419,15 @@ pub(super) fn created(
         if deadline.left(runner).is_some() {
             out_of_time(request, &Machine::Named(name.to_owned()), Value::Null)
         } else {
-            failed(
+            pending_retryable(failed(
                 "cloud.folder_pending",
                 format!(
-                    "the machine {name} is still being made, so whether its folder is ready is not known yet. \
-                     Run the same command again to keep waiting"
+                    "the machine {name} is still being made, so whether its folder is ready is not known yet; \
+                     `cmux cloud list-machines` shows when it is up"
                 ),
                 json!({"machine_name": name, "list": "cmux cloud list-machines --json"}),
                 75,
-            )
+            ))
         }
     };
     loop {
