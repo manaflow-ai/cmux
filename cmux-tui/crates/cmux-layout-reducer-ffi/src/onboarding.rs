@@ -11,8 +11,10 @@ use crate::ERR_INVALID;
 
 /// Whether `operation` is one of this module's.
 pub(crate) fn handles(operation: &[u8]) -> bool {
-    // `onboarding_first_run_*` is the narrower `onboarding_first_run` module's.
-    operation.starts_with(b"onboarding_") && !operation.starts_with(b"onboarding_first_run_")
+    // `onboarding_first_run_*` and `onboarding_steps_*` are their narrower modules'.
+    operation.starts_with(b"onboarding_")
+        && !operation.starts_with(b"onboarding_first_run_")
+        && !operation.starts_with(b"onboarding_steps_")
 }
 
 fn read<'a, T: Deserialize<'a>>(request: &'a [u8]) -> Result<T, i32> {
