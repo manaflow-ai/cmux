@@ -40,7 +40,7 @@ import Testing
     }
 
     @Test func pastTheBoundTheCoverDrawsNoGrayBars() {
-        // The stalled stage turns the skeleton off (`showsPlaceholder: false`).
+        // The stalled stage draws nothing under its panel (`showsPlaceholder: false`).
         #expect(TerminalConnectingView.content(hasLastFrame: false, showsPlaceholder: false) == .nothing)
     }
 }
