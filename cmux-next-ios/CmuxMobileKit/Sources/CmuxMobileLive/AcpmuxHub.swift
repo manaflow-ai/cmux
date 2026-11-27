@@ -1649,7 +1649,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             } else {
                 guard let link else { throw LinkError(code: "offline", message: "Connect to \(macName) to send \(attachment.name).") }
                 uploaded[attachment.id] = try await Self.upload(payload, name: attachment.name, cwd: cwd, link: link, macName: macName,
-                                                                report: progress.map { progress in { progress($0) } })
+                                                                report: progress.map { progress -> @Sendable (AgentUploadProgress) async -> Void in { @Sendable step in progress(step) } })
             }
         }
         // Base64 of PDFs and video frames (megabytes) is made off the main actor.
@@ -1704,13 +1704,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     static func upload(_ payload: LinkUpload.Payload, name: String, cwd: String?, link: any MacLink, macName: String,
                        report: (@Sendable (AgentUploadProgress) async -> Void)? = nil) async throws -> String {
         let shown = name
-        let exportReport: (@Sendable (Double) async -> Void)? = report.map { report in
-            { fraction in await report(AgentUploadProgress(name: shown, sent: 0, total: 0, phase: .shrinking, export: fraction)) }
+        let exportReport: (@Sendable (Double) async -> Void)? = report.map { report -> @Sendable (Double) async -> Void in
+            { @Sendable fraction in await report(AgentUploadProgress(name: shown, sent: 0, total: 0, phase: .shrinking, export: fraction)) }
         }
         let (payload, name, exported) = try await VideoRecompressor.prepared(payload, name: name, report: exportReport)
         let export: Double? = exported ? 1 : nil
-        let bytes: LinkUpload.Progress? = report.map { report in
-            { sent, total in
+        let bytes: LinkUpload.Progress? = report.map { report -> LinkUpload.Progress in
+            { @Sendable (sent: Int, total: Int) async in
                 await report(AgentUploadProgress(name: shown, sent: sent, total: total, phase: sent < total ? .sending : .saving,
                                                  export: export))
             }
