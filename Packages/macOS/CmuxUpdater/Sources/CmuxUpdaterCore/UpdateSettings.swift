@@ -79,9 +79,9 @@ public struct UpdateSettings: Sendable {
         defaults.set(true, forKey: Self.migrationKey)
     }
 
-    /// Earlier releases registered automatic downloads as false for every install. Turn that
-    /// legacy default on once so existing installs join the same update path as new installs.
-    /// The marker makes a later user choice persistent across launches.
+    /// Earlier releases persisted false for every install, so a legacy value cannot distinguish a
+    /// default from an explicit opt-out. Reset that value once so every existing install joins the
+    /// automatic update path. The marker makes a later user choice persistent across launches.
     private func migrateAutomaticInstall(in defaults: UserDefaults) {
         guard !defaults.bool(forKey: Self.automaticInstallMigrationKey) else { return }
         defaults.set(true, forKey: Self.automaticallyUpdateKey)

@@ -431,9 +431,9 @@ public final class UpdaterService {
             // The track decides, not the bundle id: the tip app has a DEV id but runs Sparkle.
             let controller = UpdateController(log: log, defaults: defaults, isDevLikeBundle: identity.track == .development,
                                               isDisabledByPolicy: { policy.disablesUpdates })
-            // No Sparkle window: the found and staged steps are the sidebar's cards.
-            // Set on this updater only; no defaults change, so the legacy app
-            // sharing the domain keeps its own behavior.
+            // No Sparkle window: the found and staged steps are the sidebar's cards. This setter
+            // disables Sparkle's silent-staging key for this bundle, while cmux NEXT's own
+            // `updates.downloadAutomatically` preference controls background downloads.
             controller.installsUpdatesInBackground = true
             // The daemon keeps every terminal, agent and running turn, so all app relaunches are
             // immediate. `UpdateDriver` uses this same flag for automatic installs.
