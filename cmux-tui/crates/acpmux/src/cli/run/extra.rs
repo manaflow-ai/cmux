@@ -267,12 +267,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let v = client.request(method::MUX_PAUSE, json!({"sessionId": id})).await?;
             if json_out {
                 print_json(&v);
-            } else if v["paused"] == true {
+            } else if v.get("paused").and_then(Value::as_bool) == Some(true) {
                 println!(
                     "paused: its agent exited in {} ms; its next prompt or `acpmux session wake {session}` resumes the same conversation",
-                    v["exitMs"]
+                    v.get("exitMs").unwrap_or(&Value::Null)
                 );
-            } else if v["reason"] == "paused" {
+            } else if v.get("reason").and_then(Value::as_str) == Some("paused") {
                 println!("already paused");
             } else {
                 println!("not running: it is stopped, and its next prompt resumes it");
@@ -287,9 +287,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             let v = client.request(method::MUX_WAKE, json!({"sessionId": id})).await?;
             if json_out {
                 print_json(&v);
-            } else if v["woke"] == true {
-                println!("resumed its conversation in {} ms", v["tookMs"]);
-            } else if v["reason"] == "running" {
+            } else if v.get("woke").and_then(Value::as_bool) == Some(true) {
+                println!(
+                    "resumed its conversation in {} ms",
+                    v.get("tookMs").unwrap_or(&Value::Null)
+                );
+            } else if v.get("reason").and_then(Value::as_str) == Some("running") {
                 println!("not paused: its agent is running");
             } else {
                 println!("not paused: it is stopped, and its next prompt resumes it");
@@ -778,7 +781,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             } else if handle {
                 println!(
                     "{}",
-                    v["handle"].as_str().ok_or_else(|| anyhow!("rename returned no handle"))?
+                    v.get("handle")
+                        .and_then(Value::as_str)
+                        .ok_or_else(|| anyhow!("rename returned no handle"))?
                 );
             } else {
                 println!("renamed")

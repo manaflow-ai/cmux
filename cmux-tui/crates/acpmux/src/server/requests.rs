@@ -2307,9 +2307,11 @@ async fn dispatch_request_with_identity(
                     let via = mux_meta(&params).and_then(|m| m.get("via")).and_then(Value::as_str);
                     let p = crate::prompt_provenance::forwarded_by_peer(p, via);
                     // Its outbox sent it again: it waited for this machine to come back, and
-                    // the chat wakes for it (`prompt_provenance::waited`).
-                    let resend = mux_meta(&params).and_then(|m| m.get("resend"));
-                    if conn.auth.peer_daemon() && resend == Some(&Value::Bool(true)) {
+                    // the chat wakes for it (`prompt_provenance::waited`). A mesh relay's first
+                    // lease is `resend` for its prompt id only, and did not wait.
+                    if conn.auth.peer_daemon()
+                        && crate::prompt_provenance::resend_waited(mux_meta(&params))
+                    {
                         crate::prompt_provenance::mark_waited(p)
                     } else {
                         p
@@ -2861,6 +2863,12 @@ async fn dispatch_request_with_identity(
             let applied = hub.tailnet_placements.apply(&message);
             let reply = cmux_tailnet_front::PlacementReply::from(&applied);
             serde_json::to_value(reply).map_err(|e| RpcError::internal(e.to_string()))
+        }
+        // `listCounts`: only what `acpmux ls --json` reads (`Hub::list_counts`), without the full
+        // status's budgeted host, disk and agent reads. A daemon before it sends the full status,
+        // which holds the same fields.
+        method::MUX_STATUS if params.get(crate::rpc::LIST_COUNTS) == Some(&Value::Bool(true)) => {
+            Ok(hub.list_counts())
         }
         method::MUX_STATUS => Ok(hub.status().await),
         // The felt-latency histograms (`cmux-felt`): names and numbers only, but this machine's
@@ -4403,8 +4411,12 @@ async fn dispatch_request_with_identity(
                 (Some(side), Origin::Local, crate::sender_harness::SocketPeer::Pid(asker)) => {
                     let side = std::path::PathBuf::from(side);
                     let home = crate::config::home();
+                    let conns = params
+                        .get(crate::daemon::listener_handover::PARAM_CONNS)
+                        .and_then(Value::as_bool)
+                        == Some(true);
                     match tokio::task::spawn_blocking(move || {
-                        crate::daemon::listener_handover::hand(&home, &side, asker)
+                        crate::daemon::listener_handover::hand(&home, &side, asker, conns)
                     })
                     .await
                     {
