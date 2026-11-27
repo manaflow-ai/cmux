@@ -240,6 +240,8 @@ pub(super) struct Item {
     /// It waited for this machine to come back (`prompt_provenance::waited`): it wakes the chat
     /// rather than sit to a flush a parked machine never reaches.
     pub(super) waited: bool,
+    /// The authenticated mesh hub allowed this prompt to start work on an idle recipient.
+    pub(super) start_work: bool,
     pub(super) at: u64,
     /// The sender's own deadline (`acpmux send --within`), which tightens its class's
     /// ([`Item::due`]).
@@ -288,6 +290,7 @@ impl Item {
             class: PromptClass::Result,
             report: false,
             waited: false,
+            start_work: false,
             at: now_ms(),
             within: None,
             text: text.to_owned(),
@@ -1083,6 +1086,7 @@ fn wakes(meta: &SessionMeta, item: &Item) -> bool {
                     item.class,
                     item.report,
                     item.waited,
+                    item.start_work,
                     item.from_session.as_deref(),
                 )
         }
@@ -1140,12 +1144,15 @@ fn wakes_as(
     class: PromptClass,
     report: bool,
     waited: bool,
+    start_work: bool,
     from: Option<&str>,
 ) -> bool {
     match class {
         PromptClass::Block | PromptClass::Question => true,
         PromptClass::Fyi => waited,
-        PromptClass::Result => meta.turn_count == 0 || report || waited || controls(meta, from),
+        PromptClass::Result => {
+            meta.turn_count == 0 || report || waited || start_work || controls(meta, from)
+        }
     }
 }
 
@@ -1159,6 +1166,7 @@ fn holds_wake(meta: &SessionMeta, item: &Item) -> bool {
         && !item.fire
         && item.verdict.is_none()
         && !item.waited
+        && !item.start_work
         && meta.turn_count > 0
         && !controls(meta, item.from_session.as_deref())
 }

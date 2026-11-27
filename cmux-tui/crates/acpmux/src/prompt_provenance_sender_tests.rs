@@ -1,6 +1,15 @@
 use super::*;
 
 #[test]
+fn start_work_provenance_requires_the_boolean_authorization_stamp() {
+    assert!(start_work_allowed(Some(&json!({START_WORK: true}))));
+    assert!(!start_work_allowed(Some(&json!({START_WORK: "allowed"}))));
+    assert!(!start_work_allowed(Some(&json!({START_WORK: 1}))));
+    assert!(!start_work_allowed(Some(&json!({"allowStartWork": true}))));
+    assert!(!start_work_allowed(None));
+}
+
+#[test]
 fn a_named_local_sender_may_say_its_harness_and_nothing_else() {
     let sent = |mux: Value| json!({"_meta": {"acpmux": mux}});
     let named = sent(json!({"fromAgent": "codex@workstation", "fromHarness": "codex"}));

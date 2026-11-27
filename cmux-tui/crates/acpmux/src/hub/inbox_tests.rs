@@ -39,6 +39,7 @@ fn item(
         class,
         report: false,
         waited: false,
+        start_work: false,
         at,
         within: None,
         text: text.to_owned(),
@@ -1132,22 +1133,23 @@ mod agent_messaging {
         assert!(controls(&meta, Some("s-coord")));
         assert!(!controls(&meta, Some("s-other")));
         assert!(!controls(&meta, None), "a sender with no session controls nothing");
-        assert!(wakes_as(&meta, PromptClass::Result, false, false, Some("s-coord")));
-        assert!(!wakes_as(&meta, PromptClass::Result, false, false, Some("s-other")));
+        assert!(wakes_as(&meta, PromptClass::Result, false, false, false, Some("s-coord")));
+        assert!(!wakes_as(&meta, PromptClass::Result, false, false, false, Some("s-other")));
+        assert!(wakes_as(&meta, PromptClass::Result, false, false, true, Some("s-other")));
         assert!(
-            wakes_as(&meta, PromptClass::Question, false, false, Some("s-other")),
+            wakes_as(&meta, PromptClass::Question, false, false, false, Some("s-other")),
             "a question wakes"
         );
         assert!(
-            !wakes_as(&meta, PromptClass::Fyi, false, false, Some("s-coord")),
+            !wakes_as(&meta, PromptClass::Fyi, false, false, false, Some("s-coord")),
             "an fyi does not"
         );
         assert!(
-            wakes_as(&meta, PromptClass::Fyi, false, true, Some("s-other")),
+            wakes_as(&meta, PromptClass::Fyi, false, true, false, Some("s-other")),
             "an fyi that waited for this machine does"
         );
         assert!(
-            wakes_as(&meta, PromptClass::Result, true, false, Some("s-other")),
+            wakes_as(&meta, PromptClass::Result, true, false, false, Some("s-other")),
             "a report of its work"
         );
     }
@@ -1291,12 +1293,12 @@ fn a_peers_forward_of_an_unclassified_relay_message_goes_to_the_inbox_and_wakes_
     let class = default_notice_class(None);
     assert_eq!(class, PromptClass::Fyi);
     assert!(
-        !wakes_as(&meta, class, is_report(Some(&provenance)), false, None),
+        !wakes_as(&meta, class, is_report(Some(&provenance)), false, false, None),
         "an idle chat sleeps on"
     );
     // A block or a question from the same relay still wakes it at once.
     for urgent in [PromptClass::Block, PromptClass::Question] {
-        assert!(wakes_as(&meta, urgent, false, false, None), "{urgent:?}");
+        assert!(wakes_as(&meta, urgent, false, false, false, None), "{urgent:?}");
     }
 }
 
