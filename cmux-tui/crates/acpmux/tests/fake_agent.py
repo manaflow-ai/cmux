@@ -2677,6 +2677,10 @@ def main():
             # FAKE_PLAN_MODE=claude: Claude's asking modes, "default" and a "plan" that asks.
             if os.environ.get("FAKE_PLAN_MODE") == "claude":
                 result["modes"] = {"currentModeId": "default", "availableModes": [{"id": "default", "name": "Default"}, {"id": "plan", "name": "Plan"}]}
+            # Gemini CLI's ACP approval modes; start wider so a local asking policy must settle it.
+            if os.environ.get("FAKE_GEMINI_MODES") == "1":
+                result["modes"] = {"currentModeId": "yolo", "availableModes": [
+                    {"id": mode, "name": mode} for mode in ["default", "autoEdit", "yolo", "plan"]]}
             # FAKE_FULL_ACCESS=1: a harness that also offers a full-access mode.
             if os.environ.get("FAKE_FULL_ACCESS") == "1" and "modes" in result:
                 result["modes"]["availableModes"].append({"id": "full-access", "name": "Full access"})
@@ -2841,6 +2845,9 @@ def main():
             # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change (after that delay).
             if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
+                continue
+            if os.environ.get("FAKE_SET_MODE_ACTUAL"):
+                send({"jsonrpc": "2.0", "id": rid, "result": {"currentModeId": os.environ["FAKE_SET_MODE_ACTUAL"]}})
                 continue
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
