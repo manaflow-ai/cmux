@@ -2797,6 +2797,59 @@ class FastGatesJobRedIsThePRsOwn(unittest.TestCase):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
 
+class MergeTrainTurnAwayIsNoRed(unittest.TestCase):
+    """cmux#59074 at a3d4b1e0 (2026-11-27 04:41Z): the HQ merge train posted `merge-train` error "not seated: ..." at
+    the head, by design the fallback (the base merge, then the land; cmuxterm-hq docs/handbook/merge-train-turn-away.md).
+    The classifier judged it as a red, found no base run of it, and refused "merge-train: has not run on exact head"
+    twice with the other 173 checks green. Its turn-away is no red; its failure stays the PR's own."""
+
+    TURNED_AWAY = {"context": "merge-train", "state": "error", "created_at": "2026-11-27T04:41:24Z",
+                   "updated_at": "2026-11-27T04:41:24Z", "target_url": None,
+                   "description": "not seated: train T11270439-f0a5ca4 took 2 seats, the next no sooner than 05:39Z; "
+                                  "its base merge runs now (update_branch)"}
+
+    def setUp(self):
+        self.gh = FakeGitHub()
+        self.statuses = [copy.deepcopy(self.TURNED_AWAY)]
+        original = self.gh.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
+                return [{"check_runs": []}]
+            if route.endswith(f"commits/{HEAD}/statuses?per_page=100"):
+                self.gh.routes.append(route)
+                return copy.deepcopy(self.statuses)
+            if route.endswith(f"commits/{HEAD}/status?per_page=100"):
+                return {"statuses": []}
+            return original(route, paginate=paginate)
+
+        self.gh.json = json
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [], self.gh, checks=["merge-train"])
+
+    def test_the_trains_turn_away_error_is_ignored_not_refused(self):
+        lines = self.judge()
+        self.assertTrue(any(line.startswith("ignored 'merge-train': the merge train turned") and "not seated" in line
+                            for line in lines), lines)
+        self.assertFalse(any("/actions/workflows/" in route for route in self.gh.routes), self.gh.routes)
+
+    def test_the_newest_post_decides(self):
+        older = dict(self.TURNED_AWAY, state="pending", created_at="2026-11-27T04:30:00Z", description="boarded")
+        self.statuses = [older, copy.deepcopy(self.TURNED_AWAY)]
+        self.assertTrue(any(line.startswith("ignored 'merge-train'") for line in self.judge()))
+
+    def test_the_trains_failure_is_the_prs_own_red(self):
+        self.statuses = [dict(self.TURNED_AWAY, state="failure", description="red: job 'swift tests' in run 9")]
+        with self.assertRaisesRegex(excuse.Refused, "pull request's own red on the merge train"):
+            self.judge()
+
+    def test_a_pending_train_is_not_excused(self):
+        self.statuses = [dict(self.TURNED_AWAY, state="pending", description="seated in T1")]
+        with self.assertRaisesRegex(excuse.Refused, "still pending"):
+            self.judge()
+
+
 class StatusOnlyChecks(unittest.TestCase):
     """A same-tree run posts 'cmux-next daemon tests (same-tree)' as a commit status, not a check run (cmux#30294):
     it is judged by the job behind it, in the run its target_url links."""
@@ -8385,6 +8438,62 @@ class UnplacedGitHubQuotaRedIsInfra(unittest.TestCase):
         self.assertIsNone(excuse.unplaced_quota_only(None))
 
 
+class RiskEvidenceQuotaJobRed(unittest.TestCase):
+    NAME = "risk evidence"
+    STEP = "Grade the pull request"
+    EXIT = "##[error]Process completed with exit code 1."
+
+    def marker(self, **updates):
+        data = dict(endpoint="repos/o/r/pulls/7/files", status=403, reset=2000000000, graded=False)
+        data.update(updates)
+        return "risk-evidence.rate-limited " + json.dumps(data)
+
+    def judge(self, lines, name=NAME, step=STEP, base_red=False):
+        github = FakeGitHub()
+        github.jobs[1] = failed_job(1, 10, HEAD, name=name, step=step)
+        github.logs[1] = log(name, step, *lines, self.EXIT)
+        if not base_red:
+            github.jobs[2] = dict(github.jobs[2], conclusion="success",
+                                  steps=[dict(s, conclusion="success") for s in github.jobs[2]["steps"]])
+        with self.assertRaises(excuse.Refused) as caught:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+        return caught.exception
+
+    def test_marker_refuses_with_retry_boundary_even_when_base_is_red(self):
+        for base_red in (False, True):
+            error = self.judge([self.marker()], base_red=base_red)
+            self.assertIsInstance(error, excuse.JobRateLimited)
+            self.assertIn("rerun after 2033-05-18 03:33:20Z", str(error))
+            self.assertIn("HTTP 403", str(error))
+
+    def test_wrong_job_or_step_never_gets_marker_verdict(self):
+        for name, step in (("other job", self.STEP), (self.NAME, "Hold only an unowned takeback")):
+            self.assertNotIsInstance(self.judge([self.marker()], name, step), excuse.JobRateLimited)
+
+    def test_marker_is_not_stderr_regex_and_must_be_a_single_ungraded_refusal(self):
+        variants = (["gh: API rate limit exceeded"], [self.marker(graded=True)],
+                    [self.marker(status=500)], [self.marker(reset=True)], [self.marker(reset="tomorrow")],
+                    [self.marker(endpoint="")], ["risk-evidence.rate-limited {bad json}"],
+                    [self.marker(), self.marker()],
+                    [self.marker(), "##[error]takeback found"],
+                    [self.marker(), "✘ Test realFailure() failed after 0.1 seconds."],
+                    ["echo '" + self.marker() + "'"])
+        for lines in variants:
+            with self.subTest(lines=lines):
+                self.assertNotIsInstance(self.judge(lines), excuse.JobRateLimited)
+
+    def test_actual_producer_stdout_is_consumed(self):
+        import risk_tier
+        import argparse
+        error = risk_tier.RateLimited(1, ["gh", "api", "repos/o/r/pulls/7/files"],
+                                     endpoint="repos/o/r/pulls/7/files", status=429, reset=2000000000)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = risk_tier.ungraded(argparse.Namespace(summary=None, github_output=None), error)
+        self.assertNotEqual(code, 0)
+        self.assertIsInstance(self.judge(output.getvalue().splitlines()), excuse.JobRateLimited)
+
+
 class GitHubQuotaJobRed(unittest.TestCase):
     """The published-tree hand-off's own quota refusal is a retryable job state, not a PR red."""
 
@@ -9000,7 +9109,9 @@ class WsCheckPerTest(unittest.TestCase):
         # main is still the head's own red.
         main8 = self.gh.TIP[:8]
         for description in (f"1 failed after discounting 1 on main {main8}: test_b.py",
-                            f"1 failed after discounting 1 on main {main8}: test_b"):  # cut at 139
+                            f"1 failed after discounting 1 on main {main8}: test_b",  # cut at 139
+                            f"1 failed after discounting 1 on main {main8}: test_b.py, test_c.py",  # more units
+                            f"1 failed after discounting 1 on main {main8}: test_b.py cmux-cp-1; log x"):  # a tag
             with self.subTest(description=description):
                 self.discounted_red(description)
                 with self.assertRaisesRegex(excuse.Refused, "test_b") as caught:
@@ -9023,10 +9134,58 @@ class WsCheckPerTest(unittest.TestCase):
                 (f"1 failed after discounting 2 on main {main8}: test_b.py", {}),  # discount
                 (f"1 failed after discounting 1 on main {'0' * 8}: test_b.py", {}),  # main
                 (f"1 failed after discounting 1 on main {main8}: test_c.py", {}),  # unit
+                (f"1 failed after discounting 1 on main {main8}: test_b.pyc", {}),  # not the unit
                 (f"1 failed after discounting 1 on main {main8}: ", {}),  # no unit
                 (f"1 failed after discounting 1 on main {main8}: test_b.py", {"base_failed": False})):
             with self.subTest(description=description, **kwargs):
                 self.discounted_red(description, **kwargs)
+                with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
+                    self.judge()
+
+    def test_a_main_status_ending_in_its_published_failed_set_is_read(self):
+        # 2026-11-27: leo-workspace tools/ws-check publish_failed ends main's red status with " [fails N: HASHES]";
+        # read as part of the step, every red main verdict was "does not match", so no main commit had a readable
+        # verdict and lw#8374 at 110e5ff6 was refused "none of the 30 newest main commits has a ws-check verdict".
+        for description in (f"1 of 77 steps failed: {self.RELAY}"[:100] + " [fails 1: Iaih2]",
+                            f"1 of 77 steps failed: {self.RELAY}"[:80] + " [fails 3: Iaih2bS04fLm3fh]"):
+            with self.subTest(description=description):
+                self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()}, description=description)
+                self.assertIn(f"excused 'ws-check': every failure on {HEAD[:12]} is red on main too", self.judge()[0])
+        # The set dropped, a description naming another step still does not match.
+        self.gh.verdict(self.gh.TIP, 2, {self.RELAY: self.relay_lint()},
+                        description=f"1 of 77 steps failed: {self.DEPLOY} [fails 1: Iaih2]")
+        with self.assertRaisesRegex(excuse.Refused, "none of the 30 newest main commits"):
+            self.judge()
+
+    def learned_red(self, description):
+        """HEAD red on DEPLOY's units test_a.py, test_b.py and test_c.py, its own base pass seeing only test_a.py fail
+        on main; main red on test_a and test_c. tools/ws-check also discounted test_c.py, learned from another run of
+        the same main (learn_base_reds), so its status DESCRIPTION counts one more discount than this log shows."""
+        self.gh.verdict(self.gh.TIP, 2, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a"),
+                                                       "test_c.py": self.ws_deploy("test_c")}})
+        self.gh.verdict(HEAD, 1, {self.DEPLOY: {"test_a.py": self.ws_deploy("test_a"),
+                                                "test_b.py": self.ws_deploy("test_b"),
+                                                "test_c.py": self.ws_deploy("test_c")}}, description=description)
+        log = self.gh.logs[11].split("\n")
+        at = next(n for n, line in enumerate(log) if "WS_CHECK_RESULT=" in line)
+        stamp = "2026-11-05T04:39:27.9954759Z "
+        log[at:at] = [stamp + f"ws-check step FAILED on main too: {self.DEPLOY} [test_a.py] (exit 1, ran 4, skipped 0, "
+                              "gh calls 0)",
+                      stamp + f"ws-check base pass whole: main {self.gh.TIP}, 1 of 3 failed units fail on main too (9.0 s)"]
+        self.gh.logs[11] = "\n".join(log)
+
+    def test_a_long_discounted_status_counting_learned_discounts_is_read(self):
+        main8 = self.gh.TIP[:8]
+        self.learned_red(f"1 failed after discounting 2 on main {main8}: test_b.py")
+        with self.assertRaisesRegex(excuse.Refused, "test_b") as caught:  # read: test_b is the head's own red
+            self.judge()
+        self.assertNotIn("does not match", str(caught.exception))
+        for description in (f"2 failed after discounting 2 on main {main8}: test_b.py",  # counts split no log
+                            f"1 failed after discounting 2 on main {main8}: test_a.py",  # a unit main fails
+                            f"1 failed after discounting 2 on main {'0' * 8}: test_b.py",  # another main
+                            f"3 failed after discounting 0 on main {main8}: test_b.py"):  # less than the log's pass
+            with self.subTest(description=description):
+                self.learned_red(description)
                 with self.assertRaisesRegex(excuse.Refused, "does not match run 1's WS_CHECK_RESULT"):
                     self.judge()
 
@@ -10327,6 +10486,11 @@ class TreeReuseGitHub(FakeGitHub):
         query = next(arg for arg in args if arg.startswith("query="))
         self.graphql.append(query)
         if "nodes(ids:" in query:
+            if self.nodes == "unread":  # as main_fix_evidence's GitHub.run raises the broker's refusal: a failed gh
+                raise excuse.Unread("GitHub evidence request failed: gh api graphql query=... name=CI fast guards: "
+                                    "gh: lane-gh call graphql manaflow-ai/cmux: refused: graphql: root field nodes "
+                                    "is refused (the broker reads the call's repo with a few fields only: "
+                                    "GRAPHQL_ROOT_FIELDS, GRAPHQL_FIELDS)")
             if not self.nodes:
                 raise excuse.Refused("GitHub evidence request failed: gh: lane-gh call graphql manaflow-ai/cmux: "
                                      "refused: graphql: root field nodes is refused")
@@ -10347,6 +10511,39 @@ class TreeReuseGitHub(FakeGitHub):
                       if route.endswith("/jobs?filter=latest&per_page=100"))
 
 
+class SuiteChecksBrokerRefusal(unittest.TestCase):
+    """The lane-gh broker's refused `nodes` arrives as a failed read (Unread, then UnreadRead through rate_limit_aware):
+    SuiteChecks reads by commit instead, and only another failed read stays "not judged" (cmux#60059, 2026-11-27)."""
+
+    class GitHub:
+        def __init__(self, nodes_error):
+            self.nodes_error, self.queries = nodes_error, []
+
+        def run(self, args, *, repo=None):
+            query = next(arg for arg in args if arg.startswith("query="))
+            self.queries.append(query)
+            if "nodes(ids:" in query:
+                raise self.nodes_error
+            return json.dumps({"data": {"repository": {"c0": {"checkSuites": {"pageInfo": {"hasNextPage": False},
+                               "nodes": [{"id": "CS_1", "checkRuns": {"pageInfo": {"hasNextPage": False},
+                                                                     "nodes": [{"conclusion": "FAILURE"}]}}]}}}}})
+
+    RUNS = [{"id": 1, "check_suite_node_id": "CS_1", "head_sha": "a" * 40}]
+
+    def test_a_refused_nodes_read_as_unread_is_read_by_commit(self):
+        gh = self.GitHub(excuse.Unread("GitHub evidence request failed: gh: lane-gh call graphql manaflow-ai/cmux: "
+                                       "refused: graphql: root field nodes is refused"))
+        suites = excuse.SuiteChecks(excuse.rate_limit_aware(gh), REPO)
+        self.assertEqual(suites.conclusions(self.RUNS, 0, "build"), frozenset({"failure"}))
+        self.assertTrue(suites.rooted)
+        self.assertEqual(len(gh.queries), 2)
+
+    def test_another_failed_read_stays_not_judged(self):
+        gh = self.GitHub(excuse.Unread("GitHub evidence request exceeded 90 seconds: gh api graphql query=..."))
+        with self.assertRaises(excuse.UnreadRead):
+            excuse.SuiteChecks(excuse.rate_limit_aware(gh), REPO).conclusions(self.RUNS, 0, "build")
+
+
 class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
     """A base run whose check suite has no verdict for a job costs no job read and is not counted toward
     BASE_JOB_READS, so runs that never build a job do not push the one that did out of the window (cmux#42047)."""
@@ -10355,7 +10552,8 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
         return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], gh)
 
     def test_the_base_run_behind_the_tree_reuse_runs_excuses_the_red(self):
-        for nodes in (True, False):
+        # "unread": the refusal as a lane VM's gh shim gives it, a failed read (cmux#60059 exited 3 on it, 2026-11-27).
+        for nodes in (True, False, "unread"):
             with self.subTest(nodes=nodes):
                 gh = TreeReuseGitHub(nodes=nodes)
                 said = "\n".join(self.judge(gh))
@@ -10366,7 +10564,7 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
                 self.assertLessEqual(len(gh.graphql), 4)  # 52 suites, 25 a request (plus a refused `nodes` once)
 
     def test_a_green_base_job_there_stays_not_excused(self):
-        for nodes in (True, False):
+        for nodes in (True, False, "unread"):
             with self.subTest(nodes=nodes):
                 with self.assertRaisesRegex(excuse.Refused, f"'{re.escape(TreeReuseGitHub.MAC)}'.*not red on "
                                                             "feat-cmux-next run 20"):
@@ -10413,12 +10611,137 @@ class BaseRunsThatNeverBuildTheJob(unittest.TestCase):
                 self.assertTrue(scopes)
                 self.assertEqual(set(scopes), {REPO})
 
+    def test_a_broker_refused_nodes_read_through_the_real_reader_falls_back_by_commit(self):
+        # cmux#59202 and cmux#60109 on gcp-agent-lane-1 (2026-11-27): the lane-gh broker refuses root `nodes`, and on
+        # a lane VM that refusal is a `gh` exiting 1 (main_fix_evidence.Unread, then judge()'s UnreadRead), never the
+        # Refused the fixture above raises. SuiteChecks caught Refused alone, so the refusal escaped its fallback and
+        # land-judge stopped every land on it as a tool_error. Through the real transport it reads by commit, once.
+        for conclusion in ("failure", "success"):
+            with self.subTest(conclusion=conclusion):
+                fixture = TreeReuseGitHub(nodes=True, base_conclusion=conclusion)
+                answer, fixture.run = fixture.run, excuse.GitHub().run
+                sent = []
+
+                def gh(argv, *, stdout, stderr, env=None):
+                    self.assertEqual(argv[:3], ["gh", "api", "graphql"])
+                    query = next(arg for arg in argv if arg.startswith("query="))
+                    sent.append(query)
+                    if "nodes(ids:" in query:
+                        stderr.write(b"gh: lane-gh call graphql manaflow-ai/cmux: refused: graphql: root field nodes "
+                                     b"is refused (the broker reads the call's repo with a few fields only: "
+                                     b"GRAPHQL_ROOT_FIELDS, GRAPHQL_FIELDS)\n")
+                        return unittest.mock.Mock(returncode=1)
+                    stdout.write(answer(argv[1:]).encode())
+                    return unittest.mock.Mock(returncode=0)
+
+                stdout, stderr = io.StringIO(), io.StringIO()
+                with unittest.mock.patch.dict(os.environ, {"TAP_TESTS_STATE": "off"}), \
+                        unittest.mock.patch.object(excuse, "GitHub", return_value=fixture), \
+                        unittest.mock.patch.object(subprocess, "Popen", gh), \
+                        contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                    code = excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD, "--run", "10"])
+                self.assertNotIn("nodes is refused", stderr.getvalue())
+                if conclusion == "failure":
+                    self.assertEqual(code, 0, stderr.getvalue())
+                    self.assertIn("run 20", stdout.getvalue())
+                else:
+                    self.assertEqual(code, 1, stderr.getvalue())
+                    self.assertIn("not red on feat-cmux-next run 20", stderr.getvalue())
+                self.assertEqual(sum("nodes(ids:" in query for query in sent), 1, sent)  # refused once, then by commit
+                self.assertTrue(any("repository(owner:" in query for query in sent), sent)
+
+    def test_a_read_that_never_happened_for_another_reason_still_propagates(self):
+        gh = TreeReuseGitHub(nodes=True)
+        gh.run = unittest.mock.Mock(side_effect=excuse.UnreadRead("GitHub evidence request exceeded 90 seconds"))
+        suites = excuse.SuiteChecks(gh, REPO)
+        with self.assertRaises(excuse.UnreadRead):
+            suites.read({"CS_1": "0" * 40}, "x")
+        self.assertFalse(suites.rooted)
+
     def test_runs_whose_suites_cannot_be_read_are_still_bounded(self):
         gh = TreeReuseGitHub(nodes=True)
         gh.run = lambda args, **kwargs: json.dumps({"errors": [{"message": "Something went wrong"}]})
         with self.assertRaisesRegex(excuse.Refused, f"{excuse.INCOMPLETE} {excuse.CALL_JOB_READS} job lists"):
             self.judge(gh)
         self.assertEqual(len([run for run in gh.job_reads() if run != 10]), excuse.CALL_JOB_READS)
+
+
+def lane_gh_broker_code():
+    """The lane-gh broker's code (cmuxterm-hq tools/lane-gh-broker/lane-gh-broker) as a module, from
+    $LANE_GH_BROKER_CODE or this host's installed hq copy; None where neither is (a CI runner with no hq code)."""
+    import importlib.machinery
+    named = os.environ.get("LANE_GH_BROKER_CODE")
+    home = Path(os.environ.get("CMUX_HQ_TOOLS_HOME") or Path.home() / ".local/share/cmux/hq-tools")
+    path = Path(named) if named else home / "current" / "tools" / "lane-gh-broker" / "lane-gh-broker"
+    if named and not path.is_file():
+        raise FileNotFoundError(f"LANE_GH_BROKER_CODE names no file: {named}")  # named, so never a quiet skip
+    if not path.is_file():
+        return None
+    loader = importlib.machinery.SourceFileLoader("lane_gh_broker_for_base_red_excuse", str(path))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+class BrokerServesEveryClassifierQuery(unittest.TestCase):
+    """Every GraphQL query the classifier sends (each module-level query of base_red_excuse.py and the readers it
+    loads, rendered as sent) passes the lane-gh broker's guard, or is listed here with the fallback that answers it on
+    a lane VM. land-judge runs this script on every land, so a refused query with no working fallback stops every
+    lane VM's land as a tool_error (cmux#59202, cmux#60109, 2026-11-27; cmuxterm-hq
+    docs/handbook/fallback-refused-by-allowlist.md). The allowlist is security and is never widened for one."""
+
+    # Refused on purpose: each names its refusal and the test that proves its fallback through the real reader.
+    REFUSED_WITH_FALLBACK = {
+        "SUITE_CHECKS_QUERY": ("root field nodes is refused", "BaseRunsThatNeverBuildTheJob."
+                               "test_a_broker_refused_nodes_read_through_the_real_reader_falls_back_by_commit"),
+    }
+    SHA = "0" * 40
+
+    def rendered(self) -> dict[str, str]:
+        found = {}
+        modules = {"": excuse, "main_fix_evidence.": excuse._evidence}
+        for prefix, module in modules.items():
+            for key, value in vars(module).items():
+                if isinstance(value, str) and re.match(r"query\b", value) and "{" in value:
+                    found[prefix + key] = value
+        commit = excuse.SUITE_COMMIT.format(n=0, sha=json.dumps(self.SHA))
+        found["SUITE_CHECKS_QUERY"] = excuse.SUITE_CHECKS_QUERY.format(ids=json.dumps("CS_1"))
+        found["SUITE_COMMITS_QUERY"] = excuse.SUITE_COMMITS_QUERY.format(commits=commit)
+        for key, value in found.items():
+            if "{{" in value:
+                raise KeyError(f"{key} is a template this test does not render: render it as sent, above")
+        return found
+
+    def variables(self, query: str) -> dict:
+        names = {"owner": "manaflow-ai", "name": "cmux"}
+        return {name: None if name == "after" else names.get(name, self.SHA if kind == "GitObjectID" else "x")
+                for name, kind in re.findall(r"\$(\w+)\s*:\s*\[?(\w+)", query.split("{", 1)[0])}
+
+    def test_every_query_the_classifier_sends_passes_the_brokers_guard(self):
+        lgb = lane_gh_broker_code()
+        if lgb is None:
+            self.skipTest("no lane-gh broker code here (LANE_GH_BROKER_CODE, or an installed hq copy)")
+        queries = self.rendered()
+        self.assertIn("SUITE_COMMITS_QUERY", queries)
+        refused = {}
+        for key, query in sorted(queries.items()):
+            try:
+                lgb.graphql_check(query, self.variables(query), "manaflow-ai/cmux")
+            except lgb.Refused as error:
+                refused[key] = str(error)
+        unexpected = {key: why for key, why in refused.items()
+                      if key not in self.REFUSED_WITH_FALLBACK or self.REFUSED_WITH_FALLBACK[key][0] not in why}
+        self.assertEqual(unexpected, {}, "a classifier query the lane-gh broker refuses: every lane VM's land stops on "
+                         "it. Read it under repository/search/rateLimit with the broker's fields, or over REST; never "
+                         "widen the allowlist")
+        self.assertEqual(sorted(set(self.REFUSED_WITH_FALLBACK) - set(refused)), [],
+                         "listed as refused but now served: drop it from REFUSED_WITH_FALLBACK")
+
+    def test_each_refused_query_names_a_fallback_test_that_exists(self):
+        for key, (_why, test) in self.REFUSED_WITH_FALLBACK.items():
+            cls, _, method = test.partition(".")
+            self.assertTrue(hasattr(globals()[cls], method), f"{key}: no fallback test {test}")
 
 
 class SweepLimit(unittest.TestCase):
@@ -13331,7 +13654,7 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 # a red is excused: each reads failed_views alone (a FailedView parameter, never a raw log), and none places a line
 # itself. A function with a FailedView parameter that is not here fails the scan too.
 VIEW_COMPARATORS = frozenset({
-    "asks_only_rerun", "github_quota_only", "warn_only_steps", "without_warn_only",
+    "asks_only_rerun", "github_quota_only", "risk_evidence_quota", "warn_only_steps", "without_warn_only",
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "guard_group_truncated", "quarantined_only",
     "journey",
@@ -17128,6 +17451,8 @@ SCANNERS = {
     "base_red_excuse.asks_only_rerun": lambda f: (excuse.asks_only_rerun(f.view), excuse.asks_only_rerun(f.base_view)),
     "base_red_excuse.github_quota_only": lambda f: (excuse.github_quota_only(f.view),
                                                    excuse.github_quota_only(f.base_view)),
+    "base_red_excuse.risk_evidence_quota": lambda f: (excuse.risk_evidence_quota(f.view),
+                                                     excuse.risk_evidence_quota(f.base_view)),
     "base_red_excuse.tree_handoff_quota_only": lambda f: excuse.tree_handoff_quota_only(f.job, f.log),
     "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),
     "test_reds.spliced_pass": lambda f: TR.spliced_pass("t1", f.log),

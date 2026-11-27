@@ -68,10 +68,14 @@ fn consent_sends_only_after_opt_in_and_when_nothing_turns_it_off() {
 
 #[test]
 fn a_test_line_is_never_an_event_and_home_is_scrubbed() {
-    assert_eq!(event_for(r#"{"message":"x","location":"a.rs:1","test":true}"#, None), None);
-    assert_eq!(event_for("not json", None), None);
+    assert_eq!(
+        event_for(r#"{"message":"x","location":"a.rs:1","test":true}"#, &Source::OWNER, None),
+        None
+    );
+    assert_eq!(event_for("not json", &Source::OWNER, None), None);
     let event = event_for(
         r#"{"message":"open /home/maya/x failed","location":"a.rs:1","version":"0.13.5","os":"linux","backtrace":"at /home/maya/src"}"#,
+        &Source::OWNER,
         Some("/home/maya"),
     )
     .unwrap();
@@ -113,7 +117,7 @@ fn seeded_secrets_never_leave_in_a_panic_event() {
             "message": text, "location": text, "backtrace": text, "kind": kind,
             "waits": [text], "cancelled": [text],
         });
-        let event = event_for(&line.to_string(), Some("/home/other")).unwrap();
+        let event = event_for(&line.to_string(), &Source::OWNER, Some("/home/other")).unwrap();
         let sent = String::from_utf8(envelope(&event)).unwrap();
         for [_, _, marker] in SEEDS {
             assert!(!sent.contains(marker), "{kind}: {marker} survived: {sent}");
@@ -156,7 +160,7 @@ fn a_client_hang_line_is_a_warning_grouped_by_its_top_frame() {
         "location": "cmux::app::f", "duration_ms": 2400, "backtrace": "#0 0x1 cmux::app::f",
         "waits": ["daemon request tree (waited 2.4s of 5.0s)"], "cancelled": [], "version": "1.2.3",
     });
-    let event = event_for(&line.to_string(), None).unwrap();
+    let event = event_for(&line.to_string(), &Source::OWNER, None).unwrap();
     assert_eq!(event["level"], "warning");
     assert_eq!(event["exception"]["values"][0]["type"], "ClientHang");
     assert_eq!(event["fingerprint"], json!(["client-hang", "cmux::app::f"]));
@@ -218,4 +222,47 @@ fn home_dir_falls_back_to_the_windows_profile() {
     );
     let profile_only = home_dir(&env(&[("HOME", ""), ("USERPROFILE", r"C:\Users\maya")]));
     assert_eq!(profile_only, cfg!(windows).then(|| r"C:\Users\maya".to_string()));
+}
+
+/// The acpmux daemon's panic log goes as the app sends it (`RustPanicSource.acpmux`, RFD 0157).
+#[test]
+fn an_acpmux_panic_line_is_tagged_as_the_app_tags_it() {
+    let log = Path::new("/tmp/acpmux-home/panics.jsonl");
+    assert_eq!(Source::of(log), Source::ACPMUX);
+    assert_eq!(Source::of(Path::new("/tmp/s/owner-panics-s.jsonl")), Source::OWNER);
+    let line = json!({
+        "message": "boom", "location": "acpmux/src/daemon.rs:9", "thread": "main",
+        "process": "acpmux", "pid": 7, "version": "0.1.0", "at_ms": 2_000, "test": false,
+    });
+    let event = event_for(&line.to_string(), &Source::of(log), None).unwrap();
+    assert_eq!(event["level"], "error");
+    assert_eq!(event["logger"], "acpmux");
+    assert_eq!(event["tags"]["process"], "acpmux");
+    assert_eq!(event["tags"]["crash_source"], "acpmux_panic_log");
+    assert_eq!(event["tags"]["acpmux_version"], "0.1.0");
+    assert_eq!(event["tags"].get("tui_version"), None);
+    assert_eq!(event["fingerprint"], json!(["acpmux-panic", "acpmux/src/daemon.rs:9"]));
+    assert_eq!(
+        event["message"]["formatted"],
+        "acpmux daemon panic at acpmux/src/daemon.rs:9: boom"
+    );
+    assert_eq!(event["release"], format!("cmux-tui@{DISTRIBUTION_VERSION}"));
+    // A debug test trigger's line never goes.
+    let test_line = json!({"message": "boom", "location": "a.rs:1", "test": true});
+    assert_eq!(event_for(&test_line.to_string(), &Source::ACPMUX, None), None);
+}
+
+/// Every owner reads acpmux's one log: while one holds the lock beside it, another sends nothing.
+#[test]
+fn one_process_at_a_time_sends_a_shared_log() {
+    let dir = std::env::temp_dir().join(format!("cmux-cf-lock-{}", uuid::Uuid::new_v4().simple()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let log = dir.join("panics.jsonl");
+    let held = try_lock_beside(&log).unwrap();
+    assert!(held.is_some());
+    assert!(try_lock_beside(&log).unwrap().is_none());
+    drop(held);
+    assert!(try_lock_beside(&log).unwrap().is_some());
+    assert!(try_lock_beside(&dir.join("missing").join("panics.jsonl")).unwrap().is_none());
+    let _ = std::fs::remove_dir_all(&dir);
 }
