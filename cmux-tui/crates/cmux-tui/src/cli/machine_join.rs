@@ -803,6 +803,8 @@ const KNOWN_CODES: &[&str] = &[
     "vault.tailnet_node_missing",
     "vault.tailnet_node_conflict",
     "vault.tailnet_node_open_failed",
+    "vault.tailnet_holder_conflict",
+    "vault.invalid_holder",
     // A workspace's machine (`POST /v1/workspaces/{w}/machine`, `link start-chat ensure`).
     "cloud_environment.not_found",
     "machine.conflict",
