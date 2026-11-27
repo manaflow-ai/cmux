@@ -40,10 +40,13 @@ pub mod feedback;
 pub mod forum;
 pub mod identity;
 pub mod model;
+pub mod navigator;
 pub mod permission;
+pub mod picker;
 pub mod presence;
 pub mod refs;
 pub mod service;
+pub mod session_info;
 
 pub use backend::{BackendError, ForumBackend, PresenceBackend, RoomBackend, StoredMessage};
 pub use delivery::{AnswerState, DeliveryMode, DeliveryState, Route, route};
