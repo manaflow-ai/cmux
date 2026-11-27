@@ -237,6 +237,8 @@ class BaseRed(unittest.TestCase):
         # The fleet refusing the step for its own disk is no verdict, not a red on the head.
         self.assertIn("failed on no worker: invalid ci-step: source depot full' \"$log\"", text)
         self.assertIn("continue-on-error: true  # past its time it builds", text)
+        self.assertEqual(text.count("continue-on-error: true  # best effort: never changes the compile's verdict"), 2)
+        self.assertIn("ADDED_LABEL: ${{ github.event.label.name }}", text)
         router = (ROOT / ".github/workflows/pr-router.yml").read_text()
         self.assertRegex(router, r"uses: ./.github/workflows/nightly-pr-build.yml\n    permissions:\n"
                                  r"      contents: read\n      actions: read")

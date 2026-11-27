@@ -247,7 +247,7 @@ def decide_base_red(red: dict | None, passes: list[dict], rev: str, blobs_at, no
 
 
 def base_red(rev: str, base_tip: str, root: Path = ROOT) -> str | None:
-    if "full-ci" in json.loads(os.environ.get("PR_LABELS") or "[]"):
+    if "full-ci" in [*json.loads(os.environ.get("PR_LABELS") or "[]"), os.environ.get("ADDED_LABEL", "")]:
         return None
     if audited(os.environ.get("GITHUB_RUN_ID", ""), os.environ.get("GITHUB_RUN_ATTEMPT", "1")):
         print("nightly app compile: this run is a base-red audit; building", file=sys.stderr)

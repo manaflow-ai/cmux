@@ -70,7 +70,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_TIP: ${{ steps.route.outputs.base_tip }}
+          # The label snapshot plus the label a full-ci pulse just added (it can be missing from the snapshot).
           PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          ADDED_LABEL: ${{ github.event.label.name }}
         run: python3 scripts/ci/nightly_pr_build.py base-red --rev "$HEAD_SHA" --base-tip "$BASE_TIP" | tee -a "$GITHUB_OUTPUT"
 
   # The gateway runner's hook takes only job ids ending in -fleet; `swift` was refused (run 45799805163).
@@ -156,6 +158,7 @@ jobs:
       # Verdicts for the route's base-red skip (scripts/ci/nightly_pr_build.py base-red): a red's Swift
       # diagnostics and the base tip it was merged onto; a pass (its head is the artifact's run head).
       - name: Record the verdict for the base-red skip
+        continue-on-error: true  # best effort: never changes the compile's verdict
         if: ${{ !cancelled() && (steps.compile.outputs.passed == 'true' || steps.compile.outcome == 'failure') }}
         env:
           ARCH: ${{ matrix.arch }}
@@ -175,6 +178,7 @@ jobs:
           fi
         id: verdict
       - name: Upload the verdict
+        continue-on-error: true  # best effort: never changes the compile's verdict
         if: ${{ !cancelled() && steps.verdict.outputs.name }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
