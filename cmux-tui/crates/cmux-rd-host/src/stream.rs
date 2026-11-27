@@ -76,6 +76,10 @@ pub struct SessionCfg {
     /// After injected input, frames skip the frame-rate cap for a short window
     /// (`--input-frame-now 1`; the engine's `input_frame_now`).
     pub input_frame_now: bool,
+    /// Offer LTR recovery (`--ltr 1`, default off): on a VideoToolbox host, a viewer that
+    /// negotiates it gets a refresh P-frame from a reference it acknowledged after a loss,
+    /// instead of a keyframe (reference frame invalidation).
+    pub ltr: bool,
     /// Tail-loss probes wait a round trip, not a fixed 250 ms (`--rtt-tail-probe 1`;
     /// the engine's `rtt_tail_probe`, design D6). Off by default.
     pub rtt_tail_probe: bool,
@@ -368,7 +372,8 @@ pub fn offers_sharp_text(codec: &str) -> bool {
 /// The session's settings with the viewer's caps applied: a viewer that negotiated
 /// `h264.baseline` (OpenH264, which shows a High-profile stream as wrong pictures with no
 /// error, cmux#50591) gets Constrained Baseline whatever `--profile` says, and one that
-/// negotiated `video.sharp_text` gets OpenH264's screen usage.
+/// negotiated `video.sharp_text` gets OpenH264's screen usage. `ltr` holds only when the viewer
+/// negotiated `video.ltr`.
 fn session_cfg<'a>(
     cfg: &'a SessionCfg,
     negotiated_caps: &[String],
@@ -376,10 +381,16 @@ fn session_cfg<'a>(
     let has = |cap: &str| negotiated_caps.iter().any(|c| c == cap);
     let baseline = has(cmux_rd_core::service::caps::H264_BASELINE) && cfg.profile != "baseline";
     let sharp_text = has(cmux_rd_core::service::caps::SHARP_TEXT) && !cfg.sharp_text;
-    if !baseline && !sharp_text {
+    // LTR stays on only for a viewer that negotiated `video.ltr`; the host offers it only with
+    // `--ltr 1`.
+    let ltr_off = cfg.ltr && !has(cmux_rd_core::service::caps::LTR);
+    if !baseline && !sharp_text && !ltr_off {
         return std::borrow::Cow::Borrowed(cfg);
     }
     let mut owned = cfg.clone();
+    if ltr_off {
+        owned.ltr = false;
+    }
     if baseline {
         owned.profile = "baseline".into();
     }
@@ -432,20 +443,24 @@ pub struct OpenedDesktop {
     cursor: bool,
     /// The H.264 profile it was opened for (a `h264.baseline` viewer needs Constrained Baseline).
     profile: String,
+    /// Whether its VideoToolbox encoder has long-term references on (`cfg.ltr`).
+    ltr: bool,
     open_us: u64,
     ready_us: u64,
 }
 
 impl OpenedDesktop {
-    /// Opens this OS's desktop; `cursor`: the viewer draws the cursor (cap `cursor`).
+    /// Opens this OS's desktop; `cursor`: the viewer draws the cursor (cap `cursor`). The
+    /// encoder turns long-term references on when `cfg.ltr` is set.
     pub fn open(cfg: &SessionCfg, cursor: bool) -> Res<Self> {
         let open_us = now_us();
-        let (desktop, frames) = crate::desktop::open(cfg, cursor)?;
+        let (desktop, frames) = crate::desktop::open(cfg, cursor, cfg.ltr)?;
         Ok(Self {
             desktop,
             frames,
             cursor,
             profile: cfg.profile.clone(),
+            ltr: cfg.ltr,
             open_us,
             ready_us: now_us(),
         })
@@ -478,9 +493,9 @@ impl MediaSession {
     }
 
     /// A session on a desktop opened earlier (`cmux-rd serve` opens it during the handshake).
-    /// One opened for the other cursor choice or H.264 profile than the viewer negotiated is
-    /// closed and opened again. `cfg.start_kbps` still sets the first frame's bitrate: the
-    /// encoder takes the engine's target before every frame.
+    /// One opened for the other cursor choice, H.264 profile or LTR setting than the viewer
+    /// negotiated is closed and opened again. `cfg.start_kbps` still sets the first frame's
+    /// bitrate: the encoder takes the engine's target before every frame.
     pub fn on_desktop(
         opened: OpenedDesktop,
         cfg: &SessionCfg,
@@ -490,7 +505,10 @@ impl MediaSession {
     ) -> Res<Self> {
         let cfg = &*session_cfg(cfg, negotiated_caps);
         let cursor = wants_cursor(negotiated_caps);
-        let opened = if opened.cursor == cursor && opened.serves_profile(&cfg.profile) {
+        let opened = if opened.cursor == cursor
+            && opened.serves_profile(&cfg.profile)
+            && opened.ltr == cfg.ltr
+        {
             opened
         } else {
             // The capture closes before it opens again.
@@ -533,6 +551,7 @@ impl MediaSession {
                 path: PathKind::ViaCloudRegion,
                 frames_in_flight: cfg.frames_in_flight,
                 input_frame_now: cfg.input_frame_now,
+                ltr_enabled: negotiated_caps.iter().any(|c| c == cmux_rd_core::service::caps::LTR),
                 rtt_tail_probe: cfg.rtt_tail_probe,
                 resolution_ladder: wants_ladder(cfg.resolution_ladder, negotiated_caps)
                     .then(|| LadderConfig { max_qp: Some(cfg.max_qp), ..LadderConfig::default() }),
@@ -580,6 +599,11 @@ impl MediaSession {
 
     pub fn encoder_name(&self) -> String {
         self.encoder.encoder_name()
+    }
+
+    /// The source's rect on the screen, where the desktop knows it (`Desktop::source_rect`).
+    pub fn source_rect(&self) -> Option<[u32; 4]> {
+        self.desktop.source_rect()
     }
 
     /// Runs until the viewer stops, the host stops the session, or the carrier fails, then logs
@@ -893,6 +917,7 @@ impl MediaSession {
             access_unit: frame.access_unit,
             idr: frame.idr,
             t_capture_us: frame.t_capture_us,
+            ltr_token: frame.ltr_token,
         };
         let out =
             self.engine.encoded(&req, Some(encoded), now_us()).map_err(|e| format!("{e:?}"))?;
@@ -1238,6 +1263,8 @@ mod tests {
             frame: 9,
             damage: Rect { x: 0, y: 0, width: 16, height: 16 },
             force_idr: reason.is_some(),
+            force_ltr_refresh: false,
+            acknowledged_ltr_tokens: Vec::new(),
             idr_reason: reason,
             target_kbps: 8_000,
             picture: None,

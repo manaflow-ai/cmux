@@ -292,7 +292,8 @@ C="$TMP/clippy"
 mkdir -p "$C/.github/scripts" "$C/ghostty-next" "$C/cmux-tui/crates/cmux-tailnet" "$C/scripts/ci"
 cat >"$C/.github/scripts/cmux-tui-clippy-changed.py" <<PY
 import os, sys
-open("$TMP/calls", "a").write("clippy-changed " + " ".join(a for a in sys.argv[1:] if a.startswith("--")) + "\\n")
+open("$TMP/calls", "a").write("clippy-changed incremental=" + os.environ.get("CARGO_INCREMENTAL", "unset") + " "
+                              + " ".join(a for a in sys.argv[1:] if a.startswith("--")) + "\\n")
 sys.exit(int(os.environ.get("CLIPPY_RED", "0")) if "--panic-ratchet" not in sys.argv else 0)
 PY
 printf 'import sys\nsys.exit(0)\n' >"$C/.github/scripts/test_cmux_tui_clippy_changed.py"
@@ -302,12 +303,20 @@ printf 'import sys\nsys.exit(1)\n' >"$C/scripts/ci/cargo_test_verdict.py"
 echo 1.24.0 >"$C/cmux-tui/crates/cmux-tailnet/go-version"
 git_fixture_init "$C" && git -C "$C" add -A && git -C "$C" -c user.email=t@t -c user.name=t commit -qm base
 cbase=$(git -C "$C" rev-parse HEAD)
-git -C "$C" -c user.email=t@t -c user.name=t commit -q --allow-empty -m head
 printf '#!/bin/bash\necho "go version go1.24.0 linux/amd64"\n' >"$TMP/bin/go"
 printf '#!/bin/bash\n' >"$TMP/bin/zig"
 chmod +x "$TMP/bin/go" "$TMP/bin/zig"
 ARGS=(clippy-changed "$cbase")
 crun() { (cd "$C" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" CMUX_CI_STEP_KEY=k "$@" /bin/bash "$SCRIPT" "${ARGS[@]}") 2>&1; }
+# A head that reaches no input of the check (here: a README) passes before any setup or lint.
+echo docs >"$C/README.md"
+git -C "$C" add README.md && git -C "$C" -c user.email=t@t -c user.name=t commit -qm "docs only"
+: >"$TMP/calls"
+out=$(crun CLIPPY_RED=1) || fail "clippy-changed with no input changed must pass: $out"
+[[ ! -s "$TMP/calls" ]] || fail "clippy-changed linted a change that reaches none of its inputs: $(calls)"
+grep -q '^clippy-changed inputs *pass (none changed)' <<<"$out" || fail "the summary does not say no input changed: $out"
+echo '// changed' >"$C/cmux-tui/crates/cmux-tailnet/lib.rs"
+git -C "$C" add -A && git -C "$C" -c user.email=t@t -c user.name=t commit -qm head
 : >"$TMP/calls"
 status=0; out=$(crun CLIPPY_RED=1) || status=$?
 [[ "$status" == 1 ]] || fail "clippy-changed with a red clippy step must exit 1, got $status: $out"
@@ -317,6 +326,8 @@ grep -q '^Rust panic ratchet on changed cmux-tui packages *skip (clippy red)' <<
 out=$(crun) || fail "clippy-changed with a green clippy step: $out"
 grep -q -- '--panic-ratchet' "$TMP/calls" || fail "the ratchet did not run after a green clippy step: $(calls)"
 grep -q '^Rust panic ratchet on changed cmux-tui packages *pass' <<<"$out" || fail "no ratchet row: $out"
+# Not incremental: sccache cannot cache an incremental unit, so each workspace crate would be checked from nothing.
+[[ "$(grep -c '^clippy-changed incremental=0 ' "$TMP/calls")" == 2 ]] || fail "clippy and the ratchet must run with CARGO_INCREMENTAL=0: $(calls)"
 rm -f "$TMP/bin/go" "$TMP/bin/zig" "$TMP/calls"
 ARGS=(deploy)
 run CMUX_CI_STEP_KEY=k >/dev/null && fail "accepted an unknown mode"
