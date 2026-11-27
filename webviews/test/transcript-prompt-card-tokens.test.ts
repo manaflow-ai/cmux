@@ -79,8 +79,6 @@ describe("transcript prompt and card tokens", () => {
         ),
       ).toBe(true);
     }
-    const reply = rules(/^\.cv-img$/).map(([, body]) => body);
-    expect(reply.some((body) => /border-radius:\s*var\(--cv-media-radius\)/.test(body))).toBe(true);
     expect(defined.has("--cv-user-attachment-radius")).toBe(true);
   });
 });

@@ -26,7 +26,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { MOTION_SETTLE_MS } from "../src/motion/scale.generated";
-import { exitLeadMs, EXIT_LEAD_MS } from "../src/agent-session/acpmux/conversation/exitLead";
+import { EXIT_LEAD_MS } from "../src/agent-session/acpmux/conversation/exitLead";
 import { FramesUnsupported, open120Hz } from "./support/frames120";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
