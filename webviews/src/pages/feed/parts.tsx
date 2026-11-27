@@ -141,7 +141,6 @@ export const FeedRow = memo(function FeedRow({
       data-detail={detail ? "" : undefined}
       style={style}
       ref={line.selected && !style ? revealOnSelect : undefined}
-      title={row.headline}
       onClick={() => onSelect(item.id)}
       onDoubleClick={() => onOpen(item.id)}
       onKeyDown={(event) => {
