@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.appearance.backgroundPlacement.help" : {
+      "comment" : "Settings > Appearance > Window Background: help of the hidden Background Placement setting; fill, fit, center and stretch are literal values",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Picture ID to fill, fit, center or stretch, with optional X Y anchor and zoom."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "画像IDごとに fill、fit、center、stretch を指定し、任意で X Y アンカーとズームを付けます。"
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "معرّف الصورة إلى fill أو fit أو center أو stretch، مع مرساة X Y وتكبير اختياريين."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID slike na fill, fit, center ili stretch, uz opcionalno X Y sidro i zum."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Billed-id til fill, fit, center eller stretch med valgfrit X Y-anker og zoom."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bild-ID zu fill, fit, center oder stretch, optional mit X-Y-Anker und Zoom."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID de imagen a fill, fit, center o stretch, con ancla X Y y zoom opcionales."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID d’image vers fill, fit, center ou stretch, avec ancre X Y et zoom facultatifs."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID immagine su fill, fit, center o stretch, con ancoraggio X Y e zoom facoltativi."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "លេខសម្គាល់រូបភាពទៅ fill, fit, center ឬ stretch ជាមួយយុថ្កា X Y និងការពង្រីកស្រេចចិត្ត។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "그림 ID별 fill, fit, center 또는 stretch와 선택적 X Y 기준점 및 확대/축소."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bilde-ID til fill, fit, center eller stretch, med valgfritt X Y-anker og zoom."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID obrazu na fill, fit, center lub stretch, z opcjonalną kotwicą X Y i powiększeniem."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID da imagem para fill, fit, center ou stretch, com âncora X Y e zoom opcionais."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID изображения на fill, fit, center или stretch с необязательными якорем X Y и масштабом."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "รหัสภาพเป็น fill, fit, center หรือ stretch พร้อมจุดยึด X Y และการซูมที่ไม่บังคับ"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resim kimliğinden fill, fit, center veya stretch'e; isteğe bağlı X Y çapası ve yakınlaştırma."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID зображення на fill, fit, center або stretch з необов’язковими якорем X Y і масштабом."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID ảnh thành fill, fit, center hoặc stretch, kèm neo X Y và thu phóng tùy chọn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "图片 ID 对应 fill、fit、center 或 stretch，可选 X Y 锚点和缩放。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "圖片 ID 對應 fill、fit、center 或 stretch，可選 X Y 錨點與縮放。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

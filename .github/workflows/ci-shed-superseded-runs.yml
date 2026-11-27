@@ -38,10 +38,13 @@ jobs:
   shed:
     name: Shed queued runs on superseded heads
     if: github.repository == 'manaflow-ai/cmux'
+    environment:
+      name: ci-bot
+      deployment: false
     permissions:
       actions: write
       contents: read
-    runs-on: ${{ vars.CI_CONTROL_RUNNER || 'cmux-gcp-nightly-x64' }}
+    runs-on: cmux-gcp-pr-control-jit-x64
     timeout-minutes: 30
     steps:
       - name: Check out the shed script
@@ -51,9 +54,21 @@ jobs:
           sparse-checkout: scripts/ci
           sparse-checkout-cone-mode: true
 
+      - name: Mint the cmux-bot token
+        id: cmux-bot-token
+        if: vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
+
       - name: Cancel queued runs nobody will read
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           GH_REPO: ${{ github.repository }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
           SHED_MAX_CANCELS: ${{ vars.CI_SHED_MAX_CANCELS || '1500' }}

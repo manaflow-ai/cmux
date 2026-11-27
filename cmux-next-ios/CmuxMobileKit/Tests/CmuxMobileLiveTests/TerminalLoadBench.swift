@@ -57,6 +57,11 @@ struct TerminalLoadBench {
     /// replays them (SGR-colored build-log lines, CRLF).
     final class Mac: @unchecked Sendable {
         let history: Int
+        /// Duress: the Mac's program keeps printing while the phone reads
+        /// (a burst of `floodLines` lines every `floodInterval` s on each live
+        /// attach), as an agent CLI or a build does. 0: a quiet shell.
+        var floodLines = 0
+        var floodInterval = 0.12
         private let lines: [Data]
         private let lock = NSLock()
         private var cache: [String: String] = [:]
@@ -106,6 +111,11 @@ struct TerminalLoadBench {
         let id: UInt32
         private let mac: Mac
         private let rtt: Double
+        private let jitter: Double
+        private var lastDelivery = DispatchTime.now()
+        private var flooding = false
+        private var closed = false
+        private var floodRow = 0
         private let queue = DispatchQueue(label: "terminal-load-bench.channel")
         private let lock = NSLock()
         private var declaredWindow = false
@@ -115,10 +125,11 @@ struct TerminalLoadBench {
         private let continuation: AsyncStream<Data>.Continuation
         private var iterator: AsyncStream<Data>.AsyncIterator
 
-        init(id: UInt32, mac: Mac, rtt: Double) {
+        init(id: UInt32, mac: Mac, rtt: Double, jitter: Double = 0) {
             self.id = id
             self.mac = mac
             self.rtt = rtt
+            self.jitter = jitter
             (inbox, continuation) = AsyncStream.makeStream()
             iterator = inbox.makeAsyncIterator()
         }
@@ -127,17 +138,49 @@ struct TerminalLoadBench {
             let replies = data.split(separator: 0x0A).flatMap { respond(Data($0)) }
             let continuation = continuation
             let mac = mac
-            queue.asyncAfter(deadline: .now() + rtt) {
+            // A jittered link still delivers in order: no answer overtakes the one before it.
+            let delay = rtt + (jitter > 0 ? Double.random(in: -jitter...jitter) : 0)
+            let deadline = lock.withLock { () -> DispatchTime in
+                lastDelivery = max(lastDelivery, .now() + max(0, delay))
+                return lastDelivery
+            }
+            queue.asyncAfter(deadline: deadline) {
                 for (line, replay) in replies {
                     mac.delivered(line, replay: replay)
                     continuation.yield(line)
                 }
             }
+            let startFlood = lock.withLock { () -> Bool in
+                guard mac.floodLines > 0, !flooding, !closed, replies.contains(where: { $0.1 }) else { return false }
+                flooding = true
+                return true
+            }
+            if startFlood { queue.asyncAfter(deadline: deadline + mac.floodInterval) { [weak self] in self?.flood() } }
+        }
+
+        /// One burst of the program's output, then the next one, until the link closes.
+        private func flood() {
+            let burst: Data? = lock.withLock {
+                guard !closed else { return nil }
+                var text = ""
+                for _ in 0..<mac.floodLines {
+                    text += String(format: "\u{1B}[33m%06ld\u{1B}[0m agent: reading src/module_%ld.rs (%ld tokens)\r\n", floodRow, floodRow % 97, floodRow * 13 % 9001)
+                    floodRow += 1
+                }
+                return Self.line(["event": "output", "surface": 7, "data": Data(text.utf8).base64EncodedString()])
+            }
+            guard let burst else { return }
+            mac.delivered(burst, replay: false)
+            continuation.yield(burst)
+            queue.asyncAfter(deadline: .now() + mac.floodInterval) { [weak self] in self?.flood() }
         }
 
         func receive() async throws -> Data? { await iterator.next() }
 
-        func close(code: String, reason: String) async { continuation.finish() }
+        func close(code: String, reason: String) async {
+            lock.withLock { closed = true }
+            continuation.finish()
+        }
 
         static func line(_ object: [String: Any]) -> Data {
             var data = try! JSONSerialization.data(withJSONObject: object)
@@ -327,10 +370,10 @@ struct TerminalLoadBench {
         private let lock = NSLock()
         private var all: [Channel] = []
         private var next: UInt32 = 1
-        func make(_ mac: Mac, rtt: Double) -> Channel {
+        func make(_ mac: Mac, rtt: Double, jitter: Double = 0) -> Channel {
             lock.withLock {
                 defer { next += 2 }
-                let channel = Channel(id: next, mac: mac, rtt: rtt)
+                let channel = Channel(id: next, mac: mac, rtt: rtt, jitter: jitter)
                 all.append(channel)
                 return channel
             }
@@ -338,14 +381,14 @@ struct TerminalLoadBench {
         var list: [Channel] { lock.withLock { all } }
     }
 
-    static func rig(_ mac: Mac, rtt: Double) -> Rig {
+    static func rig(_ mac: Mac, rtt: Double, jitter: Double = 0) -> Rig {
         let channels = Channels()
         // As `LiveCoordinator.terminalSession` builds a tab's session.
         let daemon = DaemonTerminalSession(
             surface: 7, terminalID: "term_load_bench", programName: "zsh",
             clientInfo: ["name": "load bench", "kind": "ios", "device_kind": "iphone", "device_name": "load bench", "device_id": "bench"],
-            open: { DaemonClient(channel: channels.make(mac, rtt: rtt), eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) },
-            openInput: { DaemonClient(channel: channels.make(mac, rtt: rtt), eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) })
+            open: { DaemonClient(channel: channels.make(mac, rtt: rtt, jitter: jitter), eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) },
+            openInput: { DaemonClient(channel: channels.make(mac, rtt: rtt, jitter: jitter), eventCapacity: BoundedDaemonEventBuffer.defaultCapacity) })
         daemon.reattachBackoff = []
         daemon.macName = "Bench Mac"
         let session = TerminalSessionChoice.session(live: daemon, mockDataEnabled: false, macName: "Mac", programName: "zsh")
@@ -479,6 +522,20 @@ struct TerminalLoadBench {
                 }
                 for line in out.suffix(3) { print(line) }
             }
+        }
+        // Duress: a phone on poor wifi (150 ms round trip, +-50 ms jitter) reading
+        // back through 100,000 rows while the Mac's program keeps printing
+        // (8 lines every 120 ms). Same harness, same steps as above.
+        do {
+            let mac = Mac(history: 100_000)
+            mac.floodLines = 8
+            let rig = Self.rig(mac, rtt: 0.15, jitter: 0.05)
+            let label = "duress god rtt=150ms+-50 flood=8/120ms"
+            out.append("TERMINAL-LOAD-SIM \(label) open: \(Self.describe(await Self.open(rig)))")
+            out.append("TERMINAL-LOAD-SIM \(label) scrollback to line 1: \(Self.describe(await Self.scrollback(rig, limit: 300)))")
+            rig.session.stop()
+            rig.page.close()
+            for line in out.suffix(2) { print(line) }
         }
         for line in out { print(line) }
         #expect(out.count > 2)

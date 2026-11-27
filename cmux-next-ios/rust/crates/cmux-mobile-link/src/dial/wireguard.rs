@@ -37,7 +37,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 use zeroize::Zeroizing;
 
-use super::relay::{RELAY_PEER, RelayCarrier};
+use super::relay::{RELAY_PEER, RelayCarrier, RelayEndpoint, RelayRung};
 use super::turn::{Allocated, TurnCarrier, TurnTransport};
 use super::{
     DialError, DialFuture, DialOptions, Dialed, Dialer, LinkPath, SessionEvents, TransportKind, UltraSetting,
@@ -45,8 +45,8 @@ use super::{
 use crate::api::stun_servers;
 use crate::class_queue::{SendClass, send_class};
 use crate::signaling::{
-    RELAY_NOW, RELAY_READY, SessionEvent, SignalEnvelope, SignalPayload, SignalingClient, WG_REACH_VERSION,
-    WG_VERSION,
+    RELAY_FIRST, RELAY_NOW, RELAY_READY, SessionEvent, SignalEnvelope, SignalPayload, SignalingClient,
+    WG_REACH_VERSION, WG_VERSION,
 };
 use crate::timing::Timeline;
 
@@ -94,6 +94,11 @@ fn classes_offered() -> bool {
 /// on unless `CMUX_LINK_SCREEN=off` (benches measure the plain class path).
 fn screen_offered() -> bool {
     classes_offered() && std::env::var("CMUX_LINK_SCREEN").map_or(true, |value| value != "off")
+}
+
+/// This side's class lanes, as both dial sides offer and agree them.
+fn class_offer() -> crate::classes::ClassLanes {
+    crate::classes::ClassLanes::offer(classes_offered(), screen_offered())
 }
 
 /// Bind the liveness port and carry its datagrams to and from the link:
@@ -162,6 +167,71 @@ async fn open_liveness(
 /// How long the input lane's second connection may take before input stays
 /// on the main stream.
 const LANE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long the Mac takes the next connection on a link's listener as that
+/// link's input lane: past the phone's own [`LANE_TIMEOUT`] by a slow round
+/// trip, so a lane the phone opened in time is never taken for a resumed
+/// link (which ends the live link it belongs to). The wait also ends as
+/// soon as the link is gone ([`accept_lane`]).
+const HOST_LANE_WAIT: std::time::Duration = std::time::Duration::from_secs(12);
+
+/// Mac: the next connection on `listener` is the input lane of the link that
+/// holds `lane`'s receiver, while that link still waits for it. Returns
+/// false when the listener closed. Pairing is by order (the phone opens the
+/// lane right after the main stream), so the wait ends when the link ends:
+/// what comes after it (the phone resuming the tunnel) is a resumed link,
+/// not a lane for a link that is gone (2026-11-25: a resume taken for a
+/// dead link's lane, and a late lane taken for a resume, lost the input of
+/// a phone racing a fresh dial against a dormant resume).
+pub(super) async fn accept_lane(
+    listener: &mut cmux_wg::WgListener,
+    mut lane: oneshot::Sender<Box<dyn super::LinkStream>>,
+    what: &str,
+) -> bool {
+    let accepted = tokio::select! {
+        accepted = tokio::time::timeout(HOST_LANE_WAIT, listener.accept()) => Some(accepted),
+        () = lane.closed() => None,
+    };
+    match accepted {
+        Some(Ok(Some(stream))) => {
+            let _ = lane.send(Box::new(stream) as Box<dyn super::LinkStream>);
+            true
+        }
+        Some(Ok(None)) => false,
+        Some(Err(_)) => {
+            tracing::info!(link = what, "input lane was not opened in time");
+            true
+        }
+        None => {
+            tracing::info!(link = what, "the link ended before its input lane opened");
+            true
+        }
+    }
+}
+
+/// Phone: open the input lane, unless the link it is for is gone first (its
+/// receiver dropped: the link closed, or a hedged dial it belonged to lost).
+/// A lane opened for a link that is gone reaches the Mac as a resumed link
+/// or as the lane of the next one.
+pub(super) fn open_lane(
+    net: Arc<WgNet>,
+    link_addr: SocketAddr,
+) -> oneshot::Receiver<Box<dyn super::LinkStream>> {
+    let (mut tx, rx) = oneshot::channel();
+    tokio::spawn(async move {
+        let connected = tokio::select! {
+            connected = tokio::time::timeout(LANE_TIMEOUT, net.connect(link_addr)) => connected,
+            () = tx.closed() => return,
+        };
+        match connected {
+            Ok(Ok(stream)) => {
+                let _ = tx.send(Box::new(stream) as Box<dyn super::LinkStream>);
+            }
+            Ok(Err(error)) => tracing::info!(%error, "input lane did not connect"),
+            Err(_) => tracing::info!("input lane did not connect in time"),
+        }
+    });
+    rx
+}
 /// Overlay addresses: each tunnel is its own userspace network, so fixed
 /// addresses never collide across sessions.
 const DIALER_OVERLAY: Ipv4Addr = Ipv4Addr::new(10, 77, 0, 2);
@@ -343,20 +413,29 @@ fn refused_by_proxy(udp_useless: bool, allocated: &Allocated) -> Option<DialErro
 
 /// A dial's TURN allocation, started before the dial: a redial
 /// ([`super::connect_after`]) starts it as the signaling reconnect starts,
-/// so the allocation's round trips overlap the reconnect's instead of
-/// following them. Nothing is held before the redial starts. It is the
+/// and a cold dial as soon as `/v1/ice` answers, beside the signaling
+/// socket's open ([`super::connect_with_early_turn`]), so the allocation's
+/// round trips overlap the socket's instead of following them. Nothing is
+/// held before the dial's ICE servers are known. It is the
 /// dial's own allocation ([`turn_beside`], the same path and 437 handling),
 /// and the dial takes it with the STUN wait's half of the link. Dropped
 /// unused (the reconnect failed, the dial was abandoned or dropped), it
 /// aborts the allocation: one under way releases what it opens
 /// (`TurnCarrier::allocate_on`), and one done is dropped, which deallocates
 /// (Refresh with LIFETIME 0).
-pub(crate) struct EarlyTurn {
+pub struct EarlyTurn {
     task: Option<tokio::task::JoinHandle<Allocated>>,
     stun: Option<StunSide>,
 }
 
 impl EarlyTurn {
+    /// The early allocation for a dial over `kind` on `options` (those the
+    /// dial will use, ICE servers included): only a WireGuard dial takes one.
+    /// Call it inside a Tokio runtime.
+    pub fn for_dial(kind: super::TransportKind, options: &DialOptions) -> Option<Self> {
+        (kind == super::TransportKind::WireGuard).then(|| Self::start(options))
+    }
+
     /// Start the allocation `options` ask for (`turn_early_allocated` once
     /// it is in hand).
     pub(crate) fn start(options: &DialOptions) -> Self {
@@ -382,6 +461,12 @@ impl EarlyTurn {
         };
         self.task = None;
         turn
+    }
+}
+
+impl std::fmt::Debug for EarlyTurn {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EarlyTurn").field("taken", &self.task.is_none()).finish()
     }
 }
 
@@ -505,19 +590,66 @@ fn relay_plan(
     own_now: bool,
     peer: Option<&str>,
     ticket: Option<String>,
+    early: Option<roam::EarlyJoin>,
 ) -> Option<roam::RelayPlan> {
-    let endpoint = options.relay.clone()?;
+    let endpoint = relay_endpoint(options)?;
     let Some(peer) = peer else {
         options.diagnosis.relay("peer_cannot", Some(endpoint.host()));
+        abort_early(early.as_ref());
         return None;
     };
-    Some(roam::RelayPlan { endpoint, now: own_now || peer == RELAY_NOW, ticket })
+    let now = own_now || peer == RELAY_NOW;
+    // Both sides join as the dial starts only when both said `first` (an older
+    // peer says `ready` and keeps the 3 s rule; one with no other path, `now`).
+    let first = !now && options.relay_first && peer == RELAY_FIRST;
+    Some(roam::RelayPlan { endpoint, now, first, ticket, early })
+}
+
+/// This side's relay endpoint, leaving through this dial's egress (the
+/// system proxy, "proxy only"): the one every join uses, early or not.
+fn relay_endpoint(options: &DialOptions) -> Option<RelayEndpoint> {
+    let mut endpoint = options.relay.clone()?;
+    endpoint.egress = options.egress.clone();
+    Some(endpoint)
+}
+
+/// Stops a join started on an early ticket that no plan will take.
+fn abort_early(early: Option<&roam::EarlyJoin>) {
+    if let Some(handle) = early.and_then(|slot| slot.lock().unwrap_or_else(PoisonError::into_inner).take()) {
+        handle.abort();
+    }
+}
+
+/// This side's `relay` in its `wg-init` / `wg-resp`: `now` with no other path,
+/// else `first` (join as the dial starts) or, as an older build, `ready`.
+fn relay_offer(options: &DialOptions, own_now: bool) -> Option<String> {
+    options.relay.as_ref().map(|_| {
+        (if own_now {
+            RELAY_NOW
+        } else if options.relay_first {
+            RELAY_FIRST
+        } else {
+            RELAY_READY
+        })
+        .to_owned()
+    })
 }
 
 /// Whether a side with this gather has no way to the peer but the relay:
-/// no plain UDP (off, or no STUN answer) and no TURN allocation.
+/// no TURN allocation, and plain UDP not usable on this network (off, or no
+/// STUN answer), as the braid carrier rules say ([`cmux_braid_carrier::usable`]).
 fn only_the_relay(options: &DialOptions, udp_blocked: bool, turn: Option<&TurnCarrier>) -> bool {
-    options.relay.is_some() && turn.is_none() && (no_plain_udp(options) || udp_blocked)
+    let facts = cmux_braid_carrier::NetFacts {
+        udp_blocked: no_plain_udp(options) || udp_blocked,
+        ..cmux_braid_carrier::NetFacts::default()
+    };
+    let direct = cmux_braid_carrier::Endpoint {
+        kind: cmux_braid_carrier::CarrierKind::Udp,
+        address: String::new(),
+        host: String::new(),
+        login: None,
+    };
+    options.relay.is_some() && turn.is_none() && !cmux_braid_carrier::usable(&direct, facts)
 }
 
 /// The answer's gather before `wg-resp` (an older peer, or no plain UDP):
@@ -600,16 +732,16 @@ fn host_endpoints(port: u16, options: &DialOptions) -> Vec<SocketAddr> {
     endpoints
 }
 
-/// The IPv4 addresses of the STUN servers in `options`.
+/// The IPv4 addresses of the STUN servers in `options`, all looked up at once: DNS, or the
+/// literals they last resolved to when DNS is down (`route_literals`).
 async fn resolve_stun(options: &DialOptions) -> Vec<SocketAddr> {
-    let mut addresses = Vec::new();
-    for server in stun_servers(&options.ice_servers) {
-        let Ok(mut found) = tokio::net::lookup_host(server.as_str()).await else { continue };
-        if let Some(address) = found.find(SocketAddr::is_ipv4) {
-            addresses.push(address);
-        }
-    }
-    addresses
+    let servers = stun_servers(&options.ice_servers);
+    let lookups = servers.iter().map(|server| options.routes.resolve(server, 3478));
+    futures_util::future::join_all(lookups)
+        .await
+        .into_iter()
+        .filter_map(|found| found.ok()?.into_iter().find(SocketAddr::is_ipv4))
+        .collect()
 }
 
 /// The endpoints offered to the peer: `endpoints` as text, without CGNAT
@@ -1212,7 +1344,7 @@ impl HybridUnderlay {
             }
             Control::Turn(_) | Control::Blackhole => self.paths.forget_carrier(Carrier::Turn),
             Control::Promote => self.paths.forget_carrier(Carrier::Turn),
-            Control::Relay(_) => self.paths.forget_carrier(Carrier::Relay),
+            Control::Relay { .. } => self.paths.forget_carrier(Carrier::Relay),
             _ => {}
         }
         self.apply_one(control);
@@ -1392,6 +1524,7 @@ impl HybridUnderlay {
                 self.last_marker = None;
                 // What we sent toward its old network may be lost.
                 self.replay_recent(true);
+                self.resend_initiation_now();
             }
             Control::Reached { from, via_turn } => self.reached(from, via_turn),
             Control::Blackhole => {
@@ -1413,13 +1546,26 @@ impl HybridUnderlay {
                     turn.kill();
                 }
             }
-            Control::Relay(relay) => {
+            Control::Relay { carrier: relay, pending } => {
                 tracing::info!("WireGuard joins cmux's relay");
                 self.relay = Some(relay);
                 self.relay_elsewhere_since = None;
                 self.relay_shared.set_held(true);
                 self.wake_receiver();
                 self.publish_path();
+                // Relay first: the pending handshake initiation goes through the
+                // relay at once, not at its next repeat. The same message (a copy
+                // the peer already answered is dropped there, its timestamp is not
+                // newer), so a direct answer in flight still completes it. A later
+                // join reasserts instead ([`roam`]'s relay watch).
+                if let Some((datagram, class)) = self
+                    .handshake_repeat
+                    .as_ref()
+                    .filter(|_| pending)
+                    .map(|repeat| (repeat.datagram.clone(), repeat.class))
+                {
+                    self.send_relay(&datagram, class);
+                }
                 // What went nowhere while nothing reached the peer goes again.
                 if self.direct.is_none_or(|route| route.carrier != Carrier::Udp) {
                     self.replay_recent(true);
@@ -1716,6 +1862,28 @@ impl HybridUnderlay {
             timer: Box::pin(tokio::time::sleep(HANDSHAKE_REPEATS[0])),
         });
         // The receive task polls the timer: have it register this one.
+        self.wake_receiver();
+    }
+
+    /// Send the unanswered handshake initiation again now, the peer having
+    /// just named addresses it may not have reached before: a Mac behind NAT
+    /// answers `wg-init` with private addresses only and trickles its public
+    /// one after its STUN, so the first initiation through TURN had no target
+    /// and would wait out [`HANDSHAKE_REPEATS`]`[0]` (netlab: link ready 117
+    /// or 295 ms, by whether the trickle beat the first send). With a route
+    /// already chosen, the replay above has sent it.
+    fn resend_initiation_now(&mut self) {
+        if self.direct.is_some() {
+            return;
+        }
+        let Some(repeat) = &mut self.handshake_repeat else { return };
+        let (datagram, class) = (repeat.datagram.clone(), repeat.class);
+        repeat
+            .timer
+            .as_mut()
+            .reset(Instant::now() + HANDSHAKE_REPEATS[repeat.sent.min(HANDSHAKE_REPEATS.len() - 1)]);
+        tracing::debug!("WireGuard resends its handshake initiation to the peer's new addresses");
+        self.send_on_relays(&datagram, class);
         self.wake_receiver();
     }
 
@@ -2678,8 +2846,8 @@ fn running(net: &Arc<Mutex<Option<Arc<WgNet>>>>) -> Result<Arc<WgNet>, DialError
         .ok_or_else(|| DialError::Bye("tunnel closed".into()))
 }
 
-/// The phone's WireGuard dial: its TURN allocation is `early` (a redial's,
-/// started beside the signaling reconnect) or one it starts now, beside
+/// The phone's WireGuard dial: its TURN allocation is `early` (started
+/// beside the signaling reconnect or open) or one it starts now, beside
 /// the STUN gather.
 pub(super) fn dial_wireguard<'a>(
     signaling: &'a SignalingClient,
@@ -2730,8 +2898,7 @@ pub(super) fn dial_wireguard<'a>(
         let udp_blocked = gathered.udp_looks_blocked();
         diagnose_gather(options, udp_blocked, turn.as_ref(), true);
         let own_relay_now = only_the_relay(options, udp_blocked, turn.as_ref());
-        let relay_offer =
-            options.relay.as_ref().map(|_| (if own_relay_now { RELAY_NOW } else { RELAY_READY }).to_owned());
+        let relay_offer = relay_offer(options, own_relay_now);
         let turn_missed = missed_turn(true, turn.as_ref(), options);
         let Gathered { mut endpoints, stun, .. } = gathered;
         let (relayed, relayed_tls) = relayed_of(turn.as_ref());
@@ -2758,22 +2925,22 @@ pub(super) fn dial_wireguard<'a>(
                         let mut lanes =
                             super::offered_lanes(options, options.video_lane, options.webrtc_media);
                         lanes.push(crate::link::LIVENESS_LANE.to_owned());
-                        if classes_offered() {
-                            lanes.push(crate::classes::CLASSES_LANE.to_owned());
-                            if screen_offered() {
-                                lanes.push(crate::classes::SCREEN_LANE.to_owned());
-                            }
-                        }
+                        lanes.extend(class_offer().lanes());
                         lanes
                     },
                     relayed,
                     relayed_tls,
                     version: WG_VERSION,
                     relay: relay_offer,
+                    // A side with no path but the relay asks for its ticket now,
+                    // so its join runs while the Mac gathers and answers.
+                    ticket_early: own_relay_now,
                 },
             )
             .map_err(|e| DialError::Signaling(e.to_string()))?;
         options.timeline.mark("wg_init_sent");
+        let mut early_ticket: Option<String> = None;
+        let mut early_join: Option<roam::EarlyJoin> = None;
         let agreed;
         let reliable;
         let video_agreed;
@@ -2803,31 +2970,68 @@ pub(super) fn dial_wireguard<'a>(
                         agreed = super::input_lane_agreed(options, &lanes);
                         liveness_agreed = lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE);
                         reliable = super::reliable_agreed(options, &lanes);
-                        classes_agreed = classes_offered()
-                            && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
-                        screen_agreed =
-                            screen_offered() && lanes.iter().any(|lane| lane == crate::classes::SCREEN_LANE);
+                        let class_lanes = class_offer().agreed(&lanes);
+                        classes_agreed = class_lanes.classes;
+                        screen_agreed = class_lanes.screen;
                         video_agreed = options.video_lane && super::video_lane_listed(&lanes);
                         webrtc_media_agreed =
                             video_agreed && options.webrtc_media && super::webrtc_media_listed(&lanes);
                         relay_ticket = envelope.relay_ticket;
                         break (parse_key(&public_key)?, endpoints, ip, relayed, relayed_tls, version, relay);
                     }
-                    SignalPayload::Bye { reason } => return Err(DialError::Bye(reason)),
+                    SignalPayload::Bye { reason } => {
+                        abort_early(early_join.as_ref());
+                        return Err(DialError::Bye(reason));
+                    }
                     // A Mac that roamed before this side saw its answer:
                     // the tunnel learns its endpoints from inside.
                     SignalPayload::WgEndpoints { .. } => {}
                     // The Mac already joined the relay; so will this side.
                     SignalPayload::WgRelay {} => {}
-                    other => return Err(DialError::Unexpected(format!("{other:?}"))),
+                    // The service's answer to `ticketEarly`: this side's ticket,
+                    // before the Mac's. The join starts now, off the wait.
+                    SignalPayload::WgTicket {} => {
+                        if let (true, None, Some(endpoint), Some(ticket)) =
+                            (own_relay_now, &early_join, relay_endpoint(options), envelope.relay_ticket)
+                        {
+                            options.timeline.mark("relay_early_join");
+                            let (session, peer, used) =
+                                (session_id.to_owned(), mac.to_owned(), ticket.clone());
+                            early_ticket = Some(ticket);
+                            early_join = Some(Arc::new(Mutex::new(Some(tokio::spawn(async move {
+                                RelayRung {
+                                    endpoint: &endpoint,
+                                    session_id: &session,
+                                    peer_device: &peer,
+                                    ticket: Some(&used),
+                                }
+                                .join()
+                                .await
+                            })))));
+                        }
+                    }
+                    other => {
+                        abort_early(early_join.as_ref());
+                        return Err(DialError::Unexpected(format!("{other:?}")));
+                    }
                 },
-                SessionEvent::Disconnected => return Err(DialError::Signaling("disconnected".into())),
+                SessionEvent::Disconnected => {
+                    abort_early(early_join.as_ref());
+                    return Err(DialError::Signaling("disconnected".into()));
+                }
             }
         };
         if peer_ip == DIALER_OVERLAY {
+            abort_early(early_join.as_ref());
             return Err(DialError::Unexpected("peer overlay address collides".into()));
         }
-        let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket);
+        let relay = relay_plan(
+            options,
+            own_relay_now,
+            peer_relay.as_deref(),
+            relay_ticket.or(early_ticket),
+            early_join,
+        );
         if relay.is_none() && no_plain_udp(options) && turn.is_none() {
             // The relay was this side's only way, and the Mac has none.
             return Err(options.diagnosis.blocked());
@@ -2931,19 +3135,7 @@ pub(super) fn dial_wireguard<'a>(
         // after the main one so the Mac tells them apart by order. Its
         // own socket buffers keep keystrokes out of the main stream's
         // 256 KiB send buffer.
-        let lane = agreed.then(|| {
-            let (tx, rx) = oneshot::channel();
-            tokio::spawn(async move {
-                match tokio::time::timeout(LANE_TIMEOUT, net.connect(link_addr)).await {
-                    Ok(Ok(stream)) => {
-                        let _ = tx.send(Box::new(stream) as Box<dyn super::LinkStream>);
-                    }
-                    Ok(Err(error)) => tracing::info!(%error, "input lane did not connect"),
-                    Err(_) => tracing::info!("input lane did not connect in time"),
-                }
-            });
-            rx
-        });
+        let lane = agreed.then(|| open_lane(Arc::clone(&net), link_addr));
         // A media session needs the tunnel's lane as its floor.
         let webrtc_media = webrtc_media_agreed && media.is_some();
         dormant::superseded(true, mac);
@@ -3007,6 +3199,7 @@ impl Dialer for WireGuardDialer {
                 relayed_tls: peer_relayed_tls,
                 version: peer_version,
                 relay: peer_relay,
+                ticket_early: _,
             } = first.payload
             else {
                 return Err(DialError::Unexpected("expected wg-init".into()));
@@ -3043,11 +3236,8 @@ impl Dialer for WireGuardDialer {
             let udp_blocked = !trickle && gathered.udp_looks_blocked();
             diagnose_gather(options, udp_blocked, turn.as_ref(), wants_turn);
             let own_relay_now = only_the_relay(options, udp_blocked, turn.as_ref());
-            let relay_offer = options
-                .relay
-                .as_ref()
-                .map(|_| (if own_relay_now { RELAY_NOW } else { RELAY_READY }).to_owned());
-            let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket);
+            let relay_offer = relay_offer(options, own_relay_now);
+            let relay = relay_plan(options, own_relay_now, peer_relay.as_deref(), relay_ticket, None);
             let turn_missed = missed_turn(wants_turn, turn.as_ref(), options);
             let Gathered { mut endpoints, stun, .. } = gathered;
             let (own_relayed, own_relayed_tls) = relayed_of(turn.as_ref());
@@ -3096,11 +3286,8 @@ impl Dialer for WireGuardDialer {
             let mut listener = net.listen(LINK_PORT).await.map_err(transport_error)?;
             // Listed back only once bound. The phone binds its end after this
             // answer, so this side's pings switch over on its first datagram.
-            let classes_wanted =
-                classes_offered() && lanes.iter().any(|lane| lane == crate::classes::CLASSES_LANE);
-            let screen_wanted = classes_wanted
-                && screen_offered()
-                && lanes.iter().any(|lane| lane == crate::classes::SCREEN_LANE);
+            let class_lanes = class_offer().agreed(&lanes);
+            let (classes_wanted, screen_wanted) = (class_lanes.classes, class_lanes.screen);
             let liveness = if lanes.iter().any(|lane| lane == crate::link::LIVENESS_LANE) {
                 open_liveness(&net, peer_ip, false, classes_wanted, screen_wanted).await
             } else {
@@ -3148,12 +3335,7 @@ impl Dialer for WireGuardDialer {
                                 super::offered_lanes(options, media.is_some(), webrtc_media_wanted);
                             if liveness.is_some() {
                                 lanes.push(crate::link::LIVENESS_LANE.to_owned());
-                                if classes_wanted {
-                                    lanes.push(crate::classes::CLASSES_LANE.to_owned());
-                                    if screen_wanted {
-                                        lanes.push(crate::classes::SCREEN_LANE.to_owned());
-                                    }
-                                }
+                                lanes.extend(class_lanes.lanes());
                             }
                             lanes
                         },
@@ -3179,12 +3361,9 @@ impl Dialer for WireGuardDialer {
             let lane = if agreed {
                 let (tx, rx) = oneshot::channel();
                 tokio::spawn(async move {
-                    if let Ok(Some(stream)) = tokio::time::timeout(LANE_TIMEOUT, listener.accept()).await {
-                        let _ = tx.send(Box::new(stream) as Box<dyn super::LinkStream>);
-                    } else {
-                        tracing::info!("input lane was not opened in time");
-                    }
-                    if let Some(keeper) = resumes.upgrade() {
+                    if accept_lane(&mut listener, tx, "dialed").await
+                        && let Some(keeper) = resumes.upgrade()
+                    {
                         keeper.serve_resumes(listener);
                     }
                 });
@@ -3230,6 +3409,32 @@ mod tests {
         assert!(answer_trickles(&DialOptions::default(), 2));
         assert!(answer_trickles(&DialOptions::default(), WG_VERSION));
         assert!(!answer_trickles(&DialOptions::default(), 0));
+    }
+
+    /// "Join the relay now" is the braid carrier rule for plain UDP: a side
+    /// with a relay and no TURN allocation joins at once exactly when UDP
+    /// is off (relay only, UDP blocked, relay via cmux) or got no STUN answer.
+    #[test]
+    fn only_the_relay_is_the_carrier_rule_for_plain_udp() {
+        let with_relay = |edit: fn(&mut DialOptions)| {
+            let mut options = DialOptions {
+                relay: Some(RelayEndpoint::with_token("https://relay.test", None, "dev", "t")),
+                ..DialOptions::default()
+            };
+            edit(&mut options);
+            options
+        };
+        let open = with_relay(|_| {});
+        assert!(!only_the_relay(&open, false, None), "UDP may work: the relay waits its turn");
+        assert!(only_the_relay(&open, true, None), "no STUN answer: relay now");
+        for edit in [
+            (|o: &mut DialOptions| o.block_udp = true) as fn(&mut DialOptions),
+            |o| o.relay_only = true,
+            |o| o.force_relay = true,
+        ] {
+            assert!(only_the_relay(&with_relay(edit), false, None));
+        }
+        assert!(!only_the_relay(&DialOptions { block_udp: true, ..DialOptions::default() }, true, None));
     }
 
     /// Ultra Mode is Auto by default, metered by the cellular flag.

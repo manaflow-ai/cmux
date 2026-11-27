@@ -48,6 +48,16 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
     /// `agentPane.newChatsIn` (Settings > Start New Chats In).
     nonisolated static let newChatsInPath = ["agentPane", "newChatsIn"]
 
+    /// Every other path the intro walk writes: looks (two-tone, calm, motion), trust (permission, Computer Use),
+    /// noise (banners, sound), the finish chime, Tidy (archiving, settling) and chat feel (send pop).
+    /// Read at open with the picks' paths, so Skip puts them back too.
+    nonisolated static let walkPaths: [[String]] = [
+        ["agents", "defaultPermissionMode"], ["computerUse", "mode"], ["agentPane", "display", "finishSound"], ["agentPane", "display", "sendPop"],
+        ["notifications", "desktop"], ["notifications", "sound"], ["notifications", "sounds", "when"],
+        ["appearance", "twoTone"], ["ui", "calm"], ["ui", "animations", "enabled"],
+        ["agents", "chats", "archiveInactive"], ["workspaces", "autoArchive", "style"], ["sidebar", "settleFinished"],
+    ]
+
     private let settings: @MainActor () -> SettingsController?
     private let windowOpacity: @MainActor () -> Double?
     private let log = Logger(subsystem: "com.cmuxterm.app.next", category: "onboarding")
@@ -141,6 +151,34 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
         if new.opacity != old.opacity { writes.append((WindowBackgroundSetting.opacityPath, new.opacity.map(JSONValue.number))) }
         if new.material != old.material { writes.append((WindowBackgroundSetting.materialPath, new.material.map { .string($0.rawValue) })) }
         if new.chatsRunIn != old.chatsRunIn { writes.append((Self.newChatsInPath, new.chatsRunIn == .cloud ? .string("cloud") : nil)) }
+        enqueue(writes)
+    }
+
+    public func introWalk() -> Bool {
+        settings()?.snapshot.root.value(at: CmuxConfigSnapshot.introWalkPath)?.boolValue ?? CmuxConfigSnapshot.introWalkDefault
+    }
+
+    public func walkValues() -> [String: JSONValue] {
+        guard let root = settings()?.snapshot.root else { return [:] }
+        var values: [String: JSONValue] = [:]
+        for path in Self.walkPaths {
+            if let value = root.value(at: path) { values[path.joined(separator: ".")] = value }
+        }
+        return values
+    }
+
+    public func applyWalk(_ writes: [FirstRunWalkWrite]) -> Bool {
+        let allowed = Set(Self.pickPaths + Self.walkPaths)
+        guard writes.allSatisfy({ allowed.contains($0.path) }) else { return false }
+        if let template = writes.last(where: { $0.path == NewTabTemplate.configPath }) {
+            pickedWorkStyle = template.value?.stringValue == "terminal" ? .terminal : .gui
+        }
+        enqueue(writes.map { (path: $0.path, value: $0.value) })
+        return true
+    }
+
+    /// Queues `writes` as one batch, merged into a batch still waiting (the last value per path wins).
+    private func enqueue(_ writes: [(path: [String], value: JSONValue?)]) {
         guard !writes.isEmpty else { return }
         if case .write(var queued)? = pending.last {
             for write in writes {
@@ -193,7 +231,7 @@ public final class FirstRunChoicesSettingsSource: FirstRunChoicesSource {
                     case .capture:
                         opened = nil
                         do {
-                            opened = try await settings.fileValues(at: SettingsController.pathsWritten(by: Self.pickPaths))
+                            opened = try await settings.fileValues(at: SettingsController.pathsWritten(by: Self.pickPaths + Self.walkPaths))
                         } catch {
                             captureFailed = true
                             throw error
