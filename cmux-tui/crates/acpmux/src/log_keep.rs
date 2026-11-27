@@ -91,7 +91,7 @@ impl<W: Write> Write for Tee<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let n = self.out.write(buf)?;
         if let Some(kept) = self.kept.as_mut() {
-            let _ = kept.write_all(&buf[..n]);
+            let _ = kept.write_all(buf.get(..n).unwrap_or(buf));
         }
         Ok(n)
     }

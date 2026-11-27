@@ -212,11 +212,12 @@ import Testing
         // A whole window passes between two attempts (the prompt is held, not being written;
         // the outbox gives back only what is queued, never one mid-write): the draft comes back.
         await eventually { source.heldPrompts.count == 1 }
-        // Past the window the outbox holds (Rust's default, 30 s since #55099), not a number of its own.
+        // Past the window the outbox holds (``AgentChatStore/sendDeadline``), not a number of its own.
         clock.advance(by: source.heldPromptWindow + .seconds(1))
-        await eventually { store.returnedDraft != nil }
-        #expect(store.returnedDraft?.text == "run the tests")
-        #expect(store.clientError == "Not sent: mini is offline.")
+        await eventually { store.turns.last?.localSend == .notSent }
+        #expect(store.turns.last?.prompt == "run the tests")
+        #expect(store.returnedDraft == nil)
+        #expect(store.clientError == nil)
     }
     #endif
 
@@ -238,20 +239,20 @@ import Testing
         // with a failed attempt in each: never a whole window between two attempts, so only a
         // wait that is not restarted by each failure can run out (the Rust outbox ages it from
         // the first failure and moves it on by what each write took: nothing here).
-        // Enough 4 s steps to pass the window the outbox holds (30 s since #55099), and two more.
+        // Enough 4 s steps to pass the window the outbox holds (``AgentChatStore/sendDeadline``), and two more.
         let steps = Int(source.heldPromptWindow / .seconds(4)) + 2
-        for _ in 0..<steps where store.returnedDraft == nil {
+        for _ in 0..<steps where store.turns.last?.localSend != .notSent {
             let before = channel.promptWrites
             clock.advance(by: .seconds(4))
             // The prompt is queued (not mid-write) whenever the test moves the clock, so the
             // advance is never counted as time a write took.
             await eventually {
-                (channel.promptWrites > before && source.heldPrompts.count == 1) || store.returnedDraft != nil
+                (channel.promptWrites > before && source.heldPrompts.count == 1) || store.turns.last?.localSend == .notSent
             }
         }
-        await eventually { store.returnedDraft != nil }
-        #expect(store.returnedDraft?.text == "run the tests")
-        #expect(store.clientError == "Not sent: mini is offline.")
+        await eventually { store.turns.last?.localSend == .notSent }
+        #expect(store.turns.last?.prompt == "run the tests")
+        #expect(store.clientError == nil)
         #expect(mac.prompts.isEmpty)
     }
     #endif

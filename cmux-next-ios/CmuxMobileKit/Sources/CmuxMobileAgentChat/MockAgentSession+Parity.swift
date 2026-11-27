@@ -81,6 +81,7 @@ extension MockAgentSession {
         emit(.turnStarted(turnId: turnID, at: start))
         emit(.update(.agentThoughtChunk(text: "Two dialers and the relay can be checked independently; split them across subagents.")))
         let agents: [(id: String, name: String, task: String, call: String)] = [
+            // retry-prompt-ok: demo transcript text, not a prompt
             ("sa-webrtc", "WebRTC dialer", "Check the WebRTC dialer's ICE timeout and retry path", "tu-1"),
             ("sa-wg", "WireGuard dialer", "Check the WireGuard handshake and the relay fallback", "tu-2"),
             ("sa-tests", "Test runner", "Run the link tests and collect failures", "tu-3"),
