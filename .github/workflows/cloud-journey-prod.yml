@@ -92,7 +92,7 @@ jobs:
           - agent: codex
             model: real
             schedule: "47 */6 * * *"
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # The cmux-tui build (warm from the rust cache) comes before the journey's own 25 minutes.
     timeout-minutes: 60
     environment:
@@ -107,7 +107,7 @@ jobs:
       # This leg runs on the hourly tick (stub), the six-hourly tick (the two real agents), or a matching dispatch.
       SELECTED: ${{ (github.event_name == 'schedule' && github.event.schedule == matrix.schedule) || (github.event_name == 'workflow_dispatch' && inputs.model == matrix.model && inputs.agent == matrix.agent) }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: env.SELECTED == 'true'
         with:
           persist-credentials: false
@@ -117,7 +117,9 @@ jobs:
       # and the login receipt), built as the staging preclaim job below builds it.
       - name: Install Linux cmux-tui build dependencies
         if: env.SELECTED == 'true'
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config
+        run: |
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then echo "clang libclang-dev pkg-config: already installed"; else sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config; fi
       - name: Set up cmux-tui Rust
         if: env.SELECTED == 'true'
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -272,7 +274,7 @@ jobs:
   # (EMAIL_PASSWORD_MISMATCH), so the job stays out of it. It never targets the production API or checks out a PR head.
   preclaim:
     if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next') && inputs.preclaim
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Room for spare_wait (ten claims, each waiting up to five minutes for a ready spare); at most 90, the journey sweep's bound.
     timeout-minutes: 90
     environment:
@@ -281,13 +283,15 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: feat-cmux-next
           submodules: recursive
       - name: Install Linux cmux-tui build dependencies
-        run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config
+        run: |
+          # Skip apt when the runner image already has these (tests/test_ci_apt_skips_baked_packages.py).
+          if dpkg -s clang libclang-dev pkg-config >/dev/null 2>&1; then echo "clang libclang-dev pkg-config: already installed"; else sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config; fi
       - name: Set up cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
       - name: Resolve Ghostty Zig version

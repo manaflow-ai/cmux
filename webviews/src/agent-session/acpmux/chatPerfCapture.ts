@@ -343,10 +343,13 @@ export class ChatPerfCapture {
       });
       cleanups.push(() => channel.close());
       let frame = 0;
+      // When the window's first frame callback ran, on the page clock (its rAF timestamp can predate the window).
+      let firstFrameAt: number | undefined;
       const owners = env.startOwners?.();
       if (owners) cleanups.push(() => owners.restore());
       const onFrame = (time: number) => {
         frames.push(time);
+        firstFrameAt ??= env.now();
         owners?.frame();
         if (!draws) {
           drawn = this.pending;
@@ -405,7 +408,8 @@ export class ChatPerfCapture {
         measured: reason === null,
         unmeasured_reason: reason,
         visibility: visible,
-        frames: frameReport,
+        // `first_ms`: from the window's start to its first frame, null when it drew none.
+        frames: { ...frameReport, first_ms: firstFrameAt === undefined ? null : round2(firstFrameAt - start) },
         long_tasks: longTaskSummary(longEntries, longType as "long-animation-frame" | "longtask" | null),
         layout_shift: layoutShiftSummary(shifts),
         // Script time inside long animation frames, per second of the window; null without that entry type.

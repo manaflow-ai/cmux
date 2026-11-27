@@ -220,7 +220,7 @@ final class QuitCoordinator {
                         // the step waits for them: every quit, Keep included, waits for a step past its limit.
                         services.incognitoChats.closingForQuit(services)
                         await services.windows.prepareForTermination()
-                        await services.incognitoChats.drain()
+                        await services.incognitoChats.drain(); await services.daemon.connection?.flushLaunchSnapshot()
                     },
                     stopSavingWindows: { services.windows.stopSavingForTermination() },
                     sidebar: { await services.sidebarSnapshots.flush() },
@@ -238,7 +238,7 @@ final class QuitCoordinator {
                 await services.home.brain.stop()
                 let acpmux = QuitAgents.environment(services)
                 // A Chief home whose acpmux is the attached daemon (`CMUX_NEXT_ACPMUX_ATTACH`) ends nothing there.
-                if !QuitAgents.isAttached(acpmux, to: services.home.chief.home.acpmuxHome) {
+                if acpmux?.isAttached(to: services.home.chief.home.acpmuxHome) != true {
                     await ChiefHostStop.endChiefSessions(home: services.home.chief.home,
                                                          bundledBin: Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true))
                 }

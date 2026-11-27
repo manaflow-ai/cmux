@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.chiefPet.about.captain" : {
+      "comment" : "Chief pet character Captain (a blue animated captain in a gold cap): one-line description.",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "An animated captain in a gold cap who works, waits and cheers."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "قبطان متحرك بقبعة ذهبية يعمل وينتظر ويهتف."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Animirani kapetan sa zlatnom kapom koji radi, čeka i slavi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En animeret kaptajn med guldkasket, der arbejder, venter og jubler."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ein animierter Kapitän mit goldener Mütze, der arbeitet, wartet und jubelt."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un capitán animado con gorra dorada que trabaja, espera y celebra."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un capitaine animé en casquette dorée qui travaille, attend et applaudit."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Un capitano animato con il berretto d'oro che lavora, aspetta ed esulta."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "金色の帽子をかぶったアニメーションのキャプテン。作業し、待ち、喜びます。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ប្រធានក្រុមមានចលនា ពាក់មួកមាស ដែលធ្វើការ រង់ចាំ និងអបអរ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "금색 모자를 쓰고 일하고, 기다리고, 환호하는 애니메이션 캡틴."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "En animert kaptein med gulllue som jobber, venter og jubler."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Animowany kapitan w złotej czapce, który pracuje, czeka i wiwatuje."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Um capitão animado de boné dourado que trabalha, espera e comemora."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Анимированный капитан в золотой фуражке: работает, ждёт и радуется."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "กัปตันแอนิเมชันในหมวกสีทองที่ทำงาน รอ และเชียร์"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Altın şapkalı, çalışan, bekleyen ve sevinen hareketli bir kaptan."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Анімований капітан у золотому кашкеті: працює, чекає і радіє."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Thuyền trưởng hoạt hình đội mũ vàng biết làm việc, chờ đợi và reo mừng."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "戴金色帽子的动画船长，会工作、等待和欢呼。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "戴金色帽子的動畫船長，會工作、等待和歡呼。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
