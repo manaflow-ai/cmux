@@ -9,6 +9,7 @@ import { afterAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 setDefaultTimeout(120_000);
 
@@ -169,12 +170,14 @@ test("30 tokens into the last reply of a 300-prompt chat render the rail no more
   let mounted = root;
   try {
     await act(async () => root.render(view(rowsFor(reply), "minimap-token-renders")));
+    await railFrame();
     expect(host.querySelectorAll("[data-tick]").length).toBeGreaterThan(0);
     const before = drawnRail(host);
     renders = 0;
     for (let token = 0; token < 30; token += 1) {
       reply += ` word${token}`;
       await act(async () => root.render(view(rowsFor(reply), "minimap-token-renders")));
+      await railFrame();
     }
     const after = drawnRail(host);
     // The band of prompts on screen stayed on the live turn and no prompt changed, so the rail draws
@@ -187,6 +190,7 @@ test("30 tokens into the last reply of a 300-prompt chat render the rail no more
     mounted = createRoot(host);
     const fresh = mounted;
     await act(async () => fresh.render(view(rowsFor(reply), "minimap-token-renders")));
+    await railFrame();
     expect(drawnRail(host)).toEqual(after);
   } finally {
     await act(async () => mounted.unmount());

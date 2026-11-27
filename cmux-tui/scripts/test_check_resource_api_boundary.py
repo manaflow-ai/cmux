@@ -294,6 +294,23 @@ impl ResourceOperation {{
 
 
 class PublicBoundaryScanTests(unittest.TestCase):
+    def test_rust_test_modules_are_not_public_boundaries(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            for root in ("bindings/rust/src", "crates/cmux-tui/src/cli/customize"):
+                for name in ("tests.rs", "surface_test.rs", "surfaces_tests.rs"):
+                    write(tui / root / name, 'const HELP: &str = "cmux attach-surface";\n')
+                # Similar production filenames still expose public vocabulary.
+                for name in ("surfaces.rs", "tests_support.rs"):
+                    write(tui / root / name, 'const HELP: &str = "cmux attach-surface";\n')
+
+            diagnostics, scanned = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual(scanned, 4)
+            self.assertEqual(len(diagnostics), 4)
+            self.assertEqual({item.path.name for item in diagnostics}, {"surfaces.rs", "tests_support.rs"})
+            self.assertTrue(all(item.code == "boundary.surface" for item in diagnostics))
+
     def test_raw_internal_and_manifest_generated_occurrences_are_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
@@ -320,6 +337,17 @@ class PublicBoundaryScanTests(unittest.TestCase):
 
             self.assertEqual(diagnostics, [])
             self.assertEqual(scanned, 1)
+
+    def test_rust_test_suffix_is_outside_public_boundary(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            path = tui / "crates/cmux-tui/src/cli/search_tests.rs"
+            write(path, 'const FIXTURE: &str = "surface";\n')
+
+            diagnostics, scanned = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual(diagnostics, [])
+            self.assertEqual(scanned, 0)
 
     def test_public_leaks_report_precise_file_and_line(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -388,6 +416,40 @@ fn internal() { let surface_id: u64 = 4; }
             self.assertEqual(diagnostics[0].code, "boundary.surface")
             self.assertEqual(diagnostics[0].line, 1)
 
+    def test_cli_quotes_in_chars_and_comments_do_not_open_strings(self) -> None:
+        prefixes = [
+            "let quote = '\"'; let surface = 1;",
+            "let quote = b'\"'; let surface = 1;",
+            r"let quote = '\''; let surface = 1;",
+            r"let quote = '\u{22}'; let surface = 1;",
+            '// a lone " surface quote\nlet surface = 1;',
+            '/* " surface /* nested " */ still a comment */ let surface = 1;',
+            "fn borrow<'a>(surface: &'a str) {}",
+        ]
+        for prefix in prefixes:
+            with self.subTest(prefix=prefix), tempfile.TemporaryDirectory() as directory:
+                tui = Path(directory)
+                path = tui / "crates/cmux-tui/src/main.rs"
+                write(path, prefix + '\nconst HELP: &str = "cmux surface list";\n')
+                diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+                self.assertEqual([(item.code, item.line) for item in diagnostics], [
+                    ("boundary.surface", prefix.count('\n') + 2),
+                ])
+
+    def test_cli_comment_markers_inside_strings_remain_public(self) -> None:
+        strings = [
+            '"// surface"', '"/* surface */"',
+            'r#"// \" surface"#', 'br#"/* \" surface */"#',
+            'cr#"/* \" surface */"#',
+        ]
+        for literal in strings:
+            with self.subTest(literal=literal), tempfile.TemporaryDirectory() as directory:
+                tui = Path(directory)
+                path = tui / "crates/cmux-tui/src/main.rs"
+                write(path, f'const HELP = {literal};\n')
+                diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+                self.assertEqual([item.code for item in diagnostics], ["boundary.surface"])
+
     def test_cli_compile_time_paths_are_not_public_resource_names(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             tui = Path(directory)
@@ -408,6 +470,31 @@ fn internal() { let surface_id: u64 = 4; }
             self.assertEqual([(item.code, item.line) for item in diagnostics], [
                 ("boundary.surface", 4),
                 ("boundary.surface", 5),
+            ])
+
+    def test_cli_module_paths_are_not_public_strings(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            tui = Path(directory)
+            path = tui / "crates/cmux-tui/src/cli/customize/pr.rs"
+            write(path, '\n'.join([
+                'const HELP: &str = "cmux attach-surface";',
+                '#[cfg(test)]',
+                '#[path = "surfaces_tests.rs"]',
+                'mod surfaces_tests;',
+                '#[path = r#"surfaces_impl.rs"#]',
+                'mod implementation;',
+                '# [ path = "surface_helpers.rs" ]',
+                'mod helpers;',
+                '#[doc = "cmux surface list"]',
+                'const RAW_HELP: &str = r#"cmux surface list"#;',
+            ]) + '\n')
+
+            diagnostics, _ = CHECKER.scan_public_boundaries(tui)
+
+            self.assertEqual([(item.code, item.line) for item in diagnostics], [
+                ("boundary.surface", 1),
+                ("boundary.surface", 9),
+                ("boundary.surface", 10),
             ])
 
     def test_cli_allows_terminal_identity_env_names_from_the_rust_table_only(self) -> None:
