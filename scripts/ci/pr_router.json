@@ -105,6 +105,7 @@
     "Packages/macOS/CmuxNext/Tests/CmuxNextTerminalGeometryTests/**",
     "vendor/stack-auth-swift-sdk-prerelease/**",
     "cmux-next-ios/CmuxMobileKit/**",
+    "cmux-next-ios/rust/crates/cmux-mobile-link-ffi/tests/fixtures/connection_contract.json",
     "scripts/ci/swift-linux-packages.txt",
     "scripts/ci/swift-linux-targets.txt",
     "scripts/ci/swift_linux_targets.py",
@@ -121,7 +122,7 @@
     "cmux-tui/Cargo.lock",
     ".github/workflows/swift-linux-packages.yml"
    ],
-   "affects_why": "Every package it tests (scripts/ci/swift-linux-packages.txt and the matrix's shared, mobile-core and stack-auth groups) lives under Packages/Shared, Packages/iOS or vendor/stack-auth-swift-sdk-prerelease, and their local path dependencies stay inside Packages/Shared (none reaches Packages/macOS, 2026-11-21), except CmuxNext's Linux shape: the targets of linuxTargetNames and their tests, and CCmuxAppFFI, which it links as libcmux_app_ffi.a built from the cmux-tui crates by scripts/ci/app_ffi_linux.py over build-app-ffi.sh's headers (2026-11-26); package-test-lane.sh sources swift-test-debug-info.sh and swiftpm-binary-module-guard.sh. The ios-kit group tests cmux-next-ios/CmuxMobileKit (its only path dependency outside the kit is Packages/Shared/CMUXAuthCore). Last 300 merges: the old filter started it on 96, this on 9."
+   "affects_why": "Every package it tests (scripts/ci/swift-linux-packages.txt and the matrix's shared, mobile-core and stack-auth groups) lives under Packages/Shared, Packages/iOS or vendor/stack-auth-swift-sdk-prerelease, and their local path dependencies stay inside Packages/Shared (none reaches Packages/macOS, 2026-11-21), except CmuxNext's Linux shape: the targets of linuxTargetNames and their tests, and CCmuxAppFFI, which it links as libcmux_app_ffi.a built from the cmux-tui crates by scripts/ci/app_ffi_linux.py over build-app-ffi.sh's headers (2026-11-26); package-test-lane.sh sources swift-test-debug-info.sh and swiftpm-binary-module-guard.sh. The ios-kit group tests cmux-next-ios/CmuxMobileKit (its only path dependency outside the kit is Packages/Shared/CMUXAuthCore). Last 300 merges: the old filter started it on 96, this on 9. The ios-kit group also reads the connection contract fixture (rust/crates/cmux-mobile-link-ffi/tests/fixtures/connection_contract.json, cmux-next-ios/contract/README.md): a Rust change to it must run the Swift side."
   },
   "pr-pipeline.yml": {
    "types": [

@@ -77,7 +77,7 @@ thread_local! {
 }
 
 /// Whether the feature is on now (the setting is read at most every 5 s).
-pub(super) fn enabled() -> bool {
+pub(crate) fn enabled() -> bool {
     let env = std::env::var(KILL_ENV).ok();
     if env_off(env.as_deref()) {
         return false;
