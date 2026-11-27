@@ -44,6 +44,7 @@ pub(crate) const FEATURES: &[Feature] = &[
     Feature { name: super::turn_checkpoint::FEATURE, on: super::turn_checkpoint::enabled },
     Feature { name: "sharedCache", on: crate::ci_log_cache::enabled },
     Feature { name: "outputCaps", on: crate::harness_limits::output_caps },
+    Feature { name: super::turn_artifacts::FEATURE, on: super::turn_artifacts::enabled },
 ];
 
 /// The settings key of `feature`'s off switch.
