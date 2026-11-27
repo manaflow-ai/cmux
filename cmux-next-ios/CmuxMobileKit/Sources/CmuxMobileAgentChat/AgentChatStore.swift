@@ -46,6 +46,17 @@ public struct AgentTurn: Identifiable, Hashable, Sendable, Codable {
         case notSent
     }
 
+    /// The key the turn's rows were drawn under before the Mac named the turn: the bubble this phone
+    /// drew as it sent (`localSend`) keeps its rows when the Mac's turn takes its place, so the
+    /// bubble is never taken out and put in again.
+    public var localKey: String?
+
+    /// What the transcript keys the turn's own rows by (its prompt bubble, working line, footer).
+    public var rowKey: String { localKey ?? id }
+
+    /// Drawn as sent, not yet recorded on the Mac.
+    public var isUnconfirmed: Bool { localSend != nil }
+
     public init(id: String, prompt: String, promptID: String? = nil, attachments: [AgentAttachment] = [], promptAt: Date) {
         self.id = id
         self.prompt = prompt
@@ -506,6 +517,7 @@ public final class AgentChatStore {
             var turn = AgentTurn(id: id, prompt: text, promptID: promptID, attachments: attachments, promptAt: Date())
             turn.localSend = .sending
             turns.append(turn)
+            justSent = (id, ProcessInfo.processInfo.systemUptime)
         } else {
             return
         }
@@ -856,6 +868,17 @@ public final class AgentChatStore {
                             promptID: promptID, resend: resend != nil))
         // Drawn now, before the Mac answers: the chat feels connected while the link comes back.
         if !source.isReadOnly { showSent(text, attachments: attachments, promptID: promptID, steer: steers) }
+    }
+
+    /// The row key of the turn the last send drew and when: its rows settle in on the send's
+    /// motion instead of fading in, in every transcript that shows them first within a moment.
+    @ObservationIgnored private var justSent: (key: String, at: TimeInterval)?
+
+    /// The row key of the turn drawn as sent within the last second (nil when there is none).
+    /// Every transcript showing this store reads it; each shows a row as new only once.
+    func justSentRowKey(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> String? {
+        guard let justSent, now - justSent.at < 1 else { return nil }
+        return justSent.key
     }
 
     #if DEBUG && os(iOS)
@@ -1302,6 +1325,7 @@ public final class AgentChatStore {
             landed(promptId)
             // This phone's waiting bubbles stay after the Mac's turns, in the order sent.
             var waiting = takeWaitingBubbles()
+            let shown = waiting.first { $0.id == Self.localTurnID(promptId) }
             waiting.removeAll { $0.id == Self.localTurnID(promptId) }
             defer { if !waiting.isEmpty { turns += waiting } }
             if gapFiller != nil { gapLeftQueue.insert(promptId) }
@@ -1326,11 +1350,13 @@ public final class AgentChatStore {
                 if let last = lastRecordedIndex {
                     turns[last].items.removeAll { if case .steer(let m) = $0 { m.promptID == promptId } else { false } }
                 }
+                let sent = Self.sentAttachments(sentAttachments[promptId], recorded: attachments)
                 promptedTurnID = turnId
                 startsNewAttempt = false
-                turns.append(AgentTurn(id: turnId, prompt: text, promptID: promptId,
-                                       attachments: Self.sentAttachments(sentAttachments[promptId], recorded: attachments),
-                                       promptAt: at))
+                var turn = AgentTurn(id: turnId, prompt: text, promptID: promptId, attachments: sent, promptAt: at)
+                // The prompt this phone drew as it sent it: this turn keeps that bubble's rows.
+                turn.localKey = shown?.id
+                turns.append(turn)
             }
             // The turn holds them now.
             sentAttachments[promptId] = nil
