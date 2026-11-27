@@ -21,18 +21,22 @@ const { resolveLinkSession } = await import("../app/extensions/_lib/link-session
 
 describe("extensions link session", () => {
   test("rejects a cross-origin mutation before checking auth", async () => {
-    const response = await resolveLinkSession(new Request("https://cmux.test/api/extensions/link", {
+    const result = await resolveLinkSession(new Request("https://cmux.test/api/extensions/link", {
       method: "POST",
       headers: { origin: "https://evil.test" },
     }));
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ code: "extension.forbidden", message: "Link a repo from cmux.com." });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.response.status).toBe(403);
+    expect(await result.response.json()).toEqual({ code: "extension.forbidden", message: "Link a repo from cmux.com." });
   });
 
   test("returns unavailable when Stack cannot confirm the session", async () => {
-    const response = await resolveLinkSession(new Request("https://cmux.test/api/extensions/link"));
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({
+    const result = await resolveLinkSession(new Request("https://cmux.test/api/extensions/link"));
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.response.status).toBe(503);
+    expect(await result.response.json()).toEqual({
       code: "extension.unavailable",
       message: "cmux sign-in could not be checked. Try again in a minute.",
     });
