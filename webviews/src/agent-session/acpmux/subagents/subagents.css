@@ -3005,6 +3005,6 @@ button.cv-subagent > :last-child {
 
 /* Placed after the latest message with no room under it, the open hat's list goes above its header
    (hatOpens.ts): the header keeps its place at the pane's edge and the list rises from it. */
-.acpmux-running-tray[data-opens="up"] {
+.acpmux-running-tray[data-goes="up"] {
   flex-direction: column-reverse;
 }

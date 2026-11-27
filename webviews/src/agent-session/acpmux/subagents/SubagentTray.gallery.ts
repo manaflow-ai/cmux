@@ -432,7 +432,7 @@ const expandTray = (placement: "composer" | "after-latest") => async (ctx: PlayC
 const expectOpens = (want: "down" | "up") => async (ctx: PlayContext) => {
   await expandTray("after-latest")(ctx);
   const tray = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray")!;
-  const got = tray.dataset.opens === "up" ? "up" : "down";
+  const got = tray.dataset.goes === "up" ? "up" : "down";
   if (got !== want) throw new Error(`the open hat went ${got}, toward less room; expected ${want}`);
 };
 

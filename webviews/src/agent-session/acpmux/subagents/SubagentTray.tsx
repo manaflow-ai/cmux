@@ -854,7 +854,7 @@ export const SubagentTray = memo(function SubagentTray({
       aria-label={t("summary.subagents")}
       data-open={open || undefined}
       data-placement={placement}
-      data-opens={opens === "up" ? "up" : undefined}
+      data-goes={opens === "up" ? "up" : undefined}
       data-look={look}
       data-row={row}
       // Nothing runs: the ended lines sit quietly over the composer in the settled surface, joined to
