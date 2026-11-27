@@ -86,7 +86,7 @@ person may see"; that is suite.py's alone.
 | case | fault | what recovers it |
 |---|---|---|
 | daemon-sigterm, daemon-sigkill | the signal to the daemon | the next client command starts a daemon, which adopts the running agent |
-| daemon-hung | SIGSTOP of the daemon, left stopped | a client must be served while it stays stopped |
+| daemon-hung | SIGSTOP of the daemon, left stopped | a client must be served while it stays stopped; the send is watched 90 s past the bound so a late recovery is reported with its time, and late still fails |
 | sleep-wake-sim | SIGSTOP of the daemon, agent hosts and agent for 35 s, then SIGCONT | simulated, as above |
 | socket-gone | the socket file moved away for 20 s, then back | the client's send during the gap |
 | update-swap | a new binary renamed over the daemon's path, nothing else | the daemon hands over to a daemon of the new file by itself, and none dies in the hand-over; no download or signature check |

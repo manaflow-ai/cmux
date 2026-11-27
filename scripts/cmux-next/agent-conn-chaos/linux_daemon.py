@@ -53,6 +53,7 @@ BOUND = {"daemon-sigterm": 30, "daemon-sigkill": 30, "daemon-hung": 45, "sleep-w
 FAULT_AT_S = 8.0
 COUNT, RATE = 240, 4.0  # a 60 s reply: every fault lands mid-turn and the turn outlives it
 HARNESS = "conn-chaos"
+LATE_S = 90  # how long past its bound the hung case still watches, to report a late recovery's time
 
 
 def log(msg: str):
@@ -119,17 +120,20 @@ class Run:
         return status if isinstance(status, dict) and status.get("pid") else None
 
     def procs(self) -> dict[int, str]:
-        """This run's processes: every process whose ACPMUX_HOME is this run's home. pid -> command line."""
-        mine, needle = {}, f"ACPMUX_HOME={self.home}".encode()
+        """This run's processes: every process whose ACPMUX_HOME is this run's home, or whose command line names a
+        file of this run's folder (an agent host started after a swap carries no ACPMUX_HOME). pid -> command line."""
+        mine, needle, under = {}, f"ACPMUX_HOME={self.home}".encode(), f"{self.root}/".encode()
         for name in os.listdir("/proc"):
             if not name.isdigit() or int(name) == os.getpid():
                 continue
             try:
-                with open(f"/proc/{name}/environ", "rb") as handle:
-                    if needle not in handle.read().split(b"\0"):
-                        continue
                 with open(f"/proc/{name}/cmdline", "rb") as handle:
-                    mine[int(name)] = handle.read().replace(b"\0", b" ").decode("utf-8", "replace").strip()
+                    words = handle.read().split(b"\0")
+                if not any(word.startswith(under) for word in words):
+                    with open(f"/proc/{name}/environ", "rb") as handle:
+                        if needle not in handle.read().split(b"\0"):
+                            continue
+                mine[int(name)] = b" ".join(words).decode("utf-8", "replace").strip()
             except OSError:
                 continue
         return mine
@@ -217,7 +221,8 @@ def inject(run: Run, case: str, session: str, ping: str) -> dict:
         info["fault_end"] = time.monotonic()  # the daemon stays stopped: recovery is counted from the stop
         info["note"] = f"daemon {sorted(before)} SIGSTOPped for the whole case, SIGCONT at its end"
         info["cleanup"] = lambda: signal_all(before, signal.SIGCONT)
-        send_ping(BOUND[case])
+        # The send may outlive the bound so a late recovery is reported with its real time; late is still a failure.
+        send_ping(BOUND[case] + LATE_S)
     elif case == "sleep-wake-sim":
         stopped = set(run.procs())
         signal_all(stopped, signal.SIGSTOP)
@@ -293,7 +298,7 @@ def run_case(run: Run, case: str) -> dict:
     # Served again: the down-time send was taken (exit 0) and a daemon answers status. Counted from the fault's end.
     served = None
     if ping_sent["exit"] == 0:
-        deadline = fault_end + BOUND[case] + 5
+        deadline = max(fault_end + BOUND[case], ping_sent["at"]) + 5
         while time.monotonic() < deadline:
             status = run.status(timeout=5)
             if status:
