@@ -2719,7 +2719,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // The transcript's sub-session cards read each sub-session's state from one store, so a session
   // changing never redraws a turn (subagents/subsessions.ts); a name opens its chat beside this one.
   const subsessionStore = useRef<SubsessionStore | null>(null);
-  subsessionStore.current ??= new SubsessionStore();
+  // Made from the first list before the transcript's first render: a received line fixes its machine's
+  // slot when it is first drawn (IncomingMessageCard.tsx `hostSlot`), so a store filled only by the
+  // layout effect below, after that render, left every line the pane opened with unnamed by machine.
+  if (!subsessionStore.current) {
+    subsessionStore.current = new SubsessionStore();
+    subsessionStore.current.set(snapshot.sessions);
+  }
   useLayoutEffect(() => {
     subsessionStore.current!.set(snapshot.sessions);
   }, [snapshot.sessions]);
