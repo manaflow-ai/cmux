@@ -3786,6 +3786,10 @@ name = "schemas:focus-state-rules"
 paths = ["schemas/focus-state-rules/**"]
 
 [[unit]]
+name = "schemas:focus-ui-creation-hold"
+paths = ["schemas/focus-ui-creation-hold/**"]
+
+[[unit]]
 name = "schemas:focus-ui-guards"
 paths = ["schemas/focus-ui-guards/**"]
 
