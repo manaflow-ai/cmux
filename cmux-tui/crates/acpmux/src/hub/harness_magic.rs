@@ -23,7 +23,7 @@ use serde_json::{Map, Value, json};
 
 /// The features this build carries, by the name their setting and counters use. A builder adds
 /// its feature here; an empty list stamps `enabled: []` and reads no settings.
-pub(crate) const FEATURES: &[&str] = &["turnRules"];
+pub(crate) const FEATURES: &[&str] = &["turnRules", "cacheAlarm", "prefetch"];
 
 /// The settings key of `feature`'s off switch.
 pub(crate) fn setting_key(feature: &str) -> String {
@@ -79,16 +79,45 @@ pub(crate) fn enabled_list(
     features.iter().filter(|f| enabled_in(f, doc, env)).map(|f| (*f).to_owned()).collect()
 }
 
-/// The features on now; with none in this build, an empty list and no settings read.
-fn enabled_now() -> Vec<String> {
-    if FEATURES.is_empty() {
-        return Vec::new();
+/// The opt-in features (off unless their setting is `true`, Leo 2026-11-26: "only do it for our
+/// personal fleet situation"), each read by its own module's switch, so the stamp says what the
+/// feature itself decided. Without them on the stamp the scorecard has no on-against-off row for
+/// context surgery (RFD 0149) or dedupe (RFD 0147): their counters appear only on the turns that
+/// masked or stubbed something, and a turn with the feature on that did nothing looked like off.
+pub(crate) const OPT_IN: &[&str] = &["surgery", "dedupe"];
+
+/// Whether an [`OPT_IN`] feature is on for `doc` and `env`.
+fn opt_in_enabled(
+    feature: &str,
+    doc: Option<&Value>,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> bool {
+    match feature {
+        "surgery" => super::surgery::enabled_with(doc, env(super::surgery::KILL_ENV).as_deref()),
+        "dedupe" => {
+            crate::claude_stdio::dedupe_enabled_with(doc, env(&env_key("dedupe")).as_deref())
+        }
+        _ => false,
     }
+}
+
+/// [`FEATURES`] on unless switched off, then [`OPT_IN`] on only when switched on, in that order.
+pub(crate) fn enabled_all(
+    doc: Option<&Value>,
+    env: &dyn Fn(&str) -> Option<String>,
+) -> Vec<String> {
+    let mut on = enabled_list(FEATURES, doc, env);
+    on.extend(OPT_IN.iter().filter(|f| opt_in_enabled(f, doc, env)).map(|f| (*f).to_owned()));
+    on
+}
+
+/// The features on now.
+fn enabled_now() -> Vec<String> {
     let doc = match crate::user_settings::read() {
         crate::user_settings::Settings::Parsed(doc) => Some(doc),
         _ => None,
     };
-    enabled_list(FEATURES, doc.as_ref(), &|k| std::env::var(k).ok())
+    enabled_all(doc.as_ref(), &|k| std::env::var(k).ok())
 }
 
 /// The `harnessMagic` object of a `turn_result` message, made when missing (a message that is
@@ -168,11 +197,34 @@ mod tests {
     }
 
     #[test]
-    fn this_build_stamps_an_empty_list_without_reading_settings() {
-        let mut msg = json!({});
-        if FEATURES.is_empty() {
-            stamp(&mut msg);
-            assert_eq!(msg["harnessMagic"]["enabled"], json!([]));
-        }
+    fn prefetch_is_stamped_by_its_own_switch() {
+        // The scorecard's byFeature splits only on what is stamped; prefetch's module reads the
+        // same setting and kill switch (`hub/prefetch.rs`), so the stamp matches what ran.
+        assert!(FEATURES.contains(&"prefetch"));
+        assert_eq!(setting_key("prefetch"), crate::hub::prefetch::SETTING_ENABLED);
+        assert_eq!(env_key("prefetch"), crate::hub::prefetch::ENV_KILL);
+        assert!(enabled_list(FEATURES, None, &no_env).contains(&"prefetch".to_owned()));
+        let off = json!({"agents": {"harnessMagic": {"prefetch": {"enabled": false}}}});
+        assert!(!enabled_list(FEATURES, Some(&off), &no_env).contains(&"prefetch".to_owned()));
+    }
+
+    #[test]
+    fn opt_in_features_are_stamped_only_when_switched_on() {
+        // RFD 0149's read-back: a turn with surgery on must say so even when it masked nothing.
+        let default: Vec<String> = FEATURES.iter().map(|f| (*f).to_owned()).collect();
+        assert_eq!(enabled_all(None, &no_env), default);
+        let on = json!({"agents": {"harnessMagic": {
+            "surgery": {"enabled": true}, "dedupe": {"enabled": true}}}});
+        let all = enabled_all(Some(&on), &no_env);
+        assert!(all.ends_with(&["surgery".to_owned(), "dedupe".to_owned()]), "{all:?}");
+        let killed = |k: &str| (k == "ACPMUX_HM_SURGERY").then(|| "0".to_owned());
+        assert!(!enabled_all(Some(&on), &killed).contains(&"surgery".to_owned()));
+        // Dedupe's daemon switch turns it on too (#58129); surgery's only turns it off.
+        let env_on = |k: &str| k.starts_with("ACPMUX_HM_").then(|| "1".to_owned());
+        let all = enabled_all(None, &env_on);
+        assert!(
+            all.contains(&"dedupe".to_owned()) && !all.contains(&"surgery".to_owned()),
+            "{all:?}"
+        );
     }
 }

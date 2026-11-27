@@ -100,6 +100,52 @@ class CargoLocksTests(unittest.TestCase):
         self.assertEqual(self.git("status", "--porcelain").split(), ["M", "ffi/Cargo.lock"])
         self.assertEqual(self.locks("check").returncode, 0)
 
+    def drop_crate_b(self):
+        """b leaves core's workspace and its directory goes; core's lock still lists it (cmux#57348: cmux-coderouter
+        stayed in cmux-tui/Cargo.lock after its crate was deleted, and `cargo update --locked` passed)."""
+        self.write("core/Cargo.toml", '[workspace]\nmembers = ["a"]\nresolver = "2"\n')
+        self.git("rm", "-rq", "core/b")
+        self.git("add", "-A")
+        self.git("commit", "-qm", "drop b")
+
+    def test_a_lock_entry_for_a_crate_no_manifest_names_is_stale(self):
+        self.drop_crate_b()
+        self.assertIn('name = "b"', (self.repo / "core/Cargo.lock").read_text())
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("stale: core/Cargo.lock: does not match its manifests (lists packages its manifests no "
+                      "longer resolve: b 0.1.0)", result.stdout)
+        self.assertNotIn("ffi/Cargo.lock", result.stdout)
+
+    def test_a_lock_entry_for_an_optional_dependency_behind_a_feature_is_not_stale(self):
+        """2026-11-27: cmux-tui's lock lists wasmtime and dhat, cmux-rd-host's rav1e, all optional dependencies behind
+        features no default turns on; `cargo metadata` without --all-features left them out of the resolve and every
+        lock that holds one was called stale, though `cargo update --workspace` keeps them (and fix could not)."""
+        self.write("ffi/Cargo.toml", '[package]\nname = "ffi"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[dependencies]\na = { path = "../core/a" }\nb = { path = "../core/b", optional = true }\n\n'
+                   '[features]\nextra = ["dep:b"]\n\n[workspace]\n')
+        self.cargo("ffi", "generate-lockfile", "--offline")
+        self.assertIn('name = "b"', (self.repo / "ffi/Cargo.lock").read_text())
+        self.git("add", "-A")
+        self.git("commit", "-qm", "ffi gains an optional b")
+
+        result = self.locks("check")
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("2 workspaces, 0 stale", result.stderr)
+
+    def test_fix_drops_the_orphaned_entry(self):
+        self.drop_crate_b()
+
+        fixed = self.locks("fix")
+
+        self.assertEqual(fixed.returncode, 0, fixed.stdout + fixed.stderr)
+        self.assertIn("fixed: core/Cargo.lock", fixed.stdout)
+        self.assertNotIn('name = "b"', (self.repo / "core/Cargo.lock").read_text())
+        self.assertEqual(self.locks("check").returncode, 0)
+
     def test_fix_with_nothing_stale_changes_nothing(self):
         fixed = self.locks("fix")
 

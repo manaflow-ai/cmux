@@ -42,9 +42,9 @@ CLOUD = "cloud-backend"
 CAPTURE_STEP = "capture"
 
 # event -> the checks that run on it. A push runs them in pr-checks.yml's advisory job (CI v2 step 6,
-# second cut; tests/test_pr_checks_base_only.py), so this workflow takes only edits and labels.
+# second cut; tests/test_pr_checks_base_only.py), so this workflow takes only the labels the lints read. A
+# description edit starts no run (every lint is advisory; the next push re-lints it).
 EVENTS = {
-    ("edited", None): {CAPTURE, DESIGN, PERF, CLOUD},
     ("labeled", "media-tour"): {CAPTURE},
     ("unlabeled", "media-tour-mac"): {CAPTURE},
     ("labeled", "perf"): {PERF},
@@ -141,10 +141,10 @@ class BodyChecksTests(unittest.TestCase):
                   ".github/cloud-backend-paths.json", "ci/steps.toml", "scripts/ci/ci_steps.py", ".gitmodules"}
         self.assertEqual(set(checkout["sparse-checkout"].split()), wanted)
 
-    def test_it_runs_on_drafts_and_every_old_trigger(self):
+    def test_it_runs_on_drafts_and_the_labels_it_reads(self):
         on = WORKFLOW.get(True, WORKFLOW.get("on"))["pull_request"]
         self.assertEqual(on["branches"], ["feat-cmux-next"])
-        self.assertEqual(set(on["types"]), {"edited", "labeled", "unlabeled"})
+        self.assertEqual(set(on["types"]), {"labeled", "unlabeled"})
         self.assertNotIn("draft", str(JOB))
 
 

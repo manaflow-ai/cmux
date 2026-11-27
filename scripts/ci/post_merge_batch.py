@@ -117,6 +117,12 @@ def hand_off(repo: str, number: int, author: str, api=None) -> str:
 # (--api-wait-seconds). Batch run 44878722147's judge died on it (2026-11-21).
 API_WAIT_BUDGET = {"seconds": 0.0}
 RATE_LIMITED = re.compile(r"rate limit|HTTP 429|secondary rate", re.I)
+# A read GitHub answers with a 5xx (or a dropped connection) is tried again after these waits before the call
+# fails. Before this one such answer to a probe's read of its origin run refused the probe ("origin run ... is
+# unreadable") and ended the bisect: 3 of 20 probe judges on 11-26 23:00-00:15Z (runs 45909196492, 45910256924,
+# 45910283297), each a red that then stayed live with no culprit (cmuxterm-hq goals/base-batch-reverts-culprit.md).
+READ_RETRY_WAITS = (5, 20)
+TRANSIENT_READ = re.compile(r"HTTP 5\d\d|Server Error|connection reset|timed out|timeout|unexpected EOF", re.I)
 
 
 def rate_limit_wait(now: float, reset: float | None, left: float) -> float:
@@ -158,6 +164,13 @@ def gh_api(path: str, *, method: str = "GET", fields: dict | None = None, run=su
         for i, token in enumerate(tokens):
             env = {**os.environ, "GH_TOKEN": token} if token else None
             out = run(argv, input=data, capture_output=True, text=True, env=env)
+            for wait in READ_RETRY_WAITS if method == "GET" else ():
+                text = (out.stderr or out.stdout or "").strip()
+                if not out.returncode or RATE_LIMITED.search(text) or not TRANSIENT_READ.search(text):
+                    break
+                print(f"gh api {method} {path}: {text[-200:]}; retrying in {wait} s", file=sys.stderr)
+                sleep(wait)
+                out = run(argv, input=data, capture_output=True, text=True, env=env)
             if not out.returncode:
                 return json.loads(out.stdout) if out.stdout.strip() else None
             text = (out.stderr or out.stdout).strip()
@@ -540,7 +553,7 @@ def cmd_plan(args: argparse.Namespace) -> int:
     if args.mode == PROBE:
         if args.suite not in suites or not SHA_RE.match(args.probe_sha or ""):
             raise SystemExit(f"probe needs a known suite and a commit sha (got {args.suite!r}, {args.probe_sha!r})")
-        write_outputs(args.github_output, {"suites": f" {args.suite} ", "sha": args.probe_sha, "only": args.only or "", "base": ""})
+        write_outputs(args.github_output, {"suites": f" {args.suite} ", "sha": args.probe_sha, "only": args.only or "", "base": args.good if SHA_RE.match(args.good or "") else ""})
         summary(args.summary, f"Probe: `{args.suite}` job `{args.only or '(all)'}` at `{args.probe_sha}`.")
         return 0
     def judged(run_id: int) -> bool:
@@ -754,11 +767,34 @@ def probe_refusal(probe: Probe, branch: str, origin: dict | None, found: list[tu
     return ""
 
 
-def dispatch_probe(repo: str, branch: str, probe: Probe, api=None) -> None:
+# GitHub answers a workflow dispatch with a 5xx now and then (HTTP 500 "Failed to run workflow dispatch", 502
+# "Server Error"); before this retry one such answer ended the judge and with it the bisect: nothing dispatched the
+# next probe, so the red stayed unbisected (cmux runs 45834479312 and 45839196986, 11-26).
+SERVER_ERROR = re.compile(r"HTTP 5\d\d|Server Error", re.I)
+DISPATCH_WAITS = (15, 45)
+
+
+def dispatch_probe(repo: str, branch: str, probe: Probe, api=None, sleep=time.sleep) -> None:
+    """Dispatch one probe. A 5xx may still have started the run, so before each retry this looks for a probe
+    run of the same title (the workflow's run-name) on the branch, and stops if one is there."""
     # DISPATCH_TOKEN: the revert job's GITHUB_TOKEN (actions: write), whose GH_TOKEN may be the App's, which has none.
     api = api or gh_api  # looked up per call, so a test's patch of gh_api reaches it
     token = os.environ.get("DISPATCH_TOKEN") or os.environ.get("GH_TOKEN", "")
-    api(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", method="POST", fields={"ref": branch, "inputs": probe.inputs()}, tokens=[token])
+    title = f"{PROBE} {probe.suite} {probe.only or 'all'} at {probe.sha}"
+    for attempt, wait in enumerate((*DISPATCH_WAITS, None)):
+        if attempt:
+            listed = api(f"repos/{repo}/actions/workflows/{WORKFLOW}/runs?branch={branch}&event=workflow_dispatch&per_page=20")
+            if any((r.get("display_title") or "") == title and r.get("status") != "completed" for r in (listed or {}).get("workflow_runs", [])):
+                print(f"dispatch of `{title}` answered 5xx but its run started", file=sys.stderr)
+                return
+        try:
+            api(f"repos/{repo}/actions/workflows/{WORKFLOW}/dispatches", method="POST", fields={"ref": branch, "inputs": probe.inputs()}, tokens=[token])
+            return
+        except RuntimeError as e:
+            if wait is None or not SERVER_ERROR.search(str(e)):
+                raise
+            print(f"dispatch of `{title}`: {e}; retrying in {wait}s", file=sys.stderr)
+            sleep(wait)
 
 
 def piece_probe_refusal(probe: Probe, state, branch: str, origin: dict | None, found, covered, tree=None) -> str:
@@ -943,6 +979,59 @@ def merged_by_teammate(repo: str, pr: str, api=None) -> str:
 
 
 SWAPOUT_MARK = "<!-- post-merge piece swap-out {culprit} {job} -->"
+CONFLICT_MARK = "<!-- post-merge revert conflict {culprit} {job} -->"
+
+
+def newer_verdict(repo: str, branch: str, origin: str, job: str, suites: dict, api=None) -> tuple[str, dict] | None:
+    """The job's conclusion on the newest finished batch run of branch after the origin run, and that run;
+    None when no newer batch run has finished the job."""
+    runs = list_runs(repo, branch, api=api)
+    newer = [r for r in runs if is_batch(r) and r.get("status") == "completed" and (r.get("id") or 0) > int(origin or 0)]
+    for run in newer[:3]:
+        got = suite_verdicts(run_jobs(repo, run["id"], api=api), suites).get(job)
+        if got and got[1] in ("success", "failure"):
+            return got[1], run
+    return None
+
+
+def revert_conflict(args: argparse.Namespace, culprit: str, pr: str, conflicted: list[str], api=None) -> str:
+    """A culprit whose revert conflicts with the tip. Green again on a newer batch run: fixed forward, nothing to
+    revert. Else the culprit's pull request gets one comment naming the job, the run and the later commits that
+    touched the same files, so the base-break owner fixes it forward. Returns the run summary line."""
+    api = api or gh_api
+    try:
+        seen = newer_verdict(args.repo, args.branch, args.origin, args.job, load_manifest(Path(args.manifest)), api=api)
+    except RuntimeError as err:
+        print(f"newer verdict of {args.job}: {err}", file=sys.stderr)
+        seen = None
+    if seen and seen[0] == "success":
+        return (f"Reverting `{culprit[:11]}` conflicts with the tip, and `{args.job}` is green again on `{seen[1]['head_sha'][:11]}` "
+                f"(run {seen[1]['id']}): fixed forward, nothing to revert.")
+    later = git("log", "--format=%h %s", f"{culprit}..HEAD", "--", *conflicted).splitlines()[:5] if conflicted else []
+    head = f"Reverting `{culprit[:11]}` conflicts with the tip of {args.branch}" + (f" in {', '.join(f'`{f}`' for f in conflicted[:5])}" if conflicted else "")
+    if not pr or args.dry_run:
+        return f"{head}; left to its owner{' (dry run: no comment)' if pr else ''}."
+    origin = f"{args.server_url}/{args.repo}/actions/runs/{args.origin}" if args.origin else "(unknown)"
+    this = f"{args.server_url}/{args.repo}/actions/runs/{args.run_id}"
+    mark = CONFLICT_MARK.format(culprit=culprit, job=args.job)
+    body = "\n\n".join([
+        mark,
+        f"Post-merge `{args.job}` went red on {args.branch} at this PR's merge (`{culprit[:12]}`): green at `{args.good[:12]}`, "
+        f"the bisect ({this}, from {origin}) names this PR as its first red commit.",
+        "Its revert conflicts with the tip, so no revert pull request opened. Later commits on the same files:\n\n"
+        + ("\n".join(f"- {line}" for line in later) or "- (none found)"),
+        "The base-break rule: fix it forward, or revert it by hand with the conflicts resolved. "
+        "Opened by cmux-next-post-merge.yml (scripts/ci/post_merge_batch.py revert).",
+    ])
+    try:
+        comments = api(f"repos/{args.repo}/issues/{pr}/comments?per_page=100") or []
+        if any(mark in (c.get("body") or "") for c in comments):
+            return f"{head}; #{pr} was already told."
+        made = api(f"repos/{args.repo}/issues/{pr}/comments", method="POST", fields={"body": body})
+    except RuntimeError as err:
+        print(f"conflict comment on #{pr}: {err}", file=sys.stderr)
+        return f"{head}; left to its owner (the comment on #{pr} failed: {str(err)[-160:]})."
+    return f"{head}; told #{pr}'s owner: {(made or {}).get('html_url', '')}."
 
 
 def swapouts_opened(repo: str, api=None) -> list[datetime]:
@@ -1086,8 +1175,9 @@ def cmd_revert(args: argparse.Namespace) -> int:
     mainline = ["-m", "1"] if len(parents) > 1 else []
     result = subprocess.run(["git", "revert", "--no-edit", *mainline, culprit], cwd=ROOT, capture_output=True, text=True)
     if result.returncode:
+        conflicted = git("diff", "--name-only", "--diff-filter=U").split()
         subprocess.run(["git", "revert", "--abort"], cwd=ROOT)
-        summary(args.summary, f"Reverting `{culprit[:11]}` conflicts with the tip of {args.branch}; left to its owner.")
+        summary(args.summary, revert_conflict(args, culprit, pr, conflicted))
         return 0
     if not args.dry_run:
         publish(args, branch, git("rev-parse", "HEAD^").strip(), f"+HEAD:refs/heads/{branch}", changed_files(f"{culprit}^", culprit),
