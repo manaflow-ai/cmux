@@ -35,8 +35,13 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     /// ``UpdateIndicatorPhase/checking`` is theirs. A check that starts
     /// without one is a scheduled check.
     private var askPending = false
+    /// Rust's answers for the current state, asked once per state change instead of per read
+    /// (SwiftUI reads ``card(downloadsAutomatically:)`` and ``footerPill(preferences:)`` on every
+    /// render): the card's kind by `downloadsAutomatically` (false, true), the pill's by `silent`.
+    private var cardKinds: [String?] = [nil, nil]
+    private var pillKinds: [String?] = [nil, nil]
 
-    public init() {}
+    public init() { askKinds() }
 
     public mutating func handle(_ event: UpdateFlowEvent, preferences: UpdatePreferences) -> [UpdateFlowEffect] {
         let request: [String: Any] = [
@@ -44,6 +49,7 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
             "event": Self.eventJSON(event),
             "preferences": ["installOnQuit": preferences.installOnQuit, "oneClickInstall": preferences.oneClickInstall],
         ]
+        let before = state
         guard let reply = UpdaterRust.call("update_flow.handle", request) as? [String: Any],
               let flow = reply["flow"] as? [String: Any], let effects = reply["effects"] as? [String] else {
             // Rust refused the request (never with these inputs): nothing moves, and a quit still quits.
@@ -55,13 +61,16 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
         userAsked = flow["userAsked"] as? Bool ?? false
         downloadAsked = flow["downloadAsked"] as? Bool ?? false
         askPending = flow["askPending"] as? Bool ?? false
+        if state as NSDictionary != before as NSDictionary { askKinds() }
         return effects.compactMap(Self.effect)
     }
 
     /// The person's check while an update waits was answered without a new check (the staged
     /// update card, ``StagedUpdateRefresh``): the next check is not theirs.
     public mutating func askAnswered() {
+        guard askPending else { return }
         askPending = false
+        askKinds()
     }
 
     /// The notice card's update status, or nil (`update_flow.card`): what the user asked for (a
@@ -72,8 +81,7 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     ///
     /// - Parameter downloadsAutomatically: `updates.downloadAutomatically`.
     public func card(downloadsAutomatically: Bool) -> UpdateCard? {
-        let kind = UpdaterRust.call("update_flow.card", ["flow": state, "downloadsAutomatically": downloadsAutomatically]) as? String
-        switch (kind, phase) {
+        switch (cardKinds[downloadsAutomatically ? 1 : 0], phase) {
         case ("checking", _): return .checking
         case ("downloading", .downloading(let transfer)): return .downloading(transfer)
         case ("available", .available(let version)): return .available(version: version)
@@ -87,11 +95,19 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
     /// staged, disabled while it installs; nil otherwise and, for a staged update, under
     /// `updates.notify` silent.
     public func footerPill(preferences: UpdatePreferences) -> UpdateFooterPill? {
-        switch UpdaterRust.call("update_flow.footer_pill", ["flow": state, "silent": preferences.notify == .silent]) as? String {
+        switch pillKinds[preferences.notify == .silent ? 1 : 0] {
         case "ready": .ready
         case "installing": .installing
         default: nil
         }
+    }
+
+    /// Asks Rust for the card's and the pill's kinds in this state (`update_flow.card`,
+    /// `update_flow.footer_pill`). A download's progress ticks keep the state, so they ask nothing.
+    private mutating func askKinds() {
+        let flow = state
+        cardKinds = [false, true].map { UpdaterRust.call("update_flow.card", ["flow": flow, "downloadsAutomatically": $0]) as? String }
+        pillKinds = [false, true].map { UpdaterRust.call("update_flow.footer_pill", ["flow": flow, "silent": $0]) as? String }
     }
 
     /// The gate's state as Rust reads it: the phase by kind.
