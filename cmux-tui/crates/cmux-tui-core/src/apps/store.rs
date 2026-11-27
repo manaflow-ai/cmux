@@ -764,9 +764,9 @@ impl Supervisor {
             sandboxed: p.sandboxed,
             ..SetOp::default()
         };
-        self.set(client, op)?;
-        if let Some((key, on)) = setting {
-            self.router.setting_set(&key, Value::Bool(on))?;
+        let setting_backed = setting.is_some();
+        self.set_with_setting(client, op, setting)?;
+        if setting_backed {
             // The record may not have changed (the setting was edited elsewhere): every page
             // reads the entry again.
             let revision =
