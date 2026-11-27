@@ -194,7 +194,7 @@ private final class MarkerScreen: ScreenBackend, @unchecked Sendable {
                 var pixel: CVPixelBuffer?
                 let attributes = [kCVPixelBufferIOSurfacePropertiesKey as String: [:]] as CFDictionary
                 guard CVPixelBufferCreate(nil, 320, 240, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange, attributes, &pixel) == kCVReturnSuccess, let pixel else { return }
-                CVPixelBufferLockBaseAddress(pixel, [])
+                guard CVPixelBufferLockBaseAddress(pixel, []) == kCVReturnSuccess else { return }
                 if let y = CVPixelBufferGetBaseAddressOfPlane(pixel, 0) {
                     memset(y, Int32(shade), CVPixelBufferGetBytesPerRowOfPlane(pixel, 0) * CVPixelBufferGetHeightOfPlane(pixel, 0))
                 }

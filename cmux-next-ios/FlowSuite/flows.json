@@ -38,8 +38,8 @@
       ],
       "paths": [
         "Packages/Shared/CmuxVNCWebRTC/**",
-        "Packages/Shared/CmuxScreenKit/**",
-        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileScreenSharing/**"
+        "Packages/Shared/CmuxVNC/**",
+        "Packages/Shared/CmuxEgress/**"
       ]
     },
     {

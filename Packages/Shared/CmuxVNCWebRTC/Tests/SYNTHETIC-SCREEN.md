@@ -2,7 +2,7 @@
 
 Leo: “these feel extremely mockable to be de facto enough”.
 
-The fast-tier registry gates WebRTC package changes with `HeadlessSyntheticScreenStreamTests`:
+The `screen-webrtc-headless` Mac step in `ci/steps.toml` gates WebRTC/VNC/Egress changes with `HeadlessSyntheticScreenStreamTests`:
 
 ```
 swift test --package-path Packages/Shared/CmuxVNCWebRTC --filter HeadlessSyntheticScreenStreamTests
@@ -30,4 +30,5 @@ real screen capture, radio/relay behavior, real-device thermals or hardware spee
 phone `cmux.rd` renderer has a separate simulator test. iOS WebRTC rendering still needs
 its own simulator coverage; don't count the Mac viewer as that coverage. ScreenRules uses
 its existing no-channel behavior, so these checks don't prove Rust screen policy decisions.
-FlowSuite names the headless flow; the fast-tier registry owns its execution on PRs.
+FlowSuite names the headless flow; `ci/steps.toml` owns its execution on PRs. This real
+asynchronous integration test runs outside the virtual-clock fast tier.

@@ -4196,3 +4196,23 @@ fi
 python3 -I scripts/cmux-next/fast-tier.py --root "${CMUX_MAC_ROOT:-$PWD}" --kind swift ${selected[@]+"${selected[@]}"} \
   --receipt "${RUNNER_TEMP:-$CI_TOOLS}/cmux-next-fast-tier.json"
 '''
+
+
+[step.screen-webrtc-headless]
+job = "mac"
+# Native WebRTC/VideoToolbox requires macOS, but no window server or simulator.
+# This is a real asynchronous transport check, outside fast-tier's virtual-clock contract.
+timeout = 900
+alone = true
+title = "Synthetic WebRTC screen decoding"
+about = "real host/ICE/encoder/viewer/decoder with twelve synthetic markers, frame counts and bounded latency"
+inputs = [
+  "Packages/Shared/CmuxVNCWebRTC/**",
+  "Packages/Shared/CmuxVNC/**",
+  "Packages/Shared/CmuxEgress/**",
+  "cmux-next-ios/FlowSuite/flows.json",
+]
+run = '''
+cd "${CMUX_MAC_ROOT:-$PWD}"
+bash scripts/ci/package-test-lane.sh suite CmuxVNCWebRTC HeadlessSyntheticScreenStreamTests
+'''
