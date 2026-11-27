@@ -75,7 +75,9 @@ fn machine_name(request: &Request) -> String {
 /// needs its injected error here to compile, so the drill always covers every row of the table.
 pub(super) fn error(class: Class, request: &Request) -> Outcome {
     let failed = |code: &str, message: String, mut details: Value, retryable: bool| {
-        details["injected"] = json!(true);
+        if let Some(map) = details.as_object_mut() {
+            map.insert("injected".into(), json!(true));
+        }
         Outcome::Failed {
             error: json!({"code": code, "message": message, "details": details, "retryable": retryable}),
             exit: 1,
@@ -98,7 +100,9 @@ pub(super) fn error(class: Class, request: &Request) -> Outcome {
         Class::StartPending => {
             let mut details = json!({"machine_name": machine_name(request), "stage": {}});
             if let Machine::Target(id) = &request.machine {
-                details["machine_id"] = json!(id);
+                if let Some(map) = details.as_object_mut() {
+                    map.insert("machine_id".into(), json!(id));
+                }
             }
             failed(
                 "cloud.start_pending",
