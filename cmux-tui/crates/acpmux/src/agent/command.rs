@@ -381,6 +381,19 @@ fn build_harness_command(
     if !remote_environment && let Some(own) = env.get("PATH").filter(|p| !p.is_empty()) {
         cmd.env("PATH", crate::login_env::with_agent_path(own));
     }
+    // The exec router's shims first (`placement/exec_router.rs`): on a Cloud machine with run
+    // VMs on, a heavy build any process of this session starts (a script's, `make`'s, a
+    // helper's) goes where the run VM placer sends it, not only Claude Code's own Bash calls.
+    if session.is_some() && !remote_environment {
+        let current = command_env_with(&cmd, true)
+            .into_iter()
+            .find(|(k, _)| k == "PATH")
+            .map(|(_, v)| v)
+            .unwrap_or_default();
+        if let Some(path) = crate::placement::exec_router::session_path(&current) {
+            cmd.env("PATH", path);
+        }
+    }
     // A machine a Mac lends GitHub: git's helper and the gh shim ask the Mac for a short-lived
     // App token (`github_session_env.rs`). The person's own git and gh auth still answer first.
     #[cfg(unix)]
