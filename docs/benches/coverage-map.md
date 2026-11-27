@@ -60,6 +60,8 @@ scale. Ranks match the RFD: 1 is the highest risk.
 | 5 | Chat index and transcripts (Rust) | `cmux-tui/crates/cmux-chat-index` | `chat-size`, `transcript-shifts` | 1 MB-4 GB; 50k rows | no | Manual or cron only. |
 | 6 | Agent chat transcript (web) | `webviews/src/agent-session` | `webviews/bench/transcript-*.bench.ts`, `webviews/bench/chat-*.bench.ts`, `webviews/bench/million-event-chat.bench.ts`, `snappy`, `typing`, `pane-resize-drag` | 100k rows and 1M events exist | report only: chat-open-perf-report (no fail) | About 150 web benches never fail a pull request. |
 | 6 | Sidebar chat list (web) | `webviews/src/sidebar` | `webviews/bench/sidebar-chats-*.bench.ts`, `webviews/bench/all-chats-list.bench.ts`, `webviews/bench/session-*.bench.ts` | session-scale fixtures | no | Not run on a pull request. |
+| 6 | Diff view | `webviews/src/diff-viewer`, `webviews/src/find`, `webviews/src/diff-stream.ts` | `diff-stream`, `diff-find-scale` | 100k-line file, 10k-file stream | no | Find and stream op counts and budgets in `webviews/test/diff-find-scale.test.ts`; the stream bench is the area's `run`. |
+| 6 | Model picker search | `webviews/src/agent-session/acpmux/modelSearch.ts`, `webviews/src/agent-session/acpmux/modelQuery.ts`, `webviews/src/agent-session/acpmux/ModelPicker.tsx`, `webviews/src/agent-session/acpmux/QuickModelMenu.tsx`, `webviews/src/agent-session/acpmux/modelPicker*.ts` | `model-picker-search` | 5,000 router models | no | Per keystroke ≤ 2 ms at 5,000 models; the bench fails open on a loaded host. |
 | 7 | Main-actor work in the app target | `Packages/macOS/CmuxNext/Sources/CmuxNextApp` | `MainTaskRecordBench`, `ActionBudgetMonitorBench`, `stress`, `typing-native` | stress has a scale preset | no (env-gated, manual) | Lint only: `scripts/cmux-next/check-main-actor-work.py`. |
 | 8 | Terminal | `Packages/macOS/CmuxNext/Sources/CmuxNextTerminal` | `TerminalLaunchFrameKeeperBenchTests`, `terminal-throughput-quick` | not at scale | no | Manual only. |
 | 8 | Terminal scrollback reads (daemon `read-scrollback`, find, projection parity) | `cmux-tui/crates/ghostty-vt` | `styled_history_page_bench`, `screen_row_text_bench` (`#[ignore]` tests in `styled_history_tests.rs`, `screen_row_text_tests.rs`) | 10k, 100k and 1M rows × 200 cols, 8,192-row page | partly: oracle and lookup-count tests run with the crate's tests (`a_long_history_page_looks_up_each_page_not_each_row`, under 1,024 lookups a page); timing is by hand | No time budget on a pull request. |
@@ -91,8 +93,10 @@ as a gate. `stress` has a dispatch-only compare workflow (`cmux-next-stress-benc
 | `chief-latency` | Chief | 15 asks | no |
 | `ci-vm-idle` | CI | 24 h inventory | no |
 | `claude-vs-acpmux` | acpmux daemon | real model | no |
+| `cloud-first-byte` | cloud | Cloud Git active | no |
 | `cloud-turn` | cloud | real relay | no |
 | `coord-sim` | acpmux daemon | several coordinator chats | no |
+| `coordinator-cpu` | acpmux daemon, chat renderer | 20 live subagents | no |
 | `daemon-latency` | acpmux daemon | commits | no |
 | `desktop-link` | iOS link | n/a | no |
 | `dev-loop` | dev loop | n/a | no |
@@ -184,6 +188,8 @@ whether it fails on a number.
 | `RemoteDecodeRangeBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextRemoteViewTests/RemoteDecodeRangeBenchTests.swift` | `CMUX_RD_DECODE_BENCH` | no |
 | `ResumeLiveBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | yes |
 | `ResumeMatrixBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | no |
+| `ResumeStagesBenchTests` | `cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ReconnectChainTimingTests.swift` | `CMUX_RESUME_LIVE_BENCH` | no |
+| `AnimationFrameBenchUITests` | `cmux-next-ios/UITests/AnimationFrameBenchUITests.swift` | UI test plan | no |
 | `RotateBenchUITests` | `cmux-next-ios/UITests/RotateBenchUITests.swift` | UI test plan | no |
 | `SentryScrubCostBench` | `Packages/Shared/CmuxSentryTelemetry/Tests/CmuxSentryScrubbingTests/SentryScrubCostBench.swift` | `CMUX_SENTRY_SCRUB_BENCH` | no |
 | `SidebarHoverCardRetargetBenchTests` | `Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/SidebarHoverCardRetargetBenchTests.swift` | `CMUX_HOVER_RETARGET_BENCH` | p95 under 8 ms scaled |
@@ -239,10 +245,16 @@ and gates nothing. The rest run in the perf cron's web UI suite or by hand.
 | `webviews/bench/all-chats-list.bench.ts` | all chats list | no |
 | `webviews/bench/session-*.bench.ts` | session scale | no |
 | `webviews/bench/project-picker-open.bench.ts` | project picker | no |
+| `webviews/bench/inline-text-hasmarks.bench.ts` | inline text marks | no |
+| `webviews/bench/subsession-reply-height.bench.ts` | subsession reply height | no |
+| `webviews/bench/terminal-history-offscreen.bench.ts` | terminal history, offscreen turns | no |
 | `webviews/bench/cloud-*.bench.ts` | cloud feed | no |
 | `webviews/bench/cloud-page-first-row.bench.tsx` | cloud page | no |
 | `webviews/bench/daemon-gate-relink.bench.tsx` | daemon relink | no |
 | `webviews/bench/diff-*.bench.ts*` | diff viewer | no (perf cron) |
+| `webviews/bench/diff-stream.bench.ts` (`diff-stream`) | diff stream, the Diff view area's `run` | via `for-paths --run` |
+| `webviews/test/diff-find-scale.test.ts` (`diff-find-scale`) | diff find op counts, oracle, budgets | webviews tests |
+| `webviews/bench/model-picker-search.bench.ts` (`model-picker-search`) | model picker keystroke at 5,000 models | via `for-paths --run` |
 | `webviews/bench/new-tab-*.bench.ts*` | new tab | no |
 | `webviews/bench/*-visible-only.bench.ts` | page virtualization | no |
 | `webviews/bench/apps-catalog-*.bench.ts` | apps catalog | no |
