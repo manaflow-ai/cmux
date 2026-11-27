@@ -26,6 +26,7 @@
               "window.titlebarButtons",
               "app.globalHotKey",
               "app.startAgentGlobalHotKey",
+              "app.captureScreenshotGlobalHotKey",
               "app.hideDockIconWithoutWindows",
               "app.showMenuBarIcon"
             ],
@@ -181,140 +182,6 @@
       },
       {
         "actions" : [
-          "notifications"
-        ],
-        "aliases" : [
-          "notifications"
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.banners",
-            "rows" : [
-              "notifications.desktop",
-              "notifications.sound",
-              "notifications.quietHours",
-              "notifications.suppressWhileTypingSeconds",
-              "status.runNotifyMinimumSeconds",
-              "status.runNotifyWhenVisible",
-              "notifications.dockBadge",
-              "notifications.dockBounce",
-              "notifications.showPreviews"
-            ],
-            "title" : {
-              "key" : "settings.group.banners",
-              "text" : "Banners and Sound"
-            }
-          },
-          {
-            "key" : "settings.group.notificationDelivery",
-            "rows" : [
-              "notifications.delivery.permissionRequest",
-              "notifications.delivery.question",
-              "notifications.delivery.blocked",
-              "notifications.delivery.taskComplete"
-            ],
-            "title" : {
-              "key" : "settings.group.notificationDelivery",
-              "text" : "Delivery by Event"
-            }
-          },
-          {
-            "key" : "settings.group.sounds",
-            "rows" : [
-              "notifications.sounds.events.finished",
-              "notifications.sounds.events.needsInput",
-              "notifications.sounds.events.error",
-              "notifications.sounds.events.bell",
-              "notifications.sounds.events.message",
-              "notifications.sounds.volume",
-              "notifications.sounds.maxSeconds",
-              "notifications.sounds.when",
-              "notifications.sounds.cooldownSeconds"
-            ],
-            "title" : {
-              "key" : "settings.group.sounds",
-              "text" : "Sounds"
-            }
-          },
-          {
-            "key" : "settings.group.dismissal",
-            "rows" : [
-              "notifications.dismissal",
-              "notifications.timeoutSeconds",
-              "notifications.sources.agent.dismissal",
-              "notifications.sources.terminal.dismissal",
-              "notifications.sources.cli.dismissal"
-            ],
-            "title" : {
-              "key" : "settings.group.dismissal",
-              "text" : "Dismissal"
-            }
-          },
-          {
-            "key" : "settings.group.attention",
-            "rows" : [
-              "notifications.attention.style",
-              "notifications.attention.color",
-              "notifications.attention.terminals",
-              "notifications.attention.agentChats",
-              "notifications.attention.agentChatBlinkCount",
-              "notifications.attention.width",
-              "notifications.attention.blinkCount",
-              "notifications.attention.duration",
-              "notifications.attention.persist",
-              "notifications.attention.flash",
-              "notifications.attention.flashOnTyping",
-              "notifications.attention.showOnTab",
-              "notifications.attention.showOnSidebar",
-              "notifications.attention.mark",
-              "notifications.attention.moveToTop",
-              "notifications.attention.moveToTopOnAgentFinish"
-            ],
-            "title" : {
-              "key" : "settings.group.attention",
-              "text" : "Attention Ring"
-            }
-          },
-          {
-            "key" : "settings.group.feedMirror",
-            "rows" : [
-              "feed.mirrorNotifications.agents",
-              "feed.mirrorNotifications.terminal",
-              "feed.agentPermissionPrompts",
-              "feed.needsYouInChief"
-            ],
-            "title" : {
-              "key" : "settings.group.feedMirror",
-              "text" : "Feed"
-            }
-          },
-          {
-            "key" : "settings.group.githubInbox",
-            "rows" : [
-              "feed.github.enabled",
-              "feed.github.pollIntervalSeconds"
-            ],
-            "title" : {
-              "key" : "settings.group.githubInbox",
-              "text" : "GitHub Inbox"
-            }
-          }
-        ],
-        "id" : "notifications",
-        "lead" : [
-
-        ],
-        "symbol" : "bell",
-        "title" : {
-          "key" : "settings.section.notifications",
-          "text" : "Notifications"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
 
         ],
         "aliases" : [
@@ -349,70 +216,6 @@
         "trail" : [
           "webUpdates",
           "channels"
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "newTab.0",
-            "rows" : [
-              "tabs.newTabTemplate",
-              "tabs.newTabClock.show",
-              "tabs.newTabClock.font",
-              "tabs.newTabClock.weight",
-              "tabs.newTabClock.color",
-              "tabs.newTabClock.date",
-              "tabs.newTabApp",
-              "tabs.nativeNewTabPage",
-              "sidebar.showChats",
-              "tabs.newTabNowPlaying"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.newTabPage",
-              "text" : "New Tab Page"
-            }
-          }
-        ],
-        "id" : "newTab",
-        "lead" : [
-
-        ],
-        "symbol" : "plus.square",
-        "title" : {
-          "key" : "settings.pageGroup.newTabPage",
-          "text" : "New Tab Page"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-
-        ],
-        "id" : "menus",
-        "lead" : [
-          "contextMenus"
-        ],
-        "symbol" : "contextualmenu.and.cursorarrow",
-        "title" : {
-          "key" : "settings.category.menus",
-          "text" : "Menus"
-        },
-        "trail" : [
-
         ]
       },
       {
@@ -1052,1034 +855,6 @@
       },
       {
         "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "chat.0",
-            "rows" : [
-              "agentPane.display.detail",
-              "agentPane.display.sendPop",
-              "agentPane.display.sendScrollsToTop",
-              "agentPane.display.compactShortTurns",
-              "agentPane.display.statusVerbs.mode",
-              "agentPane.display.statusVerbs.custom",
-              "agentPane.display.thinking.shimmer",
-              "agentPane.display.thinking.shimmerPeriod",
-              "agentPane.display.thinking.shimmerBand",
-              "agentPane.display.thinking.jumpButton",
-              "agentPane.display.thinking.glyphSize",
-              "agentPane.needsYou.enabled",
-              "agentPane.display.finishSound",
-              "agentPane.showMachineLoadWarnings",
-              "agentPane.display.unreadBanner"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.transcript",
-              "text" : "Transcript"
-            }
-          },
-          {
-            "key" : "chat.1",
-            "rows" : [
-              "agentPane.display.width",
-              "agentPane.display.fullWidth",
-              "agentPane.zoom",
-              "agentPane.display.minimap",
-              "agentPane.display.vscodeMinimap",
-              "agentPane.display.chatListStatusPills",
-              "agentPane.display.trayTucked",
-              "agentPane.display.trayHandle",
-              "agentPane.display.headerBreadcrumb",
-              "agentPane.display.subagentOf",
-              "agentPane.display.senderIcon.lead",
-              "agentPane.display.senderIcon.badge",
-              "agentPane.display.senderIcon.corner",
-              "agentPane.display.rail.side",
-              "agentPane.display.rail.show",
-              "agentPane.display.rail.control",
-              "agentPane.display.sessionInfo.placement",
-              "agentPane.display.environment.placement",
-              "agentPane.display.layout.messages",
-              "agentPane.display.layout.composer",
-              "agentPane.display.layout.header",
-              "agentPane.display.environmentCard",
-              "agentPane.display.changesPill"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.chatLayout",
-              "text" : "Chat Layout"
-            }
-          },
-          {
-            "key" : "chat.2",
-            "rows" : [
-              "agentPane.display.font.ui",
-              "agentPane.display.font.uiFamily",
-              "agentPane.display.font.preset",
-              "agentPane.display.font.proseFamily",
-              "agentPane.display.font.faces",
-              "agentPane.display.font.size",
-              "agentPane.display.font.lineHeight",
-              "agentPane.display.code.family",
-              "agentPane.display.code.scale"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.chatText",
-              "text" : "Chat Text"
-            }
-          },
-          {
-            "key" : "chat.3",
-            "rows" : [
-              "agentPane.showContextUsage",
-              "agentPane.composerRing",
-              "agentPane.showDictation",
-              "agentPane.dictationSource",
-              "agentPane.dictationShortcut",
-              "agentPane.spellChecking",
-              "agentPane.composerVimKeys",
-              "agentPane.composerLook",
-              "agentPane.emptyChatComposerPosition",
-              "agentPane.composerPlaceholder",
-              "agentPane.attachmentView",
-              "agentPane.scrollToBottomOnSend",
-              "agentPane.followUpMode",
-              "agentPane.display.harnessPlacement",
-              "agentPane.display.modelChipIcon",
-              "agentPane.display.modelPickerStyle",
-              "agentPane.display.queueing",
-              "agentPane.display.promptCoach"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.messageBox",
-              "text" : "Message Box"
-            }
-          },
-          {
-            "key" : "chat.4",
-            "rows" : [
-              "agentPane.links.outsideRoots",
-              "agentPane.links.openCitationsInEditor",
-              "agentPane.images.remote",
-              "agentPane.editedFiles.show",
-              "agentPane.editedFiles.maxRows",
-              "agentPane.editedFiles.scope"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.filesLinks",
-              "text" : "Files and Links"
-            }
-          },
-          {
-            "key" : "settings.group.chats",
-            "rows" : [
-              "agents.chats.enabled",
-              "agents.chats.discovery",
-              "agents.chats.roots",
-              "agents.chats.sessionRecap",
-              "agents.chats.terminalChatWritable",
-              "agents.chats.coldArchive",
-              "agents.chats.coldArchiveAfterDays",
-              "agents.chats.deleteHistoryAfterDays",
-              "agents.chats.archiveInactive",
-              "agents.chats.coldSegments",
-              "agents.chats.coldSegmentsLevel",
-              "chat.on"
-            ],
-            "title" : {
-              "key" : "settings.group.chats",
-              "text" : "Chats"
-            }
-          }
-        ],
-        "id" : "chat",
-        "lead" : [
-
-        ],
-        "symbol" : "bubble.left",
-        "title" : {
-          "key" : "settings.category.chat",
-          "text" : "Chat"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.agentChat",
-            "rows" : [
-              "agentPane.display.transcriptLook",
-              "agentPane.newChatsIn",
-              "agentPane.sessionWorktrees",
-              "agentPane.savedPrompts",
-              "agents.defaultPermissionMode",
-              "agents.promptCache",
-              "agents.claudeOutputStyle",
-              "agents.codexPersonality",
-              "agents.commitAttribution",
-              "agents.claudeCodeInboxRelay",
-              "agents.modelRouter.model",
-              "app.warnBeforeClosingAgentSession"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.agentDefaults",
-              "text" : "Defaults"
-            }
-          },
-          {
-            "key" : "settings.group.cmuxRemote",
-            "rows" : [
-              "remote.endSharingOnQuit",
-              "remote.agentShareIdleMinutes",
-              "remote.ultra",
-              "transport.tailnetCarrier",
-              "remote.screenSharingProfile",
-              "remoteDesktop.quality",
-              "remoteDesktop.maxFps",
-              "remoteDesktop.maxBitrateMbps",
-              "remoteDesktop.sharpLinuxText"
-            ],
-            "title" : {
-              "key" : "settings.group.cmuxRemote",
-              "text" : "cmux Remote"
-            }
-          },
-          {
-            "key" : "settings.group.freeModel",
-            "rows" : [
-              "freeModel.enabled"
-            ],
-            "title" : {
-              "key" : "settings.group.freeModel",
-              "text" : "AI Models"
-            }
-          },
-          {
-            "key" : "settings.group.sessions",
-            "rows" : [
-              "sessions.keepAwake",
-              "sessions.keepAwakeWhenLocked",
-              "sessions.keepAwakeForCommands",
-              "sessions.resumeAgents",
-              "sessions.allowFullAccess",
-              "sessions.promptSuggestions",
-              "agents.promptSuggestions"
-            ],
-            "title" : {
-              "key" : "settings.group.sessions",
-              "text" : "Agent Sessions"
-            }
-          },
-          {
-            "key" : "settings.group.subsessions",
-            "rows" : [
-              "agents.subsessions.enabled",
-              "agents.subsessions.answerQuestions",
-              "agents.subsessions.maxChildren",
-              "agents.subsessions.maxRunning",
-              "agents.subsessions.maxDepth"
-            ],
-            "title" : {
-              "key" : "settings.group.subsessions",
-              "text" : "Sub-sessions"
-            }
-          },
-          {
-            "key" : "settings.group.agentGuidance",
-            "rows" : [
-              "agents.guidance.claude",
-              "agents.guidance.codex",
-              "agents.guidance.otherAgents",
-              "agents.guidance.userSkills"
-            ],
-            "title" : {
-              "key" : "settings.group.agentGuidance",
-              "text" : "Guidance and Skills"
-            }
-          },
-          {
-            "key" : "settings.group.agentRetry",
-            "rows" : [
-              "agents.autoRetry.enabled",
-              "agents.autoRetry.intervalSeconds",
-              "agents.autoRetry.attempts",
-              "agents.autoRetry.capacityFallbackAfter"
-            ],
-            "title" : {
-              "key" : "settings.group.agentRetry",
-              "text" : "Retry After Errors"
-            }
-          },
-          {
-            "key" : "settings.group.agentCache",
-            "rows" : [
-              "agents.cacheCompact.enabled",
-              "agents.cacheCompact.minContextPercent",
-              "agents.cacheCompact.minContextTokens",
-              "agents.coldWake.enabled",
-              "agents.coldWake.compact",
-              "agents.coldWake.compactAboveTokens"
-            ],
-            "title" : {
-              "key" : "settings.group.agentCache",
-              "text" : "Prompt Cache"
-            }
-          },
-          {
-            "key" : "settings.group.folderTrust",
-            "rows" : [
-              "agents.trust.autoTrust",
-              "agents.trust.projectRoots",
-              "agents.trust.ownOrgs"
-            ],
-            "title" : {
-              "key" : "settings.group.folderTrust",
-              "text" : "Folder Trust"
-            }
-          },
-          {
-            "key" : "settings.group.agentTools",
-            "rows" : [
-              "agents.cmuxMcp",
-              "agents.cmuxMcpClaude",
-              "agents.cmuxMcpCodex",
-              "agents.appControl"
-            ],
-            "title" : {
-              "key" : "settings.group.agentTools",
-              "text" : "cmux Tools"
-            }
-          }
-        ],
-        "id" : "agents",
-        "lead" : [
-
-        ],
-        "symbol" : "sparkles",
-        "title" : {
-          "key" : "settings.category.agents",
-          "text" : "Agents"
-        },
-        "trail" : [
-          "agentCustomization",
-          "agentSkills",
-          "agentTools",
-          "harnesses",
-          "agentHarnesses",
-          "agentIntegrations",
-          "worktreeSetup"
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.chiefChat",
-            "rows" : [
-              "home.chiefBubbleStyle",
-              "home.feedInChief",
-              "home.bubbleColors.sent",
-              "home.bubbleColors.sentText",
-              "home.bubbleColors.received",
-              "home.bubbleColors.receivedText"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefChat",
-              "text" : "Chief Chat"
-            }
-          },
-          {
-            "key" : "settings.group.chiefDock",
-            "rows" : [
-              "home.chiefDock.sidePanel",
-              "home.chiefDock.edge",
-              "home.chiefPanel.style",
-              "home.chiefDock.openBeside"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefDock",
-              "text" : "Chief Dock"
-            }
-          },
-          {
-            "key" : "settings.group.chiefPet",
-            "rows" : [
-              "home.chiefPetEnabled",
-              "home.chiefPetMascot"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefPet",
-              "text" : "Chief Pet"
-            }
-          },
-          {
-            "key" : "settings.group.chiefEngine",
-            "rows" : [
-              "home.chiefEngine",
-              "chief.permissionMode"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefEngine",
-              "text" : "Engine"
-            }
-          },
-          {
-            "key" : "settings.group.chiefReactions",
-            "rows" : [
-              "chief.reactionsCanWake",
-              "chief.reactionClassifier.harness",
-              "chief.reactionClassifier.model",
-              "chief.reactionClassifier.prompt"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefReactions",
-              "text" : "Reactions"
-            }
-          },
-          {
-            "key" : "settings.group.chiefSubagents",
-            "rows" : [
-              "chief.autoRouteSubagents",
-              "chief.subagentSidebar",
-              "chief.subagentSidebarShowWords",
-              "chief.subagentSidebarHideWords",
-              "chief.subagentSidebarMinWords"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefSubagents",
-              "text" : "Subagents"
-            }
-          }
-        ],
-        "id" : "chief",
-        "lead" : [
-          "chiefs",
-          "chiefPet",
-          "voiceInput"
-        ],
-        "symbol" : "crown",
-        "title" : {
-          "key" : "settings.category.chief",
-          "text" : "Chief"
-        },
-        "trail" : [
-          "notices"
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-
-        ],
-        "id" : "models",
-        "lead" : [
-          "models"
-        ],
-        "symbol" : "cpu",
-        "title" : {
-          "key" : "settings.category.models",
-          "text" : "Models"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-
-        ],
-        "id" : "automations",
-        "lead" : [
-          "automationsCloud"
-        ],
-        "symbol" : "bolt",
-        "title" : {
-          "key" : "settings.category.automations",
-          "text" : "Automations"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.computerUse",
-            "rows" : [
-              "computerUse.mode",
-              "computerUse.deniedApps",
-              "computerUse.allowOwnMachines",
-              "computerUse.pauseOnTakeover",
-              "computerUse.showCursor",
-              "computerUse.cursorTag",
-              "computerUse.settle",
-              "computerUse.livePreview",
-              "computerUse.floatingPreview",
-              "computerUse.whileLocked",
-              "computerUse.menus",
-              "computerUse.allowForeground"
-            ],
-            "title" : {
-              "key" : "settings.group.computerUse",
-              "text" : "Computer Use"
-            }
-          }
-        ],
-        "id" : "computerUse",
-        "lead" : [
-          "computerUse"
-        ],
-        "symbol" : "cursorarrow.click.2",
-        "title" : {
-          "key" : "settings.category.computerUse",
-          "text" : "Computer Use"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.mcpServers",
-            "rows" : [
-              "agents.mcpServers.enabled"
-            ],
-            "title" : {
-              "key" : "settings.group.mcpServers",
-              "text" : "Agent Chats"
-            }
-          }
-        ],
-        "id" : "mcpServers",
-        "lead" : [
-          "mcpServers"
-        ],
-        "symbol" : "server.rack",
-        "title" : {
-          "key" : "settings.category.mcpServers",
-          "text" : "MCP Servers"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-          "accounts",
-          "machines"
-        ],
-        "aliases" : [
-          "accounts",
-          "machines"
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.messagesServer",
-            "rows" : [
-              "home.server"
-            ],
-            "title" : {
-              "key" : "settings.group.messagesServer",
-              "text" : "Messages Server"
-            }
-          },
-          {
-            "key" : "settings.group.machineColors",
-            "rows" : [
-              "appearance.machineColors"
-            ],
-            "title" : {
-              "key" : "settings.group.machineColors",
-              "text" : "Machine Colors"
-            }
-          }
-        ],
-        "id" : "accounts",
-        "lead" : [
-          "accounts",
-          "machines"
-        ],
-        "symbol" : "person.crop.circle",
-        "title" : {
-          "key" : "settings.section.accounts",
-          "text" : "Accounts"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.mobile",
-            "rows" : [
-              "mobile.allowIPhoneConnections",
-              "mobile.autoApprovePhones",
-              "mobile.terminalSizing"
-            ],
-            "title" : {
-              "key" : "settings.group.mobile",
-              "text" : "iPhone"
-            }
-          },
-          {
-            "key" : "settings.group.phone",
-            "rows" : [
-              "phone.keepAwake",
-              "phone.cloudReplica",
-              "phone.cloudDesktop"
-            ],
-            "title" : {
-              "key" : "settings.group.phone",
-              "text" : "Phone Access"
-            }
-          }
-        ],
-        "id" : "mobile",
-        "lead" : [
-
-        ],
-        "symbol" : "iphone",
-        "title" : {
-          "key" : "settings.category.mobile",
-          "text" : "Mobile"
-        },
-        "trail" : [
-          "mobile"
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-          "server"
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.screenSharing",
-            "rows" : [
-              "macScreen.onlyPersonStartsViewing"
-            ],
-            "title" : {
-              "key" : "settings.group.screenSharing",
-              "text" : "Screen Sharing"
-            }
-          },
-          {
-            "key" : "settings.group.tailnet",
-            "rows" : [
-              "tailnet.join.enabled",
-              "tailnet.join.loginServer",
-              "tailnet.join.hostname",
-              "tailnet.join.tags",
-              "tailnet.join.ssh",
-              "tailnet.join.ephemeral",
-              "tailnet.join.servePorts",
-              "tailnet.join.autoJoinNewVMs"
-            ],
-            "title" : {
-              "key" : "settings.group.tailnet",
-              "text" : "Tailscale"
-            }
-          }
-        ],
-        "id" : "devices",
-        "lead" : [
-          "devices"
-        ],
-        "symbol" : "laptopcomputer",
-        "title" : {
-          "key" : "settings.category.devices",
-          "text" : "Devices"
-        },
-        "trail" : [
-          "server",
-          "tailnet"
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.cloudWorkspaces",
-            "rows" : [
-              "cloud.newWorkspacesInCloud",
-              "cloud.newWorkspaceFolder",
-              "cloud.defaultImage",
-              "cloud.agentsStartWithoutAsking",
-              "cloud.turnCheckpoints",
-              "cloud.autoCloud",
-              "cloud.agentMemory.follow"
-            ],
-            "title" : {
-              "key" : "settings.group.cloudWorkspaces",
-              "text" : "Cloud Workspaces"
-            }
-          }
-        ],
-        "id" : "cloud",
-        "lead" : [
-          "cloudModels",
-          "cloudEnvironments"
-        ],
-        "symbol" : "cloud",
-        "title" : {
-          "key" : "settings.category.cloud",
-          "text" : "Cloud"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-
-        ],
-        "id" : "keys",
-        "lead" : [
-          "keys"
-        ],
-        "symbol" : "key",
-        "title" : {
-          "key" : "settings.category.keys",
-          "text" : "Keys"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-
-        ],
-        "id" : "integrations",
-        "lead" : [
-          "integrationsHub"
-        ],
-        "symbol" : "link",
-        "title" : {
-          "key" : "settings.category.integrations",
-          "text" : "Integrations"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-
-        ],
-        "id" : "developer",
-        "lead" : [
-          "developerTokens"
-        ],
-        "symbol" : "chevron.left.forwardslash.chevron.right",
-        "title" : {
-          "key" : "settings.category.developer",
-          "text" : "Developer"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-
-        ],
-        "aliases" : [
-
-        ],
-        "groups" : [
-
-        ],
-        "id" : "import",
-        "lead" : [
-          "importSuggestions"
-        ],
-        "symbol" : "square.and.arrow.down",
-        "title" : {
-          "key" : "settings.category.import",
-          "text" : "Import"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-          "home"
-        ],
-        "aliases" : [
-          "home"
-        ],
-        "groups" : [
-          {
-            "key" : "privacy.0",
-            "rows" : [
-              "history.terminalCommands",
-              "home.attachments.keepLocation",
-              "home.clipboardHistory"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.localData",
-              "text" : "Data on This Mac"
-            }
-          },
-          {
-            "key" : "privacy.1",
-            "rows" : [
-              "browser.omnibar.remoteSuggestions",
-              "announcements.fetch"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.network",
-              "text" : "Network Requests"
-            }
-          },
-          {
-            "key" : "settings.group.anonymousTelemetry",
-            "rows" : [
-              "app.sendAnonymousTelemetry"
-            ],
-            "title" : {
-              "key" : "settings.group.anonymousTelemetry",
-              "text" : "Crash Reports and Analytics"
-            }
-          },
-          {
-            "key" : "settings.group.hangReports",
-            "rows" : [
-              "diagnostics.hangReports"
-            ],
-            "title" : {
-              "key" : "settings.group.hangReports",
-              "text" : "Hang Reports"
-            }
-          },
-          {
-            "key" : "settings.group.usagePatterns",
-            "rows" : [
-              "diagnostics.usagePatterns",
-              "diagnostics.shareInstallCounts"
-            ],
-            "title" : {
-              "key" : "settings.group.usagePatterns",
-              "text" : "Usage Patterns"
-            }
-          },
-          {
-            "key" : "settings.group.sshLinks",
-            "rows" : [
-              "ssh.linkAllowedHosts"
-            ],
-            "title" : {
-              "key" : "settings.group.sshLinks",
-              "text" : "SSH Links"
-            }
-          }
-        ],
-        "id" : "privacy",
-        "lead" : [
-          "sharedLinks"
-        ],
-        "symbol" : "hand.raised",
-        "title" : {
-          "key" : "settings.category.privacy",
-          "text" : "Privacy and Security"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-          "keyboard"
-        ],
-        "aliases" : [
-          "keyboard"
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.keyStyle",
-            "rows" : [
-              "app.keyStyle",
-              "app.shortcutLayout"
-            ],
-            "title" : {
-              "key" : "settings.group.keyStyle",
-              "text" : "Key Style"
-            }
-          },
-          {
-            "key" : "settings.shortcuts.hintsGroup",
-            "rows" : [
-              "shortcuts.showModifierHoldHints"
-            ],
-            "title" : {
-              "key" : "settings.shortcuts.hintsGroup",
-              "text" : "Shortcut Hints"
-            }
-          },
-          {
-            "key" : "keyboard.2",
-            "rows" : [
-              "tabs.commandDigits",
-              "sidebar.numbering",
-              "sidebar.cmd9",
-              "sidebar.stepping",
-              "sidebar.steppingWraps"
-            ],
-            "title" : {
-              "key" : "settings.pageGroup.sidebarKeys",
-              "text" : "Sidebar Navigation"
-            }
-          },
-          {
-            "key" : "settings.group.palette",
-            "rows" : [
-              "palette.scopes.tabs.prefix",
-              "palette.scopes.workspaces.prefix",
-              "palette.scopes.commands.prefix",
-              "palette.scopes.settings.prefix",
-              "palette.scopes.scopes.prefix",
-              "palette.searchHistory"
-            ],
-            "title" : {
-              "key" : "settings.group.palette",
-              "text" : "Command Palette"
-            }
-          },
-          {
-            "key" : "settings.group.macScreenKeyboard",
-            "rows" : [
-              "macScreen.systemShortcuts",
-              "macScreen.shareWithoutAsking"
-            ],
-            "title" : {
-              "key" : "settings.group.macScreenKeyboard",
-              "text" : "Mac Screen"
-            }
-          }
-        ],
-        "id" : "keyboard",
-        "lead" : [
-
-        ],
-        "symbol" : "keyboard",
-        "title" : {
-          "key" : "settings.section.keyboard",
-          "text" : "Keyboard"
-        },
-        "trail" : [
-
-        ]
-      },
-      {
-        "actions" : [
-          "advanced"
-        ],
-        "aliases" : [
-          "advanced"
-        ],
-        "groups" : [
-          {
-            "key" : "settings.group.developerTools",
-            "rows" : [
-              "developerTools.appPages",
-              "developerTools.overloadNotice"
-            ],
-            "title" : {
-              "key" : "settings.group.developerTools",
-              "text" : "Developer Tools"
-            }
-          }
-        ],
-        "id" : "advanced",
-        "lead" : [
-          "advancedInfo"
-        ],
-        "symbol" : "curlybraces",
-        "title" : {
-          "key" : "settings.section.advanced",
-          "text" : "Advanced"
-        },
-        "trail" : [
-          "advancedActions"
-        ]
-      },
-      {
-        "actions" : [
           "terminal"
         ],
         "aliases" : [
@@ -2549,6 +1324,982 @@
 
         ],
         "groups" : [
+          {
+            "key" : "chat.0",
+            "rows" : [
+              "agentPane.display.detail",
+              "agentPane.display.sendPop",
+              "agentPane.display.sendScrollsToTop",
+              "agentPane.display.compactShortTurns",
+              "agentPane.display.statusVerbs.mode",
+              "agentPane.display.statusVerbs.custom",
+              "agentPane.display.streaming",
+              "agentPane.display.thinking.shimmer",
+              "agentPane.display.thinking.shimmerPeriod",
+              "agentPane.display.thinking.shimmerBand",
+              "agentPane.display.thinking.jumpButton",
+              "agentPane.display.thinking.glyphSize",
+              "agentPane.needsYou.enabled",
+              "agentPane.display.finishSound",
+              "agentPane.showMachineLoadWarnings",
+              "agentPane.display.unreadBanner"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.transcript",
+              "text" : "Transcript"
+            }
+          },
+          {
+            "key" : "chat.1",
+            "rows" : [
+              "agentPane.display.width",
+              "agentPane.display.fullWidth",
+              "agentPane.zoom",
+              "agentPane.display.minimap",
+              "agentPane.display.vscodeMinimap",
+              "agentPane.display.chatListStatusPills",
+              "agentPane.display.trayTucked",
+              "agentPane.display.trayHandle",
+              "agentPane.display.headerBreadcrumb",
+              "agentPane.display.subagentOf",
+              "agentPane.display.senderIcon.lead",
+              "agentPane.display.senderIcon.badge",
+              "agentPane.display.senderIcon.corner",
+              "agentPane.display.rail.side",
+              "agentPane.display.rail.show",
+              "agentPane.display.rail.control",
+              "agentPane.display.sessionInfo.placement",
+              "agentPane.display.environment.placement",
+              "agentPane.display.layout.messages",
+              "agentPane.display.layout.composer",
+              "agentPane.display.layout.header",
+              "agentPane.display.environmentCard",
+              "agentPane.display.changesPill"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.chatLayout",
+              "text" : "Chat Layout"
+            }
+          },
+          {
+            "key" : "chat.2",
+            "rows" : [
+              "agentPane.display.font.ui",
+              "agentPane.display.font.uiFamily",
+              "agentPane.display.font.preset",
+              "agentPane.display.font.proseFamily",
+              "agentPane.display.font.faces",
+              "agentPane.display.font.size",
+              "agentPane.display.font.lineHeight",
+              "agentPane.display.code.family",
+              "agentPane.display.code.scale"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.chatText",
+              "text" : "Chat Text"
+            }
+          },
+          {
+            "key" : "chat.3",
+            "rows" : [
+              "agentPane.showContextUsage",
+              "agentPane.composerRing",
+              "agentPane.showDictation",
+              "agentPane.dictationSource",
+              "agentPane.dictationShortcut",
+              "agentPane.spellChecking",
+              "agentPane.composerVimKeys",
+              "agentPane.composerLook",
+              "agentPane.emptyChatComposerPosition",
+              "agentPane.composerPlaceholder",
+              "agentPane.attachmentView",
+              "agentPane.scrollToBottomOnSend",
+              "agentPane.followUpMode",
+              "agentPane.display.harnessPlacement",
+              "agentPane.display.modelChipIcon",
+              "agentPane.display.modelPickerStyle",
+              "agentPane.display.queueing",
+              "agentPane.display.promptCoach"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.messageBox",
+              "text" : "Message Box"
+            }
+          },
+          {
+            "key" : "chat.4",
+            "rows" : [
+              "agentPane.links.outsideRoots",
+              "agentPane.links.openCitationsInEditor",
+              "agentPane.images.remote",
+              "agentPane.editedFiles.show",
+              "agentPane.editedFiles.maxRows",
+              "agentPane.editedFiles.scope"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.filesLinks",
+              "text" : "Files and Links"
+            }
+          },
+          {
+            "key" : "settings.group.chats",
+            "rows" : [
+              "agents.chats.enabled",
+              "agents.chats.discovery",
+              "agents.chats.roots",
+              "agents.chats.sessionRecap",
+              "agents.chats.terminalChatWritable",
+              "agents.chats.coldArchive",
+              "agents.chats.coldArchiveAfterDays",
+              "agents.chats.deleteHistoryAfterDays",
+              "agents.chats.archiveInactive",
+              "agents.chats.coldSegments",
+              "agents.chats.coldSegmentsLevel",
+              "chat.on"
+            ],
+            "title" : {
+              "key" : "settings.group.chats",
+              "text" : "Chats"
+            }
+          }
+        ],
+        "id" : "chat",
+        "lead" : [
+
+        ],
+        "symbol" : "bubble.left",
+        "title" : {
+          "key" : "settings.category.chat",
+          "text" : "Chat"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.agentChat",
+            "rows" : [
+              "agentPane.display.transcriptLook",
+              "agentPane.newChatsIn",
+              "agentPane.sessionWorktrees",
+              "agentPane.savedPrompts",
+              "agents.defaultPermissionMode",
+              "agents.promptCache",
+              "agents.claudeOutputStyle",
+              "agents.codexPersonality",
+              "agents.commitAttribution",
+              "agents.claudeCodeInboxRelay",
+              "app.warnBeforeClosingAgentSession"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.agentDefaults",
+              "text" : "Defaults"
+            }
+          },
+          {
+            "key" : "settings.group.cmuxRemote",
+            "rows" : [
+              "remote.endSharingOnQuit",
+              "remote.agentShareIdleMinutes",
+              "remote.ultra",
+              "transport.tailnetCarrier",
+              "remote.screenSharingProfile",
+              "remoteDesktop.quality",
+              "remoteDesktop.maxFps",
+              "remoteDesktop.maxBitrateMbps",
+              "remoteDesktop.sharpLinuxText"
+            ],
+            "title" : {
+              "key" : "settings.group.cmuxRemote",
+              "text" : "cmux Remote"
+            }
+          },
+          {
+            "key" : "settings.group.freeModel",
+            "rows" : [
+              "freeModel.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.freeModel",
+              "text" : "AI Models"
+            }
+          },
+          {
+            "key" : "settings.group.sessions",
+            "rows" : [
+              "sessions.keepAwake",
+              "sessions.keepAwakeWhenLocked",
+              "sessions.keepAwakeForCommands",
+              "sessions.resumeAgents",
+              "sessions.allowFullAccess",
+              "sessions.promptSuggestions",
+              "agents.promptSuggestions"
+            ],
+            "title" : {
+              "key" : "settings.group.sessions",
+              "text" : "Agent Sessions"
+            }
+          },
+          {
+            "key" : "settings.group.subsessions",
+            "rows" : [
+              "agents.subsessions.enabled",
+              "agents.subsessions.answerQuestions",
+              "agents.subsessions.maxChildren",
+              "agents.subsessions.maxRunning",
+              "agents.subsessions.maxDepth"
+            ],
+            "title" : {
+              "key" : "settings.group.subsessions",
+              "text" : "Sub-sessions"
+            }
+          },
+          {
+            "key" : "settings.group.agentGuidance",
+            "rows" : [
+              "agents.guidance.claude",
+              "agents.guidance.codex",
+              "agents.guidance.otherAgents",
+              "agents.guidance.userSkills"
+            ],
+            "title" : {
+              "key" : "settings.group.agentGuidance",
+              "text" : "Guidance and Skills"
+            }
+          },
+          {
+            "key" : "settings.group.agentRetry",
+            "rows" : [
+              "agents.autoRetry.enabled",
+              "agents.autoRetry.intervalSeconds",
+              "agents.autoRetry.attempts",
+              "agents.autoRetry.capacityFallbackAfter"
+            ],
+            "title" : {
+              "key" : "settings.group.agentRetry",
+              "text" : "Retry After Errors"
+            }
+          },
+          {
+            "key" : "settings.group.agentCache",
+            "rows" : [
+              "agents.cacheCompact.enabled",
+              "agents.cacheCompact.minContextPercent",
+              "agents.cacheCompact.minContextTokens",
+              "agents.coldWake.enabled",
+              "agents.coldWake.compact",
+              "agents.coldWake.compactAboveTokens"
+            ],
+            "title" : {
+              "key" : "settings.group.agentCache",
+              "text" : "Prompt Cache"
+            }
+          },
+          {
+            "key" : "settings.group.folderTrust",
+            "rows" : [
+              "agents.trust.autoTrust",
+              "agents.trust.projectRoots",
+              "agents.trust.ownOrgs"
+            ],
+            "title" : {
+              "key" : "settings.group.folderTrust",
+              "text" : "Folder Trust"
+            }
+          },
+          {
+            "key" : "settings.group.agentTools",
+            "rows" : [
+              "agents.cmuxMcp",
+              "agents.cmuxMcpClaude",
+              "agents.cmuxMcpCodex",
+              "agents.appControl"
+            ],
+            "title" : {
+              "key" : "settings.group.agentTools",
+              "text" : "cmux Tools"
+            }
+          }
+        ],
+        "id" : "agents",
+        "lead" : [
+
+        ],
+        "symbol" : "sparkles",
+        "title" : {
+          "key" : "settings.category.agents",
+          "text" : "Agents"
+        },
+        "trail" : [
+          "agentCustomization",
+          "agentSkills",
+          "agentTools",
+          "harnesses",
+          "agentHarnesses",
+          "agentIntegrations",
+          "worktreeSetup"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.chiefChat",
+            "rows" : [
+              "home.chiefBubbleStyle",
+              "home.feedInChief",
+              "home.bubbleColors.sent",
+              "home.bubbleColors.sentText",
+              "home.bubbleColors.received",
+              "home.bubbleColors.receivedText"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefChat",
+              "text" : "Chief Chat"
+            }
+          },
+          {
+            "key" : "settings.group.chiefDock",
+            "rows" : [
+              "home.chiefDock.sidePanel",
+              "home.chiefDock.edge",
+              "home.chiefPanel.style",
+              "home.chiefDock.openBeside"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefDock",
+              "text" : "Chief Dock"
+            }
+          },
+          {
+            "key" : "settings.group.chiefPet",
+            "rows" : [
+              "home.chiefPetEnabled",
+              "home.chiefPetMascot"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefPet",
+              "text" : "Chief Pet"
+            }
+          },
+          {
+            "key" : "settings.group.chiefEngine",
+            "rows" : [
+              "home.chiefEngine",
+              "chief.permissionMode"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefEngine",
+              "text" : "Engine"
+            }
+          },
+          {
+            "key" : "settings.group.chiefReactions",
+            "rows" : [
+              "chief.reactionsCanWake",
+              "chief.reactionClassifier.harness",
+              "chief.reactionClassifier.model",
+              "chief.reactionClassifier.prompt"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefReactions",
+              "text" : "Reactions"
+            }
+          },
+          {
+            "key" : "settings.group.chiefSubagents",
+            "rows" : [
+              "chief.autoRouteSubagents",
+              "chief.subagentSidebar",
+              "chief.subagentSidebarShowWords",
+              "chief.subagentSidebarHideWords",
+              "chief.subagentSidebarMinWords"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefSubagents",
+              "text" : "Subagents"
+            }
+          }
+        ],
+        "id" : "chief",
+        "lead" : [
+          "chiefs",
+          "chiefPet",
+          "voiceInput"
+        ],
+        "symbol" : "crown",
+        "title" : {
+          "key" : "settings.category.chief",
+          "text" : "Chief"
+        },
+        "trail" : [
+          "notices"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "models",
+        "lead" : [
+          "models"
+        ],
+        "symbol" : "cpu",
+        "title" : {
+          "key" : "settings.category.models",
+          "text" : "Models"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "automations",
+        "lead" : [
+          "automationsCloud"
+        ],
+        "symbol" : "bolt",
+        "title" : {
+          "key" : "settings.category.automations",
+          "text" : "Automations"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+          "notifications"
+        ],
+        "aliases" : [
+          "notifications"
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.banners",
+            "rows" : [
+              "notifications.desktop",
+              "notifications.sound",
+              "notifications.quietHours",
+              "notifications.suppressWhileTypingSeconds",
+              "status.runNotifyMinimumSeconds",
+              "status.runNotifyWhenVisible",
+              "notifications.dockBadge",
+              "notifications.dockBounce",
+              "notifications.showPreviews"
+            ],
+            "title" : {
+              "key" : "settings.group.banners",
+              "text" : "Banners and Sound"
+            }
+          },
+          {
+            "key" : "settings.group.notificationDelivery",
+            "rows" : [
+              "notifications.delivery.permissionRequest",
+              "notifications.delivery.question",
+              "notifications.delivery.blocked",
+              "notifications.delivery.taskComplete"
+            ],
+            "title" : {
+              "key" : "settings.group.notificationDelivery",
+              "text" : "Delivery by Event"
+            }
+          },
+          {
+            "key" : "settings.group.sounds",
+            "rows" : [
+              "notifications.sounds.events.finished",
+              "notifications.sounds.events.needsInput",
+              "notifications.sounds.events.error",
+              "notifications.sounds.events.bell",
+              "notifications.sounds.events.message",
+              "notifications.sounds.volume",
+              "notifications.sounds.maxSeconds",
+              "notifications.sounds.when",
+              "notifications.sounds.cooldownSeconds"
+            ],
+            "title" : {
+              "key" : "settings.group.sounds",
+              "text" : "Sounds"
+            }
+          },
+          {
+            "key" : "settings.group.dismissal",
+            "rows" : [
+              "notifications.dismissal",
+              "notifications.timeoutSeconds",
+              "notifications.sources.agent.dismissal",
+              "notifications.sources.terminal.dismissal",
+              "notifications.sources.cli.dismissal"
+            ],
+            "title" : {
+              "key" : "settings.group.dismissal",
+              "text" : "Dismissal"
+            }
+          },
+          {
+            "key" : "settings.group.attention",
+            "rows" : [
+              "notifications.attention.style",
+              "notifications.attention.color",
+              "notifications.attention.terminals",
+              "notifications.attention.agentChats",
+              "notifications.attention.agentChatBlinkCount",
+              "notifications.attention.width",
+              "notifications.attention.blinkCount",
+              "notifications.attention.duration",
+              "notifications.attention.persist",
+              "notifications.attention.flash",
+              "notifications.attention.flashOnTyping",
+              "notifications.attention.showOnTab",
+              "notifications.attention.showOnSidebar",
+              "notifications.attention.mark",
+              "notifications.attention.moveToTop",
+              "notifications.attention.moveToTopOnAgentFinish"
+            ],
+            "title" : {
+              "key" : "settings.group.attention",
+              "text" : "Attention Ring"
+            }
+          },
+          {
+            "key" : "settings.group.feedMirror",
+            "rows" : [
+              "feed.mirrorNotifications.agents",
+              "feed.mirrorNotifications.terminal",
+              "feed.agentPermissionPrompts",
+              "feed.needsYouInChief"
+            ],
+            "title" : {
+              "key" : "settings.group.feedMirror",
+              "text" : "Feed"
+            }
+          },
+          {
+            "key" : "settings.group.githubInbox",
+            "rows" : [
+              "feed.github.enabled",
+              "feed.github.pollIntervalSeconds"
+            ],
+            "title" : {
+              "key" : "settings.group.githubInbox",
+              "text" : "GitHub Inbox"
+            }
+          }
+        ],
+        "id" : "notifications",
+        "lead" : [
+
+        ],
+        "symbol" : "bell",
+        "title" : {
+          "key" : "settings.section.notifications",
+          "text" : "Notifications"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+          "keyboard"
+        ],
+        "aliases" : [
+          "keyboard"
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.keyStyle",
+            "rows" : [
+              "app.keyStyle",
+              "app.shortcutLayout"
+            ],
+            "title" : {
+              "key" : "settings.group.keyStyle",
+              "text" : "Key Style"
+            }
+          },
+          {
+            "key" : "settings.shortcuts.hintsGroup",
+            "rows" : [
+              "shortcuts.showModifierHoldHints"
+            ],
+            "title" : {
+              "key" : "settings.shortcuts.hintsGroup",
+              "text" : "Shortcut Hints"
+            }
+          },
+          {
+            "key" : "keyboard.2",
+            "rows" : [
+              "tabs.commandDigits",
+              "sidebar.numbering",
+              "sidebar.cmd9",
+              "sidebar.stepping",
+              "sidebar.steppingWraps"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.sidebarKeys",
+              "text" : "Sidebar Navigation"
+            }
+          },
+          {
+            "key" : "settings.group.palette",
+            "rows" : [
+              "palette.scopes.tabs.prefix",
+              "palette.scopes.workspaces.prefix",
+              "palette.scopes.commands.prefix",
+              "palette.scopes.settings.prefix",
+              "palette.scopes.scopes.prefix",
+              "palette.searchHistory"
+            ],
+            "title" : {
+              "key" : "settings.group.palette",
+              "text" : "Command Palette"
+            }
+          },
+          {
+            "key" : "settings.group.macScreenKeyboard",
+            "rows" : [
+              "macScreen.systemShortcuts",
+              "macScreen.shareWithoutAsking"
+            ],
+            "title" : {
+              "key" : "settings.group.macScreenKeyboard",
+              "text" : "Mac Screen"
+            }
+          }
+        ],
+        "id" : "keyboard",
+        "lead" : [
+
+        ],
+        "symbol" : "keyboard",
+        "title" : {
+          "key" : "settings.section.keyboard",
+          "text" : "Keyboard"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+          "accounts",
+          "machines"
+        ],
+        "aliases" : [
+          "accounts",
+          "machines"
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.messagesServer",
+            "rows" : [
+              "home.server"
+            ],
+            "title" : {
+              "key" : "settings.group.messagesServer",
+              "text" : "Messages Server"
+            }
+          },
+          {
+            "key" : "settings.group.machineColors",
+            "rows" : [
+              "appearance.machineColors"
+            ],
+            "title" : {
+              "key" : "settings.group.machineColors",
+              "text" : "Machine Colors"
+            }
+          }
+        ],
+        "id" : "accounts",
+        "lead" : [
+          "accounts",
+          "machines"
+        ],
+        "symbol" : "person.crop.circle",
+        "title" : {
+          "key" : "settings.section.accounts",
+          "text" : "Accounts"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.mobile",
+            "rows" : [
+              "mobile.allowIPhoneConnections",
+              "mobile.autoApprovePhones",
+              "mobile.terminalSizing"
+            ],
+            "title" : {
+              "key" : "settings.group.mobile",
+              "text" : "iPhone"
+            }
+          },
+          {
+            "key" : "settings.group.phone",
+            "rows" : [
+              "phone.keepAwake",
+              "phone.cloudReplica",
+              "phone.cloudDesktop"
+            ],
+            "title" : {
+              "key" : "settings.group.phone",
+              "text" : "Phone Access"
+            }
+          }
+        ],
+        "id" : "mobile",
+        "lead" : [
+
+        ],
+        "symbol" : "iphone",
+        "title" : {
+          "key" : "settings.category.mobile",
+          "text" : "Mobile"
+        },
+        "trail" : [
+          "mobile"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+          "server"
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.screenSharing",
+            "rows" : [
+              "macScreen.onlyPersonStartsViewing"
+            ],
+            "title" : {
+              "key" : "settings.group.screenSharing",
+              "text" : "Screen Sharing"
+            }
+          },
+          {
+            "key" : "settings.group.tailnet",
+            "rows" : [
+              "tailnet.join.enabled",
+              "tailnet.join.loginServer",
+              "tailnet.join.hostname",
+              "tailnet.join.tags",
+              "tailnet.join.ssh",
+              "tailnet.join.ephemeral",
+              "tailnet.join.servePorts",
+              "tailnet.join.autoJoinNewVMs"
+            ],
+            "title" : {
+              "key" : "settings.group.tailnet",
+              "text" : "Tailscale"
+            }
+          }
+        ],
+        "id" : "devices",
+        "lead" : [
+          "devices"
+        ],
+        "symbol" : "laptopcomputer",
+        "title" : {
+          "key" : "settings.category.devices",
+          "text" : "Devices"
+        },
+        "trail" : [
+          "server",
+          "tailnet"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "newTab.0",
+            "rows" : [
+              "tabs.newTabTemplate",
+              "tabs.newTabClock.show",
+              "tabs.newTabClock.font",
+              "tabs.newTabClock.weight",
+              "tabs.newTabClock.color",
+              "tabs.newTabClock.date",
+              "tabs.newTabApp",
+              "tabs.nativeNewTabPage",
+              "sidebar.showChats",
+              "tabs.newTabNowPlaying"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.newTabPage",
+              "text" : "New Tab Page"
+            }
+          }
+        ],
+        "id" : "newTab",
+        "lead" : [
+
+        ],
+        "symbol" : "plus.square",
+        "title" : {
+          "key" : "settings.pageGroup.newTabPage",
+          "text" : "New Tab Page"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "menus",
+        "lead" : [
+          "contextMenus"
+        ],
+        "symbol" : "contextualmenu.and.cursorarrow",
+        "title" : {
+          "key" : "settings.category.menus",
+          "text" : "Menus"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.computerUse",
+            "rows" : [
+              "computerUse.mode",
+              "computerUse.deniedApps",
+              "computerUse.allowOwnMachines",
+              "computerUse.pauseOnTakeover",
+              "computerUse.showCursor",
+              "computerUse.cursorTag",
+              "computerUse.settle",
+              "computerUse.livePreview",
+              "computerUse.floatingPreview",
+              "computerUse.whileLocked",
+              "computerUse.menus",
+              "computerUse.allowForeground"
+            ],
+            "title" : {
+              "key" : "settings.group.computerUse",
+              "text" : "Computer Use"
+            }
+          }
+        ],
+        "id" : "computerUse",
+        "lead" : [
+          "computerUse"
+        ],
+        "symbol" : "cursorarrow.click.2",
+        "title" : {
+          "key" : "settings.category.computerUse",
+          "text" : "Computer Use"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.mcpServers",
+            "rows" : [
+              "agents.mcpServers.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.mcpServers",
+              "text" : "Agent Chats"
+            }
+          }
+        ],
+        "id" : "mcpServers",
+        "lead" : [
+          "mcpServers"
+        ],
+        "symbol" : "server.rack",
+        "title" : {
+          "key" : "settings.category.mcpServers",
+          "text" : "MCP Servers"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
 
         ],
         "id" : "extensions",
@@ -2562,6 +2313,257 @@
         },
         "trail" : [
 
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.cloudWorkspaces",
+            "rows" : [
+              "cloud.newWorkspacesInCloud",
+              "cloud.newWorkspaceFolder",
+              "cloud.useMyGitHubLogin",
+              "cloud.defaultImage",
+              "cloud.agentsStartWithoutAsking",
+              "cloud.turnCheckpoints",
+              "cloud.autoCloud",
+              "cloud.agentMemory.follow"
+            ],
+            "title" : {
+              "key" : "settings.group.cloudWorkspaces",
+              "text" : "Cloud Workspaces"
+            }
+          }
+        ],
+        "id" : "cloud",
+        "lead" : [
+          "cloudModels",
+          "cloudEnvironments"
+        ],
+        "symbol" : "cloud",
+        "title" : {
+          "key" : "settings.category.cloud",
+          "text" : "Cloud"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "keys",
+        "lead" : [
+          "keys"
+        ],
+        "symbol" : "key",
+        "title" : {
+          "key" : "settings.category.keys",
+          "text" : "Keys"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "integrations",
+        "lead" : [
+          "integrationsHub"
+        ],
+        "symbol" : "link",
+        "title" : {
+          "key" : "settings.category.integrations",
+          "text" : "Integrations"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "developer",
+        "lead" : [
+          "developerTokens"
+        ],
+        "symbol" : "chevron.left.forwardslash.chevron.right",
+        "title" : {
+          "key" : "settings.category.developer",
+          "text" : "Developer"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "import",
+        "lead" : [
+          "importSuggestions"
+        ],
+        "symbol" : "square.and.arrow.down",
+        "title" : {
+          "key" : "settings.category.import",
+          "text" : "Import"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+          "home"
+        ],
+        "aliases" : [
+          "home"
+        ],
+        "groups" : [
+          {
+            "key" : "privacy.0",
+            "rows" : [
+              "history.terminalCommands",
+              "home.attachments.keepLocation",
+              "home.clipboardHistory"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.localData",
+              "text" : "Data on This Mac"
+            }
+          },
+          {
+            "key" : "privacy.1",
+            "rows" : [
+              "browser.omnibar.remoteSuggestions",
+              "announcements.fetch"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.network",
+              "text" : "Network Requests"
+            }
+          },
+          {
+            "key" : "settings.group.anonymousTelemetry",
+            "rows" : [
+              "app.sendAnonymousTelemetry"
+            ],
+            "title" : {
+              "key" : "settings.group.anonymousTelemetry",
+              "text" : "Crash Reports and Analytics"
+            }
+          },
+          {
+            "key" : "settings.group.hangReports",
+            "rows" : [
+              "diagnostics.hangReports"
+            ],
+            "title" : {
+              "key" : "settings.group.hangReports",
+              "text" : "Hang Reports"
+            }
+          },
+          {
+            "key" : "settings.group.usagePatterns",
+            "rows" : [
+              "diagnostics.usagePatterns",
+              "diagnostics.shareInstallCounts"
+            ],
+            "title" : {
+              "key" : "settings.group.usagePatterns",
+              "text" : "Usage Patterns"
+            }
+          },
+          {
+            "key" : "settings.group.sshLinks",
+            "rows" : [
+              "ssh.linkAllowedHosts"
+            ],
+            "title" : {
+              "key" : "settings.group.sshLinks",
+              "text" : "SSH Links"
+            }
+          }
+        ],
+        "id" : "privacy",
+        "lead" : [
+          "sharedLinks"
+        ],
+        "symbol" : "hand.raised",
+        "title" : {
+          "key" : "settings.category.privacy",
+          "text" : "Privacy and Security"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
+          "advanced"
+        ],
+        "aliases" : [
+          "advanced"
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.developerTools",
+            "rows" : [
+              "developerTools.appPages",
+              "developerTools.overloadNotice"
+            ],
+            "title" : {
+              "key" : "settings.group.developerTools",
+              "text" : "Developer Tools"
+            }
+          }
+        ],
+        "id" : "advanced",
+        "lead" : [
+          "advancedInfo"
+        ],
+        "symbol" : "curlybraces",
+        "title" : {
+          "key" : "settings.section.advanced",
+          "text" : "Advanced"
+        },
+        "trail" : [
+          "advancedActions"
         ]
       },
       {
@@ -2588,6 +2590,7 @@
               "labs.agentCustomization",
               "labs.commentThreads",
               "labs.previousBuild",
+              "labs.teamCompute",
               "labs.hostsSidebar",
               "labs.connectionsUpcoming",
               "appearance.experimentalControls",
@@ -2640,7 +2643,8 @@
               "experiments.foldSummaryCounts",
               "experiments.cloudDiskBar",
               "experiments.browserProfileCard",
-              "experiments.appStoreFeatures"
+              "experiments.appStoreFeatures",
+              "experiments.compactionThresholdInsight"
             ],
             "title" : {
               "key" : "settings.group.experiments",
@@ -2732,16 +2736,10 @@
         "categories" : [
           "general",
           "customize",
-          "notifications",
-          "updates",
-          "newTab",
-          "menus"
+          "updates"
         ],
-        "id" : "general",
-        "title" : {
-          "key" : "settings.section.general",
-          "text" : "General"
-        }
+        "id" : "app",
+        "title" : null
       },
       {
         "categories" : [
@@ -2749,10 +2747,22 @@
           "sidebar",
           "tabs"
         ],
-        "id" : "appearance",
+        "id" : "look",
         "title" : {
-          "key" : "settings.section.appearance",
-          "text" : "Appearance"
+          "key" : "settings.sidebarSection.lookAndFeel",
+          "text" : "Look and Feel"
+        }
+      },
+      {
+        "categories" : [
+          "terminal",
+          "editor",
+          "browser"
+        ],
+        "id" : "tools",
+        "title" : {
+          "key" : "settings.sidebarSection.tools",
+          "text" : "Tools"
         }
       },
       {
@@ -2761,9 +2771,7 @@
           "agents",
           "chief",
           "models",
-          "automations",
-          "computerUse",
-          "mcpServers"
+          "automations"
         ],
         "id" : "ai",
         "title" : {
@@ -2773,15 +2781,20 @@
       },
       {
         "categories" : [
+          "notifications",
+          "keyboard"
+        ],
+        "id" : "interaction",
+        "title" : {
+          "key" : "settings.sidebarSection.interaction",
+          "text" : "Interaction"
+        }
+      },
+      {
+        "categories" : [
           "accounts",
           "mobile",
-          "devices",
-          "cloud",
-          "keys",
-          "integrations",
-          "developer",
-          "import",
-          "privacy"
+          "devices"
         ],
         "id" : "devices",
         "title" : {
@@ -2791,28 +2804,26 @@
       },
       {
         "categories" : [
-          "keyboard"
-        ],
-        "id" : "keyboard",
-        "title" : {
-          "key" : "settings.section.keyboard",
-          "text" : "Keyboard"
-        }
-      },
-      {
-        "categories" : [
-          "advanced",
-          "terminal",
-          "editor",
-          "browser",
+          "newTab",
+          "menus",
+          "computerUse",
+          "mcpServers",
           "extensions",
+          "cloud",
+          "keys",
+          "integrations",
+          "developer",
+          "import",
+          "privacy",
+          "advanced",
           "experimental",
           "development"
         ],
-        "id" : "advanced",
+        "collapsed" : true,
+        "id" : "more",
         "title" : {
-          "key" : "settings.section.advanced",
-          "text" : "Advanced"
+          "key" : "settings.sidebarSection.more",
+          "text" : "More"
         }
       }
     ]
@@ -4583,6 +4594,144 @@
       "title" : {
         "key" : "settings.app.startAgentGlobalHotKey",
         "text" : "Start Agent from Any App"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.captureScreenshotGlobalHotKey.help",
+        "text" : "Capture Screenshot to Chat (⌃⌥⌘S) works while another app is in front. Change its key in Keyboard Shortcuts."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.captureScreenshotGlobalHotKey",
+      "keywords" : [
+        "global",
+        "hotkey",
+        "hot key",
+        "screenshot",
+        "capture",
+        "screen",
+        "region",
+        "image",
+        "agent",
+        "chat",
+        "system-wide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "captureScreenshotGlobalHotKey"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:app.captureScreenshotGlobalHotKey"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.app.captureScreenshotGlobalHotKey",
+        "text" : "Capture Screenshot to Chat from Any App"
       },
       "validation" : "portable"
     },
@@ -17688,6 +17837,144 @@
       "title" : {
         "key" : "settings.cloud.newWorkspaceFolder",
         "text" : "New Cloud Workspaces Start In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.cloudWorkspaces",
+        "text" : "Cloud Workspaces"
+      },
+      "help" : {
+        "key" : "settings.cloud.useMyGitHubLogin.help",
+        "text" : "Cloud machines use the cmux GitHub App by default. Turn this on to share this Mac’s personal GitHub CLI login with machines you start. To remove a shared login, run cmux github login forget on that machine."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "cloud.useMyGitHubLogin",
+      "keywords" : [
+        "cloud",
+        "github",
+        "gh",
+        "login",
+        "git",
+        "clone",
+        "push",
+        "token",
+        "repository",
+        "sign in",
+        "account"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "cloud",
+        "useMyGitHubLogin"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "machines",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:cloud.useMyGitHubLogin"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.cloud.useMyGitHubLogin",
+        "text" : "Use My GitHub Login on Cloud Machines"
       },
       "validation" : "portable"
     },
@@ -72537,6 +72824,172 @@
     },
     {
       "accepts" : [
+        "words",
+        "lines",
+        "instant"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.streamingWords",
+            "text" : "Word by Word"
+          },
+          "value" : "words"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.streamingLines",
+            "text" : "Line by Line"
+          },
+          "value" : "lines"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.streamingInstant",
+            "text" : "Instant"
+          },
+          "value" : "instant"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "words",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.streaming.help",
+        "text" : "How an agent's reply text appears as it arrives."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.streaming",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "streaming",
+        "reveal",
+        "fade",
+        "words",
+        "lines",
+        "instant",
+        "animation",
+        "typing"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "streaming"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agentPane.display.streaming"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agentPane.display.streaming",
+        "text" : "Reply Streaming"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "cadenced",
         "continuous"
       ],
@@ -85699,7 +86152,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -130019,6 +130472,143 @@
         true,
         false
       ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.labs",
+        "text" : "Labs"
+      },
+      "help" : {
+        "key" : "settings.labs.teamCompute.help",
+        "text" : "Show your team's compute allotment and each member's use in Settings > Cloud."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "labs.teamCompute",
+      "keywords" : [
+        "labs",
+        "team",
+        "compute",
+        "allotment",
+        "usage",
+        "cloud",
+        "members",
+        "spend"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "labs",
+        "teamCompute"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:labs.teamCompute"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.labs.teamCompute",
+        "text" : "Team Compute"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "userOnly",
       "agent_settable" : false,
       "consumers" : [
@@ -136260,6 +136850,140 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.experiments",
+        "text" : "Experiments"
+      },
+      "help" : {
+        "key" : "settings.experiments.compactionThresholdInsight.help",
+        "text" : "Show when Claude automatically compacted a chat and how to lower the context it carries between turns."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "experiments.compactionThresholdInsight",
+      "keywords" : [
+        "usage",
+        "efficiency",
+        "compaction",
+        "context",
+        "tokens"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "experiments",
+        "compactionThresholdInsight"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "advanced",
+      "summary" : null,
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "toggle",
+          "offered" : true,
+          "operations" : [
+            "palette.toggleSetting"
+          ],
+          "reason" : null,
+          "row" : "setting:experiments.compactionThresholdInsight"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.experiments.compactionThresholdInsight",
+        "text" : "Compaction Threshold Insight"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "click",
         "never",
         "always"
@@ -140602,177 +141326,6 @@
       "title" : {
         "key" : "settings.agents.claudeCodeInboxRelay",
         "text" : "Add Message Relay to Claude Code"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "deepseek/deepseek-v4.1-flash-1017",
-        "deepseek/deepseek-v4.1-flash",
-        "deepseek/deepseek-v4-flash",
-        "deepseek/deepseek-v4-pro"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.modelRouterDeepSeekV41Flash1017",
-            "text" : "DeepSeek V4.1 Flash 1017 (Images)"
-          },
-          "value" : "deepseek/deepseek-v4.1-flash-1017"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.modelRouterDeepSeekV41Flash",
-            "text" : "DeepSeek V4.1 Flash"
-          },
-          "value" : "deepseek/deepseek-v4.1-flash"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.modelRouterDeepSeekV4Flash",
-            "text" : "DeepSeek V4 Flash"
-          },
-          "value" : "deepseek/deepseek-v4-flash"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.modelRouterDeepSeekV4Pro",
-            "text" : "DeepSeek V4 Pro"
-          },
-          "value" : "deepseek/deepseek-v4-pro"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "deepseek/deepseek-v4.1-flash-1017",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.agentChat",
-        "text" : "Agent Chat"
-      },
-      "help" : {
-        "key" : "settings.agents.modelRouter.model.help",
-        "text" : "The model new cmux model router chats start on."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "agents.modelRouter.model",
-      "keywords" : [
-        "model",
-        "router",
-        "cmux router",
-        "deepseek",
-        "vision",
-        "images",
-        "inference",
-        "default model",
-        "new chat"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "agents",
-        "modelRouter",
-        "model"
-      ],
-      "placeholder" : null,
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "summary" : null,
-      "surfaces" : {
-        "cli" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "mcp" : {
-          "aliases" : [
-            "settings.unset"
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        },
-        "palette" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-
-          ],
-          "app_operations" : [
-
-          ],
-          "editor" : "options",
-          "offered" : true,
-          "operations" : [
-
-          ],
-          "reason" : null,
-          "row" : "setting:agents.modelRouter.model"
-        },
-        "socket" : {
-          "aliases" : [
-
-          ],
-          "app_aliases" : [
-            "settings.unset"
-          ],
-          "app_operations" : [
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "editor" : null,
-          "offered" : true,
-          "operations" : [
-            "settings.list",
-            "settings.get",
-            "settings.set",
-            "settings.reset"
-          ],
-          "reason" : null,
-          "row" : null
-        }
-      },
-      "title" : {
-        "key" : "settings.agents.modelRouter.model",
-        "text" : "cmux Model Router Model"
       },
       "validation" : "portable"
     },

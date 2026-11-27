@@ -58,8 +58,8 @@ impl RttRing {
 /// Connect attempts kept per link for comparing transports (`attempts` in `linkStats`).
 pub const ATTEMPT_SAMPLES: usize = 32;
 
-/// One connect attempt on one transport: a cold connect that opened on `via`, or a path that
-/// failed to open or ended. Recorded for every attempt so ssh and WireGuard are scored by the
+/// One connect attempt on one transport: a cold connect that opened on `via`, a path that
+/// failed to open, or one that had answered and then ended (`ended`). Recorded for every attempt so ssh and WireGuard are scored by the
 /// same rows (cmuxterm-hq RFD 0060, Weft move 2).
 #[derive(Debug, Clone)]
 struct Attempt {
@@ -67,6 +67,10 @@ struct Attempt {
     at: u64,
     via: Via,
     opened: bool,
+    /// A connection that had answered and then ended, not a dial that failed: on huge-blue an
+    /// 11 s stall of its own dropped every link at once, and each drop read as a failed attempt
+    /// (518 "failed" against 352 opened) though every redial opened within 1.5 s.
+    ended: bool,
     /// Time from the cold connect's start to the first byte; None for a failure.
     ms: Option<u64>,
 }
@@ -116,6 +120,7 @@ impl LinkStats {
             at: now,
             via: winner,
             opened: true,
+            ended: false,
             ms: Some(now.saturating_sub(started)),
         });
         let mut ahead = order.iter().take_while(|via| **via != winner);
@@ -135,9 +140,10 @@ impl LinkStats {
         self.attempts.push_back(attempt);
     }
 
-    /// A dial of `via` did not open, or its connection ended, at `now`.
-    pub fn attempt_failed(&mut self, via: Via, now: u64) {
-        self.attempt(Attempt { at: now, via, opened: false, ms: None });
+    /// A dial of `via` did not open at `now`, or (`ended`) its connection that had answered
+    /// ended then.
+    pub fn attempt_failed(&mut self, via: Via, now: u64, ended: bool) {
+        self.attempt(Attempt { at: now, via, opened: false, ended, ms: None });
     }
 
     /// The live link runs on `via` from `now` (None: it ended).
@@ -225,7 +231,7 @@ impl LinkStats {
                 "atMs": a.at,
                 "transport": a.via.as_str(),
                 "carrier": a.via.carrier().as_str(),
-                "outcome": if a.opened { "opened" } else { "failed" },
+                "outcome": if a.opened { "opened" } else if a.ended { "ended" } else { "failed" },
                 "firstByteMs": a.ms,
             })).collect::<Vec<_>>(),
             "directUpgrade": {

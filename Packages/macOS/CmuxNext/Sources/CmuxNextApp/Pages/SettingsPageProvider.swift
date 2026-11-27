@@ -176,7 +176,7 @@ final class SettingsPageProvider: PageProvider {
                 do {
                     try await self.settings.resetAllSettings(by: Self.writer(context))
                 } catch let userOnly as SettingUserOnly {
-                    throw Self.userOnlyError(userOnly)
+                    throw PageError.userOnly(userOnly)
                 }
                 await self.settings.reload()
                 return SettingsSchema.all.filter { $0.storedValue(in: before) != $0.storedValue(in: self.settings.snapshot.root) }.map(\.id)
@@ -284,7 +284,7 @@ final class SettingsPageProvider: PageProvider {
             let descriptor = try descriptor(params)
             guard descriptor.kind == .folderList else { throw PageError.invalidParams("\(descriptor.id) is not a folder list") }
             if descriptor.path == ChatSettings.rootsPath, Self.writer(context) != .user {
-                throw Self.userOnlyError(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
+                throw PageError.userOnly(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
             }
             let picker = descriptor.path == ChatSettings.rootsPath ? pickChatFolders : pickFolders
             guard let picker else { throw PageError(code: "cmux.page.unavailable", message: "no folder picker") }
@@ -325,7 +325,7 @@ final class SettingsPageProvider: PageProvider {
                     throw PageError(code: "cmux.settings.managed", message: "\(descriptor.id) is managed", details: source.pageInfo)
                 }
                 guard Self.writer(context).mayWrite(descriptor) else {
-                    throw Self.userOnlyError(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
+                    throw PageError.userOnly(SettingUserOnly(key: descriptor.id, writer: Self.writer(context)))
                 }
                 return (descriptor, edit["value"].flatMap { $0 == .null ? nil : $0 })
             }
@@ -497,9 +497,6 @@ final class SettingsPageProvider: PageProvider {
         try context.requirePerson(on: PageDescriptor.settings.id, backs: personBacksGesture, refusal: Self.personOnly)
     }
 
-    static func userOnlyError(_ refusal: SettingUserOnly) -> PageError {
-        PageError(code: "cmux.settings.user_only", message: String(describing: refusal), details: ["key": .string(refusal.key)])
-    }
     static var personOnly: PageError { PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage) } // an agent's person-only op
 
     func write(_ descriptor: SettingDescriptor, _ value: JSONValue?, by writer: SettingWriter) async throws {
@@ -512,7 +509,7 @@ final class SettingsPageProvider: PageProvider {
                 ? (refused.value.arrayValue ?? []).compactMap { $0.stringValue.flatMap { ChatRootValidator().refusal($0) } } : []
             throw PageError(code: "cmux.settings.invalid", message: reasons.first ?? String(describing: refused))
         } catch let userOnly as SettingUserOnly {
-            throw Self.userOnlyError(userOnly)
+            throw PageError.userOnly(userOnly)
         }
         // setSetting returns once its own load applied the write (reloadAfterWrite), so the
         // page's next read is current without a second full load and apply.
