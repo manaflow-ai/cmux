@@ -30,40 +30,52 @@ import Testing
         var state = CEFChatRendererRecycle()
         let now = ContinuousClock.now
         // Seen first at 675 MB: its baseline is a fresh renderer's 192 MB, so 675 >= 448 is due at once.
-        #expect(state.isDue(renderer: 7, resident: 675 * mb, now: now, live: [7]))
+        let due1 = state.isDue(renderer: 7, resident: 675 * mb, now: now, live: [7])
+        #expect(due1)
         // Seen first small: the baseline is what it holds.
-        #expect(!state.isDue(renderer: 8, resident: 120 * mb, now: now, live: [7, 8]))
-        #expect(!state.isDue(renderer: 8, resident: 375 * mb, now: now, live: [7, 8]))
-        #expect(state.isDue(renderer: 8, resident: 376 * mb, now: now, live: [7, 8]))
+        let due2 = state.isDue(renderer: 8, resident: 120 * mb, now: now, live: [7, 8])
+        #expect(!due2)
+        let due3 = state.isDue(renderer: 8, resident: 375 * mb, now: now, live: [7, 8])
+        #expect(!due3)
+        let due4 = state.isDue(renderer: 8, resident: 376 * mb, now: now, live: [7, 8])
+        #expect(due4)
     }
 
     @Test func oneRecycleInTenMinutesForEveryRenderer() {
         var state = CEFChatRendererRecycle()
         let start = ContinuousClock.now
-        #expect(state.isDue(renderer: 7, resident: 700 * mb, now: start, live: [7]))
+        let due1 = state.isDue(renderer: 7, resident: 700 * mb, now: start, live: [7])
+        #expect(due1)
         state.recycled(at: start)
         // The fresh renderer comes back under a new client id: the cooldown still holds.
-        #expect(!state.isDue(renderer: 9, resident: 700 * mb, now: start + .seconds(599), live: [9]))
-        #expect(state.isDue(renderer: 9, resident: 700 * mb, now: start + .seconds(600), live: [9]))
+        let due2 = state.isDue(renderer: 9, resident: 700 * mb, now: start + .seconds(599), live: [9])
+        #expect(!due2)
+        let due3 = state.isDue(renderer: 9, resident: 700 * mb, now: start + .seconds(600), live: [9])
+        #expect(due3)
     }
 
     @Test func anAbortedTryWaitsTwoMinutes() {
         var state = CEFChatRendererRecycle()
         let start = ContinuousClock.now
         state.aborted(at: start)
-        #expect(!state.isDue(renderer: 7, resident: 700 * mb, now: start + .seconds(119), live: [7]))
-        #expect(state.isDue(renderer: 7, resident: 700 * mb, now: start + .seconds(120), live: [7]))
+        let due1 = state.isDue(renderer: 7, resident: 700 * mb, now: start + .seconds(119), live: [7])
+        #expect(!due1)
+        let due2 = state.isDue(renderer: 7, resident: 700 * mb, now: start + .seconds(120), live: [7])
+        #expect(due2)
     }
 
     @Test func settledSizeIsTheNextBaselineAndDeadRenderersAreForgotten() {
         var state = CEFChatRendererRecycle()
         let now = ContinuousClock.now
         state.settled(renderer: 9, resident: 160 * mb)
-        #expect(!state.isDue(renderer: 9, resident: 400 * mb, now: now, live: [9]))
-        #expect(state.isDue(renderer: 9, resident: 416 * mb, now: now, live: [9]))
+        let due1 = state.isDue(renderer: 9, resident: 400 * mb, now: now, live: [9])
+        #expect(!due1)
+        let due2 = state.isDue(renderer: 9, resident: 416 * mb, now: now, live: [9])
+        #expect(due2)
         // Gone from the live set, then seen again: a new first sight.
         _ = state.isDue(renderer: 10, resident: 100 * mb, now: now, live: [10])
-        #expect(state.isDue(renderer: 9, resident: 448 * mb, now: now, live: [9, 10]))
+        let due3 = state.isDue(renderer: 9, resident: 448 * mb, now: now, live: [9, 10])
+        #expect(due3)
     }
 
     @Test func recyclesWhenEveryPageIsASpareOrAnIdleChat() {
