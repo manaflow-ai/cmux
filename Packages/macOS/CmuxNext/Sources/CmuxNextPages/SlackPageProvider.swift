@@ -21,7 +21,8 @@ public final class SlackPageProvider: PageProvider {
 
     /// The awake-time read/write with no Chief to ask; a named function, not a closure literal
     /// default (an async closure default can overrun its async context across modules, cx-bsue).
-    @MainActor static func noChief(_: Int??) async throws -> Data { throw PageError.unavailable("no Chief") }
+    /// Public because a public initializer's default may only name public symbols.
+    @MainActor public static func noChief(_: Int??) async throws -> Data { throw PageError.unavailable("no Chief") }
 
     /// The most a non-owner may keep the Chief awake a day (the API's `SLACK_ALLOWANCE_MAX_SECONDS`).
     public static let maxAllowanceSeconds = 86_400
