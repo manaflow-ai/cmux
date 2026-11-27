@@ -54,10 +54,12 @@ def main():
                 cpu = resource.getrusage(resource.RUSAGE_CHILDREN)
                 status, failed_stage = 1, ""
                 try:
-                    result = subprocess.run(["bash", str(head / "scripts/ci/mobile-pair-skew.sh"),
-                                             str(host), str(dial)], env=env, timeout=1800)
+                    result = subprocess.run([
+                        "bash", str(head / "scripts/ci/timeout.sh"), "--kill-after=5", "1800",
+                        "bash", str(head / "scripts/ci/mobile-pair-skew.sh"), str(host), str(dial),
+                    ], env=env, timeout=1815)
                     status = result.returncode
-                    failed_stage = "" if status == 0 else "pair"
+                    failed_stage = ("pair-timeout" if status in (124, 137) else "pair") if status else ""
                 except subprocess.TimeoutExpired:
                     status, failed_stage = 124, "pair-timeout"
                 except OSError:

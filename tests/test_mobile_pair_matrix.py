@@ -49,13 +49,15 @@ class MatrixReceipts(unittest.TestCase):
             return code, json.loads((logs / "matrix-result.json").read_text()), calls
 
     def test_timeout_has_terminal_receipt_and_retains_unrun_release(self):
-        code, receipt, calls = self.exercise(subprocess.TimeoutExpired("pair", 1800))
+        code, receipt, calls = self.exercise(124)
         self.assertEqual(code, 124)
         self.assertFalse(receipt["passed"])
         self.assertEqual(receipt["completed"][0]["failed_stage"], "pair-timeout")
         self.assertEqual(receipt["completed"][0]["release_ids"], ["nightly-1"])
         self.assertEqual(receipt["not_run"][0]["release_ids"], ["ios-1"])
-        self.assertEqual(len([call for call in calls if call[0] == "bash"]), 1)
+        pair_call, = [call for call in calls if call[0] == "bash"]
+        self.assertTrue(pair_call[1].endswith("/scripts/ci/timeout.sh"))
+        self.assertEqual(pair_call[2:4], ["--kill-after=5", "1800"])
 
     def test_nonzero_pair_and_launch_error_never_pass(self):
         for outcome, status, stage in ((7, 7, "pair"), (OSError("missing bash"), 127, "pair-launch")):
