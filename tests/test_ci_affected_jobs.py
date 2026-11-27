@@ -721,6 +721,33 @@ class TheRepository(unittest.TestCase):
                     run = {key[1]: value for key, value in result.run.items()}
                     self.assertTrue(run["acpmux-tests"], result.lines())
 
+    def test_the_remote_web_wasm_build_runs_only_on_what_it_builds(self):
+        """remote-web-wasm builds cmux-remote-web for wasm32 (#54014). It ran on every cmux-tui head: 378 of its 426
+        runs in 11-26 15Z..22Z (89% of its minutes) touched nothing it builds. Its crate, a crate it reaches, the
+        workspace files and its own inputs run it; another crate, a web change or a doc does not; a path the graph
+        cannot place still does, and its `if:` reads the router's output."""
+        map_text = (ROOT / jobs.MAP).read_text()
+        cases = {
+            "cmux-tui/crates/cmux-remote-web/src/lib.rs": True,
+            "cmux-tui/crates/cmux-remote-protocol/src/frame.rs": True,
+            "cmux-tui/Cargo.lock": True,
+            "scripts/ci/apt-ensure.sh": True,
+            ".github/workflows/cmux-tui-spec.yml": True,
+            "cmux-tui/not-in-any-package.bin": True,
+            "cmux-tui/crates/acpmux/src/lib.rs": False,
+            "web/app/page.tsx": False,
+            "docs/notes.md": False,
+        }
+        with git_tree.GitTree(ROOT) as tree:
+            for path, want in cases.items():
+                with self.subTest(path=path):
+                    result = jobs.route(tree, [path], map_text=map_text, base_tree=tree)
+                    run = {key[1]: value for key, value in result.run.items()}
+                    self.assertEqual(run["remote-web-wasm"], want, result.lines())
+        block = jobs.job_block((ROOT / ".github/workflows/cmux-tui-spec.yml").read_text(), "remote-web-wasm")
+        self.assertIn("needs.changes.result != 'success'", block)  # a failed router runs it
+        self.assertIn("needs.changes.outputs.remote_web_wasm != 'false'", block)
+
     def test_the_daemon_tier_routes_by_the_map(self):
         """cmux_next_route.py's daemon tier reads the map's daemon-test: a crate the fetched binaries build runs it, a
         crate none of them builds, or a binary crate's own tests, does not."""
@@ -771,6 +798,28 @@ class TheRepository(unittest.TestCase):
         self.assertFalse(jobs.gate(ROOT, outside, workflow, **follows)[0])
         self.assertTrue(jobs.gate(ROOT, None, workflow, **follows)[0])
         self.assertTrue(jobs.gate(ROOT, outside, workflow, event="push", **follows)[0])
+
+    def test_sdks_and_windows_follow_the_graph_under_full_ci_only_when_the_variable_is_on(self):
+        """cmux-tui-sdks.yml and cmux-tui-windows-check.yml pass --full-ci-follows-graph only through FOLLOWS_GRAPH,
+        set from the CI_LAND_KEEPS_SELECTOR repository variable (default off: the call is today's, every job under
+        full-ci)."""
+        for name in ("cmux-tui-sdks.yml", "cmux-tui-windows-check.yml"):
+            with self.subTest(workflow=name):
+                text = (ROOT / ".github/workflows" / name).read_text()
+                call = re.search(rf"affected_jobs\.py route --workflow \.github/workflows/{re.escape(name)} "
+                                 r"\\\n([^\n]*)", text)
+                self.assertIsNotNone(call)
+                self.assertTrue(call.group(1).rstrip().endswith('--labels "${LABELS:-[]}" $FOLLOWS_GRAPH'),
+                                call.group(1))
+                self.assertNotIn("--full-ci-follows-graph", call.group(1))
+                self.assertIn("FOLLOWS_GRAPH: ${{ vars.CI_LAND_KEEPS_SELECTOR == '1' && '--full-ci-follows-graph' "
+                              "|| '' }}", text)
+        # Off, the label still routes every job of the workflow; on, an untouched job skips.
+        for workflow in (".github/workflows/cmux-tui-sdks.yml", ".github/workflows/cmux-tui-windows-check.yml"):
+            with self.subTest(route=workflow):
+                off = jobs.route(None, ["webviews/src/app.tsx"], labels=[jobs.FULL_LABEL], workflow=workflow)
+                self.assertTrue(off.everything)
+                self.assertTrue(all(off.run.values()))
 
     def test_cmux_tui_spec_lets_full_ci_follow_the_graph_and_unreadable_labels_run_everything(self):
         """cmux-tui-spec.yml's gate and route pass --full-ci-follows-graph (a full-ci head that touches no input of a

@@ -1138,6 +1138,7 @@ export function ComposerContext({
         chevron
         {...(machineLive !== undefined ? { live: machineLive } : {})}
         {...(machineSleep ? { sleep: machineSleep } : {})}
+        {...(machineLive === false && !machineSleep ? { liveWords: t("composer.envNotConnected") } : {})}
       />
     );
   // The one combined control's face (a started chat, and the `combined` arm): as before.
@@ -1630,7 +1631,8 @@ export function LocationFace({
   /// Paused, resuming draws a spinner in the dot's place and says Resuming (never a pulsing dot).
   sleep?: "paused" | "resuming";
   /// The live dot's words for screen readers in place of Connected / Paused (the machine card's
-  /// Awake / Asleep).
+  /// Awake / Asleep). A ring that is neither live nor asleep says only what its caller passes: the
+  /// machine chip passes Not connected once its hold (computerDipSaid) is past.
   liveWords?: string;
   /// The folder chip's state (folderlessCloud.ts), for tests.
   state?: FolderChipState;
@@ -1667,10 +1669,7 @@ export function LocationFace({
       {live !== undefined && sleep !== "resuming" && (
         <span className="acpmux-env-live" data-connected={String(live)} data-sleep={sleep}>
           <span className="acpmux-env-status-text">
-            {liveWords ??
-              t(
-                live ? "composer.envConnected" : sleep === "paused" ? "composer.envPaused" : "composer.envNotConnected",
-              )}
+            {liveWords ?? (live ? t("composer.envConnected") : sleep === "paused" ? t("composer.envPaused") : null)}
           </span>
         </span>
       )}
