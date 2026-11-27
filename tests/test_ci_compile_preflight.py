@@ -125,6 +125,25 @@ class BuildErrors(unittest.TestCase):
         self.assertEqual((receipt["builds"], receipt["exit_code"]), (1, 1))
         self.assertGreaterEqual(receipt["cpu_seconds"], 0)
         self.assertGreaterEqual(receipt["wall_seconds"], 0)
+        self.assertIsNone(receipt["source_sha"])
+
+    def test_receipt_binds_the_built_tree_instead_of_the_event_tree(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts/cmux-next").mkdir(parents=True)
+            (root / "scripts/cmux-next/build-web-bundles.sh").write_text("#!/bin/bash\nexit 0\n")
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "-c", "user.name=Test", "-c", "user.email=test@example.com",
+                            "-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-qm", "source tree"], check=True)
+            source_sha = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+            out = subprocess.run([sys.executable, "-I", str(SCRIPT), "web-build", str(root), str(root / "out")],
+                                 capture_output=True, text=True, check=True,
+                                 env={**os.environ, "GITHUB_SHA": "different-event-tree", "CMUX_WEB_SOURCE_KEY": "bundle-key"})
+        receipt = json.loads(next(line.removeprefix("CMUX_WEB_BUILD ") for line in out.stdout.splitlines()
+                                  if line.startswith("CMUX_WEB_BUILD ")))
+        self.assertEqual(receipt["source_sha"], source_sha)
+        self.assertEqual(receipt["event_sha"], "different-event-tree")
+        self.assertEqual(receipt["source_key"], "bundle-key")
 
 
 class LiveBase(unittest.TestCase):

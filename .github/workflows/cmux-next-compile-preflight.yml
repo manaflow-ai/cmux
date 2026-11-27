@@ -208,6 +208,8 @@ jobs:
 
       - name: Build the web bundles (the build NIGHTLY runs)
         if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        env:
+          CMUX_WEB_SOURCE_KEY: ${{ steps.web-bundle-key.outputs.key }}
         run: python3 -I scripts/ci/compile_preflight.py web-build "$WEB_SOURCE_ROOT" "$RUNNER_TEMP/web-bundles-out"
 
       # The build passed: keep it under its source key (the key and layout cmux-next.yml's web-bundles job saves), so

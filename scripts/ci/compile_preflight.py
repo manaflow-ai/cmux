@@ -126,6 +126,9 @@ def cmd_merge_live_base(root: Path, base_ref: str, pr: str) -> int:
 
 
 def cmd_web_build(root: Path, out: str) -> int:
+    source = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                            capture_output=True, text=True)
+    source_sha = source.stdout.strip() if source.returncode == 0 else None
     started = time.monotonic()
     usage = resource.getrusage(resource.RUSAGE_CHILDREN)
     proc = subprocess.Popen(["bash", str(root / BUILD_SCRIPT), "--out-root", out], cwd=root,
@@ -140,7 +143,9 @@ def cmd_web_build(root: Path, out: str) -> int:
     print("CMUX_WEB_BUILD " + json.dumps({
         "run_id": os.environ.get("GITHUB_RUN_ID"),
         "run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT"),
-        "sha": os.environ.get("GITHUB_SHA"),
+        "source_sha": source_sha,
+        "event_sha": os.environ.get("GITHUB_SHA"),
+        "source_key": os.environ.get("CMUX_WEB_SOURCE_KEY"),
         "job": os.environ.get("GITHUB_JOB"),
         "builds": 1, "exit_code": code, "wall_seconds": round(took, 3),
         "cpu_seconds": round(after.ru_utime + after.ru_stime - usage.ru_utime - usage.ru_stime, 3),
