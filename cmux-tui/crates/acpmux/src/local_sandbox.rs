@@ -89,15 +89,29 @@ pub(crate) struct Bound {
     pub(crate) xdg_gh_config_dir: PathBuf,
     /// The chat's other folders (`--add-dir`) and the git folders its folders commit into.
     pub(crate) folders: Vec<PathBuf>,
-    /// Settings that decide confinement on this or a later launch.
+    /// Settings files and drop-in directories that decide confinement on a later launch.
     pub(crate) policy_files: Vec<PathBuf>,
     /// Claude Code's own API port when it is not one the profile already opens.
     pub(crate) api_port: Option<u16>,
 }
 
-/// A path as Seatbelt matches it: canonical (macOS's `/tmp` is `/private/tmp`), else as given.
+/// Resolve existing ancestors too: a credential or policy file may not exist at launch.
 fn canonical(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    for ancestor in path.ancestors() {
+        let Ok(mut resolved) = std::fs::canonicalize(ancestor) else { continue };
+        let Ok(tail) = path.strip_prefix(ancestor) else { continue };
+        for component in tail.components() {
+            match component {
+                std::path::Component::ParentDir => {
+                    resolved.pop();
+                }
+                std::path::Component::CurDir => {}
+                other => resolved.push(other.as_os_str()),
+            }
+        }
+        return resolved;
+    }
+    path.to_path_buf()
 }
 
 /// Make a settings override absolute before passing it to Seatbelt. An override can name a
@@ -126,7 +140,7 @@ impl Bound {
             (0..self.folders.len()).map(|i| format!("  (subpath (param \"DIR{i}\"))\n")).collect();
         profile = profile.replacen(";; @FOLDERS@\n", &folders, 1);
         for i in 0..self.policy_files.len() {
-            profile.push_str(&format!("(deny file-write* (literal (param \"POLICY_FILE{i}\")))\n"));
+            profile.push_str(&format!("(deny file-write* (subpath (param \"POLICY_FILE{i}\")))\n"));
         }
         // A protected file must not be replaceable by renaming or symlinking a parent.
         let policy_parents: std::collections::BTreeSet<_> =
@@ -341,7 +355,13 @@ fn api_endpoint(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> 
 /// All decision sources remain immutable, even sources excluded for this launch: a later
 /// launch may enable them. Include both the named path and its resolved target.
 fn policy_files(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> Vec<PathBuf> {
-    let mut files = claude_files(cwd, env).settings;
+    let claude = claude_files(cwd, env);
+    let mut files = claude.settings;
+    // Protect future drop-ins as well as the files discovered for this launch. The managed
+    // root comes from the same resolver that discovers Claude's managed policy sources.
+    if let Some(managed_dir) = claude.managed_mcp.parent() {
+        files.push(managed_dir.join("managed-settings.d"));
+    }
     let mut words = args.iter().take_while(|arg| arg.as_str() != "--");
     let mut flag = None;
     while let Some(word) = words.next() {
@@ -356,17 +376,7 @@ fn policy_files(args: &[String], cwd: &Path, env: &BTreeMap<String, String>) -> 
     }
     files
         .into_iter()
-        .flat_map(|path| {
-            // Resolve existing ancestors even if the settings file does not exist yet.
-            let real = path
-                .ancestors()
-                .find_map(|ancestor| {
-                    let base = std::fs::canonicalize(ancestor).ok()?;
-                    Some(base.join(path.strip_prefix(ancestor).ok()?))
-                })
-                .unwrap_or_else(|| path.clone());
-            [path, real]
-        })
+        .flat_map(|path| [path.clone(), canonical(&path)])
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
         .collect()

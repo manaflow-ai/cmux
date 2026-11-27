@@ -337,8 +337,43 @@ fn sandbox_decision_files_and_their_parents_are_protected() {
     }
     let bound = Bound { policy_files: files, ..sample() };
     let args = bound.sandbox_args();
-    assert!(args[1].contains("(deny file-write* (literal (param \"POLICY_FILE0\")))"));
+    assert!(args[1].contains("(deny file-write* (subpath (param \"POLICY_FILE0\")))"));
     assert!(args[1].contains(
         "(deny file-write-unlink file-write-create (literal (param \"POLICY_PARENT0\")))"
     ));
+}
+
+#[test]
+fn future_managed_dropins_are_protected_before_they_exist() {
+    let t = tempfile::tempdir().unwrap();
+    let env = BTreeMap::new();
+    let claude = claude_files(t.path(), &env);
+    let dropins = claude.managed_mcp.parent().unwrap().join("managed-settings.d");
+    let files = policy_files(&[], t.path(), &env);
+    assert!(files.contains(&dropins));
+    let args = Bound { policy_files: files.clone(), ..sample() }.sandbox_args();
+    let index = files.iter().position(|path| path == &dropins).unwrap();
+    assert!(
+        args[1].contains(&format!("(deny file-write* (subpath (param \"POLICY_FILE{index}\")))"))
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn missing_credential_and_policy_paths_resolve_existing_symlink_ancestors() {
+    let t = tempfile::tempdir().unwrap();
+    let cwd = std::fs::canonicalize(t.path()).unwrap();
+    let real = cwd.join("real");
+    std::fs::create_dir(&real).unwrap();
+    std::os::unix::fs::symlink(&real, cwd.join("alias")).unwrap();
+    let env = BTreeMap::from([
+        ("GH_CONFIG_DIR".into(), "alias/new/../gh".into()),
+        ("XDG_CONFIG_HOME".into(), "alias/new/../xdg".into()),
+        ("CLAUDE_CONFIG_DIR".into(), "alias/new/../claude".into()),
+    ]);
+    let bound = bound(&[], &cwd, &env).unwrap();
+    assert_eq!(bound.gh_config_dir, real.join("gh"));
+    assert_eq!(bound.xdg_gh_config_dir, real.join("xdg/gh"));
+    assert!(bound.policy_files.contains(&real.join("claude/settings.json")));
+    assert!(bound.policy_files.contains(&cwd.join("alias/new/../claude/settings.json")));
 }
