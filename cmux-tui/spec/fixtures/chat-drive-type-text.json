@@ -1,0 +1,95 @@
+{
+  "_about": "Text `cmux app chat drive --type` may type, checked the same way by the CLI (cmux-tui cli/app/chat_drive.rs) and the app (CmuxNextAgentPane AgentChatDriveControl.Params). Each case is `text` repeated `repeat` times (default 1). `max_image_index` bounds --hover-sent-image and --hover-tool-screenshot on both sides.",
+  "max_graphemes": 500,
+  "max_utf16": 2000,
+  "max_image_index": 10000,
+  "typable": [
+    {
+      "text": "hello"
+    },
+    {
+      "text": "a!b"
+    },
+    {
+      "text": "naïve 👩‍👩‍👧 ok"
+    },
+    {
+      "text": "tab\u00a0space"
+    },
+    {
+      "text": "👍",
+      "repeat": 500
+    },
+    {
+      "text": "👍🏽👨‍👩‍👧"
+    }
+  ],
+  "refused": [
+    {
+      "why": "empty",
+      "text": ""
+    },
+    {
+      "why": "too_many_graphemes",
+      "text": "👍",
+      "repeat": 501
+    },
+    {
+      "why": "too_many_utf16",
+      "text": "👩‍👩‍👧",
+      "repeat": 300
+    },
+    {
+      "why": "shell_prefix",
+      "text": "!help"
+    },
+    {
+      "why": "shell_prefix",
+      "text": "  !x"
+    },
+    {
+      "why": "shell_prefix",
+      "text": "\u3000!x"
+    },
+    {
+      "why": "control",
+      "text": "a\nb"
+    },
+    {
+      "why": "control",
+      "text": "a\rb"
+    },
+    {
+      "why": "control",
+      "text": "a\tb"
+    },
+    {
+      "why": "control",
+      "text": "\u0000"
+    },
+    {
+      "why": "control",
+      "text": "\u001b[2J"
+    },
+    {
+      "why": "control",
+      "text": "a\u007f"
+    },
+    {
+      "why": "control",
+      "text": "a\u0085b"
+    },
+    {
+      "why": "control",
+      "text": "a\u009f"
+    },
+    {
+      "why": "separator",
+      "text": "a\u2028b"
+    },
+    {
+      "why": "separator",
+      "text": "a\u2029b"
+    }
+  ]
+}
