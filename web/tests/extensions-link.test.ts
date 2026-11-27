@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { pomodoroListing } from "./fixtures/extension-listings";
 
 mock.module("next/cache", () => ({ cacheLife: () => {} }));
+mock.module("next/navigation", () => ({ unstable_rethrow: () => {} }));
 
 const link = await import("../app/extensions/_lib/link");
 const registry = await import("../app/extensions/_lib/registry");
