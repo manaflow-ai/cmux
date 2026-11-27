@@ -1116,11 +1116,6 @@ async fn timed_relay_dial(
     timed
 }
 
-fn median(mut times: Vec<Duration>) -> Duration {
-    times.sort();
-    times[times.len() / 2]
-}
-
 /// Relay-only dial, one network leg 25 ms: joining right after the early `wg-relay`
 /// puts the phone's join (4 legs) beside the Mac's (the cue 2, join 4) instead of after
 /// the Mac's `wg-resp` (2 + 2 + 4). Eight dials each, the median.
