@@ -1,3 +1,4 @@
+import { registerViewBridge } from "./viewBridges";
 import { startDevMotionAudit } from "../devMotionAudit";
 import { openFork, openInOwnTab } from "../conversation/openFork";
 import React from "react";
@@ -849,6 +850,10 @@ export function paneSnapshotEffect({
       for (const chip of designSelectionChips(selection)) composerHandle.current?.attach(chip);
     },
   };
+  // In a shared pane document this chat's own host events (a command, a turn to reveal, dictation)
+  // reach its bridge by view (viewBridges.ts); window.cmuxAcpmuxBridge stays the document's.
+  const unregisterViewBridge =
+    paneView !== null && window.cmuxAcpmuxBridge ? registerViewBridge(paneView, window.cmuxAcpmuxBridge) : undefined;
   // On the shared page host the host pushes arrive as events once the bridge exists.
   const pageHost = pageHostClient();
   if (pageHost) void startHostEvents(pageHost, paneView).catch(() => undefined);
@@ -3107,6 +3112,7 @@ export function paneSnapshotEffect({
   void connectHost();
   return () => {
     cancelled = true;
+    unregisterViewBridge?.();
     for (const name of HOST_WAKE_EVENTS.document) document.removeEventListener(name, wake);
     for (const name of HOST_WAKE_EVENTS.window) window.removeEventListener(name, wake);
     window.removeEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
