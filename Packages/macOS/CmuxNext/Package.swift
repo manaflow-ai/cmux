@@ -37,7 +37,7 @@ import PackageDescription
 //     WireGuard hub and cmux-tui remote links; no UI, no daemon)
 //   CmuxNextRemote -> CmuxNextCloud (SSH machines: ssh argv, probe, install, relay policy; no UI, no daemon)
 //   CmuxNextMobile -> Daemon, CCmuxAppFFI (phone host model, pairing and the mobile.* compat adapter; no UI; the rules in Rust)
-//   CmuxNextUpdater -> Design, Icons, CmuxUpdater, Sparkle, CCmuxAppFFI (the pre-warm record) (update checks, appcast probe, update sheet; no daemon)
+//   CmuxNextUpdater -> Design, Icons, CmuxUpdater, Sparkle, CCmuxAppFFI (the pre-warm record, the install gate) (update checks, appcast probe, update sheet; no daemon)
 //   CmuxNextMallocZone -> libSystem only (C: the delegating default malloc zone that lets the
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextRemoteLayer -> QuartzCore only (ObjC header: CALayerHost, the remote layer a layer-hosted
@@ -53,8 +53,8 @@ import PackageDescription
 //     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md),
 //     MessagesLabSidebar (MessagesLab's conversation list, the v1 sidebar seam)
 //   CmuxNextHomeEngine -> AgentPane, Actions, Cloud, Compat, Daemon, Design, Home, HomeModel, Icons, Wakeups,
-//     CmuxHomeCore, CmuxHomeRender, CmuxAgentQuestion, CCmuxAppFFI (Home sources, Chief host and migration, Home strings;
-//     the cloud lease and masking rules from cmux-home-rules; the App supplies HomeService over AppServices)
+//     CmuxHomeCore, CmuxHomeRender, CmuxAgentQuestion (Home sources, Chief host and migration, Home strings; the cloud
+//     lease and masking rules from cmux-home-rules over HomeModel's HomeRules; the App supplies HomeService over AppServices)
 //   CmuxNextDaemonService -> Daemon, Actions, AgentPane, Apps, Compat, Control, Layout, Wakeups, WindowRules (Update When Idle)
 //     (DaemonService: one machine's daemon connection, command funnels, launch snapshot; FrameBatcher;
 //     the Refusals and Cloud strings it shows; no AppServices; the App sets its launch-mark hook)
@@ -196,7 +196,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 9c8ab5bee0767a4a3dd208415f871154cae4c21cd807929a66056e6742aee873
+// app-ffi-pin-checksum: df63f80db6bc2e38a153abc4f3e8626da075d5081775330d673ea35e0d5c69e3
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -721,6 +721,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDesignTokens",
                 "CmuxNextDictation",
                 "CmuxNextErrorJournal",
+                "CmuxNextHibernation",
                 "CmuxNextIcons",
                 "CmuxNextPages",
                 "CmuxNextPalette",
@@ -839,6 +840,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCloud",
                 "CmuxNextCodeRouter",
                 "CmuxNextCompat",
+                "CmuxNextDaemon",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
                 "CmuxNextHomeEngine",
@@ -1065,7 +1067,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHomeEngine",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextAgentPane",
                 "CmuxNextCloud",
@@ -1075,6 +1076,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHome",
                 "CmuxNextHomeModel",
                 "CmuxNextIcons",
+                "CmuxNextPages",
+                "CmuxNextSettings",
                 "CmuxNextWakeups",
                 "CmuxNextWindowRules",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
@@ -1597,7 +1600,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: daemonSwiftSettings
         ),
         // Browser tabs (the App's browser tab domain, moved out leaf-first): the engine a new tab
-        // gets (BrowserEngineResolver) and where it goes (BrowserTabRoute). Pure; the App composes it.
+        // gets, where it goes and whether its browser data can be recorded. The App composes it.
         .target(
             name: "CmuxNextBrowserTabs",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -2134,7 +2137,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextUpdater",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                // CCmuxAppFFI: the staged-update pre-warm record (cmux-update-prewarm-core).
+                // CCmuxAppFFI: the staged-update pre-warm record (cmux-update-prewarm-core) and the install gate (CCmuxUpdaterFFI).
                 "CCmuxAppFFI",
                 "CmuxNextActions",
                 "CmuxNextCompat",
@@ -2703,7 +2706,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextLayout",
-            // CCmuxAppFFI: the keyboard resize rules (cmux-layout-reducer shown_resize).
+            // CCmuxAppFFI: the keyboard resize and pane close rules (cmux-layout-reducer shown_resize, pane_close).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CCmuxAppFFI",
                 "CmuxNextCompat",
@@ -2836,8 +2839,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             swiftSettings: daemonSwiftSettings
         ),
         // Browser tabs' remote localhost (routes, the proxy's daemon tunnels,
-        // badges) and Set Workspace Localhost. The App gives it its machines
-        // (RemoteLocalhostMachines) and the approval sheet.
+        // badges), Set Workspace Localhost and chat machine sign-in. The App supplies the
+        // machines, browser page creation and Workbench placement.
         .target(
             name: "CmuxNextRemoteLocalhostService",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
@@ -2906,6 +2909,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
+                "CmuxNextPalette",
                 "CmuxNextSettings",
                 "CmuxNextWakeups",
             ],

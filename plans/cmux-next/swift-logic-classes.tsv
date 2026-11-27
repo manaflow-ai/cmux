@@ -820,7 +820,7 @@ CmuxNextAgentPane	class	AgentPaneWorkspaceBrowsers	0	PLATFORM	0	0	Packages/macOS
 CmuxNextAgentPane	class	AgentPaneWorkspaceEditors	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneEditorApps.swift	from protocol AgentPaneEditorApps:6: Drag, pasteboard, open panel or responder action
 CmuxNextAgentPane	class	AgentReplyPullRequests	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentChatPullRequestReader.swift	from struct AgentChatPullRequestReader:8: Reads PR of a branch with gh, parses, caches
 CmuxNextAgentPane	class	AgentSidePanes	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentSidePanes.swift	from class AgentSidePanes:10: Placement rules: where side chats, subagents and opened links land
-CmuxNextAgentPane	class	AgentSubagentPanes	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentSubagentPanes.swift	from class AgentSubagentPanes:17: Placement rules: where side chats, subagents and opened links land
+CmuxNextAgentPanePlacement	class	AgentSubagentPanes	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPanePlacement/AgentSubagentPanes.swift	from class AgentSubagentPanes:17: Placement rules: where side chats, subagents and opened links land
 CmuxNextAgentPane	class	AgentUnsentDrafts	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentUnsentDrafts.swift	Persists new-chat typed text per tab
 CmuxNextAgentPane	class	AttachmentSourceIcons	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AttachmentSourceIcons.swift	Pasteboard/xattr/app-icon lookup for attachment source badge
 CmuxNextAgentPane	class	AttentionPaletteProvider	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AttentionPalettePage.swift	#32213 (Leo): the PaletteProvider adapter of AttentionPalettePage: returns page.rows() (the rows are counted in AttentionPalettePage)
@@ -1198,7 +1198,7 @@ CmuxNextAgentPane	extension	Notification.Name	0	PLATFORM	0	0	Packages/macOS/Cmux
 CmuxNextAgentPane	extension	PageDescriptor	0	MIXED	0	40	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPageProvider.swift	Op-name table and event buffering for shared page host; op names hand-written
 CmuxNextAgentPane	extension	PaneTabRowSharing	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneTabRow.swift	from class AgentPaneTabRow:9: Tab-row tool width reported by page
 CmuxNextAgentPane	extension	Result	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneProjectFiles.swift	from enum AgentPaneProjectFiles:13: OS process/file calls for project files
-CmuxNextAgentPane	extension	RightColumnPlacement.Decision	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/RightColumnPlacement.swift	from struct RightColumnPlacement:23: Placement rules: where side chats, subagents and opened links land
+CmuxNextAgentPanePlacement	extension	RightColumnPlacement.Decision	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPanePlacement/RightColumnPlacement.swift	from struct RightColumnPlacement:23: Placement rules: where side chats, subagents and opened links land
 CmuxNextAgentPane	extension	String	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Approvals/AcpmuxPrompt+Text.swift	from extension Dictionary:5: Prompt text extraction from permission request
 CmuxNextAgentPane	extension	URL	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/URL+AgentPanePreview.swift	URL helper / shared web process grouping
 CmuxNextAgentPane	func	agentPaneFirst	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneSeed.swift	from struct AgentPaneSeed:7: What a new agent tab inherits from its source tab
@@ -1423,7 +1423,7 @@ CmuxNextAgentPane	struct	NewTabTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/S
 CmuxNextAgentPane	struct	PersonInputCheck	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPanePersonInput.swift	from enum AgentPanePersonInput:15: Classifies NSEvent as person input
 CmuxNextAgentPane	struct	ProcessLauncher	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/ProcessLauncher.swift	Page snapshot, paint hold or process launch glue
 CmuxNextAgentPane	struct	ResultBox	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AcpmuxStatusClient.swift	from enum AcpmuxStatusClient:9: JSON-RPC client over unix socket to get endpoint: daemon client call site
-CmuxNextAgentPane	struct	RightColumnPlacement	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/RightColumnPlacement.swift	Placement rules: where side chats, subagents and opened links land
+CmuxNextAgentPanePlacement	struct	RightColumnPlacement	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPanePlacement/RightColumnPlacement.swift	Placement rules: where side chats, subagents and opened links land
 CmuxNextAgentPane	struct	RightPanePlacement	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/RightPanePlacement.swift	Placement rules: where side chats, subagents and opened links land
 CmuxNextAgentPane	struct	SessionInfoInk	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneSessionInfoContent.swift	#31930: text colors
 CmuxNextAgentPane	struct	SessionInfoLine	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneSessionInfoContent.swift	#31930: row value of the panel
@@ -1522,7 +1522,7 @@ CmuxNextApp	class	AuthReply	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxN
 CmuxNextApp	class	BookmarkChromiumSync	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkChromiumSync.swift	Chromium bookmark models follow cmux trees: relay/copy
 CmuxNextApp	class	BookmarkManagerSourceAdapter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkPageService.swift	from class BookmarkPageService:11: Opens manager page and refreshes (page host)
 CmuxNextApp	class	BookmarkPageService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkPageService.swift	from class BookmarkPageService:11: Opens manager page and refreshes (page host)
-CmuxNextApp	class	BookmarkPageTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkPageTab.swift	from class BookmarkPageTab:12: Bookmark manager native tab view
+CmuxNextBookmarks	class	BookmarkPageTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Page/BookmarkPageTab.swift	from class BookmarkPageTab:12: Bookmark manager native tab view
 CmuxNextApp	class	BookmarkService	0	MIXED	22	78	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkService.swift	from class BookmarkService:19: Per-profile trees copy of daemon 144; file store/migration 40 (legacy); no platform
 CmuxNextApp	class	BookmarksTopPage	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TopPages/BrowserAppTopPages.swift	from extension InternalPageID:7: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	BrowserDesignModeController	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/DesignMode/BrowserDesignModeController.swift	from class BrowserDesignModeController:16: AppKit/SwiftUI view, host or thin daemon call site
@@ -1566,7 +1566,7 @@ CmuxNextApp	class	ClosedHistoryRetention	0	LOGIC	100	0	Packages/macOS/CmuxNext/S
 CmuxNextApp	class	ClosedTabChanges	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ClosedTabChanges.swift	from class ClosedTabChanges:7: revision counter relay for closed-tab changes
 CmuxNextApp	class	ClosedTabsFeed	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ClosedTabsFeed.swift	from class ClosedTabsFeed:11: mirror of closed tabs and items feed
 CmuxNextApp	class	CloudAccessAsks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAccessAsks.swift	from class CloudAccessAsks:22: Poll/ask state for moved chats file and secret requests (cards, timing)
-CmuxNextApp	class	CloudAccessRevokes	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAccessRevokes.swift	from class CloudAccessRevokes:10: Revoke retry with backoff (timing policy)
+CmuxNextCloudPlace	class	CloudAccessRevokes	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace/CloudAccessRevokes.swift	from class CloudAccessRevokes:10: Revoke retry with backoff (timing policy)
 CmuxNextApp	class	CloudAskDialogs	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAskDialogs.swift	state/decision code: 3 branch lines, 4 funcs, 0 of 34 lines framework
 CmuxNextApp	class	CloudCreations	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMachineCreation.swift	from class CloudMachineCreation:12: New Cloud Workspace creation state machine (stages, bootstrap, retry)
 CmuxNextApp	class	CloudCredentialProvider	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudCredentialProvider.swift	from class CloudCredentialProvider:13: Credential provider served over daemon connection (Keychain/bundle custody)
@@ -1617,7 +1617,7 @@ CmuxNextApp	class	DebugWindowTransition	0	PLATFORM	0	0	Packages/macOS/CmuxNext/S
 CmuxNextApp	class	DelayedPopUp	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugObjectMenu.swift	from enum DebugObjectMenu:27: DEBUG-only probe over AppKit/Core Animation/window state or bench harness
 CmuxNextApp	class	DensityController	0	MIXED	51	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Density/DensityController.swift	from class DensityController:11: density controller: apply and write settings
 CmuxNextApp	class	DiffPageService	0	MIXED	10	10	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Diff/DiffPageService.swift	from extension InternalPageID:16: diff page host (PageWebView); repository/turn reuse and creation completions
-CmuxNextApp	class	DiffRecents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Diff/DiffRecents.swift	from struct DiffRecent:11: DiffRecents: recent diff folders list, order, limit, persistence
+CmuxNextDiff	class	DiffRecents	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDiff/DiffRecents.swift	from struct DiffRecent:11: DiffRecents: recent diff folders list, order, limit, persistence
 CmuxNextApp	class	DiffTabHost	0	MIXED	10	10	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Diff/DiffPageService.swift	from extension InternalPageID:16: diff page host (PageWebView); repository/turn reuse and creation completions
 CmuxNextApp	class	DockSectionModel	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionModel.swift	from class DockSectionModel:8: Docked columns list copy of layout
 CmuxNextApp	class	EmptyWorkspaceView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/EmptyWorkspaceView.swift	AppKit/SwiftUI view, host or thin daemon call site
@@ -1657,7 +1657,7 @@ CmuxNextApp	class	ForumTopPage	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/Cmu
 CmuxNextApp	class	GhosttyConfigLiveReload	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/GhosttyConfigLiveReload.swift	from class GhosttyConfigLiveReload:9: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	GhosttyDiagnosticsModel	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/GhosttyDiagnosticsModel.swift	from class GhosttyDiagnosticsModel:12: ghostty config diagnostics model
 CmuxNextApp	class	GhosttyKeybindSync	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/Keybindings/GhosttyKeyBindingLayer.swift	from struct GhosttyKeyBindingLayer:23: Ghostty keybind layer: defaults, user binds, key names
-CmuxNextApp	class	GlobalHotKeyService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/GlobalHotKeys/GlobalHotKeyService.swift	from class GlobalHotKeyService:21: Carbon global hot keys
+CmuxNextFocusUI	class	GlobalHotKeyService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI/GlobalHotKeys/GlobalHotKeyService.swift	from class GlobalHotKeyService:21: Carbon global hot keys
 CmuxNextApp	class	GuardedRemoteImages	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Files/RemoteImages.swift	from protocol RemoteImageFetching:6: guarded remote image fetch (network)
 CmuxNextApp	class	HTTPSOnlyRedirects	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/IconAssets/IconAssetStore.swift	from struct IconAssetStore:11: Icon asset thin call to daemon blob store
 CmuxNextApp	class	HandoffNotices	0	MIXED	52	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/HandoffNotices.swift	from class HandoffNotices:23: Native notification 100; hand-off turn counting and dedupe 110
@@ -1749,10 +1749,10 @@ CmuxNextApp	class	PageEditProvider	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Source
 CmuxNextApp	class	PageElement	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hints/WindowHintTargets.swift	from enum WindowHintTargets:14: which targets get window hints
 CmuxNextApp	class	PageRelayChannel	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/PageRelayChannel.swift	from class PageRelayChannel:26: page relay channel forwarding daemon data into webviews
 CmuxNextApp	class	PaletteShortcutEditor	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaletteShortcutEditor.swift	from class PaletteShortcutEditor:13: optimistic shortcut edit with reload (pending-edit log)
-CmuxNextApp	class	PaneBackdropState	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneBackdropState.swift	from class PaneBackdropState:7: AppKit/SwiftUI view, host or thin daemon call site
+CmuxNextDesign	class	PaneBackdropState	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PaneBackdropState.swift	from class PaneBackdropState:7: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	PaneContentView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneContentView.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	PaneController	0	MIXED	16	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneController.swift	pane view controller (platform ~540); client-local tab selection state (logic ~96)
-CmuxNextApp	class	PaneMounts	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneMounts.swift	from class PaneMounts:8: AppKit/SwiftUI view, host or thin daemon call site
+CmuxNextCompat	class	PaneMounts	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextCompat/PaneMounts.swift	from class PaneMounts:8: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	PaneSwapDrag	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneSwapDrag.swift	from class PaneSwapDrag:11: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	PaneToolbar	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaneToolbar.swift	from class PaneToolbar:19: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	PassThroughView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/WindowRootView+TitlebarReveal.swift	from extension WindowRootView:12: AppKit view extension
@@ -1788,7 +1788,7 @@ CmuxNextApp	class	ScreenPreviewSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sou
 CmuxNextApp	class	ScreenTargetSource	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Screens/ScreenTargetSource.swift	Palette target lists for screens
 CmuxNextApp	class	ScreenshotsPageService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Screenshots/ScreenshotsPageService.swift	from class ScreenshotsPageService:14: Screenshot capture and page (window server, NSImage)
 CmuxNextApp	class	ScreenshotsPageTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Screenshots/ScreenshotsPageTab.swift	from class ScreenshotsPageTab:18: Screenshot capture and page (window server, NSImage)
-CmuxNextApp	class	ServerFixGate	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/ServerFixGate.swift	from class ServerFixGate:8: async gate for server fixes
+CmuxNextServer	class	ServerFixGate	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextServer/ServerFixGate.swift	from class ServerFixGate:8: async gate for server fixes
 CmuxNextApp	class	ServerMachineSession	0	MIXED	60	40	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/ServerMachineSession.swift	from class ServerMachineSession:18: server machine session state
 CmuxNextApp	class	ServerMenuBarController	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/ServerMenuBarController.swift	from class ServerMenuBarController:16: NSStatusItem menu bar controller
 CmuxNextApp	class	ServerReachService	0	MIXED	80	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/ServerReachService.swift	from class ServerReachService:28: server reach: probe/connect state machine, backoff, events per server
@@ -1815,7 +1815,7 @@ CmuxNextApp	class	SidebarSelectionHold	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sou
 CmuxNextApp	class	SidebarTabDropTarget	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Drag/TabDropTargets.swift	Drop-target AppKit 110; spring-load, auto-scroll timing, gap rules 73
 CmuxNextApp	class	SizingSent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SplitRoomCheck.swift	from enum SplitRoomDecision:10: split room decision: refuse, reroute, sizing, new column width
 CmuxNextApp	class	SleepyKeepAwakeActivity	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyKeepAwakeActivity.swift	from class SleepyKeepAwakeActivity:7: AppKit/SwiftUI view, host or thin daemon call site
-CmuxNextApp	class	SleepyModeController	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyModeController.swift	from class SleepyModeController:7: sleepy mode on/off state
+CmuxNextKeepAwake	class	SleepyModeController	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextKeepAwake/SleepyModeController.swift	from class SleepyModeController:7: sleepy mode on/off state
 CmuxNextApp	class	SleepyOverlayWindow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyOverlayWindow.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	SleepyOverlayWindows	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyOverlayWindows.swift	from class SleepyOverlayWindows:6: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	class	SpaceAndPaneTargetSource	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SpaceAndPaneTargetSource.swift	palette target list: panes of machine, focused last
@@ -2023,7 +2023,7 @@ CmuxNextApp	enum	ColumnAvailability	0	MIXED	60	0	Packages/macOS/CmuxNext/Sources
 CmuxNextApp	enum	ColumnDocking	0	MIXED	39	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ColumnDocking.swift	dock edge configured vs nearest; dock binders
 CmuxNextApp	enum	ColumnHandlers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ColumnHandlers.swift	thin action binder: parses args, calls model/daemon intent
 CmuxNextApp	enum	ComputerUseHandlers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ComputerUseHandlers.swift	thin action binder: parses args, calls model/daemon intent
-CmuxNextApp	enum	ComputerUseSessionError	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ComputerUse/ComputerUseSessionError.swift	Computer Use focus, TCC setup or helper socket (macOS)
+CmuxNextComputerUse	enum	ComputerUseSessionError	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseSessionError.swift	Computer Use focus, TCC setup or helper socket (macOS)
 CmuxNextApp	enum	ComputerUseSessionStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ComputerUse/ComputerUseSessionStrings.swift	Computer Use focus, TCC setup or helper socket (macOS)
 CmuxNextApp	enum	ConfigCommandRunner	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ConfigCommandRunner.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	enum	ConfirmationStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ConfirmationStrings.swift	localized string table (bundle resources)
@@ -2343,7 +2343,7 @@ CmuxNextApp	enum	SettingsPageDomains	0	MIXED	20	50	Packages/macOS/CmuxNext/Sourc
 CmuxNextApp	enum	SettingsSharedLinks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/SettingsSharedLinks.swift	state/decision code: 7 branch lines, 2 funcs, 0 of 27 lines framework
 CmuxNextApp	enum	ShareCmuxPresenter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Share/ShareCmuxPresenter.swift	from enum ShareCmuxPresenter:10: Share cmux modal
 CmuxNextApp	enum	SheetDismissal	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SheetDismissal.swift	AppKit/SwiftUI view, host or thin daemon call site
-CmuxNextApp	enum	ShowOrigin	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/ShowOrigin.swift	Origin enum of show requests
+CmuxNextAppCore	enum	ShowOrigin	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAppCore/ShowOrigin.swift	Origin enum of show requests
 CmuxNextApp	enum	SidebarAppItemInfo	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarAppItemInfo.swift	from enum SidebarAppItemInfo:8: Sidebar app item info lookup
 CmuxNextApp	enum	SidebarCardFeed	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarBridge+Cards.swift	from extension SidebarBridge:12: maps daemon data into sidebar card models
 CmuxNextApp	enum	SidebarContextMenus	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarContextMenus.swift	AppKit/SwiftUI view, host or thin daemon call site
@@ -2445,9 +2445,9 @@ CmuxNextApp	enum	WindowStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/Cm
 CmuxNextApp	enum	WorkspaceBulkClose	0	MIXED	55	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/WorkspaceBulkClose.swift	from enum WorkspaceBulkClose:19: bulk close verbs: which workspaces (others/below/above), survivor choice, nothing-to-close
 CmuxNextApp	enum	WorkspaceChecklistHandlers	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/WorkspaceChecklistHandlers.swift	thin action binder: parses args, calls model/daemon intent
 CmuxNextApp	enum	WorkspaceCreation	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceCreation.swift	workspace create orchestration: first terminal, half-created cleanup
-CmuxNextApp	enum	WorkspaceDragOutcome	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Drag/WorkspaceDragResolver.swift	from enum WorkspaceDropTarget:7: Workspace drop target resolution rule
+CmuxNextSidebar	enum	WorkspaceDragOutcome	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/WorkspaceDragResolver.swift	from enum WorkspaceDropTarget:7: Workspace drop target resolution rule
 CmuxNextApp	enum	WorkspaceDragResolver	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Drag/WorkspaceDragResolver.swift	from enum WorkspaceDropTarget:7: Workspace drop target resolution rule
-CmuxNextApp	enum	WorkspaceDropTarget	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Drag/WorkspaceDragResolver.swift	Workspace drop target resolution rule
+CmuxNextSidebar	enum	WorkspaceDropTarget	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Logic/WorkspaceDragResolver.swift	Workspace drop target resolution rule
 CmuxNextApp	enum	WorkspaceGroupClose	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/WorkspaceGroupClose.swift	from enum WorkspaceGroupClose:19: group close: members from sidebar rows, toast
 CmuxNextApp	enum	WorkspaceGroupFocus	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/WorkspaceGroupFocus.swift	WorkspaceGroupFocus.Plan: expand group then pick workspace (focus rule)
 CmuxNextApp	enum	WorkspaceGroupHandlers	0	MIXED	20	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/WorkspaceGroupHandlers.swift	workspace group binder; member/edit rules
@@ -2688,7 +2688,7 @@ CmuxNextApp	extension	CloudHandlers	1	MIXED	15	0	Packages/macOS/CmuxNext/Sources
 CmuxNextApp	extension	CloudHandlers	2	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/CloudHandlers+List.swift	state/decision code: 6 branch lines, 2 funcs, 0 of 17 lines framework
 CmuxNextApp	extension	CloudHandlers	3	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/CloudHandlers+List.swift	state/decision code: 6 branch lines, 1 funcs, 0 of 29 lines framework
 CmuxNextApp	extension	CloudHandlers	4	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/CloudHandlers+List.swift	state/decision code: 6 branch lines, 2 funcs, 0 of 28 lines framework
-CmuxNextApp	extension	CloudLegacyPin	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudLegacyMachineUpdate.swift	from enum CloudLegacyMachineUpdate:21: Legacy machine update flow (older daemon)
+CmuxNextRemote	extension	CloudLegacyPin	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextRemote/Install/CloudLegacyMachineUpdate.swift	from enum CloudLegacyMachineUpdate:21: Legacy machine update flow (older daemon)
 CmuxNextApp	extension	CloudMachine	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAppOps.swift	from struct CloudAppOpFailure:10: Cloud app op failure mapping and policy
 CmuxNextApp	extension	CloudMachineBootstrap	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMachineCreation.swift	from class CloudMachineCreation:12: New Cloud Workspace creation state machine (stages, bootstrap, retry)
 CmuxNextApp	extension	CloudMachineCreateFlow.Failure	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudMachineCreateFlow.swift	from struct CloudMachineCreateFlow:22: Cloud machine create flow with approval steps
@@ -3029,7 +3029,7 @@ CmuxNextApp	extension	SidebarLayoutDocument	0	LOGIC	100	0	Packages/macOS/CmuxNex
 CmuxNextApp	extension	SidebarLayoutRemote	0	MIXED	0	38	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarLayoutRemote.swift	Remote protocol + daemon call 60; JSON to SidebarLayoutDocument decode (hand wire type) 37
 CmuxNextApp	extension	SidebarLayoutService	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarLayoutService+LegacyPins.swift	One-time legacy pin migration
 CmuxNextApp	extension	SidebarPriorityFeed	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarPriorityFeed.swift	Priority view wiring
-CmuxNextApp	extension	SleepySceneView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepySceneView.swift	AppKit/SwiftUI view, host or thin daemon call site
+CmuxNextFloating	extension	SleepySceneView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFloating/SleepyMode/SleepySceneView.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	String	0	MIXED	15	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefMemoryPageService.swift	from extension InternalPageID:9: Memory Inspector page host; Place routing (local/server) small LOGIC
 CmuxNextApp	extension	Strings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentRecents/AgentHistoryPage.swift	from enum AgentHistoryPage:8: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	extension	Strings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Strings+TabBar.swift	localized string table
@@ -3179,8 +3179,8 @@ CmuxNextApp	protocol	CEFAppProtocol	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sourc
 CmuxNextApp	protocol	ChangelogSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/ChangelogPageProvider.swift	ChangelogSource protocol seam
 CmuxNextApp	protocol	ChromiumAppControlProtocol	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/CmuxApplication.swift	from protocol ChromiumAppProtocol:17: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	protocol	ChromiumAppProtocol	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/CmuxApplication.swift	AppKit/SwiftUI view, host or thin daemon call site
-CmuxNextApp	protocol	ComputerUseFocusing	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ComputerUse/ComputerUseFocusing.swift	from protocol ComputerUseFocusing:6: Computer Use focus, TCC setup or helper socket (macOS)
-CmuxNextApp	protocol	ComputerUseSessionControlling	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ComputerUse/ComputerUseSessionControlling.swift	from protocol ComputerUseSessionControlling:6: Computer Use focus, TCC setup or helper socket (macOS)
+CmuxNextComputerUse	protocol	ComputerUseFocusing	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseFocusing.swift	from protocol ComputerUseFocusing:6: Computer Use focus, TCC setup or helper socket (macOS)
+CmuxNextComputerUse	protocol	ComputerUseSessionControlling	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseSessionControlling.swift	from protocol ComputerUseSessionControlling:6: Computer Use focus, TCC setup or helper socket (macOS)
 CmuxNextApp	protocol	DebugEditActions	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Settings/DebugSettings.swift	from extension AppControl:10: debug settings page and tunables
 CmuxNextApp	protocol	DeviceOwnerAuthenticating	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Passwords/PasswordGates.swift	from protocol DeviceOwnerAuthenticating:9: device owner authentication (LAContext)
 CmuxNextApp	protocol	DiffViewerOpening	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Viewers/ViewerSeams.swift	from protocol DiffViewerOpening:9: protocol
@@ -3206,9 +3206,9 @@ CmuxNextApp	protocol	RightSidebarRefreshing	0	PLATFORM	0	0	Packages/macOS/CmuxNe
 CmuxNextApp	protocol	ServerFileWatching	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Server/LocalServerSource.swift	file watching protocol
 CmuxNextApp	protocol	SidebarLayoutRemote	0	MIXED	0	38	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSections/SidebarLayoutRemote.swift	from protocol SidebarLayoutRemote:8: Remote protocol + daemon call 60; JSON to SidebarLayoutDocument decode (hand wire type) 37
 CmuxNextApp	protocol	SleepyKeepAwakeHolding	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyKeepAwakeHolding.swift	from protocol SleepyKeepAwakeHolding:4: AppKit/SwiftUI view, host or thin daemon call site
-CmuxNextApp	protocol	SleepyOverlayPresenting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyOverlayPresenting.swift	from protocol SleepyOverlayPresenting:4: AppKit/SwiftUI view, host or thin daemon call site
+CmuxNextKeepAwake	protocol	SleepyOverlayPresenting	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextKeepAwake/SleepyOverlayPresenting.swift	from protocol SleepyOverlayPresenting:4: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	protocol	SurfacePresenter	0	MIXED	20	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/TabContentCache.swift	from class TabContentCache:22: page/surface cache (platform ~420); LRU 8 and warm-set eviction policy (logic ~97)
-CmuxNextApp	struct	AboutPanelCredits	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/AboutPanelCredits.swift	AppKit attributed credits string for About panel
+CmuxNextUpdater	struct	AboutPanelCredits	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/AboutPanelCredits.swift	AppKit attributed credits string for About panel
 CmuxNextApp	struct	ActionAppOps	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Apps/AppControlOps.swift	from extension ControlRouter:6: in-process control router entry
 CmuxNextApp	struct	ActionScope	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ActionScope.swift	resolves action target vs focused object; explicit-target refusal rule
 CmuxNextApp	struct	AgentChatMarkUnread	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/AgentChatMarkUnread.swift	from struct AgentChatMarkUnread:9: thin action binder: parses args, calls model/daemon intent
@@ -3249,7 +3249,7 @@ CmuxNextApp	struct	BrowserDownloadRowEvents	0	PLATFORM	0	0	Packages/macOS/CmuxNe
 CmuxNextApp	struct	BrowserDownloadsFooterRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserDownloadsPopup.swift	from class BrowserDownloadsPopup:20: NativePopupHost downloads popup view; 5 s auto-close is minor timing
 CmuxNextApp	struct	BrowserDownloadsPopupColors	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserDownloadsPopup.swift	from class BrowserDownloadsPopup:20: NativePopupHost downloads popup view; 5 s auto-close is minor timing
 CmuxNextApp	struct	BrowserDownloadsPopupView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserDownloadsPopup.swift	from class BrowserDownloadsPopup:20: NativePopupHost downloads popup view; 5 s auto-close is minor timing
-CmuxNextApp	struct	BrowserExportSource	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/BrowserExportSource.swift	browser export source model decode
+CmuxNextBrowserImport	struct	BrowserExportSource	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Sources/BrowserExportSource.swift	browser export source model decode
 CmuxNextApp	struct	BrowserFileImport	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/BrowserFileImport.swift	from struct BrowserFileImport:15: browser file import parse (passwords/bookmarks/history)
 CmuxNextApp	struct	BrowserFocusModeEscapeExit	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/BrowserFocusModeEscapeExit.swift	browser focus-mode Escape exit state machine
 CmuxNextApp	struct	BrowserOpenPlan	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/BrowserOpenPlan.swift	BrowserOpenPlan: classify opened URL (chrome://settings, passwords, refuse) into a plan
@@ -3260,12 +3260,12 @@ CmuxNextApp	struct	ChatQuoteDelivery	0	MIXED	50	0	Packages/macOS/CmuxNext/Source
 CmuxNextApp	struct	ChiefHomeAcpmux	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabs+ChiefHost.swift	from enum AgentPaneHostKind:7: which acpmux host an agent tab attaches to (chief/local/remote decision)
 CmuxNextApp	struct	ChiefInspectorEndpoint	0	MIXED	25	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefInspectorHandlers.swift	from enum ChiefInspectorHandlers:25: Chief inspector actions plus placement choice (tab vs new column)
 CmuxNextApp	struct	ChiefMemoryRoute	0	MIXED	15	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/ChiefMemoryPageService.swift	from extension InternalPageID:9: Memory Inspector page host; Place routing (local/server) small LOGIC
-CmuxNextApp	struct	ChiefMoveTarget	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ChiefMove/ChiefMoveTarget.swift	ChiefMoveTarget disabled reasons
+CmuxNextHomeEngine	struct	ChiefMoveTarget	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefMoveTarget.swift	ChiefMoveTarget disabled reasons
 CmuxNextApp	struct	ChiefOwnerMigrationAdapter	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeService+ChiefMigration.swift	ChiefOwnerMigrationAdapter: migration of older chief conversations
 CmuxNextApp	struct	ChiefPetRoutes	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Chief/ChiefPetRoutes.swift	from struct ChiefPetRoutes:13: chief pet routes
 CmuxNextApp	struct	ChiefSubagentIDs	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaletteNavigation/ChiefSubagentIDs.swift	from struct ChiefSubagentIDs:13: chief subagent id derivation
 CmuxNextApp	struct	ChordTracker	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/ChordTracker.swift	chord tracker state machine (armed keys, mismatch, dismiss)
-CmuxNextApp	struct	ChromeIntranetPolicy	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ChromeIntranetPolicy.swift	bare-word intranet rule from managed Chrome policy
+CmuxNextSettings	struct	ChromeIntranetPolicy	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Managed/Chrome/ChromeIntranetPolicy.swift	bare-word intranet rule from managed Chrome policy
 CmuxNextApp	struct	ChromiumNewTabNow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ChromiumNewTabNow.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	struct	ChromiumNow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ChromiumNewTabNow.swift	from struct ChromiumNewTabNow:15: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	struct	ChromiumPaletteSignal	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/ChromiumPaletteSignal.swift	from struct ChromiumPaletteSignal:10: AppKit/SwiftUI view, host or thin daemon call site
@@ -3278,7 +3278,7 @@ CmuxNextApp	struct	ClassicSnapshotRead	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sou
 CmuxNextApp	struct	ClassicWorkspaceTurn	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Onboarding/ClassicMigrationRunState.swift	classic migration run state
 CmuxNextApp	struct	CloseToastRule	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/CloseToastRule.swift	from struct CloseToastRule:16: CloseToastRule: policy deciding whether closing tabs shows an undo toast (reopensFree, working, drafts)
 CmuxNextApp	struct	CloudAccessAsk	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAccessCard.swift	Ask card model with answer rules
-CmuxNextApp	struct	CloudAccessCLI	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudAccessCLI.swift	Hand-written parser/types of the Rust `cmux link access` JSON answers
+CmuxNextCloudPlace	struct	CloudAccessCLI	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextCloudPlace/CloudAccessCLI.swift	Hand-written parser/types of the Rust `cmux link access` JSON answers
 CmuxNextApp	struct	CloudAnswer	0	MIXED	20	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/CloudHandlers+Results.swift	CloudAnswer result shaping for action replies
 CmuxNextApp	struct	CloudBringBack	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudBringBack.swift	from struct CloudBringBack:29: Bring Back Local flow: sequencing, timing, rollbacks
 CmuxNextApp	struct	CloudChatPick	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudChatPick.swift	from struct CloudChatPick:13: Chat Cloud machine sizing request (pick already in Rust)
@@ -3290,7 +3290,7 @@ CmuxNextApp	struct	CloudMove	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxN
 CmuxNextApp	struct	CloudStartChat	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartChat.swift	from struct CloudStartChat:20: cloud.startChat flow steps (machine pick is Rust)
 CmuxNextApp	struct	CloudStartSession	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudStartSession.swift	from struct CloudStartSession:20: `cmux cloud start-session`: machine take/create and session start
 CmuxNextApp	struct	CloudTransferLocal	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudTransferLocal.swift	state/decision code: 22 branch lines, 6 funcs, 4 of 102 lines framework
-CmuxNextApp	struct	CloudTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Cloud/CloudTunables.swift	Debug Settings tunable defaults
+CmuxNextAgentPane	struct	CloudTunables	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/CloudTunables.swift	Debug Settings tunable defaults
 CmuxNextApp	struct	CmuxNextApp	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/CmuxNextApp.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	struct	CodeRouterAppOps	0	MIXED	0	50	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Apps/CodeRouterAppOps.swift	coderouter app ops relay
 CmuxNextApp	struct	CrashIssueReport	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Crash/CrashIssueReport.swift	crash issue URL builder with frame and url limits
@@ -3308,7 +3308,7 @@ CmuxNextApp	struct	DebugSidebarNestedFixture	0	PLATFORM	0	0	Packages/macOS/CmuxN
 CmuxNextApp	struct	DeepLinkNavigator	0	MIXED	50	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/DeepLinks/DeepLinkNavigator.swift	from struct DeepLinkNavigator:24: deep link navigator: where a link target shows
 CmuxNextApp	struct	DesyncReport	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/InputVerification/DesyncReport.swift	DEBUG/verification tooling, not product state
 CmuxNextApp	struct	DesyncReportStore	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/InputVerification/DesyncReport.swift	from struct DesyncReport:9: DEBUG/verification tooling, not product state
-CmuxNextApp	struct	DiffRecent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/Diff/DiffRecents.swift	DiffRecents: recent diff folders list, order, limit, persistence
+CmuxNextDiff	struct	DiffRecent	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextDiff/DiffRecents.swift	DiffRecents: recent diff folders list, order, limit, persistence
 CmuxNextApp	struct	DockSectionRow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/RightSidebar/DockSectionRow.swift	Value snapshot row
 CmuxNextApp	struct	ErrorJournalControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/ErrorJournalControl.swift	errors.list/clear control over ErrorJournal
 CmuxNextApp	struct	EventOrigin	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Windows/WindowManager+EventOrigin.swift	Event origin window
@@ -3324,7 +3324,7 @@ CmuxNextApp	struct	FirstWorkspaceLaunch	0	LOGIC	100	0	Packages/macOS/CmuxNext/So
 CmuxNextApp	struct	FocusDigest	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/InputVerification/InputJournalEntry.swift	from struct InputJournalEntry:12: DEBUG/verification tooling, not product state
 CmuxNextApp	struct	GhosttyDiagnosticsControl	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/GhosttyDiagnosticsControl.swift	ghostty.diagnostics report
 CmuxNextApp	struct	GhosttyKeyBindingLayer	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Focus/Keybindings/GhosttyKeyBindingLayer.swift	Ghostty keybind layer: defaults, user binds, key names
-CmuxNextApp	struct	GlobalSearchCorpus	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/GlobalSearch/GlobalSearchCorpus.swift	Global search corpus: read tab text once and match
+CmuxNextPalette	struct	GlobalSearchCorpus	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextPalette/GlobalSearch/GlobalSearchCorpus.swift	Global search corpus: read tab text once and match
 CmuxNextApp	struct	HibernationWakes	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hibernation/HibernationWakes.swift	hibernation wake accounting
 CmuxNextApp	struct	HistoryRestorer	0	MIXED	40	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/History/HistoryRestorer.swift	from struct HistoryRestorer:10: open/reopen/resume per entry kind
 CmuxNextApp	struct	HomeAgentGlances	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeAgentGlances.swift	HomeAgentGlances: assembles user agents list per machine
@@ -3366,7 +3366,7 @@ CmuxNextApp	struct	NewTabPageHandler	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sourc
 CmuxNextApp	struct	NewTabPageMachine	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/NewTabPageMachine.swift	new tab page machine: folder and home
 CmuxNextApp	struct	NewTabSuccession	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTabSuccession.swift	from struct NewTabSuccession:16: New Tab succession: order, deadlines, expiry
 CmuxNextApp	struct	NewWorkspaceFocus	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewWorkspaceFocus.swift	how a new workspace takes focus
-CmuxNextApp	struct	NightSky	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepySceneView.swift	from struct SleepySceneView:10: AppKit/SwiftUI view, host or thin daemon call site
+CmuxNextFloating	struct	NightSky	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFloating/SleepyMode/SleepySceneView.swift	from struct SleepySceneView:10: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	struct	NoKeychain	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Accounts/AccountsService.swift	No keychain fixture
 CmuxNextApp	struct	NotificationsPanelRow	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/Panel/NotificationsPanelRows.swift	Panel row copy of daemon ledger entry
 CmuxNextApp	struct	NotificationsPanelSelection	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/Panel/NotificationsPanelRows.swift	from struct NotificationsPanelRow:7: Panel row copy of daemon ledger entry
@@ -3422,9 +3422,9 @@ CmuxNextApp	struct	SidebarSnapshotDocument	0	MIRROR	0	100	Packages/macOS/CmuxNex
 CmuxNextApp	struct	SidebarSnapshotFile	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSnapshot/SidebarSnapshotFile.swift	snapshot file read/write
 CmuxNextApp	struct	SidebarSnapshotRecorder	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SidebarSnapshot/SidebarSnapshotRecorder.swift	snapshot recorder with saved key
 CmuxNextApp	struct	SidebarWorkspaceItems	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pins/SidebarTopProjection.swift	from enum SidebarTopProjection:12: SidebarTopProjection: legacy vs layout hidden ids
-CmuxNextApp	struct	SleepyMacLock	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyMacLock.swift	AppKit/SwiftUI view, host or thin daemon call site
-CmuxNextApp	struct	SleepyModeStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepyModeStrings.swift	localized string table
-CmuxNextApp	struct	SleepySceneView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/SleepyMode/SleepySceneView.swift	AppKit/SwiftUI view, host or thin daemon call site
+CmuxNextFloating	struct	SleepyMacLock	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFloating/SleepyMode/SleepyMacLock.swift	AppKit/SwiftUI view, host or thin daemon call site
+CmuxNextFloating	struct	SleepyModeStrings	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFloating/SleepyMode/SleepyModeStrings.swift	localized string table
+CmuxNextFloating	struct	SleepySceneView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextFloating/SleepyMode/SleepySceneView.swift	AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	struct	StatusRunNotice	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Notifications/StatusRunNotice.swift	Status run notice text/duration formatter
 CmuxNextApp	struct	SubagentLimit	0	MIXED	69	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentRecents/SubagentLimit.swift	from struct SubagentLimit:13: subagent limit get/set parse (logic ~110); strings platform
 CmuxNextApp	struct	SubagentLimitFlow	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/SubagentLimitHandlers.swift	from enum SubagentLimitHandlers:9: thin action binder: parses args, calls model/daemon intent
@@ -3456,7 +3456,7 @@ CmuxNextApp	struct	WorkspaceGroupConfigEditor	0	MIXED	51	0	Packages/macOS/CmuxNe
 CmuxNextApp	struct	WorkspaceGroupConfigLook	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceGroupConfigLook.swift	from struct WorkspaceGroupConfigLook:13: AppKit/SwiftUI view, host or thin daemon call site
 CmuxNextApp	struct	WorkspaceLayoutRefs	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pins/WorkspaceLayoutRefs.swift	from struct WorkspaceLayoutRefs:13: workspace layout refs: session:ws id mapping
 CmuxNextApp	struct	WorkspaceNotesUpdate	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/WorkspaceNotesUpdate.swift	WorkspaceNotesUpdate: field updates and status choices (hand list auto+lanes)
-CmuxNextApp	struct	WorkspacePinFlags	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pins/WorkspacePinFlags.swift	from struct WorkspacePinFlags:9: workspace pin flags send
+CmuxNextDaemonService	struct	WorkspacePinFlags	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/WorkspaceFlags/WorkspacePinFlags.swift	from struct WorkspacePinFlags:9: workspace pin flags send
 CmuxNextApp	struct	WorkspacePullRequestLinks	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Handlers/WorkspacePullRequestLinks.swift	pull-request link ordering and dedupe from status entries
 CmuxNextApp	struct	WorkspaceSpawner	0	MIXED	57	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift	from extension WindowManager:10: workspace spawn sequencing (logic ~110); window frame placement platform
 CmuxNextApp	struct	WorkspaceTodoPageView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Checklist/WorkspaceTodoPageView.swift	todo page view
@@ -14125,23 +14125,23 @@ CmuxTheme	struct	ThemeTokens	0	MIXED	50	0	Packages/Shared/CmuxTheme/Sources/Cmux
 CmuxTheme	struct	TransientMaterial	0	LOGIC	100	0	Packages/Shared/CmuxTheme/Sources/CmuxTheme/TransientMaterial.swift	struct TransientMaterial holds state, decides or maps: 0 branches/collection ops in 35 lines
 CmuxUpdater	class	DownloadDelegate	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/LiveAppChannelSwitchServices.swift	URLSessionDownloadDelegate: progress callback, move of the temporary file, continuation hand-off
 CmuxUpdater	class	InstallOnce	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateDriver.swift	state/decision code: 1 branch lines, 1 funcs, 0 of 11 lines framework
-CmuxUpdater	class	InstallWatchdog	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/InstallWatchdog.swift	state/decision code: 9 branch lines, 5 funcs, 0 of 48 lines framework
+CmuxUpdaterCore	class	InstallWatchdog	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/InstallWatchdog.swift	state/decision code: 9 branch lines, 5 funcs, 0 of 48 lines framework
 CmuxUpdater	class	UpdateController	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateController.swift	state/decision code: 42 branch lines, 9 funcs, 9 of 278 lines framework
 CmuxUpdater	class	UpdateDriver	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateDriver.swift	state/decision code: 64 branch lines, 37 funcs, 15 of 458 lines framework
 CmuxUpdater	class	UpdatePromptReply	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdatePromptReply.swift	state/decision code: 1 branch lines, 2 funcs, 6 of 25 lines framework
 CmuxUpdater	class	UpdateRelaunchGate	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRelaunchGate.swift	state/decision code: 27 branch lines, 5 funcs, 0 of 169 lines framework
 CmuxUpdater	class	UpdateStateModel	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateStateModel.swift	state/decision code: 74 branch lines, 16 funcs, 0 of 271 lines framework
 CmuxUpdater	class	UpdateTestURLProtocol	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/TestSupport/UpdateTestURLProtocol.swift	DEBUG-only URLProtocol that serves a synthetic appcast for UI tests; test scaffolding over URLProtocol
-CmuxUpdater	enum	AppChannelSwitchError	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitcher.swift	state/decision code: 7 branch lines, 0 funcs, 0 of 9 lines framework
-CmuxUpdater	enum	AppChannelSwitchOutcome	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitcher.swift	state/decision code: 2 branch lines, 0 funcs, 0 of 4 lines framework
-CmuxUpdater	enum	AppChannelSwitchPhase	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitcher.swift	state/decision code: 4 branch lines, 0 funcs, 0 of 6 lines framework
-CmuxUpdater	enum	AppChannelSwitchTarget	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitchTarget.swift	state/decision code: 23 branch lines, 3 funcs, 0 of 49 lines framework
-CmuxUpdater	enum	AppSignatureVerificationFailure	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/AppSignatureVerification.swift	state/decision code: 3 branch lines, 0 funcs, 0 of 5 lines framework
+CmuxUpdaterCore	enum	AppChannelSwitchError	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitcher.swift	state/decision code: 7 branch lines, 0 funcs, 0 of 9 lines framework
+CmuxUpdaterCore	enum	AppChannelSwitchOutcome	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitcher.swift	state/decision code: 2 branch lines, 0 funcs, 0 of 4 lines framework
+CmuxUpdaterCore	enum	AppChannelSwitchPhase	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitcher.swift	state/decision code: 4 branch lines, 0 funcs, 0 of 6 lines framework
+CmuxUpdaterCore	enum	AppChannelSwitchTarget	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitchTarget.swift	state/decision code: 23 branch lines, 3 funcs, 0 of 49 lines framework
+CmuxUpdaterCore	enum	AppSignatureVerificationFailure	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppSignatureVerification.swift	state/decision code: 3 branch lines, 0 funcs, 0 of 5 lines framework
 CmuxUpdater	enum	UpdateCheckCancellationSource	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateCheckCancellationSource.swift	state/decision code: 2 branch lines, 0 funcs, 0 of 4 lines framework
 CmuxUpdater	enum	UpdateCheckIntent	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateCheckIntent.swift	state/decision code: 3 branch lines, 1 funcs, 0 of 8 lines framework
-CmuxUpdater	enum	UpdateHostArchitecture	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateHostArchitecture.swift	sysctl read of the host CPU architecture (Rosetta and arm64 detection)
+CmuxUpdaterCore	enum	UpdateHostArchitecture	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateHostArchitecture.swift	sysctl read of the host CPU architecture (Rosetta and arm64 detection)
 CmuxUpdater	enum	UpdatePromptReplySource	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdatePromptReplySource.swift	state/decision code: 4 branch lines, 0 funcs, 0 of 7 lines framework
-CmuxUpdater	enum	UpdateRing	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRing.swift	state/decision code: 9 branch lines, 0 funcs, 0 of 17 lines framework
+CmuxUpdaterCore	enum	UpdateRing	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateRing.swift	state/decision code: 9 branch lines, 0 funcs, 0 of 17 lines framework
 CmuxUpdater	enum	UpdateState	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateState.swift	state/decision code: 55 branch lines, 8 funcs, 3 of 237 lines framework
 CmuxUpdater	enum	UpdateTiming	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateTiming.swift	tuning constants: 4 lines, no branches, no funcs
 CmuxUpdater	extension	SPUUpdater	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdaterHandle.swift	conforms SPUUpdater to UpdaterHandle
@@ -14174,22 +14174,22 @@ CmuxUpdater	let	sparkleRelaunchErrorCode	0	PLATFORM	0	0	Packages/macOS/CmuxUpdat
 CmuxUpdater	let	sparkleResumeAppcastErrorCode	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateManualDownloadRecovery.swift	constant that mirrors a Sparkle SUError code
 CmuxUpdater	let	sparkleTemporaryDirectoryErrorCode	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateManualDownloadRecovery.swift	constant that mirrors a Sparkle SUError code
 CmuxUpdater	let	sparkleUnarchivingErrorCode	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateManualDownloadRecovery.swift	constant that mirrors a Sparkle SUError code
-CmuxUpdater	protocol	AppChannelDownloading	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitchServices.swift	protocol seam to the channel download (URLSession in production); signatures only
-CmuxUpdater	protocol	AppInstallFileSystem	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitchServices.swift	protocol seam to the install file system (FileManager in production); signatures only
-CmuxUpdater	protocol	AppLaunching	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitchServices.swift	protocol seam to the workspace app launcher; signatures only
-CmuxUpdater	protocol	AppSignatureInspecting	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/AppSignatureVerification.swift	protocol seam to the Security framework signature inspector; signatures only
-CmuxUpdater	protocol	DiskImageMounting	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitchServices.swift	protocol seam to hdiutil mount and detach; signatures only
-CmuxUpdater	protocol	InstalledAppLocating	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/AppChannelInstallLocations.swift	protocol seam to NSWorkspace's installed-app lookup; signatures only
+CmuxUpdaterCore	protocol	AppChannelDownloading	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitchServices.swift	protocol seam to the channel download (URLSession in production); signatures only
+CmuxUpdaterCore	protocol	AppInstallFileSystem	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitchServices.swift	protocol seam to the install file system (FileManager in production); signatures only
+CmuxUpdaterCore	protocol	AppLaunching	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitchServices.swift	protocol seam to the workspace app launcher; signatures only
+CmuxUpdaterCore	protocol	AppSignatureInspecting	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppSignatureVerification.swift	protocol seam to the Security framework signature inspector; signatures only
+CmuxUpdaterCore	protocol	DiskImageMounting	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitchServices.swift	protocol seam to hdiutil mount and detach; signatures only
+CmuxUpdaterCore	protocol	InstalledAppLocating	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelInstallLocations.swift	protocol seam to NSWorkspace's installed-app lookup; signatures only
 CmuxUpdater	protocol	UpdateActionDelegate	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateActionDelegate.swift	protocol with default bodies
-CmuxUpdater	protocol	UpdateClock	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateClock.swift	protocol seam to the clock; signatures only
+CmuxUpdaterCore	protocol	UpdateClock	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateClock.swift	protocol seam to the clock; signatures only
 CmuxUpdater	protocol	UpdateDriverEventDelegate	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateDriverEventDelegate.swift	protocol seam to the host's Sparkle driver event callbacks; signatures only
 CmuxUpdater	protocol	UpdateLogging	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateLogging.swift	protocol seam to the host's log sink; signatures only
 CmuxUpdater	protocol	UpdaterHandle	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdaterHandle.swift	protocol seam over SPUUpdater so the driver can be tested; signatures only
-CmuxUpdater	struct	AppChannelInstallLocations	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/AppChannelInstallLocations.swift	state/decision code: 5 branch lines, 4 funcs, 1 of 42 lines framework
-CmuxUpdater	struct	AppChannelSwitcher	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/AppChannelSwitcher.swift	state/decision code: 12 branch lines, 4 funcs, 1 of 146 lines framework
-CmuxUpdater	struct	AppSignatureReport	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/AppSignatureVerification.swift	state/decision code: 0 branch lines, 0 funcs, 0 of 17 lines framework
-CmuxUpdater	struct	AppSignatureVerifier	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/AppSignatureVerification.swift	state/decision code: 4 branch lines, 2 funcs, 0 of 26 lines framework
-CmuxUpdater	struct	AttemptUpdateCoordinator	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/AttemptUpdateCoordinator.swift	state/decision code: 34 branch lines, 4 funcs, 0 of 86 lines framework
+CmuxUpdaterCore	struct	AppChannelInstallLocations	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelInstallLocations.swift	state/decision code: 5 branch lines, 4 funcs, 1 of 42 lines framework
+CmuxUpdaterCore	struct	AppChannelSwitcher	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppChannelSwitcher.swift	state/decision code: 12 branch lines, 4 funcs, 1 of 146 lines framework
+CmuxUpdaterCore	struct	AppSignatureReport	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppSignatureVerification.swift	state/decision code: 0 branch lines, 0 funcs, 0 of 17 lines framework
+CmuxUpdaterCore	struct	AppSignatureVerifier	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/ChannelSwitch/AppSignatureVerification.swift	state/decision code: 4 branch lines, 2 funcs, 0 of 26 lines framework
+CmuxUpdaterCore	struct	AttemptUpdateCoordinator	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/AttemptUpdateCoordinator.swift	state/decision code: 34 branch lines, 4 funcs, 0 of 86 lines framework
 CmuxUpdater	struct	DittoZipArchiveOpener	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/LiveAppChannelSwitchServices.swift	runs /usr/bin/ditto through Process to extract a zip; process adapter
 CmuxUpdater	struct	FileManagerAppInstallFileSystem	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/LiveAppChannelSwitchServices.swift	FileManager adapter of the install file system protocol; one FileManager call per method
 CmuxUpdater	struct	HdiutilDiskImageMounter	0	MIXED	30	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/LiveAppChannelSwitchServices.swift	runs /usr/bin/hdiutil through Process (platform); the attach plist parsers mountPoint and deviceEntry (about 20 of 67 lines) are parsers and stay counted
@@ -14835,12 +14835,12 @@ CmuxVNC	struct	VNCPasswordResponse	0	LOGIC	100	0	Packages/Shared/CmuxVNC/Sources
 CmuxVNC	struct	VNCSessionOptions	0	LOGIC	100	0	Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/VNCClient.swift	state/decision code: 1 branch lines, 0 funcs, 0 of 13 lines framework
 CmuxVNC	enum	VNCEvent	0	LOGIC	100	0	Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/VNCClient.swift	state/decision code: 6 branch lines, 0 funcs, 0 of 8 lines framework
 CmuxVNC	struct	VNCSessionStats	0	LOGIC	100	0	Packages/Shared/CmuxVNC/Sources/CmuxVNC/Client/VNCClient.swift	state/decision code: 0 branch lines, 0 funcs, 0 of 11 lines framework
-CmuxUpdater	struct	SystemUpdateClock	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateClock.swift	system clock adapter (Date and Task.sleep)
+CmuxUpdaterCore	struct	SystemUpdateClock	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateClock.swift	system clock adapter (Date and Task.sleep)
 CmuxUpdater	struct	URLSessionAppChannelDownloader	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/LiveAppChannelSwitchServices.swift	URLSession download task adapter with cancellation
-CmuxUpdater	struct	UpdateFeedResolver	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateFeedResolver.swift	state/decision code: 16 branch lines, 4 funcs, 0 of 72 lines framework
-CmuxUpdater	struct	UpdateManualDownloadRecovery	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateManualDownloadRecovery.swift	state/decision code: 14 branch lines, 4 funcs, 1 of 62 lines framework
+CmuxUpdaterCore	struct	UpdateFeedResolver	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateFeedResolver.swift	state/decision code: 16 branch lines, 4 funcs, 0 of 72 lines framework
+CmuxUpdaterCore	struct	UpdateManualDownloadRecovery	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateManualDownloadRecovery.swift	state/decision code: 14 branch lines, 4 funcs, 1 of 62 lines framework
 CmuxUpdater	struct	UpdateRelaunchBlockers	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateRelaunchGate.swift	state/decision code: 1 branch lines, 0 funcs, 0 of 23 lines framework
-CmuxUpdater	struct	UpdateSettings	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateSettings.swift	state/decision code: 10 branch lines, 2 funcs, 4 of 51 lines framework
+CmuxUpdaterCore	struct	UpdateSettings	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdaterCore/UpdateSettings.swift	state/decision code: 10 branch lines, 2 funcs, 4 of 51 lines framework
 CmuxUpdater	struct	UpdateStateChange	0	LOGIC	100	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/UpdateStateChange.swift	state/decision code: 0 branch lines, 0 funcs, 0 of 4 lines framework
 CmuxUpdater	struct	WorkspaceAppLauncher	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/LiveAppChannelSwitchServices.swift	NSWorkspace openApplication launch of an installed app
 CmuxUpdater	struct	WorkspaceInstalledAppLocator	0	PLATFORM	0	0	Packages/macOS/CmuxUpdater/Sources/CmuxUpdater/ChannelSwitch/LiveAppChannelSwitchServices.swift	NSWorkspace urlForApplication lookup of an installed app
@@ -15645,14 +15645,9 @@ CmuxNextMobile	enum	MobileHostRules	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sourc
 CmuxNextMobileHost	struct	IPhoneDevAutoApprove	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhoneDevAutoApprove.swift	thin call into the Rust rules (cmux-mobile-host-core, the app FFI mobile_host op): ops dev_auto_approve and dev_request decide the dev tag, the phone tag, the quiet ask and the auto-approve; Swift reads the bundle and the launch environment; no rule in Swift
 CmuxNextMobileHost	struct	IPhonePairingSeed	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/IPhonePairingSeed.swift	thin call into the Rust rules (cmux-mobile-host-core, the app FFI mobile_host op): reads CMUX_NEXT_IPHONE_PAIRING_SEED and the seed file, op pairing_seed_trusts decides the entry match; no rule in Swift
 CmuxNextMobileHost	struct	MobileHostPhoneCredentials	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextMobileHost/MobileHostPhoneCredentials.swift	thin call into the Rust rules (cmux-mobile-host-core, the app FFI mobile_host op): op credentials runs the phone credentials state machine, Swift keeps Rust's state JSON between events and reads the reply's requests; no rule in Swift
-CmuxNextDesign	extension	NSEvent	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Debug/NSEvent+SyntheticScroll.swift	DEBUG/bench hook: builds a synthetic scroll-wheel NSEvent from a CGEvent
 CmuxNextDesign	extension	SyntheticPointer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Debug/SyntheticPointer+Sweep.swift	DEBUG/bench hook: paces synthetic pointer moves over NSTrackingAreas and times them
-CmuxNextDesign	class	SyntheticPointer	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Debug/SyntheticPointer.swift	DEBUG/bench hook: drives NSTrackingArea enter/exit/move on a window
-CmuxNextDesign	struct	TopAlignmentProbe	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Debug/TopAlignmentProbe.swift	DEBUG probe: walks the NSView tree and reports title-bar frames
-CmuxNextDesign	extension	NSImage	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/NSImage+SystemSymbol.swift	SF Symbol lookup with fallback over NSImage(systemSymbolName:)
 CmuxNextDesign	class	PlusButtonLook	0	MIXED	20	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PlusButtonLook.swift	hover/press/menu-open state derivation ~20 percent LOGIC; CALayer/CAShapeLayer fill and glyph drawing ~80 percent PLATFORM
 CmuxNextDesign	enum	SidebarToggleGlyph	0	MIXED	25	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/SidebarToggleGlyph.swift	glyph name/slide-step parsing ~25 percent LOGIC; NSImage/AppKit path drawing ~75 percent PLATFORM
-CmuxNextDesign	class	ThemedPopUpButtonCell	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextDesign/ThemedPopUpButtonCell.swift	NSPopUpButtonCell subclass that draws the themed pop-up
 MessagesLabHome	class	ComposeInlineAttachment	0	MIXED	25	0	Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/ComposeInlineAttachment.swift	attachment size fit, aspect fill and async thumbnail stale-result guards ~25 percent LOGIC; NSTextAttachment view provider and CGContext drawing ~75 percent PLATFORM
 MessagesLabHome	struct	HomeAgentFoldLine	0	MIXED	30	0	Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/HomeAgentFoldLine.swift	chip fitting and overflow count ~30 percent LOGIC; CoreText/CGContext chevron, pill and text drawing ~70 percent PLATFORM
 MessagesLabHome	class	HomeMediaSaveHover	0	MIXED	20	0	Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/HomeMediaSaveHover.swift	target and fit rule ~20 percent LOGIC; CALayer hover button, fade and SF Symbol bitmap ~80 percent PLATFORM
