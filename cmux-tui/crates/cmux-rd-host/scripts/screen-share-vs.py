@@ -224,6 +224,57 @@ def marker_click_at(line):
     return None
 
 
+def child_exit(code):
+    """A Popen returncode in words: `exit N`, or the signal for a negative one (an -O Swift trap
+    such as a nil force-unwrap dies by SIGTRAP and prints nothing)."""
+    if code is None:
+        return "still running"
+    if code < 0:
+        try:
+            return f"killed by {signal.Signals(-code).name}"
+        except ValueError:
+            return f"killed by signal {-code}"
+    return f"exit {code}"
+
+
+def wait_marker(proc, log, seconds=10.0, step=0.05):
+    """The rig's `marker` reply from the marker app PROC writing LOG: its origin, click point and
+    geometry once it prints `marker-origin` and `stream width`, or why not. It stops as soon as the
+    marker exits (no waiting out SECONDS on a dead child) and says how it ended, so an empty log
+    reads as a crash, a refusal or a hang, never as nothing."""
+    deadline = time.time() + seconds
+    text = ""
+    while True:
+        with open(log, errors="replace") as lf:
+            text = lf.read()
+        if "marker-origin" in text and "stream width" in text:
+            break
+        if proc.poll() is not None:
+            with open(log, errors="replace") as lf:
+                text = lf.read()  # the last lines it wrote before it ended
+            break
+        if time.time() >= deadline:
+            break
+        time.sleep(step)  # bounded by SECONDS
+    reply = {"ok": True}
+    for line in text.splitlines():
+        if line.startswith("marker-origin "):
+            x, y = line.split()[1].split(",")
+            reply["origin"] = [int(x), int(y)]
+            at = marker_click_at(line)
+            if at:
+                reply["at"] = at
+        if "stream width" in line:
+            reply["geometry"] = line
+    if "origin" not in reply:
+        how = child_exit(proc.poll())
+        if how == "still running":
+            how = f"still running after {seconds:g} s"
+        reply = {"ok": False, "error": f"marker printed no origin ({how}; log {len(text)} bytes)",
+                 "exit": proc.poll(), "log": text[-400:]}
+    return reply
+
+
 def bench_input(kind, samples, at):
     """`cmux-rd bench`'s input flags. A click or scroll aims at AT (the marker's pad): the bench's
     own --at default, 960,600, misses the marker, which then counts nothing (every trial lost)."""
@@ -1330,24 +1381,8 @@ def cmd_rig(args):
                 out = open(log, "w")
                 procs["marker"] = subprocess.Popen([os.path.join(bindir, "cmux-rd-marker"), *flags],
                                                    stdout=out, stderr=out)
-                deadline = time.time() + 10
-                while time.time() < deadline:
-                    with open(log) as lf:
-                        text = lf.read()
-                    if "marker-origin" in text and "stream width" in text:
-                        break
-                    time.sleep(0.05)
-                for line in text.splitlines():
-                    if line.startswith("marker-origin "):
-                        x, y = line.split()[1].split(",")
-                        reply["origin"] = [int(x), int(y)]
-                        at = marker_click_at(line)
-                        if at:
-                            reply["at"] = at
-                    if "stream width" in line:
-                        reply["geometry"] = line
-                if "origin" not in reply:
-                    reply = {"ok": False, "error": "marker printed no origin", "log": text[-400:]}
+                out.close()  # the child holds its own copy
+                reply = wait_marker(procs["marker"], log)
             elif cmd == "serve":
                 stop("serve")
                 argv = [os.path.join(bindir, "cmux-rd"), "serve"]
@@ -2707,6 +2742,10 @@ class Orchestrator:
                 elif msg.get("candidates_done"):
                     break
             rec["host_candidates"] = cands
+            if not host_key:
+                # Without the host's key the viewer reads a null peer_key and says only "answer
+                # line: invalid type: null"; the reason is in the host's stderr (11-27 try 9).
+                raise RuntimeError(f"host printed no key in 20 s: {self.host_failure(host)}")
             cands = [c for c in cands if self.a.host_ip in c] or cands
             t0 = time.time()
             viewer.stdin.write(json.dumps({"session": session, "peer_key": host_key, "stun": [],
@@ -2783,6 +2822,20 @@ class Orchestrator:
                         p.kill()
                         p.wait()
         return rec
+
+    def host_failure(self, host):
+        """Why the host side said nothing: its exit status and stderr tail (serve.err for a
+        synthetic serve, which sends stderr there; the pipe otherwise)."""
+        code = host.poll()
+        state = "running" if code is None else f"exit {code}"
+        try:
+            if self.synthetic:
+                tail = self.host.run(f"tail -c 600 {shlex.quote(self.root + '/state/serve.err')}", timeout=30)
+            else:
+                tail = host.stderr.read()[-600:] if code is not None else ""
+        except Exception as e:  # noqa: BLE001 - the reason is best effort
+            tail = f"(stderr unread: {e!r})"
+        return f"{state}; stderr: {tail.strip() or '(empty)'}"
 
     def first_frame_breakdown(self, rec, timing, offset_ns):
         """connect -> first decoded frame, split with the host's log (ms, viewer clock)."""
