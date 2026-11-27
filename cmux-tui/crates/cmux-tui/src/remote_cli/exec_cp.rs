@@ -451,7 +451,7 @@ pub(super) async fn exec_on(
     }
 }
 
-enum StdinChunk {
+pub(super) enum StdinChunk {
     Data(Vec<u8>),
     End,
 }
@@ -481,21 +481,90 @@ fn spawn_stdin_reader() -> anyhow::Result<tokio::sync::mpsc::Receiver<StdinChunk
     Ok(receiver)
 }
 
-/// Sends local stdin to the process in order, one acknowledged write at a
-/// time, and EOF at local EOF. It runs beside the output loop so a command
-/// blocked on a full stdout can never stall its own input. A write the
-/// daemon refuses (the command closed stdin or exited) stops forwarding.
+/// How many stdin writes may be unacknowledged at once: 16 writes of
+/// PROCESS_WRITE_BYTES, 512 KiB in flight. One write per round trip moved
+/// 27 KiB per RTT (0.26 MiB/s at 100 ms; cmuxterm-hq#34078) while stdout
+/// streams. The daemon still applies writes one at a time in receive order on
+/// the process-input stream and blocks on a full pipe, so the window bounds
+/// buffering without reordering input.
+const STDIN_WRITES_IN_FLIGHT: usize = 16;
+
+/// A write's acknowledgement: true when the daemon accepted it.
+type StdinAck<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = bool> + 'a>>;
+
+/// Sends local stdin to the process in order, with up to
+/// STDIN_WRITES_IN_FLIGHT writes unacknowledged, and EOF at local EOF. It runs
+/// beside the output loop so a command blocked on a full stdout can never
+/// stall its own input. A write the daemon refuses (the command closed stdin
+/// or exited) stops forwarding.
 ///
 /// On a PTY, EOF is the daemon's one Control-D, which ends input only at the
 /// start of a line: after an unterminated line it just hands that line to
 /// the reader. So when the last byte sent was not a newline, an extra
 /// Control-D goes first to release the line (`printf foo | ... --tty -- cat`).
 async fn forward_stdin(client: &WorkspaceClient, process: ProcessId, tty: bool) {
-    let Ok(mut input) = spawn_stdin_reader() else { return };
+    let Ok(input) = spawn_stdin_reader() else { return };
+    forward_stdin_chunks(input, tty, STDIN_WRITES_IN_FLIGHT, |write_id, data, eof| {
+        let request = WorkspaceRequest::WriteProcess {
+            process,
+            write_id,
+            data: ByteString::from_bytes(&data),
+            eof,
+        };
+        Box::pin(async move {
+            let pending = client.begin_request(request).await.ok()?;
+            Some(Box::pin(async move { pending.receive().await.is_ok() }) as StdinAck<'_>)
+        })
+    })
+    .await;
+}
+
+/// The order and window of [`forward_stdin`]: `send` starts write `write_id`
+/// (None when it could not be sent) and returns its acknowledgement. Returns
+/// once EOF is acknowledged or a write fails.
+pub(super) async fn forward_stdin_chunks<'a, S>(
+    mut input: tokio::sync::mpsc::Receiver<StdinChunk>,
+    tty: bool,
+    window: usize,
+    mut send: S,
+) where
+    S: FnMut(
+        u64,
+        Vec<u8>,
+        bool,
+    )
+        -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<StdinAck<'a>>> + 'a>>,
+{
+    let window = window.max(1);
+    let mut in_flight: VecDeque<StdinAck<'a>> = VecDeque::new();
     let mut write_id = 0_u64;
     let mut last_sent = None;
     loop {
-        let (data, eof) = match input.recv().await {
+        let next = if in_flight.len() >= window {
+            None
+        } else {
+            tokio::select! {
+                biased;
+                accepted = async { in_flight.front_mut().expect("checked non-empty").await },
+                    if !in_flight.is_empty() =>
+                {
+                    in_flight.pop_front();
+                    if !accepted {
+                        return;
+                    }
+                    continue;
+                }
+                chunk = input.recv() => Some(chunk),
+            }
+        };
+        let Some(chunk) = next else {
+            let Some(oldest) = in_flight.pop_front() else { continue };
+            if !oldest.await {
+                return;
+            }
+            continue;
+        };
+        let (data, eof) = match chunk {
             Some(StdinChunk::Data(data)) => (data, false),
             Some(StdinChunk::End) | None if tty && pty_line_open(last_sent) => {
                 (vec![CONTROL_D], false)
@@ -506,13 +575,14 @@ async fn forward_stdin(client: &WorkspaceClient, process: ProcessId, tty: bool) 
             last_sent = Some(*last);
         }
         write_id += 1;
-        let request = WorkspaceRequest::WriteProcess {
-            process,
-            write_id,
-            data: ByteString::from_bytes(&data),
-            eof,
-        };
-        if client.request(request).await.is_err() || eof {
+        let Some(ack) = send(write_id, data, eof).await else { return };
+        in_flight.push_back(ack);
+        if eof {
+            while let Some(ack) = in_flight.pop_front() {
+                if !ack.await {
+                    return;
+                }
+            }
             return;
         }
     }
@@ -998,3 +1068,7 @@ async fn upload_parts(
     }
     Ok(index)
 }
+
+#[cfg(test)]
+#[path = "exec_cp_stdin_tests.rs"]
+mod stdin_tests;
