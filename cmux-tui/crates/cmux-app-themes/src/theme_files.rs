@@ -188,18 +188,60 @@ pub fn saved_theme(
     file_text(&lines)
 }
 
-/// The theme name of an imported file: its name without a `.conf` or `.theme`
-/// extension (any case).
+/// The file name without a theme or scheme extension (any case).
 pub fn import_name(file_name: &str) -> String {
     match file_name.rsplit_once('.') {
         Some((stem, extension))
             if !stem.is_empty()
-                && ["conf", "theme"].contains(&extension.to_ascii_lowercase().as_str()) =>
+                && ["conf", "theme", "yaml", "yml"]
+                    .contains(&extension.to_ascii_lowercase().as_str()) =>
         {
             stem.to_owned()
         }
         _ => file_name.to_owned(),
     }
+}
+
+/// The app also accepts partial Base16 schemes. Only slots with valid colors produce lines.
+fn base16_lines(text: &str) -> Vec<String> {
+    let mut colors: [Option<String>; 16] = Default::default();
+    for line in text.split(is_newline) {
+        let Some((key, value)) = trim_spaces(line).split_once(':') else { continue };
+        let Some((prefix, digits)) = key.split_at_checked(4) else { continue };
+        if !prefix.eq_ignore_ascii_case("base") || !digits.starts_with('0') {
+            continue;
+        }
+        let Some(color) = usize::from_str_radix(digits, 16).ok().and_then(|i| colors.get_mut(i))
+        else {
+            continue;
+        };
+        let value = trim_spaces(value);
+        let value = value.split_once(" #").map_or(value, |(value, _)| value);
+        let value = value.trim_matches(['"', '\'', ' ', '#']);
+        if value.len() == 6 && value.bytes().all(|b| b.is_ascii_hexdigit()) {
+            *color = Some(format!("#{}", value.to_ascii_lowercase()));
+        }
+    }
+
+    let mut lines = Vec::new();
+    for (key, slot) in [
+        ("background", 0),
+        ("foreground", 5),
+        ("cursor-color", 5),
+        ("cursor-text", 0),
+        ("selection-background", 2),
+        ("selection-foreground", 5),
+    ] {
+        if let Some(Some(color)) = colors.get(slot) {
+            lines.push(format!("{key} = {color}"));
+        }
+    }
+    for (index, slot) in cmux_theme_tokens::BASE16_ANSI.into_iter().enumerate() {
+        if let Some(Some(color)) = colors.get(slot) {
+            lines.push(format!("palette = {index}={color}"));
+        }
+    }
+    lines
 }
 
 /// An import: the theme name and the file text, colors only.
@@ -216,9 +258,12 @@ pub fn imported_theme(file_name: &str, text: &str, size: usize) -> Result<Import
     if size > MAXIMUM_THEME_FILE_BYTES {
         return Err(Refusal::NotATheme);
     }
-    let colors = color_lines(text);
+    let mut colors = color_lines(text);
     if !colors.iter().any(|line| !line.starts_with('#')) {
-        return Err(Refusal::NotATheme);
+        colors = base16_lines(text);
+        if colors.is_empty() {
+            return Err(Refusal::NotATheme);
+        }
     }
     let name = import_name(file_name);
     let mut lines = vec![format!("# {name}: imported by cmux from {file_name}")];
@@ -318,7 +363,33 @@ mod tests {
     }
 
     #[test]
-    fn an_import_name_drops_a_conf_or_theme_extension() {
+    fn a_partial_base16_scheme_imports_the_named_colors_and_ansi_slots_it_sets() {
+        let text = "palette:\n  base00: ff00ff\n  BASE00: '#1D1F21' # last valid wins\n\
+            base02: not-a-color\n  Base08: cc6666\n# cmux-accent = #111111";
+        let theme = imported_theme("Night.YAML", text, text.len()).unwrap();
+        assert_eq!(theme.name, "Night");
+        assert_eq!(
+            theme.text,
+            "# Night: imported by cmux from Night.YAML\n\
+            background = #1d1f21\ncursor-text = #1d1f21\npalette = 0=#1d1f21\n\
+            palette = 1=#cc6666\npalette = 9=#cc6666\n"
+        );
+        assert_eq!(imported_theme("Empty", "base02: invalid", 15), Err(Refusal::NotATheme));
+    }
+
+    #[test]
+    fn ghostty_colors_take_precedence_over_base16() {
+        let text = "base00: 111111\nforeground = #222222\n# cmux-accent = #333333";
+        let theme = imported_theme("Mixed.yml", text, text.len()).unwrap();
+        assert_eq!(
+            theme.text,
+            "# Mixed: imported by cmux from Mixed.yml\n\
+            foreground = #222222\n# cmux-accent = #333333\n"
+        );
+    }
+
+    #[test]
+    fn an_import_name_drops_a_theme_or_scheme_extension() {
         assert_eq!(import_name("Nord.conf"), "Nord");
         assert_eq!(import_name("Nord.THEME"), "Nord");
         assert_eq!(import_name("Nord.txt"), "Nord.txt");

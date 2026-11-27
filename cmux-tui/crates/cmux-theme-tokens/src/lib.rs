@@ -70,8 +70,8 @@ pub use image_palette::{
 };
 pub use rgb::Rgb;
 pub use scheme::{
-    InstallError, MAX_SCHEME_BYTES, Scheme, SchemeError, SchemeFormat, find_theme_file,
-    install_scheme, is_valid_theme_name,
+    BASE16_ANSI, InstallError, MAX_SCHEME_BYTES, Scheme, SchemeError, SchemeFormat,
+    find_theme_file, install_scheme, is_valid_theme_name,
 };
 /// The spec's `design-tokens.json`, as compiled in: `theme.formulas` names every chrome
 /// token and how it derives (`cmux customize schema` lists them).

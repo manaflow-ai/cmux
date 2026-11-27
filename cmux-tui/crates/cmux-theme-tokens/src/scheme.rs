@@ -183,7 +183,7 @@ fn hex6(color: Rgb) -> String {
 }
 
 /// base16-shell's ANSI slots: ANSI index -> base index.
-const BASE16_ANSI: [usize; 16] =
+pub const BASE16_ANSI: [usize; 16] =
     [0x0, 0x8, 0xB, 0xA, 0xD, 0xE, 0xC, 0x5, 0x3, 0x8, 0xB, 0xA, 0xD, 0xE, 0xC, 0x7];
 
 /// The names of ANSI 0...15 in a Windows Terminal scheme.
