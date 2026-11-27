@@ -9,6 +9,7 @@ use super::SURFACES;
 use std::path::{Path, PathBuf};
 
 /// The repository root (this crate is cmux-tui/crates/cmux-tui).
+// affected-reads: scripts/cmux-next/build-web-bundles.sh Packages/macOS/CmuxNext/Sources scripts/cmux-next/build-pages-web.sh webviews/src/pages
 fn repo() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..")
 }
