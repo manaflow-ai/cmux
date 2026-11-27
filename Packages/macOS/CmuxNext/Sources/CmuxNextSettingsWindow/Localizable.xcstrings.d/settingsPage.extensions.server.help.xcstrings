@@ -1,0 +1,24 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.extensions.server.help" : {
+      "comment" : "Settings > Extensions: help under an approved external server; CMUX_APP_CREDENTIAL is an environment variable name, keep it as is",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Give its server this credential as CMUX_APP_CREDENTIAL."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このサーバーに CMUX_APP_CREDENTIAL として認証情報を渡します。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

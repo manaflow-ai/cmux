@@ -2752,6 +2752,9 @@ export type SettingsOps = {
    * setting; the daemon refuses one the manifest does not allow (`cmux.apps.settings.invalid`). */
   "cmux.settings.extensions.list": [Record<string, never>, unknown];
   "cmux.settings.extensions.set": [Mutation<{ app: string; values: Record<string, unknown> }>, unknown];
+  /** Native: on your click, the daemon's `apps-server-credential {app}` (origin user): a new credential
+   * for an extension's own server, answered once as `{app, credential}`; the daemon keeps its digest. */
+  "cmux.settings.extensions.credential": [{ app: string }, unknown];
   /** Native: Settings > Devices; rejects with `cmux.page.unavailable` when the host has no device hub. */
   "cmux.settings.devices.state": [Record<string, never>, DevicesState];
   /** Native: one Devices gesture; a failure answers its localized text in `error`. */

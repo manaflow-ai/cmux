@@ -4,7 +4,7 @@
 // Default sends `null`; a value the manifest refuses shows the daemon's reason and changes nothing.
 import { afterAll, expect, test } from "bun:test";
 import { installDom } from "./testDom";
-import { readExtensionSettings } from "./extensionSettings";
+import { readExtensionServers, readExtensionSettings } from "./extensionSettings";
 import { readFileSync } from "node:fs";
 import { hasIcon } from "./icons";
 
@@ -98,6 +98,7 @@ test("with no extension that declares settings, or a host without them, the card
   const empty = await renderCard(<ExtensionsCard />, {
     setup: (provider) => {
       provider.extensionApps = [];
+      provider.extensionServers = [];
     },
   });
   expect(empty.container.querySelector("[data-extensions-empty]")).not.toBeNull();
@@ -199,4 +200,54 @@ test("a manifest saved while Settings is open redraws the card with the new sche
   expect(row(page.container, "compact")).toBeNull();
   expect(row(page.container, "dense").textContent).toContain("Dense rows");
   page.unmount();
+});
+
+const server = (container: HTMLElement, app = "acme/hello-python") =>
+  container.querySelector<HTMLElement>(`[data-extension-server="${app}"]`)!;
+
+test("an extension with its own server gets Approve Credential, and the credential shows once with Copy", async () => {
+  const page = await renderCard(<ExtensionsCard />);
+  const group = server(page.container);
+  expect(group.querySelector(".group-title")!.textContent).toBe("Hello Python");
+  expect(group.querySelector("[data-server-credential-value]")).toBeNull();
+  await click(group.querySelector<HTMLElement>("[data-server-approve]")!);
+  expect(ops(page.provider, "cmux.settings.extensions.credential")).toEqual([{ app: "acme/hello-python" }]);
+  const field = group.querySelector<HTMLInputElement>("[data-server-credential-value] input")!;
+  expect(field.value).toBe("cmuxsrv1_mock1");
+  await click(group.querySelector<HTMLElement>("[data-server-copy]")!);
+  expect(ops(page.provider, "cmux.app.clipboard.write")).toEqual([{ text: "cmuxsrv1_mock1" }]);
+  page.unmount();
+});
+
+test("a server the person has not allowed offers no credential, and a refusal shows the reason", async () => {
+  const off = await renderCard(<ExtensionsCard />, {
+    setup: (provider) => {
+      provider.extensionServers = [
+        { app: "acme/off", name: "Off", enabled: true, kind: "external", approved: false },
+      ];
+    },
+  });
+  const button = server(off.container, "acme/off").querySelector<HTMLButtonElement>("[data-server-approve]")!;
+  expect(button.disabled).toBe(true);
+  expect(server(off.container, "acme/off").querySelector('[data-server-credential="unapproved"]')).not.toBeNull();
+  off.unmount();
+});
+
+test("servers alone keep the card (no empty state), and the list reads only well-formed rows", async () => {
+  const page = await renderCard(<ExtensionsCard />, {
+    setup: (provider) => {
+      provider.extensionApps = [];
+    },
+  });
+  expect(page.container.querySelector("[data-extensions-empty]")).toBeNull();
+  expect(server(page.container)).not.toBeNull();
+  page.unmount();
+  expect(
+    readExtensionServers({
+      servers: [{ app: "a/b", name: "B", approved: true }, { name: "no id" }, "x", { app: "c/d" }],
+    }),
+  ).toEqual([
+    { app: "a/b", name: "B", enabled: true, approved: true },
+    { app: "c/d", name: "c/d", enabled: true, approved: false },
+  ]);
 });

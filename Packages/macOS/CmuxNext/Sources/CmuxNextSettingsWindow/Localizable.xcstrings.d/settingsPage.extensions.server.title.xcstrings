@@ -1,0 +1,24 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.extensions.server.title" : {
+      "comment" : "Settings > Extensions: title of the row for an extension's own external server (any language)",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Own Server"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "独自サーバー"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -1,0 +1,24 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.extensions.server.once" : {
+      "comment" : "Settings > Extensions: note beside a newly approved credential, which is shown only once",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Shown once. Copy it now."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "表示は一度だけです。今すぐコピーしてください。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

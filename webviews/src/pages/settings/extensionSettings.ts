@@ -102,3 +102,30 @@ export function readExtensionSettings(value: unknown): ExtensionSettings[] {
     ];
   });
 }
+
+/** An installed extension that runs its own server (`server.kind: external`, any language). */
+export type ExtensionServer = {
+  app: string;
+  name: string;
+  enabled: boolean;
+  /** The person allowed it to run its server (`server:execute`): only then can it get a credential. */
+  approved: boolean;
+};
+
+/** `apps.settings.list`'s `servers`: the installed extensions whose servers a credential can attach. */
+export function readExtensionServers(value: unknown): ExtensionServer[] {
+  const servers = record(value)?.servers;
+  if (!Array.isArray(servers)) return [];
+  return servers.flatMap((item): ExtensionServer[] => {
+    const server = record(item);
+    if (!server || typeof server.app !== "string") return [];
+    return [
+      {
+        app: server.app,
+        name: label(server.name) ?? server.app,
+        enabled: server.enabled !== false,
+        approved: server.approved === true,
+      },
+    ];
+  });
+}

@@ -43,6 +43,14 @@ struct ExtensionSettingsPageRouteTests {
         #expect(await code("set", notAnObject, gesture: true) == PageError.invalidParams("").code)
     }
 
+    /// An external server's credential is the person's to approve: never without their click, never without an app.
+    @Test func aServerCredentialNeedsThePersonsGestureAndAnApp() async {
+        let app: CmuxNextSettings.JSONValue = .object(["app": .string("acme/hello-python")])
+        #expect(await code("credential", app) == "cmux.settings.user_only")
+        #expect(await code("credential", .object([:]), gesture: true) == PageError.invalidParams("").code)
+        #expect(await code("credential", app, gesture: true) == PageError.closed.code)
+    }
+
     @Test func onlyTheSettingsPageAndItsOwnOpsAreServed() async {
         #expect(await code("list", page: PageDescriptor.apps.id) == PageError.unknownOp("").code)
         #expect(await code("remove", gesture: true) == PageError.unknownOp("").code)

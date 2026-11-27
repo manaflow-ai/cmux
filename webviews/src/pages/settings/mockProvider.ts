@@ -836,8 +836,13 @@ export class MockSettingsProvider {
       "cmux.settings.extensions.list": () => {
         if (this.extensionsUnsupported)
           throw new ProtocolError("cmux.protocol.unknown_op", "cmux.settings.extensions.list");
-        return { apps: this.extensionApps.map((app) => ({ ...app, values: this.extensionValues(app) })) };
+        return {
+          apps: this.extensionApps.map((app) => ({ ...app, values: this.extensionValues(app) })),
+          servers: this.extensionServers,
+        };
       },
+      "cmux.settings.extensions.credential": (params) =>
+        this.approveServerCredential(String((params as { app?: unknown }).app ?? "")),
       "cmux.settings.extensions.set": (params) =>
         this.setExtensionSettings(params as { app: string; values: Record<string, unknown> }),
       // Settings > Agents > Worktree Setup: the session host's ops through the page relay.
@@ -1578,6 +1583,23 @@ export class MockSettingsProvider {
       stored: {},
     },
   ];
+  /** Settings > Extensions: the installed extensions that run their own server, as
+   * `apps.settings.list`'s `servers` answers them. */
+  extensionServers: { app: string; name: string; enabled: boolean; kind: "external"; approved: boolean }[] = [
+    { app: "acme/hello-python", name: "Hello Python", enabled: true, kind: "external", approved: true },
+  ];
+  /** Credentials approved, newest last (the daemon keeps only digests; the mock keeps the count). */
+  serverCredentials: string[] = [];
+
+  /** Like the daemon: only an approved external server gets one, answered once. */
+  private approveServerCredential(app: string) {
+    const server = this.extensionServers.find((row) => row.app === app);
+    if (!server?.approved) throw new ProtocolError("apps.server_unapproved", `${app} may not run a server`);
+    const credential = `cmuxsrv1_mock${this.serverCredentials.length + 1}`;
+    this.serverCredentials.push(credential);
+    return { app, credential };
+  }
+
   /** While true, `cmux.settings.extensions.list` is unknown (a host without the route). */
   extensionsUnsupported = false;
   private readonly extensionsWatch = new Set<EventSourceContext>();

@@ -11,7 +11,9 @@ import Foundation
 /// record and hands it to the running extension at once. `set` runs only on the person's own click
 /// or key. `changed` tells the page to list again after the installed extensions change (an install,
 /// a removal, a hide, or a manifest saved and hot reloaded: the daemon's `apps-changed`), so a schema
-/// edited while Settings is open shows without reopening it. Thin: route only.
+/// edited while Settings is open shows without reopening it. `credential {app}` approves a credential
+/// for an extension's external server (`apps-server-credential`, origin user): the daemon answers it
+/// once and keeps only its digest; it too runs only on the person's own click. Thin: route only.
 @MainActor
 public final class ExtensionSettingsPageRoute: PageProvider {
     public nonisolated static let prefix = "cmux.settings.extensions."
@@ -52,6 +54,14 @@ public final class ExtensionSettingsPageRoute: PageProvider {
         switch op {
         case Self.prefix + "list":
             request = AppsStoreRequest(op: "apps.settings.list")
+        case Self.prefix + "credential":
+            guard context.userGesture else {
+                throw PageError(code: "cmux.settings.user_only", message: "only you can approve an extension's server")
+            }
+            guard let app = params["app"]?.stringValue, !app.isEmpty else {
+                throw PageError.invalidParams("app is required")
+            }
+            return try await send(AppsServerCredentialRequest(app: app))
         case Self.prefix + "set":
             guard context.userGesture else {
                 throw PageError(code: "cmux.settings.user_only", message: "only you can change an extension's settings")
@@ -67,6 +77,10 @@ public final class ExtensionSettingsPageRoute: PageProvider {
         default:
             throw PageError.unknownOp(op)
         }
+        return try await send(request)
+    }
+
+    private func send<R: DaemonRequest>(_ request: R) async throws -> CmuxNextSettings.JSONValue where R.Response == JSONValue {
         guard let connection = connection() else { throw PageError.closed }
         do {
             return try DaemonPageValue.pageValue(try await connection.request(request))

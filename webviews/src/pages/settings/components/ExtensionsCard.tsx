@@ -5,14 +5,19 @@
 // the daemon answered. Reset to Default (the row's right-click menu) sends `null`, the manifest's
 // default. The card reads when it mounts and again whenever the installed extensions change
 // (`cmux.settings.extensions.changed`: an install, a removal, or a manifest saved and hot reloaded).
+// An extension that runs its own server (`server.kind: external`, any language) gets an Own Server
+// row: once the person allowed its server at install, Approve Credential asks the daemon for a new
+// credential (`apps-server-credential`, origin user), which shows here once with Copy; the daemon
+// keeps only its digest, and the server presents it as CMUX_APP_CREDENTIAL.
 import { useEffect, useId, useState } from "react";
+import { Button } from "../../../ui/Button";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
 import { Input } from "../../../ui/Input";
 import { useSettingsState, useStore } from "../context";
 import { Select } from "../editors/Select";
 import { Switch } from "../editors/ToggleEditor";
 import { NumberField } from "../editors/NumberField";
-import type { ExtensionSetting, ExtensionSettings } from "../extensionSettings";
+import type { ExtensionServer, ExtensionSetting, ExtensionSettings } from "../extensionSettings";
 import type { NumberRange } from "../schema";
 import { t } from "../strings";
 
@@ -24,6 +29,7 @@ const TEXT_FIELDS = 'input:not([type="checkbox"]):not([type="radio"]), textarea'
 export function ExtensionsCard() {
   const store = useStore();
   const [apps, setApps] = useState<ExtensionSettings[] | null>(null);
+  const [servers, setServers] = useState<ExtensionServer[]>([]);
   const [unavailable, setUnavailable] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,6 +42,7 @@ export function ExtensionsCard() {
       void store.extensionSettings().then((result) => {
         if (!live || read !== reads) return;
         setApps(result.apps);
+        setServers(result.servers);
         setUnavailable(result.unavailable);
         setError(result.unavailable ? null : result.error);
       });
@@ -55,7 +62,7 @@ export function ExtensionsCard() {
   });
 
   if (apps === null && !unavailable && !error) return null;
-  if (unavailable || error || !shown || shown.length === 0) {
+  if (unavailable || error || !shown || (shown.length === 0 && servers.length === 0)) {
     const [marker, message] = unavailable
       ? ["data-extensions-unavailable", t("settingsPage.extensions.unavailable")]
       : error
@@ -73,7 +80,7 @@ export function ExtensionsCard() {
   }
   return (
     <div className="extension-settings" data-card="extensions">
-      <p className="row-help">{t("settingsPage.extensions.help")}</p>
+      {shown.length > 0 && <p className="row-help">{t("settingsPage.extensions.help")}</p>}
       {shown.map((app) => (
         <ExtensionGroup
           key={app.app}
@@ -83,7 +90,88 @@ export function ExtensionsCard() {
           }
         />
       ))}
+      {servers.map((server) => (
+        <ServerGroup key={server.app} server={server} />
+      ))}
     </div>
+  );
+}
+
+/** An extension's own server: Approve Credential (the person's click only), then the credential once. */
+function ServerGroup({ server }: { server: ExtensionServer }) {
+  const store = useStore();
+  const labelId = useId();
+  const [busy, setBusy] = useState(false);
+  const [credential, setCredential] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const approve = () => {
+    setBusy(true);
+    return store
+      .approveServerCredential(server.app)
+      .then((result) => {
+        setProblem(result.error);
+        setCredential(result.credential);
+      })
+      .finally(() => setBusy(false));
+  };
+  return (
+    <section className="group" data-extension-server={server.app}>
+      <h3 className="group-title">{server.name}</h3>
+      {problem && (
+        <p className="row-help" role="alert" data-extension-problem="">
+          {problem}
+        </p>
+      )}
+      <div className="rows">
+        <div className="row" data-server-credential={server.approved ? "approvable" : "unapproved"}>
+          <div className="row-main">
+            <div className="row-label">
+              <div className="row-title" id={labelId}>
+                {t("settingsPage.extensions.server.title")}
+              </div>
+              <div className="row-help">
+                {server.approved
+                  ? t("settingsPage.extensions.server.help")
+                  : t("settingsPage.extensions.server.unapproved")}
+              </div>
+            </div>
+            <div className="row-control">
+              <Button
+                aria-describedby={labelId}
+                disabled={!server.approved || busy}
+                onClick={() => void approve()}
+                data-server-approve=""
+              >
+                {t("settingsPage.extensions.server.approve")}
+              </Button>
+            </div>
+          </div>
+        </div>
+        {credential && (
+          <div className="row" data-server-credential-value="">
+            <div className="row-main">
+              <div className="row-label">
+                <Input
+                  className="field text"
+                  type="text"
+                  readOnly
+                  spellCheck={false}
+                  value={credential}
+                  aria-labelledby={labelId}
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+                <div className="row-help">{t("settingsPage.extensions.server.once")}</div>
+              </div>
+              <div className="row-control">
+                <Button onClick={() => void store.copy(credential)} data-server-copy="">
+                  {t("settingsPage.extensions.server.copy")}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

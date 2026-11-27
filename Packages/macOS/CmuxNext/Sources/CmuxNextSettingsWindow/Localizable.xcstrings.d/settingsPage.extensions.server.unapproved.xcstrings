@@ -1,0 +1,24 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.extensions.server.unapproved" : {
+      "comment" : "Settings > Extensions: help under an external server the person has not allowed yet",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow its server when you install it."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "インストール時にサーバーを許可してください。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}
