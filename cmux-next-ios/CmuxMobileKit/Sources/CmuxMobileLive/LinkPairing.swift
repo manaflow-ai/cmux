@@ -85,21 +85,23 @@ public struct LinkPairing: Sendable {
         }
     }
 
-    /// What the phone says for a refusal `code` from the Mac's `auth`.
+    /// What the phone says for a refusal `code` from the Mac's `auth`. It names no retry: the phone asks
+    /// the Mac again by itself (``retryDelay(after:attempt:)``) for every refusal but the person's own.
     public static func refusalText(_ error: LinkError) -> String {
         switch error.code {
-        case "timeout": "nobody answered the Mac's prompt. Retry, then allow this iPhone on the Mac"
+        case "timeout": "nobody answered the Mac's prompt. Allow this iPhone on the Mac"
         case "rate_limited": "the Mac asked about this iPhone recently: \(error.message)"
         case "busy": "the Mac is already pairing this iPhone"
         case "mac_identity_changed": identityChanged
-        case "unavailable": "the Mac isn't ready to pair. Retry in a moment"
+        case "unavailable": "the Mac isn't ready to pair yet"
         // Never a raw code or an unreadable message (LinkError's display mapping).
         default: error.displayReason
         }
     }
 
     /// Said when pairing fails with an error that has no sentence of its own.
-    static let pairingFailed = "The Mac couldn't pair with this iPhone. Try again."
+    /// The phone asks again on its own (``retryDelay(after:attempt:)``), so it names no retry.
+    static let pairingFailed = "The Mac couldn't pair with this iPhone."
 
     /// When the phone asks the Mac again by itself after `auth` refused it on a live link.
     ///
@@ -117,8 +119,10 @@ public struct LinkPairing: Sendable {
         // the warning stays up. A new link (foreground, network change, Retry) pairs from the start.
         case "mac_identity_changed", "bad_mac_proof", "wrong_mac", "bad_request", "unpaired": return nil
         // The Mac asks about one phone a few times per 10 minutes; asking sooner is refused again.
-        case "rate_limited": return .seconds(60)
+        case "rate_limited": return attempt < RetryBounds.rateLimitedPairingAttempts ? .seconds(60) : nil
         default:
+            // Bounded: after the last the refusal stays up with Retry (it was every 30 s forever).
+            guard attempt < RetryBounds.pairingAttempts else { return nil }
             let backoff = [1, 2, 4, 8, 15]
             return .seconds(attempt < backoff.count ? backoff[max(attempt, 0)] : 30)
         }
