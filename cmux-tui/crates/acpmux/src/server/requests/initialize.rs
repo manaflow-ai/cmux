@@ -15,8 +15,6 @@ use super::*;
 const EXTENSIONS: &[&str] = &[
     method::CHAT_FIX_FROM_LINK,
     method::CHAT_FIX_FROM_LINK_PREPARE,
-    method::MUX_AGENT_HOME,
-    method::MUX_AGENT_HOME_RESOLVE,
     method::MUX_ARCHIVE,
     method::MUX_ASK,
     method::MUX_ATTACH,

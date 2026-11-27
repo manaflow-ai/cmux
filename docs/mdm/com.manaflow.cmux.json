@@ -3791,12 +3791,6 @@
       "title" : "Sidebar for Tasks That Mention",
       "type" : "array"
     },
-    "cloud.agentMemory.follow" : {
-      "default" : true,
-      "description" : "Your CLAUDE.md, AGENTS.md, agents, commands, skills and Claude's memory notes follow you to Cloud machines. Never credentials or settings files. Agents' changes wait for you in Session Info; only you can change this. Off deletes your copy in the cloud and stops every push.",
-      "title" : "Carry Your Agent Memory to Cloud Machines",
-      "type" : "boolean"
-    },
     "cloud.agentsStartWithoutAsking" : {
       "default" : true,
       "description" : "Agents, `cmux cloud` in a terminal and scripts create Cloud machines, move chats to Cloud and start sessions there with no card asking you first. Your plan's limits still apply. Only you can change this.",
