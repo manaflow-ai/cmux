@@ -108,3 +108,27 @@ fn the_cursor_delivery_retries_a_refused_shape() {
         call("screen_cursor_finish", json!({"delivery": retry["delivery"], "delivered": true}));
     assert_eq!(taken["shape"], id);
 }
+
+#[test]
+fn the_quality_encoding_answers_rate_and_sender_parameters() {
+    let auto = call(
+        "screen_quality_encoding",
+        json!({"quality": "auto", "sourceWidth": 3456, "sourceHeight": 2234, "hostMaximum": 120, "viewerMaximum": 120}),
+    );
+    assert_eq!(auto["frameRate"], 120);
+    assert_eq!(auto["encoding"]["degradation"], "maintainResolution");
+    assert_eq!(auto["encoding"]["maxBitrate"], 24_000_000);
+    assert_eq!(auto["encoding"]["minBitrate"], Value::Null);
+    assert_eq!(auto["encoding"]["maxFramerate"], 120);
+    assert!(auto["encoding"]["scaleDown"].as_f64().unwrap() > 1.5);
+    // The viewer's answer() before any size is known.
+    let unknown = call("screen_quality_encoding", json!({"quality": "auto"}));
+    assert_eq!(unknown["frameRate"], 60);
+    assert_eq!(unknown["encoding"]["maxBitrate"], 12_000_000);
+    assert_eq!(unknown["encoding"]["scaleDown"], 1.0);
+    let low = call("screen_quality_encoding", json!({"quality": "low", "sourceHeight": 1440}));
+    assert_eq!(low["frameRate"], 30);
+    assert_eq!(low["encoding"]["degradation"], "disabled");
+    assert_eq!(low["encoding"]["minBitrate"], 1_500_000);
+    assert_eq!(low["encoding"]["scaleDown"], 2.0);
+}

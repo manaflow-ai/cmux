@@ -19,25 +19,25 @@ nonisolated struct HomeAttachmentCache: Sendable {
     /// atomically; it runs only when the cache does not hold that file.
     func fetch(_ ref: AttachmentRef, variant: AttachmentVariant,
                read: (ConversationAttachmentVariant, URL) async throws -> Void) async throws -> URL {
+        // The file's name and a thumbnail's source are the Rust `welcome.attachment*` ops.
         switch variant {
         case .original:
-            return try await cached(ref.hash, variant: .original, mimeType: ref.mimeType, read: read)
+            return try await cached(ref, variant: .original, mimeType: ref.mimeType, read: read)
         case .poster:
-            guard let poster = ref.poster else { throw HomeRejection.invalid("no_poster") }
-            return try await cached(ref.hash, variant: .poster, mimeType: poster.mimeType, read: read)
+            return try await cached(ref, variant: .poster, mimeType: ref.poster?.mimeType, read: read)
         case .preview:
-            guard let preview = ref.preview else { throw HomeRejection.invalid("no_preview") }
-            return try await cached(ref.hash, variant: .preview, mimeType: preview.mimeType, read: read)
+            return try await cached(ref, variant: .preview, mimeType: ref.preview?.mimeType, read: read)
         case .thumbnail(let maxPixel):
-            let target = directory.appendingPathComponent("\(ref.hash)-thumb-\(maxPixel).jpg")
+            let target = try fileURL(ref, variant: "thumbnail", extension: nil, maxPixel: maxPixel)
             if FileManager.default.fileExists(atPath: target.path) { return Self.touched(target) }
+            let source: Source = welcomeRule("welcome.attachmentThumbnailSource",
+                                             SourceInput(mimeType: ref.mimeType, hasPoster: ref.poster != nil),
+                                             fallback: Source(source: nil, error: "no_thumbnail"))
             let image: URL
-            if ref.mimeType.hasPrefix("image/") {
-                image = try await fetch(ref, variant: .original, read: read)
-            } else if ref.poster != nil {
-                image = try await fetch(ref, variant: .poster, read: read)
-            } else {
-                throw HomeRejection.invalid("no_thumbnail")
+            switch source.source {
+            case "original": image = try await fetch(ref, variant: .original, read: read)
+            case "poster": image = try await fetch(ref, variant: .poster, read: read)
+            default: throw HomeRejection.invalid(source.error ?? "no_thumbnail")
             }
             let data = try Self.thumbnailJPEG(of: image, maxPixel: maxPixel)
             try Task.checkCancellation()
@@ -48,11 +48,28 @@ nonisolated struct HomeAttachmentCache: Sendable {
         }
     }
 
+    /// The cache file of one variant of `ref`, or the rejection (`no_poster`, `no_preview`).
+    private func fileURL(_ ref: AttachmentRef, variant: String, extension suffix: String?, maxPixel: Int = 0) throws -> URL {
+        let name: FileName = welcomeRule("welcome.attachmentFileName",
+                                         NameInput(hash: ref.hash, variant: variant, extension: suffix, hasPoster: ref.poster != nil,
+                                                   hasPreview: ref.preview != nil, maxPixel: maxPixel),
+                                         fallback: FileName(name: nil, error: "invalid"))
+        guard let file = name.name else { throw HomeRejection.invalid(name.error ?? "invalid") }
+        return directory.appendingPathComponent(file)
+    }
+
+    private nonisolated struct NameInput: Encodable {
+        let hash: String, variant: String, `extension`: String?, hasPoster: Bool, hasPreview: Bool, maxPixel: Int
+    }
+    private nonisolated struct FileName: Decodable { let name: String?; let error: String? }
+    private nonisolated struct SourceInput: Encodable { let mimeType: String; let hasPoster: Bool }
+    private nonisolated struct Source: Decodable { let source: String?; let error: String? }
+
     /// The variant's cache file, read from the owner once.
-    private func cached(_ hash: String, variant: ConversationAttachmentVariant, mimeType: String,
+    private func cached(_ ref: AttachmentRef, variant: ConversationAttachmentVariant, mimeType: String?,
                         read: (ConversationAttachmentVariant, URL) async throws -> Void) async throws -> URL {
-        let suffix = UTType(mimeType: mimeType)?.preferredFilenameExtension.map { ".\($0)" } ?? ""
-        let target = directory.appendingPathComponent("\(hash)-\(variant.rawValue)\(suffix)")
+        let suffix = mimeType.flatMap { UTType(mimeType: $0)?.preferredFilenameExtension }
+        let target = try fileURL(ref, variant: variant.rawValue, extension: suffix)
         if FileManager.default.fileExists(atPath: target.path) { return Self.touched(target) }
         try await read(variant, target)
         trim(keeping: target)

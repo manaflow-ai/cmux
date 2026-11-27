@@ -6,7 +6,7 @@
 
 use super::super::host_self_update::{
     Channel, Controller, Fetch, LocalRemote, Paths, Plan, Prepared, ROLLED_BACK, Source, Step,
-    apply, channel_url, prepare, refresh_tui, tui::TuiOutcome,
+    apply, channel_url, prepare, refresh_tui, tui::TuiOutcome, unpack,
 };
 use super::*;
 use crate::cli::hosts::host_auto_update::{
@@ -104,8 +104,14 @@ fn once_free<T>(mut f: impl FnMut() -> Option<T>) -> Option<T> {
 
 /// [`prepare`] once the lock this test dropped is free ([`once_free`]).
 async fn prepared(peer: &FakePeer, files: &Files) -> Prepared {
+    prepared_with(&paths(peer), files).await
+}
+
+/// [`prepared`] with these paths (`--allow-downgrade`, say): a run right after
+/// one that dropped its plan waits out the same descriptor copies.
+async fn prepared_with(paths: &Paths, files: &Files) -> Prepared {
     for _ in 0..100 {
-        match prepare(&paths(peer), files, None, CHANNEL).await.unwrap() {
+        match prepare(paths, files, None, CHANNEL).await.unwrap() {
             Prepared::Locked => std::thread::sleep(std::time::Duration::from_millis(20)),
             other => return other,
         }
@@ -288,6 +294,86 @@ async fn a_download_that_does_not_match_the_channel_is_never_installed() {
     assert!(why.contains("sha256") && why.contains("not installed"), "{why}");
     assert!(!peer.exists(&format!(".acpmux/update/{}", sha_of(&new))), "nothing is kept");
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), OLD);
+}
+
+/// `new` packed as `zstd --patch-from=old` packs it: `old` the raw-content
+/// dictionary (no dictionary: `zstd --long`).
+fn packed(new: &str, old: &str) -> Vec<u8> {
+    zstd::bulk::Compressor::with_dictionary(19, old.as_bytes())
+        .unwrap()
+        .compress(new.as_bytes())
+        .unwrap()
+}
+
+/// A fresh host updates to `new` from `files`; `raw`: whether the binary
+/// itself was fetched.
+async fn installs(name: &str, files: &Files, new: &str, raw: bool) {
+    let peer = FakePeer::new(&format!("self-small-{name}"));
+    let plan = ready(&peer, files).await;
+    assert_eq!(
+        peer.read(&format!(".acpmux/update/{}/acpmux-{TARGET}", sha_of(new))),
+        new,
+        "{name}"
+    );
+    let up = apply(&peer, &plan, TARGET, true);
+    assert_eq!(up.outcome, Outcome::Updated, "{name}: {up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux"), new, "{name}");
+    assert_eq!(files.asked().contains(&binary_url()), raw, "{name}: {:?}", files.asked());
+}
+
+/// RFD 0166: a patch against the installed build is fetched first and the
+/// binary itself never is; with none, the `.zst`; a patch that rebuilds
+/// another binary, or that does not decode, falls back to the next, the raw
+/// binary last, all under the channel's sha256.
+#[tokio::test]
+async fn a_patch_or_zst_beside_the_binary_is_fetched_first() {
+    let old = fake_acpmux(OLD, Some(OLD));
+    let new = fake_acpmux(NEW, Some(NEW));
+    let patch_url = format!("{}.from-{}.zst", binary_url(), sha_of(&old));
+    let zst_url = format!("{}.zst", binary_url());
+    let mut files = serving(&new);
+    files.bodies.insert(patch_url.clone(), packed(&new, &old));
+    files.bodies.insert(zst_url.clone(), packed(&new, ""));
+    installs("patch", &files, &new, false).await;
+    assert!(!files.asked().contains(&zst_url), "the patch was enough");
+
+    let mut files = serving(&new);
+    files.bodies.insert(zst_url.clone(), packed(&new, ""));
+    installs("zst", &files, &new, false).await;
+    assert!(files.asked().contains(&patch_url), "the patch was asked first");
+
+    let mut files = serving(&new);
+    files.bodies.insert(patch_url.clone(), packed(&fake_acpmux(NEW, None), &old));
+    files.bodies.insert(zst_url.clone(), b"not zstd".to_vec());
+    installs("bad", &files, &new, true).await;
+}
+
+/// The patch decoder reads what the `zstd` CLI's `--patch-from --long=31`
+/// writes (the publish side's tool), not only what the crate's encoder does.
+#[test]
+fn a_zstd_cli_patch_decodes() {
+    if Command::new("zstd").arg("--version").output().is_err() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let old: Vec<u8> =
+        (0..400_000u32).flat_map(|i| (i.wrapping_mul(2654435761) >> 7).to_le_bytes()).collect();
+    let mut new = old.clone();
+    new[123_456..123_470].copy_from_slice(b"a changed part");
+    new.extend_from_slice(b"and a new tail");
+    std::fs::write(dir.path().join("old"), &old).unwrap();
+    std::fs::write(dir.path().join("new"), &new).unwrap();
+    let ok = Command::new("zstd")
+        .current_dir(dir.path())
+        .args(["-q", "-19", "--long=31", "--patch-from=old", "new", "-o", "patch"])
+        .status()
+        .unwrap()
+        .success();
+    assert!(ok);
+    let patch = std::fs::read(dir.path().join("patch")).unwrap();
+    assert!(patch.len() < new.len() / 20, "{} bytes", patch.len());
+    assert_eq!(unpack(&patch, &old).unwrap(), new);
+    assert!(unpack(&patch, &[]).is_err() || unpack(&patch, &[]).unwrap() != new);
 }
 
 #[tokio::test]
@@ -725,8 +811,7 @@ async fn a_host_on_a_newer_commit_than_the_channels_keeps_it_unless_told_to_go_b
     // `--allow-downgrade`: a bad channel build is pulled back on purpose.
     let mut back = paths(&peer);
     back.allow_downgrade = true;
-    let Prepared::Ready(plan) = prepare(&back, &serving(&channels), None, CHANNEL).await.unwrap()
-    else {
+    let Prepared::Ready(plan) = prepared_with(&back, &serving(&channels)).await else {
         panic!("the self-update did not go ahead");
     };
     let up = apply(&peer, &plan, TARGET, true);

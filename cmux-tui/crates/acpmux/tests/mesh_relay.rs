@@ -448,6 +448,30 @@ async fn delivered_provenance(local: &mut Client, session: &str, prompt_id: &str
     panic!("{prompt_id} never reached {session}");
 }
 
+/// A relayed message's first lease did not wait for this machine: the relay marks it `resend` for
+/// its prompt id alone, and before that mark counted as waited, so every relayed FYI woke its
+/// idle chat (`prompt_provenance::resend_waited`). A lease after the first did wait and still
+/// wakes it.
+#[tokio::test]
+async fn only_a_relayed_message_leased_again_waited() {
+    let hub = hub();
+    let mut local = Client::local(&hub);
+    let session = local.new_session("dep-land").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    fake.lease(message("msg-first", "dep-land", Kind::Prompt));
+    fake.until("the first ack", |s| !s.acked("msg-first").is_empty()).await;
+    let first = delivered_provenance(&mut local, &session, "msg-first").await;
+    assert!(first.get(acpmux::prompt_provenance::WAITED).is_none(), "{first}");
+    let mut again = message("msg-again", "dep-land", Kind::Prompt);
+    again.attempt = 2;
+    fake.lease(again);
+    fake.until("the second ack", |s| !s.acked("msg-again").is_empty()).await;
+    let again = delivered_provenance(&mut local, &session, "msg-again").await;
+    assert_eq!(again[acpmux::prompt_provenance::WAITED], true, "{again}");
+    relay.stop().await;
+}
+
 /// A message no session sent (the lane-gh broker's `acpmux send`, a shell outside acpmux) names
 /// the machine the hub proved, verified: it read "a session on HOST (self-declared,
 /// unauthenticated)" though the hub had authenticated HOST's daemon, and every receiver asked the
@@ -515,6 +539,7 @@ async fn a_send_through_the_hub_from_no_session_carries_its_relay_record() {
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        updated_at: None,
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1478,6 +1503,7 @@ async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        updated_at: None,
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1523,6 +1549,7 @@ async fn the_sender_of_a_direct_send_through_the_hub_reads_its_status_and_no_oth
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        updated_at: None,
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
@@ -1587,6 +1614,7 @@ async fn a_send_through_the_hub_carries_its_sender_claim() {
         handle: None,
         former_names: Vec::new(),
         roles: Vec::new(),
+        updated_at: None,
     };
     fake.with(|s| {
         s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row], leaving: false })
