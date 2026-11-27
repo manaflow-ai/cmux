@@ -32,12 +32,9 @@ extension SessionConsentResponder {
     static func mintSession(_ call: SessionConsentMintCall, auth: CloudAuth) async -> (status: Int, body: Data) {
         guard let tokens = try? await auth.tokens() else { return (0, Data()) }
         guard var origin = URLComponents(url: call.url, resolvingAgainstBaseURL: false) else { return (0, Data()) }
-        origin.path = ""
-        origin.query = nil
-        guard let originURL = origin.url else { return (0, Data()) }
-        let transport = InstallHTTPTransport(baseURL: originURL, buildSpace: auth.configuration.buildSpace, machineIO: auth.machineIO)
-        guard let answer = try? await transport.post(call.url.path, json: call.body, bearer: tokens.access,
-                                                     headers: ["X-Stack-Refresh-Token": tokens.refresh]) else { return (0, Data()) }
+        (origin.path, origin.query) = ("", nil)
+        guard let url = origin.url, let answer = try? await InstallHTTPTransport(baseURL: url, buildSpace: auth.configuration.buildSpace, machineIO: auth.machineIO)
+            .post(call.url.path, json: call.body, bearer: tokens.access, headers: ["X-Stack-Refresh-Token": tokens.refresh]) else { return (0, Data()) }
         return (answer.status, answer.body)
     }
 }
