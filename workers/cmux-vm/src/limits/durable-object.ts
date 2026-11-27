@@ -78,10 +78,11 @@ export class TenantLimitsObject extends DurableObject {
     return this.ledger.begin(key, fingerprint, nowMs, clientFingerprint, generated);
   }
 
-  async advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<boolean> {
+  /** true, or the ledger's refusal reason (never swallowed: a bare false became an anonymous 503 on staging). */
+  async advance(key: string, progress: IdempotencyProgress, nowMs: number): Promise<true | string> {
     // Expected stale/conflicting claims return a receipt rather than a rejected RPC promise.
     try { await this.ledger.advance(key, progress, nowMs); return true; }
-    catch { return false; }
+    catch (cause) { return cause instanceof Error && cause.message !== "" ? cause.message : "allocation journal write was not confirmed"; }
   }
 
   abandon(key: string, nowMs: number): Promise<void> {
