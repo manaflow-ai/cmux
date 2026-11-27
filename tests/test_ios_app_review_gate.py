@@ -1722,6 +1722,21 @@ class InternalSubmissionTests(unittest.TestCase):
         self.assertIn('[ "$CONFIRM" != SUBMIT ] || mode=--confirm-submit', submit)
         self.assertIn("mode=--dry-run", submit)
 
+    def test_api_submission_keeps_release_keys_on_isolated_linux(self) -> None:
+        job = self.workflow("ios-internal-submit.yml")["jobs"]["submit"]
+        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-nightly-jit-x64' }}")
+        self.assertEqual(job["environment"], "release")
+        self.assertEqual(job["needs"], "check")
+        steps = job["steps"]
+        installer = next(s["run"] for s in steps if s.get("name") == "Install pinned Linux asc")
+        self.assertIn("sha256sum --check --status", installer)
+        self.assertLess(installer.index("sha256sum"), installer.index('"$bin/asc" --version'))
+        self.assertIn("linux_$arch", installer)
+        all_runs = "\n".join(s.get("run", "") for s in steps)
+        self.assertNotIn("brew", all_runs)
+        self.assertNotIn("select-ci-xcode", all_runs)
+        self.assertIn('chmod 600 "$key_dir/AuthKey.p8"', all_runs)
+
     def test_the_submission_writes_cmux_internals_own_review_notes(self) -> None:
         # The INTERNAL record sells nothing: its submit writes review-notes-asc-internal.txt
         # (asc_review_package.py --config TestFlight) before it validates and submits.
