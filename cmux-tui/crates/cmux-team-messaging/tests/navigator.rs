@@ -260,4 +260,25 @@ fn navigator_at_team_scale() {
     println!("navigator+search p50 {p50:?} p95 {p95:?} over {} samples", samples.len());
     println!("navigator+search output digest {:016x}", digest.finish());
     assert!(p95.as_millis() < 5000);
+
+    // What the RPC adds on top: the answer turned into JSON, as `_acpmux/team/navigator` sends it.
+    let nav = navigator(&principals[0], &cx).unwrap();
+    let hits = search(&principals[0], "", &cx);
+    let mut ser = Vec::new();
+    let mut bytes = 0;
+    for _ in 0..20 {
+        let start = Instant::now();
+        let mut v = serde_json::to_value(&nav).unwrap();
+        v["hits"] = serde_json::json!(hits);
+        bytes = serde_json::to_string(&v).unwrap().len();
+        ser.push(start.elapsed());
+    }
+    ser.sort();
+    let live: usize = nav.spaces.iter().map(|s| s.people.len() + s.agents.len()).sum();
+    println!(
+        "navigator json p50 {:?} p95 {:?}: {bytes} bytes, {} spaces, {live} live rows",
+        ser[ser.len() / 2],
+        ser[ser.len() * 95 / 100],
+        nav.spaces.len()
+    );
 }
