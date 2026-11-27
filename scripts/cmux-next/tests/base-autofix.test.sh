@@ -245,6 +245,10 @@ echo old > "$abi/$surface"
 cat > "$tmp/abibin/cargo" <<'SH'
 #!/bin/sh
 printf '%s\n' "$PWD $*" >> "$CARGO_ARGS"
+if [ -n "$ABI_REQUIRE_LOCK" ] && [ ! -f Cargo.lock ]; then
+  echo 'error: lock repair must precede the locked ABI checker' >&2
+  exit 1
+fi
 # Even a failed generator that wrote first must preserve the incoming surface.
 echo new > spec/api-compat.surface.json
 if [ -n "$ABI_BREAK" ]; then
@@ -277,4 +281,26 @@ CARGO_ARGS="$tmp/abi-args" PATH="$tmp/abibin:$PATH" bash "$tmp/frozen-fixer/base
 [[ "$(cat "$abi/$surface")" == frozen-edit ]] || fail "a frozen surface was changed"
 [[ "$(wc -l < "$tmp/abi-args")" == "$calls" ]] || fail "a frozen surface ran the checker"
 grep -q "^skipped (frozen): $surface" "$tmp/out" || fail "frozen daemon surface was not reported"
+# A missing baseline is evidence we cannot recreate; never invoke a writer without it.
+mv "$abi/$surface" "$tmp/saved-daemon-surface"
+abi_run --sdk || fail "a missing baseline must not abort other repairs"
+[[ ! -e "$abi/$surface" ]] || fail "a missing baseline was invented"
+[[ "$(wc -l < "$tmp/abi-args")" == "$calls" ]] || fail "a missing baseline ran the checker"
+grep -q "^left: $surface missing" "$tmp/out" || fail "missing baseline was not reported"
+mv "$tmp/saved-daemon-surface" "$abi/$surface"
+# Combined lock + SDK repair must repair locks before invoking the locked checker.
+mkdir -p "$tmp/lock-fixer"
+cp "$FIX" "$tmp/lock-fixer/base-autofix.sh"
+cat > "$tmp/lock-fixer/cargo-locks.py" <<'PY'
+import pathlib
+import sys
+repo = pathlib.Path(sys.argv[sys.argv.index("--repo") + 1])
+(repo / "cmux-tui/Cargo.lock").write_text("repaired lock\n")
+print("fixed: repaired test lock")
+PY
+ABI_REQUIRE_LOCK=1 CARGO_ARGS="$tmp/abi-args" PATH="$tmp/abibin:$PATH" \
+  bash "$tmp/lock-fixer/base-autofix.sh" --no-fmt --sdk --locks "$abi" > "$tmp/out" 2>&1 \
+  || fail "combined lock and daemon repair failed"
+[[ "$(cat "$abi/$surface")" == new ]] || fail "daemon refresh ran before lock repair"
+grep -q "^fixed: refreshed $surface" "$tmp/out" || fail "combined daemon repair was not reported"
 echo "base autofix: ok"
