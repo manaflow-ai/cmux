@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "5861f2b9f2e7381ab6fd7e5e9a27b601d363b888de3eb18c7732395b395edb3b";
+pub const ir_sha256 = "8643722ab2e1cf6dc9e0ce2e96aeba4a65938fa66bf35bef074884f46ce34b95";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1709,6 +1709,10 @@ pub const PaneSurfaceResult = struct {
         "terminal_resource_id",
         "workspace_id",
     };
+};
+
+pub const PhoneLinkOfferResult = struct {
+    offered: bool,
 };
 
 pub const PingResult = struct {
@@ -8457,6 +8461,26 @@ pub fn notify(client: anytype, request: NotifyRequest) !wire.Decoded(NotifyResul
     );
 }
 
+pub const OfferLinkToPhoneRequest = struct {
+    terminal_id: []const u8,
+    url: []const u8,
+};
+
+pub const OfferLinkToPhoneResult = PhoneLinkOfferResult;
+
+pub fn offerLinkToPhone(client: anytype, request: OfferLinkToPhoneRequest) !wire.Decoded(OfferLinkToPhoneResult) {
+    return client.callTyped(
+        OfferLinkToPhoneResult,
+        .{
+            .name = "offer-link-to-phone",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
 pub const PageCredentialRequest = struct {
     page: wire.Field([]const u8) = .absent,
 };
@@ -12014,6 +12038,12 @@ pub const PersonalChangedEvent = struct {
     personal_revision: u64,
 };
 
+pub const PhoneOpenLinkEvent = struct {
+    event: []const u8,
+    terminal_id: []const u8,
+    url: []const u8,
+};
+
 pub const ProgramStatusChangedEvent = struct {
     event: []const u8,
     program_status: wire.Nullable(ShownProgramStatus),
@@ -12508,6 +12538,7 @@ pub const Event = union(enum) {
     pane_closed: PaneClosedEvent,
     participant_avatar_changed: ParticipantAvatarChangedEvent,
     personal_changed: PersonalChangedEvent,
+    phone_open_link: PhoneOpenLinkEvent,
     program_status_changed: ProgramStatusChangedEvent,
     render_delta: RenderDeltaEvent,
     render_state: RenderStateEvent,
@@ -12613,6 +12644,7 @@ pub fn eventWireName(event: Event) []const u8 {
         .pane_closed => "pane-closed",
         .participant_avatar_changed => "participant-avatar-changed",
         .personal_changed => "personal-changed",
+        .phone_open_link => "phone-open-link",
         .program_status_changed => "program-status-changed",
         .render_delta => "render-delta",
         .render_state => "render-state",
@@ -12914,6 +12946,10 @@ pub fn decodeEvent(allocator: std.mem.Allocator, value: wire.Value) !DecodedEven
         const decoded = try wire.decodeLeaky(PersonalChangedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .personal_changed = decoded } };
     }
+    if (std.mem.eql(u8, name, "phone-open-link")) {
+        const decoded = try wire.decodeLeaky(PhoneOpenLinkEvent, arena.allocator(), value);
+        return .{ .arena = arena, .value = .{ .phone_open_link = decoded } };
+    }
     if (std.mem.eql(u8, name, "program-status-changed")) {
         const decoded = try wire.decodeLeaky(ProgramStatusChangedEvent, arena.allocator(), value);
         return .{ .arena = arena, .value = .{ .program_status_changed = decoded } };
@@ -13095,7 +13131,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 314;
+pub const command_count: usize = 315;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -13286,6 +13322,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "new-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "note-size-activity", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "notify", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "offer-link-to-phone", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
     .{ .name = "page-credential", .authority = "local-admin", .since = 12, .capability = "page-credential-v1", .stream = null },
     .{ .name = "pairing-response", .authority = "local-admin", .since = 7, .capability = null, .stream = null },
     .{ .name = "pane-neighbor", .authority = "control", .since = 6, .capability = null, .stream = null },
@@ -13481,47 +13518,48 @@ const event_streams_57 = [_][]const u8{"subscribe-deltas"};
 const event_streams_58 = [_][]const u8{"subscribe-deltas"};
 const event_streams_59 = [_][]const u8{"subscribe"};
 const event_streams_60 = [_][]const u8{"subscribe"};
-const event_streams_61 = [_][]const u8{"subscribe"};
-const event_streams_62 = [_][]const u8{"attach-render"};
+const event_streams_61 = [_][]const u8{"control"};
+const event_streams_62 = [_][]const u8{"subscribe"};
 const event_streams_63 = [_][]const u8{"attach-render"};
-const event_streams_64 = [_][]const u8{"attach-byte"};
-const event_streams_65 = [_][]const u8{"subscribe-deltas"};
+const event_streams_64 = [_][]const u8{"attach-render"};
+const event_streams_65 = [_][]const u8{"attach-byte"};
 const event_streams_66 = [_][]const u8{"subscribe-deltas"};
 const event_streams_67 = [_][]const u8{"subscribe-deltas"};
-const event_streams_68 = [_][]const u8{"subscribe"};
-const event_streams_69 = [_][]const u8{"subscribe-deltas"};
-const event_streams_70 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
-const event_streams_71 = [_][]const u8{"subscribe-deltas"};
-const event_streams_72 = [_][]const u8{"subscribe"};
-const event_streams_73 = [_][]const u8{ "subscribe", "attach-byte", "attach-render" };
-const event_streams_74 = [_][]const u8{"subscribe"};
+const event_streams_68 = [_][]const u8{"subscribe-deltas"};
+const event_streams_69 = [_][]const u8{"subscribe"};
+const event_streams_70 = [_][]const u8{"subscribe-deltas"};
+const event_streams_71 = [_][]const u8{ "subscribe", "attach-byte", "attach-render", "attach-browser" };
+const event_streams_72 = [_][]const u8{"subscribe-deltas"};
+const event_streams_73 = [_][]const u8{"subscribe"};
+const event_streams_74 = [_][]const u8{ "subscribe", "attach-byte", "attach-render" };
 const event_streams_75 = [_][]const u8{"subscribe"};
 const event_streams_76 = [_][]const u8{"subscribe"};
 const event_streams_77 = [_][]const u8{"subscribe"};
 const event_streams_78 = [_][]const u8{"subscribe"};
 const event_streams_79 = [_][]const u8{"subscribe"};
-const event_streams_80 = [_][]const u8{"subscribe-deltas"};
+const event_streams_80 = [_][]const u8{"subscribe"};
 const event_streams_81 = [_][]const u8{"subscribe-deltas"};
 const event_streams_82 = [_][]const u8{"subscribe-deltas"};
 const event_streams_83 = [_][]const u8{"subscribe-deltas"};
-const event_streams_84 = [_][]const u8{"control"};
+const event_streams_84 = [_][]const u8{"subscribe-deltas"};
 const event_streams_85 = [_][]const u8{"control"};
 const event_streams_86 = [_][]const u8{"control"};
-const event_streams_87 = [_][]const u8{"subscribe"};
+const event_streams_87 = [_][]const u8{"control"};
 const event_streams_88 = [_][]const u8{"subscribe"};
 const event_streams_89 = [_][]const u8{"subscribe"};
 const event_streams_90 = [_][]const u8{"subscribe"};
-const event_streams_91 = [_][]const u8{"control"};
-const event_streams_92 = [_][]const u8{"attach-byte"};
-const event_streams_93 = [_][]const u8{"subscribe"};
-const event_streams_94 = [_][]const u8{"subscribe-deltas"};
+const event_streams_91 = [_][]const u8{"subscribe"};
+const event_streams_92 = [_][]const u8{"control"};
+const event_streams_93 = [_][]const u8{"attach-byte"};
+const event_streams_94 = [_][]const u8{"subscribe"};
 const event_streams_95 = [_][]const u8{"subscribe-deltas"};
 const event_streams_96 = [_][]const u8{"subscribe-deltas"};
 const event_streams_97 = [_][]const u8{"subscribe-deltas"};
 const event_streams_98 = [_][]const u8{"subscribe-deltas"};
 const event_streams_99 = [_][]const u8{"subscribe-deltas"};
+const event_streams_100 = [_][]const u8{"subscribe-deltas"};
 
-pub const event_count: usize = 100;
+pub const event_count: usize = 101;
 pub const events = [_]EventDescriptor{
     .{ .name = "activity-changed", .since = 12, .capability = "vm-activity-v1", .streams = &event_streams_0 },
     .{ .name = "agent-changed", .since = 11, .capability = null, .streams = &event_streams_1 },
@@ -13584,43 +13622,44 @@ pub const events = [_]EventDescriptor{
     .{ .name = "pane-closed", .since = 7, .capability = null, .streams = &event_streams_58 },
     .{ .name = "participant-avatar-changed", .since = 12, .capability = "participant-avatars-v1", .streams = &event_streams_59 },
     .{ .name = "personal-changed", .since = 12, .capability = "profiles-v1", .streams = &event_streams_60 },
-    .{ .name = "program-status-changed", .since = 12, .capability = null, .streams = &event_streams_61 },
-    .{ .name = "render-delta", .since = 7, .capability = null, .streams = &event_streams_62 },
-    .{ .name = "render-state", .since = 7, .capability = null, .streams = &event_streams_63 },
-    .{ .name = "resized", .since = 6, .capability = null, .streams = &event_streams_64 },
-    .{ .name = "screen-added", .since = 7, .capability = null, .streams = &event_streams_65 },
-    .{ .name = "screen-changed", .since = 12, .capability = "screen-metadata-v1", .streams = &event_streams_66 },
-    .{ .name = "screen-closed", .since = 7, .capability = null, .streams = &event_streams_67 },
-    .{ .name = "screen-device-changed", .since = 12, .capability = "screen-device-identity-v1", .streams = &event_streams_68 },
-    .{ .name = "screen-renamed", .since = 7, .capability = null, .streams = &event_streams_69 },
-    .{ .name = "scroll-changed", .since = 6, .capability = null, .streams = &event_streams_70 },
-    .{ .name = "selection-changed", .since = 12, .capability = "tree-selection-deltas-v1", .streams = &event_streams_71 },
-    .{ .name = "settings-changed", .since = 12, .capability = "settings-v1", .streams = &event_streams_72 },
-    .{ .name = "size-state", .since = 12, .capability = "shared-sizing-v1", .streams = &event_streams_73 },
-    .{ .name = "stash-changed", .since = 12, .capability = "stash-v1", .streams = &event_streams_74 },
-    .{ .name = "status", .since = 5, .capability = null, .streams = &event_streams_75 },
-    .{ .name = "surface-exited", .since = 5, .capability = null, .streams = &event_streams_76 },
-    .{ .name = "surface-output", .since = 5, .capability = null, .streams = &event_streams_77 },
-    .{ .name = "surface-resize-failed", .since = 7, .capability = null, .streams = &event_streams_78 },
-    .{ .name = "surface-resized", .since = 5, .capability = null, .streams = &event_streams_79 },
-    .{ .name = "tab-added", .since = 7, .capability = null, .streams = &event_streams_80 },
-    .{ .name = "tab-changed", .since = 12, .capability = "tab-metadata-v1", .streams = &event_streams_81 },
-    .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_82 },
-    .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_83 },
-    .{ .name = "terminal-clipboard-read", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_84 },
-    .{ .name = "terminal-clipboard-read-cancelled", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_85 },
-    .{ .name = "terminal-input-unclaimed", .since = 12, .capability = "terminal-input-while-creating-v1", .streams = &event_streams_86 },
-    .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_87 },
-    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_88 },
-    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_89 },
-    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_90 },
-    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_91 },
-    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_92 },
-    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_93 },
-    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_94 },
-    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_95 },
-    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_96 },
-    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_97 },
-    .{ .name = "workspace-presentation-changed", .since = 12, .capability = "tree-selection-deltas-v1", .streams = &event_streams_98 },
-    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_99 },
+    .{ .name = "phone-open-link", .since = 12, .capability = null, .streams = &event_streams_61 },
+    .{ .name = "program-status-changed", .since = 12, .capability = null, .streams = &event_streams_62 },
+    .{ .name = "render-delta", .since = 7, .capability = null, .streams = &event_streams_63 },
+    .{ .name = "render-state", .since = 7, .capability = null, .streams = &event_streams_64 },
+    .{ .name = "resized", .since = 6, .capability = null, .streams = &event_streams_65 },
+    .{ .name = "screen-added", .since = 7, .capability = null, .streams = &event_streams_66 },
+    .{ .name = "screen-changed", .since = 12, .capability = "screen-metadata-v1", .streams = &event_streams_67 },
+    .{ .name = "screen-closed", .since = 7, .capability = null, .streams = &event_streams_68 },
+    .{ .name = "screen-device-changed", .since = 12, .capability = "screen-device-identity-v1", .streams = &event_streams_69 },
+    .{ .name = "screen-renamed", .since = 7, .capability = null, .streams = &event_streams_70 },
+    .{ .name = "scroll-changed", .since = 6, .capability = null, .streams = &event_streams_71 },
+    .{ .name = "selection-changed", .since = 12, .capability = "tree-selection-deltas-v1", .streams = &event_streams_72 },
+    .{ .name = "settings-changed", .since = 12, .capability = "settings-v1", .streams = &event_streams_73 },
+    .{ .name = "size-state", .since = 12, .capability = "shared-sizing-v1", .streams = &event_streams_74 },
+    .{ .name = "stash-changed", .since = 12, .capability = "stash-v1", .streams = &event_streams_75 },
+    .{ .name = "status", .since = 5, .capability = null, .streams = &event_streams_76 },
+    .{ .name = "surface-exited", .since = 5, .capability = null, .streams = &event_streams_77 },
+    .{ .name = "surface-output", .since = 5, .capability = null, .streams = &event_streams_78 },
+    .{ .name = "surface-resize-failed", .since = 7, .capability = null, .streams = &event_streams_79 },
+    .{ .name = "surface-resized", .since = 5, .capability = null, .streams = &event_streams_80 },
+    .{ .name = "tab-added", .since = 7, .capability = null, .streams = &event_streams_81 },
+    .{ .name = "tab-changed", .since = 12, .capability = "tab-metadata-v1", .streams = &event_streams_82 },
+    .{ .name = "tab-closed", .since = 7, .capability = null, .streams = &event_streams_83 },
+    .{ .name = "tab-renamed", .since = 7, .capability = null, .streams = &event_streams_84 },
+    .{ .name = "terminal-clipboard-read", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_85 },
+    .{ .name = "terminal-clipboard-read-cancelled", .since = 12, .capability = "terminal-clipboard-read-v1", .streams = &event_streams_86 },
+    .{ .name = "terminal-input-unclaimed", .since = 12, .capability = "terminal-input-while-creating-v1", .streams = &event_streams_87 },
+    .{ .name = "terminal-reaped", .since = 12, .capability = "terminal-reap-v1", .streams = &event_streams_88 },
+    .{ .name = "terminal-registry-changed", .since = 9, .capability = null, .streams = &event_streams_89 },
+    .{ .name = "title-changed", .since = 5, .capability = null, .streams = &event_streams_90 },
+    .{ .name = "tree-changed", .since = 5, .capability = null, .streams = &event_streams_91 },
+    .{ .name = "url-open", .since = 12, .capability = null, .streams = &event_streams_92 },
+    .{ .name = "vt-state", .since = 5, .capability = null, .streams = &event_streams_93 },
+    .{ .name = "window-title-requested", .since = 6, .capability = null, .streams = &event_streams_94 },
+    .{ .name = "workspace-added", .since = 7, .capability = null, .streams = &event_streams_95 },
+    .{ .name = "workspace-changed", .since = 12, .capability = "workspace-metadata-v1", .streams = &event_streams_96 },
+    .{ .name = "workspace-closed", .since = 7, .capability = null, .streams = &event_streams_97 },
+    .{ .name = "workspace-moved", .since = 7, .capability = null, .streams = &event_streams_98 },
+    .{ .name = "workspace-presentation-changed", .since = 12, .capability = "tree-selection-deltas-v1", .streams = &event_streams_99 },
+    .{ .name = "workspace-renamed", .since = 7, .capability = null, .streams = &event_streams_100 },
 };
