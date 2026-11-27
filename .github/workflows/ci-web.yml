@@ -1291,7 +1291,7 @@ jobs:
         timeout-minutes: 3
         uses: ./.github/actions/r2-artifact/download
         with:
-          name: ci-web-head-bundles-${{ needs.react-apps-head-bundles.outputs.web_bundle_key }}-${{ github.run_attempt }}
+          name: ${{ needs.react-apps-head-bundles.outputs.web_bundle_artifact }}
           path: ${{ runner.temp }}/ci-web-head-bundles
 
       - name: Download the head bundles without OIDC
@@ -1300,7 +1300,7 @@ jobs:
         timeout-minutes: 3
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: ci-web-head-bundles-${{ needs.react-apps-head-bundles.outputs.web_bundle_key }}-${{ github.run_attempt }}
+          name: ${{ needs.react-apps-head-bundles.outputs.web_bundle_artifact }}
           path: ${{ runner.temp }}/ci-web-head-bundles
 
       - name: Build the web bundles
@@ -2040,7 +2040,7 @@ jobs:
         timeout-minutes: 3
         uses: ./.github/actions/r2-artifact/download
         with:
-          name: ${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && 'ci-web-head-bundles' || 'ci-web-base-bundles' }}-${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_key || needs.react-apps-base-bundles.outputs.web_bundle_key }}-${{ github.run_attempt }}
+          name: ${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_artifact || needs.react-apps-base-bundles.outputs.web_bundle_artifact }}
           path: ${{ runner.temp }}/ci-web-base-bundles
 
       - name: Download the base bundles without OIDC
@@ -2048,7 +2048,7 @@ jobs:
         timeout-minutes: 3
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: ${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && 'ci-web-head-bundles' || 'ci-web-base-bundles' }}-${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_key || needs.react-apps-base-bundles.outputs.web_bundle_key }}-${{ github.run_attempt }}
+          name: ${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_artifact || needs.react-apps-base-bundles.outputs.web_bundle_artifact }}
           path: ${{ runner.temp }}/ci-web-base-bundles
 
       # The head's runner and font pin, as the base check's replay uses them; then the merge parent, as it does.
@@ -2272,7 +2272,7 @@ jobs:
         timeout-minutes: 3
         uses: ./.github/actions/r2-artifact/download
         with:
-          name: ci-web-head-bundles-${{ needs.react-apps-head-bundles.outputs.web_bundle_key }}-${{ github.run_attempt }}
+          name: ${{ needs.react-apps-head-bundles.outputs.web_bundle_artifact }}
           path: ${{ runner.temp }}/ci-web-head-bundles
 
       - name: Download the head bundles without OIDC
@@ -2280,7 +2280,7 @@ jobs:
         timeout-minutes: 3
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: ci-web-head-bundles-${{ needs.react-apps-head-bundles.outputs.web_bundle_key }}-${{ github.run_attempt }}
+          name: ${{ needs.react-apps-head-bundles.outputs.web_bundle_artifact }}
           path: ${{ runner.temp }}/ci-web-head-bundles
 
       - name: Download the base bundles from R2
@@ -2288,7 +2288,7 @@ jobs:
         timeout-minutes: 3
         uses: ./.github/actions/r2-artifact/download
         with:
-          name: ${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && 'ci-web-head-bundles' || 'ci-web-base-bundles' }}-${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_key || needs.react-apps-base-bundles.outputs.web_bundle_key }}-${{ github.run_attempt }}
+          name: ${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_artifact || needs.react-apps-base-bundles.outputs.web_bundle_artifact }}
           path: ${{ runner.temp }}/ci-web-base-bundles
 
       - name: Download the base bundles without OIDC
@@ -2296,7 +2296,7 @@ jobs:
         timeout-minutes: 3
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: ${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && 'ci-web-head-bundles' || 'ci-web-base-bundles' }}-${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_key || needs.react-apps-base-bundles.outputs.web_bundle_key }}-${{ github.run_attempt }}
+          name: ${{ needs.web-subarea-scope.outputs.base_bundle_same == 'true' && needs.react-apps-head-bundles.outputs.web_bundle_artifact || needs.react-apps-base-bundles.outputs.web_bundle_artifact }}
           path: ${{ runner.temp }}/ci-web-base-bundles
 
       # A head shard with no red has nothing to replay: the compare below then needs only python, so the

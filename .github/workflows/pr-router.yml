@@ -377,6 +377,7 @@ jobs:
     with:
       web_bundle_key: ${{ needs.compile-preflight.outputs.web_bundle_key }}
       web_bundle_transport: ${{ needs.compile-preflight.outputs.web_bundle_transport }}
+      web_bundle_artifact: ${{ needs.compile-preflight.outputs.web_bundle_artifact }}
     permissions:
       contents: read
       id-token: write
@@ -514,6 +515,7 @@ jobs:
       web_browser_only: true
       web_bundle_key: ${{ needs.compile-preflight.outputs.web_bundle_key }}
       web_bundle_transport: ${{ needs.compile-preflight.outputs.web_bundle_transport }}
+      web_bundle_artifact: ${{ needs.compile-preflight.outputs.web_bundle_artifact }}
     secrets:
       GLAEDA_ROUTE_APP_KEY: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
       CMUX_BOT_APP_KEY: ${{ secrets.CMUX_BOT_APP_KEY }}
