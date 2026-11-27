@@ -138,4 +138,5 @@ jobs:
             IFS=$'\t' read -r pstate pdesc <<< "$gated"
             if [ "$pstate" != success ]; then state="${pstate:-error}"; desc="Build passed; ${pdesc}"; fi
           fi
+          echo "state=$state" >> "$GITHUB_OUTPUT"
           python3 -I scripts/ci/ios_fast_verdict.py status "$state" "$desc"
