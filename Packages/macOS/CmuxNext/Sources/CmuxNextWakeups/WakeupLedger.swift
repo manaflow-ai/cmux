@@ -81,9 +81,6 @@ public final class WakeupLedger: Sendable {
     /// Monotonic nanoseconds (CLOCK_UPTIME_RAW).
     public static let systemUptime: @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
 
-    /// Increments on every recorded wakeup.
-    public var activitySequence: UInt64 { activity.load(ordering: .relaxed) }
-
     /// Records one wakeup. Cheap enough for a 120 Hz frame tick.
     public func record(_ owner: String, reason: String = "wake", count: UInt32 = 1) {
         let now = uptime()

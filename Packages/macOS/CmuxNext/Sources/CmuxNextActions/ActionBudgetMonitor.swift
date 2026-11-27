@@ -218,9 +218,6 @@ public final class ActionBudgetMonitor {
         return stream
     }
 
-    /// Readers still registered (tests: an ended stream is forgotten).
-    var readerCount: Int { readers.count }
-
     /// Hands the half of the ring that just filled to the batch reader (one copy, one yield).
     private func handBatch() {
         guard let batchReader else {

@@ -145,10 +145,4 @@ public nonisolated struct SidebarLayoutDocument: Hashable, Sendable, Codable {
 
     /// The Home item is in the sidebar, so it stands for the home workspace and that workspace's own row is hidden.
     public var hidesHome: Bool { firstItem(with: Self.homeRef) != nil }
-
-    /// The first item of the first top-region section shown in `room`
-    /// (what Cmd-1 runs), or nil when the top region is empty.
-    public func firstTopItem(room: String?) -> LayoutItem? {
-        sections(in: .top, room: room).lazy.compactMap(\.items.first).first
-    }
 }

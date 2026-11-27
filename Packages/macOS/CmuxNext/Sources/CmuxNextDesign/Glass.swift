@@ -99,28 +99,4 @@ public struct Glass {
         glass.contentView = content
         return glass
     }
-
-    /// A container that merges nearby glass panels and batches rendering
-    /// (`NSGlassEffectContainerView`); before macOS 26 a plain view that
-    /// hosts `content` edge to edge.
-    public static func makeContainer(content: NSView, spacing: CGFloat = 0) -> NSView {
-        if #available(macOS 26.0, *), isLiquidGlassAvailable {
-            let container = NSGlassEffectContainerView()
-            container.translatesAutoresizingMaskIntoConstraints = false
-            container.spacing = spacing
-            container.contentView = content
-            return container
-        }
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        content.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(content)
-        NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            content.topAnchor.constraint(equalTo: container.topAnchor),
-            content.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-        ])
-        return container
-    }
 }

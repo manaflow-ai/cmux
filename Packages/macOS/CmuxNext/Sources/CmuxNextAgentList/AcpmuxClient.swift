@@ -93,7 +93,6 @@ public nonisolated final class AcpmuxClient: @unchecked Sendable {
     @discardableResult public func unwant(_ request: Data) -> Int32 { mutate(request) { handle, p, n in acpmux_client_unwant(handle, p, n) } }
     @discardableResult public func unsubscribe(_ request: Data) -> Int32 { mutate(request) { handle, p, n in acpmux_client_unsubscribe(handle, p, n) } }
     @discardableResult public func page(_ request: Data) -> Int32 { mutate(request) { handle, p, n in acpmux_client_page(handle, p, n) } }
-    public func subscribeChat(_ request: Data) -> Data? { call(request) { handle, p, n, out in acpmux_client_subscribe_chat(handle, p, n, out) } }
     /// ``subscribeChat(_:)``'s ABI code: 0 when the core took the sub, ``refusedCode`` when it
     /// refused the request, and another code for no handle or a panic in the core.
     public func subscribeChatCode(_ request: Data) -> Int32 {

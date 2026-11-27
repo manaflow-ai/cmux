@@ -122,13 +122,6 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         return GroupBackground(tint: self, strength: .band, glass: false, palette: palette, wallpaper: Self.wallpaper, tokens: tokens).shown.nsColor
     }
 
-    /// A faint wash of the group's color over the sidebar, behind a name in primary ink.
-    @MainActor public func headerWash(palette: GroupPalette) -> ThemeRGB {
-        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        if isNone { return tokens.sidebarBackground.withAlpha(0) } // no color: no wash
-        return tokens.sidebarBackground.withAlpha(1).mixed(toward: lineRGB(palette: palette), tokens.isDark ? 0.14 : 0.10)
-    }
-
     /// A tab group chip's fill in the active scope (`GroupColor.chipFill`); a custom color is
     /// washed into the sidebar so the name stays primary text.
     @MainActor public var chipFill: NSColor {
