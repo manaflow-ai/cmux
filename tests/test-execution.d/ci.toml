@@ -180,6 +180,10 @@ path = "tests/test_ci_daemon_pr_crate_steps.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_daemon_pr_member_steps.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_delta_since_green.py"
 lane = "linux-guard"
 
@@ -221,6 +225,10 @@ reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Pins scripts
 path = "tests/test_ci_fast_check_route.py"
 lane = "manual"
 reason = "No new CI tests (Lawrence 2026-10-23, lifted 2026-11-18). Checks scripts/ci/fast-check-inputs.json against the jobs and scripts each fast check reads, and that every routed job is wired to fast_check_route.py and covered by a push; run python3 tests/test_ci_fast_check_route.py yourself after changing fast_check_route.py, fast-check-inputs.json or a routed workflow (a few seconds, no build)."
+
+[[test]]
+path = "tests/test_ci_gh_http.py"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_workflow_start_lint.py"

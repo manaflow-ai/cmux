@@ -76,6 +76,7 @@ import PackageDescription
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
 //     plans/cmux-next/react-pages.md)
+//   CmuxNextCloudStart -> Cloud, Daemon (the Cloud start's launch and creation calls into Rust; no UI)
 //   CmuxNextCodeRouter -> CmuxNextCloud (provider sign-in detection, the CodeRouter control-plane
 //     client, pasted-key Keychain store, account row state; no UI, no daemon; plans/cmux-next/coderouter.md)
 //   CmuxNextAccounts -> Actions, AgentPane, AgentUpdates, Cloud, CodeRouter, DaemonService, Design, Icons, Onboarding, Pages,
@@ -195,7 +196,7 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// line together (scripts/cmux-next/repin-app-ffi.sh), never anything else.
 /// scripts/cmux-next/check-app-ffi-pin.sh fails CI when the FFI sources
 /// differ from the pinned source sha.
-// app-ffi-pin-checksum: 3491ee0d72b80bcc67ee19fc8508772952bcc226f5fee78455ee4b37a3a73b05
+// app-ffi-pin-checksum: 9c8ab5bee0767a4a3dd208415f871154cae4c21cd807929a66056e6742aee873
 struct AppFFIPin: Decodable {
     let url: String
     let checksum: String
@@ -402,6 +403,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCloud",
                 "CmuxNextCloudCredentials",
                 "CmuxNextCloudPlace",
+                "CmuxNextCloudStart",
                 "CmuxNextCloudUI",
                 "CmuxNextCodeRouter",
                 "CmuxNextCompat",
@@ -807,6 +809,16 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCloud",
                 "CmuxNextCompat",
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
+            ],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // CmuxNextCloudStart: the Cloud start's launch and creation calls into Rust
+        // (CloudStartCore launch gate, create params, backoff, approval step machine).
+        .target(
+            name: "CmuxNextCloudStart",
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCloud",
+                "CmuxNextDaemon",
             ],
             swiftSettings: daemonSwiftSettings
         ),
@@ -2713,7 +2725,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // section 8). CmuxNextBrowser depends on it and re-exports it.
         .target(
             name: "CmuxNextBrowserCore",
+            // CCmuxAppFFI: the typed address-bar policy and Chromium page routes (cmux-url-input).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CCmuxAppFFI",
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
                 .product(name: "CmuxEgress", package: "CmuxEgress"),
