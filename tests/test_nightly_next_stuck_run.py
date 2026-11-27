@@ -312,7 +312,8 @@ class StuckRun(unittest.TestCase):
         job_spec = tick["jobs"]["unstick"]
         steps = job_spec["steps"]
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
-        self.assertIn("scripts/ci/nightly_next_stuck_run.py", tooling["with"]["sparse-checkout"].split())
+        self.assertNotIn("sparse-checkout", tooling["with"])  # the whole tooling tree, no promisor fetch
+        self.assertTrue((ROOT / "scripts/ci/nightly_next_stuck_run.py").is_file())
         names = [step.get("name") for step in steps]
         step = steps[names.index("Report a stuck nightly-next run and re-run its lost jobs once it ends")]
         self.assertTrue(step["continue-on-error"])
@@ -323,7 +324,7 @@ class StuckRun(unittest.TestCase):
         # Not behind the request job, and not on the hosted pool the jobs it rescues wait on.
         self.assertNotIn("needs", job_spec)
         self.assertNotIn("CI_CONTROL_RUNNER", job_spec["runs-on"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS || '{}').linux_2", job_spec["runs-on"])
+        self.assertNotIn("vars.", job_spec["runs-on"])
         self.assertNotIn("Report a stuck nightly-next run and re-run its lost jobs once it ends",
                          [s.get("name") for s in tick["jobs"]["request"]["steps"]])
         self.assertLess(names.index("Wait through GitHub API rate limits in this job's gh calls"),

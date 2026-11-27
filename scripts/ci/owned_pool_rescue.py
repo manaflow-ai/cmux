@@ -561,12 +561,18 @@ SIDE_WORKFLOW_PATHS = frozenset({
     ".github/workflows/nightly-next-launch-smoke.yml",
     # feat-cmux-next only; calls pr-pipeline.yml, whose ios job takes the ios-runner pool picker's output.
     ".github/workflows/pr-router.yml",
+    # feat-cmux-next only; its build job takes the pool picker job route's output (cmux#55612).
+    ".github/workflows/ios-sim-linux-build.yml",
     ".github/workflows/macos-cross-parity.yml",
     ".github/workflows/relay-tls.yml",
     ".github/workflows/remote-daemon.yml",
     ".github/workflows/terminal-hang-diagnostics.yml",
     # Its full-text job takes the side label on attempt 1 (on both branches).
     ".github/workflows/test-feed-reply-providers.yml",
+    # feat-cmux-next's manual Cloud chat proof: both proof jobs take the owned gui pool on attempt 1 while
+    # CI_PR_POOL_OWNED is 1, and a re-run takes pick-proof-runner's Blacksmith label or the macos_26 pool
+    # (feat-cmux-next twin: cmux#58158).
+    ".github/workflows/cloud-chat-proof.yml",
 })
 # Side workflows whose Mac jobs take an owned label on every attempt (feat-cmux-next only), so no
 # re-run moves them off the minis (bot_rerun_leaves_owned()). This includes workflows whose
@@ -6305,6 +6311,11 @@ PULL_DISPATCH_RESCUE_CLAUSE = (
     "inputs.tip_swift_suite == true || inputs.tip_daemon_suite == true || inputs.base_tier == true || "
     "inputs.no_reuse == true))"
 )
+# cmux#45176 (feat-cmux-next, 2026-11-17) cut PULL_DISPATCH_RESCUE_CLAUSE from every fallback: a re-run reaches
+# Blacksmith only through the placement's retry label. A head's placement reads such a dispatch as its pull request's
+# run under `pr-rescue` once its macos-placement step sets this variable (next_macos_cascade.PULL_DISPATCH). Without
+# it this gate refused every head after 2026-11-17, even past OWNED_WAIT_BOUND_SECONDS.
+PULL_DISPATCH_PLACEMENT = "CMUX_NEXT_PULL_DISPATCH:"
 
 
 def stall_pull_only(switch: str | None) -> bool:
@@ -6318,8 +6329,8 @@ def stall_pull_only(switch: str | None) -> bool:
 def stall_moves_dispatch(client: GitHub, run: Mapping[str, Any], log: Callable[[str], None]) -> bool:
     """Whether the stall move under `pr-rescue` (stall_pull_only()) may move a cmux-next.yml run that is not a
     pull_request run: a dispatch gating one pull request (same_tree_pull_dispatch()) whose head's cmux-next.yml
-    carries PULL_DISPATCH_RESCUE_CLAUSE, so the bot's re-run leaves the side lane. One read of the workflow at the
-    run's head; a failed read leaves the run to the next scan."""
+    carries PULL_DISPATCH_RESCUE_CLAUSE or PULL_DISPATCH_PLACEMENT, so the bot's re-run leaves the side lane. One
+    read of the workflow at the run's head; a failed read leaves the run to the next scan."""
     if not same_tree_pull_dispatch(run):
         return False
     head = str(run.get("head_sha") or "")
@@ -6329,7 +6340,7 @@ def stall_moves_dispatch(client: GitHub, run: Mapping[str, Any], log: Callable[[
         log(f"[run {run.get('id')}] {STALL_MOVE}: could not read {CMUX_NEXT_WORKFLOW_PATH} at {head[:12]} ({error}); "
             "next scan")
         return False
-    if PULL_DISPATCH_RESCUE_CLAUSE not in (text or ""):
+    if PULL_DISPATCH_RESCUE_CLAUSE not in (text or "") and PULL_DISPATCH_PLACEMENT not in (text or ""):
         log(f"[run {run.get('id')}] {STALL_MOVE} leaves it: its head {head[:12]}'s {CMUX_NEXT_WORKFLOW_PATH} sends a "
             "bot's re-run of this dispatch to the side lane under pr-rescue")
         return False

@@ -18,7 +18,7 @@ name: CLA quota re-run
 # minutes, so when the reset is under 40 minutes away a pass sleeps until just
 # after it and runs then: one planned pass per reset, not a loop. Cost: free
 # rate_limit reads of GITHUB_TOKEN; reads and re-runs on the glaeda-route
-# App's own budget. Its own workflow and concurrency group (moved out of
+# App's own budget, or on GITHUB_TOKEN while the App's hour is spent. Its own workflow and concurrency group (moved out of
 # ci-queue-janitor.yml), so a pass waiting for the reset never holds the
 # macOS sweep.
 on:
@@ -54,7 +54,7 @@ jobs:
       vars.GLAEDA_ROUTE_APP_ID != '' && (github.event_name != 'workflow_run' ||
       (github.event.workflow_run.event == 'pull_request_target' &&
       (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.run_attempt > 1)))
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_QUEUE_RESERVED == '1' && 'cmux-gcp-queue-jit-x64' || vars.CI_REPAIR_SKIP_FLEET != '1' && 'cmux-gcp-repair-jit-x64' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-queue-jit-x64' }}
     timeout-minutes: 62
     # One pass at a time; a pass waiting for the reset is never cancelled. Passes
     # that arrive meanwhile collapse into one pending pass. Job level, so the many
@@ -64,8 +64,12 @@ jobs:
       cancel-in-progress: false
     # No continue-on-error: a pass that ends on a spent budget it cannot wait out exits 1,
     # so the run is red rather than green while CLA checks stay failed.
+    # actions: write and pull-requests: read let the workflow token read and re-run while the
+    # glaeda-route App's hour is spent (the two reset at different minutes; cla_quota_rerun.py).
     permissions:
       contents: read
+      actions: write
+      pull-requests: read
     env:
       # A scheduled job's GitHub API waits stop here and fail loud (scripts/ci/gh_budget_wait.sh).
       GH_BUDGET_WAIT_MAX_SECONDS: "900"
@@ -74,7 +78,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -117,7 +121,7 @@ jobs:
 
       - name: Check out the CLA quota re-run
         if: steps.glaeda-token.outputs.token != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci/cla_quota_rerun.py

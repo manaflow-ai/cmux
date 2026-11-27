@@ -107,7 +107,7 @@ jobs:
           - agent: codex
             model: stub
             crons: ["7,22,37,52 * * * *"]
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_4) && fromJSON(vars.RUNNER_POOLS || '{}').linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # The cmux-tui build (warm from the rust cache) comes before the journey's own 25 minutes.
     timeout-minutes: 75
     environment: cmux-next-cloud-journey
@@ -129,7 +129,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -176,11 +176,11 @@ jobs:
             ;;
           esac
 
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         if: env.SELECTED == 'true' && steps.gate.outputs.skip != 'true'
         with:
           persist-credentials: false
-          ref: ${{ inputs.journey_ref || 'feat-cmux-next' }}
+          ref: ${{ inputs.journey_ref || 'refs/heads/feat-cmux-next' }}
           submodules: recursive
       # A dispatch's journey_ref runs with the production account, so it must already be on feat-cmux-next.
       - name: The journey commit is on feat-cmux-next
@@ -264,9 +264,14 @@ jobs:
           if [ "$AGENT" = codex ] && [ "$MODEL" = stub ]; then probe=cloud-chat-replies-production-codex-stub; elif [ "$AGENT" = codex ]; then probe=cloud-chat-replies-production-codex; elif [ "$MODEL" = real ]; then probe=cloud-chat-replies-production-real-model; fi
           home_chat_args=()
           if [ "$MODEL" = stub ]; then home_chat_args+=(--home-chat reserved); fi
+          # The "cold create (asked size)" cell is a second machine create per run, and the test team may create 20
+          # an hour (cloud.rate_limited took 7 of 12 red runs on 2026-11-26). The codex stub's four runs an hour skip it;
+          # the claude stub (hourly) and the real legs still prove a cold create boots at the size it asked for.
+          skip=sync,pause
+          if [ "$AGENT" = codex ] && [ "$MODEL" = stub ]; then skip=sync,pause,cold; fi
           # --cmux: execs and the carrier dial (the app's own connect over the machine's relay slot) go through the
           # cmux-tui this job built, so the hourly run times the connect the app makes, not only connect_info.
-          bun scripts/cmux-next/cloud-journey.ts --backend prod --sign-in oidc --agent "$AGENT" --model "$MODEL" --out "$out" --probe-out "$out/probe.json" --probe "$probe" --skip sync,pause \
+          bun scripts/cmux-next/cloud-journey.ts --backend prod --sign-in oidc --agent "$AGENT" --model "$MODEL" --out "$out" --probe-out "$out/probe.json" --probe "$probe" --skip "$skip" \
             --preclaim-login "$CMUX_TUI" --spare-wait 180 --cmux "$CMUX_TUI" "${home_chat_args[@]}"
           code=$?
           { echo "### Production, $AGENT, $MODEL model"; echo; cat "$out/summary.md" 2>/dev/null || echo "(no summary written)"; } >> "$GITHUB_STEP_SUMMARY"
@@ -350,16 +355,16 @@ jobs:
   # (EMAIL_PASSWORD_MISMATCH), so the job stays out of it. It never targets the production API or checks out a PR head.
   preclaim:
     if: github.repository_owner == 'manaflow-ai' && github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next') && inputs.preclaim
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_4) && fromJSON(vars.RUNNER_POOLS || '{}').linux_4 || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 60
     environment: cmux-next-vm-image-dev
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           submodules: recursive
       - name: Install Linux cmux-tui build dependencies
         run: sudo apt-get update && sudo apt-get install -y clang libclang-dev pkg-config

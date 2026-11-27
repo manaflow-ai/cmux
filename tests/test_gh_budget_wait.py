@@ -349,13 +349,18 @@ class TickTests(unittest.TestCase):
         tooling = steps[names.index("Checkout the gh rate-limit wait")]
         self.assertEqual(tooling["with"]["ref"], "${{ github.sha }}")
         self.assertEqual(tooling["with"]["path"], ".tick-tooling")
-        self.assertIn("scripts/ci/gh_budget_wait.sh", tooling["with"]["sparse-checkout"].split())
+        self.assertNotIn("sparse-checkout", tooling["with"])  # the whole tooling tree, no promisor fetch
         install = names.index("Wait through GitHub API rate limits in this job's gh calls")
         self.assertEqual(steps[install]["run"].strip(), "bash .tick-tooling/scripts/ci/gh_budget_wait.sh --install")
         for i, step in enumerate(steps):
             if "GH_TOKEN" in step.get("env", {}):
                 self.assertGreater(i, install, step.get("name"))
-        self.assertGreaterEqual(int(job["timeout-minutes"]), 15 + 60)
+        # The request step's waits are capped below its own bound, and the job outlasts that
+        # bound plus the rest of the tick (15 minutes): a tick holds the one tick group for
+        # minutes, not the hour of waits it once could (2026-11-26, the feed stood 3 hours).
+        request = steps[names.index("Request nightly-next promotion on main")]
+        self.assertLessEqual(int(request["env"]["GH_BUDGET_WAIT_MAX_SECONDS"]), int(request["timeout-minutes"]) * 60 // 2)
+        self.assertGreaterEqual(int(job["timeout-minutes"]), 15 + int(request["timeout-minutes"]))
 
 
 class AutoResumeTests(unittest.TestCase):
