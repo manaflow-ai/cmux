@@ -629,6 +629,8 @@ mod tests {
         recovered.restore_queue(&chat);
         assert!(chat.queue.lock().unwrap().is_empty());
         drop(chat);
+        recovered.shutdown_all().await;
+        recovered.close_owned_tasks().await;
         drop(recovered);
         let restarted = hub(&destination);
         let chat = restarted.resolve_here(&id).unwrap();
@@ -688,9 +690,11 @@ mod tests {
         std::fs::create_dir_all(&cwd).unwrap();
         std::fs::create_dir_all(&restored_cwd).unwrap();
         let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let sent_log = tmp.path().join("agent-responses.log");
         let cfg: Config = serde_json::from_value(json!({
             "harnesses": {"fake": {"argv": ["python3", fake], "family": "claude",
-                "env": {"FAKE_CLAUDE_STORE": "1", "FAKE_RESET_CANCEL_ON_PROMPT": "1"}}},
+                "env": {"FAKE_CLAUDE_STORE": "1", "FAKE_RESET_CANCEL_ON_PROMPT": "1",
+                    "FAKE_SENT_LOG": sent_log}}},
             "defaultHarness": "fake", "store": {"mode": "local"},
             "titles": {"generate": false}
         }))
@@ -710,7 +714,8 @@ mod tests {
         let source_native = native_path(&cwd, &native_id);
         let destination_native = native_path(&restored_cwd, &native_id);
         let _native_cleanup = NativeFiles(vec![source_native.clone(), destination_native.clone()]);
-        tokio::time::timeout(
+        let history_started = Instant::now();
+        let history = tokio::time::timeout(
             Duration::from_secs(60),
             source.prompt(
                 &session,
@@ -719,9 +724,38 @@ mod tests {
                 false,
             ),
         )
-        .await
-        .unwrap()
-        .unwrap();
+        .await;
+        if history.is_err() {
+            let mut chunks = 0;
+            let mut bytes = 0;
+            let mut tail = std::collections::VecDeque::new();
+            source
+                .scan_off(&session.id, 0, &mut |event| {
+                    if event.kind == "agent_message_chunk" {
+                        chunks += 1;
+                        bytes += event
+                            .msg
+                            .pointer("/params/update/content/text")
+                            .and_then(Value::as_str)
+                            .map_or(0, str::len);
+                    }
+                    if tail.len() == 12 {
+                        tail.pop_front();
+                    }
+                    tail.push_back((event.seq, event.kind));
+                    true
+                })
+                .unwrap();
+            panic!(
+                "history prompt timed out after {:?}: durable_chunks={chunks} durable_bytes={bytes} status={:?} turn_active={} agent_answered={} tail={tail:?}",
+                history_started.elapsed(),
+                session.meta().status,
+                session.turn().is_some(),
+                sent_log.exists()
+            );
+        }
+        history.unwrap().unwrap();
+        eprintln!("ordinary-running-replica: history_ms={}", history_started.elapsed().as_millis());
         let mut updates = source.subscribe();
         let source_for_turn = source.clone();
         let session_for_turn = session.clone();
@@ -847,6 +881,7 @@ mod tests {
         let recovered_id = id.to_owned();
         drop(recovered);
         destination.shutdown_all().await;
+        destination.close_owned_tasks().await;
         drop(destination);
         let restarted = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &dest_store).unwrap());
         let recovered = restarted.resolve_here(&recovered_id).unwrap();
