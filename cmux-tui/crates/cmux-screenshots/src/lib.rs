@@ -9,6 +9,7 @@
 //! - [`detect`]: the sources, in menu order, over a [`detect::Environment`] the app provides.
 //! - [`settings`]: the `key=value` and JSON settings files tools save their folder in.
 //! - [`reader`]: which directory entries a folder scan lists or enters, and the newest picture.
+//! - [`pane`]: the pane's sources: what to read, watch, drop and look at after a watch event.
 //! - [`page`], [`gate`], [`names`]: the page address, the access gate, dropped-image and rename names.
 
 pub mod detect;
@@ -17,6 +18,7 @@ pub mod gate;
 pub mod listing;
 pub mod names;
 pub mod page;
+pub mod pane;
 pub mod reader;
 pub mod rule;
 pub mod settings;
