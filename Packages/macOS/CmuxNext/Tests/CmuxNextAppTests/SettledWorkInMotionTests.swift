@@ -16,11 +16,17 @@ struct SettledWorkInMotionTests {
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
     }
 
-    private func root() -> (LayoutRootView, NSWindow) {
+    /// A window whose live resize the test sets (`NSWindow.inLiveResize` is true only while a person drags an edge).
+    final class LiveResizeWindow: NSWindow {
+        var isLive = false
+        override var inLiveResize: Bool { isLive }
+    }
+
+    private func root() -> (LayoutRootView, LiveResizeWindow) {
         let columns = (1...2).map { LayoutColumn(id: ColumnID("c\($0)"), width: 0.5, root: .leaf(PaneID("p\($0)"))) }
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns(columns))], activeScreenID: "s", focusedPane: "p1")
         let root = LayoutRootView(model: model, contentProvider: Panes())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
+        let window = LiveResizeWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.borderless], backing: .buffered, defer: true)
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         return (root, window)
@@ -59,5 +65,20 @@ struct SettledWorkInMotionTests {
         root.setLayoutInMotion(false)
         root.settlingWork["SettledWorkInMotionTests.last"]?.work()
         #expect(ran == [2])
+    }
+
+    /// A window's live resize is not a layout motion: nothing at its end reliably arms a held settle (AppKit can still
+    /// report the resize in `viewDidEndLiveResize`, the only call at its end). A call during it arms its timer, as
+    /// before, so the New Tab spare's fit still runs after a window resize (PR 59620 review).
+    @Test func aCallDuringAWindowLiveResizeArmsItsSettle() {
+        let (root, window) = root()
+        defer { window.closeAfterTest() }
+        let queue = FrameBatchQueue(owner: "SettledWorkInMotionTests")
+        window.isLive = true
+        for _ in 0..<3 { root.whenSettled("SettledWorkInMotionTests.live", after: .seconds(30), on: queue) {} }
+        // The resize ends while the window still reports it.
+        root.viewDidEndLiveResize()
+        #expect(root.settlingWork["SettledWorkInMotionTests.live"]?.timer.isScheduled == true,
+                "a settle asked for during a window's live resize never armed")
     }
 }
