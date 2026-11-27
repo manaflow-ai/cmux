@@ -56,7 +56,7 @@ pub fn params_rule_violation(
     if let Some(key) = params.keys().filter(|k| contains(denied, k)).min() {
         return Some(format!("mode field {}", quoted(key)));
     }
-    let Some(raw_meta) = params.get("_meta") else { return None };
+    let raw_meta = params.get("_meta")?;
     let Some(meta) = raw_meta.as_object() else { return Some("_meta is not an object".into()) };
     if setting && meta.contains_key(&p.gesture_ticket_key) {
         return meta
@@ -89,7 +89,7 @@ pub fn params_rule_violation(
     if meta.get(TRACEPARENT_KEY).is_some_and(|v| !is_traceparent(v)) {
         return Some("_meta.traceparent is not a W3C traceparent".into());
     }
-    let Some(raw_acpmux) = meta.get("acpmux") else { return None };
+    let raw_acpmux = meta.get("acpmux")?;
     let Some(acpmux) = raw_acpmux.as_object() else {
         return Some("_meta.acpmux is not an object".into());
     };

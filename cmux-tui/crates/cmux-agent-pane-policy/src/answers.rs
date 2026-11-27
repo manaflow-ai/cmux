@@ -40,13 +40,13 @@ pub fn answers_rule_violation(
     if object.get("method").and_then(Value::as_str) != Some(rule.method.as_str()) {
         return None;
     }
-    let Some(params) = object.get("params").and_then(Value::as_object) else { return None };
+    let params = object.get("params").and_then(Value::as_object)?;
     if let Some(annotations) = params.get(&rule.annotations_param)
         && let Some(violation) = annotations_rule_violation(rule, annotations, params, options)
     {
         return Some(violation);
     }
-    let Some(raw) = params.get(&rule.param) else { return None };
+    let raw = params.get(&rule.param)?;
     let Some(permission) = params.get("permissionId").and_then(Value::as_str) else {
         return Some("answers without a permissionId".into());
     };

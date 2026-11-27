@@ -84,5 +84,5 @@ fn session_snapshot_is_independent_for_sessions_and_handoffs() {
     assert!(sessions.contains("s2"));
     assert!(!snapshot.contains("s2"));
     assert!(snapshot.contains("s1"));
-    assert!(snapshot.holds_source(&json!({"handoffId": "h1"}).as_object().unwrap()));
+    assert!(snapshot.holds_source(json!({"handoffId": "h1"}).as_object().unwrap()));
 }
