@@ -587,16 +587,6 @@
           },
           "response": "hand-written"
         },
-        "set-divider-visible": {
-          "name": "SetDividerVisibleRequest",
-          "doc": [
-            "A split's divider drawn or not: a hidden divider draws no line and still drags. The daemon keeps it",
-            "on the split node, so it persists with the layout. `DaemonConnection.setDividerVisible` refuses a",
-            "daemon without `split-divider-visibility-v1` before it sends."
-          ],
-          "order": ["split", "visible", "transaction"],
-          "response": "EmptyResponse"
-        },
         "zoom-pane": {
           "name": "ZoomPaneRequest",
           "order": [
