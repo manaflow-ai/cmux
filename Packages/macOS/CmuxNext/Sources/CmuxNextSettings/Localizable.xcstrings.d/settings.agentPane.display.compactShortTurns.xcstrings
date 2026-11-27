@@ -13,122 +13,122 @@
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ملخص موجز للأدوار القصيرة"
+            "state" : "translated",
+            "value" : "ملخص مضغوط للأدوار القصيرة"
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Sažeti prikaz kratkih poteza"
+            "state" : "translated",
+            "value" : "Sažeti pregled za kratke poteze"
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kompakt oversigt over korte ture"
+            "state" : "translated",
+            "value" : "Kompakt resumé for korte ture"
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kompakte Zusammenfassung kurzer Durchläufe"
+            "state" : "translated",
+            "value" : "Kompakte Zusammenfassung für kurze Durchgänge"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Resumen compacto de turnos cortos"
+            "state" : "translated",
+            "value" : "Resumen compacto para turnos cortos"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Résumé compact des tours courts"
+            "state" : "translated",
+            "value" : "Résumé compact pour les tours courts"
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Riepilogo compatto dei turni brevi"
+            "state" : "translated",
+            "value" : "Riepilogo compatto per i turni brevi"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "短いターンをコンパクトに要約"
+            "state" : "translated",
+            "value" : "短いターンはコンパクトな要約で表示"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "សេចក្ដីសង្ខេបខ្លីសម្រាប់វគ្គខ្លីៗ"
+            "state" : "translated",
+            "value" : "សេចក្ដីសង្ខេបខ្លីសម្រាប់វេនខ្លី"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "짧은 턴의 간결한 요약"
+            "state" : "translated",
+            "value" : "짧은 턴은 간단한 요약으로 표시"
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kompakt sammendrag av korte turer"
+            "state" : "translated",
+            "value" : "Kompakt sammendrag for korte turer"
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Zwięzłe podsumowanie krótkich tur"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Resumo compacto de turnos curtos"
+            "state" : "translated",
+            "value" : "Resumo compacto para turnos curtos"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Краткая сводка коротких ходов"
+            "state" : "translated",
+            "value" : "Краткая сводка для коротких ходов"
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "สรุปแบบกระชับสำหรับเทิร์นสั้น"
+            "state" : "translated",
+            "value" : "สรุปแบบย่อสำหรับเทิร์นสั้น"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kısa Turlar İçin Kompakt Özet"
+            "state" : "translated",
+            "value" : "Kısa turlar için kısa özet"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Стислий підсумок коротких ходів"
+            "state" : "translated",
+            "value" : "Стисле зведення для коротких ходів"
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
+            "state" : "translated",
             "value" : "Tóm tắt gọn cho lượt ngắn"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "简短回合的精简摘要"
+            "state" : "translated",
+            "value" : "短回合使用精简摘要"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "簡短回合的精簡摘要"
+            "state" : "translated",
+            "value" : "短回合使用精簡摘要"
           }
         }
       }

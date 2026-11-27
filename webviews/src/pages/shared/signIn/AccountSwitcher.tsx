@@ -15,6 +15,8 @@ export type AccountSwitcherProps = {
   accounts: readonly AccountRowWire[];
   signIn?: ActiveSignIn | null;
   look?: SignInLook;
+  /** Provider add rows already surfaced by a dedicated settings card. */
+  hideAddFamilies?: readonly AccountFamily[];
   /** An account a gesture runs on (its buttons wait). */
   busy?: string | null;
   onAdd?(family: AccountFamily): void;
@@ -33,7 +35,7 @@ const GROUP_KEY: Record<AccountFamily, string> = {
 };
 
 export function AccountSwitcher(props: AccountSwitcherProps) {
-  const { accounts, signIn = null, look = "inline", busy = null } = props;
+  const { accounts, signIn = null, look = "inline", busy = null, hideAddFamilies = [] } = props;
   const strings = useSignInStrings();
   const card = (active: ActiveSignIn) => (
     <DeviceSignInCard family={active.family} view={active.view} look={look} {...props.card} />
@@ -139,22 +141,26 @@ export function AccountSwitcher(props: AccountSwitcherProps) {
                   </div>
                 );
               })}
-              <div className="row accounts-row signin-add" data-sign-in-add={family}>
-                <div className="row-main">
-                  <span className="accounts-buttons">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={signingHere}
-                      data-sign-in-row-action="add"
-                      onClick={() => props.onAdd?.(family)}
-                    >
-                      {strings.t("signIn.account.add")}
-                    </Button>
-                  </span>
+              {!hideAddFamilies.includes(family) && (
+                <div className="row accounts-row signin-add" data-sign-in-add={family}>
+                  <div className="row-main">
+                    <span className="accounts-buttons">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={signingHere}
+                        data-sign-in-row-action="add"
+                        onClick={() => props.onAdd?.(family)}
+                      >
+                        {strings.t("signIn.account.add")}
+                      </Button>
+                    </span>
+                  </div>
+                  {look === "inline" && signIn && underAdd(family) && (
+                    <div className="accounts-body">{card(signIn)}</div>
+                  )}
                 </div>
-                {look === "inline" && signIn && underAdd(family) && <div className="accounts-body">{card(signIn)}</div>}
-              </div>
+              )}
             </div>
           </section>
         );

@@ -506,7 +506,7 @@ impl Hub {
         // Each chat's last change is on disk before this returns, also while another save of it
         // runs: the seal that follows refuses every later write.
         for s in self.sessions() {
-            if !s.meta_writer.needs_flush(&s) {
+            if !s.meta_writer.needs_flush(&s, &*self.store) {
                 continue;
             }
             if let Err(e) = self.write_meta(&s) {

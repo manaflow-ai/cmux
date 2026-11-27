@@ -13,122 +13,122 @@
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ترتيب أدوات الوكلاء في منتقي النماذج. اسحب أداة داخل المنتقي لتغيير موضعها."
+            "state" : "translated",
+            "value" : "ترتيب الوكلاء في منتقي النموذج. اسحب وكيلًا في المنتقي لنقله."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Redoslijed agentskih alata u biraču modela. Povucite alat unutar birača da ga premjestite."
+            "state" : "translated",
+            "value" : "Redoslijed agenata u biraču modela. Prevuci agenta u biraču da ga pomjeriš."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Rækkefølgen af agentværktøjer i modelvælgeren. Træk et værktøj i vælgeren for at flytte det."
+            "state" : "translated",
+            "value" : "Rækkefølgen af agenterne i modelvælgeren. Træk en agent i vælgeren for at flytte den."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Die Reihenfolge der Agentenwerkzeuge in der Modellauswahl. Ziehe ein Werkzeug in der Auswahl, um es zu verschieben."
+            "state" : "translated",
+            "value" : "Die Reihenfolge der Agent-Umgebungen in der Modellauswahl. Ziehe eine in der Auswahl, um sie zu verschieben."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "El orden de las herramientas de agente en el selector de modelos. Arrastra una herramienta dentro del selector para moverla."
+            "state" : "translated",
+            "value" : "El orden de los agentes en el selector de modelos. Arrastra un agente en el selector para moverlo."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "L’ordre des outils d’agent dans le sélecteur de modèles. Faites glisser un outil dans le sélecteur pour le déplacer."
+            "state" : "translated",
+            "value" : "L’ordre des agents dans le sélecteur de modèle. Faites glisser un agent dans le sélecteur pour le déplacer."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "L’ordine degli strumenti agente nel selettore di modelli. Trascina uno strumento nel selettore per spostarlo."
+            "state" : "translated",
+            "value" : "L’ordine degli agenti nel selettore del modello. Trascina un agente nel selettore per spostarlo."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "モデル選択でのエージェントツールの表示順序です。選択画面内でツールをドラッグすると移動できます。"
+            "state" : "translated",
+            "value" : "モデル選択でのエージェントの順序です。選択メニューでエージェントをドラッグすると移動できます。"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "លំដាប់ឧបករណ៍ភ្នាក់ងារនៅក្នុងកម្មវិធីជ្រើសរើសម៉ូដែល។ អូសឧបករណ៍នៅក្នុងកម្មវិធីជ្រើសរើសដើម្បីផ្លាស់ទីវា។"
+            "state" : "translated",
+            "value" : "លំដាប់ភ្នាក់ងារក្នុងកម្មវិធីជ្រើសម៉ូដែល។ អូសភ្នាក់ងារក្នុងកម្មវិធីជ្រើស ដើម្បីផ្លាស់ទីវា។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "모델 선택기에 표시되는 에이전트 도구의 순서입니다. 선택기에서 도구를 드래그하여 이동하세요."
+            "state" : "translated",
+            "value" : "모델 선택기의 에이전트 순서입니다. 선택기에서 에이전트를 드래그하여 옮기세요."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Rekkefølgen for agentverktøy i modellvelgeren. Dra et verktøy i velgeren for å flytte det."
+            "state" : "translated",
+            "value" : "Rekkefølgen på agentene i modellvelgeren. Dra en agent i velgeren for å flytte den."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kolejność narzędzi agenta w oknie wyboru modelu. Przeciągnij narzędzie w tym oknie, aby je przenieść."
+            "state" : "translated",
+            "value" : "Kolejność agentów w selektorze modelu. Przeciągnij agenta w selektorze, aby go przenieść."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "A ordem das ferramentas de agente no seletor de modelos. Arraste uma ferramenta no seletor para movê-la."
+            "state" : "translated",
+            "value" : "A ordem dos agentes no seletor de modelo. Arraste um agente no seletor para movê-lo."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Порядок инструментов агентов в окне выбора модели. Перетащите инструмент в этом окне, чтобы переместить его."
+            "state" : "translated",
+            "value" : "Порядок агентов в меню выбора модели. Перетащите агента в меню, чтобы переместить его."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ลำดับเครื่องมือเอเจนต์ในตัวเลือกโมเดล ลากเครื่องมือในตัวเลือกเพื่อย้ายตำแหน่ง"
+            "state" : "translated",
+            "value" : "ลำดับของเอเจนต์ในตัวเลือกโมเดล ลากเอเจนต์ในตัวเลือกเพื่อย้าย"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Model seçicideki ajan araçlarının sırası. Bir aracı taşımak için seçici içinde sürükleyin."
+            "state" : "translated",
+            "value" : "Model seçicideki ajanların sırası. Taşımak için seçicide bir ajanı sürükleyin."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Порядок інструментів агентів у вікні вибору моделі. Перетягніть інструмент у цьому вікні, щоб перемістити його."
+            "state" : "translated",
+            "value" : "Порядок агентів у меню вибору моделі. Перетягніть агента в меню, щоб перемістити його."
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Thứ tự các công cụ tác tử trong bộ chọn mô hình. Kéo một công cụ trong bộ chọn để di chuyển công cụ đó."
+            "state" : "translated",
+            "value" : "Thứ tự các tác tử trong bộ chọn mô hình. Kéo một tác tử trong bộ chọn để di chuyển nó."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "模型选择器中代理工具的排列顺序。在选择器中拖动工具即可移动它。"
+            "state" : "translated",
+            "value" : "模型选择器中智能体的顺序。在选择器中拖动智能体即可移动。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "模型選擇器中代理工具的排列順序。在選擇器中拖曳工具即可移動它。"
+            "state" : "translated",
+            "value" : "模型選擇器中代理的順序。在選擇器中拖曳代理即可移動。"
           }
         }
       }

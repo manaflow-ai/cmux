@@ -13,122 +13,122 @@
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ترتيب أدوات الوكلاء في منتقي النماذج"
+            "state" : "translated",
+            "value" : "ترتيب الوكلاء في منتقي النموذج"
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Redoslijed agentskih alata u biraču modela"
+            "state" : "translated",
+            "value" : "Redoslijed agenata u biraču modela"
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Rækkefølge af agentværktøjer i modelvælgeren"
+            "state" : "translated",
+            "value" : "Rækkefølge af agenter i modelvælgeren"
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Reihenfolge der Agentenwerkzeuge in der Modellauswahl"
+            "state" : "translated",
+            "value" : "Reihenfolge der Agent-Umgebungen in der Modellauswahl"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Orden de las herramientas de agente en el selector de modelos"
+            "state" : "translated",
+            "value" : "Orden de los agentes en el selector de modelos"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ordre des outils d’agent dans le sélecteur de modèles"
+            "state" : "translated",
+            "value" : "Ordre des agents dans le sélecteur de modèle"
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ordine degli strumenti agente nel selettore di modelli"
+            "state" : "translated",
+            "value" : "Ordine degli agenti nel selettore del modello"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "モデル選択でのエージェントツールの順序"
+            "state" : "translated",
+            "value" : "モデル選択でのエージェントの順序"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "លំដាប់ឧបករណ៍ភ្នាក់ងារនៅក្នុងកម្មវិធីជ្រើសរើសម៉ូដែល"
+            "state" : "translated",
+            "value" : "លំដាប់ភ្នាក់ងារក្នុងកម្មវិធីជ្រើសម៉ូដែល"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "모델 선택기의 에이전트 도구 순서"
+            "state" : "translated",
+            "value" : "모델 선택기의 에이전트 순서"
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Rekkefølge for agentverktøy i modellvelgeren"
+            "state" : "translated",
+            "value" : "Rekkefølge på agenter i modellvelgeren"
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Kolejność narzędzi agenta w wyborze modelu"
+            "state" : "translated",
+            "value" : "Kolejność agentów w selektorze modelu"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ordem das ferramentas de agente no seletor de modelos"
+            "state" : "translated",
+            "value" : "Ordem dos agentes no seletor de modelo"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Порядок инструментов агентов в выборе модели"
+            "state" : "translated",
+            "value" : "Порядок агентов в меню выбора модели"
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ลำดับเครื่องมือเอเจนต์ในตัวเลือกโมเดล"
+            "state" : "translated",
+            "value" : "ลำดับเอเจนต์ในตัวเลือกโมเดล"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Model Seçicideki Ajan Araçlarının Sırası"
+            "state" : "translated",
+            "value" : "Model seçicideki ajan sırası"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Порядок інструментів агентів у виборі моделі"
+            "state" : "translated",
+            "value" : "Порядок агентів у меню вибору моделі"
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Thứ tự công cụ tác tử trong bộ chọn mô hình"
+            "state" : "translated",
+            "value" : "Thứ tự tác tử trong bộ chọn mô hình"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "模型选择器中的代理工具顺序"
+            "state" : "translated",
+            "value" : "模型选择器中的智能体顺序"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "模型選擇器中的代理工具順序"
+            "state" : "translated",
+            "value" : "模型選擇器中的代理順序"
           }
         }
       }

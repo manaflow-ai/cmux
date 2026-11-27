@@ -178,7 +178,7 @@ jobs:
       # The picker's code from the base branch, as ci.yml's changes job uses it.
       - name: Check out the trusted picker
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha || github.sha }}
           sparse-checkout: scripts/ci
@@ -343,7 +343,7 @@ jobs:
       - name: Checkout
         id: checkout
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           persist-credentials: false
@@ -361,7 +361,7 @@ jobs:
         id: checkout-retry
         if: steps.checkout.outcome == 'failure'
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           persist-credentials: false
@@ -1429,7 +1429,7 @@ jobs:
       # The picker's code from the base branch, as ci.yml's changes job uses it.
       - name: Check out the trusted picker
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           sparse-checkout: scripts/ci
@@ -1586,7 +1586,7 @@ jobs:
       # No submodules: this lane never compiles Ghostty or the app, it only
       # restores an already-built product and runs shell regressions.
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -1958,7 +1958,7 @@ jobs:
         id: checkout
         if: env.PACKAGE_TESTS_VIA_STEP != '1'
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           # Depth 2 reaches the parent this commit was built on, which is what
@@ -1973,7 +1973,7 @@ jobs:
 
       - name: Retry checkout without the git object seed
         if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
           fetch-depth: 2
@@ -2406,7 +2406,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: recursive
 
@@ -2582,7 +2582,9 @@ jobs:
               COMPILER_INDEX_STORE_ENABLE=NO \
               CODE_SIGNING_ALLOWED=NO ASSETCATALOG_COMPILER_APPICON_NAME=AppIcon-Nightly build
           }
-          cmux_fleet_cache_build scripts/ci "$RUNNER_TEMP/release-build.log" release_build
+          log_dir="$(mktemp -d "$RUNNER_TEMP/release-build.XXXXXX")"
+          echo "build_log=$log_dir/release-build.log" >> "$GITHUB_OUTPUT"
+          cmux_fleet_cache_build scripts/ci "$log_dir/release-build.log" release_build
           ended="$(date +%s)"
           echo "compile_seconds=$((ended - started))" >> "$GITHUB_OUTPUT"
 
@@ -2594,11 +2596,20 @@ jobs:
         if: always() && !cancelled() && steps.build-release.outcome != 'skipped'
         continue-on-error: true
         env:
+          BUILD_LOG: ${{ steps.build-release.outputs.build_log }}
           COMPILE_SECONDS: ${{ steps.build-release.outputs.compile_seconds }}
           COMPILE_OUTCOME: ${{ steps.build-release.outcome }}
         run: |
           set -euo pipefail
-          args=(build-universal --output "$RUNNER_TEMP/release-build-metrics.json"
+          # The local-cache retry writes a sibling log. Count the final attempt.
+          if [[ -n "$BUILD_LOG" && -f "$BUILD_LOG.retry" ]]; then
+            BUILD_LOG="$BUILD_LOG.retry"
+          fi
+          if [[ ! -s "$BUILD_LOG" ]]; then
+            echo "Release compilation cache counts unavailable (no build log)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          args=(build-universal --build-log "$BUILD_LOG" --output "$RUNNER_TEMP/release-build-metrics.json"
             --compile-outcome "$COMPILE_OUTCOME" --summary "$GITHUB_STEP_SUMMARY")
           if [[ "$COMPILE_SECONDS" =~ ^[0-9]+$ ]]; then
             args+=(--compile-seconds "$COMPILE_SECONDS")

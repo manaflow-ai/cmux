@@ -204,8 +204,8 @@ export const durableObjectLimitsLayer = (namespace: DurableObjectNamespace<Tenan
         listGenerated: (scope, cursor, limit, pending) => decoded(GeneratedCreationPage)(stub.listGenerated(scope, cursor, limit, pending)),
         begin: (key, fingerprint, nowMs, clientFingerprint, generated) => decoded(IdempotencyBegin)(stub.begin(key, fingerprint, nowMs, clientFingerprint, generated)),
         advance: async (key, progress, nowMs) => {
-          const confirmed = await decoded(Schema.Boolean)(stub.advance(key, progress, nowMs));
-          if (!confirmed) throw new Error("allocation journal write was not confirmed");
+          const confirmed = await decoded(Schema.Union(Schema.Boolean, Schema.String))(stub.advance(key, progress, nowMs));
+          if (confirmed !== true) throw new Error(confirmed === false ? "allocation journal write was not confirmed" : confirmed);
         },
         abandon: async (key, nowMs) => {
           await stub.abandon(key, nowMs);
