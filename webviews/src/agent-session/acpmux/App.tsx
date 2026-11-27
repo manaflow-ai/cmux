@@ -469,7 +469,7 @@ import { viewerImages } from "./summary/chatGallery";
 import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { noteTranscriptFollowing, useStreamAppendDeclaration } from "./devMotionAudit";
-import { HEADER_ACTIONS, type ChatMenuItem } from "./header/chatHeaderToolsModel";
+import { HEADER_ACTIONS, filesFolder, type ChatMenuItem } from "./header/chatHeaderToolsModel";
 import { headerBreadcrumb, setHeaderState, useHeaderState } from "./header/headerState";
 import { useTabRow, useTabRowRoot, useTabRowTools } from "./header/tabRow";
 import {
@@ -667,7 +667,7 @@ import { failedRuns, type FailedRun } from "./sendFailure";
 import { clientWaiter, lostPrompt, resentAfterLoss } from "./lostPrompt";
 import { sessionReplay } from "./replay/replay.experiment";
 import { readSteerLog, type SteerAct } from "./steerQueue/log";
-import { steerQueue } from "./steerQueue/model";
+import { SteerQueueReader } from "./sessionReaders";
 import { type SteerActions } from "./steerQueue/SteerQueue";
 import { steerQueueExperiment } from "./steerQueue/steerQueue.experiment";
 import { statusIslandExperiment } from "./statusIsland/statusIsland.experiment";
@@ -691,7 +691,6 @@ import {
   startedSessions,
 } from "./started/startedSessions";
 import { experimentArm } from "../../experiments/experiment";
-import { useSessionStatus } from "./sessionStatus";
 import { usePaneView } from "./paneViewStore";
 import { useExperimentSwitch } from "../../experiments/switches";
 import { holdWebSwap } from "../../pages/shared/webSwap";
@@ -6098,8 +6097,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Jump to new (conversation/SinceDivider.tsx): "New since you looked" is a row like any other, so
   // the transcript brings it in by its place in the chat even when it is far above the view.
   const sinceKey = snapshot.sinceKey;
-  // The newest row in view, seen once the reader attends (direct.ts `noteVisibleThrough`).
-  const noteSeenThrough = useCallback((seq: number | undefined) => directClient.current?.noteVisibleThrough(seq), []);
   const jumpToSince = useCallback(() => {
     const key = Date.now();
     setRevealRow({ rowId: SINCE_DIVIDER, key, toolId: "" });
@@ -6108,8 +6105,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Rows in the strict viewport advance the daemon's persisted seen cursor. The client keeps this
   // callback cheap by reducing the rows to one highest event sequence and sending only forward.
   const seenRows = useCallback(
-    (rows: readonly AcpmuxRow[]) => {
-      if (shownSessionId) directClient.current?.markSeenRows(shownSessionId, rows);
+    (rows: readonly AcpmuxRow[], beforeSeq?: number) => {
+      if (shownSessionId) directClient.current?.markSeenRows(shownSessionId, rows, beforeSeq);
     },
     [shownSessionId],
   );
@@ -8696,11 +8693,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     window.setTimeout(refreshTabState, 400);
   };
   // The header's toggles the native palette runs (AgentPaneView+Commands.swift), each only where the
-  // header offers it: Quick Chat's panel has no tabs beside it, a remote chat's folder is not on this
-  // Mac, and Preview needs the chat's page or the preview it opened. The App greys out the rest.
+  // header offers it: Quick Chat's panel has no tabs beside it, a peer's chat's folder is not on any
+  // machine here, and Preview needs the chat's page or the preview it opened. The App greys out the rest.
   const commands: Record<string, () => void> = {};
   if (!quick) commands.toggleSideTabs = toggleSideTabs;
-  if (!quick && localCwd) commands.toggleFiles = () => runSplitAction(HEADER_ACTIONS.files, localCwd, "toggle");
+  const filesAt = filesFolder(snapshot.summary); // a Cloud chat's Files reads its machine's tree (cmux#55413)
+  if (!quick && filesAt) commands.toggleFiles = () => runSplitAction(HEADER_ACTIONS.files, filesAt, "toggle");
   if (!quick && (previewUrl || litSplits.includes(HEADER_ACTIONS.preview)))
     commands.togglePreview = () => togglePreview(previewUrl);
   // Ctrl-B's move, while it has something to move; queueing's toggle, as a queued row's ⋯ menu has it.
@@ -8841,8 +8839,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const timer = window.setInterval(() => setSteerNow(Date.now()), 30_000);
     return () => window.clearInterval(timer);
   }, [steering]);
+  // Kept as the list changes (sessionReaders.ts): a chat's change moves that chat, not a sort of every chat.
+  const steerReader = useRef<SteerQueueReader | null>(null);
   const steerItems = useMemo(
-    () => (steering ? steerQueue({ sessions: snapshot.sessions, now: steerNow || Date.now(), log: steerLog }) : []),
+    () =>
+      steering
+        ? (steerReader.current ??= new SteerQueueReader()).read({
+            sessions: snapshot.sessions,
+            now: steerNow || Date.now(),
+            log: steerLog,
+          })
+        : [],
     [steering, snapshot.sessions, steerNow, steerLog],
   );
   // Other chats that only ran on (their times and latest words) leave the pane undrawn
@@ -10069,8 +10076,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                                                                   }
                                                                   sinceKey={childRows ? undefined : sinceKey}
                                                                   promptAuthor={directClient.current?.presence.selfId}
-                                                                  readThrough={childRows ? undefined : snapshot.readThrough}
-                                                                  onSeenThrough={childRows ? undefined : noteSeenThrough}
+                                                                  readThrough={
+                                                                    childRows ? undefined : snapshot.readThrough
+                                                                  }
                                                                   onJumpToSince={jumpToSince}
                                                                   onSeenRows={childRows ? undefined : seenRows}
                                                                   clockOffset={snapshot.clockOffsetMs ?? 0}

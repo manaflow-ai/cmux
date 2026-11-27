@@ -322,10 +322,12 @@ await requireBrowserLane("agent-pane-jump-unseen.browser.test.ts", async () => {
           await settleSeen(page);
           expect(chat.readThrough).toBe(before);
           await upShown(page);
+          const seenRequests = chat.seen.length;
           // Focus and input: the first unseen row is still above the view, so nothing moves.
           await focus(page, true);
           await settleSeen(page);
           expect(chat.readThrough).toBe(before);
+          expect(chat.seen.slice(seenRequests)).toEqual([]);
           const up = await read(page);
           expect(up.jump).toBe("up");
           expect(up.badge).toBe("dot");

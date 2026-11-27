@@ -315,6 +315,7 @@ import {
   mergeEventRecords,
   prependOlderEventRecords,
   sessionUpdate,
+  heldBySeq,
 } from "./direct/records";
 import {
   OLDER_PAGE_RECORDS,
@@ -2192,20 +2193,13 @@ export class AcpmuxDirectClient {
     return cursor && cursor.sessionId === this.selectedSessionId ? cursor.seq : undefined;
   }
 
-  /// The newest row the transcript's rule counts seen (jumpControl.ts `seenThrough`): the same write
-  /// as `markSeenRows`, from the row seq the transcript computed (it never skips an unseen row above).
-  noteVisibleThrough(seq: number | undefined): void {
-    const sessionId = this.selectedSessionId;
-    if (sessionId && seq !== undefined) this.markSeenThrough(sessionId, seq);
-  }
-
   /// The cursor the transcript's jump control reads: the daemon's, or what this page already sent
   /// ahead of it, so Jump up moves the moment rows are seen, not when acpmux answers.
   private publishCursor(sessionId: string): void {
     const kept = this.cursor?.sessionId === sessionId ? this.cursor.seq : null;
     const sent = this.sentSeen?.sessionId === sessionId ? this.sentSeen.seq : null;
     const seq = Math.max(kept ?? -1, sent ?? -1);
-    if (seq >= 0) publishReadThrough(sessionId, seq);
+    publishReadThrough(sessionId, seq >= 0 ? seq : undefined);
   }
   private viewSync: Promise<void> = Promise.resolve();
   /// The selection generation whose attach reply has landed; lag resync waits for it.
@@ -5367,19 +5361,25 @@ export class AcpmuxDirectClient {
   /// Record the rows that were truly on screen. This is called after a viewport layout changes,
   /// rather than on every scroll frame. The client derives each row's newest event and gates writes
   /// on the page and attention state here.
-  markSeenRows(sessionId: string, rows: readonly { id: string; seq?: number }[]): void {
+  markSeenRows(
+    sessionId: string,
+    rows: readonly { id: string; seq?: number; messageRun?: { through?: number } }[],
+    beforeSeq?: number,
+  ): void {
     let seq = -1;
     for (const row of rows) {
-      const through = Math.max(typeof row.seq === "number" ? row.seq : -1, this.rows.seqOf(row.id) ?? -1);
+      const through = Math.max(row.messageRun?.through ?? row.seq ?? -1, this.rows.seqOf(row.id) ?? -1);
       if (through > seq) seq = through;
     }
+    if (beforeSeq !== undefined) seq = Math.min(seq, beforeSeq - 1);
+    // This is the current permitted viewport, not a high-water mark of every viewport while
+    // idle. In particular an unread gap must revoke an older candidate before focus returns.
+    this.onScreen = seq >= 0 ? { sessionId, seq } : undefined;
     if (seq >= 0) this.markSeenThrough(sessionId, seq);
   }
 
   markSeenThrough(sessionId: string, seq: number): void {
     if (!Number.isFinite(seq) || seq < 0) return;
-    const kept = this.onScreen;
-    if (kept?.sessionId !== sessionId || kept.seq < seq) this.onScreen = { sessionId, seq };
     if (!pageShown() || !readerHere()) return;
     const cursor = this.cursor;
     if (cursor?.sessionId === sessionId && cursor.seq !== null && cursor.seq >= seq) return;
@@ -5397,7 +5397,10 @@ export class AcpmuxDirectClient {
         !readerHere() ||
         this.selectedSessionId !== sessionId
       ) {
-        if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) this.sentSeen = undefined;
+        if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) {
+          this.sentSeen = undefined;
+          this.publishCursor(sessionId);
+        }
         return;
       }
       await this.typed("_acpmux/seen", { sessionId, seq }).then(
@@ -5407,9 +5410,14 @@ export class AcpmuxDirectClient {
           if (this.selectedSessionId !== sessionId) return;
           if (now?.sessionId !== sessionId || now.seq === null || now.seq < through)
             this.cursor = { sessionId, seq: through };
+          if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) this.sentSeen = undefined;
+          this.publishCursor(sessionId);
         },
         () => {
-          if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) this.sentSeen = undefined;
+          if (this.sentSeen?.sessionId === sessionId && this.sentSeen.seq === seq) {
+            this.sentSeen = undefined;
+            this.publishCursor(sessionId);
+          }
         },
       );
     });
@@ -6076,6 +6084,18 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/draft_set", { sessionId, text });
   }
 
+  /// The session's unsent chips as acpmux keeps them, in order with their contents
+  /// (`{sessionId, draft, attachments}`); an older daemon answers no `attachments`.
+  readDraftAttachments(sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/draft_get", { sessionId, attachments: true });
+  }
+
+  /// Keeps the session's unsent chips in acpmux (`[]` forgets them). A chip named without its
+  /// contents keeps the ones acpmux holds for its id; answers `{held}`. An older daemon refuses it.
+  writeDraftAttachments(sessionId: string, attachments: unknown[]): Promise<unknown> {
+    return this.request("_acpmux/draft_set", { sessionId, attachments });
+  }
+
   /// The session's prompt bookmarks (`{bookmarks: [seq...]}`), kept in acpmux (threadMinimap/bookmarks.ts).
   readBookmarks(sessionId: string): Promise<unknown> {
     return this.request("_acpmux/bookmark_get", { sessionId });
@@ -6256,7 +6276,10 @@ export class AcpmuxDirectClient {
       !!(
         this.browserIdentity &&
         browserDeviceIsCurrent(this.browserIdentity) &&
-        (this.browserDeviceReady || method === "_acpmux/device_enroll" || method === "_acpmux/device_hello")
+        (this.browserDeviceReady ||
+          method === "_acpmux/device_enroll" ||
+          method === "_acpmux/device_challenge" ||
+          method === "_acpmux/device_hello")
       )
     );
   }
@@ -7781,8 +7804,35 @@ export class AcpmuxDirectClient {
     if (update?.status === "completed" || update?.status === "failed") this.streamedOutputs.delete(callId);
   }
 
+  /// The newest record the selected chat's event stream brought this page (`streamGap`), whatever the page did
+  /// with it.
+  private streamHeard?: { sessionId: string; generation: number; seq: number };
+
+  /// acpmux names the record its event stream sent before this one (`prev`, server `Conn::stream_prev`). A chat
+  /// that holds less lost records on the way (a dropped bridge frame, a relay): they are read from its cursor now,
+  /// as after a lag, rather than left a hole only a reload filled (Leo, 2026-11-22: "we need to make sure any
+  /// solutions that reloading would help with, we never encounter those classes of bugs in the first place.").
+  private streamGap(event: EventRecord): void {
+    const sessionId = event.sessionId as string;
+    const generation = this.selectionGeneration;
+    const before = this.streamHeard;
+    const heard = before?.sessionId === sessionId && before.generation === generation ? before.seq : 0;
+    this.streamHeard = { sessionId, generation, seq: Math.max(heard, event.seq) };
+    const prev = (event as { prev?: unknown }).prev;
+    // Before the attach lands its page is the cursor, and acpmux's stream starts over at every attach.
+    if (this.attachedGeneration !== generation || !streamLost(prev, this.lastSeq, heard)) return;
+    this.wire.lifecycle("stream gap", { sessionId, after: this.lastSeq, prev });
+    this.resyncAfterLag({
+      dropped: (prev as number) - this.lastSeq,
+      sessionIds: [sessionId],
+      afterSeq: this.lastSeq,
+      reason: "stream_gap",
+    });
+  }
+
   private apply(event: EventRecord): void {
     if (!event?.seq || event.sessionId !== this.selectedSessionId) return;
+    this.streamGap(event);
     if (event.sessionId && this.chatRows.holds(event.sessionId) && !holdReads(event)) return;
     acpmuxPerf.recordsTaken("applied", 1, event.seq);
     // The chat's records reach the page: the quiet watch starts over from here.
@@ -9115,9 +9165,9 @@ export class AcpmuxDirectClient {
         events = thinned;
       }
     } else {
-      if (this.replayThrough === undefined)
-        this.events = thinStreamedOutputs([...this.events].sort((a, b) => a.seq - b.seq));
-      events = this.events.filter((event) => event.seq <= through).sort((a, b) => a.seq - b.seq);
+      // In `seq` order, a copy: the held log already is, so neither is a sort (`heldBySeq`).
+      if (this.replayThrough === undefined) this.events = thinStreamedOutputs(heldBySeq(this.events));
+      events = heldBySeq(this.events, through);
     }
     // The rows of the records before the cut, which stay as drawn.
     const frozenBefore = cut > 0 ? events[0]!.seq : undefined;
@@ -11447,7 +11497,12 @@ export class AcpmuxDirectClient {
       // that steer: the note never lands over the steer and pushes it down (Leo, 2026-11-25: "the
       // animation for compaction and a message sent/steered during compaction is weird ... layout
       // shifts and awkward looking animations"). One look over the rows since it started (a few).
-      else if (compaction.state !== "running" && running && this.ownSteerBelow(running.id))
+      // A late result updates an inferred note in place, even if another steer has since arrived.
+      else if (
+        compaction.state !== "running" &&
+        running?.compaction?.state === "running" &&
+        this.ownSteerBelow(running.id)
+      )
         this.rows.placeAfterCurrent(id);
     }
   }
@@ -18710,6 +18765,14 @@ function pageShown(): boolean {
 /// What acpmux hears as `visible`, so a turn that ends while they are away is unread.
 function readerHere(): boolean {
   return pageShown() && (pageAttention()?.present() ?? true);
+}
+
+/// Whether an event-stream record whose stream sent `prev` before it (acpmux `Conn::stream_prev`) finds records
+/// lost on the way: the page holds the chat through `lastSeq` (0: no page yet) and heard through `heard`.
+export function streamLost(prev: unknown, lastSeq: number, heard: number): prev is number {
+  return (
+    typeof prev === "number" && Number.isSafeInteger(prev) && prev > 0 && lastSeq > 0 && prev > Math.max(lastSeq, heard)
+  );
 }
 
 /// Where a lag's read of what acpmux left out starts: the page's cursor, or the notice's `afterSeq`
