@@ -54,7 +54,7 @@ extension DaemonConnection {
                                      title: FieldUpdate<String> = .unchanged, pinned: Bool? = nil,
                                      markedUnread: Bool? = nil, keepAwake: Bool? = nil) async throws -> WorkspaceMetadataResult {
         try await request(SetWorkspaceMetadataRequest(workspace: .key(key), color: color, icon: icon, title: title, pinned: pinned,
-                                                      markedUnread: markedUnread, keepAwake: keepAwake, mutation: mutation()))
+                                                      markedUnread: markedUnread, mutation: mutation(), keepAwake: keepAwake))
     }
 
     /// Closes a workspace. `endTerminals` also ends, in the same daemon
