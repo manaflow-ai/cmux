@@ -61,6 +61,7 @@ static PENDING: Mutex<Option<Plan>> = Mutex::new(None);
 static RECEIPT: OnceLock<String> = OnceLock::new();
 
 struct Plan {
+    _person: crate::hub::person::UnkeyedExecGuard,
     program: PathBuf,
     executable: std::fs::File,
     image: Image,
@@ -245,8 +246,10 @@ pub(crate) async fn prepare(hub: &crate::hub::Hub) -> Result<serde_json::Value> 
     let id = super::random_token()?;
     let mut pending = PENDING.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     ensure!(pending.is_none(), "an exec update is already pending");
+    let person = hub.person.freeze_unkeyed_for_exec().map_err(|error| anyhow!("{error}"))?;
     let receipt = serde_json::json!({"updateId": id, "execImage": image});
     *pending = Some(Plan {
+        _person: person,
         program,
         executable,
         image,

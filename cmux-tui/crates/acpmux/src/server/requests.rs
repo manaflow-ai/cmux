@@ -4573,7 +4573,12 @@ async fn dispatch_request_with_identity(
             // listens on. Sent before the stop begins; a failure only means it binds as before.
             #[cfg(unix)]
             let handed: Vec<&'static str> = match (
-                params.get(crate::daemon::listener_handover::PARAM).and_then(Value::as_str),
+                // Exec owns these descriptors already. Do not await a competing takeover
+                // after its enrollment fence commits: cancellation must not strand a plan.
+                params
+                    .get(crate::daemon::listener_handover::PARAM)
+                    .filter(|_| exec_update.is_none())
+                    .and_then(Value::as_str),
                 conn.origin,
                 conn.socket_peer,
             ) {

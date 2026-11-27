@@ -426,6 +426,8 @@ pub enum PersonVerdict {
 #[derive(Default)]
 pub struct PersonGate {
     key: StdMutex<Option<String>>,
+    /// Exec cannot accept a new in-memory key after committing an unkeyed replacement.
+    exec_frozen: std::sync::Arc<AtomicBool>,
     /// Woken at each key this run takes, so a proof that came before it is checked again
     /// ([`PersonGate::proves_when_keyed`]).
     keyed: tokio::sync::Notify,
@@ -461,7 +463,26 @@ pub const MAX_PICK_FOLDERS: usize = 64;
 /// At most this many workspace roots.
 pub const MAX_WORKSPACE_ROOTS: usize = 256;
 
+pub(crate) struct UnkeyedExecGuard(std::sync::Arc<AtomicBool>);
+
+impl Drop for UnkeyedExecGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 impl PersonGate {
+    /// Serialize the unkeyed exec decision with every key writer. Dropping the plan on
+    /// cancellation or failed exec reopens enrollment; successful exec never drops it.
+    pub(crate) fn freeze_unkeyed_for_exec(&self) -> Result<UnkeyedExecGuard, RpcError> {
+        let slot = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if slot.is_some() || self.exec_frozen.load(Ordering::SeqCst) {
+            return Err(exec_enrollment_deferred());
+        }
+        self.exec_frozen.store(true, Ordering::SeqCst);
+        Ok(UnkeyedExecGuard(self.exec_frozen.clone()))
+    }
+
     /// `_acpmux/workspace_roots_set {roots}` (the person only): replaces the
     /// workspace folders. Absolute paths without control characters.
     pub fn set_workspace_roots(&self, params: &Value) -> Result<Value, RpcError> {
@@ -758,6 +779,9 @@ impl PersonGate {
             return Err("the person key must be 64 lowercase hex characters".into());
         }
         let mut slot = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if self.exec_frozen.load(Ordering::SeqCst) {
+            return Err("daemon update deferred: exec handoff is committed".into());
+        }
         if slot.is_some() {
             return Err("this daemon already has a person key".into());
         }
@@ -778,7 +802,12 @@ impl PersonGate {
         if !valid_key(key) {
             return Err(RpcError::invalid_params("key must be 64 lowercase hex characters"));
         }
-        *self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(key.to_owned());
+        let mut slot = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if self.exec_frozen.load(Ordering::SeqCst) {
+            return Err(exec_enrollment_deferred());
+        }
+        *slot = Some(key.to_owned());
+        drop(slot);
         self.from_spawn.store(true, Ordering::SeqCst);
         self.keyed.notify_waiters();
         Ok(json!({"enrolled": true, "via": "provisioner", "personInstance": self.instance()}))
@@ -836,8 +865,12 @@ impl PersonGate {
             return Err(RpcError::invalid_params("key must be 64 lowercase hex characters"));
         }
         if app_verified {
-            *self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-                Some(key.to_owned());
+            let mut slot = self.key.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if self.exec_frozen.load(Ordering::SeqCst) {
+                return Err(exec_enrollment_deferred());
+            }
+            *slot = Some(key.to_owned());
+            drop(slot);
             self.keyed.notify_waiters();
             return Ok(json!({"enrolled": true, "via": "signature"}));
         }
@@ -849,6 +882,35 @@ impl PersonGate {
             "this daemon cannot verify the app and has another person key: start a new daemon with this key",
         )
         .with_data(json!({"reason": ENROLL_UNAVAILABLE})))
+    }
+}
+
+fn exec_enrollment_deferred() -> RpcError {
+    RpcError::new(
+        -32000,
+        "daemon update deferred: keyed enrollment and exec handoff cannot overlap",
+    )
+    .with_data(json!({"reason": "update.deferred", "retryable": true}))
+}
+
+#[cfg(test)]
+#[test]
+fn unkeyed_exec_fences_all_key_writers_and_reopens_when_cancelled() {
+    const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    for writer in 0..3 {
+        let person = PersonGate::default();
+        let guard = person.freeze_unkeyed_for_exec().unwrap();
+        let write = || match writer {
+            0 => person.install_spawn_key(KEY).is_ok(),
+            1 => person.provision(KEY).is_ok(),
+            _ => person.enroll(KEY, true).is_ok(),
+        };
+        assert!(!write());
+        assert!(!person.has_key());
+        drop(guard);
+        assert!(write());
+        assert!(person.has_key());
+        assert!(person.freeze_unkeyed_for_exec().is_err());
     }
 }
 
