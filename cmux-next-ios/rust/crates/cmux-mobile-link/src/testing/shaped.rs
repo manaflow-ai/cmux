@@ -216,7 +216,13 @@ pub fn set_link_profile(profile: Option<LinkProfile>, seed: u64) {
 /// [`shape_uplink`] and [`shape_downlink`] cross it.
 pub fn set_radio_model(model: Option<RadioModel>) {
     if let Some(air) = AIR.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
-        air.radio = model.map(|model| Radio { model, last_active: None, awake_at: Instant::now(), wakes: 0, on_air: None });
+        air.radio = model.map(|model| Radio {
+            model,
+            last_active: None,
+            awake_at: Instant::now(),
+            wakes: 0,
+            on_air: None,
+        });
     }
 }
 
@@ -327,7 +333,10 @@ fn shape(via_turn: bool, from: &SocketAddr, len: usize, direction: Option<Direct
                     let into = (reach - asleep).as_nanos() % cycle;
                     if into != 0 {
                         let wait = Duration::from_nanos((cycle - into) as u64);
-                        tracing::trace!(wait_us = wait.as_micros() as u64, "radio listens at its next DRX slot");
+                        tracing::trace!(
+                            wait_us = wait.as_micros() as u64,
+                            "radio listens at its next DRX slot"
+                        );
                         awake += wait;
                     }
                 }

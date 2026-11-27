@@ -100,6 +100,7 @@ import { type RunDisclosure } from "./conversation/transcriptDisclosureModel";
 import { useCountedRender } from "./perfRender";
 import { drewStreamingRow, useStreamingRowCatchUp } from "./streamingRow";
 import { drewThoughts, lineHeardNow, liveThoughtHeard, rowsDrawnNow } from "./liveThought";
+import { drewLiveLine, liveCallLineHeard } from "./liveCallLine";
 import { followTrace } from "./followTrace";
 import {
   FIELD_GROWTH_EVENT,
@@ -1046,7 +1047,12 @@ function TranscriptView({
   useLayoutEffect(() => livePulse.note(rows, streams ? lineHeardNow : undefined), [livePulse, rows, streams]);
   useEffect(() => {
     if (!streams) return;
-    return liveThoughtHeard.subscribe(() => livePulse.heardChunk());
+    const thoughts = liveThoughtHeard.subscribe(() => livePulse.heardChunk());
+    const calls = liveCallLineHeard.subscribe(() => livePulse.heardChunk());
+    return () => {
+      thoughts();
+      calls();
+    };
   }, [livePulse, streams]);
   // What this transcript drew of the pane's streaming reply and the running turn's thoughts: the pane
   // takes their fast paths only while those are drawn as the client holds them.
@@ -1063,6 +1069,11 @@ function TranscriptView({
     }
     drewStreamingRow(undefined, undefined);
   }, [paneRows, streams]);
+  // The live line this transcript drew, as its row draws it (`rows`): the pane keeps its snapshot
+  // for a hidden call only while that line is drawn from the pane's rows (liveCallLine.ts).
+  useLayoutEffect(() => {
+    if (streams) drewLiveLine(rows);
+  }, [rows, streams]);
   const registry = givenRegistry ?? (readOnly ? readOnlyRegistry : defaultRegistry);
   const t = useT();
   // Debug measurement (acpmuxPerf): off until the first debug call.
