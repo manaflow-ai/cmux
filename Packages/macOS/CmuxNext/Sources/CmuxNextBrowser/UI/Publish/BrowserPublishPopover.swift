@@ -99,6 +99,7 @@ public final class BrowserPublishPopover: NSObject, NSTextFieldDelegate {
             label.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
             label.preferredMaxLayoutWidth = inner
             label.isSelectable = true
+            label.focusRingType = .none
         }
         problem.ink = .secondary
         openButton.title = Strings.publishOpen

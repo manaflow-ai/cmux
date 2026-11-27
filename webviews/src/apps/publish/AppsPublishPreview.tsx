@@ -3,6 +3,9 @@
 // browser pane's Publish popover and the sidebar's Apps section. Render only: every value here is
 // the Rust rules' answer (ops apps_tier_*), never computed.
 import "./publish.css";
+import { Button } from "../../ui/Button";
+import { Input } from "../../ui/Input";
+import { Surface } from "../../ui/surface/Surface";
 import type { AppsSection, PublishOutcome, PublishPopover } from "./types";
 
 const PROBLEM_TEXT: Record<NonNullable<PublishPopover["problem"]>, string> = {
@@ -13,20 +16,27 @@ function Toolbar() {
   return (
     <div className="apps-publish-toolbar">
       <span className="apps-publish-url">p-3000--k7x2m9qa.preview.cmux.dev/invoices</span>
-      <button type="button" className="apps-publish-toolbar-button" aria-pressed="true">
+      <Button variant="subtle" size="sm" aria-pressed="true">
         <span aria-hidden="true">↑</span> Publish
-      </button>
+      </Button>
     </div>
   );
 }
 
 function Popover({ popover, outcome }: { popover: PublishPopover; outcome?: PublishOutcome }) {
   return (
-    <div className="apps-publish-popover" role="dialog" aria-label="Publish">
+    <Surface role="popover" as="section" className="apps-publish-popover" aria-label="Publish">
       <div className="apps-publish-title">Publish preview</div>
       <label className="apps-publish-field">
         <span className="apps-publish-label">Name</span>
-        <input readOnly value={popover.name} aria-invalid={popover.problem ? true : undefined} />
+        <Input
+          size="sm"
+          variant="outline"
+          readOnly
+          value={popover.name}
+          aria-label="Name"
+          aria-invalid={popover.problem ? true : undefined}
+        />
       </label>
       <div className="apps-publish-hint">
         {popover.problem ? (
@@ -37,11 +47,16 @@ function Popover({ popover, outcome }: { popover: PublishPopover; outcome?: Publ
       </div>
       <div className="apps-publish-field">
         <span className="apps-publish-label">Audience</span>
-        <div className="apps-publish-segments" role="radiogroup">
+        <div className="apps-publish-segments">
           {(["private", "team"] as const).map((a) => (
-            <span key={a} role="radio" aria-checked={popover.audience === a} className="apps-publish-segment">
+            <Button
+              key={a}
+              variant={popover.audience === a ? "subtle" : "ghost"}
+              size="sm"
+              aria-pressed={popover.audience === a}
+            >
               {a === "private" ? "Only me" : "My team"}
-            </span>
+            </Button>
           ))}
         </div>
       </div>
@@ -49,17 +64,16 @@ function Popover({ popover, outcome }: { popover: PublishPopover; outcome?: Publ
         <span className="apps-publish-label">Start</span>
         <span className="apps-publish-start">{popover.startFrom}</span>
       </div>
-      {popover.command ? <code className="apps-publish-command">{popover.command}</code> : null}
       {outcome ? <Outcome outcome={outcome} /> : null}
       <div className="apps-publish-actions">
-        <button type="button" className="apps-publish-secondary">
+        <Button variant="subtle" size="sm">
           Cancel
-        </button>
-        <button type="button" className="apps-publish-primary" disabled={!popover.canPublish}>
+        </Button>
+        <Button variant="solid" size="sm" disabled={!popover.canPublish}>
           {outcome?.kind === "failed" ? "Try again" : "Publish"}
-        </button>
+        </Button>
       </div>
-    </div>
+    </Surface>
   );
 }
 
@@ -71,9 +85,9 @@ function Outcome({ outcome }: { outcome: PublishOutcome }) {
         <span className="apps-publish-outcome-text">
           v{outcome.version} is live at <a href={outcome.url ?? undefined}>{outcome.url}</a>
         </span>
-        <button type="button" className="apps-publish-secondary">
+        <Button variant="subtle" size="sm">
           Open
-        </button>
+        </Button>
       </div>
     );
   return (
@@ -88,24 +102,26 @@ function Outcome({ outcome }: { outcome: PublishOutcome }) {
 
 function Section({ section }: { section: AppsSection }) {
   return (
-    <div className="apps-publish-sidebar" role="list" aria-label="Apps">
+    <nav className="apps-publish-sidebar" aria-label="Apps">
       <div className="apps-publish-section-header">Apps</div>
       {section.error ? <div className="apps-publish-section-note">{section.error}</div> : null}
-      {section.rows.map((row) => (
-        <div key={row.slug} role="listitem" className="apps-publish-row" data-clickable={row.url ? true : undefined}>
-          <span className="apps-publish-dot" data-dot={row.dot} />
-          <span className="apps-publish-row-title">{row.title}</span>
-          {row.pinned ? <span className="apps-publish-pin">Pinned</span> : null}
-          <span className="apps-publish-row-detail">{row.detail}</span>
-        </div>
-      ))}
-      {section.publishRow ? (
-        <div role="listitem" className="apps-publish-row apps-publish-row-add" data-clickable>
-          <span aria-hidden="true">+</span>
-          <span className="apps-publish-row-title">Publish preview…</span>
-        </div>
-      ) : null}
-    </div>
+      <ul className="apps-publish-rows">
+        {section.rows.map((row) => (
+          <li key={row.slug} className="apps-publish-row" data-clickable={row.url ? true : undefined}>
+            <span className="apps-publish-dot" data-dot={row.dot} />
+            <span className="apps-publish-row-title">{row.title}</span>
+            {row.pinned ? <span className="apps-publish-pin">Pinned</span> : null}
+            <span className="apps-publish-row-detail">{row.detail}</span>
+          </li>
+        ))}
+        {section.publishRow ? (
+          <li className="apps-publish-row apps-publish-row-add" data-clickable>
+            <span aria-hidden="true">+</span>
+            <span className="apps-publish-row-title">Publish preview…</span>
+          </li>
+        ) : null}
+      </ul>
+    </nav>
   );
 }
 

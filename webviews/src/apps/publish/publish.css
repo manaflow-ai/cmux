@@ -6,7 +6,7 @@
   align-items: flex-start;
   padding: calc(var(--grid-base, 4px) * 4);
   color: var(--agent-text);
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 .apps-publish-pane {
   position: relative;
@@ -31,18 +31,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.apps-publish-toolbar-button {
-  display: inline-flex;
-  gap: 4px;
-  align-items: center;
-  height: var(--ds-control-compact);
-  padding: 0 var(--ds-space-2);
-  border: 0;
-  border-radius: var(--ds-radius-control);
-  background: var(--agent-control-hover);
-  color: inherit;
-  font: inherit;
-}
 .apps-publish-popover {
   display: flex;
   flex-direction: column;
@@ -50,10 +38,6 @@
   width: 340px;
   margin: 8px 0 0 auto;
   padding: var(--ds-space-3);
-  border: 1px solid var(--agent-border);
-  border-radius: var(--ds-radius-xl);
-  background: var(--agent-surface-elevated, var(--agent-surface));
-  box-shadow: var(--transient-surface-shadow);
 }
 .apps-publish-title {
   font-weight: 600;
@@ -67,22 +51,13 @@
 .apps-publish-label {
   color: var(--agent-muted);
 }
-.apps-publish-field input {
-  height: 24px;
-  padding: 0 8px;
-  border: 1px solid var(--agent-border);
-  border-radius: 6px;
-  background: var(--agent-control, transparent);
-  color: inherit;
-  font: inherit;
-}
 .apps-publish-field input[aria-invalid] {
   border-color: var(--agent-danger);
 }
 .apps-publish-hint {
   margin-left: calc(var(--ds-space-56) + var(--ds-space-4));
   color: var(--agent-muted);
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 .apps-publish-problem {
   color: var(--agent-danger);
@@ -94,24 +69,8 @@
   border-radius: var(--ds-radius-lg);
   background: var(--agent-control-hover);
 }
-.apps-publish-segment {
-  padding: var(--grid-half-step) var(--ds-space-3);
-  border-radius: var(--ds-radius-md);
-}
-.apps-publish-segment[aria-checked="true"] {
-  background: var(--agent-surface-elevated, var(--agent-surface));
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--agent-text) 18%, transparent);
-}
 .apps-publish-start {
   color: var(--agent-text);
-}
-.apps-publish-command {
-  padding: var(--ds-space-1) var(--ds-space-2);
-  overflow-wrap: anywhere;
-  border-radius: 6px;
-  background: var(--agent-control-hover);
-  color: var(--agent-muted);
-  font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .apps-publish-outcome {
   display: flex;
@@ -137,25 +96,6 @@
   gap: 8px;
   justify-content: flex-end;
 }
-.apps-publish-actions button,
-.apps-publish-outcome button {
-  height: var(--ds-control-compact);
-  padding: 0 var(--ds-space-3);
-  border: 0;
-  border-radius: var(--ds-radius-control);
-  font: inherit;
-}
-.apps-publish-secondary {
-  background: var(--agent-control-hover);
-  color: inherit;
-}
-.apps-publish-primary {
-  background: var(--agent-accent);
-  color: var(--agent-on-accent);
-}
-.apps-publish-primary:disabled {
-  opacity: 0.4;
-}
 .apps-publish-sidebar {
   display: flex;
   flex: none;
@@ -168,13 +108,18 @@
 .apps-publish-section-header {
   padding: 4px 8px;
   color: var(--agent-muted);
-  font-size: 11px;
+  font-size: var(--text-caption);
   font-weight: 600;
 }
 .apps-publish-section-note {
   padding: 4px 8px;
   color: var(--agent-warning, var(--agent-muted));
-  font-size: 12px;
+  font-size: var(--text-detail);
+}
+.apps-publish-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 .apps-publish-row {
   display: flex;
@@ -197,7 +142,7 @@
 .apps-publish-row-detail,
 .apps-publish-pin {
   color: var(--agent-muted);
-  font-size: 11px;
+  font-size: var(--text-caption);
 }
 .apps-publish-row-add {
   color: var(--agent-muted);
