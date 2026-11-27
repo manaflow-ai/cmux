@@ -3276,6 +3276,7 @@ jobs:
         run: |
           python3 -I scripts/ci/job_input_fingerprint.py fast-tier \
             --extra "suite_scope=${{ needs.path_route.outputs.ffi_repin == 'true' && 'handlers' || 'all' }}" \
+            --extra "generated_base=" \
             --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" \
             --extra "macos=$(sw_vers -productVersion)" \
             --extra "macos_build=$(sw_vers -buildVersion)" \
@@ -3518,6 +3519,27 @@ jobs:
 
       - name: Install zig
         run: ./scripts/install-zig-ci.sh
+
+      # Why: 2026-11-27-fast-tier-zig-cache.md
+      - name: Keep the libghostty-vt zig build in Zig's global cache
+        id: zig-local
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          env_out="$("${CMUX_ZIG:-zig}" env)"
+          if [[ "${env_out:0:1}" == "{" ]]; then
+            dir="$(python3 -I -c 'import json,sys; print(json.load(sys.stdin)["global_cache_dir"])' <<<"$env_out")"
+          else
+            dir="$(sed -n 's/^[[:space:]]*\.global_cache_dir = "\(.*\)",$/\1/p' <<<"$env_out")"
+          fi
+          [[ -n "$dir" ]]
+          echo "ZIG_LOCAL_CACHE_DIR=$dir" >> "$GITHUB_ENV"
+          echo "libghostty-vt's zig build caches in $dir"
+
+      - name: Restore the Zig global cache (feat-cmux-next pushes save it)
+        if: ${{ steps.zig-local.outcome == 'success' }}
+        continue-on-error: true
+        uses: ./.github/actions/zig-global-cache
 
       - name: Set up pinned cmux-tui Rust
         uses: ./.github/actions/setup-cmux-tui-rust
