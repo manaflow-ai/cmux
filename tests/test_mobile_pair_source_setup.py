@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Use real Git trees and descendant processes to exercise bounded source setup."""
 import importlib.util
+import json
 import os
 from pathlib import Path
 import signal
@@ -124,6 +125,63 @@ transitive.workspace=true
             matrix.cleanup_sources(repo, added)
             self.assertFalse(tree.exists())
             self.assertNotIn(str(tree), git("worktree", "list", "--porcelain"))
+
+    def test_cleanup_failure_still_removes_later_registered_trees(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo, sha, git = self.fixture(directory)
+            trees = [Path(directory) / name for name in ("earlier", "latest")]
+            added = []
+            original = matrix.run_source
+            attempted = []
+            def fail_latest(command, **kwargs):
+                attempted.append(command[-1])
+                if command[-1] == str(trees[1]):
+                    raise subprocess.CalledProcessError(1, command, stderr="injected removal failure")
+                return original(command, **kwargs)
+            try:
+                for tree in trees:
+                    matrix.prepare_source(repo, sha, tree, added)
+                with patch.object(matrix, "run_source", side_effect=fail_latest):
+                    with self.assertRaises(ExceptionGroup):
+                        matrix.cleanup_sources(repo, added)
+                self.assertEqual(attempted, [str(tree) for tree in reversed(trees)])
+                self.assertTrue(trees[1].exists())
+                self.assertFalse(trees[0].exists())
+                self.assertNotIn(str(trees[0]), git("worktree", "list", "--porcelain"))
+            finally:
+                for tree in trees:
+                    if tree.exists():
+                        matrix.cleanup_sources(repo, [tree])
+
+    def test_measurement_cleanup_failure_emits_failed_receipt_and_nonzero_exit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo, sha, _ = self.fixture(directory)
+            helper = repo / "scripts/ci/mobile_pair_matrix.py"
+            helper.parent.mkdir(parents=True)
+            # Real source setup/removal, with only Cargo metadata and the final
+            # cleanup error injected. Run the measurement's actual CLI process.
+            helper.write_text(f'''from pathlib import Path
+exec(compile(Path({str(ROOT / "scripts/ci/mobile_pair_matrix.py")!r}).read_text(), "matrix", "exec"))
+original_run_source = run_source
+original_cleanup = cleanup_sources
+def run_source(command, **kwargs):
+    if command[:2] == ["cargo", "metadata"]:
+        return subprocess.CompletedProcess(command, 0, b'{{"packages": []}}')
+    return original_run_source(command, **kwargs)
+def cleanup_sources(head, added):
+    original_cleanup(head, added)
+    raise RuntimeError("injected cleanup receipt failure")
+''')
+            output = Path(directory) / "receipt.json"
+            result = subprocess.run([
+                sys.executable, str(ROOT / "scripts/measure/phone-pair-source-setup.py"),
+                sha, "--head", str(repo), "--output", str(output),
+            ], capture_output=True, text=True, timeout=120)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            receipt = json.loads(output.read_text())
+            self.assertIs(receipt["passed"], False)
+            self.assertIn("injected cleanup receipt failure", receipt["error"])
+            self.assertTrue(result.stdout.endswith(output.read_text()))
 
     @unittest.skipUnless(os.name == "posix", "Git process groups require POSIX")
     def test_timeout_stops_term_ignoring_descendant_before_cleanup(self):

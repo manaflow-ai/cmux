@@ -136,8 +136,14 @@ def prepare_source(head, sha, tree, added):
 
 
 def cleanup_sources(head, added):
+    errors = []
     for tree in reversed(added):
-        run_source(["git", "-C", str(head), "worktree", "remove", "--force", str(tree)])
+        try:
+            run_source(["git", "-C", str(head), "worktree", "remove", "--force", str(tree)])
+        except Exception as error:
+            errors.append(error)
+    if errors:
+        raise ExceptionGroup("could not remove phone pair source worktrees", errors)
 
 
 def pairs(window, head, trees):

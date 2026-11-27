@@ -50,6 +50,10 @@ def main():
         finally:
             try:
                 matrix.cleanup_sources(head, added)
+            except Exception as error:
+                previous = receipt.get("error")
+                receipt.update(passed=False, error=(f"{previous}; " if previous else "") + f"cleanup: {error}")
+                raise
             finally:
                 after = resource.getrusage(resource.RUSAGE_CHILDREN)
                 receipt["wall_seconds"] = time.monotonic() - start
