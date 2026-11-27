@@ -113,10 +113,12 @@ test("the slider and switch emit and redraw the whole normalized setting", async
 
 test("gallery controls update their displayed state and clear the simulated move", async () => {
   const view = await draw(<AutoReserveGallery reserve={on({ lastMove: MOVED })} />);
+  expect(view.querySelector('[data-testid="reserve-chip"]')).not.toBeNull();
   await setStop(view, 3);
   expect(view.querySelector('[data-testid="reserve-slider"]')!.getAttribute("aria-valuetext")).toBe("75%");
   await act(async () => view.querySelector<HTMLButtonElement>('[data-testid="reserve-bring-back"]')!.click());
   expect(view.querySelector('[data-testid="reserve-last-move"]')!.textContent).toBe(translate("autoReserve.noMove"));
+  expect(view.querySelector('[data-testid="reserve-chip"]')).toBeNull();
   await act(async () => view.querySelector<HTMLButtonElement>('[data-testid="reserve-on"]')!.click());
   expect(view.querySelector<HTMLInputElement>('[data-testid="reserve-slider"]')!.disabled).toBe(true);
 });

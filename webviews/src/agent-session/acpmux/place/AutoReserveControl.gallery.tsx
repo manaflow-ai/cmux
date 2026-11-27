@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
-import { AutoReserveControl } from "./AutoReserveControl";
+import { AutoReserveControl, MovedChip } from "./AutoReserveControl";
 import type { AutoReserveState } from "./autoReserveModel";
 
 type Props = { reserve: AutoReserveState };
@@ -15,12 +15,15 @@ export function AutoReserveGallery({ reserve: initial }: Props) {
   const [state, setState] = useState(initial);
   const clearMove = () => setState((current) => ({ ...current, lastMove: undefined }));
   return (
-    <AutoReserveControl
-      reserve={state}
-      onChange={(next) => setState((current) => ({ ...current, ...next }))}
-      onBringBack={clearMove}
-      onCancel={clearMove}
-    />
+    <>
+      <AutoReserveControl
+        reserve={state}
+        onChange={(next) => setState((current) => ({ ...current, ...next }))}
+        onBringBack={clearMove}
+        onCancel={clearMove}
+      />
+      {state.lastMove?.state === "moved" && <MovedChip move={state.lastMove} />}
+    </>
   );
 }
 
@@ -28,7 +31,7 @@ export default componentEntry<Props>({
   id: "agent-pane.auto-reserve",
   title: "Auto: Keep for me, last move (RFD 0072 piece 6)",
   area: "Agent pane",
-  covers: ["agent-session/acpmux/place/AutoReserveControl.tsx#AutoReserveControl"],
+  covers: ["agent-session/acpmux/place/AutoReserveControl.tsx"],
   pane: true,
   load: async () => AutoReserveGallery,
   widths: { narrow: 360, normal: 640, wide: 900 },
