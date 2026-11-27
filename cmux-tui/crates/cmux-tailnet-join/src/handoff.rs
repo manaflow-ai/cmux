@@ -48,6 +48,22 @@ i=0; while pgrep -x tailscaled >/dev/null 2>&1; do i=$((i+1)); [ $i -gt 50 ] && 
 const START: &str = "if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then root systemctl enable --now tailscaled >&2; \
 else root mkdir -p /var/run/tailscale; root setsid tailscaled --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock </dev/null >>/var/log/cmux-tailnet-tailscaled.log 2>&1 & fi";
 
+/// Once the node is `Running` on the new holder: start a WireGuard handshake from here to every
+/// online peer (one TSMP ping each, `tailscale ping --tsmp`, detached, at most 64 peers, 3 s at
+/// worst; milliseconds when the peer answers).
+///
+/// Why: the new holder's first map request carries its new disco key before it has found its
+/// own endpoints, so control pushes peers the new disco key next to the old holder's endpoints.
+/// A peer (the user's laptop) drops its session on the disco change, sends one handshake down
+/// that dead path, and WireGuard retries only after REKEY_TIMEOUT (5 s), even though the right
+/// endpoint arrives about 0.8 s later: the laptop saw ~7 s instead of ~2.5 s on 9 of 20 moves
+/// (`testing/handoff-e2e.sh`, verbose tailscaled logs). A handshake started from this side
+/// reaches the peer from this machine's real endpoint and gives it a session at once. TSMP runs
+/// through WireGuard but around the packet filter, so it works where the policy refuses this
+/// node dialing the user's devices. A disco ping alone starts no handshake (it did not help);
+/// disco pings before the TSMP ping delayed the handshake past its use (measured worse).
+const PEER_KICK: &str = "( i=0; until tailscale status --json --peers=false 2>/dev/null | tr -d '\\n' | grep -q '\"Addrs\": *\\[ *\"'; do i=$((i+1)); [ $i -gt 20 ] && break; sleep 0.1; done; tailscale status --self=false 2>/dev/null | awk '($1 ~ /^100\\./ || $1 ~ /^fd7a:/) && $0 !~ / offline/ {print $1}' | head -n 64 | while read -r ip; do tailscale ping --tsmp -c 1 --timeout 3s \"$ip\" & done; wait ) </dev/null >/dev/null 2>&1 &";
+
 /// One exec on the old holder: stop `tailscaled`, print its state as one base64 word, print the
 /// machine's clock at the stop. The state file stays on the machine until [`forget_command`], so
 /// [`restore_command`] can bring the node back here if the move fails.
@@ -74,8 +90,26 @@ pub struct Released {
 impl Released {
     /// What the caller writes, 0600, to [`STAGED_STATE_FILE`] on the new holder.
     pub fn staged_contents(&self) -> String {
-        format!("{}\n", self.state.expose())
+        staged_contents(&self.state)
     }
+}
+
+/// What the caller writes, 0600, to [`STAGED_STATE_FILE`] for `state` (base64), from a release or
+/// from the vault.
+pub fn staged_contents(state: &Secret) -> String {
+    format!("{}\n", state.expose())
+}
+
+/// One exec on the current holder, which keeps running: print its state as one base64 word, for
+/// the user's vault to keep (`cmux vm tailnet keep`). Read while `tailscaled` runs: the keys in it do
+/// not change once the node is signed in, so the copy brings the same node up later.
+pub fn snapshot_command() -> String {
+    format!(
+        "{ROOT}; f={STATE_FILE}; \
+if root test -L \"$f\" || ! root test -s \"$f\"; then echo 'cmux-tailnet: no node state on this machine (not on a tailnet, or not through system Tailscale)' >&2; exit 3; fi; \
+printf 'cmux-tailnet-state '; root base64 -w0 \"$f\" || exit 1; echo; \
+echo cmux-tailnet-snapshot"
+    )
 }
 
 /// Reads [`release_command`]'s stdout. `Err` is why there is no state to move, in words.
@@ -83,6 +117,35 @@ pub fn parse_released(stdout: &str) -> Result<Released, String> {
     if !stdout.lines().any(|l| l.trim() == "cmux-tailnet-released") {
         return Err("the old machine did not hand over its node state".to_owned());
     }
+    parse_state(stdout)
+}
+
+/// Reads [`snapshot_command`]'s stdout: the node state, base64.
+pub fn parse_snapshot(stdout: &str) -> Result<Secret, String> {
+    if !stdout.lines().any(|l| l.trim() == "cmux-tailnet-snapshot") {
+        return Err("the machine did not print its node state".to_owned());
+    }
+    parse_state(stdout).map(|released| released.state)
+}
+
+/// Checks `state` is one base64 word of a node's size. `Err` says why not, in words.
+pub fn check_state(state: &str) -> Result<(), String> {
+    if state.is_empty() {
+        return Err("the node state is empty".to_owned());
+    }
+    if state.len() > MAX_STATE_BYTES {
+        return Err(format!(
+            "the node state is {} bytes, more than a node's state ever is",
+            state.len()
+        ));
+    }
+    if !state.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=')) {
+        return Err("the node state is not base64".to_owned());
+    }
+    Ok(())
+}
+
+fn parse_state(stdout: &str) -> Result<Released, String> {
     let mut state = None;
     let mut stopped_at_ms = None;
     for line in stdout.lines() {
@@ -93,18 +156,7 @@ pub fn parse_released(stdout: &str) -> Result<Released, String> {
         }
     }
     let state = state.unwrap_or_default();
-    if state.is_empty() {
-        return Err("the old machine's node state is empty".to_owned());
-    }
-    if state.len() > MAX_STATE_BYTES {
-        return Err(format!(
-            "the old machine's node state is {} bytes, more than a node's state ever is",
-            state.len()
-        ));
-    }
-    if !state.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'/' | b'=')) {
-        return Err("the old machine's node state is not base64".to_owned());
-    }
+    check_state(state).map_err(|why| why.replacen("the node", "the old machine's node", 1))?;
     Ok(Released { state: Secret::new(state), stopped_at_ms })
 }
 
@@ -143,6 +195,8 @@ pub fn vm_adopt_script() -> String {
         JOIN_TIMEOUT_SECS * 10
     ));
     s.push_str("printf 'cmux-tailnet-online-at %s\\n' \"$(date +%s%3N)\"\n");
+    s.push_str(PEER_KICK);
+    s.push('\n');
     s.push_str("printf 'cmux-tailnet-joined '; tailscale status --json --peers=false | tr -d '\\n'; echo\n");
     s
 }
@@ -160,6 +214,15 @@ pub fn online_at_ms(stdout: &str) -> Option<u64> {
 /// resume or a copy of this machine can never come up as the node.
 pub fn forget_command() -> String {
     format!("{ROOT}; root rm -f {STATE_FILE} {RUN_DIR}/node.state && echo cmux-tailnet-forgot")
+}
+
+/// One exec on a VM that resumed from a snapshot still running the node after the vault's lease
+/// moved to another VM: stop `tailscaled` and delete its copy of the state, so two machines never
+/// run one node. Not `leave`: that would sign out the node the new holder runs.
+pub fn stand_down_command() -> String {
+    format!(
+        "{ROOT}; {STOP}; root rm -f {STATE_FILE} {RUN_DIR}/node.state && echo cmux-tailnet-stood-down"
+    )
 }
 
 /// One exec on the old holder when the move failed: start `tailscaled` again on the state it

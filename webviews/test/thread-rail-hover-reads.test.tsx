@@ -13,6 +13,7 @@ import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { teardownDom } from "./support/domTeardown";
+import { railFrame } from "./support/railFrame";
 // These tests drive the compact (Codex) rail; the default arm draws no minimap (layout.experiment.ts).
 (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
   "thread-minimap-layout": "compact",
@@ -146,6 +147,7 @@ async function mount(prompts: number) {
       />,
     ),
   );
+  await railFrame();
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
   const scrolled = () => act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
   await act(async () => {
@@ -273,9 +275,12 @@ async function forcedLayouts(run: () => Promise<unknown>): Promise<number> {
   return layouts;
 }
 test("every row the sweep reaches forces one layout, seen before or not", async () => {
-  const view = await mount(40);
-  // No timer lands in a row's turn: a row is its commit alone.
+  // No timer lands in a row's turn: a row is its commit alone. The clock is the test's from before the
+  // mount, whose own scroll arms the transcript's timers (its scroll-lead reset, SCROLL_LEAD_IDLE_MS): on the
+  // runner's clock that timer fired in whichever row's turn the sweep had reached by then, rendered
+  // the rail and its card again and read once more (3 on a loaded runner, 16 busy jobs).
   jest.useFakeTimers();
+  const view = await mount(40);
   try {
     // The first rows open the card and settle the transcript under the rail (its own reads, once).
     await enter(4);
@@ -294,9 +299,9 @@ test("every row the sweep reaches forces one layout, seen before or not", async 
       await frame();
       expect(card()!.textContent).toContain(`Question ${index}`);
     }
-    // The transcript's scroll pacer runs on the page's own clock, and its frame sometimes lands in a
-    // row's turn: that commit renders the rail and its card again with the same props, and the card's
-    // place() reads once more. So each row may take one read past its own, and most rows take none.
+    // A frame the transcript asks for lands in `frame`, between rows; a row still may take one read
+    // past its own (a commit that renders the rail and its card again with the same props), and most
+    // rows take none.
     const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)]!;
     // The card's size is CSS's (a one-line title, the reply clamped to its lines), so a row reads its
     // place and height once and writes the transform: no measuring passes (#34711 took three on a new
@@ -308,11 +313,12 @@ test("every row the sweep reaches forces one layout, seen before or not", async 
   } finally {
     await view.unmount();
   }
-});
+  // A loaded runner takes longer over the same rows; the counts are the test's, not its time.
+}, 30_000);
 
 test("the card measures no text: the reply's lines are the arm's, in CSS", async () => {
-  const view = await mount(40);
   jest.useFakeTimers();
+  const view = await mount(40);
   try {
     for (const index of [4, 5, 6]) {
       await enter(index);
@@ -329,4 +335,4 @@ test("the card measures no text: the reply's lines are the arm's, in CSS", async
   } finally {
     await view.unmount();
   }
-});
+}, 30_000);

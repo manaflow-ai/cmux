@@ -1,6 +1,31 @@
 import CmuxMobileTransport
 import Foundation
 
+/// A Photos movie copied during the provider's read grant. The composer and any
+/// open preview share its lifetime, including when the draft is kept for a retry.
+public final class PickedMovieCopy: Hashable, Sendable {
+    public let url: URL
+    private let directory: URL
+
+    public init(copying source: URL) throws {
+        let files = FileManager.default
+        directory = files.temporaryDirectory.appendingPathComponent("picked-\(UUID().uuidString)", isDirectory: true)
+        url = directory.appendingPathComponent(source.lastPathComponent)
+        try files.createDirectory(at: directory, withIntermediateDirectories: false)
+        do {
+            try files.copyItem(at: source, to: url)
+        } catch {
+            try? files.removeItem(at: directory)
+            throw error
+        }
+    }
+
+    deinit { try? FileManager.default.removeItem(at: directory) }
+
+    public static func == (lhs: PickedMovieCopy, rhs: PickedMovieCopy) -> Bool { lhs === rhs }
+    public func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(self)) }
+}
+
 /// A file the phone already holds (a composer or message attachment), as a
 /// preview reads it.
 public struct LocalFile: Hashable, Sendable {
@@ -12,13 +37,15 @@ public struct LocalFile: Hashable, Sendable {
     /// The file on disk when its bytes are not held: a picked video's local
     /// copy, or a picked file (security-scoped; its preview opens the scope).
     public var fileURL: URL?
+    private let pickedMovie: PickedMovieCopy?
 
-    public init(id: String, name: String, data: Data?, isImage: Bool, fileURL: URL? = nil) {
+    public init(id: String, name: String, data: Data?, isImage: Bool, fileURL: URL? = nil, pickedMovie: PickedMovieCopy? = nil) {
         self.id = id
         self.name = name
         self.data = data
         self.isImage = isImage
-        self.fileURL = fileURL
+        self.fileURL = pickedMovie?.url ?? fileURL
+        self.pickedMovie = pickedMovie
     }
 
     /// The reference its preview goes by: unique per attachment, ending in its name.
@@ -95,7 +122,7 @@ public struct LocalFileArtifactSource: ArtifactSource {
         if data == nil, let fetch {
             data = await fetch(file)
             // The Mac holds it: say so, not that the phone lost it.
-            guard data != nil else { throw ArtifactUnavailable("Connect to your Mac to see \(file.name).") }
+            guard data != nil else { throw ArtifactUnavailable("Connect to your Mac to see \(file.name).", transient: true) }
         }
         guard let data else { throw ArtifactUnavailable("\(file.name) isn't on this iPhone anymore.") }
         return try LinkFileArtifactSource.content(for: artifact, data: data)
