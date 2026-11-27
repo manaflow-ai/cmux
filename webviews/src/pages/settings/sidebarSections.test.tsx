@@ -1,5 +1,5 @@
 // The Settings page reads in sections (user 2026-10-30: "refactoring the settings page to look a lot
-// better with sections"): the sidebar lists its categories under small headers, the layout the Swift
+// better with sections"): the sidebar is six pages, the layout the Swift
 // `SettingsPageLayout.sidebarSections` exports, and no card is a wall of rows.
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { act } from "react";
@@ -27,11 +27,18 @@ function sidebar(container: ParentNode): Array<{ header: string | null; links: s
 
 test("the sidebar sections hold every category once, in category order", () => {
   expect(sidebarSections.flatMap((section) => section.categories)).toEqual(categories.map((category) => category.id));
-  expect(sidebarSections[0]!.title).toBeNull();
-  expect(sidebarSections.slice(1).every((section) => section.title !== null)).toBe(true);
-  // Only the last, More, is drawn closed.
-  expect(sidebarSections.filter((section) => section.collapsed).map((section) => section.id)).toEqual(["more"]);
-  expect(sidebarSections.at(-1)!.collapsed).toBe(true);
+  // Six pages (one settings area, findings G6; Leo 2026-11-22: "ay, fuck it we ball"), every one titled
+  // and none drawn closed.
+  expect(sidebarSections.map((section) => section.id)).toEqual([
+    "general",
+    "appearance",
+    "ai",
+    "devices",
+    "keyboard",
+    "advanced",
+  ]);
+  expect(sidebarSections.every((section) => section.title !== null)).toBe(true);
+  expect(sidebarSections.some((section) => section.collapsed)).toBe(false);
 });
 
 test("no card holds more than 16 rows", () => {
@@ -41,22 +48,31 @@ test("no card holds more than 16 rows", () => {
   expect(long).toEqual([]);
 });
 
-test("the sidebar draws each section's header above its categories", async () => {
-  page = await renderPage({ path: "/settings/general" });
-  const shown = sidebar(page.container);
-  expect(shown[0]).toEqual({ header: null, links: ["general", "customize", "updates"] });
-  expect(shown.find((section) => section.links.includes("agents"))).toEqual({
-    header: "AI",
-    links: ["chat", "agents", "chief", "models", "automations"],
-  });
-  // Every page is in the sidebar once, those under More too (closed, they are inert until opened).
-  expect(shown.flatMap((section) => section.links)).toEqual(categories.map((category) => category.id));
-  // A header labels its group for VoiceOver and is never a link a click or Tab lands on.
-  const header = page.container.querySelector(".sidebar-section-title")!;
-  expect(header.closest("a")).toBeNull();
-  const group = header.closest("[data-sidebar-section]")!;
-  expect(group.getAttribute("role")).toBe("group");
-  expect(group.getAttribute("aria-labelledby")).toBe(header.id);
+test("the sidebar draws six page links, and the shown page's categories under its link", async () => {
+  page = await renderPage({ path: "/settings/agents" });
+  const container = page.container;
+  // Each page's link is its first category's, under the page's title.
+  const pages = [...container.querySelectorAll<HTMLElement>("[data-sidebar-page]")];
+  expect(pages.map((link) => [link.dataset.sidebarPage, link.dataset.sectionLink, link.textContent])).toEqual([
+    ["general", "general", "General"],
+    ["appearance", "appearance", "Appearance"],
+    ["ai", "chat", "AI"],
+    ["devices", "accounts", "Accounts and Devices"],
+    ["keyboard", "keyboard", "Keyboard"],
+    ["advanced", "advanced", "Advanced"],
+  ]);
+  // Every category is in the sidebar once; a closed page's other categories are inert.
+  expect(sidebar(container).flatMap((section) => section.links)).toEqual(categories.map((category) => category.id));
+  const children = (id: string) =>
+    container.querySelector(`[data-sidebar-section="${id}"] .sidebar-page-children`) as HTMLElement & {
+      inert: boolean;
+    };
+  expect(children("ai").hasAttribute("data-open")).toBe(true);
+  expect(children("ai").hasAttribute("inert")).toBe(false);
+  expect(children("general").hasAttribute("data-open")).toBe(false);
+  expect(children("general").hasAttribute("inert")).toBe(true);
+  expect(container.querySelector('[data-sidebar-page="ai"]')!.hasAttribute("data-open")).toBe(true);
+  expect(container.querySelector('[data-section-link="agents"]')!.getAttribute("aria-current")).toBe("page");
 });
 
 test("outside DEV builds Development is gone and its section keeps the rest", async () => {
@@ -67,11 +83,6 @@ test("outside DEV builds Development is gone and its section keeps the rest", as
   const links = sidebar(page.container).flatMap((section) => section.links);
   expect(links).not.toContain("development");
   expect(links).toContain("experimental");
-  // More counts the pages it holds in this build.
-  const more = page.container.querySelector('[data-sidebar-section="more"]')!;
-  expect(more.querySelector(".sidebar-more-count")?.textContent).toBe(
-    String(more.querySelectorAll("[data-section-link]").length),
-  );
 });
 
 test("a click on the category already shown takes its page back to the top; another category does not", async () => {
