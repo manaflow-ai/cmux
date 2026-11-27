@@ -251,11 +251,14 @@ run = "python3 tests/test_ci_reusable_workflow_permissions.py"
 job = "linux"
 timeout = 60
 title = "Compile preflight rules"
-about = "the compile preflight runs on every tier, never reports skipped, and names the bundler's errors"
+about = "the compile preflight runs on every tier, skips only heads no web bundle reads, and names the bundler's errors"
 inputs = [
   ".github/workflows/cmux-next-compile-preflight.yml",
   ".github/workflows/pr-router.yml",
   "scripts/ci/compile_preflight.py",
+  "scripts/ci/pr_router.json",
+  "scripts/ci/pr_router.py",
+  "scripts/ci/workflow_paths_cover_inputs.py",
   "scripts/cmux-next/web-bundle-key.py",
   "scripts/cmux-next/build-web-bundles.sh",
   "tests/test_ci_compile_preflight.py",
@@ -469,19 +472,24 @@ python3 scripts/check-test-determinism.py --roots tests/test_ci_cache_restore_re
 # swift-acpmux-protocol.yml). Those workflows keep their push, dispatch and post-merge runs; a pull
 # request runs them here. `inputs` is each one's former pull_request path filter. A step whose
 # workflow ran its checks under `if: !cancelled()` runs every one and fails if any failed.
-# Every page's strings, strict, on the pull request that changes a catalog or a setting. cmux-next-guards.yml's
-# static-checks runs the same generation on the feat-cmux-next push, but a pull request skips that job (Tier A of
-# scripts/ci/affected-jobs.json pull_request_skip), so a setting with English-only strings landed twice and the
-# push's Release compile was red on every later commit while no nightly could promote: #51725 (11-23, 3 h) and
-# #55301 (11-26, 3 h; fixed by #58991). The export is regenerated first, as the PR autofix and base-autofix do,
-# because a pull request edits the settings sources, not the export the generator reads. Exit 2 from the Linux
-# export (a Swift shape it cannot read) leaves the Mac to decide: the committed export is checked instead. It runs
-# alone: both write into the checkout (the export, the gitignored tables) while no other step reads it.
+# Every page's strings, non-blocking in the table, for a catalog or setting change. The bounded catch-value audit
+# found no sampled compile/build catch for the strict translation debt gate; its known red was 80 missing
+# translations before the webview checks ran. The PR workflows intentionally do not schedule this advisory entry:
+# the strict generator's only execution is cmux-next-guards.yml's blocking post-merge static-checks copy. That push
+# check is the safety net for settings/catalog changes that later affect Release: #51725 (11-23, 3 h) and #55301
+# (11-26, 3 h; fixed by #58991).
+# The export is regenerated first, as the PR autofix and base-autofix do, because a pull request edits the settings
+# sources, not the export the generator reads. Exit 2 from the Linux export (a Swift shape it cannot read) leaves
+# the Mac to decide: the committed export is checked instead. It runs alone: both write into the checkout (the
+# export, the gitignored tables) while no other step reads it.
 [step.page-strings]
-job = "linux"
+job = "advisory"
+blocks = false
+class = "idle"
 timeout = 300
 alone = true
-# Its ** globs route it on a pull request too: a catalog edit anywhere in the tree is the case it exists for.
+# Its ** globs retain the whole-tree route when the table is used by a pull-request caller; the post-merge static
+# check always runs it at the merged tip.
 pr_scope = false
 title = "Page strings generate with no missing translation"
 about = "the settings export the pull request's sources make, then every React page's strings table, strict (webviews/scripts/pages/gen-strings.mjs)"
@@ -1628,6 +1636,66 @@ python3 scripts/ci/pr_capture_check.py --body-file "$RUNNER_TEMP/capture-body.md
   --labels "$LABELS" --head-sha "$HEAD_SHA" --pr "$PR"
 '''
 
+# Leo, 2026-11-27: "like we can have fast retrieval of bench reference per product area". The relevance map
+# (docs/benches/relevance-map.toml) and `cmux-bench for-paths`: the prefix index agrees with the old scan on random
+# paths, a 2,000-path change resolves in under 1 s and stays flat at 10x the rules, each risky area of
+# docs/benches/coverage-map.md has a mapping, every template exists, and the generated units match the layout.
+[step.bench-relevance-map]
+job = "linux"
+timeout = 180
+title = "Bench relevance map"
+about = "cmux-bench for-paths: the index matches the scan (model-based), a 2,000-path lookup under 1 s and flat at 10x, joined with the coverage map, fails open"
+inputs = [
+  "docs/benches/*",
+  "docs/benches/templates/*",
+  "scripts/bench/cmux-bench",
+  "scripts/bench/benchlib/relevance.py",
+  "tests/test_bench_relevance_map.py",
+  "cmux-tui/crates/*/Cargo.toml",
+  "cmux-next-ios/rust/crates/*/Cargo.toml",
+  "Packages/*/*/Package.swift",
+]
+run = "python3 -I tests/test_bench_relevance_map.py"
+
+# What a pull request's paths need: the areas, benches, targeted tests and check templates the relevance map names
+# for them, in the advisory log, and the Linux benches those areas name (`run`), each against its area's budget_s.
+# Fail open: an unmapped path is a warning, a base with no for-paths, a broken map or a missing or failing bench is
+# a notice; only a measured result over budget_s turns this (non-blocking) check red.
+[step.bench-relevance]
+job = "advisory"
+blocks = false
+class = "idle"
+timeout = 300
+title = "Benches and tests for these paths"
+about = "cmux-bench for-paths --run on the pull request's paths: areas, benches, targeted tests, check templates, and the areas' Linux benches against budget_s; unmapped paths warn"
+run = '''
+if ! grep -q "for-paths" scripts/bench/cmux-bench 2>/dev/null; then
+  echo "::notice::The base branch has no cmux-bench for-paths yet; nothing to report."
+  exit 0
+fi
+paths="${CI_PATHS_FILE:-$RUNNER_TEMP/paths.txt}"
+if [ ! -s "$paths" ]; then
+  echo "::notice::No changed-paths list; for-paths has nothing to read."
+  exit 0
+fi
+if ! grep -q -- "--run" scripts/bench/cmux-bench 2>/dev/null; then
+  python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown < "$paths" || echo "::notice::for-paths failed; fail open"
+  exit 0
+fi
+# --run also runs the benches the matched areas name (`run`) and exits 1 only on a measured result over the
+# area's budget_s. A missing or failing bench, a timeout with no budget, or a broken map warns and passes.
+set +e
+python3 -I scripts/bench/cmux-bench for-paths --stdin --markdown --run --timeout 120 < "$paths"
+code=$?
+set -e
+if [ "$code" -eq 1 ]; then
+  echo "::error::A bench for these paths is over its budget_s (docs/benches/relevance-map.toml); see the Bench runs above."
+  exit 1
+elif [ "$code" -ne 0 ]; then
+  echo "::notice::for-paths --run exited $code; fail open"
+fi
+'''
+
 # A missing table is an ::error annotation on the run and never a red check. A perf label event re-runs
 # it. When git could not list the paths it reads the files API, into its own file: the other steps run
 # beside it and read paths.txt.
@@ -2308,12 +2376,18 @@ exit "$status"
 # feat-cmux-next push only. Leo's ask for it: "Every push to main gets a webview type check, so a break shows up on
 # the status board within minutes." A pull request now runs it on the merge commit, so the break shows before the
 # merge. The range lint beside it (`web lint (fast)`) is cmux-next-fast-gates.yml's, which pull requests already ran.
+# `nightly`: `webviews/**` is a whole-directory glob, so a pull request's --pr-scope route dropped this step and a
+# landing head of the affected tier ran no type check at all; cmux#61720 fixed the type errors that reached
+# feat-cmux-next that way (a duplicate import, a missing module) after the nightly's webview checks went red on them.
+# Naming the nightly's check keeps the whole route and starts it on the landing head (pr_router.py
+# nightly_gate_steps), about 2 min. Leo, 2026-11-25: "if checks fail, fix the checks or ignore and just merge".
 [step.webviews-typecheck]
 job = "linux"
 timeout = 360
 title = "Webviews typecheck (whole tree)"
 about = "the pre-push web lint hook's tests pass, webviews' locked dependencies install and the whole tree typechecks (vp check --no-fmt --no-lint)"
 needs = ["bun", "node"]
+nightly = ["nightly.yml:check-nightly-webviews:Webview checks on the build commit"]
 inputs = [
   "webviews/**",
   "scripts/web_lint_prepush.py",
@@ -2377,7 +2451,7 @@ cargo bench --profile gate -p acpmux --bench icount --locked -- check
 job = "linux"
 timeout = 360
 title = "cmux_next_ daemon tests of the small members"
-about = "the cmux_next_ tests of cmux-tui-machine-protocol, cmux-tui-hooks, cmux-server-core and cmux-sdk (the gate's small members) pass on the pull request"
+about = "the cmux_next_ tests of cmux-tui-machine-protocol, cmux-tui-hooks, cmux-server-core, cmux-sdk and cmux-auto-session (the gate's small members) pass on the pull request"
 needs = ["rust"]
 inputs = [
   "cmux-tui/Cargo.toml",
@@ -2399,6 +2473,17 @@ inputs = [
   "cmux-tui/bindings/rust/tests/*",
   "cmux-tui/bindings/rust/tests/cases/*",
   "cmux-tui/bindings/rust/tests/common/*",
+  "cmux-tui/crates/cmux-auto-session/*",
+  "cmux-tui/crates/cmux-auto-session/fixtures/*",
+  "cmux-tui/crates/cmux-auto-session/src/*",
+  "cmux-tui/crates/cmux-auto-session/src/chunks/*",
+  "cmux-tui/crates/cmux-auto-session/src/cloud/*",
+  "cmux-tui/crates/cmux-auto-session/src/fake/*",
+  "cmux-tui/crates/cmux-auto-session/src/fake/tests/*",
+  "cmux-tui/crates/cmux-auto-session/src/holder/*",
+  "cmux-tui/crates/cmux-auto-session/src/holder/tests/*",
+  "cmux-tui/crates/cmux-auto-session/src/wire/*",
+  "cmux-tui/crates/cmux-auto-session/tests/conformance/*",
   "cmux-tui/crates/cmux-json/*",
   "cmux-tui/crates/cmux-json/src/*",
   "cmux-tui/crates/cmux-link/*",
@@ -2452,6 +2537,7 @@ cargo test --locked -p cmux-tui-hooks --lib cmux_next_ 2>&1 | ran || status=1
 cargo test --locked -p cmux-server-core --lib cmux_next_ 2>&1 | ran || status=1
 cargo test --locked -p cmux-sdk --lib cmux_next_ 2>&1 | ran || status=1
 cargo test --locked -p cmux-sdk --test machine_catalog_reads cmux_next_ 2>&1 | ran || status=1
+cargo test --locked -p cmux-auto-session --lib cmux_next_ 2>&1 | ran || status=1
 rm -f "$log"
 exit "$status"
 '''
@@ -3769,6 +3855,8 @@ inputs = [
   "scripts/ci/ios_macos_leg.py",
   "scripts/ci/ios_sim_udid.py",
   "scripts/ci/ios-sim-pool.sh",
+  # The pool phone runs it at this commit (ios-sim-pool.sh submit).
+  "scripts/ci/ios-sim-linux-test.sh",
   ".github/actions/setup-cmux-tui-rust/**",
   ".github/actions/runner-cargo-home/**",
   "cmux-tui/rust-toolchain.toml",
@@ -3792,9 +3880,11 @@ inputs = [
   "cmux-tui/crates/cmux-egress/**",
   "cmux-tui/crates/cmux-felt/**",
   "cmux-tui/crates/cmux-follow-cam/**",
+  "cmux-tui/crates/cmux-local-url/**",
   "cmux-tui/crates/cmux-mobile-core/**",
   "cmux-tui/crates/cmux-mobile-last-place/**",
   "cmux-tui/crates/cmux-process/**",
+  "cmux-tui/crates/cmux-proxy/**",
   "cmux-tui/crates/cmux-rd-core/**",
   "cmux-tui/crates/cmux-rd-ffi/**",
   "cmux-tui/crates/cmux-rd-link/**",
