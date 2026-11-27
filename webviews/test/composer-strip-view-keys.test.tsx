@@ -495,3 +495,52 @@ test("inline view: Select All then Backspace takes the chips with the text, as b
   expect(shown()).toBe("");
   expect(chips()).toHaveLength(0);
 });
+
+// Review: Select All over a prompt of only the strip's image selected its hidden node alone; Copy
+// and Cut then put an empty text on the clipboard over what it had.
+test.each(["copy", "cut"] as const)(
+  "strip view: %s of a selection of only the image leaves the clipboard",
+  async (kind) => {
+    await openComposer();
+    await view("strip");
+    await paste({ files: [screenshot(17)] });
+    await selectAll();
+    const written: string[] = [];
+    const event = new dom.window.Event(kind, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", {
+      value: {
+        setData: (type: string) => written.push(type),
+        clearData: () => written.push("clear"),
+        getData: () => "",
+        types: [],
+      },
+    });
+    await act(async () => {
+      editable().dispatchEvent(event);
+    });
+    expect(event.defaultPrevented).toBe(true);
+    expect(written).toEqual([]);
+    expect(shown()).toBe("[image]");
+    expect(chips()).toHaveLength(1);
+  },
+);
+
+// Review: a paste of a code block over a line with the second image put that image back at the start
+// of the prompt, before the first; the strip and the sent prompt then had them the other way round.
+test("strip view: a code block pasted over a line keeps the images in their order", async () => {
+  await openComposer();
+  await view("strip");
+  await paste({ files: [screenshot(18)] });
+  await paste({ files: [screenshot(19)] });
+  await until(() => chips().length === 2, "the second image");
+  const [first, second] = markdownField().inlineIds()!;
+  // Two lines, an image on each: "one [first]" over "two [second]".
+  const token = (id: string) => `\uFFFC${id}\uFFFC`;
+  await act(async () => markdownField().reset(`one ${token(first!)}\n\ntwo ${token(second!)}`));
+  expect(shown().trimEnd()).toBe("one [image]\n\ntwo [image]");
+  const plain = markdownField().plainText();
+  await act(async () => markdownField().writeText(plain, plain.indexOf("two"), plain.length));
+  await act(async () => markdownField().pasteText("```\ncode\n```"));
+  expect(markdownField().inlineIds()).toEqual([first!, second!]);
+  expect(chips().map((chip) => chip.id)).toEqual([first!, second!]);
+});
