@@ -138,7 +138,18 @@ function fromEnvelope(root: unknown): Walkthrough | undefined {
 /// Never throws: a call's output is any text a tool printed, and turn shaping must not fail on it.
 export function toolWalkthrough(tool: Tool | undefined): Walkthrough | undefined {
   const output = tool?.output;
-  if (!output || tool.status !== "completed" || !output.includes("cmux.walkthrough")) return undefined;
+  if (!output || tool.status !== "completed") return undefined;
+  // A call's output searched once: each turn's shape asks of every call (`lastWalkthrough`), and a test log is MBs.
+  const kept = walkthroughs.get(tool);
+  if (kept && kept.output === output) return kept.walkthrough;
+  const walkthrough = output.includes("cmux.walkthrough") ? readWalkthrough(output) : undefined;
+  walkthroughs.set(tool, { output, walkthrough });
+  return walkthrough;
+}
+
+const walkthroughs = new WeakMap<Tool, { output: string; walkthrough: Walkthrough | undefined }>();
+
+function readWalkthrough(output: string): Walkthrough | undefined {
   try {
     const direct = fromText(output);
     if (direct) return direct;

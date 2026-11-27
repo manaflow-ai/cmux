@@ -42,7 +42,7 @@ import { toolRunPhrases } from "./toolRunSummary";
 import { acpmuxMcpSends } from "./acpmuxMcpSends";
 import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
-import { experimentArm } from "../../../experiments/experiment";
+import { experimentArm, withExperimentPass } from "../../../experiments/experiment";
 import { finishedTaskLook } from "./taskLine.experiment";
 import { liveTurnWork } from "./liveTurnWork.experiment";
 import { turnFoldReplies } from "./turnFoldReplies.experiment";
@@ -615,7 +615,12 @@ const firstDateUnchanged = (view: TurnView, now: number) =>
   view.firstVisible === undefined ||
   showsTimestamp(view.times[view.firstVisible]!, undefined, now, view.lead === 0) === view.dated[view.firstVisible];
 
-export function turnViewFrom(
+/// `turnViewIn` with the experiments' debug key read once for the whole pass (experiment.ts `withExperimentPass`).
+export function turnViewFrom(...args: Parameters<typeof turnViewIn>): TurnView {
+  return withExperimentPass(() => turnViewIn(...args));
+}
+
+function turnViewIn(
   rows: readonly AcpmuxRow[],
   expanded: Folds,
   {
@@ -4513,8 +4518,24 @@ const TAKEAWAY_LINES = 3;
 /// the work Lawrence asked to collapse; a short note keeps the fold it had before. Another agent's words
 /// always are. Shared by the finished turn's final answer and the running turn's runs
 /// (``mergeShortNotes``).
+// Each reply's isTakeaway, kept against what it reads: a chat's open asks it of every reply several times per turn
+// (the answer, the replies, the short notes), and each ask ran its sentence regexes again.
+const takeaways = new WeakMap<
+  AcpmuxRow,
+  { text: string | undefined; incoming: AcpmuxRow["incoming"]; phase: AcpmuxRow["assistantPhase"]; takeaway: boolean }
+>();
+
 export function isTakeaway(row: AcpmuxRow): boolean {
   if (row.kind !== "assistant") return false;
+  const kept = takeaways.get(row);
+  if (kept && kept.text === row.text && kept.incoming === row.incoming && kept.phase === row.assistantPhase)
+    return kept.takeaway;
+  const takeaway = readsAsTakeaway(row);
+  takeaways.set(row, { text: row.text, incoming: row.incoming, phase: row.assistantPhase, takeaway });
+  return takeaway;
+}
+
+function readsAsTakeaway(row: AcpmuxRow): boolean {
   const text = (row.text ?? "").trim();
   if (!text) return false;
   return (
