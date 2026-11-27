@@ -797,7 +797,8 @@ export type ProviderConflictKind = "capacity" | "state" | "unresponsive" | "host
  * in the cause chain that carries an HTTP status decides. Any 429
  * (`TOO_MANY_REQUESTS`, or `INFRASTRUCTURE_OVERLOADED` when the start queue
  * wait expired) is capacity: the provider asks us to come back later. Freestyle
- * answers capacity as `CONFLICT` "no manager has enough capacity" or
+ * answers capacity as `CONFLICT` "no manager has enough capacity", a start
+ * it could not complete (`CONFLICT` "start did not complete successfully"), or
  * `PLACEMENT_REJECTED`, an unresponsive guest as `VM_NON_RESPONSIVE`, a
  * machine in the wrong state (still starting, not running) as `CONFLICT`, and
  * a machine whose disk is pinned to an unreachable host as `CONFLICT` naming
@@ -805,8 +806,15 @@ export type ProviderConflictKind = "capacity" | "state" | "unresponsive" | "host
  * Every other status, any other 409, and a refusal that never reached the
  * provider is null.
  */
-/** Freestyle's placement refusal: "no manager has enough capacity for vm". */
-const PROVIDER_CAPACITY_MESSAGE = /\bno manager has enough capacity\b/i;
+/**
+ * Freestyle's placement refusals: "no manager has enough capacity for vm",
+ * and a start it accepted but could not finish, "vm … start did not complete
+ * successfully (current state: Stopped)" (or Paused). Freestyle documents
+ * start's 409 as "no capacity is available"; production on 2026-11-27 saw it
+ * in the same minutes as PLACEMENT_REJECTED and INFRASTRUCTURE_OVERLOADED for
+ * the same machines. The machine and its disk stay as they were.
+ */
+const PROVIDER_CAPACITY_MESSAGE = /\bno manager has enough capacity\b|\bstart did not complete successfully\b/i;
 
 /** Freestyle 409 messages about the machine's lifecycle state. */
 const PROVIDER_STATE_CONFLICT_MESSAGE = /\b(?:is )?still (?:starting|stopping|pausing|resuming|suspending|booting)\b|\bis not running\b|\bis (?:paused|pausing|suspended|suspending|stopped|stopping|starting|resuming)\b|\bresuming state\b/i;
