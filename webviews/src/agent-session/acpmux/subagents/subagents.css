@@ -3019,17 +3019,19 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__stop-slot {
   margin-right: var(--acpmux-tray-stop-gap);
 }
-.acpmux-running-tray
-  .acpmux-agent-line:not(:hover, :focus-within)
-  > .acpmux-agent-line__stop-slot
-  > :is(.cv-subagent__stop, .acpmux-session-info-stop) {
+.acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__stop-slot > :is(.cv-subagent__stop, .acpmux-session-info-stop) {
   opacity: 0;
 }
+.acpmux-running-tray .acpmux-agent-line:hover > .acpmux-agent-line__stop-slot > :is(.cv-subagent__stop, .acpmux-session-info-stop),
+.acpmux-running-tray .acpmux-agent-line:has([data-popup-open]) > .acpmux-agent-line__stop-slot > :is(.cv-subagent__stop, .acpmux-session-info-stop),
+.acpmux-running-tray .acpmux-agent-line:focus-within > .acpmux-agent-line__stop-slot > :is(.cv-subagent__stop, .acpmux-session-info-stop) {
+  opacity: 1;
+}
+.acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__stop-slot > .cv-subagent__stop:disabled {
+  opacity: 0.5;
+}
 @media (hover: none) {
-  .acpmux-running-tray
-    .acpmux-agent-line:not(:hover, :focus-within)
-    > .acpmux-agent-line__stop-slot
-    > :is(.cv-subagent__stop, .acpmux-session-info-stop) {
+  .acpmux-running-tray .acpmux-agent-line > .acpmux-agent-line__stop-slot > :is(.cv-subagent__stop, .acpmux-session-info-stop) {
     opacity: 1;
   }
 }
