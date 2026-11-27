@@ -150,7 +150,12 @@ pub(crate) fn run_host_parser(
         let responses = std::mem::take(&mut *pending_responses.lock().recover_poison());
         replies.send(responses, |bytes| write_to_pty(&parser_host.writer, bytes));
     };
+    let mut qos = cmux_interactivity::Follower::new();
     while let Ok(command) = parser_command_receiver.recv() {
+        if matches!(command, ParserCommand::Resize(_)) {
+            cmux_interactivity::note(cmux_interactivity::InteractionKind::Drag);
+        }
+        qos.follow(super::host_start::host_work_class());
         match command {
             ParserCommand::Output { frame, source_cursor, accounted_bytes } => {
                 let bytes = frame.payload.as_slice();

@@ -173,7 +173,7 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "get_ui_tree",
         access: Access::Observe,
-        description: "The window's elements, one line each: [id] role \"name\" = value, then flags (focused, disabled, checked, a menu item's shortcut, extra actions). Ids stay the same for the same element across looks and actions; use them as element_id (best: works in the background). After your first look, a look shows only the changes since your last one (+ added, ~ changed with what it was, - removed), or says nothing changed. Elements scrolled out of view are counted on their container (out of view: 12 below): scroll it (scroll with its element_id) to see them. Any element takes perform_action show_menu (its context menu). The menu bar lists its menus: click a menu's id to list its items (it stays closed), then click an item's id to run it.",
+        description: "Only when you cannot name the control you need (an action's reply already shows what changed, so never call this to check one): the window's elements, one line each: [id] role \"name\" = value, then flags (focused, disabled, checked, a menu item's shortcut, extra actions). Ids stay the same for the same element across looks and actions; use them as element_id (best: works in the background). After your first look, a look shows only the changes since your last one (+ added, ~ changed with what it was, - removed), or says nothing changed. Elements scrolled out of view are counted on their container (out of view: 12 below): scroll it (scroll with its element_id) to see them. Any element takes perform_action show_menu (its context menu). The menu bar lists its menus: click a menu's id to list its items (it stays closed), then click an item's id to run it.",
         schema: || {
             obj(
                 json!({
@@ -453,14 +453,15 @@ pub fn mcp_list() -> Value {
 
 /// The instructions an agent gets with the server (MCP `instructions`).
 pub const INSTRUCTIONS: &str = "cmux Computer Use is built in (nothing to install; `machine` \
-reaches your other machines). Use the fewest calls: a window_id can be the window's title or app \
-name, and each action returns what changed and a screenshot, so no look is needed before or after \
-it. When the task names the window and its controls, act at once: one batch whose steps name \
-elements by target {role, label}. Otherwise get_ui_tree the window, then act on element ids. Menu \
-commands are in the tree's menu bar. \"No change\" means it did nothing, so try another way before \
-saying it worked. Act in the background; use delivery foreground only when status says the person \
-allowed it, and only for a system-wide shortcut or to bring a window to them. If a call is refused, call status and tell the person which Settings > Computer Use \
-setting would allow it; never change those settings yourself.";
+reaches your other machines). Each call is a model turn: use the fewest. A window_id can be the \
+window's title or app name; each action returns what changed and a screenshot, so never look to \
+check one. When the task names the window and its controls, your first call is one batch whose \
+steps name elements by target {role, label}, not get_ui_tree; look first only when you cannot name \
+a control. Menu commands are in the tree's menu bar. \"No change\" means it did nothing: try \
+another way. Act in the background; use delivery foreground only when status says the person \
+allowed it, and only for a system-wide shortcut or to bring a window to them. If a call is \
+refused, take the setup step it names, else call status and tell the person which Settings > \
+Computer Use setting would allow it; never change those settings yourself.";
 
 #[cfg(test)]
 mod tests {

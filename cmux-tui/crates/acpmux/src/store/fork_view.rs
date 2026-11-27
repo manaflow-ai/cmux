@@ -28,7 +28,6 @@ pub const HISTORY_KINDS: &[&str] = &[
     "agent_thought_chunk",
     "tool_call",
     "tool_call_update",
-    "plan",
     "turn_started",
     "turn_result",
     "turn_end",
@@ -217,6 +216,16 @@ impl ForkView {
     /// chat goes, or before its files are read or moved as files. Nothing for a session that
     /// references none. A failure leaves the reference as it was.
     pub fn materialize(&self, id: &str) -> Result<()> {
+        // Most chats reference no history: that is read under a shared hold, so asking for one's
+        // folder does not wait for a long read of any chat to end (a move's begin waited seconds
+        // for a pack's read of a large log). No write of a reference runs under a shared hold,
+        // so a chat that names none here would name none under the exclusive one either.
+        {
+            let _reading = self.shared();
+            if self.reference(id)?.is_none() {
+                return Ok(());
+            }
+        }
         let _dropping = self.exclusive();
         self.materialize_locked(id)
     }
@@ -365,6 +374,23 @@ impl Store for ForkView {
     /// no sync (review of #37020: a draft through the default `save` waited one).
     fn save_kept(&self, meta: &SessionMeta) -> Result<()> {
         self.save_with(meta, |meta| self.inner.save_kept(meta))
+    }
+    /// The inner store's digest when the metadata goes through as it is; a fork's save may
+    /// rewrite its history fields first (`save_with`), so that one gives none.
+    fn save_digest(&self, meta: &SessionMeta, keep: ShowAfter) -> Result<Option<MetaDigest>> {
+        if meta.history_from.is_some() {
+            return match keep {
+                ShowAfter::Durable => self.save(meta),
+                ShowAfter::Written => self.save_kept(meta),
+            }
+            .map(|()| None);
+        }
+        let digest = self.inner.save_digest(meta, keep)?;
+        self.note(meta);
+        Ok(digest)
+    }
+    fn digest(&self, meta: &SessionMeta) -> Option<MetaDigest> {
+        self.inner.digest(meta)
     }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         self.inner.append(id, record)
@@ -895,6 +921,9 @@ impl Store for ForkView {
     }
     fn on_segment_sealed(&self, hook: SealHook) {
         self.inner.on_segment_sealed(hook)
+    }
+    fn on_log_grown(&self, hook: SealHook) {
+        self.inner.on_log_grown(hook)
     }
     /// Under `dropping`, as a reservation is: one that came first is written in here (or, still
     /// being made, fails this), and one after is refused until `end_release`.

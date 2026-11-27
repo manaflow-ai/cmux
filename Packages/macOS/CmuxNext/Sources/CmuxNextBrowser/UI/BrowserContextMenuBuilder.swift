@@ -57,7 +57,7 @@ public final class BrowserContextMenuBuilder {
         // A standard macOS menu in the tab's light or dark look, as every cmux right-click menu is.
         menu.themeRows(in: view.themeScope.fullStrength)
         presentedMenu = menu
-        menu.popUp(positioning: nil, at: point, in: view)
+        menu.popUpAtPointer(point, in: view)
         presentedMenu = nil
         // A chosen engine row completed the request with its id inside popUp; this then ends a
         // dismissed menu (or one where a host item ran).

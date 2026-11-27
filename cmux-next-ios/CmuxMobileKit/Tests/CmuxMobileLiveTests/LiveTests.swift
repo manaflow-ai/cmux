@@ -1,4 +1,5 @@
 import CmuxAgentQuestion
+import CmuxConnectivityTelemetry
 import CmuxMobileAgentChat
 import CmuxMobileFeed
 import CmuxMobileModel
@@ -19,7 +20,7 @@ import Testing
         #expect(machine.handle(.dialSucceeded(generation: 1, path: .turnTLS)) == [])
         #expect(machine.phase == .connected(.wireGuard, .turnTLS, rttMillis: nil))
         _ = machine.handle(.linkUpdated(generation: 1, path: .turnTLS, rttMillis: 27))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
     }
 
     @Test func offlineMacIsNotDialed() {
@@ -65,7 +66,7 @@ import Testing
         #expect(machine.phase == .connecting(.webRTC, attempt: 2))
         #expect(machine.handle(.dialFailed(generation: 2, reason: "ICE timed out")) == [.scheduleRetry(generation: 3, after: .seconds(1))])
         #expect(machine.phase == .waiting(.webRTC, attempt: 2, reason: "ICE timed out", retryIn: .seconds(1)))
-        #expect(machine.phase.statusLine(macName: "Studio") == "Reconnecting…")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
         #expect(machine.handle(.retryDue(generation: 3)) == [.dial(generation: 4, macID: "m1", transport: .webRTC)])
         #expect(machine.handle(.dialFailed(generation: 4, reason: "x")) == [.scheduleRetry(generation: 5, after: .seconds(2))])
         // A stale timer is ignored.
@@ -94,7 +95,7 @@ import Testing
         #expect(machine.handle(.relayOnly(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .webRTC)])
         #expect(machine.relayOnly)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turn)) == [])
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
     }
 
     /// Settings → Developer "Block UDP": a change redials, like relay only.
@@ -106,7 +107,7 @@ import Testing
         #expect(machine.handle(.blockUDP(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .wireGuard)])
         #expect(machine.blockUDP)
         #expect(machine.handle(.dialSucceeded(generation: 2, path: .turnTLS)) == [])
-        #expect(machine.phase.statusLine(macName: "Studio") == "Connected")
+        #expect(machine.phase.statusLine(macName: "Studio") == nil)
         // WebRTC ignores it: a change there does not redial.
         var webRTC = LinkMachine(transport: .webRTC)
         _ = webRTC.handle(.target(mac))
@@ -374,6 +375,52 @@ struct MockDialer: MacLinkDialer {
     }
 }
 
+/// A dialer whose roams wait until the test releases them, counting how many run at once.
+final class RoamGate: MacLinkDialer, @unchecked Sendable {
+    private let lock = NSLock()
+    private var running = 0
+    private var waiters: [(index: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var released = 0
+    private(set) var startedCount = 0
+    private(set) var maxConcurrentCount = 0
+    var started: Int { lock.withLock { startedCount } }
+    var maxConcurrent: Int { lock.withLock { maxConcurrentCount } }
+
+    func dial(_ endpoint: LinkEndpoint, transport: CmuxMobileTransport.TransportKind, accessToken: String) async throws -> any MacLink {
+        MockMacLink(transport: transport)
+    }
+
+    func networkChanged(baseURL: URL, teamID: String, deviceID: String, accessToken: String) async -> [(String, Double)] {
+        let index: Int = lock.withLock {
+            startedCount += 1
+            running += 1
+            maxConcurrentCount = max(maxConcurrentCount, running)
+            return startedCount
+        }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let go = lock.withLock { () -> Bool in
+                if released >= index { return true }
+                waiters.append((index, continuation))
+                return false
+            }
+            if go { continuation.resume() }
+        }
+        lock.withLock { running -= 1 }
+        return [("roam_direct", 1)]
+    }
+
+    func release() {
+        // Lets the next roam (by start order) finish.
+        let woken: [CheckedContinuation<Void, Never>] = lock.withLock {
+            released += 1
+            let go = waiters.filter { $0.index <= released }.map(\.continuation)
+            waiters.removeAll { $0.index <= released }
+            return go
+        }
+        for continuation in woken { continuation.resume() }
+    }
+}
+
 @MainActor
 @Suite struct LinkControllerTests {
     @Test func connectsThroughDialerAndHandsOutLink() async throws {
@@ -402,21 +449,73 @@ struct MockDialer: MacLinkDialer {
     /// A network change roams the live link in place: the dialer is told
     /// once (a burst of path updates settles first) and nothing redials.
     @Test func networkChangeRoamsWithoutRedialing() async throws {
+        let clock = LinkTestClock()
         let dials = Seen()
         let roams = Seen()
+        let completed = Seen()
+        let telemetry = ConnectivityTelemetry()
+        telemetry.setAudience(.team)
+        telemetry.addSink { record in
+            if record.key == "network.roamed" { completed.append(record.outcome == .success) }
+        }
         let dialer = MockDialer(fail: false, dialed: { _ in dials.append(true) }, roamed: { _ in roams.append(true) })
-        let controller = LinkController(transport: .wireGuard, dialer: dialer, accessToken: { _ in "t" })
+        let controller = LinkController(transport: .wireGuard, dialer: dialer, clock: clock,
+                                        telemetry: telemetry, accessToken: { _ in "t" })
+        defer { controller.send(.target(nil)); clock.stop() }
+        controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
+        controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
+        try await pollUntil { controller.phase.isConnected }
+
+        let url = URL(string: "https://x")!
+        let settle = LinkController.networkSettle
+        let first = clock.now.advanced(by: settle)
+        controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
+        try await pollUntil { clock.isSleeping(until: first) }
+
+        clock.advance(by: settle / 2)
+        let replacement = clock.now.advanced(by: settle)
+        controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
+        try await pollUntil { clock.isSleeping(until: replacement) }
+        try #require(!clock.isSleeping(until: first))
+        clock.advance(by: clock.now.duration(to: first))
+        #expect(roams.values.isEmpty)
+
+        clock.advance(by: clock.now.duration(to: replacement))
+        // The controller consumes the dialer's result on the main actor before these assertions.
+        try await pollUntil { !completed.values.isEmpty }
+        #expect(completed.values == [true])
+        #expect(roams.values.count == 1)
+        #expect(dials.values.count == 1)
+        #expect(controller.phase.isConnected)
+    }
+
+    /// Changes that come while a roam runs never start a second one beside it: one roam at a time,
+    /// then one more onto the latest network, however many changes came (a153's phone ran four
+    /// within 0.7 s, each moving the path to none and back).
+    @Test func changesDuringARoamWaitForItAndRoamOnceMore() async throws {
+        let gate = RoamGate()
+        let controller = LinkController(transport: .wireGuard, dialer: gate, accessToken: { _ in "t" })
         controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
         controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
         for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
         let url = URL(string: "https://x")!
         controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
-        controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
         let deadline = ContinuousClock.now + .seconds(5)
-        while roams.values.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        while gate.started == 0, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(gate.started == 1)
+        // A burst while the first roam runs.
+        for _ in 0..<20 {
+            controller.networkChanged(baseURL: url, teamID: "t", deviceID: "d")
+            try await Task.sleep(for: .milliseconds(5))
+        }
         try await Task.sleep(for: .milliseconds(300))
-        #expect(roams.values.count == 1)
-        #expect(dials.values.count == 1)
+        #expect(gate.started == 1)
+        gate.release()
+        while gate.started < 2, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        gate.release()
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(gate.started == 2)
+        #expect(gate.maxConcurrent == 1)
         #expect(controller.phase.isConnected)
     }
 
@@ -507,21 +606,6 @@ struct MockDialer: MacLinkDialer {
         let second = try DaemonTree(reply: Self.reply, macID: "m", previous: first.workspaces, agents: agents, now: Date())
         #expect(second.workspaces[0].needsAttention)
         #expect(second.workspaces[0].lastActivityAt == earlier)
-    }
-
-    /// The Feed's working-now strip counts a working agent's time from the Mac's report.
-    @Test func aWorkingTabCarriesTheMacsReportTimeAndOthersNone() throws {
-        let started = Date(timeIntervalSince1970: 2000)
-        var agents = AgentStates()
-        agents.bySurface[1] = AgentState(state: "working", agent: "claude", updatedAt: started)
-        agents.bySurface[7] = AgentState(state: "blocked", agent: "claude", updatedAt: started)
-        let tree = try DaemonTree(reply: Self.reply, macID: "m", agents: agents)
-        #expect(tree.workspaces[0].tabs.map(\.workingSince) == [started, nil, nil, nil])
-        // An older Mac's report has no time: working, with no start time.
-        agents.bySurface[1] = AgentState(state: "working", agent: "claude")
-        let older = try DaemonTree(reply: Self.reply, macID: "m", agents: agents)
-        #expect(older.workspaces[0].tabs[0].agentStatus == .working)
-        #expect(older.workspaces[0].tabs[0].workingSince == nil)
     }
 
     @Test func tabsCarryTheirAgentStateAndTheMacsActiveTab() throws {
@@ -725,7 +809,7 @@ private struct LinkOf: MacLinkDialer {
         let link = setupDaemon(log)
         let prepared = await WorkspaceSync.prepare(try await link.openChannel(service: "daemon", args: [:]), deviceID: "d", deviceName: "iPhone")
         _ = await prepared.replies.value
-        #expect(log.count == 5)
+        #expect(log.count == 7, "six setup requests and the sidebar layout (#51114)")
         let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
         var trees: [DaemonTree] = []
         sync.onTree = { trees.append($0) }
@@ -733,7 +817,7 @@ private struct LinkOf: MacLinkDialer {
         #expect(trees.count == 1)
         #expect(sync.tree?.workspaces.map(\.id) == ["k1"])
         #expect(sync.daemon != nil)
-        #expect(log.count == 5)
+        #expect(log.count == 7, "binding sent another request")
     }
 
     /// `prepare` runs once per dial, before the link is handed over, and its

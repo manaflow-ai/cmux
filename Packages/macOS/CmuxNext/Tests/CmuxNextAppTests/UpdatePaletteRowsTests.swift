@@ -78,7 +78,9 @@ struct UpdatePaletteRowsTests {
         let at = try #require(ids.firstIndex(of: Self.rowID), "\(query): \(ids.prefix(12))")
         #expect(at < 3, "\(query): \(ids.prefix(12))")
         if query == "restart to update" { #expect(at == 0, "\(ids.prefix(12))") }
-        #expect(!ids.contains("action:palette.checkForUpdates"), "a check only answers with the waiting update: \(ids.prefix(12))")
+        if query == "update" {
+            #expect(ids.contains("action:palette.checkForUpdates"), "Check for Updates stays listed: \(ids.prefix(12))")
+        }
     }
 
     @Test func theRowIsTitledAsTheSidebarCardsButtonAndRunsItsInstall() async throws {
@@ -91,6 +93,15 @@ struct UpdatePaletteRowsTests {
         harness.palette.model.run(row.item.primary, of: row.item)
         #expect(harness.installs.count == 1)
         #expect(harness.installs.first?.origin == .user)
+    }
+
+    /// Leo 2026-11-22: typing "check for update" found only the Check for Updates Automatically setting.
+    @Test(arguments: [false, true])
+    func checkForUpdateFindsTheCommandFirst(staged: Bool) async throws {
+        let harness = Harness(updater: Self.updater(staged: staged))
+        defer { harness.closePanels() }
+        let ids = await harness.rows("check for update").map(\.item.id)
+        #expect(ids.first == "action:palette.checkForUpdates", "\(ids.prefix(12))")
     }
 
     @Test func withNoUpdateWaitingCheckForUpdatesIsListedInstead() async throws {

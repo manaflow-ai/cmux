@@ -65,7 +65,8 @@ struct ToolbarLayout {
         if bar == .collapsed {
             let pillW = CollapsedPill.width(labelWidth: labelWidth, scale: m.collapsedScale, padding: m.pillPadding,
                                             maxWidth: collapsedMaxWidth(metrics: m, screenWidth: w, backWidth: backW))
-            let pill = CGRect(x: (w - pillW) / 2, y: max(0, safeTop - m.pillHeight / 4), width: pillW, height: m.pillHeight)
+            let pill = CGRect(x: (w - pillW) / 2, y: PageChromeInsets.collapsedTopPillY(safeTop: safeTop, pillHeight: m.pillHeight),
+                              width: pillW, height: m.pillHeight)
             let b = CGRect(x: pill.minX - m.gap - back.width, y: pill.midY - m.control / 2, width: back.width, height: m.control)
             let t = CGRect(x: pill.maxX + m.gap, y: pill.midY - m.control / 2, width: m.control, height: m.control)
             return ToolbarLayout(back: b, capsule: pill, right: t)
@@ -75,7 +76,7 @@ struct ToolbarLayout {
 
     /// The top bar's row: just under the status bar (20 pt where a screen reports none).
     static func topBarY(metrics m: TabsKitTheme.Metrics, safeTop: CGFloat) -> CGFloat {
-        max(safeTop, 20) + m.topBarGap
+        PageChromeInsets.topBarY(safeTop: safeTop, gap: m.topBarGap)
     }
 
     /// The page height the bar covers from its edge, gap below it included: the content inset on that edge.
@@ -83,6 +84,18 @@ struct ToolbarLayout {
         let expanded = make(metrics: m, size: size, safeTop: safeTop, safeBottom: safeBottom, keyboard: 0, bar: .expanded,
                             editing: false, splitBack: false, labelWidth: 69)
         return m.barEdge == .top ? expanded.capsule.maxY + 8 : max(0, size.height - expanded.capsule.minY + 8)
+    }
+
+    /// The page's insets under the chrome: `resting` (the expanded bar's, for layout that must
+    /// not move while scrolling) and `live` (this frame's, a collapsed top bar's band given back).
+    static func pageInsets(metrics m: TabsKitTheme.Metrics, size: CGSize, safeTop: CGFloat, safeBottom: CGFloat,
+                           bar: ChromeState.Bar) -> (resting: PageChromeInsets, live: PageChromeInsets) {
+        let inset = barInset(metrics: m, size: size, safeTop: safeTop, safeBottom: safeBottom)
+        let resting = m.barEdge == .top ? PageChromeInsets(top: inset, bottom: safeBottom)
+            : PageChromeInsets(top: safeTop, bottom: inset)
+        let live = PageChromeInsets.live(edge: m.barEdge, collapsed: bar == .collapsed, resting: resting, safeTop: safeTop,
+                                         pillHeight: m.pillHeight)
+        return (resting, live)
     }
 
     static func collapsedMaxWidth(metrics m: TabsKitTheme.Metrics, screenWidth: CGFloat, backWidth: CGFloat) -> CGFloat {
@@ -361,6 +374,7 @@ struct TabsToolbar: View {
             .allowsHitTesting(!collapsed && !chrome.editing && showsReload)
             .accessibilityHidden(collapsed || chrome.editing || !showsReload)
             .frame(maxWidth: .infinity, alignment: .trailing)
+            // retry-prompt-ok: the browser's own Reload control, used on purpose
             .accessibilityLabel(loading ? "Stop" : "Reload")
         }
         .frame(width: r.width, height: r.height)

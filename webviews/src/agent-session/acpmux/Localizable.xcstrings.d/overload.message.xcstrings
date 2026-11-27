@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "overload.message" : {
+      "comment" : "Agent pane: warning above the composer when this Mac is overloaded. {numbers} lists the load and swap readings",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "This Mac is overloaded: {numbers}. Builds and agents will be slow."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

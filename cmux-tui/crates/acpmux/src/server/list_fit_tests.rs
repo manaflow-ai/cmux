@@ -42,7 +42,7 @@ async fn big_hub_with(extra: Vec<Value>) -> Arc<crate::hub::Hub> {
     hub.peers.lock().unwrap().insert("box".to_owned(), peer.clone());
     let row = |id: String, at: usize, step: usize| {
         json!({"sessionId": id, "name": "lane", "harness": "claude", "cwd": "/work",
-            "status": "idle", "updatedAt": at as u64 + 10, "planStep": "x".repeat(step)})
+            "status": "idle", "updatedAt": at as u64 + 10, "preview": "x".repeat(step)})
     };
     let mut list: Vec<Value> =
         (0..ROWS).map(|i| row(format!("peer-chat-{i}"), i, 20_000)).collect();
@@ -152,11 +152,11 @@ async fn a_list_and_a_row_each_past_the_message_limit_still_list_every_id_body()
         // The row is trimmed, not dropped: its keys stay, and it says what it lost.
         assert_eq!((big["status"].as_str(), big["peer"].as_str()), (Some("idle"), Some("box")));
         assert_eq!(big["cwd"], "/work", "{params}");
-        assert!(big["planStep"].as_str().is_some_and(|s| s.len() <= 1 << 10), "{params}");
+        assert!(big["preview"].as_str().is_some_and(|s| s.len() <= 1 << 10), "{params}");
         assert_eq!(big["omitted"]["reason"], "too_large", "{params}");
-        assert_eq!(big["omitted"]["fields"], json!(["planStep"]), "{params}");
+        assert_eq!(big["omitted"]["fields"], json!(["preview"]), "{params}");
         let small = rows.iter().find(|r| r["sessionId"] == "peer-chat-7").unwrap();
-        assert_eq!(small["planStep"].as_str().map(str::len), Some(20_000), "{params}");
+        assert_eq!(small["preview"].as_str().map(str::len), Some(20_000), "{params}");
     }
 }
 

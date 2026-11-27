@@ -28,6 +28,7 @@ import Testing
         #expect(settings.deniedApps == ComputerUseSettings.defaultDeniedApps)
         #expect(settings.allowOwnMachines && settings.pauseOnTakeover && settings.showCursor && settings.livePreview)
         #expect(!settings.allowForeground)
+        #expect(!settings.floatingPreview)
         let row = SettingsSchema.descriptor(for: ComputerUseSettings.modePath)
         #expect(row?.defaultValue == .string("fullAccess"))
     }
@@ -174,7 +175,7 @@ import Testing
         #expect(Set(keys.map(\.id)) == ["computerUse.mode", "computerUse.deniedApps", "computerUse.allowOwnMachines",
                                          "computerUse.pauseOnTakeover", "computerUse.allowForeground", "computerUse.showCursor",
                                          "computerUse.cursorTag", "computerUse.settle", "computerUse.livePreview",
-                                         "computerUse.menus"])
+                                         "computerUse.floatingPreview", "computerUse.menus"])
         let (settings, home) = try controller("{}")
         defer { try? FileManager.default.removeItem(at: home) }
         await settings.reload()
@@ -196,7 +197,7 @@ import Testing
         settings.allowForeground = true
         let object = try #require(try JSONSerialization.jsonObject(with: settings.policyConfigJSON()) as? [String: Any])
         #expect(Set(object.keys) == ["mode", "deniedApps", "allowOwnMachines", "pauseOnTakeover", "allowForeground", "showCursor",
-                                     "cursorTag", "settle", "cloudVm", "menus", "livePreview"])
+                                     "cursorTag", "settle", "cloudVm", "menus", "livePreview", "whileLocked"])
         #expect(object["cursorTag"] as? String == "hover")
         #expect(object["settle"] as? String == "openai")
         #expect(object["mode"] as? String == "approvedApps")
@@ -205,6 +206,19 @@ import Testing
         #expect(object["cloudVm"] as? Bool == false)
         #expect(object["menus"] as? String == "open")
         #expect(object["livePreview"] as? Bool == true)
+        #expect(object["whileLocked"] as? Bool == false)
+    }
+
+    /// `computerUse.whileLocked` (off by default) reaches the engine (locked.rs) as `whileLocked`.
+    /// The app's push replaces the policy the daemon read from cmux.json, so before this key was in
+    /// the push, turning it on in the file changed nothing on a Mac.
+    @Test func whileLockedIsOffByDefaultAndReachesTheEngine() throws {
+        #expect(computerUse(.object([:])).whileLocked == false)
+        #expect(SettingsSchema.descriptor(for: ComputerUseSettings.whileLockedPath)?.defaultValue == .bool(false))
+        let on = computerUse(.object(["computerUse": .object(["whileLocked": .bool(true)])]))
+        #expect(on.whileLocked)
+        let object = try #require(try JSONSerialization.jsonObject(with: on.policyConfigJSON()) as? [String: Any])
+        #expect(object["whileLocked"] as? Bool == true)
     }
 
     /// `computerUse.livePreview` reaches the engine (preview.rs): off, the worker streams no window
@@ -213,6 +227,16 @@ import Testing
         let off = computerUse(.object(["computerUse": .object(["livePreview": .bool(false)])]))
         let object = try #require(try JSONSerialization.jsonObject(with: off.policyConfigJSON()) as? [String: Any])
         #expect(object["livePreview"] as? Bool == false)
+    }
+
+    /// `computerUse.floatingPreview` (prototype) is off by default and reads a boolean; it is the
+    /// App's panel only, so the engine's policy does not carry it.
+    @Test func floatingPreviewIsOffByDefaultAndReadsABool() throws {
+        #expect(SettingsSchema.descriptor(for: ComputerUseSettings.floatingPreviewPath)?.defaultValue == .bool(false))
+        let on = computerUse(.object(["computerUse": .object(["floatingPreview": .bool(true)])]))
+        #expect(on.floatingPreview)
+        let object = try #require(try JSONSerialization.jsonObject(with: on.policyConfigJSON()) as? [String: Any])
+        #expect(object["floatingPreview"] == nil)
     }
 
     /// `computerUse.menus` reads `open` or `refuse` (default `open`); another value keeps the default

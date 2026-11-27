@@ -163,9 +163,42 @@ impl Package {
         entry.get("export")?.as_str().map(str::to_string)
     }
 
+    /// The app's `contributes.keybindings` for `apps-list`, in keybindings.json
+    /// form (`{key, command, when?, args?}`) for the client's app binding
+    /// layer: a cmux action as written, an own op as `app.command.run`
+    /// `{app, command}` (the palette row's run). Only entries the manifest
+    /// validator accepted are listed (`cmux_app_manifest::keybindings`).
+    pub fn keybindings(&self) -> Vec<Value> {
+        cmux_app_manifest::keybindings::keybindings(&self.manifest)
+            .into_iter()
+            .map(|binding| {
+                let builtin = cmux_app_manifest::keybindings::is_builtin_action(&binding.command);
+                let mut entry = serde_json::json!({ "key": binding.key() });
+                if builtin {
+                    entry.set("command", Value::String(binding.command));
+                    if let Some(args) = binding.args {
+                        entry.set("args", args);
+                    }
+                } else {
+                    entry.set("command", Value::String("app.command.run".into()));
+                    entry.set(
+                        "args",
+                        serde_json::json!({ "app": self.id, "command": binding.command }),
+                    );
+                }
+                if let Some(when) = binding.when {
+                    entry.set("when", Value::String(when));
+                }
+                entry
+            })
+            .collect()
+    }
+
     /// The app's palette commands for `apps-list`: the catalog ops with a
-    /// `palette` entry, as `{op, title, when?}`.
-    pub fn palette_commands(&self) -> Vec<Value> {
+    /// `palette` entry, as `{op, title, when?, keys?, page_keys?}`. Chords
+    /// stay in #44151's app binding layer; page keys are routed after a
+    /// browser page declines the key and include `cmux.keys` overrides.
+    pub fn palette_commands(&self, key_overrides: Option<&Value>) -> Vec<Value> {
         self.catalog_ops()
             .into_iter()
             .filter_map(|(op, entry)| {
@@ -176,11 +209,46 @@ impl Package {
                 if let Some(when) = palette.get("when") {
                     command.set("when", when.clone());
                 }
+                let chords: Vec<Value> = entry
+                    .get("keyboard")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter(|k| k.get("key").and_then(Value::as_str).is_some_and(is_chord))
+                    .cloned()
+                    .collect();
+                if !chords.is_empty() {
+                    command.set("keys", Value::Array(chords));
+                }
+                let page_keys = super::page_keys::keys(&op, &entry, key_overrides);
+                if !page_keys.is_empty() {
+                    command.set("page_keys", serde_json::json!(page_keys));
+                    command.set(
+                        "page_key_when",
+                        super::page_keys::when_map(&op, &entry, key_overrides),
+                    );
+                }
                 Some(command)
             })
             .collect()
     }
 
+    pub fn has_page_keys(&self) -> bool {
+        self.catalog_ops()
+            .iter()
+            .any(|(op, entry)| !super::page_keys::keys(op, entry, None).is_empty())
+    }
+}
+
+/// Whether a catalog `key` (`cmd+shift+r`) holds a dispatcher modifier: a
+/// shortcut the binding table runs.
+fn is_chord(key: &str) -> bool {
+    let mut parts = key.split('+');
+    let _ = parts.next_back();
+    parts.any(|m| matches!(m, "cmd" | "ctrl" | "alt" | "option" | "opt"))
+}
+
+impl Package {
     /// Whether the app has a script (`runtime.main`). A native-pane app
     /// (`cmux.pane/1` with `native`) has none: it installs and lists like
     /// any app, and the supervisor never spawns a host for it.
@@ -251,6 +319,9 @@ pub struct Catalog {
     pub defaults: Vec<String>,
     /// Packages that failed validation: (directory, first issue).
     pub rejected: Vec<(PathBuf, String)>,
+    /// Where each app installed from a git repository came from
+    /// (`git_source.rs`), by app id.
+    pub git: BTreeMap<String, super::git_source::GitSource>,
     /// The setups' views layers that loaded, top first (`Sources::setups`).
     pub setup_layers: Vec<String>,
 }
@@ -275,7 +346,7 @@ pub struct Sources {
     pub local: Option<PathBuf>,
     /// The user's own customization app (cx-swovq.1): one package folder,
     /// `$CMUX_CUSTOMIZE_DIR`, else `$XDG_CONFIG_HOME/cmux/customize`, else
-    /// `~/.config/cmux/customize`. Its id is `local/customize`; it installs
+    /// `~/.config/cmux/customize` (`cmux-next` on macOS). Its id is `local/customize`; it installs
     /// by itself with its required scopes (the user wrote it) and reloads
     /// when its files change (`local_reload.rs`).
     pub customize: Option<PathBuf>,
@@ -287,8 +358,8 @@ pub struct Sources {
     pub setups: Option<PathBuf>,
     /// The person's saved prompts (`cmux agent-config commands add --agent cmux`): one `NAME.md`
     /// each, `$CMUX_COMMANDS_DIR`, else `$XDG_CONFIG_HOME/cmux/commands`, else
-    /// `~/.config/cmux/commands`. `apps.composer.list` answers them first, so the composer's `/`
-    /// menu lists them in every chat (`composer.rs`).
+    /// `~/.config/cmux/commands` (`cmux-next` on macOS). `apps.composer.list` answers them
+    /// first, so the composer's `/` menu lists them in every chat (`composer.rs`).
     pub saved_prompts: Option<PathBuf>,
     /// `CMUX_APPS_DEFAULT` (comma separated): replaces the first-party
     /// directory as the default set when present.
@@ -338,7 +409,7 @@ pub fn customize_dir() -> Option<PathBuf> {
     }
     let config =
         non_empty("XDG_CONFIG_HOME").or_else(|| non_empty("HOME").map(|h| h.join(".config")))?;
-    Some(config.join("cmux").join("customize"))
+    Some(config.join(cmux_config::NEXT_DIR).join("customize"))
 }
 
 /// The setups' layers folder (`Sources::setups`): `setups` next to the
@@ -410,11 +481,13 @@ fn setup_layers(root: &Path) -> (Layers, Refused) {
 pub const CUSTOMIZE_APP: &str = "local/customize";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum DirKind {
+pub(super) enum DirKind {
     FirstParty,
     Bundled,
     Extra,
     Local,
+    /// A package fetched from a git repository (`<state>/apps/git`).
+    Git,
 }
 
 pub fn load(sources: &Sources) -> Catalog {
@@ -495,6 +568,7 @@ pub fn load_reusing(sources: &Sources, reuse: &Reuse<'_>, listed: &Listed<'_>) -
             }
         }
     }
+    super::git_source::load_into(&mut catalog, sources);
     if let Some(dir) = sources
         .customize
         .as_ref()
@@ -593,7 +667,7 @@ pub(super) mod work {
     }
 }
 
-fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
+pub(super) fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
     #[cfg(test)]
     work::count(|w| w.packages_validated += 1);
     let report = cmux_app_manifest::validate_package_file(
@@ -641,7 +715,9 @@ fn package(dir: &Path, kind: DirKind) -> Result<Package, String> {
     } else {
         Tier::Unverified
     };
-    let source = if kind == DirKind::Local || publisher == "local" {
+    let source = if kind == DirKind::Git {
+        Source::Git
+    } else if kind == DirKind::Local || publisher == "local" {
         Source::Local
     } else {
         Source::Bundled

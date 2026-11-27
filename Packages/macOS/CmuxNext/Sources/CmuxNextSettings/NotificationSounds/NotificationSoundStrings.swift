@@ -9,12 +9,12 @@ nonisolated enum NotificationSoundStrings {
     }
 
     static func importFailed(_ name: String) -> String {
-        String(localized: "notifications.sound.refusal.importFailed", defaultValue: "Could not copy \(name) to ~/Library/Sounds.",
+        String(localized: "notifications.sound.refusal.copyFailed", defaultValue: "Could not copy \(name) into cmux's sounds folder.",
                bundle: .localizedModule)
     }
 
     static var chooseMessage: String {
-        String(localized: "notifications.sound.choose.message", defaultValue: "Choose a sound for notifications. cmux copies it to ~/Library/Sounds.",
+        String(localized: "notifications.sound.choose.keepsCopy", defaultValue: "Choose a sound for notifications. cmux keeps its own copy.",
                bundle: .localizedModule)
     }
 

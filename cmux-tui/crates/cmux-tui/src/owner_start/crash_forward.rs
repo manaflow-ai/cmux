@@ -2,17 +2,23 @@
 //!
 //! The owner's panic hook (`owner_panic.rs`) writes `owner-panics-<session>.jsonl`.
 //! The cmux-next app sends those lines to Sentry for the cmux-tui it bundles;
-//! a Linux, npm or PyPI cmux-tui had nobody to send them. At owner start this
+//! a Linux, Windows, npm or PyPI cmux-tui had nobody to send them (Windows
+//! too since RFD 0157's crash upload piece; `crash_scrub` redacts its
+//! `C:\Users\<name>` paths). At owner start this
 //! sends the lines not sent yet (a main-thread panic ends the process, so its
 //! line goes on the next start) to the app's Sentry project, tagged
 //! `process=cmux-tui`, each line once (a byte offset in `<log>.sent`). The
 //! memory guard's `owner-memory-<session>.jsonl` goes the same way, at start
-//! and right after each alert.
+//! and right after each alert, and so does the interactive client's
+//! `client-hangs.jsonl` (`ui_watchdog`), at client start and right after each hang.
+//! The acpmux daemon's `$ACPMUX_HOME/panics.jsonl` (cmux-panic-log, RFD 0157) goes too, at
+//! owner start, tagged `process=acpmux` as the app tags it (`RustPanicSource.acpmux`); every
+//! owner on the machine reads that one log, so a file lock beside its offset lets one send.
 //!
-//! It sends nothing when: the binary is inside the cmux app (the app sends
+//! It sends nothing until the person opts in (`app.sendAnonymousTelemetry: true` in cmux.json;
+//! unset is off). It also sends nothing when: the binary is inside the cmux app (the app sends
 //! them), a managed policy disables telemetry, `DO_NOT_TRACK` or
-//! `CMUX_TUI_TELEMETRY=off` is set, cmux.json has
-//! `app.sendAnonymousTelemetry: false`, `CI` is set, or the build is not a
+//! `CMUX_TUI_TELEMETRY=off` is set, `CI` is set, or the build is not a
 //! release (no `CMUX_TUI_DISTRIBUTION_VERSION` stamp). Debug builds take a
 //! test DSN from `CMUX_TUI_TEST_SENTRY_DSN`, which also stands in for the stamp.
 
@@ -102,6 +108,10 @@ pub(super) fn consent(inputs: &ConsentInputs<'_>) -> Consent {
     if setting == Some(&Value::Bool(false)) {
         return Consent::Off("app.sendAnonymousTelemetry is false");
     }
+    // Off until the person turns it on: an unset setting sends nothing.
+    if setting != Some(&Value::Bool(true)) {
+        return Consent::Off("app.sendAnonymousTelemetry is not turned on");
+    }
     if env_set("CI").is_some() {
         return Consent::Off("CI");
     }
@@ -111,11 +121,70 @@ pub(super) fn consent(inputs: &ConsentInputs<'_>) -> Consent {
     Consent::Send
 }
 
+/// Which process wrote a panic log: the tags, fingerprint and message its events carry, the
+/// same as the app's `RustPanicSource` for that process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct Source {
+    pub(super) process: &'static str,
+    pub(super) crash_source: &'static str,
+    pub(super) fingerprint: &'static str,
+    pub(super) label: &'static str,
+    /// The tag a line's `version` goes in.
+    pub(super) version_tag: &'static str,
+    /// Whether a line's `version` is this build's release (the owner's is; acpmux writes its
+    /// crate version, so its release is this binary's).
+    pub(super) line_version_is_release: bool,
+}
+
+impl Source {
+    /// The owner (`owner-panics-<session>.jsonl`), its memory log and the client's hang log.
+    pub(super) const OWNER: Source = Source {
+        process: "cmux-tui",
+        crash_source: "owner_panic_log",
+        fingerprint: "owner-panic",
+        label: "cmux-tui owner panic",
+        version_tag: "tui_version",
+        line_version_is_release: true,
+    };
+    /// The acpmux daemon (`$ACPMUX_HOME/panics.jsonl`).
+    pub(super) const ACPMUX: Source = Source {
+        process: "acpmux",
+        crash_source: "acpmux_panic_log",
+        fingerprint: "acpmux-panic",
+        label: "acpmux daemon panic",
+        version_tag: "acpmux_version",
+        line_version_is_release: false,
+    };
+
+    /// The source of `log`, by its file name (acpmux's is `panics.jsonl`).
+    pub(super) fn of(log: &Path) -> Source {
+        if log.file_name().and_then(|name| name.to_str()) == Some(ACPMUX_PANIC_LOG) {
+            Source::ACPMUX
+        } else {
+            Source::OWNER
+        }
+    }
+}
+
+/// The acpmux daemon's panic log file name (`acpmux::config::panic_log_path`).
+const ACPMUX_PANIC_LOG: &str = "panics.jsonl";
+
+/// The acpmux daemon's panic log: in the home `cmux acp` uses (`ACPMUX_HOME`, else this build's
+/// home), else acpmux's own default (`~/.acpmux`). Read without `cmux acp`'s one-time adoption
+/// of a pre-isolation home, so forwarding moves nothing.
+pub(super) fn acpmux_panic_log() -> PathBuf {
+    #[cfg(unix)]
+    if let Some(home) = crate::acp::key_lock_home() {
+        return home.join(ACPMUX_PANIC_LOG);
+    }
+    acpmux::config::panic_log_path()
+}
+
 /// The Sentry event for one panic line; None for a test line or a line that is not a panic.
 /// The message, location and backtrace go through `crash_scrub` (docs/privacy.md, Telemetry):
 /// `home` becomes `~`, and secrets, emails and other user names are redacted, so none of them
 /// leaves the machine.
-pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
+pub(super) fn event_for(line: &str, source: &Source, home: Option<&str>) -> Option<Value> {
     let record: Value = serde_json::from_str(line).ok()?;
     if record.get("test").and_then(Value::as_bool) == Some(true) {
         return None;
@@ -125,11 +194,11 @@ pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
     let location = scrub(record.get("location").and_then(Value::as_str).unwrap_or_default());
     let text = |key: &str| record.get(key).and_then(Value::as_str).map(String::from);
     let mut tags = serde_json::Map::new();
-    tags.insert("process".into(), json!("cmux-tui"));
-    tags.insert("crash_source".into(), json!("owner_panic_log"));
+    tags.insert("process".into(), json!(source.process));
+    tags.insert("crash_source".into(), json!(source.crash_source));
     for (field, tag) in [
         ("thread", "thread"),
-        ("version", "tui_version"),
+        ("version", source.version_tag),
         ("build_identity", "tui_build"),
         ("os", "tui_os"),
         ("arch", "tui_arch"),
@@ -138,8 +207,44 @@ pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
             tags.insert(tag.into(), json!(value));
         }
     }
-    let version = text("version").unwrap_or_else(|| DISTRIBUTION_VERSION.to_string());
+    let version = text("version")
+        .filter(|_| source.line_version_is_release)
+        .unwrap_or_else(|| DISTRIBUTION_VERSION.to_string());
     let at_ms = record.get("at_ms").and_then(Value::as_u64).unwrap_or_default();
+    if record.get("kind").and_then(Value::as_str) == Some("client-hang") {
+        // A UI-loop hang of the interactive client (ui_watchdog): a warning, one issue per
+        // top frame, with the sampled stack and the waits as extra data.
+        tags.insert("crash_source".into(), json!("client_hang_log"));
+        let list = |key: &str| -> Vec<String> {
+            record
+                .get(key)
+                .and_then(Value::as_array)
+                .map(|items| items.iter().filter_map(Value::as_str).map(scrub).collect())
+                .unwrap_or_default()
+        };
+        return Some(json!({
+            "event_id": uuid::Uuid::new_v4().simple().to_string(),
+            "timestamp": at_ms as f64 / 1000.0,
+            "platform": "native",
+            "level": "warning",
+            "logger": "cmux-tui",
+            "release": format!("cmux-tui@{version}"),
+            "exception": {"values": [{
+                "type": "ClientHang",
+                "value": message,
+                "mechanism": {"type": "ui_watchdog", "handled": true},
+            }]},
+            "message": {"formatted": message},
+            "fingerprint": ["client-hang", location],
+            "tags": tags,
+            "extra": {
+                "duration_ms": record.get("duration_ms"),
+                "backtrace": scrub(record.get("backtrace").and_then(Value::as_str).unwrap_or_default()),
+                "waits": list("waits"),
+                "cancelled": list("cancelled"),
+            },
+        }));
+    }
     if record.get("kind").and_then(Value::as_str) == Some("memory") {
         // A memory guard line (memory_guard.rs): a warning, one issue per
         // release, with the figures as extra data.
@@ -171,16 +276,16 @@ pub(super) fn event_for(line: &str, home: Option<&str>) -> Option<Value> {
         "timestamp": at_ms as f64 / 1000.0,
         "platform": "native",
         "level": "error",
-        "logger": "cmux-tui",
+        "logger": source.process,
         "release": format!("cmux-tui@{version}"),
         "exception": {"values": [{
             "type": "RustPanic",
             "value": message,
             "mechanism": {"type": "rust_panic", "handled": false},
         }]},
-        "message": {"formatted": format!("cmux-tui owner panic at {location}: {message}")},
+        "message": {"formatted": format!("{} at {location}: {message}", source.label)},
         // Same panic site, same issue, whatever the message text holds (as the app does).
-        "fingerprint": ["owner-panic", location],
+        "fingerprint": [source.fingerprint, location],
         "tags": tags,
         "extra": {
             "location": location,
@@ -221,13 +326,14 @@ pub(super) fn forward_new(
     if offset > bytes.len() {
         offset = 0;
     }
+    let source = Source::of(log);
     let mut sent = 0;
     let mut failure = None;
     while sent < max {
         let rest = &bytes[offset..];
         let Some(end) = rest.iter().position(|byte| *byte == b'\n') else { break };
         let line = String::from_utf8_lossy(&rest[..end]);
-        if let Some(event) = event_for(&line, home) {
+        if let Some(event) = event_for(&line, &source, home) {
             if let Err(error) = send(&envelope(&event)) {
                 failure = Some(error);
                 break;
@@ -278,17 +384,47 @@ pub(super) struct Forwarder {
 }
 
 impl Forwarder {
-    /// Sends `log`'s unsent lines (see ``forward_new``).
-    #[cfg(unix)]
+    /// Sends `log`'s unsent lines (see ``forward_new``). Another process sending the same log
+    /// (every owner reads acpmux's) holds `<log>.sent.lock`; then this sends nothing.
     pub(super) fn forward(&self, log: &Path) -> Result<usize, String> {
         let _sending = self.sending.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(_lock) = try_lock_beside(log)? else { return Ok(0) };
         send_all(log, &self.dsn, self.home.as_deref())
     }
+}
 
-    #[cfg(not(unix))]
-    pub(super) fn forward(&self, _log: &Path) -> Result<usize, String> {
-        Ok(0)
+/// An exclusive lock on `<log>.sent.lock`, held while the returned file lives; None when another
+/// process holds it. No directory (no log yet): nothing to lock, nothing to send.
+pub(super) fn try_lock_beside(log: &Path) -> Result<Option<std::fs::File>, String> {
+    let mut name = state_path(log).file_name().unwrap_or_default().to_os_string();
+    name.push(".lock");
+    let path = log.with_file_name(name);
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).truncate(false).write(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
     }
+    let file = match options.open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("lock {}: {error}", path.display())),
+    };
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+        Err(std::fs::TryLockError::Error(error)) => {
+            Err(format!("lock {}: {error}", path.display()))
+        }
+    }
+}
+
+/// The home `crash_scrub` turns into `~`: `HOME`, or on Windows (where `HOME` is usually unset)
+/// the profile, `USERPROFILE`.
+pub(super) fn home_dir(env: &dyn Fn(&str) -> Option<String>) -> Option<String> {
+    let set = |name: &str| env(name).filter(|value| !value.is_empty());
+    set("HOME").or_else(|| if cfg!(windows) { set("USERPROFILE") } else { None })
 }
 
 /// Decides consent once and, when it allows, sends the unsent lines of every
@@ -300,10 +436,6 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
     let test_dsn = env(TEST_DSN_ENV).filter(|dsn| !dsn.is_empty());
     #[cfg(not(debug_assertions))]
     let test_dsn: Option<String> = None;
-    if cfg!(not(unix)) {
-        crate::client_log::info(LOG_AREA, "crash-forward: off (unsupported platform)");
-        return None;
-    }
     let executable = std::env::current_exe().ok().and_then(|path| std::fs::canonicalize(path).ok());
     let managed = cmux_config::managed::default_reader(env).read();
     let settings = std::fs::read_to_string(cmux_config::config_path())
@@ -324,7 +456,7 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
         crate::client_log::warn(LOG_AREA, "crash-forward: off (bad DSN)");
         return None;
     };
-    let forwarder = Forwarder { dsn, home: env("HOME"), sending: Default::default() };
+    let forwarder = Forwarder { dsn, home: home_dir(&env), sending: Default::default() };
     let worker = forwarder.clone();
     let _ = std::thread::Builder::new().name("crash-forward".into()).spawn(move || {
         let mut sent = 0;
@@ -345,15 +477,13 @@ pub(super) fn start(logs: Vec<PathBuf>) -> Option<Forwarder> {
     Some(forwarder)
 }
 
-#[cfg(unix)]
 fn send_all(log: &Path, dsn: &Dsn, home: Option<&str>) -> Result<usize, String> {
-    // reqwest's rustls-no-provider build needs the workspace's ring provider.
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    // `cmux_egress::client_builder` installs the ring provider reqwest's rustls build needs.
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(|error| format!("runtime: {error}"))?;
-    let client = reqwest::Client::builder()
+    let client = cmux_egress::client_builder("cmux_tui::owner_start::crash_forward")
         .timeout(std::time::Duration::from_secs(10))
         .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
         .build()

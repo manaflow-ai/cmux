@@ -50,9 +50,9 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     @ObservationIgnored let titleTimer = DemandTimer(owner: "WebKitTab.title")
     /// After Wait on a hung page, looks again whether WebKit still counts it unresponsive (`WebKitTab+Unresponsive`).
     @ObservationIgnored let hangRecheck = DemandTimer(owner: "WebKitTab.hang")
-    @ObservationIgnored var hangRecheckDelay: Duration = .seconds(10)
-    /// Whether the page's web content process answers now (WebKit's `_webProcessIsResponsive`); tests replace it.
-    @ObservationIgnored var webProcessIsResponsiveOverride: (@MainActor () -> Bool)?
+    /// The person chose Exit page on a hung page: the process end that follows waits for their Reload, even under
+    /// memory pressure (`BrowserExitRecovery` would otherwise reload it by itself).
+    @ObservationIgnored var endedByPerson = false
     @ObservationIgnored private var navigationIDs: [ObjectIdentifier: BrowserNavigationID] = [:]
     @ObservationIgnored private var nextNavigation: UInt64 = 0
     /// `observeNavigationEvents` handlers (WebKitTab+Navigations.swift).
@@ -101,7 +101,7 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
     /// The one automatic reload a memory end of the web content process owes (`WebKitTab+Delegates`).
     @ObservationIgnored var exitRecovery = BrowserExitRecovery()
     /// Set by the hibernation planner while it holds the page frozen (`BrowserFreezeReporting`).
-    @ObservationIgnored public var onFrozenPageLost: (@MainActor () -> Void)?
+    @ObservationIgnored public var onFrozenPageChange: (@MainActor (BrowserFrozenPageChange) -> Void)?
 
     init(configuration: BrowserTabConfiguration, webViewConfiguration: WKWebViewConfiguration, engine: WebKitEngine,
          openedByPage: Bool = false) {
@@ -194,6 +194,17 @@ public final class WebKitTab: NSObject, BrowserTab, BrowserAgentFileChoosing, Br
         } else if (webView as? WebKitWebView)?.hasKeyboardFocus == true {
             FocusRoute(.system, "focus model: WebKit tab resigns").moveKeyboard(in: window, to: nil)
         }
+    }
+
+    /// Whether this page has the keyboard in `window`, the key window, and answers for every key:
+    /// the web view itself is the first responder (WebKit hands a key equivalent to the page only
+    /// then) and its WebContent process runs. WebKit sends a key the page left unhandled back to
+    /// `NSApp.sendEvent` (`WebViewImpl::doneWithKeyEvent`); with no process (before the first load,
+    /// after a crash) it drops the key and sends nothing back, so cmux must run its action first.
+    public func pageHasKeyboard(in window: NSWindow) -> Bool {
+        guard !isClosed, webView.window === window, window.firstResponder === webView,
+              case .pids = contentProcesses else { return false }
+        return true
     }
 
     /// WebKit draws in-view and throttles hidden views itself; a page shown after a memory end

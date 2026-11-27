@@ -59,7 +59,11 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
           actions: Boolean(node(id).querySelector(".cv-turn-actions:not(.cv-turn-actions--empty)")),
           height: box(id).height,
         })),
-        peer: box("peer").top - box("footer-b").bottom,
+        // Another agent's line opens its own turn under that turn's "Worked for" head (66beef47be6,
+        // #49052): the head is the row under the footer, so the gap is measured to it.
+        peer:
+          document.querySelector('[data-row-id="worked-continuation-peer"]')!.getBoundingClientRect().top -
+          box("footer-b").bottom,
         footerUnderReply: box("footer-c").top - box("c").bottom,
         user: box("user").top - actions("footer-c").bottom,
         paddings: ["footer-a", "footer-b", "footer-c", "footer-d"].map((id) =>
@@ -87,7 +91,8 @@ await requireBrowserLane("transcript-continuation-spacing.test.ts", async () => 
       { actions: true, height: TRANSCRIPT_FOOTER_CONTROL },
       { actions: true, height: TRANSCRIPT_FOOTER_CONTROL },
     ]);
-    // Under a reply's footer row another agent's line keeps the block gap (transcriptGrid.ts footer-to-received).
+    // Under a reply's footer row the turn another agent's line opens keeps the block gap
+    // (transcriptGrid.ts footer-to-received), its "Worked for" head first (66beef47be6).
     expect(actual.peer).toBeCloseTo(gridLength("gap-block"), 1);
     expect(actual.footerUnderReply).toBeCloseTo(gridLength("gap-footer"), 1);
     expect(actual.user).toBeCloseTo(gridLength("gap-turn"), 1);

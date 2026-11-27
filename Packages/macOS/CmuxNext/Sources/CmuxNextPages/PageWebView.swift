@@ -70,9 +70,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var chromiumDragFile: (url: URL, at: Date)?
     /// Shows the Chromium page's context menu at a point of this view (tests capture it).
     var chromiumMenuPresenter: @MainActor (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
-        // A view in no window cannot anchor a menu (AppKit raises): the page closed meanwhile.
-        guard view.window != nil else { return }
-        menu.popUp(positioning: nil, at: point, in: view)
+        menu.popUpAtPointer(point, in: view)
     }
     /// Making the Chromium page (cancelled when the view closes or falls back).
     var chromiumStart: Task<Void, Never>?
@@ -175,6 +173,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// shows a crash notice for it takes the notice away (a host route, a retarget or a WebKit
     /// fallback can load the page again without the notice's Reload).
     public var onDocumentLoaded: (@MainActor () -> Void)?
+    /// The page's document is about to be replaced or is gone (``PageDocumentChange``): a reload asked for in
+    /// either engine, the renderer ended, or a new document committed. Told before the page acts, so a host
+    /// can keep a picture of the last frame on screen until the new document paints (Leo 2026-11-22: a reload
+    /// of every chat "compLETELY blanked out this agent chat").
+    public var onDocumentWillChange: (@MainActor (PageDocumentChange) -> Void)?
     /// Why the last crash reported to ``onCrash`` ended the page's process (WebKit's reason and
     /// pid); nil before any crash.
     public internal(set) var lastTermination: PageTermination?
@@ -188,8 +191,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// reloads or restarts such a page by itself: a reload would read the file again and drop them.
     /// They stay in the recovery draft and the quit hook; the person closes or saves the tab.
     public var holdsUnsavedEdits: () -> Bool = { false }
-    /// The daemon tab the page shows (the agent chat's), nil for a page in no tab: app health names a stuck
-    /// page by that tab's title and workspace (`AppHealthPlaces`).
+    /// The daemon tab the page shows (the agent chat's), nil for a page in no tab.
     public var healthTabKey: @MainActor () -> String? = { nil }
     /// The page's own last word on unsaved edits (its heartbeat's `edits`: an editor that marked
     /// itself `[data-cmux-unsaved-edits]`, the Cloud page's file editor), kept until the next beat.
@@ -288,6 +290,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
+    /// The page's process ended and its host holds it for the host's own answer: the crash notice and
+    /// its Reload, or the host's automatic retry (the agent chat's ``reloadsAfterCrash`` false), or the
+    /// notice after ``PageCrashReloads`` ran out. App health's repairs leave such a page alone: they
+    /// reloaded it under the notice and reset its crash count, so a page that crashes as it loads
+    /// loaded again every few minutes forever (hq#27887, class 2). Cleared by ``reloadAfterCrashes()``.
+    public internal(set) var holdsCrash = false
     /// Whether the document an overlay served started (PageWebView+OverlayStart.swift), and the bound
     /// on its first word.
     var overlayStart = OverlayStartCheck()
@@ -436,7 +444,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         bridge = webKitBridge
         let target = PageScriptTarget(webKitBridge)
         scriptTarget = target
-        scripts = PageScriptPipeline { script in target.evaluate(script) }
+        scripts = PageScriptPipeline { envelopeText in target.receive(envelopeText) }
         let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
         engineDecision = pooled || !load ? decision.webKitOnly : decision
         super.init(frame: .zero)
@@ -572,7 +580,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         uiScaleObservation?.cancel()
         let chatZoom = followsChatZoom
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale, Typography.pageRowTextScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale, Typography.pageRowTextScale, chatZoom ? DesignSettings.shared.agentPaneZoom : 1, DesignSettings.shared.pageMetrics) }) {
                 guard let self else { return }
                 self.applyUIScale()
             }
@@ -683,6 +691,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             guard (oldValue == nil) != (paintedUptime == nil) else { return }
             // A new document draws again wherever it is; a page out of sight hides once it drew (AwayDrawing).
             if paintedUptime == nil { awayDrawing.drawnSize = nil }
+            awayDrawing.resetUnpaintedBound()
             setChromiumVisibility(true)
         }
     }

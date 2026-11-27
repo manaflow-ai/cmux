@@ -170,6 +170,12 @@ impl MuxLaneTracker {
                 // vanish. One ordered lane keeps the cut and the bytes after
                 // it in host order.
                 "snapshot" | "digest" => Lane::Bulk,
+                // `resized` is not a bare ack: it carries the screen replay
+                // and pending sequence cut at the new grid, so it is a cut of
+                // the same byte stream as `output` and must stay in its lane
+                // (the `resize-surface` reply itself follows its request on
+                // Interactive). `detached` ends that stream: on another lane
+                // it could overtake the surface's last output.
                 "output" | "vt-state" | "render-state" | "render-delta" | "frame"
                 | "browser-state" | "resized" | "colors-changed" | "scroll-changed"
                 | "detached" => Lane::Bulk,
@@ -256,12 +262,70 @@ pub(crate) fn classify_client_line(line: &[u8]) -> Lane {
         // answers as non-JSON lines, which go on the control lane; the line goes with them so
         // the manifest never overtakes it.
         Some("projection.serve") => Lane::Control,
-        // Mutations default to one ordered lane with compact PTY input. This
-        // keeps a later close, move, focus, resize, or configuration change
-        // from overtaking input already accepted from the local mux client.
-        Some(_) => Lane::Interactive,
+        Some(name) if is_interactive_command(name) => Lane::Interactive,
+        // Everything else, including any command added later, waits behind
+        // keystrokes: a large or unknown command never queues ahead of PTY input.
+        Some(_) => Lane::Control,
         None => Lane::Control,
     }
+}
+
+/// Commands that carry what a person is doing right now: keys and pointer
+/// input, the resize and focus that follow them, and the layout and close
+/// changes that must not overtake input already sent to the same surface.
+/// Exact names, so a new command lands on Control until someone puts it here.
+fn is_interactive_command(name: &str) -> bool {
+    matches!(
+        name,
+        // Keystrokes, pasted text and replies the terminal is waiting on.
+        "send"
+            | "send-key"
+            | "terminal-clipboard-reply"
+            // Browser pane input.
+            | "browser-key"
+            | "browser-key-press"
+            | "browser-insert-text"
+            | "browser-mouse"
+            | "browser-mouse-guarded"
+            | "browser-wheel"
+            | "browser-wheel-guarded"
+            // Size and scroll.
+            | "resize-surface"
+            | "resize-attached-view"
+            | "release-attached-view-size"
+            | "release-surface-size"
+            | "set-client-sizing"
+            | "set-size-policy"
+            | "set-size-counts"
+            | "note-size-activity"
+            | "set-viewport-pane-width"
+            | "scroll-surface"
+            // Focus and selection.
+            | "client-focus"
+            | "report-focus"
+            | "focus-pane"
+            | "focus-direction"
+            | "select-tab"
+            | "select-screen"
+            | "select-workspace"
+            | "zoom-pane"
+            // Layout and close: a close or split never overtakes keys sent
+            // to the surface it changes.
+            | "split"
+            | "new-pane"
+            | "new-pane-right"
+            | "swap-pane"
+            | "float-pane"
+            | "set-split-ratio"
+            | "set-ratio"
+            | "set-layout-sizes"
+            | "set-row-heights"
+            | "undo-layout"
+            | "close-surface"
+            | "close-pane"
+            | "close-terminal"
+            | "close-tabs"
+    )
 }
 
 #[cfg(test)]
