@@ -566,6 +566,38 @@ impl Hub {
                 _ => None,
             }
         };
+        // RFD 0158 §14 (`approval_review.rs`, off by default): a cheap model's verdict on a prompt
+        // the chat's policy leaves to the person, judged before the lock (it waits on a model).
+        // Under the lock only a clear allow, with no rule, policy, deny or Web turn deciding,
+        // answers it, and only `allow_once`.
+        let auto_review = if !needs_person
+            && !off.off()
+            && start_full_access.is_none()
+            && super::approval_review::offers_allow_once(&request)
+            && super::approval_review::enabled()
+        {
+            let policy = {
+                let cfg = self.config.read().await;
+                capped_policy(Self::stored_policy_for(session, cfg.permission_policy), off.off())
+            };
+            let kind = request.pointer("/toolCall/kind").and_then(Value::as_str).unwrap_or("");
+            let meta = session.meta();
+            let rule_decided = meta
+                .permission_rules
+                .as_ref()
+                .and_then(|r| super::rules::decide(r, &request))
+                .is_some();
+            let answered = shell_reads || super::approval_review::policy_answers(policy, kind);
+            if super::approval_review::eligible(policy, rule_decided, answered, needs_person)
+                && !Self::web_turn(session)
+            {
+                Some(super::approval_review::review(&request, &meta.cwd).await)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
@@ -680,6 +712,18 @@ impl Hub {
             let full_access = (full_access_on && !off.off() && rule.is_none() && !denied)
                 .then(|| full_access_allow(session, &request, start_full_access.as_deref()))
                 .flatten();
+            // The reviewer's allow (above): only for what nothing else here decided.
+            let reviewed = auto_review
+                .filter(|r| {
+                    r.verdict == super::approval_review::Verdict::Allow
+                        && rule.is_none()
+                        && auto.is_none()
+                        && !denied
+                        && !off.off()
+                        && super::approval_review::eligible(policy, false, false, needs_person)
+                })
+                .and_then(|_| pick(&["allow_once"]));
+            let by_review = reviewed.is_some() && chat_option.is_none() && full_access.is_none();
             let auto = if denied {
                 pick(&["reject_once", "reject_always"])
             } else if needs_person || web_turn {
@@ -688,7 +732,7 @@ impl Hub {
             } else if let Some((_, option_id)) = &full_access {
                 Some(option_id.clone())
             } else {
-                chat_option.clone().or(auto)
+                chat_option.clone().or(auto).or(reviewed)
             };
             let permission_id = uuid::Uuid::now_v7().to_string();
             if let Some(option_id) = auto {
@@ -700,6 +744,11 @@ impl Hub {
                 if let Some((mode, _)) = &full_access {
                     record.set("fullAccess", json!(mode));
                     tracing::info!(session = %session.id, %mode, "full access approved a request the harness raised");
+                }
+                if let Some(review) = &auto_review {
+                    let mut r = review.record();
+                    r.set("answered", json!(by_review));
+                    record.set("autoReview", r);
                 }
                 self.append(session, "mux", "permission_auto", record);
                 return json!({"outcome": {"outcome": "selected", "optionId": option_id}});
@@ -749,6 +798,9 @@ impl Hub {
             // A risky step on a Cloud machine offers "Fork first" (`fork_risky.rs`).
             if let Some(offer) = crate::fork_risky::offer_here(&request, &permission_id) {
                 asked.set("forkOffer", offer);
+            }
+            if let Some(review) = &auto_review {
+                asked.set("autoReview", review.record());
             }
             self.append(session, "mux", "permission_request", asked);
             self.background_attention(session);
