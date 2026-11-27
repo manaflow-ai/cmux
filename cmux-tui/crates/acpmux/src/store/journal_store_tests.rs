@@ -2609,7 +2609,7 @@ fn waits_of(bodies: &[TokenStream], drops: &DropNames) -> TestScan {
     let mut waits = Vec::new();
     for body in bodies {
         let tts: Vec<TokenTree> = body.clone().into_iter().collect();
-        waits_in(&tts, None, &[], drops, &mut waits);
+        waits_in(&tts, None, false, &[], drops, &mut waits);
     }
     waits.sort_by_key(|wait| wait.line);
     TestScan { ranges: bodies.len(), waits }
@@ -2621,6 +2621,7 @@ fn waits_of(bodies: &[TokenStream], drops: &DropNames) -> TestScan {
 fn waits_in(
     tts: &[TokenTree],
     callee: Option<&str>,
+    timeout_future: bool,
     before: &[&[TokenTree]],
     drops: &DropNames,
     out: &mut Vec<Wait>,
@@ -2643,7 +2644,26 @@ fn waits_in(
         if !fn_body {
             path.push(&tts[..j]);
         }
-        waits_in(&inner, called.as_deref(), &path, drops, out);
+        // Only an async block passed as the timeout's future inherits its deadline.
+        // A synchronous block can block before timeout() is called, and a nested async
+        // block or function can escape the outer future's lifetime.
+        let async_at = j.checked_sub(1).filter(|&k| word(tts.get(k), "async")).or_else(|| {
+            j.checked_sub(2).filter(|&k| word(tts.get(k), "async") && word(tts.get(k + 1), "move"))
+        });
+        let timed_async = g.delimiter() == Delimiter::Brace
+            && callee.is_some_and(|c| matches!(c, "timeout" | "timeout_at"))
+            && async_at.is_some_and(|at| at > 0 && punct(tts.get(at - 1), ','))
+            && (j + 1 == tts.len() || (j + 2 == tts.len() && punct(tts.get(j + 1), ',')));
+        // Stay conservative across calls and closures: their work may run elsewhere.
+        let statement = tts[..j].rsplit(|tt| punct(Some(tt), ';')).next().unwrap_or(&[]);
+        let nested_future = timed_async
+            || (timeout_future
+                && g.delimiter() == Delimiter::Brace
+                && !fn_body
+                && async_at.is_none()
+                && !called.as_deref().is_some_and(|c| c.ends_with('!') && c != "select!")
+                && !statement.iter().any(|tt| punct(Some(tt), '|')));
+        waits_in(&inner, called.as_deref(), nested_future, &path, drops, out);
     }
     for i in 0..tts.len() {
         let (Some(TokenTree::Ident(wait)), Some(args)) =
@@ -2660,7 +2680,15 @@ fn waits_in(
         let whole_argument = (head == 0 || punct(tts.get(head - 1), ','))
             && (i + 3 == tts.len() || punct(tts.get(i + 3), ','));
         let bounded = callee.is_some_and(|c| BOUNDS.contains(&c)) && whole_argument;
-        if !blocking && (awaited || bounded) {
+        // select! requires a future before `=>`; a receive in its handler can still
+        // block synchronously and must not be excused by the enclosing timeout.
+        let selected = timeout_future
+            && callee == Some("select!")
+            && head > 0
+            && punct(tts.get(head - 1), '=')
+            && punct(tts.get(i + 3), '=')
+            && punct(tts.get(i + 4), '>');
+        if !blocking && (awaited || bounded || selected) {
             continue;
         }
         let root = root_name(&tts[head..i]);
@@ -2964,6 +2992,34 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
         ("sweep: a comparison", "let same = arrived.RECV == Ok(());\n"),
         ("sweep: a call's argument inside a timeout", "consume(timeout(d, wrap(rx.RECV)));\n"),
         ("sweep: a select! arm with no timeout", "tokio::select! {\n    n = rx.RECV => n,\n}\n"),
+        (
+            "a blocking receive in a timed select future",
+            "timeout(d, async { tokio::select! { n = rx.blocking_RECV => n } }).await;",
+        ),
+        (
+            "a synchronous receive in a timed select handler",
+            "timeout(d, async { tokio::select! { n = ready() => rx.RECV } }).await;",
+        ),
+        (
+            "a synchronous block evaluated before timeout",
+            "timeout(d, { tokio::select! { n = rx.RECV => n } }).await;",
+        ),
+        (
+            "a nested async block can outlive a timeout",
+            "timeout(d, async { spawn(async { tokio::select! { n = rx.RECV => n } }); }).await;",
+        ),
+        (
+            "a nested function does not inherit a timeout",
+            "timeout(d, async { async fn other() { tokio::select! { n = rx.RECV => n } } }).await;",
+        ),
+        (
+            "an async closure does not inherit a timeout",
+            "timeout(d, async { let later = async || { tokio::select! { n = rx.RECV => n } }; }).await;",
+        ),
+        (
+            "an unknown macro can move work outside a timeout",
+            "timeout(d, async { spawn_work! { tokio::select! { n = rx.RECV => n } } }).await;",
+        ),
         ("sweep: a park name in an argument, not the receiver", "pick(release).RECV.unwrap();\n"),
         ("sweep: a park name on another field", "self.release.held.RECV.unwrap();\n"),
     ];
@@ -3104,6 +3160,14 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
             "let got = tokio::time::timeout(\n    Duration::from_secs(5),\n    rx.RECV,\n)\n.await;\n",
         ),
         ("F2: a timeout_at", "let got = tokio::time::timeout_at(deadline, self.rx.RECV).await;\n"),
+        (
+            "an inbox acknowledgement selected inside a timed async block",
+            "tokio::time::timeout(d, async { tokio::select! { result = &mut prompt => panic!(), ack = rx.RECV => ack.expect(\"acceptance\"), } }).await;",
+        ),
+        (
+            "a selected receive in a timed async move block",
+            "timeout_at(deadline, async move { if ready { tokio::select! { n = rx.RECV => n } } },).await;",
+        ),
         (
             "F2: a timeout in a select! arm",
             "tokio::select! {\n    n = tokio::time::timeout(d, rx.RECV) => n,\n}\n",
