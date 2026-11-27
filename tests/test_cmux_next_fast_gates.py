@@ -286,6 +286,12 @@ class WorkflowShape(unittest.TestCase):
                               f'add {{"prefix": "tests/{name}.py", "python": ["tests/test_cmux_next_fast_gates.py"]}} to '
                               "scripts/ci/focused-tests-extra.json")
 
+    def test_checkout_holds_webviews_example_assets(self):
+        # Webviews' gallery and setup checks read JSON under examples/ at build time. Keep the whole directory in the
+        # sparse checkout so the fast-gates web bundle does not fail before its assertions run.
+        patterns = step_named(job(workflow())["steps"], "Checkout")["with"]["sparse-checkout"].split()
+        self.assertIn("/examples/", patterns)
+
     def test_triggers_have_no_paths_filter(self):
         on = triggers(workflow())
         # A feat-cmux-next pull request runs it from pr-router.yml (scripts/ci/pr_router.json), with no path filter
@@ -2512,6 +2518,18 @@ class DeepenFallbackTests(unittest.TestCase):
     def test_any_other_failure_still_fails(self):
         with self.assertRaises(SystemExit):
             self.run_deepen_fetch({"--filter=tree:0": "fatal: could not read from remote repository"})
+
+
+class FetchesSkipSubmodules(unittest.TestCase):
+    """Fast gates only read history: a fetch that recursed into submodules failed run 46017930661 on a reused pool
+    workspace with "Could not access submodule 'ghostty'" (handbook whole-origin-fetch-pulls-submodule-pins)."""
+
+    def test_every_fetch_passes_no_recurse_submodules(self) -> None:
+        source = (Path(__file__).resolve().parents[1] / "scripts/ci/cmux_next_fast_gates.py").read_text(encoding="utf-8")
+        calls = re.findall(r'git\(repo, "fetch",[^\n]*', source)
+        self.assertTrue(calls)
+        for call in calls:
+            self.assertIn('"--no-recurse-submodules"', call)
 
 
 if __name__ == "__main__":
