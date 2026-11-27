@@ -225,6 +225,8 @@ impl TransferDial for CarrierDial {
             let hub = self.hub.upgrade().ok_or("stopping")?;
             let carrier =
                 hub.hub_carrier.get().ok_or("this daemon's hub carrier is not running")?;
+            // The slot hands out an owned carrier; both closures borrow it, as they run again.
+            let carrier = &carrier;
             let stream: HubStream = dial_past_capacity(
                 move || carrier.dial_service(daemon, CircuitService::TransferSource),
                 move || async move {
