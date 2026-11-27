@@ -2236,10 +2236,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextCloudUI",
             // Pages: the Cloud progress page's provider (CloudProgressPageProvider).
+            // CloudStart: a start-session run's checks and command (CloudStartSessionRequest).
             // Daemon: the Team section reads the person's Cloud machines' stores (CloudTeamFeature).
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextActions",
                 "CmuxNextCloud",
+                "CmuxNextCloudStart",
                 "CmuxNextCompat",
                 "CmuxNextDaemon",
                 "CmuxNextDesign",
