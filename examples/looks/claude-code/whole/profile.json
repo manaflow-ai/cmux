@@ -17,6 +17,7 @@
     "sidebar.cards.tips": false,
     "tabs.hideLoneChatTab": true,
     "agentPane.display.presentation": "transcript",
+    "agentPane.display.sendScrollsToTop": true,
     "agentPane.display.transcriptView": "normal",
     "agentPane.display.font.size": 14,
     "agentPane.display.width": 800,
