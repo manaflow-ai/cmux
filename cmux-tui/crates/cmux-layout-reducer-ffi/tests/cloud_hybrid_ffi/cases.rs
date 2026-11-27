@@ -293,3 +293,21 @@ fn an_autosize_notice_becomes_a_chat_row_and_a_repeated_hold_folds() {
     );
     assert_eq!(call(c"cloud_autosize_rows", &json!({"rows": []})).0, ERR_INVALID);
 }
+
+#[test]
+fn the_size_row_is_empty_while_more_room_is_off_and_offers_one_step_when_on() {
+    let facts = json!({
+        "home": "cloud",
+        "shape": {"vcpu": 2.0, "memory_gib": 4.0},
+        "plan_ceiling": {"vcpu": 4.0, "memory_gib": 16.0}
+    });
+    let (code, off) = call(c"cloud_size_row", &facts);
+    assert_eq!((code, off), (OK, json!({})), "off by default: the old row is drawn");
+    let mut on = facts.clone();
+    on["enabled"] = json!(true);
+    let (code, shown) = call(c"cloud_size_row", &on);
+    assert_eq!(code, OK);
+    assert_eq!(shown["view"]["more_room"], "offered");
+    assert_eq!(shown["view"]["raises_to"], json!({"vcpu": 8.0, "memory_gib": 32.0}));
+    assert_eq!(call(c"cloud_size_row", &json!({"home": "moon"})).0, ERR_INVALID);
+}

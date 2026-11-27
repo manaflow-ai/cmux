@@ -5,6 +5,8 @@ import "./computerAuto.css";
 import type { ReactNode } from "react";
 import { useT } from "../i18n";
 import { sizeRow, sleepRow, whyRow, type ComputerStatus } from "./computerStatus";
+import { ReadOnlySizeRow, type SizeRowLook } from "./ReadOnlySizeRow";
+import type { SizeRowView } from "./sizeRowView";
 
 export type SleepChoice = { mode: "auto" } | { mode: "keep_awake"; hours: 1 | 4 };
 
@@ -17,6 +19,11 @@ export type AutoComputerRowsProps = {
   onSleep(choice: SleepChoice): void;
   onOpenTerminal(): void;
   onOpenDetails(): void;
+  /// RFD 0144 piece 9: the core's read-only Size row (`cloud_size_row`). Present only with the
+  /// `cloud.moreRoom` setting on; then the row has no Auto / Pin choice, only More room.
+  sizeView?: SizeRowView;
+  sizeLook?: SizeRowLook;
+  onMoreRoom?(): void;
 };
 
 const defaultTime = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -76,6 +83,9 @@ export function AutoComputerRows({
   onSleep,
   onOpenTerminal,
   onOpenDetails,
+  sizeView,
+  sizeLook,
+  onMoreRoom = () => undefined,
 }: AutoComputerRowsProps) {
   const t = useT();
   const size = sizeRow(status, t);
@@ -84,14 +94,18 @@ export function AutoComputerRows({
   const keeping = status.sleep.mode === "keep_awake";
   return (
     <div className="acpmux-computer-rows" data-testid="computer-rows">
-      <Row label={t("computer.row.size")} pinned={size.pinned} note={size.note}>
-        <Choice on={size.auto} onClick={onAutoSize}>
-          {t("computer.size.auto")}
-        </Choice>
-        <Choice on={size.pinned} onClick={onPinSize}>
-          {t("computer.size.pin")}
-        </Choice>
-      </Row>
+      {sizeView ? (
+        <ReadOnlySizeRow view={sizeView} look={sizeLook} onMoreRoom={onMoreRoom} />
+      ) : (
+        <Row label={t("computer.row.size")} pinned={size.pinned} note={size.note}>
+          <Choice on={size.auto} onClick={onAutoSize}>
+            {t("computer.size.auto")}
+          </Choice>
+          <Choice on={size.pinned} onClick={onPinSize}>
+            {t("computer.size.pin")}
+          </Choice>
+        </Row>
+      )}
       <Row label={t("computer.row.sleep")} pinned={keeping} note={sleep.note}>
         <Choice on={!keeping} onClick={() => onSleep({ mode: "auto" })}>
           {t("computer.sleep.auto")}

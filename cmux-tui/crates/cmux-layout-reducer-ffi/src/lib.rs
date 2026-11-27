@@ -53,6 +53,7 @@
 //! `cloud_hybrid_*`: a hybrid start, the chat here at once beside its machine, then there;
 //! `cloud_computer_status`: one session's computer status for the chat header (RFD 0080);
 //! `cloud_autosize_rows`: one AutoSize notice added to a chat's AutoSize rows (RFD 0080 piece 4);
+//! `cloud_size_row`: the read-only Size row and More room, off by default (RFD 0144 piece 9);
 //! a Cloud machine reaches models through its edge, so no op decides a login copy),
 //! `cmux-cloud-config`'s rules (`cloud_config_*`: which Cloud a build talks to;
 //! `cloud_auth_*`: the auth rules around the app's Keychain I/O;
