@@ -69,8 +69,6 @@ export interface SetupStep {
   done: boolean;
   title: string;
   detail: string;
-  /** A second line under the detail: what the row's action also does. */
-  note?: string;
   /** The row's one button; absent once done (the slot keeps its room). */
   action?: { label: string; run: SetupAction };
   /** A quieter second button (classic's Skip, the next agent); it stays while the row is busy, greyed
@@ -81,7 +79,8 @@ export interface SetupStep {
   tertiary?: { label: string; run: SetupAction };
   /** An action is running (an install): the slot shows a spinner. */
   busy?: boolean;
-  /** A quiet line under the detail: the account row's backend while signed out ("Signs in to cmux.com"). */
+  /** A quiet line under the detail: what the row's action also does (classic's import), or the account row's
+   * backend while signed out ("Signs in to cmux.com"). */
   note?: string;
   /** A choice, not a to-do (Text Size and Density): never counted in the progress, never the next step, and its
    * controls sit under its words instead of in the slot. */
