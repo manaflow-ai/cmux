@@ -38,6 +38,7 @@ struct ChatComposer: View {
     /// field's own height (the transcript's inset leaves it out).
     var fieldRef: ComposerFieldRef?
     @State private var showPhotos = false
+    @AppStorage(ComposerFooterFactsMode.key) private var footerFactsMode = ComposerFooterFactsMode.off.rawValue
     private let voice = AgentVoiceLauncher.shared
     @State private var showFiles = false
     @State private var showCamera = false
@@ -117,8 +118,7 @@ struct ChatComposer: View {
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             if case .success(let urls) = result {
                 let (files, refused) = Self.readFiles(urls)
-                attachments += files
-                for file in files { readVideo(file) }
+                appendPreparedFiles(files)
                 if let refused { store.clientError = refused }
             }
         }
@@ -133,7 +133,7 @@ struct ChatComposer: View {
         }
         // Files start for the Mac the moment they are picked, not at Send (AttachmentPrestager).
         .onChange(of: attachments.map(\.id), initial: true) { _, _ in
-            store.composerAttachmentsChanged(attachments)
+            syncPreparedAttachments()
         }
         .onChange(of: photoItems) { _, items in
             guard !items.isEmpty else { return }
@@ -241,25 +241,43 @@ struct ChatComposer: View {
             Task {
                 let pasted = await ComposerPastedFiles.load(providers)
                 for file in pasted.files {
-                    let image = file.type.conforms(to: .image) ? file.data.flatMap { UIImage(data: $0) } : nil
-                    if image == nil {
+                    let isImage = file.type.conforms(to: .image)
+                    if !isImage {
                         attachments.append(AgentAttachment(kind: .file, name: file.name, data: file.data,
                                                            fileURL: file.fileURL, byteCount: file.byteCount))
                     } else if let original = file.data {
                         appendOptimizedImage(original, name: file.name, fileURL: file.fileURL, byteCount: file.byteCount)
                     } else {
-                        attachments.append(AgentAttachment(kind: .image, name: file.name, fileURL: file.fileURL,
-                                                           byteCount: file.byteCount))
+                        appendOptimizedImage(fileURL: file.fileURL, name: file.name, byteCount: file.byteCount)
                     }
                 }
                 if let name = pasted.unreadable.first { store.clientError = "Couldn't read \(name)." }
             }
         } else if let urls = board.urls?.filter(\.isFileURL), !urls.isEmpty {
             let (files, refused) = Self.readFiles(urls)
-            attachments += files
+            appendPreparedFiles(files)
             if let refused { store.clientError = refused }
         }
     }
+
+
+    private func syncPreparedAttachments() {
+        store.composerAttachmentsChanged(attachments.filter { !optimizingImageIDs.contains($0.id) })
+    }
+
+    private func appendPreparedFiles(_ files: [AgentAttachment]) {
+        for file in files {
+            if file.kind == .image, let data = file.data {
+                appendOptimizedImage(data, name: file.name, fileURL: file.fileURL, byteCount: file.byteCount)
+            } else if file.kind == .image, let fileURL = file.fileURL {
+                appendOptimizedImage(fileURL: fileURL, name: file.name, byteCount: file.byteCount)
+            } else {
+                attachments.append(file)
+                readVideo(file)
+            }
+        }
+    }
+
 
     private func appendOptimizedImage(_ data: Data, name: String, fileURL: URL? = nil, byteCount: Int? = nil) {
         let id = UUID().uuidString
@@ -267,12 +285,47 @@ struct ChatComposer: View {
                                            fileURL: fileURL, byteCount: byteCount ?? data.count))
         optimizingImageIDs.insert(id)
         Task {
-            defer { optimizingImageIDs.remove(id) }
             let optimized = await AgentImageOptimizer.optimizeAsync(data)
-            guard let index = attachments.firstIndex(where: { $0.id == id }) else { return }
+            guard let index = attachments.firstIndex(where: { $0.id == id }) else {
+                optimizingImageIDs.remove(id)
+                return
+            }
             attachments[index].data = optimized
+            attachments[index].fileURL = nil
             attachments[index].byteCount = optimized.count
             attachments[index].name = AgentImageOptimizer.filename(attachments[index].name, for: optimized)
+
+            optimizingImageIDs.remove(id)
+            // Optimization mutates an attachment in place, so the ID-based change
+            // observer does not fire. Reconcile the prestager after the MIME changes.
+            syncPreparedAttachments()
+
+        }
+    }
+
+    private func appendOptimizedImage(fileURL: URL, name: String, byteCount: Int?) {
+        let id = UUID().uuidString
+        attachments.append(AgentAttachment(id: id, kind: .image, name: name, fileURL: fileURL, byteCount: byteCount))
+        optimizingImageIDs.insert(id)
+        Task {
+            guard attachments.contains(where: { $0.id == id }) else {
+                optimizingImageIDs.remove(id)
+                syncPreparedAttachments()
+                return
+            }
+            if let optimized = await AgentImageOptimizer.optimizeAsync(fileURL: fileURL, byteCount: byteCount) {
+                guard let finalIndex = attachments.firstIndex(where: { $0.id == id }) else {
+                    optimizingImageIDs.remove(id)
+                    syncPreparedAttachments()
+                    return
+                }
+                attachments[finalIndex].data = optimized
+                attachments[finalIndex].fileURL = nil
+                attachments[finalIndex].byteCount = optimized.count
+                attachments[finalIndex].name = AgentImageOptimizer.filename(attachments[finalIndex].name, for: optimized)
+            }
+            optimizingImageIDs.remove(id)
+            syncPreparedAttachments()
         }
     }
 
@@ -292,6 +345,21 @@ struct ChatComposer: View {
             defer { access.close() }
             guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
                 refused = "Couldn't read \(url.lastPathComponent)."
+                continue
+            }
+            let isImage = UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
+            if isImage {
+                if size > inlineFileBytes {
+                    files.append(AgentAttachment(kind: .image, name: url.lastPathComponent,
+                                                 fileURL: url, byteCount: size))
+                    continue
+                }
+                guard let data = try? Data(contentsOf: url, options: .mappedIfSafe) else {
+                    refused = "Couldn't read \(url.lastPathComponent)."
+                    continue
+                }
+                files.append(AgentAttachment(kind: .image, name: url.lastPathComponent, data: data,
+                                             fileURL: url, byteCount: size))
                 continue
             }
             // A video stays by its URL whatever its size: its frames are read from there.
@@ -358,6 +426,8 @@ struct ChatComposer: View {
                     if store.currentModelID != nil || !store.models.isEmpty || !store.modes.isEmpty
                         || store.effortOption?.options.isEmpty == false { pickerMenu }
                     if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
+                    // RFD 0130: live counters (or an info mark) opening the Session card; off by default.
+                    ComposerFooterFactsView(facts: store.footerFacts, mode: .stored(footerFactsMode))
                 }
                 // Voice mode instead of a dictation mic (the keyboard's own mic still
                 // dictates into the field): with no draft, the send circle is the voice

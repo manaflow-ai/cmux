@@ -94,16 +94,16 @@ export default componentEntry<Props>({
     matches: { props: {}, note: "Hold a navigation button to see press feedback; Tab shows keyboard focus." },
     selected: { props: { selected: true }, note: "Match case keeps its selected hue while held." },
     replace: { props: { replace: true }, note: "Replace and All use the same immediate pressed feedback." },
-    terminalIdle: { props: { terminal: "idle" }, note: "Terminal find before a query: toggles shown, no count." },
-    terminalStreaming: {
+    "terminal-idle": { props: { terminal: "idle" }, note: "Terminal find before a query: toggles shown, no count." },
+    "terminal-streaming": {
       props: { terminal: "streaming" },
       note: "Pages stream in from the daemon: the count grows and keeps a + until the search completes.",
     },
-    terminalInvalidPattern: {
+    "terminal-invalid-pattern": {
       props: { terminal: "invalid" },
       note: "A bad regex shows Invalid pattern in the danger ink instead of a count.",
     },
-    terminalToggles: { props: { terminal: "toggles", selected: true }, note: "Case, whole word and regex all on." },
+    "terminal-toggles": { props: { terminal: "toggles", selected: true }, note: "Case, whole word and regex all on." },
     empty: {
       props: { noMatches: true, replace: true },
       note: "No matches uses the theme danger ink; disabled actions stay still.",
