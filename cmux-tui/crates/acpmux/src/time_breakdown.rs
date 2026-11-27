@@ -227,6 +227,9 @@ pub(crate) struct State {
     /// What the last change row that carried the breakdown held ([`Self::row_snapshot`]): the
     /// turns ended by then, and when. None until a row carried it.
     rowed: Option<(u64, u64)>,
+    /// The record whose change row last carried the breakdown: every build of that record's row
+    /// carries it, not only the first ([`Self::row_snapshot`]).
+    rowed_seq: Option<u64>,
     reducer: Reducer,
 }
 
@@ -321,9 +324,18 @@ impl State {
     /// record, six rows a turn, each took 6.5 ms to build and went out ahead of the turn's first
     /// token on the same connection, 50 ms later to a peer's view of the chat than to its own
     /// (`tests/transfer_cli/view_latency.rs`).
-    pub(crate) fn row_snapshot(&mut self, now: u64) -> Option<TimeBreakdown> {
+    ///
+    /// `seq` is the record the row follows. One record's row is built more than once: once per
+    /// cell (with tools, and with tools less the breakdown for a client that draws none), and again
+    /// when the shared copy (`SharedRow`, a weak share) was already let go. Every build of the
+    /// record that owed the breakdown carries it; before, the first build took it, so a phone's
+    /// lean row (or a second watcher's rebuild) left the pane's row without it.
+    pub(crate) fn row_snapshot(&mut self, now: u64, seq: u64) -> Option<TimeBreakdown> {
         if !self.initialized {
             return None;
+        }
+        if self.rowed_seq == Some(seq) {
+            return Some(self.snapshot(now));
         }
         let ended = self.reducer.ended_turns;
         let owed = self.rowed.is_none_or(|(turns, at)| {
@@ -332,6 +344,7 @@ impl State {
         });
         owed.then(|| {
             self.rowed = Some((ended, now));
+            self.rowed_seq = Some(seq);
             self.snapshot(now)
         })
     }
