@@ -185,6 +185,7 @@ cmux-tui/bindings/java/src/com/cmux/raw/WorkspaceLease.java !merge
 # exports and baseline files a merge host can rebuild
 # (scripts/cmux-next/generated_merge.py REGENERATE, `here`). By name first,
 # then the families whose names do not say so.
+cmux-tui/spec/api-compat.surface.json merge=text
 Packages/**/*.generated.swift merge=cmux-generated-v1
 Packages/**/*+Generated.swift merge=cmux-generated-v1
 *.generated.ts merge=cmux-generated-v1

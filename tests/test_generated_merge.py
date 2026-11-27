@@ -114,6 +114,49 @@ class TreeAuditTests(unittest.TestCase):
             self.assertEqual(kept, name in listed or name in generated_merge.SDK_SIDECARS, path)
 
 
+class DaemonAbiBaselineMergeTests(unittest.TestCase):
+    """The daemon ABI baseline preserves a real same-line disagreement for the base autofix."""
+
+    PATH = "cmux-tui/spec/api-compat.surface.json"
+
+    def test_divergent_surface_stays_unmerged_and_has_no_merge_rebuild(self):
+        tmp = Path(tempfile.mkdtemp(prefix="generated-merge-daemon-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        repo = tmp / "repo"
+        repo.mkdir()
+        env = git_env(tmp)
+        shutil.copyfile(ROOT / ".gitattributes", repo / ".gitattributes")
+        path = repo / self.PATH
+        path.parent.mkdir(parents=True)
+
+        def git(*args, check=True):
+            return subprocess.run(["git", *args], cwd=repo, env=env, check=check,
+                                  capture_output=True, text=True)
+
+        def write(value):
+            path.write_text('{"surface": %d}\n' % value)
+
+        git("init", "-q", "-b", "main")
+        write(0)
+        git("add", "-A")
+        git("commit", "-q", "-m", "base")
+        git("checkout", "-q", "-b", "lane")
+        write(1)
+        git("commit", "-qam", "lane surface")
+        git("checkout", "-q", "main")
+        write(2)
+        git("commit", "-qam", "base surface")
+        git("checkout", "-q", "lane")
+
+        merged = git("merge", "--no-edit", "main", check=False)
+        self.assertNotEqual(merged.returncode, 0, merged.stdout + merged.stderr)
+        self.assertEqual(git("diff", "--name-only", "--diff-filter=U").stdout.split(), [self.PATH])
+        commands, notes = generated_merge.plan([self.PATH])
+        self.assertEqual(commands, [])
+        self.assertTrue(any("merged three-way by text" in note and "base autofix rebuilds it after landing" in note
+                            for note in notes), notes)
+
+
 class AuditFixtureTests(unittest.TestCase):
     """The detector catches each way a generated file can be left to a person."""
 

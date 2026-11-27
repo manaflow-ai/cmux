@@ -69,6 +69,11 @@ def _settings_exports() -> tuple[str, ...]:
 
 SETTINGS_EXPORTS = _settings_exports()
 SDK_INPUTS = r"cmux-tui/spec/|cmux-tui/bindings/codegen/"
+DAEMON_ABI_INPUTS = (
+    r"cmux-tui/spec/(sdk-schema|api-compat|api-compat-fixtures)\.json$"
+    r"|cmux-tui/crates/cmux-api-compat/(src/|Cargo\.toml$)"
+    r"|cmux-tui/Cargo\.(toml|lock)$|cmux-tui/rust-toolchain\.toml$"
+)
 CAPABILITY_INPUTS = (
     r"Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint\.swift$"
     r"|Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/DaemonCapabilityExportTests\.swift$"
@@ -119,6 +124,8 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
       "cmux-tui/bindings/typescript/src/raw/generated/*", "cmux-tui/bindings/rust/src/generated/*",
       "cmux-tui/bindings/zig/src/raw/generated/*", "cmux-tui/bindings/java/src/com/cmux/raw/*"),
      SDK_INPUTS, "python3 cmux-tui/bindings/codegen/generate.py --write (the autofix)"),
+    (("cmux-tui/spec/api-compat.surface.json",), DAEMON_ABI_INPUTS,
+     "cargo run --locked -p cmux-api-compat --bin api-compat-check -- --write (the base autofix)"),
     (("clients/ts/cloud/src/generated.ts", "cmux-tui/crates/cmux-cloud-wire/src/generated/*"),
      r"backend/catalog/cloud-operations\.json$|backend/packages/protocol/(scripts/export-(rust-)?client\.ts|src/automation-caps\.ts)$",
      "backend/packages/protocol/scripts/export-client.ts"),

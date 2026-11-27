@@ -147,6 +147,8 @@ REGENERATE: dict[str, Regen] = {
     "web/data/cmux-shortcuts.generated.json": here(("bun", "web/scripts/export-docs-shortcuts.ts")),
     "cmux-tui/crates/cmux-app-host/generated/*": here(("bun", "cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts")),
     "cmux-tui/bindings/*.cmux-sdk-manifest.json": here(*SDK),
+    "cmux-tui/spec/api-compat.surface.json": autofix(
+        "cargo run --locked -p cmux-api-compat --bin api-compat-check -- --write (the base autofix)", "text"),
     "clients/ts/cloud/src/generated.ts": here(*CLOUD),
     "scripts/ghosttykit-checksums.txt": autofix("the base autofix's GhosttyKit pin"),
     "scripts/lint-namespace-types-ratchet.txt": autofix("base-autofix.sh's namespace ratchet step; merges entry by entry",

@@ -18,6 +18,7 @@ fail() { echo "FAIL: $*" >&2; cat "$tmp/out" >&2 2>/dev/null || true; exit 1; }
 graph=Packages/macOS/CmuxNext/ci-target-graph.json
 schema=schemas/settings/settings-schema.json
 cap=plans/cmux-next/daemon-capabilities.json
+surface=cmux-tui/spec/api-compat.surface.json
 drift() { printf '%s\n' "$@" > "$tmp/changed"; python3 "$OUTPUTS" drift --changed "$tmp/changed" > "$tmp/out"; }
 
 # An output with none of its inputs is drift, and the message says how to drop it.
@@ -62,6 +63,28 @@ drift "$cap" Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEnd
   || fail "a capability source change causes the daemon export"
 drift "$cap" scripts/cmux-next/base-autofix.sh \
   && fail "the capability export is drift without its source"
+# The daemon ABI baseline is owned by its exact schema, rules, fixtures, checker source, crate manifest,
+# workspace lock and toolchain inputs. Its rules, fixtures and schema are authored inputs, never outputs.
+for input in \
+  cmux-tui/spec/sdk-schema.json \
+  cmux-tui/spec/api-compat.json \
+  cmux-tui/spec/api-compat-fixtures.json \
+  cmux-tui/crates/cmux-api-compat/src/schema.rs \
+  cmux-tui/crates/cmux-api-compat/Cargo.toml \
+  cmux-tui/Cargo.toml cmux-tui/Cargo.lock cmux-tui/rust-toolchain.toml; do
+  drift "$surface" "$input" || fail "$input causes the daemon ABI surface"
+done
+drift "$surface" cmux-tui/spec/api-compat.surface.json \
+  && fail "the daemon ABI surface cannot cause itself"
+drift "$surface" cmux-tui/spec/sdk-schema.schema.json \
+  && fail "the schema meta-schema is unrelated to the daemon ABI surface"
+drift "$surface" cmux-tui/spec/programmability.md \
+  && fail "an unrelated spec document is not a daemon ABI input"
+for authored in cmux-tui/spec/sdk-schema.json cmux-tui/spec/api-compat.json cmux-tui/spec/api-compat-fixtures.json; do
+  python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import generated_outputs as g; sys.exit(g.output_of(sys.argv[2]) is None)' \
+    "$ROOT_DIR/scripts/cmux-next" "$authored" \
+    && fail "$authored is authored input, not a generated output"
+done
 # An output never causes another output: the exports alone do not own the action exports.
 drift plans/cmux-next/actions.md "$schema" && fail "the settings export alone must not cause the action exports"
 # Every output the autofix may push is in the table, so the push never drops a repair the
@@ -157,6 +180,7 @@ rows=(
   "4|cmux-tui/crates/cmux-core/src/lib.rs|1|1|none"               # cargo fmt
   "4|Native/OptChat/optchat-chief/src/main.rs|1|1|none"
   "5|cmux-tui/Cargo.lock|1|0|none"                                # a lock: apply refuses lockfiles by design
+  "5c|cmux-tui/spec/api-compat.surface.json|1|1|out"              # daemon ABI baseline: base autofix writes it
   "5a|cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/CmuxMobileLinkFFI.swift|1|1|none"  # uniffi Swift bindings
   "6|scripts/ci/job-inputs-always.json|0|1|none"                  # job_inputs.py fix: PR autofix only (--job-inputs), never remade on a moved tip
 )
@@ -166,9 +190,11 @@ steps="$(grep -oE "^# [0-9][a-z0-9']*\." "$scripts/base-autofix.sh" | sed -e 's/
 [[ -n "$steps" ]] || gap "no numbered step found in base-autofix.sh"
 listed="$(printf '%s\n' "${rows[@]}" | cut -d'|' -f1 | sort -u)"
 while IFS= read -r step; do
+  if [[ "$step" == 5c ]] && ! grep -qE "^# 5c\." "$scripts/base-autofix.sh"; then continue; fi
   grep -qxF -- "$step" <<<"$listed" || gap "base-autofix.sh step $step has no row in this test: add its outputs above"
 done <<<"$steps"
 while IFS= read -r step; do
+  if [[ "$step" == 5c ]] && ! grep -qE "^# 5c\." "$scripts/base-autofix.sh"; then continue; fi
   grep -qxF -- "$step" <<<"$steps" || gap "this test lists step $step, which base-autofix.sh does not have"
 done <<<"$listed"
 
@@ -196,6 +222,7 @@ git -C "$prepo" -c user.name=t -c user.email=t@t commit -q -m fixture
 
 for row in "${rows[@]}"; do
   IFS='|' read -r step path want_remade want_apply want_row <<<"$row"
+  if [[ "$step" == 5c ]] && ! grep -qE "^# 5c\." "$scripts/base-autofix.sh"; then continue; fi
   [[ "$path" == - ]] && continue
   areas="$(printf '%s\n' "$path" | output_areas)"
   if grep -qx unknown <<<"$areas"; then
