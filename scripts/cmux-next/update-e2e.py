@@ -437,8 +437,22 @@ def start_agent_turn(work):
     acp.prompt(session, f"gate: {fifo}")
     if not wait(lambda: "before-gate" in acp.text(session), 30):
         return session, fifo, None
-    pid = wait(lambda: run("pgrep", "-f", os.path.join(work, "fake_agent.py")).stdout.split()[:1], 10)
+    pid = wait(lambda: agent_pids(work)[:1], 10)
     return session, fifo, (pid or [None])[0]
+
+
+def agent_pids(work):
+    """The test agent's pids. Matched on the scratch folder's own name, not
+    its full path: the daemon may start the agent under the resolved path
+    (/private/var/folders/... for /var/folders/...), which a full-path
+    pgrep missed (agent pid None on the CI Mac)."""
+    tail = os.path.join(os.path.basename(os.path.normpath(work)), "fake_agent.py")
+    pids = []
+    for line in run("pgrep", "-fl", "fake_agent.py").stdout.splitlines():
+        pid, _, command = line.partition(" ")
+        if tail in command and pid.isdigit():
+            pids.append(pid)
+    return pids
 
 
 def release_gate(fifo):
