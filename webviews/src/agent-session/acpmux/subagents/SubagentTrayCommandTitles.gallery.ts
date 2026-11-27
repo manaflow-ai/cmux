@@ -48,5 +48,14 @@ export default componentEntry<{ scene: CommandTitlesScene }>({
       props: { scene: "subagent" },
       play: open,
     },
+    // Leo, 2026-11-25: "this background command completed just sorta sits in the ether sometimes".
+    "idle-before": {
+      note: "Before: a Claude background Bash call ran as a daemon task the registry never listed, so with no turn running the hat had nothing to show.",
+      props: { scene: "idleBefore" },
+    },
+    "idle-after": {
+      note: "After: the daemon task is a registry row (acpmux hub/bg_processes.rs), so the hat names it with no turn running, until it ends.",
+      props: { scene: "idleAfter" },
+    },
   },
 });

@@ -12,7 +12,7 @@ import { minutesAgo } from "../clock";
 const NO_WAITING: ReadonlySet<string> = new Set();
 const shown = { current: "gallery-chat" as string | undefined };
 
-export type CommandTitlesScene = "terse" | "long" | "none" | "subagent";
+export type CommandTitlesScene = "terse" | "long" | "none" | "subagent" | "idleBefore" | "idleAfter";
 
 const parentAgent: Subagent = {
   id: "gallery-chat/toolu_parent",
@@ -54,7 +54,15 @@ const command = (line: string, description: string | undefined, seconds: number,
 const WAIT_FILE =
   "until [ -s /tmp/claude/tasks/b0luhqojj.output ]; do sleep 5; done; cat /tmp/claude/tasks/b0luhqojj.output";
 
-const SCENES: Record<CommandTitlesScene, { agents: Subagent[]; commands: BackgroundCommand[] }> = {
+// A Claude `run_in_background` Bash call with no turn running (acpmux hub/bg_processes.rs). bg_hook
+// runs it as a daemon task: before, the registry had no row, so the hat had only the transcript's
+// task, which it keeps only while a turn runs; after, the daemon task is a registry row.
+const daemonTask = (withRow: boolean): BackgroundCommand => {
+  const { processId: _processId, ...transcriptOnly } = command("cargo test -p acpmux", "Run the Rust tests", 95);
+  return withRow ? { ...transcriptOnly, processId: transcriptOnly.id } : transcriptOnly;
+};
+
+const SCENES: Record<CommandTitlesScene, { agents: Subagent[]; commands: BackgroundCommand[]; working?: false }> = {
   // The agent named its Monitor calls "hold" and "review result": the line says what each does first.
   terse: {
     agents: [],
@@ -92,11 +100,13 @@ const SCENES: Record<CommandTitlesScene, { agents: Subagent[]; commands: Backgro
       command("cd ~/Projects/app && bun run dev", "Run the dev server", 50),
     ],
   },
+  idleBefore: { agents: [], commands: [daemonTask(false)], working: false },
+  idleAfter: { agents: [], commands: [daemonTask(true)], working: false },
 };
 
 export function SubagentTrayCommandTitlesStage({ scene }: { scene: CommandTitlesScene }) {
-  const { agents, commands } = SCENES[scene];
-  const items = trayItems(agents, commands, [], true);
+  const { agents, commands, working = true } = SCENES[scene];
+  const items = trayItems(agents, commands, [], working);
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--agent-page-bg)" }}>
       <main className="acpmux-main" data-dock="float" style={{ position: "relative", flex: 1, minHeight: 0 }}>
@@ -104,7 +114,7 @@ export function SubagentTrayCommandTitlesStage({ scene }: { scene: CommandTitles
           <SubagentTray
             key={`gallery-chat-${scene}`}
             items={items}
-            working
+            working={working}
             waiting={NO_WAITING}
             onOpen={() => undefined}
             stopProcess={() => Promise.resolve()}
