@@ -172,6 +172,30 @@ def built_nothing(ref, state, adopt_result="success"):
     return values
 
 
+def linux_release_sign_downloads_over_the_runner_token(all_jobs):
+    """2026-11-27, run 45994285415 (nightly-next 80d30ecb): linux-release-sign.sh's gh run download got
+    HTTP 403 "API rate limit exceeded for installation", the step's warning kept the job green, the
+    commit's release.json was never written, and linux-nightly stayed on 0a6830e6. Both jobs that run
+    the script download this run's Linux build with actions/download-artifact first (the runner's
+    artifact token, not the installation's REST budget) and hand it over in LINUX_RELEASE_ARTIFACTS."""
+    for name, sign_step in (("sign-nightly-linux-release", "Sign and upload the Linux release file"),
+                            ("point-machine-channel", "Sign and upload the channel")):
+        steps = all_jobs[name]["steps"]
+        names = [step.get("name") for step in steps]
+        download = next((step for step in steps if step.get("name") == "Download this run's Linux build"), {})
+        sign = next((step for step in steps if step.get("name") == sign_step), {})
+        _check(str(download.get("uses", "")).startswith("actions/download-artifact@")
+               and download.get("with", {}).get("pattern") == "cmux-tui-*-unknown-linux-musl"
+               and sign_step in names and names.index("Download this run's Linux build") < names.index(sign_step),
+               f"{name} downloads this run's Linux build with actions/download-artifact before signing")
+        _check(sign.get("env", {}).get("LINUX_RELEASE_ARTIFACTS") == download.get("with", {}).get("path")
+               == "${{ runner.temp }}/linux-release-artifacts",
+               f"{name} hands the downloaded build to linux-release-sign.sh")
+    script = Path(ROOT, "scripts/ci/linux-release-sign.sh").read_text()
+    _check("LINUX_RELEASE_ARTIFACTS" in script and "for attempt in" in script,
+           "linux-release-sign.sh reads LINUX_RELEASE_ARTIFACTS and retries its gh fallback")
+
+
 def machine_channel_follows_an_adopted_manifest(all_jobs):
     """2026-11-13, 93d73d7b (the squash merge of #42609, run 43479235288): its tree was published by
     the lane head's run, so build, publish and verify-publish skipped, and both Cloud machine
@@ -479,6 +503,7 @@ def main():
            "publish-windows runs publish's own steps, only for a Windows build that uploaded its artifact")
 
     machine_channel_follows_an_adopted_manifest(all_jobs)
+    linux_release_sign_downloads_over_the_runner_token(all_jobs)
     coalesce_marks_only_a_window_without_a_tree(all_jobs)
 
     if FAILURES:
