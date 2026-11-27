@@ -3404,6 +3404,7 @@ def _is_test_or_example(path: Path) -> bool:
         bool(parts & {"test", "tests", "example", "examples", "e2e", "cmd"})
         or name.endswith("_test.go")
         or "_test." in name
+        or "_tests." in name
         or name.startswith("test_")
         or name in {"test.rs", "tests.rs"}
         or name.endswith("test.zig")
@@ -3426,6 +3427,11 @@ def _files_for_rule(tui: Path, rule: ScanRule) -> Iterator[Path]:
         yield path
 
 
+RUST_SOURCE_PATH_RE = re.compile(
+    r"(?:\binclude_(?:str|bytes)!\s*\(\s*|#\s*\[\s*path\s*=\s*)$"
+)
+
+
 def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
     """Yield byte-index-equivalent Python offsets for Rust string contents."""
     index = 0
@@ -3438,8 +3444,8 @@ def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
             end = text.find(terminator, content_start)
             if end < 0:
                 return
-            # A direct include argument names a source file, not public CLI text.
-            if not re.search(r"\binclude_(?:str|bytes)!\s*\(\s*$", text[:index]):
+            # Direct include arguments and path attributes name source files.
+            if not RUST_SOURCE_PATH_RE.search(text[:index]):
                 yield content_start, end
             index = end + len(terminator)
             continue
@@ -3451,8 +3457,8 @@ def _rust_string_regions(text: str) -> Iterator[tuple[int, int]]:
                     cursor += 2
                 elif text[cursor] == '"':
                     # Keep help/diagnostic strings in the scan; exclude only
-                    # direct compile-time resource paths in include macros.
-                    if not re.search(r"\binclude_(?:str|bytes)!\s*\(\s*$", text[:index]):
+                    # direct compile-time resource paths and module paths.
+                    if not RUST_SOURCE_PATH_RE.search(text[:index]):
                         yield content_start, cursor
                     cursor += 1
                     break

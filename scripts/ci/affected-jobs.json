@@ -48,7 +48,8 @@
         "acpmux-sim": {
           "name": "acpmux simulation (seeds)",
           "crates": ["cmux-tui/crates/acpmux"],
-          "features": ["sim"]
+          "features": ["sim"],
+          "inputs": [".github/actions/cache-restore/"]
         },
         "carrier-sim": {
           "name": "carrier simulation (seeds)",
@@ -62,6 +63,12 @@
           "name": "acpmux protocol IR is current",
           "crates": ["cmux-tui/crates/acpmux"],
           "inputs": ["scripts/cmux-next/cargo-locks.py", ".github/actions/cache-restore/"]
+        },
+        "remote-web-wasm": {
+          "name": "cmux remote web wasm",
+          "compile_only": true,
+          "crates": ["cmux-tui/crates/cmux-remote-web"],
+          "inputs": ["scripts/ci/apt-ensure.sh"]
         }
       }
     },
