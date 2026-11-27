@@ -95,13 +95,11 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
 });
 
 const { act } = await import("react");
-// The minimap places its band in the frame after a scroll event, as a browser runs it, and its list
-// in the frame after that band's commit.
+// The minimap places its band in the frame after a scroll event, as a browser runs it.
 const scrolledFrame = (target: EventTarget) =>
   act(async () => {
     target.dispatchEvent(new dom.window.Event("scroll"));
-    for (let frame = 0; frame < 2; frame++)
-      await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
+    await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(null)));
   });
 const { createRoot } = await import("react-dom/client");
 const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
