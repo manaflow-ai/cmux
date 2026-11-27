@@ -435,6 +435,8 @@ dependencies = [
 name = "cmux-design-core"
 version = "0.1.0"
 dependencies = [
+ "cmux-config",
+ "cmux-theme-tokens",
  "serde",
  "serde_json",
 ]
