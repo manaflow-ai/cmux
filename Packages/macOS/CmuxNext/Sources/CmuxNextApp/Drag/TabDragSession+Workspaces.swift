@@ -53,7 +53,7 @@ extension TabDragSession {
             let adapter = adapters(for: controller, drag: drag).sidebar
             adapter.sourceMachine = MachineID(ids.first.flatMap { services.machines.daemon(forWorkspace: $0)?.machineID } ?? MachineRegistry.localID)
             drag.touched[ObjectIdentifier(adapter)] = adapter
-            if let hit = adapter.hit(screenPoint: point) {
+            if let hit = adapter.hit(screenPoint: point, wholeGroup: group != nil && controller !== drag.source.window) {
                 sidebar = adapter
                 sidebarHit = WorkspaceDragResolver.target(for: hit.drop)
                 highlight = hit.highlightFrame
@@ -92,7 +92,7 @@ extension TabDragSession {
     /// Ends a workspace drag: commits `outcome` (window membership, plus
     /// the daemon order commands of a sidebar slot) and lands the ghost.
     func finishWorkspaces(_ drag: Drag, commit: Bool) {
-        guard case let .workspaces(ids, _) = drag.source.item else { return }
+        guard case let .workspaces(ids, group) = drag.source.item else { return }
         for provider in drag.touched.values { provider.dropEnded(committed: nil) }
         let outcome = commit ? drag.workspaceOutcome : .cancel
         drag.lifecycle.cancel()
@@ -113,7 +113,12 @@ extension TabDragSession {
         case let .window(id, target):
             guard let controller = services.windows.controller(for: id) else { break }
             switch target {
-            case let .position(position): controller.sidebar.accept(workspaceIDs, at: position)
+            case let .position(position):
+                if let group {
+                    controller.sidebar.accept(group: GroupID(group), members: ids, at: position, from: drag.source.window?.state.profileID)
+                } else {
+                    controller.sidebar.accept(workspaceIDs, at: position)
+                }
             case let .intoGroup(group): controller.sidebar.accept(workspaceIDs, intoGroup: group)
             case .window: controller.sidebar.accept(workspaceIDs, at: nil)
             case let .merge(kind): ids.first.map { WorkspaceMerge.run($0, at: kind, into: controller, drag: drag, session: self) }
@@ -125,12 +130,5 @@ extension TabDragSession {
         let card = drag.motion.targetRect
         land(drag, at: CGRect(x: target.midX - card.width / 2, y: target.midY - card.height / 2, width: card.width, height: card.height),
              cardness: 1, opacity: 0, scale: 0.7)
-    }
-}
-
-extension TabDragContext {
-    /// Workspace drags never resolve tab outcomes; a neutral context.
-    static func workspaces(count: Int) -> TabDragContext {
-        TabDragContext(sourcePaneID: "", sourcePaneTabCount: 0, sourceWorkspaceID: "", sourceWorkspaceTabCount: 0, draggedTabCount: count)
     }
 }
