@@ -34,6 +34,11 @@ pub enum WatchCmd {
         /// Only a turn whose transcript contains this text wakes it.
         #[arg(long = "match")]
         match_text: Option<String>,
+        /// Where --match is looked for: turn (default: any reply text of the turn), reply (only
+        /// the turn's final reply, after its last tool call), replyStart (the final reply begins
+        /// with it). A turn that had ended before the watch was added never matches.
+        #[arg(long = "match-in", value_parser = ["turn", "reply", "replyStart"], requires = "match_text")]
+        match_in: Option<String>,
         /// A time watch: wake once at this time, RFC 3339 (2026-11-26T09:00:00Z) or +DURATION
         /// (+30m, +1h30m). With --every, the first fire.
         #[arg(long)]
@@ -132,7 +137,7 @@ pub(crate) fn time_params(
 
 pub async fn run(cmd: WatchCmd, json_out: bool) -> Result<()> {
     let (m, params) = match cmd {
-        WatchCmd::Add { sessions, to, until, match_text, at, every, prompt }
+        WatchCmd::Add { sessions, to, until, match_text, at, every, prompt, .. }
             if at.is_some() || every.is_some() =>
         {
             if !sessions.is_empty() || match_text.is_some() {
@@ -152,11 +157,15 @@ pub async fn run(cmd: WatchCmd, json_out: bool) -> Result<()> {
             .map_err(anyhow::Error::msg)?;
             (method::MUX_WATCH_ADD, params)
         }
-        WatchCmd::Add { sessions, to, until, match_text, prompt, .. } => {
+        WatchCmd::Add { sessions, to, until, match_text, match_in, prompt, .. } => {
             if prompt.is_some() {
                 anyhow::bail!("--prompt is for a time watch: add --at or --every");
             }
-            (method::MUX_WATCH_ADD, add_params(sessions, to, until, match_text))
+            let mut params = add_params(sessions, to, until, match_text);
+            if let Some(m) = match_in {
+                params["matchIn"] = json!(m);
+            }
+            (method::MUX_WATCH_ADD, params)
         }
         WatchCmd::Ls => (method::MUX_WATCH_LS, json!({})),
         WatchCmd::Rm { id } => (method::MUX_WATCH_RM, json!({"id": id})),
@@ -294,6 +303,11 @@ fn condition(w: &Value) -> String {
     let mut s = format!("{} is {}", sessions.join(" or "), until.join(" or "));
     if let Some(m) = w["match"].as_str() {
         s.push_str(&format!(", matching {m:?}"));
+        match w["matchIn"].as_str() {
+            Some("reply") => s.push_str(" in its final reply"),
+            Some("replyStart") => s.push_str(" at the start of its final reply"),
+            _ => {}
+        }
     }
     s
 }

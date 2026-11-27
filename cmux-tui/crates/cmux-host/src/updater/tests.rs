@@ -2037,6 +2037,34 @@ fn the_updater_looks_again_within_20_s_idle_or_busy() {
     assert!(spread.len() > 8, "the jitter spreads the looks: {spread:?}");
 }
 
+/// An idle machine (no turn, no attached carrier session) stops reading the
+/// channel for longer than the provider's 300 s idle timeout, so the VM can
+/// pause; a busy machine, or a look that read nothing, keeps the 15 s look.
+#[cfg(target_os = "linux")]
+#[test]
+fn an_idle_machine_goes_quiet_past_the_provider_idle_timeout() {
+    use std::time::Duration;
+    let reads = [
+        role::Outcome::Current("c".to_owned()),
+        role::Outcome::Older,
+        role::Outcome::RolledBackBefore,
+        role::Outcome::Failed("reading the channel: timeout".to_owned()),
+    ];
+    for outcome in &reads {
+        for draw in [0, 3_750, u64::MAX] {
+            let idle = role::next_look_when(outcome, true, draw);
+            assert!(idle > Duration::from_secs(300), "{outcome:?} idle: {idle:?}");
+            assert_eq!(role::next_look_when(outcome, false, draw), role::next_look(outcome, draw));
+        }
+    }
+    let busy = role::Outcome::Busy(vec!["1 carrier session(s) attached".to_owned()]);
+    let off = role::Outcome::Off("off".to_owned());
+    for outcome in [&busy, &off] {
+        assert!(!role::read_channel_look(outcome));
+        assert_eq!(role::next_look_when(outcome, true, 7), role::next_look(outcome, 7));
+    }
+}
+
 #[test]
 fn parse_response_reads_status_validators_and_body() {
     let raw = b"HTTP/2 200 \r\netag: \"abc\"\r\nLast-Modified: Fri, 13 Nov 2026 15:03:58 GMT\r\n\r\n{\"x\":1}";
