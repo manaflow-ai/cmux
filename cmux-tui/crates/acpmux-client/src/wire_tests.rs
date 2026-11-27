@@ -128,7 +128,7 @@ fn from_encoded_takes_one_frame_and_names_every_other_shape() {
     ));
     let two = [encoded.clone(), encoded.clone()].concat();
     assert!(matches!(Frame::from_encoded(&two), Err(FrameError::TrailingBytes)));
-    let mut unknown = encoded.clone();
+    let mut unknown = encoded;
     unknown[4] = 200;
     assert_eq!(Frame::from_encoded(&unknown).unwrap().kind, FrameKind::Unknown(200));
     assert!(matches!(Frame::from_encoded(&[0, 0, 0, 0]), Err(FrameError::InvalidLength(0))));
