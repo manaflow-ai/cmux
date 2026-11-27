@@ -319,6 +319,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
       },
     },
     "start-failed-retry": {
+      // retry-prompt-ok: Retry sends the start prompt again and starts a billed Cloud machine.
       note: "A start that failed on its way with no retry flag (the agent didn't start): Retry sends it again under the same key, Run on This Mac beside it.",
       props: {
         start: {

@@ -25,7 +25,7 @@ pub enum HarnessCmd {
         #[arg(long)]
         folder: Option<PathBuf>,
     },
-    /// Write a new profile file into ~/.config/cmux/harnesses and check it.
+    /// Write a new profile file into ~/.config/cmux-next/harnesses and check it.
     #[command(after_help = crate::cli::harness::add_help())]
     Add {
         /// Profile id (file name); default: the example's id or the command's name.
@@ -36,8 +36,9 @@ pub enum HarnessCmd {
         /// acp (Agent Client Protocol over stdio) or terminal (a CLI/TUI without ACP).
         #[arg(long, default_value = "acp")]
         protocol: String,
-        /// Start from a shipped example: claude, codex, opencode, pi, gemini, aider, or your
-        /// own model endpoint: anthropic-endpoint, openai-endpoint (with --base-url, --model).
+        /// Start from a shipped example: claude, codex, opencode, cursor, pi, gemini,
+        /// antigravity, aider, muse, muse-terminal, unii, hermes, openclaw, or your own
+        /// model endpoint: anthropic-endpoint, openai-endpoint (with --base-url, --model).
         #[arg(long)]
         example: Option<String>,
         /// anthropic-endpoint / openai-endpoint: the endpoint's base URL (https; http only

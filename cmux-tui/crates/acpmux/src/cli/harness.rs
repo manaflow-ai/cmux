@@ -593,6 +593,9 @@ pub struct ListRow {
     /// managed, user-file, cmux-json, acpmux-config or discovered.
     pub source: String,
     pub path: Option<String>,
+    /// Its chats call no model (`Config::runs_no_model`): they spend nothing. Always written, so a
+    /// reader tells a daemon that knows the field (the key is there) from one that does not.
+    pub no_model: bool,
 }
 
 pub fn list_rows(cfg: &Config) -> Vec<ListRow> {
@@ -615,6 +618,7 @@ pub fn list_rows(cfg: &Config) -> Vec<ListRow> {
                 kind: kind_name(p.kind).into(),
                 source: source.into(),
                 path: meta.map(|m| m.source_path.clone()),
+                no_model: cfg.runs_no_model(id),
             }
         })
         .collect()

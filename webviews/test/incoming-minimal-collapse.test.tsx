@@ -148,7 +148,11 @@ test("the reader's toggle plays the fold: the panel's height grows on open and c
     expect(frames.length).toBeGreaterThan(0);
     expect(frames.at(-1)!.some((frame) => frame.height !== undefined)).toBe(true);
     await act(async () => toggle().click());
-    expect(frames.at(-1)!.map((frame) => frame.opacity)).toEqual([1, 0]);
+    // A close fades its text out over a short lead while it holds its height, then shuts
+    // (conversation/exitLead.ts; Leo, 2026-11-21: "we must hide text faster and sooner").
+    const close = frames.at(-1)!;
+    expect(close.map((frame) => frame.opacity)).toEqual([1, 0, 0]);
+    expect(close[1]!.height).toBe(close[0]!.height);
   } finally {
     delete proto.animate;
     Object.assign(foldMotion, motion);

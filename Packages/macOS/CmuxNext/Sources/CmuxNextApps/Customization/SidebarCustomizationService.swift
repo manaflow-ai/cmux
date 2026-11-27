@@ -153,7 +153,10 @@ public final class SidebarCustomizationService: SidebarCustomization {
     }
 
     private static func compactText(_ value: AppJSON) -> String? {
+        // main-actor-ok: one choreography the app host already validated (at most 16 particles,
+        // MAX_DOCUMENT_BYTES 32 KiB).
         let encoder = JSONEncoder()
+        // main-actor-ok: the order is read: equal documents must give equal text for SidebarRowGlyph's Equatable.
         encoder.outputFormatting = [.sortedKeys]
         return (try? encoder.encode(value)).flatMap { String(data: $0, encoding: .utf8) }
     }
@@ -183,6 +186,12 @@ final class AppHoverCardContent: SidebarCustomContent {
     }
 
     var isReady: Bool { mount.model.status == .ready }
+
+    /// The script failed to load or render; a disconnect is not a failure (it reconnects by itself).
+    var hasFailed: Bool {
+        if case .failed = mount.model.status { return true }
+        return false
+    }
 
     /// Why the card did not draw, in plain words: a script error's place and message (`Line 2,
     /// column 12: expecting ';'`), else what failed (AppFailureCopy); a disconnected reason as it is.

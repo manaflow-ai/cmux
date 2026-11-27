@@ -22,9 +22,9 @@ import { INSTALL_COMMANDS } from "../harnesses/harnessRows";
 import { heldPick } from "../newtab/draftFolder";
 import { startThenSend } from "./firstSend";
 import { cloudSendAgent, cloudStartModePick } from "../cloudModePick";
-import { rememberCloudPick, rememberStartedProject } from "../newtab/startedProject";
+import { rememberStartedProject, rememberCloudPick } from "../newtab/startedProject";
 import { writePersistedDraft } from "../composerDraft";
-import { Composer, type ComposerHandle, type ComposerWake, type ComposerRelay } from "../Composer";
+import { Composer, type ComposerHandle, type ComposerRelay, type ComposerWake } from "../Composer";
 import type { BrowseRequest } from "../browseProject";
 import { restoreComposerDraft } from "../composerRestore";
 import { openPicker } from "../pickerOpeners";
@@ -85,6 +85,7 @@ import { editQueued, openSenderChat } from "../rows/rowActions";
 import { HatQuestions, type HatQuestionActions } from "../question/HatQuestions";
 import { hatShows, type HatQuestion } from "../question/hatModel";
 import { keptInChat, removeQueued, sendWhenTaken, heldRefusal, heldGoesAfterTrust, type SentFrom } from "./sendHost";
+import { untilAcpmuxTakesSends } from "../sendWhenReady";
 import { keptAttachments } from "./draftHost";
 import { withdrawForTypedReply } from "./hatHost";
 import type { AcpmuxSnapshot, AcpmuxRow, AcpmuxPermission } from "../model";
@@ -192,6 +193,10 @@ export type PaneComposerDeps = {
     healthSignIn: CloudSignIn | undefined;
   };
   switchLoginCommand: string | undefined;
+  /// A failed start that starts again on its own (startFailure.ts): no card until it lasts.
+  switchFailedByItself: boolean;
+  /// That start has kept failing past the hold (useAutoRetry): its card says it is still trying.
+  switchStillTrying: boolean;
   composerHandle: React.RefObject<ComposerHandle | null>;
   healthStale: React.RefObject<boolean>;
   connectMachine: (kind: ConnectKind) => undefined;
@@ -219,6 +224,8 @@ export type PaneComposerDeps = {
   /// A started chat's Local, Cloud, Auto chips (undefined in the floating chat or before a session): one element per
   /// chat and toast sink, so a pane render that changes neither hands the composer the same one.
   placeControl: React.ReactNode | undefined;
+  /// The New Tab page's Hybrid control (hybrid/newTabHybrid.ts), before a chat exists; undefined with AutoCloud off.
+  newTabPlaceControl?: React.ReactNode;
   worktreeCreatingHere: boolean;
   worktreeSetupHere: boolean;
   worktreeSetupFolder: string | undefined;
@@ -458,8 +465,11 @@ export function drawPaneComposer({
   startsElsewhere,
   chatSignIns,
   switchLoginCommand,
+  switchFailedByItself,
+  switchStillTrying,
   composerHandle,
   placeControl,
+  newTabPlaceControl,
   healthStale,
   connectMachine,
   chooseWorkspaceFolder,
@@ -740,9 +750,14 @@ export function drawPaneComposer({
                 {harnessCard}
               </Notice>
             ) : (
-              <Notice id="switch" tier="error" when={snapshot.switching?.phase === "failed"}>
+              <Notice
+                id="switch"
+                tier="error"
+                when={snapshot.switching?.phase === "failed" && (!switchFailedByItself || switchStillTrying)}
+              >
                 <SwitchNotice
                   switching={snapshot.switching}
+                  stillTrying={switchFailedByItself}
                   // Install runs the installer in a terminal tab of this Mac: never for a chat elsewhere.
                   installs={!startsElsewhere}
                   // An agent not signed in: on another machine its sign-in runs there, in the card; on
@@ -1186,12 +1201,26 @@ export function drawPaneComposer({
                 cloudRecovery.resume();
                 return true;
               }
-              // Until acpmux connects nothing takes a prompt; the composer keeps it.
-              if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+              // Until acpmux connects nothing takes a prompt. One to this pane's own open chat, which
+              // nothing else takes first (a held fork, the folder's trust), shows as sent now and goes
+              // in its turn once the page connects (sendWhenReady.ts `untilAcpmuxTakesSends`; Leo,
+              // 2026-11-17: "I CAN'T EVEN SEND A MESSAGE WHILE THE THING LOADS"); any other stays in
+              // the composer.
+              const connecting = !window.cmuxAcpmuxActions?.["chat.send"];
+              const waitsToConnect =
+                connecting &&
+                Boolean(snapshot.sessionId) &&
+                surfaceRef.current !== "quick" &&
+                !projectDraft &&
+                !snapshot.summary?.watching &&
+                !heldFork(snapshot.sessionId) &&
+                !trustHolds &&
+                !trustHeld.pending();
+              if (connecting && !waitsToConnect) return false;
               // An installed harness mention is a read-only guest request. Keep the normal send
               // path untouched for ordinary @text, code, attachments, or unknown profiles; the first
               // known mention outside code gets one inline guest note at the transcript tail.
-              if (guestsHere && !chips?.length && snapshot.sessionId && directClient.current) {
+              if (!connecting && guestsHere && !chips?.length && snapshot.sessionId && directClient.current) {
                 const guest = guestMention(text, composerSnapshot.catalog);
                 if (guest) {
                   const changedFiles =
@@ -1282,9 +1311,20 @@ export function drawPaneComposer({
                 !projectDraft &&
                 !snapshot.summary?.watching
               ) {
-                // Prompts sent while the chat started still wait to go: this one goes after them.
-                if (startingSends.busy) {
-                  startingSends.add(text, attachments, sendWhenTaken(steer === true), gesture);
+                // Prompts sent while the chat started (or the page connected) still wait to go: this one
+                // goes after them, and one sent before the page connects waits for it.
+                if (startingSends.busy || waitsToConnect) {
+                  startingSends.add(
+                    text,
+                    attachments,
+                    async (words, sent, held) => {
+                      await untilAcpmuxTakesSends();
+                      return sendWhenTaken(steer === true)(words, sent, held);
+                    },
+                    gesture,
+                    waitsToConnect ? gesture?.promptId : undefined,
+                    { asSent: waitsToConnect && !snapshot.isWorking },
+                  );
                   return true;
                 }
                 const holder = composerHandle.current;
@@ -1314,9 +1354,10 @@ export function drawPaneComposer({
                     // hold it does it come back to the composer, saying why.
                     void keepLostPrompt(error, connectedClients, sentOn, { input: text, attachments }).then(
                       (outcome) => {
-                        // A failed row keeps the host's copy (unsentPrompts.ts) for a relaunch;
+                        // A failed row keeps the host's copy (unsentPrompts.ts) for a relaunch, as
+                        // does a chat the pane left (its store draws it there, never this composer);
                         // a shown prompt is acpmux's, and one given back is the composer's.
-                        if (outcome === "failed") return;
+                        if (outcome === "failed" || outcome === "away") return;
                         sentOn?.forgetUnsentPrompt(lostPrompt(error)!.promptId);
                         if (outcome === "shown") return promptLanded.current();
                         giveBack();
@@ -1590,6 +1631,7 @@ export function drawPaneComposer({
             // Built once per chat by the pane (App.tsx `placeControl`): an inline element here was a new prop on
             // every pane render, so each streamed chunk drew the composer and its box again while keys waited.
             {...(placeControl ? { placeControl } : {})}
+            {...(newTabPlaceControl ? { newTabPlaceControl } : {})}
             // The floating chat has no tab to move.
             {...(quick
               ? {}
