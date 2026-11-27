@@ -215,3 +215,101 @@ async fn many_chats_mid_tool_call_survive_repeated_restarts_and_every_call_and_a
         }
     }
 }
+
+/// The coordinator path uses the real CLI as its waiting client.  Keep this larger than the
+/// unit-sized restart test above: twenty sends are admitted concurrently, then the daemon is
+/// handed off five times while every harness is blocked in a turn.  The child CLI processes are
+/// intentionally left attached to the original socket path; a durable send must reconnect after
+/// each replacement and finish the original prompt id exactly once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn twenty_cli_sends_survive_five_daemon_restarts_without_loss_or_duplication() {
+    const SENDS: usize = 20;
+    const RESTARTS: usize = 5;
+    let mut daemon = Daemon::new("cli-duress", "approve-all");
+
+    let mut sessions = Vec::with_capacity(SENDS);
+    let mut children = Vec::with_capacity(SENDS);
+    for i in 0..SENDS {
+        let name = format!("cli-duress-{i}");
+        let made = std::process::Command::new(daemon_env::bin())
+            .args(["--json", "new", "-d", "-n", &name, "-m", "fake"])
+            .env_clear()
+            .envs(daemon_env::vars(&daemon.home, daemon_env::Agents::StandIn, &[]))
+            .env("ACPMUX_HOME", &daemon.home)
+            .env("ACPMUX_SOCKET", &daemon.socket)
+            .env("ACPMUX_CATALOG_FETCH", "0")
+            .env("ACPMUX_LOGIN_ENV", "0")
+            .output()
+            .expect("new CLI");
+        assert!(made.status.success(), "new {name}: {}", String::from_utf8_lossy(&made.stderr));
+        let value: Value = serde_json::from_slice(&made.stdout).expect("new JSON");
+        let session = value["sessionId"].as_str().expect("new session id").to_owned();
+        let gate = daemon.home.join(format!("cli-gate-{i}"));
+        make_fifo(&gate);
+        let mut send = std::process::Command::new(daemon_env::bin());
+        send.args([
+            "--json",
+            "send",
+            &name,
+            "--timeout",
+            "180",
+            "--prompt-id",
+            &format!("cli-duress-prompt-{i}"),
+            &format!("gate: {}", gate.display()),
+        ])
+        .env_clear()
+        .envs(daemon_env::vars(&daemon.home, daemon_env::Agents::StandIn, &[]))
+        .env("ACPMUX_HOME", &daemon.home)
+        .env("ACPMUX_SOCKET", &daemon.socket)
+        .env("ACPMUX_CATALOG_FETCH", "0")
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+        children.push(send.spawn().expect("send CLI"));
+        sessions.push((session, gate));
+    }
+
+    for (session, _) in &sessions {
+        daemon.wait_event(session, "CLI send before-gate", |e| chunk(e, "before-gate"));
+    }
+    for _ in 0..RESTARTS {
+        daemon.sigterm();
+        daemon.start();
+        for (session, _) in &sessions {
+            daemon.wait_event(session, "host adopted after CLI restart", |e| {
+                e["kind"] == "host_adopted"
+            });
+        }
+    }
+    for (_, gate) in &sessions {
+        std::fs::write(gate, b"go").expect("release FIFO");
+    }
+
+    let mut ok = 0;
+    let mut lost = Vec::new();
+    let mut duplicated = Vec::new();
+    for (i, mut child) in children.into_iter().enumerate() {
+        let output = child.wait_with_output().expect("wait CLI send");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if output.status.success() {
+            ok += 1;
+        } else {
+            lost.push(format!("{i}: status={} stdout={stdout} stderr={stderr}", output.status));
+        }
+        let events = daemon.events(&sessions[i].0);
+        let starts = events.iter().filter(|e| e["kind"] == "turn_started").count();
+        let results = events.iter().filter(|e| e["kind"] == "turn_result").count();
+        if starts != 1 || results != 1 {
+            duplicated.push(format!("{i}: starts={starts} results={results}"));
+        }
+    }
+    eprintln!(
+        "DURESS cli_sends={SENDS} restarts={RESTARTS} completed={ok} lost={} duplicated={}",
+        lost.len(),
+        duplicated.len()
+    );
+    assert!(lost.is_empty(), "lost CLI sends: {lost:?}");
+    assert!(duplicated.is_empty(), "duplicated CLI sends: {duplicated:?}");
+    assert_eq!(ok, SENDS, "not every CLI send completed");
+}
