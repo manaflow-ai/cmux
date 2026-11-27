@@ -48,6 +48,19 @@ class SelectTests(unittest.TestCase):
                 self.assertIn("screen-share-synthetic-frames", result["flows"])
                 self.assertIn("CmuxMobileBrowserStreamTests/SyntheticScreenSharingTests", result["kit"])
 
+    def test_screen_share_fast_gate_and_flow_paths_agree(self):
+        sys.path.insert(0, str(fs.REPO / "scripts/ci"))
+        try:
+            import ios_fast_verdict as verdict
+        finally:
+            sys.path.pop(0)
+        paths = list(verdict.SCREEN_SHARE_DEPENDENCIES)
+        paths += [prefix + "Changed.swift" for prefix in verdict.SCREEN_SHARE_PATHS]
+        for path in paths:
+            with self.subTest(path=path):
+                self.assertTrue(verdict.affects_screen_sharing(path))
+                self.assertIn(verdict.SCREEN_SHARE_SUITE, self.sel(path)["kit"])
+
     def test_unrelated_change_runs_nothing(self):
         r = self.sel("webviews/src/App.tsx", "docs/readme.md")
         self.assertFalse(r["ios"])

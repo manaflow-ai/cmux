@@ -100,7 +100,15 @@
         "cmux-tui/crates/cmux-rd-host/**",
         "cmux-tui/crates/cmux-rd-link/**",
         "cmux-tui/crates/cmux-rd-proto/**",
-        "cmux-tui/crates/cmux-transport/**"
+        "cmux-tui/crates/cmux-transport/**",
+        "cmux-next-ios/CmuxMobileKit/Package.swift",
+        "cmux-next-ios/CmuxMobileKit/Package.resolved",
+        "cmux-tui/Cargo.toml",
+        "cmux-tui/Cargo.lock",
+        "cmux-tui/rust-toolchain.toml",
+        "cmux-next-ios/rust/Cargo.toml",
+        "cmux-next-ios/rust/Cargo.lock",
+        "cmux-next-ios/rust/rust-toolchain.toml"
       ],
       "note": "Real iOS sink, decoder and renderer with synthetic host H.264; displayed pixels, counts and delivery-to-display p95. Carrier/network tests run separately."
     },

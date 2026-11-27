@@ -84,6 +84,23 @@ SCREEN_SHARE_PATHS = (
     "cmux-tui/crates/cmux-transport/",
 )
 
+# Dependency and compiler changes can alter the decoder or wire codec without touching
+# a source directory. Keep these exact (README-like suffixes must not match).
+SCREEN_SHARE_DEPENDENCIES = frozenset({
+    KIT + "Package.swift",
+    KIT + "Package.resolved",
+    "cmux-tui/Cargo.toml",
+    "cmux-tui/Cargo.lock",
+    "cmux-tui/rust-toolchain.toml",
+    "cmux-next-ios/rust/Cargo.toml",
+    "cmux-next-ios/rust/Cargo.lock",
+    "cmux-next-ios/rust/rust-toolchain.toml",
+})
+
+
+def affects_screen_sharing(path: str) -> bool:
+    return path.startswith(SCREEN_SHARE_PATHS) or path in SCREEN_SHARE_DEPENDENCIES
+
 
 def kit_step(table: ci_steps.Table | None = None) -> ci_steps.Step:
     return (table or ci_steps.load()).steps["ios-kit"]
@@ -103,7 +120,7 @@ def affects(paths: list[str], step: ci_steps.Step | None = None) -> bool:
     """Whether any of PATHS is one this check builds (the router's instant-success test; plan()'s `run` without the
     kit's test-target listing, which the router's sparse checkout does not have)."""
     step = step or kit_step()
-    return any(path in SELF or path.startswith(SCREEN_SHARE_PATHS) or routes_ios(step, path) for path in paths)
+    return any(path in SELF or affects_screen_sharing(path) or routes_ios(step, path) for path in paths)
 
 
 def test_targets(root: Path) -> set[str]:
@@ -156,7 +173,7 @@ def plan(paths: list[str], root: Path = ROOT, step: ci_steps.Step | None = None)
         build = True
     # A small end-to-end viewer detector must run for host/protocol changes too,
     # including broad changes whose general tests fall back to compile-only.
-    if any(path.startswith(SCREEN_SHARE_PATHS) for path in paths):
+    if any(affects_screen_sharing(path) for path in paths):
         if SCREEN_SHARE_SUITE.split("/")[0] not in tests:
             tests.add(SCREEN_SHARE_SUITE)
         why.append("screen-sharing path: synthetic frames decode and present")

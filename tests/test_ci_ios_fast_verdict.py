@@ -52,7 +52,7 @@ class PlanTest(unittest.TestCase):
 
     def test_a_rust_crate_the_ffi_compiles_builds_the_kit_and_the_app(self) -> None:
         # cmux#55399: a cmux-tui crate change broke the iOS build and nothing iOS ran.
-        for path in ("cmux-tui/crates/cmux-wg/src/wireguard_dormant.rs", "cmux-tui/Cargo.lock",
+        for path in ("cmux-tui/crates/cmux-wg/src/wireguard_dormant.rs",
                      "cmux-tui/vendor/smoltcp/src/lib.rs"):
             with self.subTest(path=path):
                 p = self.plan(path)
@@ -109,9 +109,14 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(p["tests"], [])
         self.assertFalse(p["build"])
 
-    def test_the_package_manifest_builds_the_kit(self) -> None:
-        p = self.plan(KIT + "Package.swift")
-        self.assertTrue(p["build"])
+    def test_screen_sharing_dependency_bumps_run_the_detector(self) -> None:
+        for path in fv.SCREEN_SHARE_DEPENDENCIES:
+            with self.subTest(path=path):
+                p = self.plan(path)
+                self.assertTrue(fv.affects([path]))
+                self.assertIn(fv.SCREEN_SHARE_SUITE, p["tests"])
+                self.assertFalse(p["build"])  # testing builds the same bundle
+                self.assertFalse(fv.affects_screen_sharing(path + ".notes"))
 
     def test_a_path_ios_kit_does_not_route_plans_nothing(self) -> None:
         for path in ("docs/a.md", "web/app/page.tsx", "cmux-next-ios/verify/parity-mac/row.md", KIT + "README.md"):
@@ -146,7 +151,7 @@ class PlanTest(unittest.TestCase):
     def test_tests_and_a_build_run_the_tests_only(self) -> None:
         # A test run builds the kit's bundle: no separate build-for-testing.
         p = self.plan(KIT + "Sources/CmuxMobileShell/Foo.swift", KIT + "Package.swift")
-        self.assertEqual(p["tests"], ["CmuxMobileShellTests"])
+        self.assertEqual(p["tests"], [fv.SCREEN_SHARE_SUITE, "CmuxMobileShellTests"])
         self.assertFalse(p["build"])
 
     def test_why_is_capped(self) -> None:

@@ -4,7 +4,8 @@ Leo, 2026-11-27: "these feel extremely mockable to be de facto enough".
 
 Detector: `CmuxMobileBrowserStreamTests/SyntheticScreenSharingTests`, selected by
 FlowSuite's `screen-share-synthetic-frames` for viewer, transport, rd host/link/protocol
-and test changes. `cmux/ios-fast` runs it for those paths too, including broad
+and test changes, plus the kit manifest/resolution and both Rust workspaces’
+manifest, lockfile and toolchain changes. `cmux/ios-fast` runs it for those paths too, including broad
 changes that otherwise fall back to compile-only. The normal kit simulator suite
 runs it too.
 
