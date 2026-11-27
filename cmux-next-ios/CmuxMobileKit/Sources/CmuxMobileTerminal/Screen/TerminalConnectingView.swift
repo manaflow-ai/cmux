@@ -54,6 +54,12 @@ public struct TerminalConnectingView: View {
         case nothing
     }
 
+    /// Where a cover with no kept frame (the Mac's screen text or the skeleton) ends: the
+    /// composer's top as it rests (`rowsLift` above the view's bottom), never below it.
+    static func coverBottom(height: CGFloat, rowsLift: CGFloat?) -> CGFloat {
+        max(0, height - max(0, rowsLift ?? 0))
+    }
+
     static func content(hasLastFrame: Bool, showsPlaceholder: Bool, hasScreenText: Bool = false) -> Content {
         if hasLastFrame { return .lastFrame }
         // Only where the skeleton would be: a warm surface keeps its own live rows.
@@ -102,7 +108,15 @@ public struct TerminalConnectingView: View {
                 GeometryReader { proxy in
                     // Not dimmed: a grayed-out page reads as one that takes no input (Leo,
                     // 2026-11-24: "the entire thing is somehow grayed out").
-                    TerminalCardScreenText(text: screenText ?? "", topInset: topInset, width: proxy.size.width)
+                    // Ends at the composer's top, as the skeleton and a kept frame do: the Mac's
+                    // rows never run on under the composer bar (Aziz, 2026-11-26: "the loading
+                    // terminal placeholder shouldnt leak under the composer bar").
+                    let bottom = Self.coverBottom(height: proxy.size.height, rowsLift: rowsLift)
+                    TerminalCardScreenText(text: screenText ?? "", topInset: topInset, width: proxy.size.width,
+                                           visibleHeight: rowsLift == nil ? nil : bottom)
+                        .frame(width: proxy.size.width, height: bottom, alignment: .top)
+                        .clipped()
+                        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
                 }
                 .accessibilityHidden(true)
             case .skeleton:
@@ -123,7 +137,7 @@ public struct TerminalConnectingView: View {
 /// offline, the page says what is going on in words with Retry, and tries the attach again by
 /// itself after each of ``retryDelays`` (the last one repeating) while the cover is up.
 enum TerminalLoadWatch {
-    /// How long the skeleton shows before the page says it is still connecting.
+    /// How long the skeleton shows before the page offers Retry.
     static let bound: Duration = .seconds(8)
     /// The waits between the page's own retries of the attach, the first after ``bound``.
     static let retryDelays: [Duration] = [.seconds(8), .seconds(15), .seconds(30), .seconds(60)]
@@ -137,22 +151,19 @@ enum TerminalLoadWatch {
     enum Stage: Equatable {
         /// The skeleton (or the Mac's screen text): the rows are on their way.
         case loading
-        /// Words and Retry, no gray bars.
-        case stalled(title: String, detail: String?)
+        /// Retry, with failure details only when the connection has failed or is offline.
+        case stalled
     }
 
     static func stage(_ state: TerminalConnectionState, waited: Duration) -> Stage {
-        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
         switch state {
         case .attached:
             return .loading
-        case .failed:
-            return .stalled(title: "Can't reach this terminal", detail: "Check that the Mac is on and cmux is open.")
-        case .offline:
-            return .stalled(title: state.quietLine ?? "Your Mac is offline", detail: "The terminal opens when it is back.")
-        case .connecting(let mac), .reattaching(let mac):
+        case .failed, .offline:
+            return .stalled
+        case .connecting, .reattaching:
             guard waited >= bound else { return .loading }
-            return .stalled(title: "Still connecting to \(named(mac))", detail: "Trying again.")
+            return .stalled
         }
     }
 }
@@ -160,9 +171,20 @@ enum TerminalLoadWatch {
 /// The connecting cover past ``TerminalLoadWatch/bound``: what is going on and Retry, centered
 /// on the page, in place of the skeleton.
 struct TerminalLoadStalledPanel: View {
-    let title: String
-    let detail: String?
+    let state: TerminalConnectionState
     let retry: @MainActor () async -> Void
+
+    /// Keep failure copy with the action that resolves it; an ongoing attach has no notice.
+    static func notice(_ state: TerminalConnectionState) -> (title: String, detail: String)? {
+        switch state {
+        case .failed:
+            return ("Can't reach this terminal", "Check that the Mac is on and cmux is open.")
+        case .offline:
+            return (state.quietLine ?? "Your Mac is offline", "The terminal opens when it is back.")
+        case .attached, .connecting, .reattaching:
+            return nil
+        }
+    }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -170,12 +192,12 @@ struct TerminalLoadStalledPanel: View {
                 .font(.system(size: 28, weight: .regular))
                 .foregroundStyle(Color.white.opacity(0.6))
                 .accessibilityHidden(true)
-            Text(verbatim: title)
-                .font(.headline)
-                .foregroundStyle(Color.white)
-                .multilineTextAlignment(.center)
-            if let detail {
-                Text(verbatim: detail)
+            if let notice = Self.notice(state) {
+                Text(verbatim: notice.title)
+                    .font(.headline)
+                    .foregroundStyle(Color.white)
+                    .multilineTextAlignment(.center)
+                Text(verbatim: notice.detail)
                     .font(.subheadline)
                     .foregroundStyle(Color.white.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -220,7 +242,7 @@ struct TerminalSkeleton: View {
     var body: some View {
         GeometryReader { proxy in
             let pitch = Self.pitch
-            let bottom = max(0, proxy.size.height - (rowsLift ?? 0))
+            let bottom = TerminalConnectingView.coverBottom(height: proxy.size.height, rowsLift: rowsLift)
             // As many of the rows as fit between the top bar and the composer, newest last.
             let room = max(0, Int((bottom - topInset - 8) / pitch) - 1)
             let shown = Array(Self.rows.suffix(room))
