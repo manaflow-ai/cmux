@@ -15,6 +15,8 @@ public final class ScreenChangedEvent implements WireValue, DeltaStreamEvent, Pr
     private final Screen entity;
     private final Field<UInt64> index;
     private final UInt64 screen;
+    /** The numeric transaction of the request that changed the screen (set-column-dock, set-row-heights, float-pane), as a decimal string, when it sent one. */
+    private final Field<String> transaction;
     private final UInt64 workspace;
 
     private ScreenChangedEvent(Builder builder) {
@@ -23,6 +25,7 @@ public final class ScreenChangedEvent implements WireValue, DeltaStreamEvent, Pr
         this.index = builder.index;
         if (!builder.screenSet) throw new IllegalArgumentException("screen is required");
         this.screen = Wire.nonNull(builder.screen, "screen");
+        this.transaction = builder.transaction;
         if (!builder.workspaceSet) throw new IllegalArgumentException("workspace is required");
         this.workspace = Wire.nonNull(builder.workspace, "workspace");
     }
@@ -32,6 +35,7 @@ public final class ScreenChangedEvent implements WireValue, DeltaStreamEvent, Pr
     public Screen entity() { return entity; }
     public Field<UInt64> index() { return index; }
     public UInt64 screen() { return screen; }
+    public Field<String> transaction() { return transaction; }
     public UInt64 workspace() { return workspace; }
     @Override public String event() { return "screen-changed"; }
 
@@ -47,6 +51,10 @@ public final class ScreenChangedEvent implements WireValue, DeltaStreamEvent, Pr
         }
         Object rawScreen = Wire.required(object, "screen");
         builder.screen(Wire.uint64(rawScreen, "ScreenChangedEvent.screen"));
+        Object rawTransaction = Wire.optional(object, "transaction");
+        if (!Wire.isMissing(rawTransaction)) {
+            builder.transaction(rawTransaction == null ? null : Wire.string(rawTransaction, "ScreenChangedEvent.transaction"));
+        }
         Object rawWorkspace = Wire.required(object, "workspace");
         builder.workspace(Wire.uint64(rawWorkspace, "ScreenChangedEvent.workspace"));
         return builder.build();
@@ -59,6 +67,7 @@ public final class ScreenChangedEvent implements WireValue, DeltaStreamEvent, Pr
         Wire.put(object, "entity", entity);
         Wire.put(object, "index", index);
         Wire.put(object, "screen", screen);
+        Wire.put(object, "transaction", transaction);
         Wire.put(object, "workspace", workspace);
         return Collections.unmodifiableMap(object);
     }
@@ -66,11 +75,11 @@ public final class ScreenChangedEvent implements WireValue, DeltaStreamEvent, Pr
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ScreenChangedEvent that)) return false;
-        return Objects.equals(entity, that.entity) && Objects.equals(index, that.index) && Objects.equals(screen, that.screen) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(entity, that.entity) && Objects.equals(index, that.index) && Objects.equals(screen, that.screen) && Objects.equals(transaction, that.transaction) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(entity, index, screen, workspace); }
+    public int hashCode() { return Objects.hash(entity, index, screen, transaction, workspace); }
 
     @Override
     public String toString() { return "ScreenChangedEvent" + toWire(); }
@@ -81,6 +90,7 @@ public final class ScreenChangedEvent implements WireValue, DeltaStreamEvent, Pr
         private Field<UInt64> index = Field.omitted();
         private UInt64 screen;
         private boolean screenSet;
+        private Field<String> transaction = Field.omitted();
         private UInt64 workspace;
         private boolean workspaceSet;
 
@@ -96,6 +106,10 @@ public final class ScreenChangedEvent implements WireValue, DeltaStreamEvent, Pr
         public Builder screen(UInt64 value) {
             this.screen = value;
             this.screenSet = true;
+            return this;
+        }
+        public Builder transaction(String value) {
+            this.transaction = Field.ofNullable(value);
             return this;
         }
         public Builder workspace(UInt64 value) {

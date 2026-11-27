@@ -18,8 +18,8 @@ Wire rules (the same JSON the hand-written types sent):
   leaves the daemon's default in force;
 - `float32` is `Double` in the app: the app keeps its precision and the daemon narrows it.
 
-Read types (a family's `objects`): result and snapshot structs the app decodes, from a schema object
-(`type`) or a command's result (`result`). A reference to a generated schema object resolves to its Swift
+Read types (a family's `objects`): result, snapshot and event structs the app decodes, from a schema object
+(`type`), a command's result (`result`) or an event's payload (`event`, less its `event` name literal). A reference to a generated schema object resolves to its Swift
 name. The binding may set `conformances` (default Decodable, Sendable, Equatable), `order`, `init: false`,
 `omit` (schema fields the app does not read; never a required one of a type it encodes), `extra` (app-only
 properties with a type and default, not on the wire) and per field the request keys plus `default` (a
@@ -87,7 +87,7 @@ _MUTATION_WIRE = ("origin", "mutation_id", "expected_generation", "expected_revi
 # A read type's field may also take a Swift default (a lenient read: a missing key decodes as it) or be made
 # optional although the schema requires it (an app that still reads an older daemon that left it out).
 _READ_FIELD_KEYS = _FIELD_KEYS | {"default", "optional", "lenient", "when", "prefer"}
-_OBJECT_KEYS = frozenset({"$comment", "type", "result", "doc", "conformances", "order", "fields", "extra", "init", "omit"})
+_OBJECT_KEYS = frozenset({"$comment", "type", "result", "event", "doc", "conformances", "order", "fields", "extra", "init", "omit"})
 _EXTRA_KEYS = frozenset({"type", "default", "doc"})
 DEFAULT_CONFORMANCES = ("Decodable", "Sendable", "Equatable")
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -554,10 +554,26 @@ class _Renderer:
 
 
     def read_type(self, where: str, name: str, binding: Mapping[str, Any]) -> list[str]:
-        """A schema object (a type, or a command's result) as a standalone Swift struct the app reads."""
-        if ("type" in binding) == ("result" in binding):
-            raise BindingError(f"{where}: name exactly one of type (a schema type) or result (a command)")
-        if "type" in binding:
+        """A schema object (a type, a command's result or an event's payload) as a standalone Swift struct the app reads."""
+        if sum(key in binding for key in ("type", "result", "event")) != 1:
+            raise BindingError(
+                f"{where}: name exactly one of type (a schema type), result (a command) or event (an event's payload)"
+            )
+        if "event" in binding:
+            try:
+                schema = self.ir.event(binding["event"])
+            except KeyError:
+                raise BindingError(f"{where}: the schema has no event {binding['event']}") from None
+            payload = self._object(schema["payload"])
+            source = f"{binding['event']}"
+            if payload is None:
+                raise BindingError(f"{where}: {binding['event']}'s payload is not an object")
+            name_literal = payload["fields"].get("event")
+            if name_literal is None or name_literal["type"].get("kind") != "literal":
+                raise BindingError(f"{where}: {binding['event']}'s payload has no `event` name literal")
+            # The `event` name is the decoder's switch (DaemonEvent+Decoding), not a property.
+            target = {**payload, "fields": {wire: spec for wire, spec in payload["fields"].items() if wire != "event"}}
+        elif "type" in binding:
             target = self.ir.types.get(binding["type"])
             source = binding["type"]
             if target is None or target["kind"] != "object":

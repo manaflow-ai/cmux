@@ -547,6 +547,8 @@ export type ScreenChangedEvent = { event: "screen-changed" } & {
   "entity": T.Screen;
   "index"?: (bigint) | null;
   "screen": T.Id;
+  /** The numeric transaction of the request that changed the screen (set-column-dock, set-row-heights, float-pane), as a decimal string, when it sent one. */
+  "transaction"?: (string) | null;
   "workspace": T.Id;
 };
 

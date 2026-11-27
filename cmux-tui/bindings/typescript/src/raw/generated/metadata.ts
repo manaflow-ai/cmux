@@ -4,7 +4,7 @@
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "eacbdb081ca129fd0a1d92dbb49f3fc1445a56a232c52a75e21e512cf03388b4" as const;
+export const SDK_IR_SHA256 = "900aaeda1e1f8f40493dfd86e08a2a1ba88407a0c46c4dd8151c8a8386512772" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -36514,6 +36514,16 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      },
+      "transaction": {
+        "default": null,
+        "description": "The numeric transaction of the request that changed the screen (set-column-dock, set-row-heights, float-pane), as a decimal string, when it sent one.",
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       },
       "workspace": {

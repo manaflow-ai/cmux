@@ -45212,6 +45212,11 @@ Result<Json> Codec<ScreenChangedEvent>::encode(const ScreenChangedEvent& value) 
     auto encoded_screen = encode_value(value.screen);
     if (!encoded_screen) return std::move(encoded_screen).error();
     object.emplace("screen", std::move(encoded_screen).value());
+    if (!value.transaction.is_absent()) {
+        auto encoded = encode_value(value.transaction);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("transaction", std::move(encoded).value());
+    }
     auto encoded_workspace = encode_value(value.workspace);
     if (!encoded_workspace) return std::move(encoded_workspace).error();
     object.emplace("workspace", std::move(encoded_workspace).value());
@@ -45249,6 +45254,16 @@ Result<ScreenChangedEvent> Codec<ScreenChangedEvent>::decode(const Json& value) 
         auto decoded = decode_value<Id>(*field_screen);
         if (!decoded) return std::move(decoded).error();
         result.screen = std::move(decoded).value();
+    }
+    const Json* field_transaction = value.find("transaction");
+    if (field_transaction) {
+        if (field_transaction->is_null()) {
+            result.transaction = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_transaction);
+            if (!decoded) return std::move(decoded).error();
+            result.transaction = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_workspace = value.find("workspace");
     if (!field_workspace) {

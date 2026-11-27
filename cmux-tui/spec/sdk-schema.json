@@ -33006,6 +33006,16 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "description": "The numeric transaction of the request that changed the screen (set-column-dock, set-row-heights, float-pane), as a decimal string, when it sent one."
      }
     },
     "additional_properties": false

@@ -527,6 +527,24 @@ class ReadTypeTests(unittest.TestCase):
         self.assertIn("public struct RowHeightRecord", files["Layout/RowHeightRecord.generated.swift"])
         self.assertIn("[RowHeightRecord]", files["Layout/SetRowHeightsRequest.generated.swift"])
 
+    def test_an_event_payload_becomes_a_struct_without_its_name_literal(self) -> None:
+        document = layout_document()
+        document["events"]["pane-zoomed"] = {
+            "since": 9, "capability": None, "streams": ["subscribe"], "emission": "emitted",
+            "payload": {"kind": "object", "fields": {
+                "event": _field({"kind": "literal", "value": "pane-zoomed"}),
+                "pane": _field(ID),
+                "transaction": _field({"kind": "scalar", "name": "string"}, required=False, nullable=True),
+            }, "additional_properties": False},
+        }
+        files = rendered(document, read_bindings({"ZoomDelta": {
+            "event": "pane-zoomed", "fields": {"transaction": {"name": "clientTransactionID"}}}}))
+        source = files["Layout/ZoomDelta.generated.swift"]
+        self.assertIn("/// `pane-zoomed`.\npublic struct ZoomDelta:", source)
+        self.assertIn("public init(pane: PaneID, clientTransactionID: String? = nil)", source)
+        self.assertIn('case clientTransactionID = "transaction"', source)
+        self.assertNotIn("case event", source)
+
     def test_output_passes_the_hygiene_rules(self) -> None:
         bindings = read_bindings({"ZoomState": {"type": "ZoomPaneResult", "fields": {"zoomed": {"default": "false"}}}})
         self.assertEqual(rendered(bindings=bindings), rendered(bindings=bindings))
@@ -554,6 +572,11 @@ class ReadTypeBindingErrorTests(unittest.TestCase):
     def test_type_and_result_are_exclusive(self) -> None:
         self.assert_refused("exactly one of type", {"Z": {"type": "ZoomPaneResult", "result": "zoom-pane"}})
         self.assert_refused("exactly one of type", {"Z": {}})
+
+    def test_an_event_needs_an_object_payload_with_its_name_literal(self) -> None:
+        self.assert_refused("no event nope", {"Z": {"event": "nope"}})
+        self.assert_refused("has no `event` name literal", {"Z": {"event": "workspace-created"}})
+        self.assert_refused("exactly one of type", {"Z": {"event": "workspace-created", "type": "ZoomPaneResult"}})
 
     def test_an_unknown_type_or_command_is_refused(self) -> None:
         self.assert_refused("no object type Nope", {"Z": {"type": "Nope"}})

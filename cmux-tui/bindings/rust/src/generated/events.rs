@@ -760,6 +760,9 @@ pub struct ScreenChangedEvent {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub index: Optional<u64>,
     pub screen: T::Id,
+    /// The numeric transaction of the request that changed the screen (set-column-dock, set-row-heights, float-pane), as a decimal string, when it sent one.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub transaction: Optional<String>,
     pub workspace: T::Id,
 }
 

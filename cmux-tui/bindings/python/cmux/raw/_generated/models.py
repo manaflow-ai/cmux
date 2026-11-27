@@ -6587,6 +6587,7 @@ class ScreenChangedEvent(EventBase):
     entity: Screen
     event: Literal['screen-changed']
     index: Union[int, None, MissingType] = field(default=MISSING)
+    transaction: Union[str, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 

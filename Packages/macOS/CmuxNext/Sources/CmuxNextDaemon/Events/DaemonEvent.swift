@@ -1,5 +1,7 @@
 import Foundation
 
+// Subscribe-stream events (cmux-tui/spec/events.md). Unknown events decode
+// to `.unknown` with the raw payload so a newer daemon never breaks the app.
 public enum DaemonEvent: Sendable, Hashable {
     // Connection lifecycle, synthesized by `DaemonConnection`.
 

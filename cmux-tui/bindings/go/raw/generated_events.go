@@ -4517,10 +4517,12 @@ func (ScreenAddedEvent) isSubscribeEvent() {}
 
 // ScreenChangedEvent is emitted by protocol v12.
 type ScreenChangedEvent struct {
-	Entity    Screen           `json:"entity"`
-	Index     Presence[uint64] `json:"-"`
-	Screen    ID               `json:"screen"`
-	Workspace ID               `json:"workspace"`
+	Entity Screen           `json:"entity"`
+	Index  Presence[uint64] `json:"-"`
+	Screen ID               `json:"screen"`
+	// The numeric transaction of the request that changed the screen (set-column-dock, set-row-heights, float-pane), as a decimal string, when it sent one.
+	Transaction Presence[string] `json:"-"`
+	Workspace   ID               `json:"workspace"`
 }
 
 func (value ScreenChangedEvent) MarshalJSON() ([]byte, error) {
@@ -4545,6 +4547,18 @@ func (value ScreenChangedEvent) MarshalJSON() ([]byte, error) {
 		}
 		object["index"] = encodedField
 	}
+	if value.Transaction.IsAbsent() {
+		delete(object, "transaction")
+	} else if value.Transaction.IsNull() {
+		object["transaction"] = json.RawMessage("null")
+	} else {
+		fieldValue, _ := value.Transaction.Get()
+		encodedField, err := json.Marshal(fieldValue)
+		if err != nil {
+			return nil, fmt.Errorf("encode ScreenChangedEvent.Transaction: %w", err)
+		}
+		object["transaction"] = encodedField
+	}
 	return json.Marshal(object)
 }
 
@@ -4553,10 +4567,11 @@ func (value *ScreenChangedEvent) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode ScreenChangedEvent: expected object")
 	}
 	var fields struct {
-		Entity    *Screen          `json:"entity"`
-		Index     Presence[uint64] `json:"index"`
-		Screen    *ID              `json:"screen"`
-		Workspace *ID              `json:"workspace"`
+		Entity      *Screen          `json:"entity"`
+		Index       Presence[uint64] `json:"index"`
+		Screen      *ID              `json:"screen"`
+		Transaction Presence[string] `json:"transaction"`
+		Workspace   *ID              `json:"workspace"`
 	}
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return fmt.Errorf("decode ScreenChangedEvent: %w", err)
@@ -4572,6 +4587,7 @@ func (value *ScreenChangedEvent) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode ScreenChangedEvent: required field screen is missing or null")
 	}
 	decoded.Screen = *fields.Screen
+	decoded.Transaction = fields.Transaction
 	if fields.Workspace == nil {
 		return fmt.Errorf("decode ScreenChangedEvent: required field workspace is missing or null")
 	}

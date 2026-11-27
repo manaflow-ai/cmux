@@ -2958,6 +2958,226 @@
           }
         }
       }
+    },
+    "Events": {
+      "$comment": "Subscribe-stream tree delta payloads (cmux-tui/spec/events.md). One struct decodes every event of its kind (DaemonEvent+Decoding switches on `event`), so it binds the kind's fullest event and marks optional what the others leave out. DaemonNotification, SelectionDelta, ScreenLayoutDelta and the agent inventory events stay hand-written: the schema's payloads lack fields the app reads.",
+      "objects": {
+        "WorkspaceDelta": {
+          "event": "workspace-changed",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "Ordered workspace delta (`workspace-added/closed/renamed/moved/changed`)."
+          ],
+          "order": [
+            "workspace",
+            "index",
+            "entity",
+            "workspace_revision",
+            "registry_id",
+            "generation",
+            "origin",
+            "mutation_id",
+            "clientTransactionID"
+          ],
+          "fields": {
+            "workspace": {
+              "type": "WorkspaceHandle"
+            },
+            "index": {
+              "type": "Int",
+              "optional": true,
+              "doc": [
+                "Insertion index (added), former index (closed), new index (moved); nil for renamed."
+              ]
+            },
+            "entity": {
+              "type": "WorkspaceSnapshot"
+            },
+            "registry_id": {
+              "name": "registryID",
+              "optional": true
+            },
+            "generation": {
+              "type": "DaemonGeneration",
+              "optional": true
+            },
+            "mutation_id": {
+              "name": "mutationID"
+            }
+          },
+          "extra": {
+            "clientTransactionID": {
+              "type": "ClientTransactionID?",
+              "default": "nil",
+              "doc": [
+                "App-only, never decoded: the daemon puts `transaction` on tab-added, tab-changed and screen-changed only."
+              ]
+            }
+          }
+        },
+        "WorkspacePresentationDelta": {
+          "event": "workspace-presentation-changed",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "`workspace-presentation-changed` (`tree-selection-deltas-v1`, #32408): one workspace's entity after a",
+            "`workspace.update` of its title, color or icon, which has no workspace revision. It replaces the",
+            "`tree-changed` that made the store read the whole tree for one workspace's color."
+          ],
+          "order": [
+            "workspace",
+            "entity"
+          ],
+          "fields": {
+            "workspace": {
+              "type": "WorkspaceHandle"
+            },
+            "entity": {
+              "type": "WorkspaceSnapshot"
+            }
+          }
+        },
+        "ScreenDelta": {
+          "event": "screen-changed",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "Ordered screen delta (`screen-added/closed/renamed/changed`)."
+          ],
+          "order": [
+            "workspace",
+            "screen",
+            "index",
+            "entity",
+            "transaction"
+          ],
+          "fields": {
+            "workspace": {
+              "type": "WorkspaceHandle"
+            },
+            "index": {
+              "type": "Int",
+              "optional": true
+            },
+            "transaction": {
+              "name": "clientTransactionID",
+              "type": "ClientTransactionID"
+            }
+          }
+        },
+        "PaneDelta": {
+          "event": "pane-added",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "Ordered pane delta (`pane-added/closed`)."
+          ],
+          "order": [
+            "workspace",
+            "screen",
+            "pane",
+            "index",
+            "entity",
+            "clientTransactionID"
+          ],
+          "fields": {
+            "workspace": {
+              "type": "WorkspaceHandle"
+            },
+            "index": {
+              "type": "Int",
+              "optional": true
+            },
+            "entity": {
+              "type": "PaneSnapshot"
+            }
+          },
+          "extra": {
+            "clientTransactionID": {
+              "type": "ClientTransactionID?",
+              "default": "nil",
+              "doc": [
+                "App-only, never decoded: the daemon puts `transaction` on tab-added, tab-changed and screen-changed only."
+              ]
+            }
+          }
+        },
+        "TabDelta": {
+          "event": "tab-added",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "doc": [
+            "Ordered tab delta (`tab-added/closed/renamed/changed`)."
+          ],
+          "order": [
+            "workspace",
+            "screen",
+            "pane",
+            "surface",
+            "index",
+            "entity",
+            "transaction"
+          ],
+          "fields": {
+            "workspace": {
+              "type": "WorkspaceHandle"
+            },
+            "index": {
+              "type": "Int",
+              "optional": true
+            },
+            "transaction": {
+              "name": "clientTransactionID",
+              "type": "ClientTransactionID"
+            }
+          }
+        },
+        "ProjectionChange": {
+          "event": "frontend-projection-changed",
+          "conformances": [
+            "Sendable",
+            "Hashable",
+            "Decodable"
+          ],
+          "init": false,
+          "order": [
+            "frontend",
+            "scope",
+            "subject_key",
+            "projection_revision",
+            "origin",
+            "mutation_id"
+          ],
+          "fields": {
+            "subject_key": {
+              "name": "subjectKey"
+            },
+            "origin": {
+              "optional": true
+            },
+            "mutation_id": {
+              "name": "mutationID",
+              "optional": true
+            }
+          }
+        }
+      }
     }
   }
 }
