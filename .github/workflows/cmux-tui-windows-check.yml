@@ -149,6 +149,7 @@ on:
       - "schemas/sidebar-hover-card-rules/vectors.json"
       - "schemas/sidebar-item-info/vectors.json"
       - "schemas/sidebar-drag-geometry/vectors.json"
+      - "schemas/sidebar-region-layout/vectors.json"
       - "schemas/settings/source/notifications.json"
       - ".github/workflows/nightly.yml"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneCloudFolder.swift"
