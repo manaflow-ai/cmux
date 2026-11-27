@@ -35,7 +35,12 @@ env:
 jobs:
   comment:
     if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (inputs.writer || !inputs.own_checks_green || github.run_attempt != '1') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    # It holds a pull-requests write token and runs about 25 s, after the head's real checks: a one-job VM, the same
+    # CI_TRUSTED_RUNNER selector as pr-checks.yml's advisory job, not the persistent cmux-linux pool. On 2026-11-25/26
+    # cmux-linux queued this job 326 s (cmux#56712 104c57a1, job 139546128644) and 421 s (cmux#57347 51ba4d3d, job
+    # 139617156814) for 25 s of work, while the same heads' advisory, risk evidence and merge freeze jobs started on
+    # blacksmith-4vcpu-ubuntu-2404 within 0-4 s; on 104c57a1 it was the head's last check by 3.5 min.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted pull-request-write token; CI_TRUSTED_RUNNER picks the Blacksmith size
     timeout-minutes: 5
     continue-on-error: true
     concurrency:
@@ -49,7 +54,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout the comment script from the base commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           persist-credentials: false
@@ -58,6 +63,8 @@ jobs:
           path: .red-checks-src
           sparse-checkout: |
             scripts/ci/pr_red_checks_comment.py
+            scripts/ci/gh_http.py
+            scripts/ci/deadline_http.py
             scripts/ci/pr_status.py
             scripts/ci/pr_ran_line.py
             scripts/ci/ci_process_tree.py

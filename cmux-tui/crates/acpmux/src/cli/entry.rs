@@ -64,6 +64,8 @@ pub unsafe fn process_main() -> Result<()> {
     // SAFETY: as above, before any thread exists.
     unsafe {
         cmux_tui_platform::malloc_arenas::cap(cmux_tui_platform::malloc_arenas::ACPMUX_ARENAS);
+        // macOS: malloc read its space-efficient mode at exec; children start without it (malloc_space.rs).
+        cmux_tui_platform::malloc_space::forget();
     }
     main(std::env::args_os().skip(1).collect(), Invocation::default())
 }
@@ -94,6 +96,11 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         crate::oom_rank::raise_agent();
         crate::qos::enter(crate::qos::Role::BackgroundTaskRunner);
         return crate::bg_run::main();
+    }
+    // A listener keeper across a service-manager restart (`daemon/listener_keeper.rs`).
+    #[cfg(unix)]
+    if args.first().is_some_and(|a| a == crate::daemon::listener_keeper::HOLD_ARG) {
+        return crate::daemon::listener_keeper::main(args.get(1..).unwrap_or_default());
     }
     // A bench's sized chat, written by this build's store (`god_fixture.rs`): no daemon, no CLI.
     if args.first().is_some_and(|a| a == crate::god_fixture::SEED_CHAT_ARG) {
@@ -313,13 +320,30 @@ fn parse(args: Vec<OsString>, invocation: Invocation) -> Parsed {
                 e
             };
             let refusal = crate::cli::unknown_flag::explain(&e, &grammar, &argv, at, name)
-                .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name))
-                .or_else(|| {
-                    json_out.then(|| crate::cli::unknown_command::envelope(&e, name)).flatten()
-                });
-            match refusal {
-                Some(refusal) => errors::exit_with(&refusal.into(), json_out),
-                None => e.exit(),
+                .or_else(|| crate::cli::unknown_command::explain(&e, &grammar, &argv, at, name));
+            if let Some(refusal) = refusal {
+                errors::exit_with(&refusal.into(), json_out)
+            }
+            // The one form a mistyped or wishful one meant (cmux-intent, the shared layer of
+            // tools/intent.py): run and said on stderr when clear and safe, else listed or
+            // refused with its exact form. A destructive or outward form is never rewritten.
+            let words: Vec<String> =
+                argv.iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+            let Some(fixed) = cmux_intent::recover(&grammar, "acpmux", name, &words, &e) else {
+                match json_out.then(|| crate::cli::unknown_command::envelope(&e, name)).flatten() {
+                    Some(refusal) => errors::exit_with(&refusal.into(), json_out),
+                    None => e.exit(),
+                }
+            };
+            argv = argv
+                .first()
+                .cloned()
+                .into_iter()
+                .chain(fixed.into_iter().map(OsString::from))
+                .collect();
+            match grammar.try_get_matches_from_mut(argv.clone()) {
+                Ok(matches) => matches,
+                Err(again) => again.exit(),
             }
         }
     };
@@ -665,12 +689,20 @@ async fn async_main(parsed: Parsed) -> Result<()> {
             Ok(())
         }
         // A heavy shell call the Bash hook sent to a run VM (`placement/run_vm.rs`): no daemon.
-        Some(Command::RunVm { command }) => {
-            match crate::placement::run_vm::main(&command.join(" ")).await {
-                // crash-allow: the agent's shell reads the command's own exit code, as if it ran here
-                Ok(code) => std::process::exit(code),
-                Err(e) => errors::exit_with(&e, cli.json),
-            }
+        // A CI log through the shared cache (`ci_log_cache.rs`): no daemon.
+        Some(cmd @ (Command::RunVm { .. } | Command::CiLogCache { .. })) => {
+            let code = match cmd {
+                Command::RunVm { command } => {
+                    match crate::placement::run_vm::main(&command.join(" ")).await {
+                        Ok(code) => code,
+                        Err(e) => errors::exit_with(&e, cli.json),
+                    }
+                }
+                Command::CiLogCache { command } => crate::ci_log_cache::main(&command),
+                _ => 1,
+            };
+            // crash-allow: the agent's shell reads the command's own exit code, as if it ran here
+            std::process::exit(code)
         }
         // No daemon: what this binary serves (`capabilities.rs`).
         Some(Command::SubForkJob) => match crate::placement::sub_fork_run::job_main().await {
