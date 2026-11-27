@@ -405,7 +405,7 @@ reads (a design token, a schema, a skill page the daemon embeds), the loop
 1. builds only the daemons the changed crates reach (`cargo metadata`), incrementally. With
    `--build-host` the changed files go to a tree kept for this checkout on that host (rsync over one
    kept ssh connection), which keeps its own warm `target/` and uses sccache when the host has it;
-2. brings the binaries back (rsync, compressed) into a new folder per build, so the running daemon's
+2. brings the binaries back (rsync, only the change) into a new folder per build, so the running daemon's
    file is never written over;
 3. swaps the daemon the way `scripts/cmux-next/daemon-swap-check.py` measures it: the old owner
    stops and leaves its terminal hosts running, the new one adopts them. How depends on who runs the
@@ -456,6 +456,21 @@ toward a second. From a build host on another machine add the copy: the debug `c
 MB, 263 MB once the build host strips its debug info (the loop does), and rsync sends only the
 change against the last build. That took 19 s from the fleet box to a Mac over the tailnet.
 
+Nearly all of that copy was rsync's `-z`: zlib read the whole 263 MB to shrink a delta of about
+0.4 MB to 0.1 MB. The loop no longer compresses. Measured with `scripts/measure/rust-live-fetch.py`
+(both rsync ends on one fleet Linux box, so CPU counts and the network doesn't; three one-line
+cmux-tui-core edits each; the host's strip adds 1.25 s to every row):
+
+| Copy of the stripped 263 MB cmux-tui | p50 | sent |
+|---|---|---|
+| `rsync -z` (zlib), before | 13.66 s | 0.1 MB |
+| `rsync`, no compression (now) | 0.96 s | 0.4 MB |
+| `rsync -z --compress-choice=zstd` | 1.03 s | 0.1 MB |
+| `zstd -T0 -1` piped, no delta | 1.17 s | 142.6 MB |
+| `rsync -z --whole-file` | 12.61 s | 136.4 MB |
+
+The first copy after a start still sends the whole binary, since there is no build here to diff.
+
 The in-place patch (`hotpatch` feature, `scripts/cmux-next/daemon-hotpatch-check.py`) keeps even the
 daemon's process and its client connections, but on the same box it is slower: 64.2 s for its edit
 in cmux-tui-core (dx replays cmux-tui-core's rustc, then rebuilds the program crate), after a 353 s
@@ -477,6 +492,32 @@ Every way compiled the same three crates: cmux-build-identity, cmux-tui-core and
 profile, feature, wrapper or incremental setting is behind the gap. The 11.75 s figure is not an
 edit to this crate. What's left is compiling cmux-tui-core itself (splitting the crate) and the
 19 s copy back from a build host.
+
+Where those 29 s go (`scripts/measure/tui-core-edit-breakdown.py`: the same edit, rust-live's cargo
+args with `--timings`, then `-Z time-passes` once per crate; fleet Linux, 32 cores, 4 edits, jobs
+51a80d14fb203f274cdbe13e and ffb7948d72743f4ccaad4b7b at cmux#61653's heads):
+
+| Unit a cmux-tui-core edit rebuilds | p50 |
+|---|---|
+| cmux-tui-core (about 416k lines outside tests) | 15.5 s |
+| the cmux-tui lib (`src/main.rs`, about 359k lines), every time core changes | 12.7 s |
+| the cmux-tui bin: its own compile 0.4 s, the link 2.7 s | 3.1 s |
+| everything (the units overlap a little) | 29.0 s |
+
+Code generation is not the cost: LLVM takes 0.7 s of cmux-tui-core's 15.7 s. The rest is work rustc
+does over the whole crate whatever the edit: writing its metadata 3.6 s, macro expansion 3.1 s, saving
+the incremental cache (dep graph and results) 5.8 s, name resolution 1.9 s, partitioning and the
+monomorphization walk 2.3 s. The cmux-tui lib is the same kind of cost. So time follows the size of
+every crate between the edit and the binary. Splitting cmux-tui-core alone leaves at least the lib and
+the link, about 16 s. The edited code also has to leave a 359k-line crate on its way to the binary.
+The crate is one dependency cycle: every large module (`server`, `mux`, `workspace_registry`,
+`state`, `apps`, `surface`) reaches all the others through `crate::` paths. The only modules that
+reach none of them (`fs_ops`, `layout`, `feed_client`, `git_seed`, `blob_fetch`, `terminal_backend`,
+`event_bus`, `journal_plugin`) are about 15k lines, under 4% of the crate, and take few edits:
+`git_seed` had 104 file changes in the 30 days to 2026-11-27, against about 1,990 for `server` and
+1,460 for `mux`. Moving them out would save under a second. The split that pays is cutting the
+cycle at `server`, the most edited part, so that it builds after the rest of the crate, and doing the
+same in the cmux-tui lib.
 
 ### Editing while it runs: what survives
 

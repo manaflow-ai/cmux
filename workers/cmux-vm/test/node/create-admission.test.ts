@@ -14,11 +14,14 @@ import {
   DEFAULT_CREATE_CONCURRENCY,
   DEFAULT_CREATE_QUEUE_WAIT_MS,
   INITIAL_HOLD_MS,
+  PROVIDER_CREATE_BUDGET_MS,
   parseCreateAdmission,
   type CreateAdmission,
   type CreateAdmissionSettings,
 } from "../../src/limits/create-admission.ts";
 import { memoryLedgerStorage } from "../../src/limits/ledger.ts";
+import { upstreamConfigOf } from "../../src/upstream/live.ts";
+import { Redacted } from "effect";
 
 const PROVIDER_TIMEOUT_MS = 120_000;
 const HOLD_MS = 14_000;
@@ -169,6 +172,20 @@ describe("CreateAdmissionQueue", () => {
     expect(await waiting).toMatchObject({ admitted: true, waitedMs: 10_000 });
   });
 
+  it("keeps a slot whose create is still polled as a background request (cmux#61044, up to the 240 s budget): no fourth create in", async () => {
+    expect(CREATE_SLOT_LEASE_MS).toBeGreaterThan(PROVIDER_CREATE_BUDGET_MS);
+    const queue = new CreateAdmissionQueue(memoryLedgerStorage());
+    for (const holder of ["a", "b", "c"]) expect(await queue.admit(holder, SETTINGS)).toMatchObject({ admitted: true });
+    // Every slot is still inside its provider call for the whole of the next create's wait; the old 130 s lease had
+    // freed all three long before.
+    await vi.advanceTimersByTimeAsync(PROVIDER_CREATE_BUDGET_MS - DEFAULT_CREATE_QUEUE_WAIT_MS - 1_000);
+    const waiting = queue.admit("d", SETTINGS);
+    await settle();
+    expect(queue.state.inFlight).toBe(3);
+    await vi.advanceTimersByTimeAsync(DEFAULT_CREATE_QUEUE_WAIT_MS);
+    expect(await waiting).toMatchObject({ admitted: false });
+  });
+
   it("keeps the slots it handed out across a restart of its object", async () => {
     const storage = memoryLedgerStorage();
     const first = new CreateAdmissionQueue(storage);
@@ -211,5 +228,16 @@ describe("parseCreateAdmission", () => {
     expect(parseCreateAdmission("8", "5000")).toEqual({ ...SETTINGS, cap: 8, queueWaitMs: 5000 });
     expect(parseCreateAdmission("three", "-1")).toEqual(SETTINGS);
     expect(parseCreateAdmission("100000", "999999")).toEqual(SETTINGS);
+  });
+});
+
+describe("the Worker's upstream config", () => {
+  it("hands the provider create queue to the client, with every other field (staging 2026-11-27: the layer dropped it)", () => {
+    const createAdmission = { admit: async () => ({ admitted: true as const, waitedMs: 0, inFlight: 1, queued: 0 }), release: async () => {} };
+    const fetch = async () => new Response(null);
+    const config = upstreamConfigOf({ baseUrl: "https://provider.test/", apiKey: "k", environment: "staging", createAdmission, fetch, timeoutMs: 5, backgroundPollMs: 2, startPollMs: 3 });
+    expect(config.createAdmission).toBe(createAdmission);
+    expect(config.fetch).toBe(fetch);
+    expect({ ...config, apiKey: Redacted.value(config.apiKey) }).toEqual({ baseUrl: "https://provider.test/", apiKey: "k", environment: "staging", createAdmission, fetch, timeoutMs: 5, backgroundPollMs: 2, startPollMs: 3 });
   });
 });
