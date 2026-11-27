@@ -372,7 +372,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -381,7 +382,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -488,12 +490,20 @@ jobs:
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
           bun-version: "1.4.4"
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        timeout-minutes: 2
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
+
       # Restore only: the react-apps-check shards save this key.
       - name: Restore the Bun package cache
+        if: ${{ steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
       - name: Restore pinned Node 24.22.1 from the CI cache bucket
@@ -593,7 +603,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -602,7 +613,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -663,7 +675,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -672,7 +685,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -736,23 +750,31 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        timeout-minutes: 2
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
+
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref == 'refs/heads/feat-cmux-next' }}
+        if: ${{ github.ref == 'refs/heads/feat-cmux-next' && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ github.ref != 'refs/heads/feat-cmux-next' && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install webviews dependencies
         working-directory: webviews
@@ -870,7 +892,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -879,7 +902,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -1095,26 +1119,34 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        timeout-minutes: 2
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
+
       # The source build installs webviews dependencies before the test suite;
       # cache Bun's package blobs on this lane so a new source key
       # does not redownload the lockfile from scratch.
       - name: Cache Bun package cache
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ (steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref == 'refs/heads/feat-cmux-next' }}
+        if: ${{ ((steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref == 'refs/heads/feat-cmux-next') && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ (steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref != 'refs/heads/feat-cmux-next' }}
+        if: ${{ ((steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref != 'refs/heads/feat-cmux-next') && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Playwright browsers
         if: ${{ (steps.receipt.outputs.hit != 'true') && steps.warm-react.outputs.warm != 'true' && github.ref == 'refs/heads/feat-cmux-next' }}
@@ -1904,7 +1936,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -1913,7 +1946,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Playwright browsers
         if: ${{ (steps.pick.outputs.files != '0') && github.ref == 'refs/heads/feat-cmux-next' }}
@@ -2183,7 +2217,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -2192,7 +2227,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Playwright browsers
         if: ${{ (steps.head.outputs.reds != '0') && github.ref == 'refs/heads/feat-cmux-next' }}
@@ -2801,7 +2837,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -2810,7 +2847,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install webview dependencies
         working-directory: webviews
@@ -2899,7 +2937,8 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache Bun package cache (restore only off feat-cmux-next)
         timeout-minutes: 3
@@ -2908,7 +2947,8 @@ jobs:
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

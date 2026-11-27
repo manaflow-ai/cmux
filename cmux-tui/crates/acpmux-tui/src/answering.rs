@@ -52,7 +52,7 @@ impl App {
     /// options, the question).
     fn pending_question(&self) -> Option<(String, Vec<(String, String, String)>, Value)> {
         let id = self.selected_id()?;
-        match self.transcripts.get(&id)?.pending_permission()? {
+        match crate::live_permission(self.transcripts.get(&id)?)? {
             Item::Permission { id, options, question: Some(question), .. } => {
                 Some((id.clone(), options.clone(), question.clone()))
             }
@@ -140,6 +140,12 @@ impl App {
         let plain = !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT);
         let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         match key.code {
+            // Esc with an answer typed clears that text and keeps the question (cmux#41018);
+            // Esc on an empty reply leaves it.
+            KeyCode::Esc if !empty => {
+                self.editor_mut().clear();
+                self.status = "answer cleared  (Esc again leaves the question)".into();
+            }
             KeyCode::Esc => {
                 self.answering = None;
                 self.status = "question left unanswered  (y answers · n declines)".into();

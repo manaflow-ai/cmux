@@ -144,6 +144,8 @@ class AppCrateLicenseGate(unittest.TestCase):
                     # The app's daemon client: the cmux SDK and its C ABI.
                     "cmux-sdk",
                     "cmux-sdk-ffi",
+                    # The leftover Chromium code-sign clone sweep (cmux-sign-clone-sweep).
+                    "cmux-sign-clone-sweep",
                     # Predictive local echo for remote terminals (cmux-terminal-prediction).
                     "cmux-terminal-prediction",
                     # The browser's address bar resolver, BrowserURLResolver step A (cmux-url-input, #57119).
