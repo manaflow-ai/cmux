@@ -6,6 +6,7 @@ import { ImageIcon } from "./icons";
 import { MathInline } from "./Math";
 import { codeSpans } from "../slashCommands";
 import { ForeignFileRef, PathChip, SiblingFileChip, UrlChip } from "../chips/LinkChips";
+import { githubRefLabel } from "../chips/linkChipsModel";
 import { isBareFileName, ReplyFoldersContext } from "../chips/replyFolders";
 import { SoftBroken } from "./softBreaks";
 import { codePath, foreignFileId, isTemplatePath, linkPath, pathName, lineOf, relativeCodePath } from "../chips/paths";
@@ -121,14 +122,20 @@ const SESSION_FOLDER: readonly string[] = [""];
 
 /// A link label that only repeats the link's own path (`[file:///a/b.html](file:///a/b.html)`,
 /// also in code): the chip names the file, as a bare path's chip does.
-function repeatsPath(label: string, path: string): boolean {
-  return linkPath(label.trim().replace(/^`([^`]+)`$/, "$1")) === path;
+/// A label with another line (`[a.ts:8](a.ts:9)`) keeps its own words.
+function repeatsPath(label: string, href: string, path: string): boolean {
+  const text = label.trim().replace(/^`([^`]+)`$/, "$1");
+  return linkPath(text) === path && lineOf(text) === lineOf(href);
 }
 
-/// A link's label: inline Markdown, whose file names are its text, never chips of their own inside
-/// the link's chip.
+/// A link's label: inline Markdown, whose file names, paths and URLs are its text, never chips of
+/// their own inside the link's chip (`insideLink`).
 function linkLabel(source: string, opts: InlineOptions): ReactNode {
-  return <ReplyFoldersContext.Provider value={NO_FOLDERS}>{renderInline(source, opts)}</ReplyFoldersContext.Provider>;
+  return (
+    <ReplyFoldersContext.Provider value={NO_FOLDERS}>
+      {renderInline(source, { ...opts, insideLink: true })}
+    </ReplyFoldersContext.Provider>
+  );
 }
 
 /** Render inline Markdown (code, bold, italic, strikethrough, links, line breaks). */
@@ -196,7 +203,6 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         linkGithubReferences: false,
         started: undefined,
         claims: undefined,
-        insideLink: true,
       };
       // A link to a session (`cmux://session/<id>`) the open chat started opens that chat.
       const linked = /^[a-z][\w+.-]*:\/\/session\/([\w-]+)$/i.exec(lm[2])?.[1];
@@ -222,7 +228,7 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
             key={k++}
             path={path}
             line={lineOf(lm[2])}
-            label={repeatsPath(lm[1], path) ? lineLabel(path, lm[2]) : linkLabel(lm[1], labelOpts)}
+            label={repeatsPath(lm[1], lm[2], path) ? lineLabel(path, lm[2]) : linkLabel(lm[1], labelOpts)}
           />,
         );
       else if (app) {
@@ -254,7 +260,8 @@ export function renderInline(source: string, outer: InlineOptions = {}): ReactNo
         );
       else if (!href) out.push(<Fragment key={k++}>{linkLabel(lm[1], labelOpts)}</Fragment>);
       else {
-        const label = linkLabel(lm[1], labelOpts);
+        // A label that is the address itself draws as a bare address does (`owner/repo#12`).
+        const label = lm[1].trim() === lm[2] ? (githubRefLabel(href) ?? lm[1].trim()) : linkLabel(lm[1], labelOpts);
         const chip = (
           <UrlChip href={href} icon={linkKind(href) === "web" ? undefined : (opts.linkIcon ?? linkIcon)(href)}>
             {label}

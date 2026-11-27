@@ -65,3 +65,24 @@ test("look-alikes of a relative path stay code", () => {
     expect(relativeCodePath(text)).toBeUndefined();
   expect(relativeCodePath(".github/workflows/ci.yml")).toBe(".github/workflows/ci.yml");
 });
+
+test("a label with another line keeps its own words", () => {
+  expect(labels("[/Users/me/repo/a.ts:8](/Users/me/repo/a.ts:9)")).toEqual(["/Users/me/repo/a.ts:8"]);
+});
+
+test("a pull request link labelled with its own address names the pull request, in one chip", () => {
+  const pr = "https://github.com/acme/widgets/pull/12";
+  expect(chips(`[${pr}](${pr})`)).toBe(1);
+  expect(labels(`[${pr}](${pr})`)).toEqual(["acme/widgets#12"]);
+});
+
+test("an image's fallback link draws a path in its alt text as text", () => {
+  seedLinkStore({ paths: { "outputs/p.png": { place: "root", folder: false } }, policy: { remoteImages: "never" } });
+  setChipHost(async () => ({}));
+  try {
+    expect(html("See ![`outputs/p.png`](https://example.com/image.png) here.")).not.toContain("is-path");
+  } finally {
+    setChipHost(undefined);
+    resetLinkStore();
+  }
+});
