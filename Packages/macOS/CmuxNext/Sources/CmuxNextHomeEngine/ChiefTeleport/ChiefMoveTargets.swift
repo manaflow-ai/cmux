@@ -76,13 +76,13 @@ public nonisolated struct ChiefMoveTargets: Sendable {
         }
     }
 
-    private struct TargetsRequest: Encodable {
+    nonisolated private struct TargetsRequest: Encodable {
         var localHome: String
         var hosts: [WireHost]
         var cloud: WireCloud
     }
 
-    private struct WireHost: Encodable {
+    nonisolated private struct WireHost: Encodable {
         var machineID: String
         var name: String
         var kind: WireKind
@@ -90,12 +90,12 @@ public nonisolated struct ChiefMoveTargets: Sendable {
         var isRemoteGroup: Bool
     }
 
-    private struct WireCloud: Encodable {
+    nonisolated private struct WireCloud: Encodable {
         var type: String
         var api: String?
     }
 
-    private struct WireTarget: Decodable {
+    nonisolated private struct WireTarget: Decodable {
         var machineID: String
         var name: String
         var kind: WireKind
@@ -131,7 +131,7 @@ nonisolated struct WireKind: Codable, Sendable {
 }
 
 private extension ChiefMoveTarget.DisabledReason {
-    init?(wire: String) {
+    nonisolated init?(wire: String) {
         switch wire {
         case "offline": self = .offline
         case "noSSHRoute": self = .noSSHRoute
