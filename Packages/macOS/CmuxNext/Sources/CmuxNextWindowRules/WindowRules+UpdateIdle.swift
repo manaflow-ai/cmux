@@ -16,9 +16,14 @@ extension WindowRules {
         public var declinedInstalls: Int
         /// Seconds since the last declined install; nil when there was none.
         public var secondsSinceDecline: Double?
+        /// Seconds the staged update has waited for the person to be away; after two hours a minute without
+        /// input is a natural break (cmux-window-rules `update_idle`).
+        public var stagedSeconds: Double?
 
         public init(enabled: Bool, idleMinutes: Double, inputIdleSeconds: Double?, unsentDrafts: Int? = nil,
-                    screenLocked: Bool? = nil, declinedInstalls: Int = 0, secondsSinceDecline: Double? = nil) {
+                    screenLocked: Bool? = nil, declinedInstalls: Int = 0, secondsSinceDecline: Double? = nil,
+                    stagedSeconds: Double? = nil) {
+            self.stagedSeconds = stagedSeconds.flatMap { $0.isFinite ? $0 : nil }
             self.enabled = enabled
             self.idleMinutes = idleMinutes
             self.inputIdleSeconds = inputIdleSeconds.flatMap { $0.isFinite ? $0 : nil }
