@@ -10,7 +10,14 @@ import {
 } from "react";
 import { type AnyRouter, createLink } from "@tanstack/react-router";
 import { useSettingsState } from "../context";
-import { categoryRows, LEAD_PAGES_KEY, leadPages, shownSidebarSections, type Category, type SidebarSection } from "../categories";
+import {
+  categoryRows,
+  LEAD_PAGES_KEY,
+  leadPages,
+  shownSidebarSections,
+  type Category,
+  type SidebarSection,
+} from "../categories";
 import { settingsFileName } from "../format";
 import { Icon } from "../icons";
 import type { SettingsState } from "../store";
@@ -174,32 +181,33 @@ export function SectionList({ current, onSelect }: { current: string | null; onS
   // Swift `SettingsPageLayout.sidebarSections` exports; the lead run (General, Updates) has none.
   return (
     <nav ref={stripRef} className="section-list" aria-label={t("settingsPage.sections")}>
-      {shownSidebarSections(state.host?.dev_build === true, leadPages(valueOf(state, LEAD_PAGES_KEY))).map(({ section, categories }) =>
-        section.collapsed ? (
-          <CollapsedSection
-            key={section.id}
-            section={section}
-            holdsCurrent={categories.some((category) => category.id === current)}
-          >
-            {categories.map(link)}
-          </CollapsedSection>
-        ) : (
-          <div
-            key={section.id}
-            className="sidebar-section"
-            data-sidebar-section={section.id}
-            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a labelled group of sidebar links; a fieldset would bring its own box and form semantics
-            role="group"
-            aria-labelledby={section.title ? `sidebar-section-${section.id}` : undefined}
-          >
-            {section.title && (
-              <h3 className="sidebar-section-title" id={`sidebar-section-${section.id}`}>
-                {text(section.title)}
-              </h3>
-            )}
-            {categories.map(link)}
-          </div>
-        ),
+      {shownSidebarSections(state.host?.dev_build === true, leadPages(valueOf(state, LEAD_PAGES_KEY))).map(
+        ({ section, categories }) =>
+          section.collapsed ? (
+            <CollapsedSection
+              key={section.id}
+              section={section}
+              holdsCurrent={categories.some((category) => category.id === current)}
+            >
+              {categories.map(link)}
+            </CollapsedSection>
+          ) : (
+            <div
+              key={section.id}
+              className="sidebar-section"
+              data-sidebar-section={section.id}
+              // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- a labelled group of sidebar links; a fieldset would bring its own box and form semantics
+              role="group"
+              aria-labelledby={section.title ? `sidebar-section-${section.id}` : undefined}
+            >
+              {section.title && (
+                <h3 className="sidebar-section-title" id={`sidebar-section-${section.id}`}>
+                  {text(section.title)}
+                </h3>
+              )}
+              {categories.map(link)}
+            </div>
+          ),
       )}
     </nav>
   );

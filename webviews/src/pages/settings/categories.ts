@@ -135,7 +135,10 @@ export function shownSidebarSections(
     return members.length === 0 ? [] : [{ section, categories: members }];
   });
   if (leading.length === 0) return rest;
-  return [{ section: { id: LEAD_SECTION_ID, title: null, categories: leading.map((c) => c.id) }, categories: leading }, ...rest];
+  return [
+    { section: { id: LEAD_SECTION_ID, title: null, categories: leading.map((c) => c.id) }, categories: leading },
+    ...rest,
+  ];
 }
 
 /** `window.settingsLanding`: the category a bare Settings open (no section in the route) lands on; an

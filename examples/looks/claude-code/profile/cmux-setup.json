@@ -80,7 +80,12 @@
     "agentPane.links.openCitationsInEditor": true,
 
     // Motion: the app's sent-message entrance (claude-code/send-pop, now a shipped switch).
-    "agentPane.display.sendPop": true
+    "agentPane.display.sendPop": true,
+
+    // Settings (parity table, settings): the reference app's settings open on General, then its account,
+    // appearance and model pages.
+    "window.settingsLanding": "general",
+    "window.settingsLeadPages": ["general", "accounts", "appearance", "models"]
   },
   "actions": {
     // claude-code/agents

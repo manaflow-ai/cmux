@@ -97,6 +97,11 @@
     // cannot set durations or easings yet (README.md, Gaps).
     "ui.animationSpeed": "fast",
     "ui.paneAnimations": true,
-    "ui.animations.enabled": true
+    "ui.animations.enabled": true,
+
+    // Settings (parity table, settings): the reference app's settings open on its model providers, then
+    // its look and keys; cmux's other pages follow in their own order.
+    "window.settingsLanding": "models",
+    "window.settingsLeadPages": ["models", "appearance", "keyboard", "general"]
   }
 }

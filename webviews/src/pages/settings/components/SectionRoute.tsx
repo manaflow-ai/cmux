@@ -21,7 +21,10 @@ export function SectionRoute() {
   const devBuild = state.host?.dev_build === true;
   const resolved = resolveSettingsLink(section, search.focus);
   // A bare open (no section: Cmd-comma, a Settings row) lands on the profile's page (window.settingsLanding).
-  const link = section || search.focus ? resolved : { ...resolved, section: landingCategory(valueOf(state, LANDING_KEY), devBuild) };
+  const link =
+    section || search.focus
+      ? resolved
+      : { ...resolved, section: landingCategory(valueOf(state, LANDING_KEY), devBuild) };
   const shown = shownSection(link.section, devBuild);
   const same = shown === link.section;
   return (
