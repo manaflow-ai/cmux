@@ -58,6 +58,7 @@
     "screen-share-drop-gate.yml:drop-gate": {"class": "linux-rust", "warm": [], "exempt": "cold: one cargo build of the cmux-rd bench binary for the drop gate; nothing it builds is kept between runs"},
     "fast-checks.yml:checks-mac": {"class": "mac-build", "warm": [], "exempt": "cold: the one dispatched check command on a side mini; its binary artifacts come from the host's seeded SwiftPM cache (swiftpm_prefetch_binary_artifacts.py), not a kept build"},
     "measure-swift-typecheck.yml:typecheck": {"class": "mac-build", "warm": [], "exempt": "cold: swiftc -typecheck of the measuring probes only; it makes no build products to keep"},
+    "nightly.yml:report-nightly-shelf-red": {"class": "mac-sign", "warm": [], "exempt": "compiles nothing: opens or updates the App Store shelf issue (a Mac only when the nightly runs on one)"},
     "nightly.yml:report-nightly-fix-forward": {"class": "mac-sign", "warm": [], "exempt": "compiles nothing: files the lint-class reds in the fix-forward issue (a Mac only when the nightly runs on one)"},
     "nightly.yml:runner-preflight": {"class": "mac-sign", "warm": [], "exempt": "compiles nothing: checks every routing label has an online runner (a Mac only when the nightly runs on one)"},
     "nightly.yml:pick-nightly-next-signer": {"class": "mac-sign", "warm": [], "exempt": "compiles nothing: picks the nightly-next signer host from a sparse scripts/ci checkout (a Mac only when the nightly runs on one)"},
