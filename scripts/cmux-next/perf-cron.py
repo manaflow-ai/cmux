@@ -4795,6 +4795,11 @@ def cmd_run_linux_part(o):
                 print(f"perf-cron web-ui: {line}")
             for line in webui_ladder_lines(stdout):
                 print(f"perf-cron web-ui: {line}")
+            # infinite-items' per-role wakeups/PSS and its fastest-growing files: the rows keep only totals, so the
+            # job log carries which thread woke and which file grew (goal infinite-items-flat) without a rerun.
+            for line in stdout.splitlines():
+                if line.startswith(("INFINITE-ROLE ", "INFINITE-DISKGROW ")):
+                    print(f"perf-cron web-ui: {line}")
             if isinstance(value, dict):
                 # The suite's report becomes the part's, keeping what ran before it: the web-ui-god part's paired
                 # rounds run first (cmux#57939), and a bare `report = value` dropped them, so the board kept the
