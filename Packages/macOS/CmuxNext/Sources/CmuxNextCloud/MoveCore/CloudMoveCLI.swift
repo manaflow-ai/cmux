@@ -508,9 +508,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
     }
 
     /// `cmux link start-chat pin`: the send `key` of `account` runs on `machine`, one the App just made for it.
-    public func startChatPin(key: String, account: String, machine: String, workspace: String?) async throws -> (Answer, Void) {
+    public func startChatPin(key: String, account: String, machine: String, workspace: String?, provider: String? = nil) async throws -> (Answer, Void) {
         var call = ["verb": "start-chat-pin", "key": key, "account": account, "machine": machine]
         call["workspace"] = workspace
+        call["provider"] = provider
         return (try await run(call).answer, ())
     }
 
@@ -530,8 +531,10 @@ public nonisolated struct CloudMoveCLI: Sendable {
         if await startChatStrand(key: key, account: account, machine: machine) { try await delete(machine) }
     }
 
-    public func startChatCreateBegin(key: String, account: String, name: String, createKey: String) async throws -> (Answer, Void) {
-        (try await run(["verb": "start-chat-create-begin", "key": key, "account": account, "name": name, "createKey": createKey]).answer, ())
+    public func startChatCreateBegin(key: String, account: String, name: String, createKey: String, provider: String? = nil) async throws -> (Answer, Void) {
+        var call = ["verb": "start-chat-create-begin", "key": key, "account": account, "name": name, "createKey": createKey]
+        call["provider"] = provider
+        return (try await run(call).answer, ())
     }
 
     /// `route`: how the create goes out, kept with its key (``StartChatPlan/recorded(_:)``; nil names none, the relay).
