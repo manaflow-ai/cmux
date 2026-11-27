@@ -146,31 +146,32 @@
     inset 0 0 0 var(--cmux-hairline, 0.5px) color-mix(in srgb, var(--agent-text) 18%, transparent);
 }
 
-/* The account card: under the avatar, over the columns. */
+/* The account card: a strip under the search row, in the flow over the rail and the models. Drawn
+   over them, it hid the checked model (cmux#63167). The menu grows by its height as far as it has
+   room (QuickModelColumns heightOf); past that the card scrolls as one block and the lists keep two
+   rows (.acpmux-cols-body:has(.acpmux-cols-card)). It never widens the menu: the columns set it. */
 .acpmux-cols-card {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: var(--ds-space-1);
-  z-index: var(--layer-raised);
-  /* Its frame follows Text Size as the names in it do (--ui-px, ui/popupSurface.css). */
-  width: calc(250 * var(--ui-px, 1px));
-  max-width: var(--available-width, calc(100vw - 24px));
-  overflow: hidden;
-  border-radius: var(--ui-popup-radius, var(--ds-radius-popup));
-  --glass-elevation: var(--ui-popup-drop, var(--elevation-2));
+  contain: inline-size;
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
-.acpmux-cols-card-head { display: flex; align-items: center; gap: var(--ds-space-3); padding: var(--ds-space-3); }
+.acpmux-cols-body:has(> .acpmux-cols-strips > .acpmux-cols-card) {
+  grid-template-rows:
+    auto minmax(0, max-content)
+    minmax(calc(2 * var(--ds-control-row) + 2 * var(--acpmux-cols-pad)), 1fr);
+}
+.acpmux-cols-strips:has(> .acpmux-cols-card) { min-height: 0; overflow: hidden; }
+.acpmux-cols-strips:has(> .acpmux-cols-card) > :not(.acpmux-cols-card) { flex-shrink: 0; }
+.acpmux-cols-card-head { display: flex; align-items: center; gap: var(--ds-space-3); padding: var(--ds-space-2) var(--ds-space-3); }
 .acpmux-cols-card-who { display: flex; flex-direction: column; min-width: 0; }
 .acpmux-cols-card-name { color: var(--agent-text); font-weight: 600; }
 .acpmux-cols-card-who > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .acpmux-cols-card-who .acpmux-cols-detail { font-size: var(--text-caption); }
 .acpmux-cols-card-list { padding: var(--ds-space-1); }
-/* The other accounts scroll inside the card: a long list never runs past the window. */
-.acpmux-cols-card-list:has(> .acpmux-cols-caption) {
-  max-height: max(96px, min(240px, calc(var(--available-height, 480px) - 160px)));
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
 .acpmux-cols-card-list .acpmux-cols-row { gap: var(--ds-space-2); }
 .acpmux-cols-card-cta { padding: 0 var(--ds-space-3) var(--ds-space-3); }
 .acpmux-cols-signin {
