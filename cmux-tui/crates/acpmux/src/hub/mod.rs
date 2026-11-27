@@ -463,7 +463,7 @@ mod trigger_quiet_tests;
 mod trust_wait;
 mod turn_attestation;
 pub(crate) mod turn_cap;
-mod turn_cost;
+pub(crate) mod turn_cost;
 pub(crate) mod turn_frames;
 mod turn_git;
 mod turn_retry;
@@ -1635,6 +1635,9 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
+    /// Active outbox attempts share a budget across replay, retries and reconnects. Waiters
+    /// park before taking the journal lock or starting a blocking SSH carrier.
+    pub(crate) outbox_attempts: tokio::sync::Semaphore,
     /// Per host, how long no ssh carry goes to it after one was not taken
     /// (`server/ssh_carry.rs`): this daemon's alone, so two hubs (or two tests) never share it.
     pub(crate) ssh_carry_cooldown: std::sync::Mutex<crate::server::ssh_carry::Cooldown>,
@@ -2052,6 +2055,7 @@ impl Hub {
             mcp_connects: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
+            outbox_attempts: tokio::sync::Semaphore::new(8),
             ssh_carry_cooldown: Default::default(),
             mesh: Default::default(),
             mesh_relay: Default::default(),
@@ -3517,9 +3521,9 @@ impl Hub {
             meta.composer_draft = draft.clone();
             meta.updated_at = now_ms();
         }
-        // It dates the chat with no record: told before the next list read, and placed again in
-        // the list's order (`list_order.rs`).
-        self.events.row_changed(session);
+        // It dates the chat with no record: told now, so a peer following this list hears it
+        // (`row_changed_told`), and placed again in the list's order (`list_order.rs`).
+        self.events.row_changed_told(session);
         self.chat_activity_cache.note(
             &session.id,
             "composer_draft",
