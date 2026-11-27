@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46078031124",
+  "recorded_at": "2026-11-27T23:34:56Z",
+  "reason": "image inputs changed in 44be29a469cc85ae9c3c84caf906f4684161b4a7..fc492aba7053c868d7e2021e0606cdd68ff5dbd6; cmux-tui 589544f1e56b, the newest build published on HEAD (pinned be5cfa23956d; latest build 9b73ef66975b is not on HEAD)",
+  "dry_run": false,
+  "cmux_tui": "589544f1e56b6a59d1cae2f6364f0a9524b4ffda",
+  "fixes": [
+    {
+      "sha": "fc492aba7053c868d7e2021e0606cdd68ff5dbd6",
+      "mergedAt": "2026-11-27T22:40:03Z",
+      "subject": "cmux-vm: name a ruleset refusal of the image roll push and stop (#63077)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-27T23:34:56Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
