@@ -11,6 +11,7 @@ import React, { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, u
 import { flushSync } from "react-dom";
 import { HIDDEN_SCROLLER_ATTRIBUTE } from "../../../scrollers";
 import { layoutGeometry, type AcpmuxRow, type TranscriptLayout } from "../model";
+import { writeScrollTop } from "../conversation/scrollController";
 import { useCountedRender } from "../perfRender";
 import { useT, type StringKey } from "../i18n";
 import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
@@ -894,6 +895,7 @@ function ThreadMinimapView({
       event.preventDefault();
       event.stopPropagation();
       railBrowsing.current = { sessionId: live.current.sessionId };
+      // scroll-writer-ok: the prompt rail's own list, not the transcript.
       target.scrollTop += wheelPixels(event, target.clientHeight);
     };
     node.addEventListener("wheel", wheel, { capture: true, passive: false });
@@ -1193,7 +1195,7 @@ function ThreadMinimapView({
         );
       if (how === "scrub" || how === "click" || !row || reducedMotion()) {
         stopScroll(node);
-        node.scrollTop = to;
+        writeScrollTop(node, to, "minimap");
         if (how !== "scrub") settle();
       } else if (how === "step")
         animateScroll(node, target, STEP_MS, STEP_CURVE, settle, undefined, { explicit: true });
@@ -1360,6 +1362,7 @@ function ThreadMinimapView({
         const room = Math.max(0, turns.length * rowPitch - height);
         const next = Math.max(0, Math.min(room, scrolled + moved));
         if (next !== scrolled) {
+          // scroll-writer-ok: the prompt rail's own list, not the transcript.
           node.scrollTop = next;
           listOffset.current = next;
           moved -= next - scrolled;
@@ -1461,6 +1464,7 @@ function ThreadMinimapView({
     if (!overflow) {
       railBrowsing.current = undefined;
       if (listOffset.current === 0) return;
+      // scroll-writer-ok: the prompt rail's own list, not the transcript.
       node.scrollTop = 0;
       listOffset.current = 0;
       setListTop(0);
@@ -1496,6 +1500,9 @@ function ThreadMinimapView({
     }
     restTimer.cancel();
     const place = () => {
+      // A wheel over the rail between this commit and the frame is the person
+      // browsing it: their offset wins, as it did when the commit placed the list itself.
+      if (railBrowsing.current && railBrowsing.current.sessionId === sessionId) return;
       const current = listOffset.current;
       const next = railScrollTop(
         { first: onScreen.first, last: onScreen.last },
@@ -1505,6 +1512,7 @@ function ThreadMinimapView({
         rowPitch,
       );
       if (Math.abs(next - current) < 0.5) return;
+      // scroll-writer-ok: the prompt rail's own list, not the transcript.
       node.scrollTop = next;
       // railScrollTop keeps it inside the list's room, so the list takes it as it is.
       listOffset.current = next;
