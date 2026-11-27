@@ -6,13 +6,20 @@
 #
 # fleet hands the rows of screens.tsv to the build fleet's `shots` step (scripts/ci/cmux-next-ios-sim.sh, class
 # simulator): it builds the app at SHA, boots MODEL, overrides the status bar to 9:41 and takes each scene in light
-# and dark after SETTLE_S. The NAME-light and NAME-dark rows are one scene there and must share their environment.
+# and dark after FLEET_WAIT_S. The NAME-light and NAME-dark rows are one scene there and must share their
+# environment.
 # It writes the same OUT_DIR/NAME.png and meta.json as simctl, plus the step's SUMMARY.md. No Mac or Xcode is
 # needed on this host.
 #
 # simctl needs the app installed already (simctl install). For each row of screens.tsv it sets the appearance,
 # relaunches the app on that fixture screen and waits for a settled frame (two screenshots in a row with the same
-# bytes, after SETTLE_S), then writes OUT_DIR/NAME.png.
+# bytes, STABLE_GAP_S apart, after SETTLE_S), then writes OUT_DIR/NAME.png.
+#
+# Both waits outlast the fixture's script. ListStressRig.open clicks through to its screen for up to ~9 s after the
+# app starts (artifacts: open the chat, the artifacts, then the grid), holding each step still for up to 3 s. The
+# fleet step has no settled-frame check, only one pause, so FLEET_WAIT_S (14) covers launch plus the longest script;
+# at 6 s it raced the artifacts grid, which opens ~5.6 s after the app starts. simctl's two equal frames must be
+# 5 s apart, longer than any still step, so only the held screen can match.
 #
 # OUT_DIR/meta.json records the backend, model, scale and effects that compare.py reads. EFFECTS (full | reduced)
 # is recorded as given; the caller sets it.
@@ -28,6 +35,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 screens=${SCREENS_TSV:-$here/screens.tsv}
 settle=${SETTLE_S:-6}
 tries=${STABLE_TRIES:-10}
+gap=${STABLE_GAP_S:-5}
+fleet_wait=${FLEET_WAIT_S:-14}
 model=${MODEL:-iPhone 17 Pro}
 effects=${EFFECTS:-unknown}
 only=${ONLY:-}
@@ -72,7 +81,7 @@ if [ "$backend" = fleet ]; then
     base=${name%-"$look"}
     [ "$base-$look" = "$name" ] || { echo "screens.tsv: $name: name fleet rows BASE-light / BASE-dark" >&2; exit 2; }
     words=$(tr -s ' ' ',' <<<"$envline")
-    scene="$base=SHOT_WAIT=$settle${words:+,$words}"
+    scene="$base=SHOT_WAIT=$fleet_wait${words:+,$words}"
     case "$seen" in
       *$'\n'"$scene"$'\n'*) continue ;;
       *$'\n'"$base="*) echo "screens.tsv: $base: light and dark differ in environment" >&2; exit 2 ;;
@@ -169,7 +178,7 @@ while IFS=$'\t' read -r name look envline; do
       if [ "$h" = "$prev" ]; then ok=1; break; fi
       prev=$h
     fi
-    sleep 2
+    sleep "$gap"
   done
   if [ -f "$out/$name.png.tmp" ]; then
     mv "$out/$name.png.tmp" "$out/$name.png"
