@@ -8,6 +8,10 @@
 #      logged as "timing launch pre_main_init"), N plain and N with what the .xctestrun inserts, so
 #      the difference is the test harness's, not the app's.
 #   3. One launch with dyld's DYLD_PRINT_LIBRARIES / DYLD_PRINT_INITIALIZERS: what loads and runs.
+#   4. The app binary's segments and sections (size -m -l, otool -l), its ObjC / Swift metadata
+#      counts, and its fixup count (dyld_info -fixups): what dyld and the runtimes walk before main.
+#   5. Host-side `sample` of 3 launches started suspended (simctl launch --wait-for-debugger, then
+#      SIGCONT): where the pre-main CPU goes, by top of stack. Raw files: premain-sample-N.txt.
 # Diagnostic only: every failure is noted, none fails the job.
 #
 # usage: ios-launch-premain.sh OUT_JSON [SUMMARY_MD]
@@ -55,6 +59,15 @@ for m in "$bin" "$app"/Frameworks/*.framework/* "$app"/Frameworks/*.dylib; do
   [[ -f "$m" ]] && file "$m" | grep -q 'Mach-O' || continue
   printf '%s\t%s\t%s\n' "${m#"$app"/}" "$(stat -f %z "$m")" "$(inits "$m")" >>"$work/images.tsv"
 done
+# 4. The binary's segments, sections and fixups.
+size -m -l "$bin" >"$work/size-m.txt" 2>&1 || true
+otool -l "$bin" 2>/dev/null | awk '/^  sectname /{s=$2} /^   segname /{g=$2} /^      size 0x/{if (s!="") print g"\t"s"\t"$2; s=""}' >"$work/sections.tsv"
+otool -l "$bin" 2>/dev/null | grep -E '^ +cmd LC_(DYLD_CHAINED_FIXUPS|DYLD_INFO|DYLD_INFO_ONLY|DYLD_EXPORTS_TRIE)$' | sort | uniq -c >"$work/fixup-cmds.txt" || true
+if xcrun -f dyld_info >/dev/null 2>&1; then
+  ( time -p xcrun dyld_info -fixups "$bin" ) 2>"$work/dyld_info.time" | wc -l | tr -d ' ' >"$work/fixups.count" || true
+  xcrun dyld_info -fixups "$bin" 2>/dev/null | awk '{print $NF}' | sed -E 's/\+.*//' | sort | uniq -c | sort -rn | head -n 30 >"$work/fixup-targets.txt" || true
+fi
+
 inserted=""
 if [[ -n "$xctestrun" ]]; then
   inserted="$(plutil -convert json -o - "$xctestrun" 2>/dev/null | python3 -c '
@@ -155,6 +168,23 @@ SIMCTL_CHILD_DYLD_PRINT_LIBRARIES=1 SIMCTL_CHILD_DYLD_PRINT_INITIALIZERS=1 SIMCT
 sleep 8
 xcrun simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
 
+# 5. Where the pre-main CPU goes: sample launches started suspended, from the host (simulator
+# processes are host processes). sample needs task_for_pid: try plain, then sudo -n.
+for ((n = 1; n <= 3; n++)); do
+  xcrun simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+  sleep 2
+  pid="$(SIMCTL_CHILD_CMUX_MOBILE_MOCK_AUTH=1 xcrun simctl launch --wait-for-debugger "$udid" "$bundle_id" 2>/dev/null | awk -F': ' '{print $NF}' | tr -d ' ')"
+  if [[ ! "$pid" =~ ^[0-9]+$ ]]; then echo "ios-launch-premain: sample $n: no pid" >&2; continue; fi
+  sampler=(sample); sudo -n true 2>/dev/null && sampler=(sudo -n sample)
+  "${sampler[@]}" "$pid" 3 1 -mayDie -file "$work/premain-sample-$n.txt" >"$work/premain-sample-$n.log" 2>&1 &
+  sp=$!
+  sleep 0.7
+  kill -CONT "$pid" 2>/dev/null || sudo -n kill -CONT "$pid" 2>/dev/null || true
+  wait "$sp" || echo "ios-launch-premain: sample $n exited $?" >&2
+  [[ -s "$work/premain-sample-$n.txt" ]] && cp "$work/premain-sample-$n.txt" "$(dirname "$out_json")/" 2>/dev/null || true
+done
+xcrun simctl terminate "$udid" "$bundle_id" >/dev/null 2>&1 || true
+
 python3 - "$work" "$out_json" "$app" "${inserted:-}" "${mtc:-}" <<'PY'
 import collections, json, math, pathlib, re, sys
 work, out_json, app, inserted, mtc = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
@@ -186,11 +216,58 @@ out = {"app": app, "dyld_insert_libraries_from_xctestrun": inserted, "main_threa
        "dyld_print": {"lines": len(dyld), "library_lines": len(loads), "initializer_lines": len(inits),
                       "initializers_by_image_top": per_image.most_common(25), "head": dyld[:40]},
        "xctestrun_env": (work / "xctestrun-env.txt").read_text() if (work / "xctestrun-env.txt").exists() else ""}
+def rd(name):
+    f = work / name
+    return f.read_text(errors="replace") if f.exists() else ""
+sections = []
+for l in rd("sections.tsv").splitlines():
+    try:
+        g, sname, size = l.split("\t"); size = int(size, 0)
+    except ValueError:
+        continue
+    sections.append({"segment": g, "section": sname, "bytes": size})
+by = {s["section"]: s["bytes"] for s in sections}
+counts = {"objc_classlist": by.get("__objc_classlist", 0) // 8, "objc_catlist": by.get("__objc_catlist", 0) // 8,
+          "objc_nlclslist": by.get("__objc_nlclslist", 0) // 8, "objc_selrefs": by.get("__objc_selrefs", 0) // 8,
+          "objc_protolist": by.get("__objc_protolist", 0) // 8, "swift5_proto": by.get("__swift5_proto", 0) // 4,
+          "swift5_types": by.get("__swift5_types", 0) // 4, "swift5_protos": by.get("__swift5_protos", 0) // 4}
+segs = collections.Counter()
+for s in sections: segs[s["segment"]] += s["bytes"]
+def top_of_stack(text):
+    lines = text.splitlines()
+    try:
+        i = next(k for k, l in enumerate(lines) if l.startswith("Sort by top of stack"))
+    except StopIteration:
+        return []
+    out = []
+    for l in lines[i + 1:]:
+        m = re.match(r"\s+(.+?)\s+(\d+)\s*$", l)
+        if not m:
+            if out and not l.strip(): break
+            continue
+        out.append([m[1].strip(), int(m[2])])
+    return out[:30]
+samples = []
+for n in (1, 2, 3):
+    t = rd(f"premain-sample-{n}.txt")
+    tos = top_of_stack(t)
+    tot = sum(c for _, c in tos) or 1
+    samples.append({"n": n, "bytes": len(t), "log": rd(f"premain-sample-{n}.log")[-400:],
+                    "top_of_stack": [[f, c, round(100 * c / tot, 1)] for f, c in tos]})
+binary = {"segments": dict(segs), "sections_top": sorted(sections, key=lambda s: -s["bytes"])[:25], "counts": counts,
+          "fixups_lines": rd("fixups.count").strip(), "dyld_info_time": rd("dyld_info.time").strip(),
+          "fixup_cmds": rd("fixup-cmds.txt").strip(), "fixup_targets_top": rd("fixup-targets.txt").splitlines()[:30],
+          "size_m": rd("size-m.txt")[:6000]}
+out["binary"] = binary
+out["sample"] = samples
 pathlib.Path(out_json).parent.mkdir(parents=True, exist_ok=True)
 pathlib.Path(out_json).write_text(json.dumps(out, indent=1) + "\n")
 print("PREMAIN " + json.dumps({k: out[k] for k in ("arms", "linked_dylibs", "linked_own_dylibs", "images")}))
 print("PREMAIN dyld lines", len(dyld), "initializers", len(inits), per_image.most_common(15))
 print("PREMAIN xctestrun inserts", inserted or "none")
 print(out["xctestrun_env"])
+print("PREMAIN segments", json.dumps(binary["segments"]), "counts", json.dumps(counts), "fixups", binary["fixups_lines"])
+for s in samples:
+    print("PREMAIN sample", s["n"], json.dumps(s["top_of_stack"][:12]))
 PY
 exit 0

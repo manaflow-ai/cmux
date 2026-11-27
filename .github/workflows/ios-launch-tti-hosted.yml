@@ -173,6 +173,13 @@ jobs:
           for i in d.get("images", []):
               print(f"| {i['image']} | {i['bytes']} | {i['static_initializers']} |")
           print()
+          b = d.get("binary", {})
+          print(f"segments: {b.get('segments')}\n\ncounts: {b.get('counts')}; fixups: {b.get('fixups_lines')}\n")
+          for smp in d.get("sample", []):
+              print(f"\n#### sample {smp['n']} (top of stack)\n\n| frame | n | % |\n|---|---|---|")
+              for f, c, pc in smp.get("top_of_stack", [])[:15]:
+                  print(f"| `{f}` | {c} | {pc} |")
+          print()
           PY
 
       - name: Upload launch samples
@@ -185,6 +192,7 @@ jobs:
             artifacts/ios-sim/first-connect.json
             artifacts/ios-sim/launch-floor.json
             artifacts/ios-sim/launch-premain.json
+            artifacts/ios-sim/premain-sample-*.txt
             artifacts/ios-sim/SUMMARY.md
           retention-days: 3
           if-no-files-found: warn
