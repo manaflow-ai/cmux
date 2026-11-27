@@ -224,10 +224,6 @@ jobs:
   web:
     needs: plan
     if: contains(needs.plan.outputs.suites, ' web ')
-    permissions:
-      contents: read
-      actions: read
-      id-token: write
     uses: ./.github/workflows/ci-web.yml
     with:
       sha: ${{ needs.plan.outputs.sha }}
@@ -241,6 +237,7 @@ jobs:
     permissions:
       contents: read
       actions: read
+      id-token: write
 
   tip-test-compile:
     needs: plan
