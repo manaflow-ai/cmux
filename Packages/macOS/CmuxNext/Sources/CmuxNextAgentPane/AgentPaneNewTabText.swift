@@ -70,9 +70,6 @@ extension AgentPaneNewTab {
     /// the palette's actions are listed and after, and a parked spare's context with an empty bar.
     static let capacity = 4
 
-    var cachedProjects: [String] = []
-    var cachedProjectRepos: [String: Any] = [:]
-
     public private(set) var encodes = 0
     private var kept: [(part: AgentPaneNewTabShared, text: String, generation: Int)] = []
 

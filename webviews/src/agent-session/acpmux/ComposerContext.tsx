@@ -67,7 +67,7 @@ import type { Project } from "./ProjectChooser";
 import { ProjectBadge } from "./ProjectBadge";
 import { MacBookGlyph } from "./MacBookGlyph";
 import { projectSuffixes } from "./projectSuffix";
-import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type DisplayGroup, type ProjectRepo } from "./projectRepos";
+import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
 import { isAgentHome, projectLabel, SessionsBy, startedByPerson } from "./sessionList";
 import { translate as t, useT } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
@@ -127,7 +127,6 @@ type Location = {
   label: string;
   detail?: string;
   repo?: ProjectRepo;
-  displayGroup?: DisplayGroup;
   section?: string;
   disabled?: boolean;
   warning?: boolean;
@@ -1599,7 +1598,6 @@ function folderChoicesFor({
     label: project.label,
     detail: project.cwd,
     ...(project.repo ? { repo: project.repo } : {}),
-    displayGroup: project.displayGroup,
   }));
   return chatFolderChoices({ known, listed, cloudMachine });
 }

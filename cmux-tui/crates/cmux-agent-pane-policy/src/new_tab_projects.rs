@@ -17,8 +17,11 @@ pub(super) fn is_home(cwd: &str) -> bool {
 
 fn agent_home(cwd: &str) -> bool {
     cwd.split_once("/Library/Application Support/").is_some_and(|(_, rest)| {
-        rest == "cmux/agent-home" || rest.starts_with("cmux/agent-home/") ||
-            rest.strip_prefix("cmux-next/builds/").and_then(|s| s.split_once('/'))
+        rest == "cmux/agent-home"
+            || rest.starts_with("cmux/agent-home/")
+            || rest
+                .strip_prefix("cmux-next/builds/")
+                .and_then(|s| s.split_once('/'))
                 .is_some_and(|(_, rest)| rest == "agent-home" || rest.starts_with("agent-home/"))
     })
 }
@@ -36,7 +39,13 @@ pub fn snapshot(request: &Value) -> Value {
         if cwd.is_empty() || agent_home(cwd) || !seen.insert(cwd.to_owned()) {
             return;
         }
-        let label = if is_home(cwd) { "~" } else if cwd == "/" { "/" } else { cwd.rsplit('/').next().unwrap_or(cwd) };
+        let label = if is_home(cwd) {
+            "~"
+        } else if cwd == "/" {
+            "/"
+        } else {
+            cwd.rsplit('/').next().unwrap_or(cwd)
+        };
         let mut row = json!({"cwd": cwd, "label": label});
         if request["repos"][cwd].is_object() {
             row["repo"] = request["repos"][cwd].clone();
@@ -70,8 +79,13 @@ pub fn snapshot(request: &Value) -> Value {
                     .or_else(|| session["updatedAt"].as_i64())
                     .unwrap_or(0);
                 if cwd != "~" && path(cwd) != "/" {
-                    recency.entry(path(cwd).to_owned())
-                        .and_modify(|old| { if at > old.0 { *old = (at, index); } })
+                    recency
+                        .entry(path(cwd).to_owned())
+                        .and_modify(|old| {
+                            if at > old.0 {
+                                *old = (at, index);
+                            }
+                        })
                         .or_insert((at, index));
                 }
             }
@@ -82,7 +96,11 @@ pub fn snapshot(request: &Value) -> Value {
     }
     rows.sort_by_key(|row| {
         let recent = recency.get(row["cwd"].as_str().unwrap_or_default());
-        (recent.is_none(), std::cmp::Reverse(recent.map_or(0, |r| r.0)), recent.map_or(usize::MAX, |r| r.1))
+        (
+            recent.is_none(),
+            std::cmp::Reverse(recent.map_or(0, |r| r.0)),
+            recent.map_or(usize::MAX, |r| r.1),
+        )
     });
     let mut remaining: HashMap<String, Value> = rows
         .iter()
@@ -90,12 +108,12 @@ pub fn snapshot(request: &Value) -> Value {
         .collect();
     let mut ordered = Vec::new();
     for row in seed {
-        if let Some(cwd) = row["cwd"].as_str() {
-            if remaining.remove(cwd).is_some() {
-                // Repository identity controls grouping. Keep it for this opening;
-                // refreshed metadata is cached for the next opening.
-                ordered.push(row);
-            }
+        if let Some(cwd) = row["cwd"].as_str()
+            && remaining.remove(cwd).is_some()
+        {
+            // Repository identity controls grouping. Keep it for this opening;
+            // refreshed metadata is cached for the next opening.
+            ordered.push(row);
         }
     }
     for row in rows {
@@ -141,27 +159,48 @@ mod tests {
     fn labels_hidden_sessions_and_equal_recency_match_existing_picker() {
         let result = rows(json!({"projects":["/","/Users/me","/a","/b","/unused"],
           "warm":r#"{"sessions":[{"cwd":"/b","activityAt":20},{"cwd":"/a","activityAt":20},{"cwd":"/archived","archived":true,"activityAt":30},{"cwd":"/aside","side":true,"activityAt":30},{"cwd":"/unused","archived":true,"activityAt":40}]}"#}));
-        assert_eq!(result.iter().map(|r| r["cwd"].as_str().unwrap()).collect::<Vec<_>>(), ["/b","/a","/","/Users/me","/unused"]);
+        assert_eq!(
+            result.iter().map(|r| r["cwd"].as_str().unwrap()).collect::<Vec<_>>(),
+            ["/b", "/a", "/", "/Users/me", "/unused"]
+        );
         assert_eq!(result[2]["label"], "/");
         assert_eq!(result[3]["label"], "~");
         assert_eq!(result[3]["displayGroup"]["hidden"], true);
     }
     #[test]
     fn late_repository_cannot_merge_or_rename_seed_groups() {
-        let initial = rows(json!({"projects":["/Users/me/Projects/cmux","/Users/me/checkouts/cmux/lane","/notes"]}));
+        let initial = rows(
+            json!({"projects":["/Users/me/Projects/cmux","/Users/me/checkouts/cmux/lane","/notes"]}),
+        );
         let seed = serde_json::to_string(&initial).unwrap();
-        let settled = rows(json!({"projects":["/Users/me/Projects/cmux","/Users/me/checkouts/cmux/lane","/notes","/new/cmux"],"seed":seed,
-            "repos":{"/new/cmux":{"root":"/new/cmux","name":"cmux","github":"manaflow-ai/cmux"}}}));
-        for (before, after) in initial.iter().zip(&settled) { assert_eq!(before["displayGroup"], after["displayGroup"]); }
+        let settled = rows(
+            json!({"projects":["/Users/me/Projects/cmux","/Users/me/checkouts/cmux/lane","/notes","/new/cmux"],"seed":seed,
+            "repos":{"/new/cmux":{"root":"/new/cmux","name":"cmux","github":"manaflow-ai/cmux"}}}),
+        );
+        for (before, after) in initial.iter().zip(&settled) {
+            assert_eq!(before["displayGroup"], after["displayGroup"]);
+        }
         assert_ne!(settled[0]["displayGroup"]["key"], settled[3]["displayGroup"]["key"]);
     }
     #[test]
     fn appended_main_checkout_cannot_replace_existing_group_lead() {
         let repo = json!({"root":"/main","name":"repo","github":"org/repo"});
         let first = rows(json!({"projects":["/lane"],"repos":{"/lane":repo}}));
-        let result = rows(json!({"projects":["/lane","/main"],"repos":{"/lane":repo,"/main":repo},"seed":serde_json::to_string(&first).unwrap()}));
+        let result = rows(
+            json!({"projects":["/lane","/main"],"repos":{"/lane":repo,"/main":repo},"seed":serde_json::to_string(&first).unwrap()}),
+        );
         assert_eq!(result[0]["displayGroup"]["lead"], "/lane");
         assert_eq!(result[1]["displayGroup"]["lead"], "/lane");
+    }
+    #[test]
+    fn main_lead_prefers_current_clones_root() {
+        let first = json!({"root":"/first","name":"repo","github":"org/repo"});
+        let second = json!({"root":"/second","name":"repo","github":"org/repo"});
+        let result =
+            rows(json!({"projects":["/first","/second","/second-lane"],"cwd":"/second-lane",
+            "repos":{"/first":first,"/second":second,"/second-lane":second}}));
+        assert_eq!(result[0]["displayGroup"]["lead"], "/second-lane");
+        assert_eq!(result[0]["displayGroup"]["mainLead"], "/second");
     }
     #[test]
     fn next_opening_uses_new_recency_and_metadata() {

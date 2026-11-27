@@ -636,3 +636,19 @@ fn c_abi_json_keys_verdict() {
     let deep = format!("{}{}", "[".repeat(100_000), "]".repeat(100_000));
     assert_eq!(keys_verdict(deep.as_bytes()), 0, "no recursion");
 }
+
+#[test]
+fn new_tab_projects_json_op_works_without_a_pane_handle() {
+    let reply =
+        call(std::ptr::null(), "new_tab_projects", json!({"projects":["/a","/b"]})).unwrap();
+    let rows: Value = serde_json::from_str(reply["rows"].as_str().unwrap()).unwrap();
+    assert_eq!(rows[0]["cwd"], "/a");
+    assert_eq!(rows[0]["displayGroup"]["lead"], "/a");
+    let refreshed = call(
+        std::ptr::null(),
+        "new_tab_projects",
+        json!({"projects":["/b","/a"],"seed":reply["rows"]}),
+    )
+    .unwrap();
+    assert_eq!(refreshed, reply);
+}

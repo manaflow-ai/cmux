@@ -1,5 +1,4 @@
 import { seedLastPicks } from "./lastPick";
-import { parseProjectRows, type NativeProjectRow } from "./newtab/projectRows";
 import type { AcpmuxSnapshot } from "./model";
 import { MAX_NEW_TAB_ENTRIES, omnibarContext, type OmnibarContext, type OmnibarRow } from "./omnibar";
 import {
@@ -82,8 +81,6 @@ export type NewTabHost = {
   draft?: string;
   /// Project folders found by the host scan, before session-derived folders.
   projects?: string[];
-  /// Rust-owned order and repository identity for this opening.
-  projectRows?: NativeProjectRow[];
   omnibar?: OmnibarContext;
   /// The workspace's tabs a split's page offers to move into its pane (cx-jfo7).
   openTabs?: OmnibarContext["tabs"];
@@ -187,7 +184,6 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
             .slice(0, MAX_NEW_TAB_ENTRIES),
         }
       : {}),
-    projectRows: parseProjectRows(object.projectRows),
     layout: object.layout === "a" ? "a" : "b",
     ...(template ? { template } : {}),
     // `tabs.newTabApp`, which the app sends only when it is an app id by the manifest's own
