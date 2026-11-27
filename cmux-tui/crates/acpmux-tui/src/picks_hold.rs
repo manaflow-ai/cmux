@@ -30,7 +30,8 @@ impl App {
         let client = self.client.clone();
         let tx = self.tx.clone();
         let (id, model) = (id.to_owned(), model.to_owned());
-        tokio::spawn(async move {
+        // Owned by the composer's scope: the TUI's close ends a switch still running (check-spawn-owner).
+        self.draft_sync.scope.spawn_named("model switch keeping level", async move {
             let params = json!({"sessionId": id, "modelId": model});
             if !Self::run_request(
                 &client,

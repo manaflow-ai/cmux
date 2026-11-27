@@ -114,8 +114,8 @@ pub(crate) fn hydrated_draft(current: &str, restored: Option<&str>, h: History) 
 
 /// The composer's tie to acpmux's durable drafts.
 pub struct DraftSync {
-    /// The owner of the draft reads and writes this TUI starts.
-    scope: cmux_scope::Scope,
+    /// The owner of the draft reads and writes, and the composer's model switches, this TUI starts.
+    pub(super) scope: cmux_scope::Scope,
     /// The chat the shared composer holds the draft of.
     pub(super) bound: Option<String>,
     /// The composer's text when last looked at, to see an edit.
