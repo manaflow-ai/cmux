@@ -29,18 +29,23 @@ tree_used=exact
 # artifacts run 45825165044, which the same push had started. So every nightly whose tip changed
 # the tree shipped the previous tree, and a merged Rust change missed that NIGHTLY. With no
 # fallback tree, or CMUX_TUI_TREE_CLIENT_FALLBACK=off, it waits for the tip's tree as before.
+# A wait that cannot read the runs at all ends after CMUX_TUI_TREE_CLIENT_FALLBACK_BLIND_SECONDS
+# (default 600) of "unknown" checks: run 46048169625 (2026-11-27) sat the whole 1500 s blind while
+# the job's GitHub token was out of REST requests, on a tree whose run had already failed a leg.
 fallback_wait="${CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS:-1500}"
+fallback_blind="${CMUX_TUI_TREE_CLIENT_FALLBACK_BLIND_SECONDS:-600}"
 [[ "$fallback_wait" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_FALLBACK_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
+[[ "$fallback_blind" =~ ^[0-9]+$ ]] || { echo "error: CMUX_TUI_TREE_CLIENT_FALLBACK_BLIND_SECONDS must be whole seconds" >&2; exit 2; }
 if [[ "$TREE_PENDING" == true ]]; then
   read -r -a c <<<"$TREE_CANDIDATES"
   fallback_commit="" fallback_key=""
   read -r fallback_commit fallback_key _ <<<"${TREE_FALLBACK:-}" || true
   if [[ "${CMUX_TUI_TREE_CLIENT_FALLBACK:-on}" != off && "$fallback_commit" =~ ^[0-9a-f]{40}$ && "$fallback_key" =~ ^[0-9a-f]{40}$ ]]; then
-    if cmux_tui_commit="$(CMUX_TUI_TREE_CLIENT_WAIT_SECONDS="$fallback_wait" scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"; then
+    if cmux_tui_commit="$(CMUX_TUI_TREE_CLIENT_WAIT_SECONDS="$fallback_wait" CMUX_TUI_TREE_CLIENT_BLIND_SECONDS="$fallback_blind" scripts/cmux-next/await-tree-client.sh "$CMUX_TUI_CLIENT_KEY" "${c[@]}")"; then
       echo "::notice title=cmux-tui client::exact tree $CMUX_TUI_CLIENT_KEY of the build commit, from ${cmux_tui_commit:0:12}"
     else
       cmux_tui_commit="$fallback_commit" client_key="$fallback_key" tree_used=fallback
-      echo "::warning title=cmux-tui client::the build commit's tree $CMUX_TUI_CLIENT_KEY is not published after a ${fallback_wait} s bounded wait; bundling the newest published tree $fallback_key (published by $fallback_commit) instead"
+      echo "::warning title=cmux-tui client::the build commit's tree $CMUX_TUI_CLIENT_KEY is not published after a bounded wait (at most ${fallback_wait} s, ${fallback_blind} s of it unable to read the runs; the log above says which ended it); bundling the newest published tree $fallback_key (published by $fallback_commit) instead"
     fi
   else
     echo "no fallback tree (TREE_FALLBACK='${TREE_FALLBACK:-}', CMUX_TUI_TREE_CLIENT_FALLBACK=${CMUX_TUI_TREE_CLIENT_FALLBACK:-on}); waiting for tree $CMUX_TUI_CLIENT_KEY" >&2

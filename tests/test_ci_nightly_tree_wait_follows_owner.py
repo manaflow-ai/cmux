@@ -97,7 +97,11 @@ def test_the_wait_cases_pass_against_fake_runs() -> None:
     result = subprocess.run(["bash", str(SHELL_TEST)], capture_output=True, text=True, timeout=600)
     assert result.returncode == 0, result.stdout + result.stderr
     for case in ("whose build failed on its last attempt fails fast", "no runner past the stall bound fails fast",
-                 "queued under the stall bound keeps the wait", "a retry will re-run keeps the wait",
+                 "queued under the stall bound keeps the wait", "a retry will re-run keeps the wait once the retry starts",
+                 "a failed build on an early attempt ends the wait at the second check",
+                 "a preflight failure on a running first attempt ends the wait at the second check",
+                 "a wait that cannot read the runs ends at its blind bound",
+                 "with no blind bound an unreadable runs list keeps the wait",
                  "the fallback rebuilds it) keeps the wait", "holds no tree back keeps the wait",
                  "failed owner is passed over", "a preflight with no runner past the stall bound fails fast",
                  "a terminal preflight failure fails fast", "a preflight failure with active retry grace",

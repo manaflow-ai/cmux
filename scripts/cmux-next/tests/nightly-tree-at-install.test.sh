@@ -177,10 +177,34 @@ client "$own" "$app"
 check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "making progress" "$TMP/err" && grep -q "failed build-linux" "$TMP/err"' "a publisher whose build failed on its last attempt fails fast, not at the limit (took $took s)"
 
 # Before the last attempt cmux-tui-artifacts-retry re-runs the failed job (tree 453a2f94
-# published on such a retry): the wait goes on.
+# published on such a retry), but only once the run ends: while its other legs run on, the
+# tree is a whole retry away (nightly 46048169625, 2026-11-27: run 46048170219's musl leg
+# failed on attempt 1 and the run ended failed). The retry gets two checks to start.
 reset_cdn; set_runs "$no_runs"; own_run "$own" 7 1; jobs_file 7 "$failed_jobs"
 client "$own" "$app"
-check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a failed build that a retry will re-run keeps the wait (took $took s)"
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "is failing build-linux" "$TMP/err" && grep -q "a retry starts only once the run ends" "$TMP/err"' "a failed build on an early attempt ends the wait at the second check (took $took s)"
+# The retry starts between the checks (attempt 2 rebuilds the leg): the wait goes on.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 7 1; jobs_file 7 "$failed_jobs"
+own_run "$own" 7 2; cp "$runs_dir/runs-$own" "$TMP/retry-runs"; own_run "$own" 7 1
+retry_jobs='{"jobs":[{"name":"build / build aarch64-apple-darwin","status":"completed","conclusion":"success","runner_name":"mac-1","created_at":"2023-11-14T22:00:00Z"},{"name":"build-linux / build aarch64-unknown-linux-musl","status":"in_progress","runner_name":"bs-2","created_at":"2023-11-14T22:00:00Z"}]}'
+printf '%s\n' "$retry_jobs" > "$TMP/retry-jobs"
+fake_clock_at 60 "cp '$TMP/retry-runs' '$runs_dir/runs-$own' && cp '$TMP/retry-jobs' '$TMP/api/repos/o/r/actions/runs/7/jobs'"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a failed build that a retry will re-run keeps the wait once the retry starts (took $took s)"
+
+# Runs that cannot be read (2026-11-27: the job's token was out of REST requests for 34 min):
+# with CMUX_TUI_TREE_CLIENT_BLIND_SECONDS the wait ends that long after the first blind check,
+# without it it waits on to the limit as before.
+reset_cdn; set_runs "$no_runs"; printf 'API rate limit exceeded for installation\n' > "$runs_dir/runs-$own"
+started=$(date +%s); status=0
+out=$(cd "$TMP/src" && env "${env_common[@]}" CMUX_TUI_TREE_CLIENT_WAIT_SECONDS=600 CMUX_TUI_TREE_CLIENT_POLL_SECONDS=20 \
+  CMUX_TUI_TREE_CLIENT_RUN_CHECK_SECONDS=120 CMUX_TUI_TREE_CLIENT_BLIND_SECONDS=240 \
+  bash scripts/cmux-next/await-tree-client.sh "$key" "$own" "$app" 2>"$TMP/err") || status=$?
+took=$(( $(date +%s) - started ))
+check '[[ $status == 1 && $took -ge 240 && $took -lt 360 ]] && grep -q "not waiting on blind" "$TMP/err"' "a wait that cannot read the runs ends at its blind bound (took $took s)"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "could not all be read" "$TMP/err" && grep -q "after 10 min" "$TMP/err"' "with no blind bound an unreadable runs list keeps the wait (took $took s)"
+rm -f "$runs_dir/runs-$own"
 
 # A failed primary macOS leg is rebuilt by build-darwin-fallback: not final either.
 reset_cdn; set_runs "$no_runs"; own_run "$own" 8 3
@@ -210,7 +234,9 @@ jobs_file 10 '{"jobs":[{"name":"cmux-tui tree preflight","status":"queued","runn
 client "$own" "$app"
 check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "stalled cmux-tui tree preflight queued" "$TMP/err" && grep -q "cmux-gcp-lane-build-x64" "$TMP/err" && grep -q "/actions/runs/10" "$TMP/err"' "a preflight with no runner past the stall bound fails fast with its state and run (took $took s)"
 
-preflight_failed='{"jobs":[{"name":"cmux-tui tree preflight","status":"completed","conclusion":"failure","runner_name":"linux-1","created_at":"2023-11-14T22:00:00Z"}]}'
+# The failure is attempt 1's: a retry (attempt 2 on) re-runs it, and until its new job shows the
+# latest-jobs list may still carry this one.
+preflight_failed='{"jobs":[{"name":"cmux-tui tree preflight","status":"completed","conclusion":"failure","run_attempt":1,"runner_name":"linux-1","created_at":"2023-11-14T22:00:00Z"}]}'
 reset_cdn; set_runs "$no_runs"; own_run "$own" 11 3; jobs_file 11 "$preflight_failed"
 client "$own" "$app"
 check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "failed cmux-tui tree preflight" "$TMP/err" && grep -q "/actions/runs/11" "$TMP/err"' "a terminal preflight failure fails fast with its state and run (took $took s)"
@@ -240,11 +266,15 @@ fake_clock_at 60 "cp '$TMP/active-retry' '$runs_dir/runs-$own'"
 client "$own" "$app"
 check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "an active retry clears a completed preflight failure during grace (took $took s)"
 
-for attempt in 1 2; do
-  reset_cdn; set_runs "$no_runs"; own_run "$own" 12 "$attempt"; jobs_file 12 "$preflight_failed"
-  client "$own" "$app"
-  check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a preflight failure with active retry grace keeps the wait on attempt $attempt (took $took s)"
-done
+# Attempt 1 still running with its preflight failed publishes nothing until it ends and a retry
+# starts: two checks for that, as for any failed leg before the last attempt.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 12 1; jobs_file 12 "$preflight_failed"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 120 && $took -lt 300 ]] && grep -q "is failing cmux-tui tree preflight" "$TMP/err"' "a preflight failure on a running first attempt ends the wait at the second check (took $took s)"
+# Attempt 2 is the retry re-running attempt 1's failed preflight: the wait goes on.
+reset_cdn; set_runs "$no_runs"; own_run "$own" 12 2; jobs_file 12 "$preflight_failed"
+client "$own" "$app"
+check '[[ $status == 1 && $took -ge 600 ]] && grep -q "is building tree" "$TMP/err"' "a preflight failure with active retry grace keeps the wait on attempt 2 (took $took s)"
 
 reset_cdn; set_runs "$no_runs"; own_run "$own" 13
 jobs_file 13 '{"jobs":[{"name":"cmux-tui tree preflight","status":"queued","runner_name":null,"labels":["cmux-gcp-lane-build-x64"],"created_at":"'"$(ago 0)"'"}]}'
