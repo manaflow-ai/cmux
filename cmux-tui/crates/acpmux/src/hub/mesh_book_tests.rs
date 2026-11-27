@@ -399,6 +399,28 @@ fn a_machine_read_goes_through_one_of_its_own_listed_sessions() {
     assert_eq!(hub.mesh_book_session_on("machine-b"), None);
 }
 
+/// A just-started daemon's `transfer_hub {resolve}` waits for its first book read rather than
+/// calling a listed machine unlisted (session-move-gcp, 2026-11-27 00:52Z: a move 3 s after a
+/// restart), and a later one answers from the read list at once.
+#[cfg(feature = "hub-carrier")]
+#[tokio::test]
+async fn a_resolve_before_the_first_book_read_waits_for_it() {
+    let hub = hub();
+    let asked = {
+        let hub = hub.clone();
+        tokio::spawn(async move { hub.transfer_hub(&json!({"resolve": "machine-b"})).await })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(!asked.is_finished(), "an unread list is not an answer yet");
+    hub.apply_mesh_book(book(), "person-1", Some("d-a"));
+    let found = asked.await.expect("join").expect("listed once read");
+    assert_eq!(found["host"], "machine-b");
+    let began = std::time::Instant::now();
+    let gone = hub.transfer_hub(&json!({"resolve": "machine-z"})).await;
+    assert!(gone.is_err(), "a read list that lacks it says so");
+    assert!(began.elapsed() < std::time::Duration::from_secs(1), "no wait once read");
+}
+
 /// A hub row's `updatedAt` is when the chat last changed on its machine, as its heartbeat says,
 /// not when this daemon first saw it: a restarted reader lists the same time, so a fleet's rows do
 /// not all move to the restart's millisecond (2026-11-26: 1,675 of 1,866 rows read 22:59-23:00Z

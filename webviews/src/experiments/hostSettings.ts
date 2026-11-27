@@ -9,7 +9,7 @@
 //
 // A switch that picks an arm: its row in schemas/settings/source/experiments.json and one entry in
 // SETTING_ARMS.
-import { experimentSwitchOff, experimentSwitchOn, setExperimentSwitches } from "./switches";
+import { experimentSwitches, experimentSwitchOn, setExperimentSwitches, experimentSwitchOff } from "./switches";
 
 type SettingArm = { experiment: string; arm: string };
 type SettingArmEntry = SettingArm | readonly SettingArm[];
@@ -46,11 +46,23 @@ declare global {
   var cmuxExperimentSettings: Record<string, unknown> | undefined;
 }
 
+// settingArms() with the store's own reads, kept against the switches object it came from: every
+// experimentArm() call on a render path asks for it (a chat switch made thousands of calls, 2-3 ms of
+// rebuilt maps), and the store swaps in a new object on any change, so identity is the whole key.
+let cached: { switches: ReturnType<typeof experimentSwitches>; arms: Readonly<Record<string, string>> } | undefined;
+
 /** Experiment id to arm, from the switches that are on now, and those on by default turned off. */
 export function settingArms(
   on: (name: string) => boolean = experimentSwitchOn,
   off: (name: string) => boolean = experimentSwitchOff,
-): Record<string, string> {
+): Readonly<Record<string, string>> {
+  if (on !== experimentSwitchOn || off !== experimentSwitchOff) return buildSettingArms(on, off);
+  const switches = experimentSwitches();
+  if (cached?.switches !== switches) cached = { switches, arms: Object.freeze(buildSettingArms(on, off)) };
+  return cached.arms;
+}
+
+function buildSettingArms(on: (name: string) => boolean, off: (name: string) => boolean): Record<string, string> {
   const arms: Record<string, string> = {};
   for (const [name, entry] of Object.entries(SETTING_ARMS)) {
     if (!on(name)) continue;
@@ -64,8 +76,10 @@ export function settingArms(
 }
 
 /** The switch that picks an arm of `experimentId`, if any. */
+const ALL_SETTING_ARMS: Readonly<Record<string, SettingArmEntry>> = { ...SETTING_ARMS, ...SETTING_OFF_ARMS };
+
 export function switchFor(experimentId: string): string | undefined {
-  const all = { ...SETTING_ARMS, ...SETTING_OFF_ARMS };
+  const all = ALL_SETTING_ARMS;
   return Object.keys(all).find((name) => armsFor(all[name]!).some((arm) => arm.experiment === experimentId));
 }
 
