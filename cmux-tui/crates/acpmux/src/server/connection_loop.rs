@@ -294,6 +294,9 @@ pub(super) async fn serve_connection_from(
                 }
                 // Register before spawning: update admission and request dispatch cannot race.
                 // send_queue remains open: its on-disk inbox is replayed by the successor.
+                let update_session = (m == method::SESSION_PROMPT)
+                    .then(|| params.as_ref()?.get("sessionId")?.as_str().map(str::to_owned))
+                    .flatten();
                 let update_send = if m == method::SESSION_PROMPT {
                     match hub.update_admission.admit() {
                         Ok(permit) => Some(permit),
@@ -331,6 +334,10 @@ pub(super) async fn serve_connection_from(
                             if m == method::SESSION_CANCEL {
                                 requests::cancel_on_connection(&hub, &conn, params.as_ref());
                             }
+                            let steer_end = update_drain::steered_end(
+                                update_session.as_deref(),
+                                answer.as_ref().ok(),
+                            );
                             if conn.in_flight.finish(&ticket) {
                                 conn.send_reply(
                                     &dual_requests::reply(id, answer),
@@ -338,6 +345,7 @@ pub(super) async fn serve_connection_from(
                                     in_order,
                                 );
                             }
+                            update_drain::hold_steered_end(&hub, &conn, steer_end).await;
                             return;
                         }
                     };
@@ -401,6 +409,8 @@ pub(super) async fn serve_connection_from(
                     {
                         cmux_usage_patterns::count("acpmux-method", &m.replace('/', "."));
                     }
+                    let steer_end =
+                        update_drain::steered_end(update_session.as_deref(), result.as_ref().ok());
                     // Its answer went whole into an open queue: one sent as its too-large error, or
                     // to a reader that is gone, opened nothing.
                     let watched = m == method::MUX_WATCH && result.is_ok() && sent == Some(true);
@@ -432,6 +442,9 @@ pub(super) async fn serve_connection_from(
                     {
                         hub.add_github_owner(&conn);
                     }
+                    // A steer acknowledgement is not the end of the caller's waiting send.
+                    // Keep admission across its info reads and repeated turnEnded waits.
+                    update_drain::hold_steered_end(&hub, &conn, steer_end).await;
                 });
             }
             // The client gives up on one of its requests: answered as cancelled at once, its
