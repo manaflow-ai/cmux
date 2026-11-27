@@ -417,6 +417,10 @@ class Run:
         env["ACPMUX_AGENT_HOLDER"] = "1" if self.args.agent_holder == "on" else "0"
         if self.args.evict_idle_secs is not None:
             env["ACPMUX_EVICT_IDLE_SECS"] = str(self.args.evict_idle_secs)
+        # The caller's cap never leaks into an arm that did not ask for one.
+        env.pop("ACPMUX_RESIDENT_CAP", None)
+        if self.args.resident_cap:
+            env["ACPMUX_RESIDENT_CAP"] = str(self.args.resident_cap)
         return env
 
     def start(self):
@@ -641,7 +645,19 @@ class Run:
         took.sort()
         out = {"n": len(took), "p50": round(took[len(took) // 2], 2), "p95": round(took[int(len(took) * 0.95) - 1 if len(took) > 1 else 0], 2),
                "max": round(took[-1], 2)}
-        print(f"INFINITE-OPEN {self.count} evict={self.args.evict_idle_secs} {json.dumps(out)}", flush=True)
+        # The daemon's own timing of each chat it made again (`_acpmux/status` evicted.rehydrate*): the
+        # rehydrate alone, without the attach's records and the socket.
+        try:
+            c = Acp(self.acp_sock, timeout=60)
+            ev = c.call("_acpmux/status", {}).get("evicted", {})
+            c.close()
+            out["rehydrate"] = {"n": ev.get("rehydrateSamples"), "p50_ms": round(ev.get("rehydrateP50Us", 0) / 1000, 3),
+                                "p99_ms": round(ev.get("rehydrateP99Us", 0) / 1000, 3),
+                                "evicted_now": ev.get("now"), "evictions": ev.get("evictions")}
+        except (OSError, RuntimeError, ValueError) as exc:
+            self.error("status", exc)
+        print(f"INFINITE-OPEN {self.count} evict={self.args.evict_idle_secs} cap={self.args.resident_cap} "
+              f"{json.dumps(out)}", flush=True)
         return out
 
     @staticmethod
@@ -975,6 +991,9 @@ def main():
                    help="cmux-tui --terminal-reap-grace-seconds (the app's owner: 30)")
     p.add_argument("--evict-idle-secs", type=int, default=None,
                    help="ACPMUX_EVICT_IDLE_SECS: evict chats idle this long to a compact row (off when unset)")
+    p.add_argument("--resident-cap", type=int, default=0,
+                   help="ACPMUX_RESIDENT_CAP: keep at most this many chats in memory, the least recently used "
+                        "evicted past it (off when 0)")
     p.add_argument("--open-probe", type=int, default=0,
                    help="after the last day, time opening (attach) this many idle chats; prints INFINITE-OPEN")
     p.add_argument("--settle", type=float, default=5)
