@@ -16,7 +16,8 @@ public final class AgentPaneAttentionTabs {
     public var items: [Item] = [] {
         didSet {
             guard items != oldValue else { return }
-            for view in views.allObjects { send(to: view) }
+            // Held per pane to one per turn, and while nobody sees it (``AgentPaneShownPushes``).
+            for view in views.allObjects { view.shownPushes.push("attentionTabs", to: view) { [weak self] in self?.send(to: $0) } }
             onChange?()
         }
     }

@@ -47,12 +47,10 @@ pub(super) struct AppSignIn {
 }
 
 impl AppSignIn {
-    /// The CLI from this process's environment (`CMUX_BIN`, else `cmux` on the PATH). `scope`
+    /// The CLI from this process's environment (`CMUX_BIN`, else the app's bundled CLI, else `cmux` on the PATH). `scope`
     /// owns the tasks that ask it.
     pub fn from_env(scope: cmux_scope::Scope) -> AppSignIn {
-        let cmux = std::env::var_os(crate::hosted_mcp::CMUX_BIN_ENV)
-            .filter(|path| !path.is_empty())
-            .unwrap_or_else(|| OsString::from("cmux"));
+        let cmux: OsString = crate::login_env::cmux_cli();
         let dev_build = std::env::current_exe().is_ok_and(|exe| crate::daemon::in_dev_bundle(&exe));
         AppSignIn { cmux, dev_build, held: Arc::new(Mutex::new(None)), scope: Arc::new(scope) }
     }
