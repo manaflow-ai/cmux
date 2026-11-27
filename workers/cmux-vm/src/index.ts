@@ -12,6 +12,8 @@ import { hyperdriveSqlLayer, withRequestConnection } from "./db/sql.ts";
 import { parseDbFault, withDbFault } from "./db/fault.ts";
 import { sqlStoresLayer } from "./db/stores.ts";
 import type { TenantLimitsObject } from "./limits/durable-object.ts";
+import type { PausedReplicaObject } from "./replica/durable-object.ts";
+import { durableObjectReplicaLayer } from "./replica/store.ts";
 import { durableObjectLimitsLayer } from "./limits/service.ts";
 import { parseEnvironment, parseTenantList, parseVmQuotas, tenantPolicyLayer, withCiTeamQuotas } from "./policy.ts";
 import { parseHttpsProxyOrigins } from "./network-origin.ts";
@@ -30,10 +32,13 @@ import { upstreamMeshLayer } from "./upstream/live-mesh.ts";
 import { sqlMembershipCacheLayer, sqlWebhookDeliveryStoreLayer } from "./db/identity.ts";
 import { deletedVmIds, recordedVmIds, sweepableTunnelDevices } from "./db/orphans.ts";
 import { sweepOrphanTunnels, sweepOrphanVms } from "./upstream/orphan-sweep.ts";
+import { sweepIdleVms } from "./upstream/idle-sweep.ts";
 import { cronPlan } from "./cron-plan.ts";
 
 /** The per-tenant counters Durable Object; wrangler binds it as TENANT_LIMITS. */
 export { TenantLimitsObject } from "./limits/durable-object.ts";
+/** The per-VM paused-read replica (RFD 0144 piece 2); wrangler binds it as PAUSED_REPLICAS. */
+export { PausedReplicaObject } from "./replica/durable-object.ts";
 
 export interface Env {
   /** Approved service boot images; provider snapshot ids stay server-side. Default: none. */
@@ -47,6 +52,7 @@ export interface Env {
   readonly STACK_PROJECT_ID: string;
   readonly STACK_SECRET_SERVER_KEY: string;
   readonly TENANT_LIMITS: DurableObjectNamespace<TenantLimitsObject>;
+  readonly PAUSED_REPLICAS: DurableObjectNamespace<PausedReplicaObject>;
   /** local, preview, staging or production; anything else counts as production. */
   readonly ENVIRONMENT?: string;
   /** Production tenants (Stack team ids) treated as dev/test: comma or space separated. */
@@ -112,6 +118,7 @@ const liveServices = (env: Env) => {
     // TODO(cx-b4h, owner: Lawrence Chen): the real billing source; see Entitlements.
     entitlementsFromPolicyLayer.pipe(Layer.provide(policy)),
     durableObjectLimitsLayer(env.TENANT_LIMITS),
+    durableObjectReplicaLayer(env.PAUSED_REPLICAS),
     upstreamLayer({ baseUrl: env.UPSTREAM_API_URL, apiKey: env.UPSTREAM_API_KEY, environment: parseEnvironment(env.ENVIRONMENT) }),
     // The shared positive membership cache (mesh M4) lives in Postgres, so the webhook revokes it for every isolate.
     Layer.provideMerge(
@@ -175,7 +182,7 @@ const unconfigured: Served = { handler: notConfigured, reap: () => Promise.resol
  */
 const runOrphanSweep = async (env: Env) => {
   const plan = cronPlan(env.ENVIRONMENT);
-  if (!plan.sweepVms && !plan.sweepTunnels) return;
+  if (!plan.sweepVms && !plan.sweepTunnels && !plan.sweepIdleVms) return;
   const config = { baseUrl: env.UPSTREAM_API_URL, apiKey: Redacted.make(env.UPSTREAM_API_KEY), environment: parseEnvironment(env.ENVIRONMENT) };
   const tunnels = !plan.sweepTunnels
     ? Promise.resolve()
@@ -194,6 +201,20 @@ const runOrphanSweep = async (env: Env) => {
       },
       () => console.error(JSON.stringify({ event: "cmux_vm_tunnel_sweep_failed" })),
     );
+  // Staging VMs paused or stopped for 24 h, every tenant (src/upstream/idle-sweep.ts); provider calls only, no database.
+  const idle = !plan.sweepIdleVms
+    ? Promise.resolve()
+    : Effect.runPromise(sweepIdleVms(config, { nowMs: Date.now(), dryRun: false })).then(
+      (report) => {
+        if (report.idle.length > 0 || !report.complete) {
+          console.log(JSON.stringify({
+            event: "cmux_vm_idle_sweep", listed: report.listed, complete: report.complete, idle: report.idle.length,
+            deleted: report.deleted, kept: report.kept, failed: report.failed,
+          }));
+        }
+      },
+      () => console.error(JSON.stringify({ event: "cmux_vm_idle_sweep_failed" })),
+    );
   try {
     if (!plan.sweepVms) return;
     const report = await Effect.runPromise(
@@ -209,12 +230,13 @@ const runOrphanSweep = async (env: Env) => {
     }
   } finally {
     await tunnels;
+    await idle;
   }
 };
 
 const makeServed = (env: Env): Served => {
   try {
-    if (!env.HYPERDRIVE || !env.TENANT_LIMITS || !env.UPSTREAM_API_KEY || !env.STACK_PROJECT_ID || !env.STACK_SECRET_SERVER_KEY) {
+    if (!env.HYPERDRIVE || !env.TENANT_LIMITS || !env.PAUSED_REPLICAS || !env.UPSTREAM_API_KEY || !env.STACK_PROJECT_ID || !env.STACK_SECRET_SERVER_KEY) {
       return unconfigured;
     }
     const secret = env.STACK_WEBHOOK_SECRET?.trim();
