@@ -35,6 +35,7 @@ import {
   type ConversationLayout,
   LayoutBuffers,
   type RowHeights,
+  layoutGeometry,
   placedFromEstimate,
   placedWithOrigin,
   placeRowsIndexed,
@@ -123,11 +124,11 @@ import { keepTabOnScreen } from "../../ui/tabReach";
 import { type TrailingTimer, trailingTimer } from "../../ui/trailingTimer";
 import { useRowRepositories } from "./conversation/useRowRepositories";
 import {
-  type ReferenceScope,
-  type ReferenceScopeCache,
   newReferenceScopeCache,
   referenceScopes,
   turnOpener,
+  type ReferenceScope,
+  type ReferenceScopeCache,
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
@@ -6826,7 +6827,7 @@ function TranscriptView({
     // The fold writers' scroll writes (ToolGroupRow.tsx, useAnchoredCollapse.ts, KeepOpenedLine.tsx,
     // foldAnchor.ts) go through the owner, which writes this list's scroller.
     const unregisterListScroll = registerListScroll(node, (top) => {
-      node.scrollTop = top;
+      writeScrollTop(node, top, "fold");
     });
     const declareFold = (line: Element | null | undefined) => {
       const rowId = line?.closest<HTMLElement>("[data-row-id]")?.dataset.rowId;
