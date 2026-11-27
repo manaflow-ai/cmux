@@ -114,6 +114,8 @@ enum Arrived {
     Control(Vec<u8>),
     Datagram(Vec<u8>),
     Closed(String),
+    /// The link has a current path again (after none answered): feedback goes at once.
+    PathBack,
 }
 
 impl ViewerIo {
@@ -203,11 +205,19 @@ impl ViewerIo {
                             link.report(Some(&e));
                             out.push(Arrived::Closed(format!("link failed: {e}")))
                         }
-                        NetEvent::Endpoint(EndpointEvent::PathChanged { kind, rtt_us, .. }) => {
+                        NetEvent::Endpoint(EndpointEvent::PathChanged {
+                            route,
+                            kind,
+                            rtt_us,
+                            ..
+                        }) => {
                             eprintln!(
                                 "{}",
                                 json!({"path": {"kind": kind.map(|k| k.wire_name()), "rtt_ms": rtt_us.map(|u| u as f64 / 1000.0)}})
                             );
+                            if route.is_some() {
+                                out.push(Arrived::PathBack);
+                            }
                         }
                         _ => {}
                     }
@@ -632,6 +642,12 @@ impl Viewer {
                 }
                 Arrived::Closed(reason) => {
                     self.ended.get_or_insert(reason);
+                    continue;
+                }
+                // The host learns the path is back from the first feedback after the
+                // silence (D12): send it now rather than at the next keepalive.
+                Arrived::PathBack => {
+                    self.last_feedback_ns = 0;
                     continue;
                 }
                 Arrived::Control(payload) => payload,
@@ -1286,7 +1302,11 @@ pub fn run(opts: &Opts) -> Res<()> {
         v.send_input()?;
         loop {
             v.pump(2_000_000)?;
-            if v.marker == Some(expected) {
+            // Reached or passed: after a drop, pump() resends every key the drop lost and
+            // they land together, so the marker jumps past `expected` on the first frame
+            // that shows them. Waiting for exactly `expected` then counted that frame as
+            // a lost key and added up to a second to every measured recovery.
+            if v.marker.is_some_and(|m| m.wrapping_sub(expected) < 0x8000) {
                 if let Some(from) = stall_from.take() {
                     stalls_ms.push((v.marker_at_ns - from) as f64 / 1e6);
                 }
@@ -1643,72 +1663,13 @@ mod link_line_tests {
 }
 
 #[cfg(test)]
-mod mode_tests {
-    use super::*;
-
-    #[test]
-    fn bench_session_mode_defaults_to_control_and_accepts_only_wire_modes() {
-        let parse = |args: &[&str]| {
-            Opts::parse(&args.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap()
-        };
-        assert_eq!(session_mode(&parse(&[])).unwrap(), "control");
-        for mode in ["view", "control"] {
-            assert_eq!(session_mode(&parse(&["--mode", mode])).unwrap(), mode);
-        }
-        assert!(session_mode(&parse(&["--mode", "viewer"])).is_err());
-    }
-}
+#[path = "bench_mode_tests.rs"]
+mod mode_tests;
 
 #[cfg(test)]
-mod h264_baseline_cap_tests {
-    /// The bench asks for Constrained Baseline exactly when it decodes with OpenH264.
-    #[test]
-    fn offers_the_cap_when_openh264_decodes() {
-        assert_eq!(super::bench_decodes_with_openh264(None), !cfg!(target_os = "macos"));
-        assert!(super::bench_decodes_with_openh264(Some("openh264")));
-        assert!(!super::bench_decodes_with_openh264(Some("videotoolbox")));
-        assert!(!super::bench_decodes_with_openh264(Some("vp9")));
-    }
-}
+#[path = "bench_h264_baseline_cap_tests.rs"]
+mod h264_baseline_cap_tests;
 
 #[cfg(test)]
-mod marker_scale_tests {
-    use super::*;
-
-    /// A luma plane of `w` x `h` with the marker for `v` painted at cell size `cell` (video range).
-    fn plane(v: u16, w: usize, h: usize, cell: usize) -> Vec<u8> {
-        let mut y = vec![16u8; w * h];
-        for (i, white) in crate::marker::cells(u32::from(v)).iter().enumerate() {
-            for row in 0..cell.min(h) {
-                for x in i * cell..((i + 1) * cell).min(w) {
-                    y[row * w + x] = if *white { 235 } else { 16 };
-                }
-            }
-        }
-        y
-    }
-
-    #[test]
-    fn a_half_size_stream_reads_its_marker_at_half_scale() {
-        // A 960x1080 screen fitted into 480 wide: the 32 px cells arrive as 16 px.
-        let y = plane(0xbeef, 480, 540, 16);
-        assert_eq!(
-            read_marker(None, &y, 480, (0, 0), (1, 1)),
-            None,
-            "the 640 px marker overruns 480"
-        );
-        assert_eq!(read_marker(None, &y, 480, (0, 0), (1, 2)), Some(0xbeef));
-        let full = plane(0x1234, 960, 64, 32);
-        assert_eq!(read_marker(None, &full, 960, (0, 0), (1, 1)), Some(0x1234));
-    }
-
-    #[test]
-    fn marker_scale_takes_a_ratio_of_at_most_one() {
-        assert_eq!(parse_marker_scale("1/2").unwrap(), (1, 2));
-        assert_eq!(parse_marker_scale("480/960").unwrap(), (480, 960));
-        assert_eq!(parse_marker_scale("1").unwrap(), (1, 1));
-        for bad in ["0/2", "3/2", "x", "1/"] {
-            assert!(parse_marker_scale(bad).is_err(), "{bad}");
-        }
-    }
-}
+#[path = "bench_marker_scale_tests.rs"]
+mod marker_scale_tests;
