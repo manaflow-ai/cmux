@@ -7,12 +7,13 @@
 //! sub-sessions and sessions with only their harness's generated name are hidden and counted on
 //! a last line. `--all` lists those too; `--wide` prints every column (AGENT, STATUS, the usage
 //! columns and LAST).
-//! A peer whose link is down never drops out: its rows read `unknown`, and a line per such peer
-//! says its sessions are last known, not live (hq#4897: unreadable means UNKNOWN).
-//! A down peer that fleet-registry.json means to be down (retired, idle-stopped or on demand,
-//! [`registry_pauses`]) reads `paused` instead, its line `PAUSED`: 2026-11-04, `acpmux ls` called
-//! 69 sessions on gcp-codex-lane-1..12 (idle-stopped) and gcp-agent-lane-3/4 (on demand, their
-//! names unresolvable while stopped) unknown. A peer the registry means to be up keeps UNKNOWN.
+//! STATE is one of four (`hub/session_state.rs`): working, waiting, done, errored, never
+//! unknown (Leo, 2026-11-27: "if things are unreachable, they're waiting or they're working or
+//! they're done or they're errored and may or may not need to be continued"). A peer whose link
+//! is down never drops out: its rows read from their last-known facts, waiting on the host for
+//! 15 minutes, then errored when unfinished, and a `DOWN` line per such peer says so. A down peer
+//! that fleet-registry.json means to be down (retired, idle-stopped or on demand,
+//! [`registry_pauses`]) has its rows waiting on that, and its line reads `PAUSED`.
 
 use super::output::short;
 use cmux_json::JsonGet as _;
@@ -70,8 +71,9 @@ ls lists every machine's sessions, and says so on stderr when its rows span mach
 after this machine's own sessions passes --machine local.
 STUCK is why a lane needs someone: permission, capacity, harness down, failed turn, stalled 12m,
 harness sandbox (its harness refuses every command).
-A peer that cannot be reached reads UNKNOWN, or PAUSED when fleet-registry.json means it to be
-down (retired, idle-stopped, on demand); its sessions are last known. ls never starts a daemon.
+STATE is one of four: working, waiting, done or errored (needs a decision: continue elsewhere or
+drop). A peer that cannot be reached waits 15 minutes, then its unfinished sessions read errored;
+its sessions are last known. ls never starts a daemon.
 Usage (--wide): LAUNCHER, CAP (autocompact cap, or none), CTX (context now), CMP (compactions),
 SUBS (subagents live/started), TOK24H and $24H; ? is a value acpmux could not read, never 0.";
 
@@ -88,13 +90,17 @@ pub struct View {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Hidden {
     Closed,
+    /// Archived (`acpmux archive`, the inactive archive, the lifecycle pass): off the lists,
+    /// counted, as the app's list leaves them out; `ls --archived` lists them.
+    Archived,
     Reviewer,
     SubSession,
     Unnamed,
 }
 
-const HIDDEN_ORDER: [(Hidden, &str); 4] = [
+const HIDDEN_ORDER: [(Hidden, &str); 5] = [
     (Hidden::Closed, "closed"),
+    (Hidden::Archived, "archived"),
     (Hidden::Reviewer, "reviewers"),
     (Hidden::SubSession, "sub-sessions"),
     (Hidden::Unnamed, "unnamed"),
@@ -103,6 +109,9 @@ const HIDDEN_ORDER: [(Hidden, &str); 4] = [
 fn hidden(row: &Value) -> Option<Hidden> {
     if row.get_str("status").unwrap_or("") == "closed" {
         return Some(Hidden::Closed);
+    }
+    if crate::cli::run::ls_archived::archived(row) {
+        return Some(Hidden::Archived);
     }
     let tags = row
         .get("tags")
@@ -160,17 +169,12 @@ fn unreadable(row: &Value) -> bool {
                 .is_some_and(|s| s != "connected" && s != "degraded")
 }
 
-fn state(row: &Value, pauses: &BTreeMap<String, String>) -> String {
-    if unreadable(row) {
-        let down = host(row).and_then(|h| paused(pauses, h));
-        return if down.is_some() { "paused" } else { "unknown" }.into();
-    }
-    if pending(row) > 0 {
-        return "waiting".into();
-    }
-    row["state"]
-        .as_str()
-        .map_or_else(|| row.get_str("status").unwrap_or("").to_owned(), str::to_owned)
+/// One of four, never unknown (`hub/session_state.rs`; Leo: "they're waiting or they're working
+/// or they're done or they're errored"). A row from a host that does not answer resolves from
+/// its last-known facts here, at print time, so the 15-minute grace is read now.
+fn state(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
+    let down = host(row).and_then(|h| paused(pauses, h));
+    crate::hub::session_state::of_row(row, now, down).state.as_str().to_owned()
 }
 
 fn pending(row: &Value) -> u64 {
@@ -186,7 +190,9 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
         if let Some(why) = host(row).and_then(|h| paused(pauses, h)) {
             return format!("host {why}");
         }
-        return format!("peer {}", row.get("peerState").and_then(Value::as_str).unwrap_or("down"));
+        // Never the link's own word (reconnecting, offline): what the row waits on, or why it errored.
+        let pauses_for = host(row).and_then(|h| paused(pauses, h));
+        return crate::hub::session_state::of_row(row, now, pauses_for).on;
     }
     match pending(row) {
         0 => {}
@@ -475,7 +481,7 @@ pub fn render_counted(
             if with_harness {
                 cells.push(short(row.get_str("harness").unwrap_or(""), 8));
             }
-            cells.push(state(row, pauses));
+            cells.push(state(row, now, pauses));
             cells.push(row.get("turnCount").and_then(Value::as_u64).unwrap_or(0).to_string());
             cells.push(ago(now, row.get("updatedAt").and_then(Value::as_u64).unwrap_or(0)));
             if with_stuck || view.wide {
@@ -504,15 +510,15 @@ pub fn render_counted(
         let name = peer.get_str("name").unwrap_or("");
         out.push_str(&match paused(pauses, name) {
             Some(why) => format!(
-                "PAUSED {name}: {why} in the fleet registry, peer {state}{since}; its sessions are last known, not live\n"
+                "PAUSED {name}: {why} in the fleet registry{since}; its sessions are last known and wait on it\n"
             ),
             None => format!(
-                "UNKNOWN {name}: peer {state}{since}; its sessions are last known, not live\n"
+                "DOWN {name}: not answering{since}; its sessions are last known: waiting 15m, then unfinished ones errored\n"
             ),
         });
     }
     if peers.is_none() {
-        out.push_str("UNKNOWN peers: their link states could not be read\n");
+        out.push_str("PEERS UNREAD: their link states could not be read; their sessions read from their last listing\n");
     }
     let hidden_total: usize = hidden_counts.iter().sum();
     if hidden_total > 0 {
