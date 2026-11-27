@@ -84,7 +84,7 @@ use super::open_guard::sidecar_path;
 use super::{WorkspaceRegistry, meta_value};
 
 pub(crate) use mode::CleanupMode;
-pub(crate) use pruned::{PRUNED_RANGES_SCHEMA, pruned_gap};
+pub(crate) use pruned::{PRUNED_RANGES_SCHEMA, pruned_gap, pruned_head};
 #[cfg(test)]
 pub(crate) use stage::stage_registry;
 pub(crate) use stage::{StageControl, StageOutcome, stage_registry_in};

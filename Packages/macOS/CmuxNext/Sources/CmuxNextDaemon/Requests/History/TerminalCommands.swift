@@ -1,25 +1,5 @@
 public import Foundation
 
-/// One stored terminal command (`terminal-command-history-v1`). Ids and
-/// times are decimal strings.
-public struct TerminalCommandRow: Decodable, Sendable, Equatable {
-    public var id: String
-    public var terminalID: String
-    public var command: String?
-    public var cwd: String?
-    public var exitCode: Int?
-    public var startedAtMs: String
-    public var durationMs: String
-
-    enum CodingKeys: String, CodingKey {
-        case id, command, cwd
-        case terminalID = "terminal_id"
-        case exitCode = "exit_code"
-        case startedAtMs = "started_at_ms"
-        case durationMs = "duration_ms"
-    }
-}
-
 /// `list-terminal-commands {after_id?, limit?}`: the newest `limit`
 /// unexpired commands after `after_id`, oldest first. `truncated` says older
 /// rows after `after_id` were left out. `deletions` changes after a client

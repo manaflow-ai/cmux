@@ -56,6 +56,7 @@ public struct StreamedBrowserPage: View {
                 } else if model.openFailed, !autoRetry.isQuietLineShown {
                     // Opened again on its own (AutoRetry): the loading line stays until the quiet bound.
                     status(String(localized: "Loading browser session…"))
+                        .placeholderBound("browser.stream.loading", .milliseconds(2000))
                 } else if model.openFailed {
                     // Still failing past the quiet bound: why, and one quiet line (no Retry).
                     VStack(spacing: 8) {
@@ -299,13 +300,16 @@ public struct StreamedBrowserCard: View {
     let insets: EdgeInsets?
     /// The tab's last-known picture, kept across launches: shown until this launch has a frame.
     let lastKnown: CGImage?
+    /// Persisted dimensions for a picture whose bytes are still decoding.
+    let lastKnownSize: CGSize?
 
     public init(model: StreamedBrowserModel, fit: Bool = false,
-                insets: EdgeInsets? = nil, lastKnown: CGImage? = nil) {
+                insets: EdgeInsets? = nil, lastKnown: CGImage? = nil, lastKnownSize: CGSize? = nil) {
         self.model = model
         self.fit = fit
         self.insets = insets
         self.lastKnown = lastKnown
+        self.lastKnownSize = lastKnownSize
     }
 
     public var body: some View {
@@ -314,6 +318,8 @@ public struct StreamedBrowserCard: View {
             if fit, let image = model.snapshot?.image ?? lastKnown {
                 Color.black
                 Image(decorative: image, scale: 1).resizable().interpolation(.medium).scaledToFit()
+            } else if fit, let size = lastKnownSize {
+                Color.black.aspectRatio(size.width / max(1, size.height), contentMode: .fit)
             } else if let image = model.snapshot?.image ?? lastKnown, let insets {
                 // The page's layer: the picture fitted in the area between the insets, on black.
                 Color.black
@@ -326,6 +332,11 @@ public struct StreamedBrowserCard: View {
                     Image(decorative: image, scale: 1).resizable().interpolation(.medium)
                         .frame(width: geo.size.width,
                                height: geo.size.width * CGFloat(image.height) / CGFloat(max(1, image.width)))
+                }
+            } else if let size = lastKnownSize {
+                GeometryReader { geo in
+                    Color.black.frame(width: geo.size.width,
+                                      height: geo.size.width * size.height / max(1, size.width))
                 }
             }
             // No frame yet: the page's background, never a stand-in glyph.

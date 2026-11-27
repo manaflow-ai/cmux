@@ -250,6 +250,26 @@ if [ "$elapsed" -ge 8 ]; then
   exit 1
 fi
 
+# A warning's source excerpt can hold the word `error:` (` 446 |  func f(_ error: Error)`). Only a
+# diagnostic's own head stops the build: that excerpt stopped a clean CmuxNext seed build (run 45854893499).
+mkdir -p "$tmp/excerptbin"
+cat > "$tmp/excerptbin/swift" <<'EOF2'
+#!/usr/bin/env bash
+if [ "$1" = build ]; then
+  echo "Sources/Repair.swift:446:62: warning: use of protocol 'Error' as a type must be written 'any Error'"
+  echo "444 |     }"
+  echo "446 |     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {"
+  echo "    |                                                              \`- warning: use of protocol 'Error'"
+  echo "build finished after the excerpt"
+  exit 0
+fi
+echo "Test run with 1 test in 1 suite passed after 0.010 seconds."
+EOF2
+chmod +x "$tmp/excerptbin/swift"
+PATH="$tmp/excerptbin:$PATH" run
+expect "a warning excerpt naming error: does not stop the Swift build" 0 "^\[Pkg\] build finished after the excerpt$"
+if grep -q "^FAST-TIER FAIL build:Pkg" <<<"$out"; then echo "FAIL: a warning excerpt failed the build" >&2; printf '%s\n' "$out" >&2; exit 1; fi
+
 # --changed-files (a pull request's diff) runs only the entries, and builds only the packages, the change
 # reaches; the post-merge batch runs the rest (note-559). These read the repository's own registry and graphs.
 scoped() {

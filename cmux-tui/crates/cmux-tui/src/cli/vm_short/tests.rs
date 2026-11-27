@@ -1,8 +1,9 @@
 use serde_json::json;
 
 use super::{
-    Resolved, Short, app_list, cloud_words, confirmed, misuse, not_listed, not_loaded, parse,
-    pausable, pause_all_misuse, pause_all_requested, resolve, restore_machine, table,
+    Resolved, Short, app_list, cloud_words, confirmed, given_target, misuse, not_listed,
+    not_loaded, parse, pausable, pause_all_misuse, pause_all_requested, resolve, restore_machine,
+    table,
 };
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -30,6 +31,7 @@ fn a_short_verb_takes_a_name_by_position() {
             tail: vec![],
             api_verb: true,
             command: vec![],
+            stdin: super::super::vm_exec_input::StdinMode::Auto,
         }
     );
     let resize = parse(&words(&["vm", "resize", "--size", "large", "dev"])).unwrap();
@@ -208,6 +210,25 @@ fn exec_ssh_and_move_name_the_vm_by_position() {
     // A command's own flags after `--` are the command's.
     let flags = parse(&words(&["vm", "exec", "dev", "--", "ls", "--help"])).unwrap();
     assert_eq!(flags.command, words(&["ls", "--help"]));
+    // Several words keep their argv: each is shell-quoted (`sh -c 'cat > f'`, not `sh -c cat > f`);
+    // one word is a shell line as typed.
+    let quoted = parse(&words(&["vm", "exec", "dev", "--", "sh", "-c", "cat > f"])).unwrap();
+    assert_eq!(cloud_words(&quoted, Some("vm_a1"))[3], "sh -c 'cat > f'");
+    let line = parse(&words(&["vm", "exec", "dev", "--", "ls | wc -l"])).unwrap();
+    assert_eq!(cloud_words(&line, Some("vm_a1"))[3], "ls | wc -l");
+    // `--stdin` / `--no-stdin` before the command are exec's; after `--` they are the command's.
+    use super::super::vm_exec_input::StdinMode;
+    let on = parse(&words(&["vm", "exec", "dev", "--stdin", "--", "cat"])).unwrap();
+    assert_eq!((on.stdin, on.tail.is_empty()), (StdinMode::On, true));
+    let off = parse(&words(&["vm", "exec", "--no-stdin", "dev", "cat"])).unwrap();
+    assert_eq!((off.stdin, off.named.as_deref()), (StdinMode::Off, Some("dev")));
+    let theirs = parse(&words(&["vm", "exec", "dev", "--", "tool", "--stdin"])).unwrap();
+    assert_eq!((theirs.stdin, theirs.command), (StdinMode::Auto, words(&["tool", "--stdin"])));
+    assert_eq!(
+        given_target(&words(&["--target", "machine:vm_a1"])).as_deref(),
+        Some("machine:vm_a1")
+    );
+    assert_eq!(given_target(&words(&["--target=machine:vm_b2"])).as_deref(), Some("machine:vm_b2"));
 
     let ssh = parse(&words(&["vm", "ssh", "dev"])).unwrap();
     assert_eq!(cloud_words(&ssh, Some("vm_a1")), words(&["--target", "machine:vm_a1"]));

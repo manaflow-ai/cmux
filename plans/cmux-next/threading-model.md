@@ -154,6 +154,9 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 
 - Disk writes: `com.cmuxterm.app.next.coalescing-file-writer` (CoalescingFileWriter: one utility queue per writer, newest bytes per path, pending bytes bounded, flushed at quit)
 - Main and frame: `cmux-next main-thread watchdog`, `cmux-next quit deadline`, `cmux-next crash deadline`
+- Hang reports: `com.cmuxterm.app.next.hang-resolve` (HangReportCollector's stack resolution, utility, serial:
+  started by a user-data-or source the main thread signals at a sampled stall's end, no allocation on main; it
+  blocks on nothing but dyld reads; at most 16 samples wait, more are dropped)
 - Daemon: `cmux-tui reader <path>`, `com.cmuxterm.next.daemon.write`, `com.cmuxterm.next.daemon.slow-log`, `com.cmuxterm.next.daemon.path.<machine>`,
   `com.cmuxterm.next.daemon.exit.<pid>`, `com.cmuxterm.next.retry-wake`, `com.cmuxterm.next.process-progress`
 - Control: `com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`
