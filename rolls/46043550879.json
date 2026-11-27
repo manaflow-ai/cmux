@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46043550879",
+  "recorded_at": "2026-11-27T17:46:50Z",
+  "reason": "cmux-tui b00a40c7eec7 changes the image's cmux-tui (pinned b75b74ccf357)",
+  "dry_run": false,
+  "cmux_tui": "b00a40c7eec74d43cb59576d1d5f7db32e0e1281",
+  "fixes": [
+    {
+      "sha": "ca96ced20a0f58e53632868ca0b72c6d354a3a59",
+      "mergedAt": "2026-11-27T14:25:35+00:00",
+      "subject": "acpmux: a Cloud move survives a daemon death, a failed one keeps its mode, a non owner/name origin goes as a bundle (#60404)"
+    },
+    {
+      "sha": "0c88796f397bd3c42acdcdd8f041df0908862160",
+      "mergedAt": "2026-11-27T14:23:14+00:00",
+      "subject": "NEXT: move inline tests out of cmux-tui files (sweep 6, part 3) (#57387)"
+    },
+    {
+      "sha": "3155cadcea573cfaff4e7efed3c03f41fe97a638",
+      "mergedAt": "2026-11-27T14:15:39+00:00",
+      "subject": "cmux-config: layout ops (workspace groups, pane chrome, surface tab bar) (#57149)"
+    },
+    {
+      "sha": "377ea5796ca45554791ecb5f9a6bb5eae7cd0f1c",
+      "mergedAt": "2026-11-27T14:11:20+00:00",
+      "subject": "coderouter: let Node fetch's lone sec-fetch-mode through the relay (#50037)"
+    },
+    {
+      "sha": "6995dfa033f06502e65c54d615a69f4d801944b6",
+      "mergedAt": "2026-11-27T14:10:36+00:00",
+      "subject": "feat(cmux-team-messaging): RFD 0170 phase 3 shared-document core (roles, suggestions, RFD drafts via PR, bounded updates) (#61525)"
+    },
+    {
+      "sha": "ccac877861f065de61271629d11b600b8da01483",
+      "mergedAt": "2026-11-27T14:06:59+00:00",
+      "subject": "A wrap-up answer says the box was drawn, not what was in it (#53433)"
+    },
+    {
+      "sha": "088b366da842236bba8d7d7a074bbf0bce012d37",
+      "mergedAt": "2026-11-27T14:06:34+00:00",
+      "subject": "cmux-wg + smoltcp: data on tunnel TCP SYNs behind CMUX_WG_SYN_DATA (default off) (#61583)"
+    },
+    {
+      "sha": "da5b8be5cb3ce227e8c7360b9599b2863d9d5f5b",
+      "mergedAt": "2026-11-27T14:05:44+00:00",
+      "subject": "cmux-remote: set TransportPathSnapshot.outer in redial_budget_e2e (#60279)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-27T17:46:50Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
