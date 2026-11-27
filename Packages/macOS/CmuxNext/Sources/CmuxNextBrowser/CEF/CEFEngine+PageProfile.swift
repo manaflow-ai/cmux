@@ -88,13 +88,14 @@ extension CEFEngine {
 
     /// A DevTools method on one of cmux's own live pages (`cmux-page://`, never a browser tab) by browser id: its JSON
     /// reply, or why there is none (`debug.cef_page_devtools`, the idle bench's page metrics and CPU profile).
-    public func cmuxPageDevTools(browser id: Int?, method: String?, params: [String: any Sendable]) async -> (result: String?, error: String?) {
+    public func cmuxPageDevTools(browser id: Int?, method: String?, params: [String: any Sendable],
+                                 timeout: Duration = .seconds(5)) async -> (result: String?, error: String?) {
         guard let id, let browser = Int32(exactly: id), let method else { return (nil, "browser (a browser id) and method are required") }
         guard let page = rendererPages.first(where: { $0.browserID == browser }) else { return (nil, "no live page \(browser)") }
         guard page.origin.hasPrefix("cmux-page://") else { return (nil, "only cmux's own pages") }
         var answer: (result: String?, error: String?) = (nil, "no live page \(browser)")
         do {
-            if let reply = try await devTools(browserID: browser, method: method, params: params) { answer = (reply, nil) }
+            if let reply = try await devTools(browserID: browser, method: method, params: params, timeout: timeout) { answer = (reply, nil) }
         } catch {
             answer = (nil, String(describing: error))
         }
