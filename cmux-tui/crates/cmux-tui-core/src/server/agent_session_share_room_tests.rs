@@ -514,6 +514,45 @@ fn an_account_redeem_answers_the_invitees_role_and_nothing_else_about_the_accoun
 }
 
 #[test]
+fn a_transferred_share_reconnects_with_the_same_guest_role() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, mut owner) = bridged("room-transfer-share", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    let id = share["share_id"].as_str().unwrap();
+    let invite = owner.request(json!({"cmd":"agent-session-share-invite", "share_id":id,
+        "account":"tom@example.com", "role":"talk"}));
+    assert_eq!(invite["ok"], true, "{invite}");
+    let (conn, _) = room.host();
+    assert_eq!(room.frame(conn)["t"], "guests");
+    room.send(json!({"v":1,"t":"redeem","request_id":"before","attempt_id":"attempt-1",
+        "account":"tom@example.com","name":"Tom"}));
+    let redeemed = room.frame(conn);
+    let guest = redeemed["guest_id"].clone();
+    assert_eq!(redeemed["role"], "talk");
+
+    let directory = mux.session_state_directory();
+    let payload = shares(&mux)
+        .export_for_transfer(directory.as_deref(), SESSION)
+        .expect("the active share is carried by the move");
+    shares(&mux).detach_for_transfer(directory.as_deref(), SESSION).unwrap();
+    // Re-open the room host from the imported record after a source daemon handoff. The room's
+    // durable guest and role survive the host replacement, so a retry gets the same talk role.
+    super::super::stage_transferred_chat_shares(&mux, "aborted", SESSION, payload.clone()).unwrap();
+    assert!(shares(&mux).export_for_transfer(directory.as_deref(), SESSION).is_none());
+    super::super::finish_transferred_chat_shares(&mux, "aborted", false).unwrap();
+    super::super::stage_transferred_chat_shares(&mux, "moved", SESSION, payload).unwrap();
+    assert!(shares(&mux).export_for_transfer(directory.as_deref(), SESSION).is_none());
+    room.drop_host();
+    super::super::finish_transferred_chat_shares(&mux, "moved", true).unwrap();
+    let (again, _) = room.host();
+    assert_eq!(room.frame(again)["active"], json!([guest]));
+    room.send(json!({"v":1,"t":"redeem","request_id":"after","attempt_id":"attempt-1",
+        "account":"tom@example.com","name":"Tom"}));
+    let retried = room.frame(again);
+    assert_eq!((retried["guest_id"].clone(), retried["role"].clone()), (guest, json!("talk")));
+}
+
+#[test]
 fn a_kick_is_resent_until_the_room_acknowledges_it_and_a_revoke_ends_and_deletes() {
     let room = FakeRoom::start(&[]);
     let (_fake, _mux, surface, mut owner) = bridged("room-kick", &room);

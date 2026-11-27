@@ -177,6 +177,8 @@ pub enum PeerNotice {
     /// Full session list from `_acpmux/watch` or a single `session_changed`: each row's compact
     /// JSON, which the hub parses one row at a time.
     Sessions(Vec<Arc<str>>),
+    /// A whole list waiting in this peer instance’s outbox slot.
+    WaitingList(u64),
     /// What changed in the peer's list since the link's cursor (`hub/row_log.rs`): the rows
     /// changed, each as its text, and the peer's own ids of the rows that went. The rest stand as
     /// the peer last listed them.
@@ -333,6 +335,9 @@ pub struct Peer {
     peer_token: Option<String>,
     /// The `ssh -W` process carrying an `ssh://` peer's current connection.
     tunnel: Mutex<Option<tokio::process::Child>>,
+    /// Test transport belongs to this instance, even when another peer has the same name.
+    #[cfg(test)]
+    ssh_mux_override: std::sync::OnceLock<wanted::SshMux>,
     wireguard: std::sync::OnceLock<(Arc<crate::wireguard::Transport>, std::net::SocketAddr)>,
     /// The daemon's hub carrier and the hub `daemonId` this peer's config names (its WireGuard
     /// key), if any (`peer_hub.rs`).
@@ -407,6 +412,9 @@ pub struct Peer {
     /// no-session answer for it is not final (`Hub::no_session_is_final`). False from the
     /// hub's `Disconnected`, and from its `Connected` until this link's list is in.
     pub rows_ready: AtomicBool,
+    /// The shard skipped a superseded whole list. Relative patches and their completions
+    /// cannot establish a baseline before the replacement list reaches its turn.
+    pub(crate) list_baseline_missing: AtomicBool,
     /// One more than the link epoch whose session list the hub applied last (its `Listed`
     /// notice), 0 before any: the rows are that link's ([`Self::rows_current`]).
     rows_link: AtomicU64,
