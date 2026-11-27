@@ -23,7 +23,7 @@
 //! The bootstrap token lives in the login Keychain (service `cmux-key-provider`) and only this broker
 //! reads it: an agent asks for a key, never for the root credential. Values move only through stdin
 //! pipes (`gh secret set`, `security -i`) and are never printed, logged or put in argv.
-//! `~/.config/cmux/keys.json` (0600) is the audit: providers, and for each minted key its provider id,
+//! `~/.config/cmux-next/keys.json` (0600) is the audit: providers, and for each minted key its provider id,
 //! scope, expiry, where it was stored and who asked, never a value. docs/cmux-next/keys.md is the design.
 //!
 //! Keys from any other provider (one an agent got from an API or CLI, one the person pastes once, a
