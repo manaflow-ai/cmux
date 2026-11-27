@@ -1,0 +1,81 @@
+Leo: "you guys need to be absolutely exhaustively testing out what would a new user be seeing here? And in terms of like a new pro user, how would they do it?"
+
+Leo-Ask-Trace: ask-fe19418926
+
+## What a new user saw
+
+On the Mac, a Cloud chat's start view names each stage: the machine, the copy, setup, and then "Starting Claude Code · usually a few seconds" (cmux#39492). When the start succeeds, the chat moves to the machine's own chat page (`CloudStartChat.openUploaded`), and that page sends `session/new`. Until `session/new` answers, the queued first prompt showed only an untimed "Thinking" line (`agentStartLook` default, `Thinking.tsx`). The stage the Mac had just named disappeared at the hand-off, so a new user lost track of what was happening right before the first answer.
+
+## Change
+
+A Cloud chat's queued first prompt now keeps the Mac's last line on the machine page:
+
+- It reads **"Starting Claude Code · usually a few seconds"**, with its clock counting from the send.
+- After 30 s the usual wait changes to **"taking longer than usual"**.
+- It is one live line in the same `cv-worked` box, so the answer's first words replace it in place. There is no Cancel and no layout shift (Leo, 2026-11-01).
+
+Scope and defaults:
+
+- Only Cloud chats are affected (`cloudPreviewChat`); local chats keep their Thinking line.
+- The `cloud-start-quiet-look` `thinking` arm brings back the old line.
+- No default is flipped, and no string is renamed or removed.
+
+Files:
+
+- `conversation/CloudAgentStartLine.tsx` (new): the line and the context that carries the agent's name.
+- `cloudStartViewModel.ts`: `agentStartStage` and `AGENT_START_SLOW_MS`.
+- `rows/ThinkingRow.tsx`: branches to the new line while a row is `queued` in a Cloud chat.
+- `App.tsx`: one provider around the transcript.
+- `cloudStart.css`: three rules.
+- One new string, `cloudStart.eta.longer`, in all 21 locales.
+- A new gallery entry, `agent-pane.cloud-agent-start`, with 5 variants: just-sent, mid-wait, taking-longer, codex, and thinking-before.
+
+Web only. No Swift or Rust changes, so no fleet Swift compile was needed.
+
+Follow-up, not in this PR: the machine-side phases (acpmux connect, checks, session/new) come back only in `agent-session-start`'s final `timings_ms`. Naming them live would need the Rust daemon to stream them and a machine image roll.
+
+## Gallery (`agent-pane.cloud-agent-start`, light and dark, 620 px; captured by fast-checks run https://github.com/manaflow-ai/cmux/actions/runs/45384239216)
+
+Before, the bare line:
+![thinking-before](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/53707/cloud-agent-start-thinking-before-620.png)
+
+Just sent:
+![just-sent](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/53707/cloud-agent-start-just-sent-620.png)
+
+Mid wait:
+![mid-wait](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/53707/cloud-agent-start-mid-wait-620.png)
+
+Past 30 s:
+![taking-longer](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/53707/cloud-agent-start-taking-longer-620.png)
+
+Codex:
+![codex](https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/53707/cloud-agent-start-codex-620.png)
+
+At 300 px wide, the wait shrinks to an ellipsis and the agent's name stays whole (same run; that image is not uploaded).
+
+## Tested
+
+- `bun test src/agent-session/acpmux/conversation/CloudAgentStartLine.test.tsx`: 4 pass. Covers the label, the usual wait, the slow mark at exactly 30 s, no start time, the markup, and no Cancel or button.
+- `python3 scripts/cmux-next/prepush-gate.py`: no new violations.
+- `scripts/ci/language_boundaries.py`: every area keeps its language.
+- The pre-commit format hook passed.
+
+## Not tested
+
+- The gallery captures above are fixture renders, not a live chat.
+- A real Cloud start on a live machine, or in Leo's NIGHTLY: no hot-swap was run.
+- `bun run check` and `scripts/web-lint.sh` were left to CI, because the VM's routing guard refuses to run them locally.
+- Whether `snapshot.switching.name` or `summary.harness` is already set on the machine page at the moment the queued row draws. When neither is set, the row falls back to the old Thinking line.
+
+## Changelog
+
+- Cloud chats: while your first message waits for its agent to start on the Cloud machine, the chat says "Starting Claude Code · usually a few seconds" instead of a bare "Thinking", and says when the start takes longer than usual.
+
+UI change: not for unilateral merge (Leo: "don't unilaterally MERGE ui stuff yet").
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Agent session: [agent session](https://cmux.com/deeplink/agent?id=aid-7fb955c544b2f2527322&model=claude-fable-5-2)
+
+Leo-ask: ask-36343a1b6d ask-fe19418926
+Leo-Ask-Trace: ask-36343a1b6d,ask-fe19418926
