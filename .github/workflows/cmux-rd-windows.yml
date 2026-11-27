@@ -196,7 +196,7 @@ jobs:
           name: cmux-rd-windows-x86_64-${{ github.sha }}
           path: ${{ runner.temp }}/cmux-rd-windows/cmux-rd.exe
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
   live-windows-host:
     name: Windows live host (tailnet)

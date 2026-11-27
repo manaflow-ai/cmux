@@ -50,7 +50,7 @@ jobs:
     environment:
       name: cmux-next-vm-image-dev
       deployment: false
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 45
     steps:
       - name: Refuse any ref but feat-cmux-next
@@ -114,4 +114,4 @@ jobs:
           name: vault-edge-e2e-evidence
           path: ${{ runner.temp }}/vault-edge-e2e-evidence/
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3

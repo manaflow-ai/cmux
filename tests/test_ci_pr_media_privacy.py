@@ -1074,8 +1074,13 @@ class FeatWorkflowTests(unittest.TestCase):
                 with self.subTest(workflow=workflow, job=job_id):
                     steps = loaded["jobs"][job_id]["steps"]
                     checkouts = [step for step in steps if str(step.get("uses", "")).startswith("actions/checkout@")]
-                    self.assertEqual(len(checkouts), 1)
+                    # One checkout, or that checkout plus its retry after a stalled clone (an `(again)` step on a
+                    # failed first outcome) that fetches the same files.
+                    self.assertIn(len(checkouts), (1, 2))
                     sparse = checkouts[0].get("with", {}).get("sparse-checkout", "")
+                    for retry in checkouts[1:]:
+                        self.assertEqual(retry.get("with", {}).get("sparse-checkout", ""), sparse)
+                        self.assertIn("failure", str(retry.get("if", "")))
                     for path in (*self.NEEDED, script):
                         self.assertTrue(self.covers(sparse, path), f"{workflow} {job_id} does not check out {path}")
                     commands = [str((step.get("with") or {}).get("command", "")) for step in steps

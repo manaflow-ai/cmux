@@ -67,6 +67,12 @@ ALLOWED: dict[tuple[str, str], str] = {
         "matrix.runner comes from the census-routed plan-build; its attempt-2 small-size bump reads linux_16"),
     ("cmux-tui-testbox-warmup.yml", "cmux-tui-rust"): (
         "warms a Blacksmith testbox (environment blacksmith-testbox-trusted): it must run on Blacksmith"),
+    ("cmux-next-ios-kit.yml", "connection-notices"): (
+        "its runs-on must equal the kit's `runner` job's route (tests/test_ios_kit_bench_runs_after_red_step.py), "
+        "which holds the routing environment's key (#53243)"),
+    ("rfd0135-gates.yml", "gates"): (
+        "RFD 0135 gate numbers (lid-close drill, p95 move times) are measured at one fixed 8-vCPU size; the owned pool "
+        "is the fallback only when RUNNER_POOLS is unset (#56937)"),
     ("fast-checks.yml", "checks"): (
         "credentialed: the generator leaves it on the ephemeral pool (tests/test_ci_runner_set.py EPHEMERAL_POOL_JOBS)"),
 }

@@ -219,7 +219,8 @@ def reads_dropped_artifacts(job: dict) -> bool:
             regex = "^" + re.escape(pattern).replace(r"\*", ".*") + "$"
             if any(re.match(regex, name) for name in names):
                 return True
-        if "gh run download" in run or "/artifacts" in run:
+        # --download-dir: a script that runs `gh run download` itself (the channel signer, #60636).
+        if "gh run download" in run or "/artifacts" in run or "--download-dir" in run:
             return True
     return False
 

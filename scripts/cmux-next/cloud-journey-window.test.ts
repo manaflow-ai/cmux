@@ -111,8 +111,8 @@ describe("a failed step after create reads the machine's facts before anything i
   test("a claimed machine answering 503 vm_unavailable: the first exec says so, the facts are read, then the delete", () => {
     const { steps, probe, log } = runJourney({ spare: "report", exec: "unavailable" });
     const failed = steps.filter((s) => s.status === "fail");
-    // The owner-kind wait is now the first step to reach the machine: it names the unavailable machine.
-    expect(failed[0].step).toBe("machine kind owner");
+    // The start's own exec carries the owner-kind read (#60809), so the start is the first step to reach the machine: it names the unavailable machine.
+    expect(failed[0].step).toBe("start agent (claude)");
     expect(failed[0].detail).toContain("did not take its first exec");
     expect(failed[0].detail).toContain("vm_unavailable");
     // The journey-only checks still ran, and `first exec` still fails on it.

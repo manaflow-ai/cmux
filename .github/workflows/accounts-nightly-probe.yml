@@ -29,7 +29,7 @@ jobs:
   probe:
     name: Accounts flow on published NIGHTLY
     environment: cmux-next-cloud-journey
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && (github.run_attempt < 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || fromJSON(vars.RUNNER_POOLS).macos_26) }}
     timeout-minutes: 35
     env:
       CMUX_UITEST_STACK_EMAIL: ${{ secrets.CMUX_ACCOUNTS_PROBE_STACK_EMAIL }}

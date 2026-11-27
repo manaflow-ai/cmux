@@ -63,6 +63,8 @@ PAID_ONLY_JOBS: dict[tuple[str, str], str] = {
     ("cmux-tui-team-signed.yml", "sign-helper"): SIGNING + " (Developer ID, environment release-next)",
     ("ios-internal-nightly.yml", "upload"): SIGNING + " (App Store Connect key and iOS distribution certificate)",
     ("ios-testflight.yml", "upload"): SIGNING + " (App Store Connect key and iOS distribution certificate)",
+    ("machine-vault-e2e.yml", "e2e"): "adds a macOS user as root, which only an ephemeral Mac may take (`# ephemeral-required`)",
+    ("relay-tls.yml", "system-keychain"): "adds a System keychain trust root as root, which only an ephemeral Mac may take (`# ephemeral-required`)",
 }
 
 

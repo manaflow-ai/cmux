@@ -4813,7 +4813,7 @@ jobs:
           name: ${{ steps.reuse-key.outputs.key }}
           path: ${{ runner.temp }}/ci-job-pass
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
           overwrite: true
 
   # Why: 2026-11-24-daemon-test-2.md, note-556

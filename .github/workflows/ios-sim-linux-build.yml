@@ -201,7 +201,7 @@ jobs:
           name: ios-sim-mac-shots
           path: ${{ env.OUT }}
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
   # Golden screenshots for the screen-parity check (cmux-next-ios/verify/screen-parity): the fixture screens on an
   # iPhone 17 Pro fleet simulator, taken by the fleet's own shots step (it builds the app at the same commit), and
@@ -258,7 +258,7 @@ jobs:
           name: ios-sim-mac-shots
           path: ${{ env.OUT }}
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
   # A Mac render of a key not yet filed goes into the goldens cache, so the next run of the same inputs skips the Mac.
   # Writing needs next-cache-writer, whose deployment branches are feat-cmux-next only: a lane's render is used

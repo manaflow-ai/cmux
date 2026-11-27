@@ -1031,6 +1031,10 @@ path = "tests/test_ci_same_repo_linux_owned_first.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_same_tree_status_pool_tokens.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_sanitize_xcode_source_packages_cache.py"
 lane = "linux-guard"
 
