@@ -284,11 +284,11 @@ impl Synced {
 fn write_whole(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     let tmp = path.with_extension("json.tmp");
-    let mut file = std::fs::File::create(&tmp)?;
+    let mut file = crate::home_fs::create_file(&tmp)?;
     file.write_all(bytes)?;
     file.sync_all()?;
     drop(file);
-    std::fs::rename(&tmp, path)
+    crate::home_fs::rename(&tmp, path)
 }
 
 fn bad(what: &str, e: impl std::fmt::Display) -> RpcError {
@@ -346,6 +346,13 @@ impl Hub {
             .with_data(serde_json::json!({"reason": "sync.too_large"})));
         }
         let (changed, gap, vv) = self.synced_merge(&delta).await;
+        // A winner a client (or a peer) pushed here goes on to the other peer daemons too: before,
+        // only an edit made here (`synced_record`) was told, so a phone's offline edit pushed to
+        // this daemon reached the daemon holding the chat only at the next reconnect. An entry
+        // sent back to where it came from changes nothing there, so the relay ends.
+        if !changed.is_empty() {
+            self.synced_tell_peers();
+        }
         Ok(SyncPushDone { changed, gap, vv: serde_json::to_value(vv).unwrap_or_default() })
     }
 
@@ -410,7 +417,8 @@ impl Hub {
             std::mem::replace(&mut meta.pinned, pinned)
         };
         if was != pinned {
-            self.events.row_changed(session);
+            // Told now: a peer following this list hears the pin at once (`row_changed_told`).
+            self.events.row_changed_told(session);
             self.save_meta_answered(session)?;
         }
         self.synced_record(pin_key(&session.id), Value::Bool(pinned));
