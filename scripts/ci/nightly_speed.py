@@ -300,7 +300,7 @@ def pr_number(subject: str) -> Optional[int]:
 
 def first_parent_pr_merges(git_dir: str, base_ref: str, since: float,
                            run: Callable = subprocess.run) -> List[Dict[str, Any]]:
-    """Return the PR landings on ``base_ref``'s first-parent line committed at or after ``since``, newest first.
+    """Return integration commit candidates at or after ``since``, newest first, including direct pushes.
 
     ``--since-as-filter``, not ``--since``: ``--since`` stops the walk at the first commit older than the date, so one
     commit with an old committer date hides every landing behind it. A merge without a PR number on the first-parent
@@ -492,6 +492,14 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
     feeds = [(ts(e["feed_at"]), e) for e in feed_list(feeds or [], records, end, window_days)]
     feeds = [(t, e) for t, e in feeds if t is not None and t <= end]
     feeds.sort(key=lambda item: (item[0], item[1]["sha"], item[1]["build"]))
+    # Re-publication of the same source does not restart its clock. Keep unverified entries for coverage,
+    # but only the earliest verified receipt for each source is eligible for attribution.
+    verified_sources = set()
+    eligible_feeds = []
+    for feed_ts, entry in feeds:
+        if entry.get("confirmed") and entry.get("confirmed_identity") and entry["sha"] not in verified_sources:
+            verified_sources.add(entry["sha"])
+            eligible_feeds.append((feed_ts, entry))
     held: Dict[str, Optional[set]] = {}
 
     def contains(commit: str, head: str) -> Optional[bool]:
@@ -536,9 +544,8 @@ def pr_attribution(records: List[Dict[str, Any]], git_dir: str, base_ref: str = 
         elif feeds and merge["merged_ts"] < feeds[0][0]:
             row["reason"] = BEFORE_FEEDS
         else:
-            for feed_ts, record in feeds:
-                if (feed_ts < merge["merged_ts"] or not record.get("confirmed")
-                        or not record.get("confirmed_identity")):
+            for feed_ts, record in eligible_feeds:
+                if feed_ts < merge["merged_ts"]:
                     continue
                 holds = contains(merge["sha"], record.get("sha"))
                 if holds:
@@ -1301,9 +1308,13 @@ def render_verdict(c: Dict[str, Any], repo: str = REPO) -> str:
                           "published build_sha (identity unconfirmed)." if prs.get("unidentified") else ""))
         else:
             out.append("Observed window: none, no published nightly is recorded; coverage is partial.")
-        out += [f"Attributed {prs.get('attributed', 0)} of {prs.get('count', 0)} first-parent merges. "
+        out += [f"Attributed {prs.get('attributed', 0)} of {prs.get('count', 0)} integration commit observations. "
                 f"p50 {num(prs.get('p50'), ' min')}, p90 {num(prs.get('p90'), ' min')}."
                 + (f" Unattributed: {reasons}." if reasons else "")]
+        if "matched_prs" in prs:
+            out.append(f"Provider-verified PRs: {prs['matched_prs']} matched, {prs.get('unmatched_prs', 0)} unmatched; "
+                       f"{prs.get('excluded_commits', 0)} commits excluded. Waits end at the first verified feed; "
+                       "unverified feeds are excluded and make coverage partial.")
         if prs.get("rows"):
             out += ["", f"Slowest and unattributed {len(prs['rows'])} of {prs.get('count', 0)} (every row: "
                         "`nightly_speed.py check --json`).", "",

@@ -1321,6 +1321,10 @@ class VerifiedPrAttribution(unittest.TestCase):
         provider["rows"][0]["merged_at"] = "2026-11-14T01:00:01Z"
         result = ns.pr_attribution(feeds, ".", run=graph, now=ns.ts("2026-11-20T00:00:00Z"), provider_merges=provider)
         self.assertEqual((result["unmatched_prs"], result["p50"]), (1, None))
+        # A later republication of the same source must not hide its negative first wait.
+        feeds.append({**feeds[-1], "build": "retry", "feed_at": "2026-11-14T02:00:00Z"})
+        result = ns.pr_attribution(feeds, ".", run=graph, now=ns.ts("2026-11-20T00:00:00Z"), provider_merges=provider)
+        self.assertEqual((result["unmatched_prs"], result["p50"]), (1, None))
 
     def test_provider_pages_validate_base_and_merge_not_subject(self):
         entry = {"number": 7, "merge_commit_sha": "a" * 40, "merged_at": "2026-11-14T01:00:00Z",
