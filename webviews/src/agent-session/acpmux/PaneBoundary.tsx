@@ -57,7 +57,8 @@ type Props = {
   /// The backoff's options; tests pass a short one. The first wait comes from the reloads so far.
   autoRetry?: AutoRetryOptions;
 };
-type State = { failed: boolean };
+/// `failedAt`: when the pane last failed (Date.now()), read against when it began drawing.
+type State = { failed: boolean; failedAt?: number };
 
 /// The reloads of this stretch of failures, kept across them: how many, and when the first failed.
 const RELOADS_KEY = "acpmux.paneReloads";
@@ -99,20 +100,20 @@ declare global {
 
 export class PaneBoundary extends Component<Props, State> {
   state: State = { failed: false };
-  private stable: ReturnType<typeof setTimeout> | undefined;
+  /// When the pane began drawing: this load, or the last Retry. A failure this long after it starts a
+  /// new stretch. The stretch's end is read from these two times when a failure comes, not from a timer:
+  /// a 30 s timer armed at mount woke a chat at rest once a load (bench/chat-switch.bench.ts rest_wakeups
+  /// "componentDidMount"), and in a pane that never fails it did nothing a later read needs.
+  private drewAt = Date.now();
 
   static getDerivedStateFromError(): State {
-    return { failed: true };
+    return { failed: true, failedAt: Date.now() };
   }
 
-  componentDidMount() {
-    this.stable = setTimeout(() => {
-      if (!this.state.failed) writeReloads(undefined);
-    }, STABLE_MS);
-  }
-
-  componentWillUnmount() {
-    if (this.stable !== undefined) clearTimeout(this.stable);
+  /// This stretch's reloads: the stored ones, unless the pane drew STABLE_MS without failing first.
+  private stretch(): Reloads | undefined {
+    const failedAt = this.state.failedAt ?? Date.now();
+    return failedAt - this.drewAt >= STABLE_MS ? undefined : readReloads();
   }
 
   componentDidCatch(error: unknown, info: ErrorInfo) {
@@ -126,23 +127,35 @@ export class PaneBoundary extends Component<Props, State> {
     // fail the same way: the reloaded pane starts empty and draws from its live client. Saves stop for
     // the rest of this page (`saveSnapshot`), so neither a pending one nor `pagehide` puts it back.
     clearSnapshot();
+    // A pane that drew long enough before this failure ended the last stretch: its reloads go.
+    if (this.stretch() === undefined) writeReloads(undefined);
   }
 
   render() {
+    if (!this.state.failed) return this.props.children;
+    const reloads = this.stretch();
     const retry = () => {
-      const was = readReloads();
+      const was = this.stretch();
       writeReloads({ count: (was?.count ?? 0) + 1, since: was?.since ?? Date.now() });
-      this.setState({ failed: false });
+      this.drewAt = Date.now();
+      this.setState({ failed: false, failedAt: undefined });
       this.props.onRetry?.();
     };
-    return this.state.failed ? <PaneFailed onRetry={retry} options={this.props.autoRetry} /> : this.props.children;
+    return <PaneFailed onRetry={retry} reloads={reloads} options={this.props.autoRetry} />;
   }
 }
 
 /// Nothing at first (the page's own background); the quiet line once the failures have lasted.
-function PaneFailed({ onRetry, options }: { onRetry: () => void; options?: AutoRetryOptions }) {
+function PaneFailed({
+  onRetry,
+  reloads,
+  options,
+}: {
+  onRetry: () => void;
+  reloads: Reloads | undefined;
+  options?: AutoRetryOptions;
+}) {
   const t = useT();
-  const reloads = readReloads();
   const firstMs = Math.min(
     (options?.firstMs ?? AUTO_RETRY_FIRST_MS) * 2 ** (reloads?.count ?? 0),
     options?.maxMs ?? AUTO_RETRY_MAX_MS,

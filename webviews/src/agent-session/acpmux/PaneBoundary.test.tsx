@@ -96,6 +96,94 @@ test("a failure that has lasted past the deadline says one quiet line", () => {
   }
 });
 
+test("a pane at rest arms no timer, and one that drew 30 s before failing starts a new stretch", () => {
+  const originalError = console.error;
+  const originalNow = Date.now;
+  console.error = () => undefined;
+  try {
+    let now = 1_000_000;
+    Date.now = () => now;
+    let broken = false;
+    function Pane() {
+      if (broken) throw new Error("broken pane");
+      return <p>drawn</p>;
+    }
+    const host = mount(<main />);
+    window.sessionStorage.setItem("acpmux.paneReloads", JSON.stringify({ count: 3, since: now - 1_000 }));
+    let armed = 0;
+    const setTimeoutBefore = window.setTimeout;
+    const globalSetTimeout = globalThis.setTimeout;
+    window.setTimeout = ((...args: Parameters<typeof setTimeout>) => (
+      armed++,
+      setTimeoutBefore(...args)
+    )) as typeof setTimeout;
+    globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => (
+      armed++,
+      globalSetTimeout(...args)
+    )) as typeof setTimeout;
+    try {
+      act(() =>
+        root!.render(
+          <PaneBoundary onRetry={() => undefined} autoRetry={{ firstMs: 60_000, maxMs: 60_000, visible: () => false }}>
+            <Pane />
+          </PaneBoundary>,
+        ),
+      );
+    } finally {
+      window.setTimeout = setTimeoutBefore;
+      globalThis.setTimeout = globalSetTimeout;
+    }
+    expect(host.textContent).toBe("drawn");
+    expect(armed).toBe(0);
+    // Drawn for the whole stable stretch, then a failure: the stored reloads were the last stretch's.
+    now += 30_000;
+    broken = true;
+    act(() =>
+      root!.render(
+        <PaneBoundary onRetry={() => undefined} autoRetry={{ firstMs: 60_000, maxMs: 60_000, visible: () => false }}>
+          <Pane />
+        </PaneBoundary>,
+      ),
+    );
+    expect(host.querySelector("[data-pane-failed]")?.textContent).toBe("");
+    expect(window.sessionStorage.getItem("acpmux.paneReloads")).toBeNull();
+  } finally {
+    console.error = originalError;
+    Date.now = originalNow;
+  }
+});
+
+test("a pane that fails sooner than 30 s after drawing keeps its stretch", () => {
+  const originalError = console.error;
+  const originalNow = Date.now;
+  console.error = () => undefined;
+  try {
+    let now = 1_000_000;
+    Date.now = () => now;
+    let broken = false;
+    function Pane() {
+      if (broken) throw new Error("broken pane");
+      return <p>drawn</p>;
+    }
+    const host = mount(<main />);
+    window.sessionStorage.setItem("acpmux.paneReloads", JSON.stringify({ count: 3, since: now - 60_000 }));
+    const tree = () => (
+      <PaneBoundary onRetry={() => undefined} autoRetry={{ firstMs: 60_000, maxMs: 60_000, visible: () => false }}>
+        <Pane />
+      </PaneBoundary>
+    );
+    act(() => root!.render(tree()));
+    now += 29_000;
+    broken = true;
+    act(() => root!.render(tree()));
+    expect(host.textContent).toBe("Still loading the agent pane…");
+    expect(JSON.parse(window.sessionStorage.getItem("acpmux.paneReloads") ?? "null")?.count).toBe(3);
+  } finally {
+    console.error = originalError;
+    Date.now = originalNow;
+  }
+});
+
 test("a caught render error is logged with what failed, the error's own words and where", () => {
   const originalError = console.error;
   const logged: unknown[][] = [];
