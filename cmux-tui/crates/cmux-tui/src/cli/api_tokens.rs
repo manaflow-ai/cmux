@@ -3,7 +3,7 @@
 //! tokens/api keys for people to be accessing our stuff with?", "Convienient beats all. Just make
 //! good ui for it so people flow." and "'cli' occupying the same mind space as api is there").
 //!
-//! The CLI and the public API share the same commands: every verb here is one documented cmux platform
+//! The CLI and the public API are one surface: every verb here is one documented cmux platform
 //! call (`/v1/tokens…` and `/v1/tokens/github…`, cmux-platform's API tokens contract), with the
 //! same scopes (`machines`, `chats`, `usage`) and the same errors, printed plainly.
 //!
@@ -57,8 +57,8 @@ usage: cmux token create NAME|--name=NAME [--scope=machines --scope=chats ...]
        cmux token github remove ID
 
 cmux API tokens (cmux_pat_...) let a script, a CI job or another computer use cmux with no app
-and no sign-in. The CLI and API share the same commands: anything `cmux` does in Cloud with
-your sign-in, it does with a token in CMUX_TOKEN.
+and no sign-in. The CLI and the API are one surface: anything `cmux` does in Cloud with your
+sign-in, it does with a token in CMUX_TOKEN.
 
   create NAME     Make a token and print it once (stdout: the token alone; the note on stderr).
                   Then: export CMUX_TOKEN=cmux_pat_...  and run any cmux Cloud command.
