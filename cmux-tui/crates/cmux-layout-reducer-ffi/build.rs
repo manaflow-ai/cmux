@@ -14,6 +14,9 @@
 //! are asked in name order, and no two may answer the same op (the `op_modules_are_disjoint`
 //! test), so the order never decides which module answers.
 //!
+//! A `#[path]` module's own `mod x;` resolves next to its file (`src/x.rs`), not in
+//! `src/<name>/`: a module with a directory names each child's file (`#[path = "focus/codec.rs"]`).
+//!
 //! Each `mod` line carries `#[path]`, so rustc resolves a module's own submodules from `src/`,
 //! not `src/NAME/`: a module with submodules in `src/NAME/` declares each one
 //! `#[path = "NAME/sub.rs"] mod sub;` (as `focus` and `window_close_selection` do).
@@ -52,6 +55,34 @@ fn main() {
             {
                 included.push(target.trim_end_matches(".rs").to_owned());
             }
+        }
+    }
+
+    // build.rs declares every module with `#[path = ...]`, and rustc reads a file declared that way
+    // as a `mod.rs`: its own `mod codec;` is looked for in `src/codec.rs`, not `src/focus/codec.rs`
+    // (cmux#60470 broke `focus` and `window_close_selection` that way, E0583). A submodule in a
+    // module's own folder names its path, so the next one fails here with the fix, not in rustc.
+    for (name, path, text) in &files {
+        if !src.join(name).is_dir() {
+            continue;
+        }
+        let mut previous = "";
+        for line in text.lines() {
+            let line = line.trim();
+            let declared = ["mod ", "pub mod ", "pub(crate) mod ", "pub(super) mod "]
+                .iter()
+                .find_map(|prefix| line.strip_prefix(prefix))
+                .and_then(|rest| rest.strip_suffix(';'));
+            if let Some(child) = declared
+                && !previous.starts_with("#[path")
+            {
+                panic!(
+                    "{}: `{line}` needs `#[path = \"{name}/{child}.rs\"]` on the line above: build.rs \
+                     declares `{name}` with #[path], so rustc looks for `{child}` in src/, not src/{name}/",
+                    path.display()
+                );
+            }
+            previous = line;
         }
     }
 
