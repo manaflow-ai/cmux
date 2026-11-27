@@ -284,6 +284,15 @@ async fn read_book(
         return;
     };
     if let Some(hub) = hub.upgrade() {
+        // RFD 0170: the same read feeds the team directory; an unchanged book keeps its snapshot.
+        if let Some(team) = crate::machine_record::machine_credential()
+            .ok()
+            .flatten()
+            .map(|c| c.team_id)
+            .filter(|t| !t.is_empty())
+        {
+            hub.apply_team_book(&team, Some(&own_user), &book);
+        }
         hub.apply_mesh_book(book, &own_user, own_daemon);
     }
 }
@@ -1344,6 +1353,8 @@ pub async fn deliver(
             "steer": !team && message.mode == Mode::Now,
             "promptId": prompt_id,
             "resend": true,
+            // Only a lease after the first waited (`prompt_provenance::resend_waited`).
+            (crate::prompt_provenance::LEASE_ATTEMPT): message.attempt,
             "fromAgent": from_name,
             "teamMessage": team,
             "startWork": message.start_work,

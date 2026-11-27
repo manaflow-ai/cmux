@@ -267,9 +267,15 @@ impl Session {
         Some(m)
     }
 
-    /// Records one decode time of `stream`.
-    pub fn note_decode(&mut self, stream: u16, decode_us: u32) -> Result<(), SessionError> {
-        self.receiver(stream)?.note_decode(decode_us);
+    /// Records one decode time of `stream`; `frame` is the popped frame that
+    /// decoded (its LTR token is acknowledged), `None` for the time only.
+    pub fn note_decode(
+        &mut self,
+        stream: u16,
+        frame: Option<u32>,
+        decode_us: u32,
+    ) -> Result<(), SessionError> {
+        self.receiver(stream)?.note_decode(frame, decode_us);
         Ok(())
     }
 
@@ -283,7 +289,7 @@ impl Session {
         decode_us: u32,
         decoded_at_us: u64,
     ) -> Result<(), SessionError> {
-        self.receiver(stream)?.note_decode(decode_us);
+        self.receiver(stream)?.note_decode(Some(frame), decode_us);
         self.ledger.on_decoded(stream, frame, decoded_at_us);
         Ok(())
     }

@@ -350,7 +350,7 @@ fn encode_one(
     let mut access_unit = Vec::new();
     let pts = i64::try_from(now_us).unwrap_or(i64::MAX);
     let idr = encoder.encode(picture, req.force_idr, pts, &mut access_unit)?;
-    let encoded = Encoded { access_unit, idr, t_capture_us: now_us };
+    let encoded = Encoded { access_unit, idr, t_capture_us: now_us, ltr_token: None };
     engine.encoded(req, Some(encoded), now_us).map_err(|e| format!("packetize: {e:?}").into())
 }
 

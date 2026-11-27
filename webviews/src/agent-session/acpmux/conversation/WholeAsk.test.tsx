@@ -182,7 +182,10 @@ test("the hat offers no More when nothing of the ask is cut", async () => {
 
 test("an opened hat shrinks and scrolls in a short pane so its answers are never cut off", async () => {
   const band = await renderHat(".acpmux-hat-questions__prompt");
-  const root = band.closest(".acpmux-hat-questions") ?? band;
+  // The hat sits inside the test's container: look down for it (closest() looks up and found none,
+  // so the old line read the container's own attribute, which never changes).
+  const root = band.querySelector<HTMLElement>(".acpmux-hat-questions")!;
+  expect(root).not.toBeNull();
   expect(root.hasAttribute("data-whole")).toBe(false);
   await act(async () => band.querySelector<HTMLElement>(".acpmux-hat-questions__more")!.click());
   expect(root.hasAttribute("data-whole")).toBe(true);
