@@ -299,8 +299,7 @@ export function useStepWindow({
       let fresh = usual.current === undefined;
       for (const piece of drawn.current.pieces)
         if (piece.rest === undefined)
-          for (let at = piece.from; at < piece.to && !fresh; at++)
-            if (!measured.current.has(now[at]!)) fresh = true;
+          for (let at = piece.from; at < piece.to && !fresh; at++) if (!measured.current.has(now[at]!)) fresh = true;
       if (!fresh) return;
     }
     if (measure.current()) redraw((n) => n + 1);
