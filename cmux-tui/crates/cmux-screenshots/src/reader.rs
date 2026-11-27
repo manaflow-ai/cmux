@@ -1,4 +1,5 @@
-//! Which directory entries a folder scan lists or enters, and a folder's newest picture (Swift
+//! Which directory entries a folder scan lists or enters, the order a source read lists its folders
+//! in, and a folder's newest picture (Swift
 //! `ScreenshotFolderReader`). The app lists the folder; these rules pick from the entries.
 
 use crate::rule::{MediaKind, ScanRule};
@@ -72,6 +73,80 @@ pub fn newest_picture(entries: &[Entry<'_>]) -> Option<usize> {
         }
     }
     newest
+}
+
+/// One read of a source: which folders to list, in the order Swift's recursion listed them
+/// (the source's folder, then each subfolder the rule enters, depth first), and which entries
+/// of each listing are items. The app lists each folder `next_folder` names and hands the
+/// listing back to `listed`.
+#[derive(Clone, Debug)]
+pub struct Walk {
+    rule: ScanRule,
+    pending: Vec<(String, usize)>,
+    current: Option<(String, usize)>,
+    folders: Vec<String>,
+    readable: bool,
+}
+
+impl Walk {
+    /// A read of the folder at `root` under `rule`.
+    pub fn new(root: &str, rule: ScanRule) -> Self {
+        Self {
+            rule,
+            pending: vec![(root.to_owned(), 0)],
+            current: None,
+            folders: Vec::new(),
+            readable: true,
+        }
+    }
+
+    /// The next folder to list, or None when the read is done.
+    pub fn next_folder(&mut self) -> Option<&str> {
+        self.current = self.pending.pop();
+        self.current.as_ref().map(|(path, _)| path.as_str())
+    }
+
+    /// Takes the listing of the folder `next_folder` named (None: it could not be read) and
+    /// returns the kind each entry is listed as (None: not listed, or a subfolder to read).
+    pub fn listed(&mut self, entries: Option<&[Entry<'_>]>) -> Vec<Option<MediaKind>> {
+        let Some((folder, depth)) = self.current.take() else { return Vec::new() };
+        let Some(entries) = entries else {
+            if depth == 0 && self.folders.is_empty() {
+                self.readable = false;
+            }
+            return Vec::new();
+        };
+        self.folders.push(folder.clone());
+        let mut entered = Vec::new();
+        let kinds = entries
+            .iter()
+            .map(|entry| {
+                if enters(entry, depth, &self.rule) {
+                    entered.push((child(&folder, entry.name), depth + 1));
+                    None
+                } else {
+                    item_kind(entry, &self.rule)
+                }
+            })
+            .collect();
+        self.pending.extend(entered.into_iter().rev());
+        kinds
+    }
+
+    /// The folders listed so far: the source's folder and every subfolder the rule entered.
+    pub fn folders(&self) -> &[String] {
+        &self.folders
+    }
+
+    /// False when the source's own folder could not be read.
+    pub const fn readable(&self) -> bool {
+        self.readable
+    }
+}
+
+/// `name` inside `folder` (Swift `appendingPathComponent(_:isDirectory:).path`).
+fn child(folder: &str, name: &str) -> String {
+    if folder.ends_with('/') { format!("{folder}{name}") } else { format!("{folder}/{name}") }
 }
 
 #[cfg(test)]

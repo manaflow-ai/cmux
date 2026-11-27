@@ -20,7 +20,7 @@ use std::ffi::{CString, c_char, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type or a function.
-pub const CMUX_SCREENSHOTS_ABI_VERSION: u32 = 2;
+pub const CMUX_SCREENSHOTS_ABI_VERSION: u32 = 3;
 
 /// A scan rule (a source's `rule` from `cmux_screenshots_detect`).
 pub struct CmuxScreenshotsRule {
@@ -999,6 +999,125 @@ pub unsafe extern "C" fn cmux_screenshots_pane_entry_action(
             EntryAction::Relist => 1,
             EntryAction::Upsert => 2,
         }
+    })
+}
+
+/// A read of one source in progress (`cmux_screenshots_walk_new`).
+pub struct CmuxScreenshotsWalk {
+    inner: reader::Walk,
+}
+
+/// A read of the folder at `root` under `rule` (the rule is copied). Free it with
+/// `cmux_screenshots_walk_free`; null when `rule` is null.
+///
+/// # Safety
+/// `rule` is null or a live rule; `root` is null or `root_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_walk_new(
+    rule: *const CmuxScreenshotsRule,
+    root: *const u8,
+    root_len: usize,
+) -> *mut CmuxScreenshotsWalk {
+    // SAFETY: caller contract.
+    let Some(rule) = (unsafe { rule.as_ref() }) else { return std::ptr::null_mut() };
+    // SAFETY: caller contract.
+    let root = unsafe { text(root, root_len) };
+    guard(std::ptr::null_mut(), || {
+        let inner = reader::Walk::new(&root, rule.inner.clone());
+        Box::into_raw(Box::new(CmuxScreenshotsWalk { inner }))
+    })
+}
+
+/// Frees a walk; null does nothing.
+///
+/// # Safety
+/// `walk` is null or from `cmux_screenshots_walk_new`, freed once.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_walk_free(walk: *mut CmuxScreenshotsWalk) {
+    if !walk.is_null() {
+        // SAFETY: from `Box::into_raw` in `cmux_screenshots_walk_new`, freed once.
+        drop(unsafe { Box::from_raw(walk) });
+    }
+}
+
+/// The next folder to list (the caller frees it), or null when the read is done. Hand its
+/// listing to `cmux_screenshots_walk_listed` before asking again.
+///
+/// # Safety
+/// `walk` is null or a live walk.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_walk_next(walk: *mut CmuxScreenshotsWalk) -> *mut c_char {
+    // SAFETY: caller contract.
+    let Some(walk) = (unsafe { walk.as_mut() }) else { return std::ptr::null_mut() };
+    guard(std::ptr::null_mut(), || out(walk.inner.next_folder().map(str::to_owned)))
+}
+
+/// Takes the listing of the folder `cmux_screenshots_walk_next` named (`readable` false: it could
+/// not be read) and writes into `kinds` the kind each entry is listed as (1 image, 2 video,
+/// 3 other; 0: not listed, or a subfolder the walk reads next).
+///
+/// # Safety
+/// `walk` is null or a live walk; `entries` is null or `count` readable entries whose names are
+/// readable; `kinds` is null or `count` writable values.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_walk_listed(
+    walk: *mut CmuxScreenshotsWalk,
+    readable: bool,
+    entries: *const CmuxScreenshotsEntry,
+    count: usize,
+    kinds: *mut u32,
+) {
+    // SAFETY: caller contract.
+    let Some(walk) = (unsafe { walk.as_mut() }) else { return };
+    let raw = if entries.is_null() || count == 0 {
+        &[][..]
+    } else {
+        // SAFETY: caller contract.
+        unsafe { std::slice::from_raw_parts(entries, count) }
+    };
+    // SAFETY: caller contract (each name readable).
+    let names: Vec<_> = raw.iter().map(|e| unsafe { text(e.name, e.name_len) }).collect();
+    let found = guard(Vec::new(), || {
+        let list: Vec<Entry<'_>> = raw
+            .iter()
+            .zip(&names)
+            .map(|(e, name)| Entry {
+                kind: EntryKind::from_raw(e.kind),
+                hidden: e.hidden,
+                name,
+                system_kind: MediaKind::from_raw(e.system_kind).unwrap_or(MediaKind::Other),
+                modified: e.modified,
+            })
+            .collect();
+        walk.inner.listed(readable.then_some(list.as_slice()))
+    });
+    if kinds.is_null() || raw.is_empty() {
+        return;
+    }
+    // SAFETY: caller contract (`count` writable values).
+    let kinds = unsafe { std::slice::from_raw_parts_mut(kinds, raw.len()) };
+    for (slot, kind) in kinds.iter_mut().zip(found.iter().chain(std::iter::repeat(&None))) {
+        *slot = kind.map_or(0, MediaKind::raw);
+    }
+}
+
+/// What the read found, as JSON `{"folders": [...], "readable": bool}` (the caller frees it):
+/// every folder listed (the source's and each subfolder entered), and false when the source's
+/// own folder could not be read. Null when `walk` is null.
+///
+/// # Safety
+/// `walk` is null or a live walk.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn cmux_screenshots_walk_result(
+    walk: *const CmuxScreenshotsWalk,
+) -> *mut c_char {
+    // SAFETY: caller contract.
+    let Some(walk) = (unsafe { walk.as_ref() }) else { return std::ptr::null_mut() };
+    guard(std::ptr::null_mut(), || {
+        out(Some(
+            serde_json::json!({"folders": walk.inner.folders(), "readable": walk.inner.readable()})
+                .to_string(),
+        ))
     })
 }
 

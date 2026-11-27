@@ -1,5 +1,19 @@
 use super::*;
 
+/// A refused host key waits seconds, then minutes, and never past its cap: unlike a
+/// refused login it costs the remote nothing, and an hour's wait kept a link down for 2 h.
+#[test]
+fn a_refused_host_key_waits_a_bounded_backoff() {
+    assert_eq!(Backoff::host_key_refused(1, 0.0), Backoff::HOST_KEY_REFUSED_BASE);
+    assert_eq!(Backoff::host_key_refused(2, 0.0), 2 * Backoff::HOST_KEY_REFUSED_BASE);
+    let cap = Backoff::HOST_KEY_REFUSED_CAP;
+    for n in 1..1_000 {
+        assert!(Backoff::host_key_refused(n, 1.0) <= cap + cap / 5);
+    }
+    assert_eq!(Backoff::host_key_refused(u32::MAX, 0.0), cap);
+    assert!(Backoff::host_key_refused(1, 1.0) < Backoff::login_refused(1, 0.0));
+}
+
 #[test]
 fn a_sleep_is_the_wall_clock_running_ahead_of_the_monotonic_one() {
     let start = tokio::time::Instant::now();
@@ -250,9 +264,14 @@ fn host_ls_labels_old_and_new_daemons() {
     assert_eq!(ago(3 * 3_600_000), "3h");
 }
 
+/// Timings with a 6 s start (a ping each 2 s, 3 misses): the budget tests' arithmetic.
+fn six_s() -> LinkTimings {
+    LinkTimings { ping_every: Duration::from_secs(2), ping_misses: 3, ..LinkTimings::default() }
+}
+
 #[tokio::test(start_paused = true)]
 async fn a_late_answering_peer_gets_more_silence_and_gives_it_back_once_calm() {
-    let t = LinkTimings::default();
+    let t = six_s();
     let mut budget = SilenceBudget::new(&t);
     let start = tokio::time::Instant::now();
     let secs = Duration::from_secs;
@@ -299,7 +318,7 @@ async fn a_late_answering_peer_gets_more_silence_and_gives_it_back_once_calm() {
 /// while the peer stays late; a fast peer keeps the 2 s probe and the 6 s budget.
 #[tokio::test(start_paused = true)]
 async fn a_measured_slow_round_trip_widens_the_probe_and_keeps_the_budget() {
-    let t = LinkTimings::default();
+    let t = six_s();
     let probe = Duration::from_secs(2);
     let ms = Duration::from_millis;
     let secs = Duration::from_secs;
@@ -349,7 +368,7 @@ async fn a_measured_slow_round_trip_widens_the_probe_and_keeps_the_budget() {
 /// took the grown budget to be noticed. A redial that failed first was a network loss.
 #[tokio::test(start_paused = true)]
 async fn a_network_loss_neither_grows_the_budget_nor_keeps_a_grown_one() {
-    let t = LinkTimings::default();
+    let t = six_s();
     let mut budget = SilenceBudget::new(&t);
     let start = tokio::time::Instant::now();
     let secs = Duration::from_secs;
@@ -380,7 +399,7 @@ async fn a_network_loss_neither_grows_the_budget_nor_keeps_a_grown_one() {
 /// budget doubles and requests stop probing it until the budget is back at the start.
 #[tokio::test(start_paused = true)]
 async fn a_slow_peer_found_by_a_request_probe_is_not_probed_again() {
-    let t = LinkTimings::default();
+    let t = six_s();
     let mut budget = SilenceBudget::new(&t);
     let start = tokio::time::Instant::now();
     let secs = Duration::from_secs;
@@ -413,25 +432,22 @@ fn the_replace_setting_is_off_by_default_and_never_past_the_budget() {
 
 #[test]
 fn a_set_ping_interval_keeps_the_silence_budget_fixed() {
-    let t = LinkTimings {
-        ping_every: Duration::from_secs(5),
-        fixed_silence: true,
-        ..LinkTimings::default()
-    };
+    let t = LinkTimings { ping_every: Duration::from_secs(5), fixed_silence: true, ..six_s() };
     let mut budget = SilenceBudget::new(&t);
     let now = tokio::time::Instant::now();
     budget.answered_after(Duration::from_secs(14), now);
     budget.dropped(now);
     budget.opened(now);
     assert_eq!(budget.current(), Duration::from_secs(15));
-    let slow = LinkTimings { ping_every: Duration::from_secs(40), ..LinkTimings::default() };
+    let slow = LinkTimings { ping_every: Duration::from_secs(40), ..six_s() };
     assert_eq!(SilenceBudget::new(&slow).current(), Duration::from_secs(120), "over the cap");
 }
 
 #[test]
 fn env_sets_the_connect_handshake_and_ping_deadlines() {
     let t = LinkTimings::default();
-    assert_eq!(t.silence_budget(), Duration::from_secs(6));
+    // A dead host is found in 2 s: its chats' recovery waits on nothing longer.
+    assert_eq!(t.silence_budget(), Duration::from_secs(2));
     assert_eq!(t.send, Duration::from_secs(80));
     assert!(t.connect >= Duration::from_secs(30) && t.handshake >= t.connect);
 }

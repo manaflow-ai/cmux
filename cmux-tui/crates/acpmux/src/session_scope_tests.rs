@@ -471,6 +471,7 @@ fn the_slice_and_every_scope_read_the_task_caps_from_one_source() {
     assert_eq!(session_limits_from_config(&cfg), config);
 }
 
+#[cfg(unix)]
 #[test]
 fn the_daemon_limits_read_the_configs_session_as_a_whole_load_does() {
     use std::os::unix::fs::PermissionsExt as _;
