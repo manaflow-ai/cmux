@@ -199,12 +199,20 @@
       "id": "reconnect-after-drop",
       "title": "After the Mac's link drops for 10 s and for 60 s, the iPhone reattaches by itself within 30 s, no tap",
       "source": ["leo-proxy:cmux#56894-never-tried-on-a-phone"],
-      "kit": [],
+      "kit": ["CmuxMobileLiveTests/ConnectionContractScenarioTests"],
       "ui": [],
       "pair_e2e": ["reconnect-drops=10,60"],
       "paths": [
         "cmux-tui/crates/cmux-remote/**",
-        "cmux-tui/crates/cmux-tui/src/remote_runtime*"
+        "cmux-tui/crates/cmux-tui/src/remote_runtime*",
+        "cmux-tui/crates/cmux-mobile-core/**",
+        "cmux-tui/crates/cmux-remote-protocol/**",
+        "cmux-next-ios/rust/crates/cmux-mobile-link/**",
+        "cmux-next-ios/rust/crates/cmux-mobile-link-ffi/**",
+        "cmux-next-ios/rust/crates/cmux-mobile-host/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/**",
+        "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/**"
       ],
       "note": "A pair-e2e run (scripts/ci/cmux_next_pair_e2e.py reconnect leg): the tagged Mac app and its cmux-mobile-host are frozen (SIGSTOP) for each drop, then resumed; the phone's own marks and the Mac's connected phones decide, and simctl records the screen (reconnect-after-drop.mp4 in the evidence zip)."
     },
