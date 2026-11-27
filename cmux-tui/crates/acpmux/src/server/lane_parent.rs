@@ -102,23 +102,26 @@ pub(super) fn report_remote_created(
     use crate::hub::watches::Watch;
     let Some(to) = to else { return Ok(()) };
     let key = format!("{peer}/{id}");
-    hub.watches.add(Watch {
-        // Session ids are scoped to their owning daemon, not globally unique.
-        id: format!("remote-start-{}", uuid::Uuid::now_v7()),
-        to,
-        sessions: vec![key.clone()],
-        // Normal turns and permission prompts must not consume the failure report.
-        until: vec!["closed".into(), "blocked".into()],
-        match_text: None,
-        once: true,
-        caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
-        active: true,
-        // No initial ready verdict: the new chat has not received its prompt.
-        // Read its journal from the start so a fast spawn refusal is not lost.
-        cursors: [(key, Default::default())].into_iter().collect(),
-        offline: Default::default(),
-        ..Default::default()
-    })?;
+    hub.watches.add(
+        hub,
+        Watch {
+            // Session ids are scoped to their owning daemon, not globally unique.
+            id: format!("remote-start-{}", uuid::Uuid::now_v7()),
+            to,
+            sessions: vec![key.clone()],
+            // Normal turns and permission prompts must not consume the failure report.
+            until: vec!["closed".into(), "blocked".into()],
+            match_text: None,
+            once: true,
+            caller: conn.caller().filter(|_| !conn.is_person()).map(str::to_owned),
+            active: true,
+            // No initial ready verdict: the new chat has not received its prompt.
+            // Read its journal from the start so a fast spawn refusal is not lost.
+            cursors: [(key, Default::default())].into_iter().collect(),
+            offline: Default::default(),
+            ..Default::default()
+        },
+    )?;
     Ok(())
 }
 
