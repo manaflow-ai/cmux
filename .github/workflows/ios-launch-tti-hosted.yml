@@ -95,8 +95,8 @@ jobs:
             done
           ) &
           sampler=$!
-          bash scripts/ci/cmux-next-ios-sim.sh test ui=LaunchTTIUITests
-          echo "status=$?" >> "$GITHUB_OUTPUT"
+          st=0; bash scripts/ci/cmux-next-ios-sim.sh test ui=LaunchTTIUITests || st=$?  # the step shell is bash -e (run 46005665118)
+          echo "status=$st" >> "$GITHUB_OUTPUT"
           kill "$sampler" 2>/dev/null; sleep 9
           ls -la "$S" | head -40
           mkdir -p artifacts/ios-sim; tar -czf artifacts/ios-sim/samples.tgz -C "$RUNNER_TEMP" samples
