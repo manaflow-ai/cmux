@@ -119,8 +119,9 @@ struct TaskComposerScreen: View {
         .task(id: mac?.id) { await reload() }
         .autoRetry(autoRetry, failing: mac != nil && phase.isFailed) { await reload(retrying: true) }
         .task { await creator.taskDrafts.load() }
-        // The Cloud machines Task Options offers beside the Macs.
-        .task { await creator.refreshCloudTaskTargets() }
+        // The Cloud machines Task Options offers beside the Macs, read again when the live link
+        // or its focused Mac changes.
+        .task(id: creator.cloudTaskTargetsSource?()) { await creator.refreshCloudTaskTargets() }
         .onAppear { promptFocused = true }
         // A sheet takes the keyboard away (it would cover the sheet's rows); closing it brings
         // the keyboard back. Classic kept the keyboard up over its sheets and menus.

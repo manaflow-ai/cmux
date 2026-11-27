@@ -715,7 +715,13 @@ export interface TeamAllotment {
   snoozed_until: number | null;
   changed_at: number;
   changed_by: string;
+  /** How long a person's machine stays ready after a reply before it may pause, in seconds. Absent:
+   * the deployment's own window. */
+  person_hold_seconds?: number;
 }
+
+/** The holds a team can choose for its people's machines, in seconds (the platform's choices). */
+export type PersonHoldSeconds = 300 | 900 | 1800;
 
 /** One member's Cloud use over this month and the last 14 days. `spare_micros` is warm-spare time,
  * the platform's cost, shown to the team as $0. */
@@ -770,7 +776,12 @@ export type AllotmentPosition = AllotmentDecision["position"];
  * snoozes proposals 14 days. `auto` sets the mode. */
 /** No `action`: only the mode changes (the Auto switch); the commit and any snooze are kept, as the platform's
  * cloud.allotment.set does. `hold` snoozes proposals. */
-export type AllotmentSet = { action?: AllotmentPosition; auto?: boolean };
+/** `person_hold_seconds`: the team's hold for its people; null clears it. */
+export type AllotmentSet = {
+  action?: AllotmentPosition;
+  auto?: boolean;
+  person_hold_seconds?: PersonHoldSeconds | null;
+};
 
 /** Which way of paying for a model a Settings > Models connection is (cmux-tui/docs/model-connections.md). */
 export type ModelConnectionKind =
@@ -1002,7 +1013,7 @@ export type HarnessRow = {
   update?: { command: string; elevated: boolean } | null;
   /** The update owner runs this channel (npm, Bun or native); without it Update is not offered. */
   ownerUpdate?: boolean;
-  /** acpmux runs its update on its own when a check finds it outdated (off by default). */
+  /** acpmux runs its update on its own when a check finds it outdated (on unless turned off). */
   autoUpdate?: boolean;
   /** What auto-update last did for it. */
   lastAutoUpdate?: { ok: boolean; detail: string } | null;

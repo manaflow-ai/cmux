@@ -1,4 +1,5 @@
-import type { PageClient } from "../../pages/shared/pageClient";
+import { isPageError, type PageClient } from "../../pages/shared/pageClient";
+import { parseVisibleSlice, VISIBLE_SLICE_OP, VisibleSliceInput } from "../../ui/visibleSlice";
 import type { SceneAssetResolver } from "./SceneRenderer";
 import { SceneStore, type SceneOp } from "./store";
 
@@ -14,10 +15,18 @@ export type MountSurface =
   | "newTab"
   | "widget";
 /** The scene stream's two events: an ops batch, or the mount's status (`loading`, `ready`,
- * `failed {reason}`, `disconnected {reason}`). */
+ * `failed {reason}`, `disconnected {reason}`). A batch's `revision` is the mount's scene revision: 1 for the
+ * first batch, one more for each batch the host sends the mount (a reset included), and kept across a
+ * re-subscribe (which replays from the current revision). A status carries none and moves none. */
 export type SceneEvent =
-  | { mount_id: string; ops: SceneOp[]; reset?: boolean }
+  | { mount_id: string; ops: SceneOp[]; reset?: boolean; revision?: number }
   | { mount_id: string; status: "loading" | "ready" | "failed" | "disconnected"; reason?: string };
+/** A batch's scene revision, strictly: a finite integer of at least 1, else null (an unrevisioned batch,
+ * from a host before revisions, which no slice applies to). */
+export function sceneRevision(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 ? value : null;
+}
+
 export const panelId = (panel: AppPanel): `app:${string}#${string}` => `app:${panel.app}#${panel.section}`;
 export type MountedPanel = {
   panel: AppPanel;
@@ -30,8 +39,12 @@ export type MountedPanel = {
   layout: (height: number) => void;
   /** The mount's bundle images, once the host serves them (`asset_base` in the mount reply). */
   resolveAsset: SceneAssetResolver;
+  /** The part of the scene the host shows (`VISIBLE_SLICE_OP`, surface = the mount id), bound to the
+   * scene revision drawn; null until the host sends one for it. */
+  visibleSlice?: VisibleSliceInput;
 };
 type Entry = MountedPanel & {
+  visibleSlice: VisibleSliceInput;
   cancelled: boolean;
   failed: boolean;
   mountId?: string;
@@ -40,6 +53,7 @@ type Entry = MountedPanel & {
   height?: number;
   sentHeight?: number;
   unsubscribe?: () => void;
+  unsubscribeSlice?: () => void;
 };
 
 /** A bundle-relative path (already checked by the renderer) under the host's asset base, each
@@ -188,6 +202,7 @@ export class AppPanelsClient {
             this.sendLayout(created);
           },
           resolveAsset: (path) => (created.assetBase ? bundleAssetURL(created.assetBase, path) : undefined),
+          visibleSlice: new VisibleSliceInput(),
         };
         entry = created;
         this.entries.set(id, entry);
@@ -203,6 +218,7 @@ export class AppPanelsClient {
         reload: entry.reload,
         layout: entry.layout,
         resolveAsset: entry.resolveAsset,
+        visibleSlice: entry.visibleSlice,
       };
     });
     if (
@@ -242,7 +258,10 @@ export class AppPanelsClient {
         (event) => {
           if (entry.cancelled || event?.mount_id !== mountId) return;
           if ("status" in event) entry.store.setStatus(event.status, event.reason);
-          else if (Array.isArray(event.ops)) entry.store.apply(event.ops, event.reset === true);
+          else if (Array.isArray(event.ops)) {
+            entry.store.apply(event.ops, event.reset === true);
+            entry.visibleSlice.setDrawn(sceneRevision(event.revision));
+          }
         },
         { mount_id: mountId },
       );
@@ -250,6 +269,7 @@ export class AppPanelsClient {
       else {
         entry.unsubscribe = stop;
         this.sendLayout(entry);
+        this.watchSlice(entry, mountId);
       }
     } catch (error) {
       entry.failed = true;
@@ -257,6 +277,26 @@ export class AppPanelsClient {
       if (!entry.cancelled) entry.store.setStatus("failed", error instanceof Error ? error.message : String(error));
       this.unmount(entry); // A failed scene subscription must not leave a daemon mount alive.
     }
+  }
+
+  /** The host's visible slice of this mount (`VISIBLE_SLICE_OP`, the mount id as its surface), when it has
+   * the stream; without it the scene draws whole. A slice applies only to the scene revision it names, read
+   * from the batch that drew it (`SceneEvent`'s `revision`): an unrevisioned batch takes none. */
+  private watchSlice(entry: Entry, mountId: string): void {
+    void this.client
+      ?.subscribe<unknown>(
+        VISIBLE_SLICE_OP,
+        (event) => {
+          const slice = entry.cancelled ? null : parseVisibleSlice(event, mountId);
+          if (slice) entry.visibleSlice.show(slice);
+        },
+        { surface: mountId },
+      )
+      .then((stop) => (entry.cancelled ? stop() : (entry.unsubscribeSlice = stop)))
+      .catch((error: unknown) => {
+        if (isPageError(error) && error.code === "cmux.protocol.unknown_op") return;
+        console.error("app panels: no slice stream", error);
+      });
   }
 
   private sendLayout(entry: Entry): void {
@@ -277,6 +317,8 @@ export class AppPanelsClient {
     entry.cancelled = true;
     entry.unsubscribe?.();
     entry.unsubscribe = undefined;
+    entry.unsubscribeSlice?.();
+    entry.unsubscribeSlice = undefined;
     this.unmount(entry);
   }
 }

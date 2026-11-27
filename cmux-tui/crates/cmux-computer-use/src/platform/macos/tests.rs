@@ -94,7 +94,7 @@ fn a_press_that_may_have_run_is_not_clicked_again() {
     assert!(!roles::press_error_falls_back(-25200)); // failure
 }
 
-/// Review 3 (8, 9): the scope runs only on the verified minors (26.6+,
+/// Review 3 (8, 9): the scope runs only on the verified minors (26.5+,
 /// 27.0+; earlier versions and other majors run with it off), and any off
 /// switch that says 0 turns it off, whichever source says it.
 #[test]
@@ -104,7 +104,9 @@ fn the_key_in_app_scope_is_gated() {
     assert!(gate("26.7", &[]));
     assert!(gate("27.2", &[]));
     assert!(gate("27.3.1", &[]));
-    assert!(!gate("26.5.1", &[]), "before the verified 26 minor");
+    assert!(gate("26.5.2", &[]), "26.5.2: the eval guest's image");
+    assert!(gate("26.5", &[]));
+    assert!(!gate("26.4.1", &[]), "before the verified 26 minor");
     // 27.0 and 27.0.1 verified live: on for every 27.
     assert!(gate("27.0", &[]), "27.0 verified live (TextEdit, a fleet Mac)");
     assert!(gate("27.0.1", &[]));
@@ -3483,4 +3485,45 @@ fn safaris_autocorrection_bubble_is_watched_dismissed_or_reported() {
     assert_eq!(autocorrection(false, false), Autocorrection::NoneOffered);
     assert_eq!(autocorrection(true, false), Autocorrection::Dismissed);
     assert_eq!(autocorrection(true, true), Autocorrection::StillOffered);
+}
+
+/// The takeover watch reads the newest deliberate input: the smallest
+/// seconds-since among the types, ignoring what the window server could not
+/// answer (NaN, negative).
+#[test]
+fn hid_idle_is_the_newest_deliberate_input() {
+    assert_eq!(idle::newest_ms([3.0, 0.25, 9.0]), Some(250));
+    assert_eq!(idle::newest_ms([f64::NAN, -1.0, 2.0]), Some(2000));
+    assert_eq!(idle::newest_ms([f64::NAN]), None);
+    // Pointer movement (CGEventType 5) is not a takeover.
+    assert!(!idle::DELIBERATE.contains(&5));
+}
+
+/// Our own post is marked for the takeover watch, so input right after it is
+/// not taken for the person's. (No HID read here: on a fleet guest with no
+/// window-server session the HID counters do not answer.)
+#[test]
+fn our_posts_are_marked_for_the_takeover_watch() {
+    use crate::takeover::IdleClock;
+    idle::mark_injection();
+    let clock = idle::HidIdle;
+    let marked = clock.last_injection_ms();
+    assert!(marked > 0 && marked <= clock.now_ms());
+}
+
+/// The panel sits so the arrow's tip is on the event's point: global (100, 50)
+/// on a 900-point-high primary screen is AppKit (99, 900 - 50 - 23).
+#[test]
+fn the_cursor_panel_puts_the_tip_on_the_point() {
+    assert_eq!(overlay::tip_origin_for_tests(Point { x: 100.0, y: 50.0 }, 900.0), (99.0, 827.0));
+}
+
+/// Off AppKit's main thread (a test thread) the worker runs without a
+/// cursor rather than touching AppKit off the main thread.
+#[test]
+fn no_app_no_cursor_and_the_work_still_runs() {
+    assert_eq!(run_with_app(|| 7), 7);
+    // No app was started by this test thread, so nothing draws.
+    let sink = crate::platform::cursor_overlay();
+    sink.show(crate::cursor::CursorEvent::Hide { session: "s".into() });
 }

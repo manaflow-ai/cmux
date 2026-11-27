@@ -5,6 +5,7 @@
 // brings it in.
 import { useState } from "react";
 import { Button } from "../../ui/Button";
+import { Tooltip } from "../../ui/Tooltip";
 import { pressToOpen } from "../../ui/pressToOpen";
 import { useT } from "./i18n";
 import { age } from "./homeListsModel";
@@ -38,7 +39,8 @@ export function SettledShelf({
   const label = t("settle.shelf");
   return (
     <section className="acpmux-home-list acpmux-settled-shelf" aria-label={label} data-open={open ? "" : undefined}>
-      <button
+      <Button
+        bare
         type="button"
         className="acpmux-home-row acpmux-settled-toggle"
         aria-expanded={open}
@@ -50,7 +52,7 @@ export function SettledShelf({
         <ShelfChevron open={open} />
         <span className="acpmux-settled-label">{label}</span>
         <span className="acpmux-home-inbox-count">{total}</span>
-      </button>
+      </Button>
       {open && (
         <ul>
           {rows.map((entry) => (
@@ -85,17 +87,17 @@ function SettledRow({
   const when = age(activityTime(entry), now, t);
   return (
     <li className="acpmux-settled-row">
-      <button type="button" className="acpmux-home-row" {...pressToOpen(() => onSelect(entry.sessionId))}>
-        <span className="acpmux-home-title" title={title}>
-          {title}
-        </span>
+      <Button bare type="button" className="acpmux-home-row" {...pressToOpen(() => onSelect(entry.sessionId))}>
+        <Tooltip label={title}>
+          <span className="acpmux-home-title">{title}</span>
+        </Tooltip>
         {reason && (
-          <span className="acpmux-home-detail" title={reason}>
-            {reason}
-          </span>
+          <Tooltip label={reason}>
+            <span className="acpmux-home-detail">{reason}</span>
+          </Tooltip>
         )}
         {when && <span className="acpmux-home-meta">{when}</span>}
-      </button>
+      </Button>
       {onUnsettle && (
         <Button variant="ghost" size="sm" className="acpmux-settled-unsettle" onClick={() => onUnsettle(entry)}>
           {t("settle.unsettle")}

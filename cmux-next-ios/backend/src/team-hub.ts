@@ -2,7 +2,7 @@ import { DurableObject } from "cloudflare:workers"
 import { primaryProject, type Caller } from "./auth.ts"
 import type { CachedIce } from "./ice.ts"
 import type { Env } from "./env.ts"
-import { MAILBOX_HOLD_BYTES, MAILBOX_HOLD_LIMIT, MAILBOX_PAGE, MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS } from "./push.ts"
+import { MAILBOX_PENDING_LIMIT, MAILBOX_TTL_MS, MAILBOX_HOLD_BYTES, MAILBOX_HOLD_LIMIT, MAILBOX_PAGE } from "./push.ts";
 import { userTeams } from "./stack.ts"
 import { locationHintOf, relayPlacement, relayRoomName } from "./placement.ts"
 import { RegionLearner } from "./region-pick.ts"
@@ -48,7 +48,7 @@ export const MAX_LINK_STAT_FRAME = 2048
 /** A socket's stats closer together than this are dropped silently (the phone sends one a minute). */
 export const LINK_STAT_MIN_GAP_MS = 5000
 const LINK_STAT_TRANSPORTS = new Set(["wireguard", "webrtc"])
-const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "https-relay", "none"])
+const LINK_STAT_PATHS = new Set(["direct", "turn", "turn-tls", "hop", "https-relay", "none"])
 const LINK_STAT_REASONS = new Set(["first", "periodic", "path", "end"])
 const LINK_STAT_ENDS = new Set(["app", "keepalive", "transport", "other"])
 const LINK_STAT_NETS = new Set(["cellular", "other"])
@@ -110,6 +110,16 @@ export function linkStatLine(f: Record<string, unknown>, kind: Attachment["kind"
     const p95 = num(r.p95, LINK_STAT_MAX_MS)
     const max = num(r.max, LINK_STAT_MAX_MS)
     if (n && p50 !== undefined && p95 !== undefined && max !== undefined) Object.assign(line, { rttN: n, rttP50: p50, rttP95: p95, rttMax: max })
+  }
+  if (typeof f.hop === "object" && f.hop !== null && !Array.isArray(f.hop)) {
+    const h = f.hop as Record<string, unknown>
+    const srttMs = num(h.srttMs, LINK_STAT_MAX_MS)
+    const lossPermille = num(h.lossPermille, 1_000)
+    const resent = num(h.resent, 100_000)
+    const repaired = num(h.repaired, 100_000)
+    if (srttMs !== undefined && lossPermille !== undefined && resent !== undefined && repaired !== undefined) {
+      Object.assign(line, { hopSrttMs: srttMs, hopLossPermille: lossPermille, hopResent: resent, hopRepaired: repaired })
+    }
   }
   const switches = num(f.switches, 10_000)
   if (switches !== undefined) line.switches = switches
