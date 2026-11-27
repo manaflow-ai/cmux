@@ -56,14 +56,15 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
     def test_manual_dispatch_only(self) -> None:
         self.assertEqual(list(load()["on"].keys()), ["workflow_dispatch"])
         inputs = load()["on"]["workflow_dispatch"]["inputs"]
-        self.assertEqual(sorted(inputs), ["join_channel", "model"])
+        self.assertEqual(sorted(inputs), ["acpmux_ref", "bench", "calls", "join_channel", "model", "name", "share", "share_install", "suite"])
         # The model stub by default; the team's login only on a model: real dispatch (the canary).
         self.assertEqual((inputs["model"]["default"], inputs["model"]["options"]), ("stub", ["stub", "real"]))
         self.assertEqual(inputs["join_channel"]["default"], "feat-cmux-next")
+        self.assertEqual((inputs["suite"]["default"], inputs["suite"]["options"]), ("machine-vault", ["billing", "machine-join", "machine-vault"]))
 
     def test_feat_cmux_next_only(self) -> None:
         job = load()["jobs"]["e2e"]
-        self.assertEqual(job["if"], "github.ref == 'refs/heads/feat-cmux-next'")
+        self.assertEqual(job["if"], "github.ref == 'refs/heads/feat-cmux-next' && inputs.suite == 'machine-vault'")
         self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "cmux-next-vm-image-dev", "deployment": "false"})
         self.assertIn("refs/heads/feat-cmux-next", steps()[0]["run"])
         self.assertIn("exit 1", steps()[0]["run"])
@@ -92,8 +93,8 @@ class MachineVaultE2EWorkflow(unittest.TestCase):
 
     def test_secrets_reach_one_step_through_env(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertEqual(len(re.findall(r"\bsecrets\.[A-Z]", text)), 3)
-        self.assertEqual(workflow_jobs.secret_names(text),
+        self.assertEqual(len(re.findall(r"\bsecrets\.[A-Z]", str(load()["jobs"]["e2e"]))), 3)
+        self.assertEqual(workflow_jobs.secret_names(load()["jobs"]["e2e"]),
                          {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CLAUDE_CODE_OAUTH_TOKEN"})
         for name, job in load()["jobs"].items():
             outside_steps = workflow_jobs.copy_job(job, {"steps": workflow_jobs.DROP}) if name == "e2e" else job

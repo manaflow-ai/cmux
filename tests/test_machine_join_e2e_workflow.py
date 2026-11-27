@@ -27,7 +27,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 import workflow_jobs  # noqa: E402
-WORKFLOW = ROOT / ".github/workflows/machine-join-e2e.yml"
+WORKFLOW = ROOT / ".github/workflows/machine-vault-e2e.yml"
+JOB = "machine_join"
 SCRIPT = ROOT / "scripts/cmux-next/machine-join-e2e.ts"
 DEV = "https://cmux-platform-development.debussy.workers.dev"
 # The linux_8 pool it read, frozen to its label (scripts/ci/one_linux_label.py; no runs-on reads a variable).
@@ -40,7 +41,7 @@ def load() -> dict:
 
 
 def steps() -> list[dict]:
-    return load()["jobs"]["e2e"]["steps"]
+    return load()["jobs"][JOB]["steps"]
 
 
 def step(name: str) -> dict:
@@ -51,14 +52,16 @@ def step(name: str) -> dict:
 class MachineJoinE2EWorkflow(unittest.TestCase):
     def test_manual_dispatch_only(self) -> None:
         self.assertEqual(list(load()["on"].keys()), ["workflow_dispatch"])
-        self.assertEqual(sorted(load()["on"]["workflow_dispatch"]["inputs"]), ["acpmux_ref", "bench", "name", "share", "share_install"])
+        inputs = load()["on"]["workflow_dispatch"]["inputs"]
+        self.assertEqual(sorted(inputs), ["acpmux_ref", "bench", "calls", "join_channel", "model", "name", "share", "share_install", "suite"])
+        self.assertEqual((inputs["suite"]["default"], inputs["suite"]["options"]), ("machine-vault", ["billing", "machine-join", "machine-vault"]))
         bench = load()["on"]["workflow_dispatch"]["inputs"]["bench"]
         self.assertEqual(bench["default"], "none")
         self.assertEqual(bench["options"], ["none", "deps", "deps-slow"])
 
     def test_feat_cmux_next_only(self) -> None:
-        job = load()["jobs"]["e2e"]
-        self.assertEqual(job["if"], "github.ref == 'refs/heads/feat-cmux-next'")
+        job = load()["jobs"][JOB]
+        self.assertEqual(job["if"], "github.ref == 'refs/heads/feat-cmux-next' && inputs.suite == 'machine-join'")
         # An existing environment whose branch policy admits feat-cmux-next only.
         self.assertEqual(workflow_jobs.resolve(job).environment, {"name": "cmux-next-vm-image-dev", "deployment": "false"})
         self.assertIn("refs/heads/feat-cmux-next", steps()[0]["run"])
@@ -83,11 +86,11 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertEqual(len(re.findall(r"\$\{\{\s*secrets\.", text)), 4)
         self.assertEqual(
-            workflow_jobs.secret_names(load()),
+            workflow_jobs.secret_names(load()["jobs"][JOB]),
             {"CMUX_DOGFOOD_STACK_EMAIL", "CMUX_DOGFOOD_STACK_PASSWORD", "CMUX_DOGFOOD_GUEST_STACK_EMAIL", "CMUX_DOGFOOD_GUEST_STACK_PASSWORD"},
         )
         for name, job in load()["jobs"].items():
-            outside_steps = workflow_jobs.copy_job(job, {"steps": workflow_jobs.DROP}) if name == "e2e" else job
+            outside_steps = workflow_jobs.copy_job(job, {"steps": workflow_jobs.DROP}) if name == JOB else job
             self.assertEqual(workflow_jobs.secret_names(outside_steps), set(), name)
         holders = [s for s in steps() if workflow_jobs.secret_names(s)]
         self.assertEqual([s["name"] for s in holders], ["Mint, join, verify and revoke"])
@@ -108,13 +111,13 @@ class MachineJoinE2EWorkflow(unittest.TestCase):
 
     def test_development_origin_only(self) -> None:
         document = load()
-        self.assertEqual(workflow_jobs.effective_env(document, document["jobs"]["e2e"])["HUB_ORIGIN"], DEV)
+        self.assertEqual(workflow_jobs.effective_env(document, document["jobs"][JOB])["HUB_ORIGIN"], DEV)
         script = SCRIPT.read_text(encoding="utf-8")
         self.assertIn(f'export const DEV_PLATFORM = "{DEV}"', script)
         self.assertIn("if (opts.origin !== DEV_PLATFORM)", script)
 
     def test_ephemeral_blacksmith_runner(self) -> None:
-        job = load()["jobs"]["e2e"]
+        job = load()["jobs"][JOB]
         cells = workflow_jobs.runs_on_cells(job)
         self.assertEqual(cells, [RUNS_ON])
         self.assertNotIn("LINUX_RUNNER", "\n".join(cells))
