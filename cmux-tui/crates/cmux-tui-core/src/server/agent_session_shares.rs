@@ -900,6 +900,7 @@ impl LinkShares {
 
     /// A move carries the complete live share record, including its room credentials and guest
     /// roles. The room keeps the link and guest sockets alive while the target daemon takes over.
+    #[cfg(test)]
     pub(crate) fn export_for_transfer(
         &self,
         directory: Option<&Path>,

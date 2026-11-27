@@ -1550,6 +1550,7 @@ pub(crate) use proxy::shares::{
     freeze_transferred_chat_shares, open_chat_shares, stage_transferred_chat_shares,
 };
 
+#[cfg(test)]
 pub(crate) fn export_transferred_chat_shares(mux: &Mux, session: &str) -> Option<Value> {
     mux.control_clients
         .agent_sessions

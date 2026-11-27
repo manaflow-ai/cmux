@@ -146,13 +146,18 @@ pub(crate) fn finish_transferred_chat_shares(
     Ok(())
 }
 
+pub(crate) struct FrozenShares {
+    pub(crate) payload: Option<Value>,
+    pub(crate) fresh: bool,
+}
+
 /// Freeze before exporting under the same lock used by every share mutation. Keeping the
 /// snapshot on disk makes a lost begin answer or daemon restart safe to retry.
 pub(crate) fn freeze_transferred_chat_shares(
     mux: &Mux,
     session: &str,
     supported: bool,
-) -> Result<Option<Value>, &'static str> {
+) -> Result<FrozenShares, &'static str> {
     let shares = &mux.control_clients.agent_sessions.link_shares;
     let directory = mux.session_state_directory();
     let mut slot = shares.shares.lock().unwrap_or_else(|e| e.into_inner());
@@ -190,7 +195,7 @@ pub(crate) fn freeze_transferred_chat_shares(
             }
             outgoing.insert(session.to_owned(), snapshot);
         }
-        Ok((payload, changed))
+        Ok((FrozenShares { payload, fresh: changed }, changed))
     })
 }
 

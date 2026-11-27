@@ -77,7 +77,7 @@ use crate::panic_free::JsonFields;
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock, Weak};
 use std::time::{Duration, Instant};
 
 use serde::Deserialize;
@@ -202,6 +202,9 @@ pub(crate) struct AgentTransfers {
     /// Receives a finish ended: only a receive-abort still names them.
     settled: Mutex<HashMap<String, Settled>>,
     moves: Mutex<HashMap<String, Move>>,
+    /// Serialize source RPCs and share settlement for a chat. In particular, an abort must
+    /// release its snapshot before a following begin can reserve a new one.
+    source_operations: Mutex<HashMap<String, Weak<Mutex<()>>>>,
     /// Chats a finish here landed (`landed.rs`).
     landed: landed::Landed,
     /// Receives a receive-abort may still name after a restart (`askable.rs`).
@@ -379,6 +382,17 @@ impl AgentTransfers {
     fn full<T>(map: &mut HashMap<String, T>, cap: usize, touched: impl Fn(&T) -> Instant) -> bool {
         map.retain(|_, value| touched(value).elapsed() < STALE);
         map.len() >= cap
+    }
+
+    fn source_operation(&self, session: &str) -> Arc<Mutex<()>> {
+        let mut operations = lock(&self.source_operations);
+        operations.retain(|_, operation| operation.strong_count() > 0);
+        if let Some(operation) = operations.get(session).and_then(Weak::upgrade) {
+            return operation;
+        }
+        let operation = Arc::new(Mutex::new(()));
+        operations.insert(session.to_owned(), Arc::downgrade(&operation));
+        operation
     }
 
     pub(crate) fn moving_session(&self, session: &str) -> bool {
@@ -1096,6 +1110,13 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
         value.as_u64().ok_or(Refusal::BadRequest.into())
     };
     let transfers = &mux.agent_transfers;
+    let source_operation = match &prepared {
+        Prepared::Begin { session, .. }
+        | Prepared::Commit { session, .. }
+        | Prepared::Abort { session, .. } => Some(transfers.source_operation(session)),
+        _ => None,
+    };
+    let _source_guard = source_operation.as_ref().map(|operation| lock(operation));
     match prepared {
         Prepared::Receive { mut manifest, guard, cwd, moved, stage_id } => {
             let shares = manifest.remove(TRANSFER_FIELD);
@@ -1175,7 +1196,7 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
             if ask_first {
                 ask_first::narrow(&call, &session)?;
             }
-            let shares =
+            let frozen =
                 freeze_transferred_chat_shares(mux, &session, checks_shares).map_err(|code| {
                     if code == "share.unsupported" {
                         Refusal::SharesUnsupported
@@ -1195,9 +1216,9 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
             let mut manifest = match call("_acpmux/transfer_begin", params, BEGIN_TIMEOUT) {
                 Ok(manifest) => manifest,
                 Err(failure) => {
-                    // An RPC refusal is known not to have begun a move. Transport failures
-                    // and transfer.moving are ambiguous: keep the durable snapshot for retry.
-                    if matches!(&failure, Failure::Acpmux(_)) {
+                    // A fresh reservation can unwind an RPC refusal. A previous reservation,
+                    // transport failure or transfer.moving may already have a receiver; keep it.
+                    if frozen.fresh && matches!(&failure, Failure::Acpmux(_)) {
                         abort_transferred_chat_shares(mux, &source_session)
                             .map_err(|_| Refusal::Unavailable)?;
                     }
@@ -1224,7 +1245,7 @@ fn run(mux: &Arc<Mux>, socket: &Path, prepared: Prepared) -> Result<Value, Failu
                     return Err(failure);
                 }
             };
-            if let Some(shares) = shares {
+            if let Some(shares) = frozen.payload {
                 manifest.insert(TRANSFER_FIELD, shares);
             }
             let entry = Move {
