@@ -1762,6 +1762,75 @@ jobs:
       - name: Run ${{ matrix.binary }} under Wine
         run: bash scripts/ci/wine-smoke.sh "${{ matrix.binary }}" dist dist-tests
 
+  # The Windows installer of these binaries, built and Authenticode-signed on Linux
+  # (scripts/ci/windows-msi.py; map piece D4, RFD 0157 step 4). A per-user MSI: the five exes in
+  # %LOCALAPPDATA%\Programs\cmux\bin, that folder on the user PATH, one Apps entry across upgrades.
+  # No Authenticode certificate exists yet (RFD 0157: Leo's decision when its step comes), so
+  # every run signs with a throwaway certificate (--test-sign) and verifies it: the signing path
+  # is proven before a real certificate goes in. Then Wine's msiexec installs, reinstalls,
+  # refuses an older version over it and uninstalls, leaving nothing on disk or on PATH. The
+  # artifact is cmux-msi-x86_64-pc-windows-gnu; nothing publishes it yet.
+  package-windows-msi:
+    name: MSI x86_64-pc-windows-gnu (Linux)
+    needs: cross-build-windows
+    if: inputs.include_windows && needs.cross-build-windows.result == 'success'
+    continue-on-error: ${{ inputs.windows_optional }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout caller or requested ref
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ inputs.checkout_ref }}
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: true
+
+      - name: Download Windows binaries
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: cmux-tui-x86_64-pc-windows-gnu
+          path: dist
+
+      - name: Install wixl, msitools, osslsigncode and Wine
+        run: bash scripts/ci/apt-ensure.sh wixl msitools osslsigncode wine64 wine
+
+      - name: Build and test-sign the MSI
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p msi
+          python3 scripts/ci/windows-msi.py build --dist dist --version "$VERSION" \
+            --out "msi/cmux-x86_64-pc-windows-gnu.msi" --test-sign
+          # A lower version for the downgrade check, unsigned.
+          python3 scripts/ci/windows-msi.py build --dist dist --version 0.0.0 --out "$RUNNER_TEMP/older.msi" >/dev/null
+
+      - name: Install, reinstall, refuse a downgrade, uninstall (Wine msiexec)
+        env:
+          WINEPREFIX: ${{ runner.temp }}/msi-wine-prefix
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          older=()
+          # 0.0.0 is not older than a 0.0.0-r2.sha-... channel build; skip the downgrade check there.
+          if [[ "$(python3 scripts/ci/windows-msi.py msi-version "$VERSION")" != 0.0.0 ]]; then
+            older=(--older "$RUNNER_TEMP/older.msi")
+          fi
+          python3 scripts/ci/windows-msi.py wine-roundtrip --msi msi/cmux-x86_64-pc-windows-gnu.msi "${older[@]+"${older[@]}"}"
+
+      - name: Upload the MSI
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          retention-days: ${{ inputs.retention_days }}
+          name: cmux-msi-x86_64-pc-windows-gnu
+          path: |
+            msi/cmux-x86_64-pc-windows-gnu.msi
+            msi/cmux-x86_64-pc-windows-gnu.msi.json
+          if-no-files-found: error
+
   # The Windows-only checks of the Linux-built daemon. No Rust, Zig or MinGW here: it
   # runs the binaries cross-build-windows uploaded. Its `built` output is the workflow's
   # windows_built, set only when every check passed.

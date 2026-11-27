@@ -1230,6 +1230,11 @@ path = "tests/test_whats_new_clips.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_windows_msi.py"
+lane = "manual"
+reason = "Needs wixl, msitools, osslsigncode and wine64, which the guard runners do not carry; cmux-tui-build-package.yml package-windows-msi runs the same build, test-sign and Wine round trip on every include_windows build. Run it yourself after changing scripts/ci/windows-msi.py: python3 tests/test_windows_msi.py (35 s with Wine)."
+
+[[test]]
 path = "tests/test_workflow_file_size.py"
 lane = "linux-guard"
 
