@@ -214,6 +214,9 @@ pub(crate) struct Plan {
     pub(crate) floor: Duration,
     /// How long a hold lasts with no resume seen ([`HOLD_BOUND`]).
     pub(crate) hold: Duration,
+    /// The lateness past a planned wait that reads as a resume: half a check interval, so a
+    /// wait half again past its plan. Scheduling noise is far under it.
+    pub(crate) gap: Duration,
 }
 
 impl Plan {
@@ -225,13 +228,8 @@ impl Plan {
             reserve: PING_RESERVE.min(limit / 6),
             floor: HELLO_BOUND.min(limit / 3),
             hold: HOLD_BOUND,
+            gap: interval(limit) / 2,
         }
-    }
-
-    /// The lateness past a planned wait that reads as a resume: half a check interval, so a
-    /// total wait half again past its plan. Scheduling noise is far under it.
-    pub(crate) fn resumed(&self) -> Duration {
-        self.every / 2
     }
 
     /// How long a hello asked at `now` waits: until systemd's limit counted from `last_ping`, less
@@ -338,14 +336,14 @@ pub(crate) fn watch(
     // The wait before this check (the sleep), to see a pause across it.
     let mut slept: Option<(Clocks, Duration)> = None;
     while !stop.load(Ordering::Relaxed) {
-        let mut gap = slept.and_then(|(at, planned)| at.gap(planned, plan.resumed()));
+        let mut gap = slept.and_then(|(at, planned)| at.gap(planned, plan.gap));
         let asked = Instant::now();
         let before = Clocks::now();
         let wait = plan.hello_wait(last_ping, asked);
         let answered = hello(socket, wait);
         let took = asked.elapsed();
         // A hello that spanned the pause timed out on a deadline the pause used up: not hung.
-        let across = before.gap(wait, plan.resumed());
+        let across = before.gap(wait, plan.gap);
         if answered.is_err() && across.is_some() {
             gap = gap.max(across);
             if let Some(gap) = gap {

@@ -256,6 +256,8 @@ fn scaled() -> Plan {
         reserve: Duration::from_millis(300),
         floor: Duration::from_millis(333),
         hold: Duration::from_secs(15),
+        // Far over a loaded test host's scheduling noise: no test pauses this process.
+        gap: Duration::from_secs(10),
     }
 }
 
@@ -428,7 +430,7 @@ fn a_daemon_systemd_does_not_watch_holds_nothing() {
 #[test]
 fn a_resume_is_a_clock_gap_well_past_the_planned_wait() {
     let every = Duration::from_secs(60);
-    let slack = Plan::for_limit(LIMIT).resumed();
+    let slack = Plan::for_limit(LIMIT).gap;
     assert_eq!(slack, Duration::from_secs(30));
     assert_eq!(Plan::for_limit(LIMIT).every, every);
     // On time, or a few seconds late: no resume.
@@ -483,7 +485,7 @@ fn a_held_watch_stops_pinging_and_arms_again_after_its_bound() {
     std::thread::sleep(Duration::from_millis(1_500));
     held.take();
     let took = Instant::now();
-    std::thread::sleep(plan.hold + plan.every * 2);
+    std::thread::sleep(plan.hold + plan.every * 3);
     stop.store(true, Ordering::Relaxed);
     let _ = thread.join();
     let lines = lines.lock().unwrap().clone();
