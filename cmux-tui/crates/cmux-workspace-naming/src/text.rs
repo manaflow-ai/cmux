@@ -49,7 +49,7 @@ fn split_join(text: &str, separator: fn(&str) -> bool) -> String {
 /// The first `count` grapheme clusters of `text`.
 pub(crate) fn prefix(text: &str, count: usize) -> &str {
     match text.grapheme_indices(true).nth(count) {
-        Some((end, _)) => &text[..end],
+        Some((end, _)) => text.get(..end).unwrap_or(text),
         None => text,
     }
 }
@@ -131,20 +131,19 @@ fn hex(byte: u8) -> Option<u8> {
 }
 
 fn percent_decode(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut out = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%'
-            && i + 2 < bytes.len()
-            && let (Some(high), Some(low)) = (hex(bytes[i + 1]), hex(bytes[i + 2]))
+    let mut out = Vec::with_capacity(text.len());
+    let mut rest = text.as_bytes();
+    while let Some((&byte, tail)) = rest.split_first() {
+        if byte == b'%'
+            && let [h, l, after @ ..] = tail
+            && let (Some(high), Some(low)) = (hex(*h), hex(*l))
         {
             out.push(high << 4 | low);
-            i += 3;
+            rest = after;
             continue;
         }
-        out.push(bytes[i]);
-        i += 1;
+        out.push(byte);
+        rest = tail;
     }
     String::from_utf8(out).unwrap_or_else(|_| text.to_owned())
 }
@@ -152,19 +151,18 @@ fn percent_decode(text: &str) -> String {
 /// The host of an address as `URL(string:)?.host()` reads it (percent-decoded, brackets off an IP
 /// literal); `None` without a scheme and authority or with an empty host.
 pub fn url_host(url: &str) -> Option<String> {
-    let colon = url.find(':')?;
-    let scheme = &url[..colon];
+    let (scheme, after_scheme) = url.split_once(':')?;
     let mut scheme_chars = scheme.chars();
     if !scheme_chars.next()?.is_ascii_alphabetic()
         || !scheme_chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
     {
         return None;
     }
-    let rest = url[colon + 1..].strip_prefix("//")?;
-    let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
+    let rest = after_scheme.strip_prefix("//")?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
     let host_port = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
     let host = if let Some(literal) = host_port.strip_prefix('[') {
-        &literal[..literal.find(']')?]
+        literal.split_once(']')?.0
     } else {
         host_port.split_once(':').map_or(host_port, |(host, _)| host)
     };

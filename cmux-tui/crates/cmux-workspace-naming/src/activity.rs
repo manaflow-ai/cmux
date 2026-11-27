@@ -126,8 +126,10 @@ pub fn fallback_params(prompt: &str) -> Value {
 /// The completion's parameters with harness and model (`completionParams`).
 pub fn params(prompt: &str) -> Value {
     let mut params = fallback_params(prompt);
-    params["harness"] = json!(HARNESS);
-    params["model"] = json!(MODEL);
+    if let Some(object) = params.as_object_mut() {
+        object.insert("harness".to_owned(), json!(HARNESS));
+        object.insert("model".to_owned(), json!(MODEL));
+    }
     params
 }
 
