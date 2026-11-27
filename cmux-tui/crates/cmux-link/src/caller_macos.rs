@@ -392,6 +392,37 @@ pub(crate) fn executable_path(token: &[u32; 8]) -> Option<std::path::PathBuf> {
     Some(std::path::PathBuf::from(path))
 }
 
+/// `audit_token_t` by value.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct AuditToken {
+    val: [u32; 8],
+}
+
+unsafe extern "C" {
+    /// libsystem_sandbox (part of libSystem): with no operation and no filter, 1 when the
+    /// process the token names runs under a sandbox profile (`sandbox-exec`, the App Sandbox), 0
+    /// when it does not, and negative on an error.
+    fn sandbox_check_by_audit_token(
+        token: AuditToken,
+        operation: *const libc::c_char,
+        filter: libc::c_int,
+        ...
+    ) -> libc::c_int;
+}
+
+/// `app_caller::sandboxed`.
+pub(crate) fn sandboxed(token: &[u32; 8]) -> Option<bool> {
+    // SAFETY: a null operation with SANDBOX_FILTER_NONE (0) reads no variadic argument.
+    let result =
+        unsafe { sandbox_check_by_audit_token(AuditToken { val: *token }, std::ptr::null(), 0) };
+    match result {
+        0 => Some(false),
+        r if r > 0 => Some(true),
+        _ => None,
+    }
+}
+
 pub(crate) fn peer_audit_token(fd: RawFd) -> Result<[u32; 8], String> {
     let mut token = [0u32; 8];
     let mut length = size_of_val(&token) as libc::socklen_t;

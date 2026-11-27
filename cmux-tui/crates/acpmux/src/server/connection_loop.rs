@@ -84,6 +84,12 @@ pub(super) async fn serve_connection_from(
         omit_time_breakdown: AtomicBool::new(false),
         rows_left_out: AtomicU64::new(0),
         watch_inventory: StdMutex::new(false),
+        // The kernel's answer for the peer's audit token, read once at accept: a sandboxed local
+        // agent (`local_sandbox.rs`) keeps its boundary through this daemon
+        // (`sandbox_gate.rs`). A token the kernel gives no answer for counts as sandboxed.
+        sandboxed_peer: peer
+            .as_ref()
+            .is_some_and(|token| cmux_link::app_caller::sandboxed(token) != Some(false)),
         peer,
         socket_peer,
         transport,
