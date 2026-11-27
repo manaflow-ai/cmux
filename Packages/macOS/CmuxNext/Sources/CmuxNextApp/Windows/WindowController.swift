@@ -508,16 +508,20 @@ final class ShellWindow: NSWindow, FocusRouting, OverlayPlaneHosting, BrowserWin
     override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
     func windowZoomFinished(_ generation: Int) { zoomState.end(generation) }
 
-    /// The smallest content a full-screen tile may give this window: the window's own minimum (`minSize`, the floor a
-    /// person can resize it to), or a size set here. Without one AppKit derives it from the content's Auto Layout
-    /// constraints after each change of the window's views (`_doUpdateTilingConstraintsImmediately`, a run loop
-    /// observer), measuring every view in the window: about 3 ms of the main thread after each new tab, workspace or
-    /// pane in a fleet sample (CMUX NEXT Stable perf gate, 2026-11-27).
-    override var minFullScreenContentSize: NSSize {
-        get { tileMinimum ?? contentRect(forFrameRect: NSRect(origin: .zero, size: minSize)).size }
-        set { tileMinimum = newValue }
+    /// Setting the window's minimum also sets the full-screen tile sizes AppKit asks for, so it never measures for them.
+    /// Unset, AppKit derives both (one cache) from the content's Auto Layout constraints after each change of the
+    /// window's views (`_doUpdateTilingConstraintsImmediately`, a run loop observer in the background or full screen),
+    /// walking every view in the window: about 3 ms of the main thread after each new tab, workspace or pane in a fleet
+    /// sample (CMUX NEXT Stable perf gate, 2026-11-27). Answering only the minimum moves that walk to the maximum's getter.
+    /// The tile minimum is the window's own (`minSize`); the content's constraints ask less at shipping settings (the
+    /// widest sidebar, 360 pt at 125%, is about 470 pt). The maximum is AppKit's own answer, read once here: set at init,
+    /// before the content, that is its unconstrained maximum.
+    override var minSize: NSSize {
+        didSet {
+            minFullScreenContentSize = contentRect(forFrameRect: NSRect(origin: .zero, size: minSize)).size
+            maxFullScreenContentSize = super.maxFullScreenContentSize
+        }
     }
-    private var tileMinimum: NSSize?
 
     /// Every frame stays on the test screen in an agent screenshot launch, whichever path sets it
     /// (`WindowPlacement.containedOnTestScreen`), and is kept as given with no display (`constrainsToScreen`).
