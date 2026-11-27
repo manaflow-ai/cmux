@@ -927,8 +927,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             // 2026-11-14: "all I did was navigate away and then it showed
             // this, but I didn't type anything"). A scroll's wheel reports, a
             // tap's click report, a key release and Ghostty's replies to
-            // terminal queries go only while attached and never make the
-            // "Keys typed while your Mac was unreachable" notice.
+            // terminal queries go only while attached and are never held for a reattach.
             if surface.isEncodingUserInput {
                 model.session.send(data)
                 // The launch marks' key: one the session took (not refused, not held for a
