@@ -89,6 +89,39 @@ fn the_minimum_frame_interval_stays_clear_of_the_display_cadence() {
 }
 
 #[test]
+fn the_queue_depth_override_stays_in_screencapturekits_range() {
+    assert_eq!(queue_depth(None), QUEUE_DEPTH);
+    assert_eq!(queue_depth(Some("6")), 6);
+    assert_eq!(queue_depth(Some(" 8 ")), 8);
+    assert_eq!(queue_depth(Some("1")), 3);
+    assert_eq!(queue_depth(Some("99")), 8);
+    assert_eq!(queue_depth(Some("deep")), QUEUE_DEPTH);
+}
+
+#[test]
+fn the_refresh_raise_picks_the_fastest_mode_of_the_same_size() {
+    let mode = |px: usize, pt: usize, hz: f64| ModeShape {
+        pixels: (px, px / 2),
+        points: (pt, pt / 2),
+        hz,
+    };
+    let current = mode(1920, 1920, 60.0);
+    let modes = [
+        mode(1920, 1920, 60.0),
+        mode(1920, 1920, 120.0),
+        mode(1920, 1920, 100.0),
+        // HiDPI at the same points (other pixels) and another size: not taken.
+        mode(3840, 1920, 144.0),
+        mode(2560, 2560, 240.0),
+    ];
+    assert_eq!(faster_mode(current, &modes), Some(1));
+    // 59.94 or 60.5 against 60 is the same rate.
+    assert_eq!(faster_mode(current, &[mode(1920, 1920, 59.94), mode(1920, 1920, 60.5)]), None);
+    assert_eq!(faster_mode(mode(1920, 1920, 120.0), &modes), None);
+    assert_eq!(faster_mode(current, &[]), None);
+}
+
+#[test]
 fn exclusion_lists_are_sorted_unique_and_skip_zero() {
     assert_eq!(exclusion_list([456, 0, 123, 456]), vec![123, 456]);
     assert_eq!(exclusion_list([]), Vec::<u32>::new());

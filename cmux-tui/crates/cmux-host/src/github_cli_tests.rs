@@ -379,6 +379,33 @@ fn each_refusal_the_person_can_fix_says_what_is_wrong_and_what_to_do_in_two_line
 }
 
 #[test]
+fn a_pending_permission_update_names_its_page_and_is_retryable() {
+    let page = "https://github.com/organizations/acme/settings/installations/99";
+    let pending = Refused {
+        configure_url: Some(page.to_owned()),
+        ..refused(
+            "github.permissions_pending",
+            "GitHub needs you to accept cmux's updated permissions for acme.",
+        )
+    };
+    let step = next_step(&pending.code, pending.configure_url.as_deref()).unwrap();
+    assert_eq!(
+        step,
+        format!(
+            "GitHub needs you to accept cmux's updated permissions for this account: open \
+             {page} and accept, then run the same command again"
+        )
+    );
+    assert!(pending.to_string().ends_with(&format!(". Next: {step}")), "{pending}");
+    let (what, fix) = pending.explain("acme/web");
+    assert!(what.contains("updated permissions"), "{what}");
+    assert_eq!(fix, Some(format!("{step}.")));
+    let bare = next_step("github.permissions_pending", None).unwrap();
+    assert!(bare.contains("installation's settings page on GitHub"), "{bare}");
+    assert!(retryable("github.permissions_pending"));
+}
+
+#[test]
 fn only_retryable_refusals_are_retried() {
     let with = |code: &str, retry_after| Refused { retry_after, ..refused(code, "") };
     assert_eq!(retry_delay(&with("integration.unavailable", None)), Some(Duration::from_secs(1)));
