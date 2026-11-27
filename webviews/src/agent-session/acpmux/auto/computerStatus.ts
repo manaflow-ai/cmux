@@ -65,6 +65,88 @@ const PLACE_KEY: Record<ComputerHome, StringKey> = {
   peer: "computer.place.peer",
 };
 
+const HOMES: readonly ComputerHome[] = ["this_mac", "cloud", "peer"];
+const PHASES: readonly ComputerPhase[] = [
+  "running",
+  "preparing",
+  "moving",
+  "move_failed",
+  "reconnecting",
+  "sleeping",
+  "paused_spend_cap",
+  "paused_pool_spent",
+  "staying_local_slots_full",
+];
+const FAILURES: readonly MoveFailure[] = ["network_dropped", "mac_slept", "refused", "other"];
+const REASONS: readonly WhyReason[] = [
+  "mac_memory_pressure",
+  "mac_busy",
+  "lid_closed",
+  "grew_for_memory",
+  "person_moved",
+  "slots_full",
+  "spend_cap",
+];
+
+const isIn = <T extends string>(list: readonly T[], value: unknown): value is T =>
+  (list as readonly unknown[]).includes(value);
+const finite = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+const record = (value: unknown): Record<string, unknown> | undefined =>
+  value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined;
+
+/// `place.status` as the app sends it (Rust `cloud_computer_status_live`), or none when it is not one. A phase
+/// newer than this page (Rust's `paused`) is none too: the line has no words for it, so it draws nothing.
+export function computerStatusOf(value: unknown): ComputerStatus | undefined {
+  const raw = record(value);
+  if (!raw || typeof raw.session_id !== "string" || !raw.session_id) return undefined;
+  if (!isIn(HOMES, raw.home) || !isIn(PHASES, raw.phase)) return undefined;
+  const move = record(raw.move);
+  const shape = record(raw.shape);
+  const size = record(raw.size);
+  const sleep = record(raw.sleep);
+  const why = record(raw.why);
+  return {
+    session_id: raw.session_id,
+    home: raw.home,
+    phase: raw.phase,
+    ...(finite(raw.phase_since_ms) ? { phase_since_ms: raw.phase_since_ms } : {}),
+    ...(move
+      ? {
+          move: {
+            direction: move.direction === "to_mac" ? "to_mac" : "to_cloud",
+            cancellable: move.cancellable === true,
+            ...(isIn(FAILURES, move.failure) ? { failure: move.failure } : {}),
+          },
+        }
+      : {}),
+    ...(shape && finite(shape.vcpu) && finite(shape.memory_gib)
+      ? { shape: { vcpu: shape.vcpu, memory_gib: shape.memory_gib } }
+      : {}),
+    size:
+      size?.mode === "pinned" && finite(size.vcpu) && finite(size.memory_gib)
+        ? { mode: "pinned", vcpu: size.vcpu, memory_gib: size.memory_gib }
+        : { mode: "auto" },
+    sleep:
+      sleep?.mode === "keep_awake"
+        ? { mode: "keep_awake", ...(finite(sleep.until_ms) ? { until_ms: sleep.until_ms } : {}) }
+        : { mode: "auto" },
+    ...(why && finite(why.at_ms) && isIn(REASONS, why.reason)
+      ? {
+          why: {
+            at_ms: why.at_ms,
+            reason: why.reason,
+            ...(typeof why.command === "string" && why.command ? { command: why.command } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+/// Whether the line counts seconds in this phase (the mount ticks then, and only then).
+export function statusTicks(status: ComputerStatus): boolean {
+  return (status.phase === "preparing" || status.phase === "moving") && status.phase_since_ms !== undefined;
+}
+
 /// Whole seconds since the phase began; never negative, none when the daemon sent no start.
 export function elapsedSeconds(status: ComputerStatus, nowMs: number): number {
   return Math.max(0, Math.floor((nowMs - (status.phase_since_ms ?? nowMs)) / 1000));

@@ -206,8 +206,8 @@ export function ImageViewer({
         if (!open) onClose();
       }}
       label={image.alt || t("image.viewer")}
-      className="acpmux-image-viewer"
-      backdropClassName="acpmux-image-viewer-backdrop"
+      className="acpmux-image-viewer acpmux-image-lightbox"
+      backdropClassName="acpmux-image-viewer-backdrop acpmux-image-lightbox-backdrop"
       style={below}
       initialFocus={close}
       // ui-allow: the viewer's own image keys (the arrows step, + - 0 zoom), as an image canvas has.
