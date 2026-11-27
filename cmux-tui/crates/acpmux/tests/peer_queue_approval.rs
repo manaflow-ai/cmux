@@ -31,7 +31,7 @@ async fn fake_peer(features: Value) -> (u16, Arc<Mutex<Vec<(String, Value)>>>) {
     let seen = got.clone();
     tokio::spawn(async move {
         while let Ok((tcp, _)) = l.accept().await {
-            let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
+            let Ok(mut ws) = acpmux::server::accept_ws(tcp).await else { continue };
             let (seen, features) = (seen.clone(), features.clone());
             tokio::spawn(async move {
                 // Non-text frames (the client's pings, #38015) are not requests: skip them.
