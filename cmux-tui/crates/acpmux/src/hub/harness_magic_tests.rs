@@ -60,8 +60,5 @@ fn opt_in_features_are_stamped_only_when_switched_on() {
     // Dedupe's daemon switch turns it on too (#58129); surgery's only turns it off.
     let env_on = |k: &str| k.starts_with("ACPMUX_HM_").then(|| "1".to_owned());
     let all = enabled_all(None, &env_on);
-    assert!(
-        all.contains(&"dedupe".to_owned()) && !all.contains(&"surgery".to_owned()),
-        "{all:?}"
-    );
+    assert!(all.contains(&"dedupe".to_owned()) && !all.contains(&"surgery".to_owned()), "{all:?}");
 }
