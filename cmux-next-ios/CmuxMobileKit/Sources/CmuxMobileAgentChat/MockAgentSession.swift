@@ -49,18 +49,6 @@ public final class MockAgentSession: AgentSessionSource {
     }
 
     public func events() -> AsyncStream<AgentSessionEvent> {
-        open(headed: false).rest
-    }
-
-    /// The mock holds its whole history (``loadsHistory`` is false), so it is the head: the
-    /// store has it before the chat's first frame. Streamed, it landed a tick later, and that
-    /// first frame was a new chat's: the composer played the new-chat entrance on a chat with
-    /// history, rising 24 pt over a dozen frames (#59189, disclosure-chat).
-    public func eventsWithHead() -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
-        open(headed: true)
-    }
-
-    private func open(headed: Bool) -> (head: [AgentSessionEvent], rest: AsyncStream<AgentSessionEvent>) {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
         self.continuation = continuation
         // History (and a waiting turn's opening) arrive as one change.
@@ -69,13 +57,11 @@ public final class MockAgentSession: AgentSessionSource {
         if summary.status == .waiting { startWaitingTurn() }
         let replayed = batch ?? []
         batch = nil
-        var head: [AgentSessionEvent] = [.batch(replayed)]
+        continuation.yield(.batch(replayed))
         // `CMUX_MOBILE_MOCK_LINK=down`: the chat's history is there, its Mac is not.
-        if link == .down { head.append(.status(.disconnected)) }
+        if link == .down { continuation.yield(.status(.disconnected)) }
         observeHostLoad()
-        guard !headed else { return (head, stream) }
-        for event in head { continuation.yield(event) }
-        return ([], stream)
+        return stream
     }
 
     /// The link to the "Mac" (`CMUX_MOBILE_MOCK_LINK`): a slow one holds what each side
