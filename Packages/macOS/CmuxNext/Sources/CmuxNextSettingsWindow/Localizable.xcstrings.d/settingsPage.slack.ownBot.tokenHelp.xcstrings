@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settingsPage.slack.ownBot.tokenHelp" : {
+      "comment" : "Settings > Accounts > Slack connection card",
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack shows it under Your App Configuration Tokens. It is used once and never stored."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يعرضه Slack ضمن «رموز تهيئة التطبيق الخاصة بك». يُستخدم مرة واحدة ولا يُخزَّن أبدًا."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack ga prikazuje pod „Your App Configuration Tokens“. Koristi se jednom i nikad se ne pohranjuje."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack viser det under „Your App Configuration Tokens“. Det bruges én gang og gemmes aldrig."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack zeigt es unter „Your App Configuration Tokens“ an. Es wird einmal verwendet und nie gespeichert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack lo muestra en «Your App Configuration Tokens». Se usa una vez y nunca se guarda."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack l’affiche sous « Your App Configuration Tokens ». Il est utilisé une seule fois et jamais conservé."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack lo mostra in «Your App Configuration Tokens». Viene usato una volta e non viene mai salvato."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack の「Your App Configuration Tokens」に表示されます。1 回だけ使用され、保存されません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack បង្ហាញវានៅក្រោម «Your App Configuration Tokens»។ វាត្រូវបានប្រើតែម្តង ហើយមិនត្រូវបានរក្សាទុកទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack의 “Your App Configuration Tokens”에 표시됩니다. 한 번만 사용되며 저장되지 않습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack viser det under «Your App Configuration Tokens». Det brukes én gang og lagres aldri."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack pokazuje go w sekcji „Your App Configuration Tokens”. Jest używany raz i nigdy nie jest zapisywany."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Slack o mostra em “Your App Configuration Tokens”. Ele é usado uma vez e nunca é armazenado."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack показывает его в разделе «Your App Configuration Tokens». Он используется один раз и нигде не сохраняется."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack แสดงโทเคนนี้ใน “Your App Configuration Tokens” ใช้เพียงครั้งเดียวและไม่เก็บไว้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack bunu “Your App Configuration Tokens” altında gösterir. Bir kez kullanılır ve asla saklanmaz."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack показує його в розділі «Your App Configuration Tokens». Він використовується один раз і ніде не зберігається."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack hiển thị token này trong “Your App Configuration Tokens”. Token chỉ được dùng một lần và không bao giờ được lưu."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack 会在“Your App Configuration Tokens”下显示它。它只使用一次，绝不会被存储。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Slack 會在「Your App Configuration Tokens」下顯示它。它只會使用一次，絕不會被儲存。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

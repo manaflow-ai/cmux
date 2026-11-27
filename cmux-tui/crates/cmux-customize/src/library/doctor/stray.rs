@@ -161,7 +161,19 @@ impl Customize {
                 Vec::new(),
             );
         }
-        // Random JSON at the top of the config folder that nothing reads.
+        // writeBeside resolves the settings symlink before naming its migration records.
+        let settings_file = &self.roots().settings_file;
+        let target = cmux_config::fsio::resolve_symlinks(settings_file);
+        let target_in_config = target.parent().is_some_and(|dir| {
+            dir == config
+                || dir
+                    .canonicalize()
+                    .is_ok_and(|dir| config.canonicalize().is_ok_and(|config| dir == config))
+        });
+        let settings_name = super::file_name(settings_file);
+        let target_name = super::file_name(&target);
+        let settings_names =
+            [Some(settings_name.as_str()), target_in_config.then_some(target_name.as_str())];
         for name in dir_names(&config) {
             let path = config.join(&name);
             let lower = name.to_lowercase();
@@ -171,8 +183,14 @@ impl Customize {
             if !config_like
                 || !path.is_file()
                 || KNOWN_TOP_FILES.contains(&name.as_str())
+                || settings_names.iter().flatten().any(|base| {
+                    name == *base
+                        || matches!(
+                            name.strip_prefix(*base),
+                            Some(".defaults-forgotten.json" | ".defaults-restored.json")
+                        )
+                })
                 || secret_name(&name)
-                || path == self.roots().settings_file
                 || looks_like_theme(&path)
             {
                 continue;

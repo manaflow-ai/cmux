@@ -134,6 +134,30 @@ struct TerminalCommentThreadsTests {
         #expect(model.failure == nil)
     }
 
+    @Test func aCommentKeepsItsScrollbackRowsForShowInTerminal() async throws {
+        let host = ThreadingHost()
+        let model = CommentThreadsModel(root: Self.root, store: host, interval: .seconds(60))
+
+        let thread = try await model.comment(on: Self.terminal.at(1200...1203), quote: "error: x\n  at y\n",
+                                             message: "why?", acpSession: "acp-1", key: "op-3")
+
+        let saved = try #require(host.comments[Self.root]?.first)
+        #expect(saved["terminal"]?["rows"]?["first"]?.intValue == 1200)
+        #expect(saved["terminal"]?["rows"]?["last"]?.intValue == 1203)
+        #expect(thread.terminalRows == 1200...1203)
+        await model.refresh()
+        #expect(model.threads(onTerminal: "tab-7").first?.terminalRows == 1200...1203)
+        model.stopPolling()
+
+        // A comment from before rows were kept, or with a broken range, has none: no Show.
+        let old: JSONValue = ["id": "c9", "surface": "terminal", "terminal": ["id": "tab-7"], "quote": "ls", "message": "hm"]
+        #expect(try #require(CommentThread(old)).terminalRows == nil)
+        let broken: JSONValue = ["id": "c8", "surface": "terminal", "terminal": ["id": "tab-7", "rows": ["first": 9, "last": 3]],
+                                 "quote": "ls", "message": "hm"]
+        #expect(try #require(CommentThread(broken)).terminalRows == nil)
+        #expect(saved["place"]?.stringValue == "zsh (/Users/me/project)")
+    }
+
     @Test func theNewestAgentReplyIsTheThreadsAnswer() async throws {
         let unsent: JSONValue = ["id": "c1", "surface": "terminal", "terminal": ["id": "tab-1"], "quote": "ls", "message": "hm"]
         #expect(try #require(CommentThread(unsent)).state == .draft)

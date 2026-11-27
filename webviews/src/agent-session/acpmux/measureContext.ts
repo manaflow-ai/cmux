@@ -72,7 +72,17 @@ function adopt(): void {
   adopted = asked;
   if (!adopted) real = undefined;
 }
-adopt();
+
+let tried = false;
+
+/// Gives the library `delegate` as its canvas before its first measure. Every `prepare` and
+/// `prepareWithSegments` in the chat calls this first, so the swap waits for the first text the
+/// chat lays out instead of running while the pane's modules evaluate, ahead of the handshake.
+export function ensureMeasureContext(): void {
+  if (tried) return;
+  tried = true;
+  adopt();
+}
 
 /// Puts the library's measures on a new canvas, so Blink lets go of every text the last one held.
 /// The font carries over: the library sets it once per font, not before each measure. False when the

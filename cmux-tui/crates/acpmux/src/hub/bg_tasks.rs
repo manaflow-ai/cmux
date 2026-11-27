@@ -328,6 +328,18 @@ impl Hub {
         self.bg_running_in(&self.bg_dir(session), |_| true)
     }
 
+    /// The pids of the chat's running tasks: roots of its process trees (`session_usage.rs`).
+    pub(super) fn bg_running_pids(&self, session: &Session) -> Vec<u32> {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .tasks
+            .iter()
+            .map(|t| &t.record)
+            .filter(|r| r.ended_at.is_none() && r.pid > 0 && !bg_gone(&dir, &r.id))
+            .map(|r| r.pid)
+            .collect()
+    }
+
     /// How many of the chat's tasks run that bring their end to the chat (`notify`,
     /// `bg_notify.rs`): each is sure to give the chat another turn.
     pub(super) fn bg_notifying_count(&self, session: &Session) -> usize {
@@ -458,7 +470,7 @@ impl Hub {
             && scope.covers(&record)
             && record.notify
             && to_the_end
-            && view["state"] != "running"
+            && view.get("state").and_then(Value::as_str) != Some("running")
         {
             self.bg_end_told(session, &dir, id);
         }

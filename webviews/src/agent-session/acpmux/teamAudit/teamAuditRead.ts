@@ -2,6 +2,7 @@
 // read of `_acpmux/team_audit` (or the export stub, usageExport.ts) per params, the status under it,
 // a row's name and its agent time.
 import { useEffect, useRef, useState } from "react";
+import { useAutoRetry } from "../autoRetry";
 import type { StringKey, Translate } from "../i18n";
 import { isOlderDaemon } from "../queue/queueModel";
 import {
@@ -28,7 +29,10 @@ export type AuditRead = {
   /// The reply on screen: this read's, or while it runs the last one.
   reply?: TeamAuditReply;
   loading: boolean;
-  retry(): void;
+  /// A failed read is asked again on its own (autoRetry.ts); true once that has lasted the house
+  /// deadline, when the status says so in one quiet line with no button (Leo, 2026-11-22: "vacuous
+  /// decisions like that should be just done").
+  stillTrying: boolean;
 };
 
 export function useAuditRead(load: Load, params: Record<string, unknown> | undefined): AuditRead {
@@ -68,14 +72,20 @@ export function useAuditRead(load: Load, params: Record<string, unknown> | undef
   }, [key, attempt]);
   // The answer counts only for the params it was read for: a pick shows loading in the same render.
   const result = state.key === key ? state.result : undefined;
-  return {
-    result,
-    reply: result ? (result.kind === "ready" ? result.reply : undefined) : state.reply,
-    loading: Boolean(key) && !result,
-    retry: () => {
+  const loading = Boolean(key) && !result;
+  const { stillTrying } = useAutoRetry(
+    result?.kind === "failed",
+    () => {
       setState((previous) => ({ reply: previous.reply }));
       setAttempt((n) => n + 1);
     },
+    { busy: loading },
+  );
+  return {
+    result,
+    reply: result ? (result.kind === "ready" ? result.reply : undefined) : state.reply,
+    loading,
+    stillTrying,
   };
 }
 
@@ -101,6 +111,9 @@ export const REASON_KEY: Record<Exclude<AuditResult["kind"], "ready">, StringKey
 
 /// The status line under a read: why there is nothing, loading, empty, or nothing to say.
 export function readStatus(read: AuditRead, t: Translate): string {
+  // A failed read reads as loading while it is asked again; only one that lasts says so.
+  if (read.result?.kind === "failed" || (read.loading && read.stillTrying))
+    return read.stillTrying ? t("teamAudit.stillTrying") : t("ledger.loading");
   if (read.result && read.result.kind !== "ready") return t(REASON_KEY[read.result.kind]);
   if (!read.reply) return t("ledger.loading");
   return auditHasRows(read.reply) ? "" : t("teamAudit.empty");
