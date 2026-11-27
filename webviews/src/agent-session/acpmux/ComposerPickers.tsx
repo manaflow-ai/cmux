@@ -1,6 +1,7 @@
 import { composerPickerEntries } from "./composerPickerEntries";
 import { useLiveSummary, useLiveSummaryValue } from "./liveSummary";
 import { acpmuxPerf } from "./perf";
+import { KeyHint } from "../../ui/KeyHint";
 import React, {
   useCallback,
   useContext,
@@ -38,7 +39,6 @@ import { pendingSpeed } from "./pendingSpeed";
 import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
-import { Keycap } from "./Keycap";
 import { pickerFaceHarness } from "./modelPickerModel";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
 import { OnNewTab } from "./newTabComposer";
@@ -147,6 +147,7 @@ import {
   modelFamily,
   reasoningChoices,
   effortTakes,
+  hintIsKey,
 } from "./composerPickerModel";
 /// A permission mode row: a choice with the harness's own badge and icon (harnessModes.ts).
 type ModeChoice = Omit<Choice, "icon"> & Pick<ShownMode, "recommended" | "icon">;
@@ -2192,7 +2193,7 @@ export function ContextRing({
       >
         {/* Known usage shows this card in place of the ring's tooltip, so the card names the key
             (Show Context Usage) where the tooltip would: top right, in the secondary ink. */}
-        {ringShortcut && <span className="ui-tooltip-hint acpmux-context-card-hint">{ringShortcut}</span>}
+        {ringShortcut && <KeyHint keys={ringShortcut} className="ui-tooltip-hint acpmux-context-card-hint" />}
         {planShown && (
           <div onFocusCapture={hover.card.onFocusCapture} onBlurCapture={hover.card.onBlurCapture}>
             <PlanUsageCardBody limits={plan?.limits} family={plan?.family} now={now} />
@@ -2496,13 +2497,18 @@ const PickerMenuItem = memo(function PickerMenuItem({
           </span>
         )}
       </span>
-      {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+      {choice.hint &&
+        (hintIsKey(choice.hint) ? (
+          <KeyHint keys={choice.hint} className="acpmux-menu-hint" />
+        ) : (
+          <span className="acpmux-menu-hint acpmux-menu-arg">{choice.hint}</span>
+        ))}
       {returnHint && choice.verb && (
         // Drawn on every row and shown on the highlighted one only (styles.css), so moving the
         // highlight re-renders nothing. Decoration: the row's name is what a screen reader reads.
         <span className="acpmux-menu-return" aria-hidden="true">
           <span className="acpmux-menu-return-verb">{choice.verb}</span>
-          <Keycap>↩</Keycap>
+          <KeyHint keys="↩" />
         </span>
       )}
       {current && <CheckIcon />}
@@ -2821,6 +2827,7 @@ function setupView(setup: HarnessSetup, t: ReturnType<typeof useT>): { strip: Qu
             : t(phase.reasonKey ?? "harnesses.commandFailed"),
           busy: false,
           actions: [
+            // retry-prompt-ok: runs the harness's install (and its sign-in) again, a command with side effects.
             { label: t("picker.tryAgain"), run: retryHarnessSetup },
             ...(docsUrl
               ? [

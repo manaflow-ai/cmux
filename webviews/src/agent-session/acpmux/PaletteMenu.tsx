@@ -9,16 +9,17 @@ import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { isMousePress } from "../../ui/pressRelease";
 import { useListKeys } from "../../ui/useListKeys";
 import { registerPicker } from "./pickerOpeners";
+import { KeyHint } from "../../ui/KeyHint";
+import { hintIsKey } from "./composerPickerModel";
 
 import { useT } from "./i18n";
 import { scrollActiveMenuRow } from "./scrollActiveMenuRow";
 import { useScrollEdges } from "./summary/scrollEdges";
-import { Keycap } from "./Keycap";
 import {
-  type PaletteSection,
-  filterPaletteSections,
   type PaletteReturnLook,
+  type PaletteSection,
   descriptionRestatesName,
+  filterPaletteSections,
 } from "./paletteMenuModel";
 import { focusRoute } from "../../ui/focusRoute";
 type Props = {
@@ -340,11 +341,16 @@ export function PaletteMenu({
                           <span className="acpmux-menu-label">{choice.name}</span>
                           {description && <span className="acpmux-menu-description">{description}</span>}
                         </span>
-                        {choice.hint && <kbd className="acpmux-menu-hint">{choice.hint}</kbd>}
+                        {choice.hint &&
+                          (hintIsKey(choice.hint) ? (
+                            <KeyHint keys={choice.hint} className="acpmux-menu-hint" />
+                          ) : (
+                            <span className="acpmux-menu-hint acpmux-menu-arg">{choice.hint}</span>
+                          ))}
                         {returnLook !== "none" && at === selected && (
                           <span className="acpmux-palette-return" aria-hidden="true">
                             {verb && <span className="acpmux-palette-return-verb">{verb}</span>}
-                            <Keycap>↩</Keycap>
+                            <KeyHint keys="↩" />
                           </span>
                         )}
                       </div>
@@ -357,7 +363,7 @@ export function PaletteMenu({
           </div>
           {outcome && (
             <div id={outcomeId} className="acpmux-palette-outcome">
-              <Keycap>↩</Keycap>
+              <KeyHint keys="↩" />
               <span className="acpmux-palette-outcome-text">{outcome}</span>
             </div>
           )}
