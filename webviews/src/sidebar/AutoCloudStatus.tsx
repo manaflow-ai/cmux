@@ -10,6 +10,7 @@
 import { useState } from "react";
 import "./AutoCloudStatus.css";
 import fixtures from "./autocloudStatus.fixtures.json";
+import { AUTO_CLOUD_MATRIX_DESIGNS, AUTO_CLOUD_MATRIX_STATES } from "./autocloudStatusMatrix";
 
 export type AutoCloudDesign = "glyph" | "pill" | "split" | "strip";
 export type Headline = "off" | "offline" | "syncing" | "warming" | "ready" | "active";
@@ -413,7 +414,7 @@ export function AutoCloudStatusDesigns({
   );
 }
 
-const matrixStates = ["off", "synced", "syncing", "offline", "warming", "active", "here", "crowd"];
+const matrixStates = AUTO_CLOUD_MATRIX_STATES;
 const designNames: Record<AutoCloudDesign, string> = {
   glyph: "A  Glyph + ring + badge",
   pill: "B  Pill",
@@ -430,13 +431,13 @@ export function AutoCloudMatrix({ spaces = false }: AutoCloudStatusMatrixProps) 
   return (
     <div className="acs-matrix">
       <span />
-      {(Object.keys(designNames) as AutoCloudDesign[]).map((d) => (
+      {(AUTO_CLOUD_MATRIX_DESIGNS as readonly AutoCloudDesign[]).map((d) => (
         <b key={d}>{designNames[d]}</b>
       ))}
       {matrixStates.map((id) => (
         <div className="acs-matrix-row" key={id}>
           <span className="acs-matrix-label">{id}</span>
-          {(Object.keys(designNames) as AutoCloudDesign[]).map((d) => (
+          {(AUTO_CLOUD_MATRIX_DESIGNS as readonly AutoCloudDesign[]).map((d) => (
             <AutoCloudStatusDesigns key={d} design={d} state={id} spaces={spaces} footerOnly />
           ))}
         </div>
