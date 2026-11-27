@@ -76,7 +76,10 @@ permissions: {}
 
 concurrency:
   group: cas-replay-${{ github.ref }}
-  cancel-in-progress: true
+  # A push to feat-cmux-next is never cancelled: a run cancelled mid-way burned its runner minutes for no result
+  # (about 40 runner-h/day cancelled, cmuxterm-hq#29655). The group keeps one run going and the newest push pending
+  # (GitHub drops an older pending one, which holds no runner). A pull request's newer head still supersedes its run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   cas_replay_build:
