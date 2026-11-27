@@ -667,6 +667,7 @@ pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "agents",
     "chats",
     "board",
+    "care",
     "harness",
     "remote",
     "script",
@@ -774,7 +775,7 @@ pub(crate) fn early_usage_error(args: &[String], message: &str) -> i32 {
 /// acpmux's (`--json` is a global clap option there).
 /// `agent` is not one of them: its verbs acpmux runs (agent_engine_requested, agent_acp_scope_args) take
 /// `--json` after the scope, and its app verbs (`agent list`, `agent open`) read the cmux global one where it is.
-const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "board", "send", "inbox"];
+const JSON_AFTER_SCOPE: &[&str] = &["acp", "harness", "chats", "board", "care", "send", "inbox"];
 
 /// Session-engine verbs that also answer as a plain top-level `cmux` word: `cmux send` is
 /// `cmux agent send` and `cmux inbox` is the engine's team inbox, one command grammar under
