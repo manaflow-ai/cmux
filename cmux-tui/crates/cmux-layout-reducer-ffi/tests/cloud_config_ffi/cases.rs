@@ -118,7 +118,7 @@ fn launch_sign_in_and_identity_rules_answer_here() {
         launch["signIn"],
         json!({"devAuth": true, "autoLogin": true, "replacesSession": false, "memoryOnly": false})
     );
-    assert_eq!(launch["paths"][0], "/h/.config/cmux/dev-account");
+    assert_eq!(launch["paths"][0], cmux_cloud_config::auth::dev_account_path("/h"));
     let (_, login) = call(
         c"cloud_auth_launch_login",
         &json!({"signIn": launch["signIn"], "reads": {"environment": {}, "home": "/h", "files": {}}}),
@@ -238,7 +238,7 @@ fn launch_sign_in_and_identity_rules_answer_here() {
 fn auth_rules_answer_from_what_the_app_read() {
     let (_, paths) =
         call(c"cloud_auth_credential_paths", &json!({"environment": {}, "home": "/h"}));
-    assert_eq!(paths["paths"][0], "/h/.config/cmux/dev-account");
+    assert_eq!(paths["paths"][0], cmux_cloud_config::auth::dev_account_path("/h"));
     let (_, decision) =
         call(c"cloud_auth_credentials", &json!({"environment": {}, "home": "/h", "files": {}}));
     assert_eq!(decision, json!({"credentials": null, "refusal": {"kind": "noDeclaredAccount"}}));

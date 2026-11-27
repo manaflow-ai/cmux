@@ -290,6 +290,7 @@ impl Hub {
         let refused = self.refused_models.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let probe_errors = self.probe_errors.lock().unwrap_or_else(PoisonError::into_inner).clone();
         let catalog = self.catalog.current();
+        let health = self.health.rows();
         let mut out = Vec::new();
         for (name, profile) in &cfg.harnesses {
             // A terminal harness has no models and no ACP session.
@@ -315,6 +316,29 @@ impl Hub {
             if let Some(live) = &live {
                 crate::live_models::overlay(&mut models, live);
             }
+            // A live model (including an explicit profile declaration) always wins over
+            // a release note. A newer bundle alone cannot prove account access.
+            let mut added = Vec::new();
+            if live.is_some()
+                && !probe_errors.contains_key(name)
+                && profile.models.is_empty()
+                && crate::codex_app_server::is_profile_launch(&profile.argv)
+                && let Some(row) = health.iter().find(|r| r.id == *name && r.outdated)
+                && let (Some(new), Some(version)) = (&row.new_codex_models, &row.latest)
+            {
+                for (id, display) in new {
+                    if !models.iter().any(|m| {
+                        m["id"].as_str() == Some(id)
+                            || m["aliases"]
+                                .as_array()
+                                .is_some_and(|a| a.iter().any(|v| v.as_str() == Some(id)))
+                    }) {
+                        models.push(json!({"id": id, "name": display, "curated": false, "codexUpdateVersion": version,
+                            "unavailable": format!("Included in Codex {version}. Update Codex to check availability for this account.")}));
+                        added.push(id.clone());
+                    }
+                }
+            }
             if let Some(levels) = efforts.get(name) {
                 add_variant_efforts(&mut models, levels);
             }
@@ -332,6 +356,7 @@ impl Hub {
                         .map(|c| newer_than_menu(c, &catalog, &reported))
                         .unwrap_or_default();
                     top.retain(|id| !menu.contains(id));
+                    top.extend(added);
                     top.extend(menu);
                     top.retain(|id| !disabled.contains(id));
                     Some(top)

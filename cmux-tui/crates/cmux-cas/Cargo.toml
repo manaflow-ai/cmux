@@ -48,3 +48,6 @@ tempfile = "3"
 sha2.workspace = true
 tar.workspace = true
 flate2.workspace = true
+
+[target.'cfg(unix)'.dev-dependencies]
+libc.workspace = true

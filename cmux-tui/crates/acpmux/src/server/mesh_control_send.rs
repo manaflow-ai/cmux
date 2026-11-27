@@ -173,7 +173,11 @@ pub(super) async fn start_through_hub(
     let relay = MeshControlRelay::new(mesh.clone(), sender);
     let receipt = crate::mesh_control::submit(&relay, &request).await.map_err(error)?;
     let receipt = settled(mesh.as_ref(), receipt, START_WAIT).await?;
-    started(receipt, host, name.as_deref(), &key)
+    let started = started(receipt, host, name.as_deref(), &key)?;
+    if let Some(id) = started.get("sessionId").and_then(Value::as_str) {
+        hub.note_created_remote(host, id, name.as_deref());
+    }
+    Ok(started)
 }
 
 /// `receipt`, waited on through the hub until it is delivered, refused or expired, or `wait`

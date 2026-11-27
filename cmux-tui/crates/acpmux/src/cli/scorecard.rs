@@ -97,7 +97,14 @@ fn counters(m: &Value) -> String {
     let Some(o) = m["harnessMagic"].as_object().filter(|o| !o.is_empty()) else {
         return String::new();
     };
-    let list: Vec<String> = o.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    let mut list: Vec<String> = o.iter().map(|(k, v)| format!("{k}={v}")).collect();
+    // RFD 0160's hit rate: attached files the turns then read or edited, over those attached.
+    if let (Some(hits), Some(files)) = (
+        o.get("prefetch.hits").and_then(Value::as_f64),
+        o.get("prefetch.files").and_then(Value::as_f64).filter(|f| *f > 0.0),
+    ) {
+        list.push(format!("prefetch.hitRate={:.2}", hits / files));
+    }
     format!("  harnessMagic: {}\n", list.join(" "))
 }
 
@@ -242,5 +249,18 @@ mod tests {
         let t = text(&args, &a);
         assert!(t.contains("every turn is the baseline"), "{t}");
         assert!(t.contains("0.500"), "{t}");
+    }
+
+    #[test]
+    fn text_shows_the_prefetch_hit_rate() {
+        let args = ScorecardArgs { by: "feature".into(), ..ScorecardArgs::default() };
+        let on = json!({"turns": 2, "ttfu": {}, "firstModel": {},
+            "harnessMagic": {"prefetch.files": 4, "prefetch.hits": 3}});
+        let a = json!({"since": 1, "until": 2, "steerWindowS": 60,
+            "totals": {"turns": 3, "ttfu": {}, "firstModel": {}},
+            "byFeature": {"prefetch": {"on": on, "off": {"turns": 1, "ttfu": {}, "firstModel": {}}}}});
+        let t = text(&args, &a);
+        assert!(t.contains("prefetch on"), "{t}");
+        assert!(t.contains("prefetch.hitRate=0.75"), "{t}");
     }
 }

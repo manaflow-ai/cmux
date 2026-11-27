@@ -30,6 +30,8 @@ export type JourneyFixture = {
   cold?: string;
   /** What cloud.machine.get says the machine's size is; without one, the size the create asked. */
   recordedSize?: { cpu: number; memory_mb: number; disk_mb: number };
+  /** cloud.plan.get's answer for the capacity preflight; unset, a team with room (5 active, none in use). */
+  plan?: unknown;
 };
 
 export const FIXTURE_MACHINE = "vm_01JFIXTURE7Q";
@@ -147,6 +149,7 @@ globalThis.fetch = (async (input: string, init: RequestInit = {}) => {
   }
   const op = body.op;
   if (op === "user.teams.list") return json({ ok: true, value: { teams: [{ id: "team_personal", kind: "personal" }] } });
+  if (op === "cloud.plan.get") return json({ ok: true, value: fixture.plan ?? { limits: { max_active: 5 }, usage: { active: 0 } } });
   if (op === "user.ensure") return json({ ok: true, value: { id: "fixture-user" } });
   if (op === "install.register") return json({ ok: true, value: { id: "fixture-install", user: "fixture-user" } });
   if (op === "cloud.machine.list") return json({ ok: true, value: { machines: createdAt && !deleted ? [{ id: MACHINE, name: "fixture", status: "running" }] : [] } });

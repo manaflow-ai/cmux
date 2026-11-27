@@ -132,10 +132,8 @@ tag=""
 # before row and this head's after row are taken on one host at about the same load (the handbook
 # page above). Its lines are tagged "before-" and go to before-lines.txt, not this head's report.
 if [[ -n "$before_ref" ]]; then
-  # --depth 1 only in a checkout that is already shallow (tests/test_ci_no_shallow_dev_fetch.py).
-  depth=()
-  [[ "$(git rev-parse --is-shallow-repository 2>/dev/null)" == true ]] && depth=(--depth 1)
-  git cat-file -e "$before_ref^{commit}" 2>/dev/null || git fetch -q ${depth[@]+"${depth[@]}"} origin "$before_ref"
+  source "$root/scripts/measure/fetch-commit.sh"
+  measure_fetch_commit "$root" "$before_ref" || exit 1
   git worktree add -q --detach "$work/before" "$before_ref"
   echo "PAIRMATRIX-BEFORE ref=$(git -C "$work/before" rev-parse HEAD)"
   # The before tree runs under this checkout's harness (cmux-fault: the shapers, their profiles and

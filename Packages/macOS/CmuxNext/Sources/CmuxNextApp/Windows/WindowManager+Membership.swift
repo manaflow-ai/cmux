@@ -294,7 +294,7 @@ extension WindowManager {
     /// Returns false when nothing moved (a move between an incognito
     /// window and a normal one is refused with a message).
     @discardableResult
-    func moveWorkspaces(_ ids: [String], toWindow windowID: String, select: Bool = true) -> Bool {
+    func moveWorkspaces(_ ids: [String], toWindow windowID: String, select: Bool = true, keepingSpace: Bool = false) -> Bool {
         let select = select && ActionRunScope.viewChangeAllowed()
         guard registry.value.window(windowID)?.isOpen == true, !ids.isEmpty else { return false }
         if registry.value.crossesIncognito(ids, to: windowID) {
@@ -308,7 +308,7 @@ extension WindowManager {
         // Spaces off (#48355): the window keeps its view, and workspaces of another space join it (a pin, as Move to Space).
         if !spacesOn, incognitoSpaces[windowID] == nil, let state = states[windowID] {
             pin(ids, to: state.profileID, selectIn: select ? windowID : nil)
-        } else if select, incognitoSpaces[windowID] == nil, let state = states[windowID],
+        } else if select, !keepingSpace, incognitoSpaces[windowID] == nil, let state = states[windowID],
            let room = ids.lazy.compactMap({ WindowProfiles.room(of: $0, current: state.profileID, machines: self.services.machines) }).first {
             state.enterProfile(room)
         }
@@ -488,6 +488,7 @@ extension WindowManager {
                 cloud.append(ids.filter { services.machines.workspace(id: $0)?.1 === daemon })
             }
         }
+        let liveSet = Set(live)
         var placements = claims.pending
         // A tab moved out of an incognito window into a new workspace (drag,
         // action, CLI) keeps its kind: that workspace goes back to the
@@ -510,11 +511,11 @@ extension WindowManager {
         // unflagged one of this daemon may be it before its flag arrived:
         // it waits for the create's claim instead of joining a normal window; so does one awaiting its first tab (FirstTabHold).
         // So does one claimed for the launch window before the restore (`awaitsRestore`).
-        let held: Set<String> = FirstTabHold.held(live).union(unopened).union(services.agentTabs.frontedChats.workspaceIDs).union(pendingEphemeralWindows.isEmpty ? [] : live.filter { id in
+        let held: Set<String> = FirstTabHold.held(liveSet).union(unopened).union(services.agentTabs.frontedChats.workspaceIDs).union(pendingEphemeralWindows.isEmpty ? [] : live.filter { id in
             registered.owner(of: id) == nil && placements[id] == nil
                 && services.machines.workspace(id: id).map { $0.1 === services.daemon } == true
-        }).union(live.filter { id in placements[id].map(awaitsRestore) == true })
-        for id in live where !held.contains(id) { claims.pending[id] = nil; claims.background.remove(id) }
+        }).union(placements.compactMap { id, window in liveSet.contains(id) && awaitsRestore(window) ? id : nil })
+        for id in claims.pending.keys where liveSet.contains(id) && !held.contains(id) { claims.pending[id] = nil; claims.background.remove(id) } // background ⊆ pending (above)
         // A claimed workspace is selected in its window, unless it was
         // claimed quietly (`claim(select: false)`).
         let before = registry.value
@@ -522,7 +523,7 @@ extension WindowManager {
         for id in live where before.owner(of: id) == nil && !held.contains(id) {
             if let window = placements[id], !claims.quiet.contains(id) { preferred[window, default: []].append(id) }
         }
-        for id in live where !held.contains(id) { claims.quiet.remove(id) }
+        for id in claims.quiet where liveSet.contains(id) && !held.contains(id) { claims.quiet.remove(id) }
         let members = before.windows.flatMap(\.workspaceIDs)
         let dead = Set(members.filter(isDead))
         settleRestoreClosed()
@@ -541,7 +542,7 @@ extension WindowManager {
         if let launch = launchWindowID, restored, registry.value.window(launch) != nil { launchWindowID = nil }
         settleRestoreClosed()
         rememberIncognitoTabs()
-        applyPendingPlacements(live: Set(live))
+        applyPendingPlacements(live: liveSet)
     }
 
     /// After the restore, the closed launch window is remembered while a workspace it asked for can still come.
@@ -609,9 +610,7 @@ extension WindowManager {
     /// `doc`: the app's own sidebar document.
     static func orderedIDs(of daemon: DaemonService, machines: MachineRegistry, doc: SidebarDocument) -> [String] {
         if let personal = PersonalSidebar.orderedIDs(of: daemon, machines: machines, doc: doc) { return personal }
-        let sidebar = daemon.store.sidebarSections.flatMap(\.workspaces).map(\.id)
-        let listed = Set(sidebar)
-        return sidebar + daemon.store.workspaces.map(\.id).filter { !listed.contains($0) }
+        return daemon.store.sidebarOrderedIDs
     }
 
     /// The room rules (each room's followed sessions, each workspace pin)

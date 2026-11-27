@@ -220,6 +220,7 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("cloud.owner.fork_run", CLOUD_API_REASON),
     ("cloud.owner.github_app", CLOUD_API_REASON),
     ("cloud.owner.github_connect", CLOUD_API_REASON),
+    ("cloud.owner.op", CLOUD_API_REASON),
     ("cloud.owner.github_complete", CLOUD_API_REASON),
     ("cloud.owner.github_list", CLOUD_API_REASON),
     ("cloud.owner.github_clone_token", CLOUD_API_REASON),

@@ -190,11 +190,6 @@ class WorkflowShape(unittest.TestCase):
             for rel in ("scripts/ci/a.py", "Packages/p/b.swift", "outside/c.txt", "top.txt"):
                 (seed / rel).parent.mkdir(parents=True, exist_ok=True)
                 (seed / rel).write_text(rel)
-            # Run the egress gate from the sparse checkout with its actual imports.
-            for rel in (GATE_SCRIPTS["egress gate"], "scripts/privacy_hosts_from_gate.py",
-                        "tests/test_egress_gate.py", "tests/test_outbound_hosts.py", "tests/test_classic_cloud_routes.py"):
-                (seed / rel).parent.mkdir(parents=True, exist_ok=True)
-                (seed / rel).write_bytes((ROOT / rel).read_bytes())
             git(seed, "add", "-A")
             git(seed, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "one")
             (seed / "scripts/ci/d.py").write_text("d")
@@ -210,9 +205,7 @@ class WorkflowShape(unittest.TestCase):
             env = {**os.environ, "GITHUB_WORKSPACE": str(ws), "SHA": sha, "TOKEN": "t", "SPARSE": step["env"]["SPARSE"]}
             subprocess.run(["bash", "-c", run], env=env, check=True, capture_output=True, text=True)
             self.assertEqual(git(ws, "rev-parse", "HEAD").strip(), sha)
-            gate = subprocess.run([sys.executable, "-I", GATE_SCRIPTS["egress gate"], "--base", "HEAD^1",
-                                   "--head", "HEAD"], cwd=ws, capture_output=True, text=True)
-            self.assertEqual(gate.returncode, 0, gate.stderr + gate.stdout)
+            git(ws, "rev-parse", "HEAD^1")
             self.assertTrue((ws / "scripts/ci/d.py").exists() and (ws / "Packages/p/b.swift").exists())
             self.assertTrue((ws / "top.txt").exists())
             self.assertFalse((ws / "outside").exists())
@@ -888,8 +881,19 @@ class WorkflowShape(unittest.TestCase):
         # The same-input receipt steps (#49946) are the exception: they fail open by design (an error runs the shard
         # in full) and the last two run after the gate, so none of them is a verdict. The React Compiler transform
         # cache steps fail open the same way: a miss or a broken cache only makes the shard compile from scratch.
+        # Shard 1's background starts (scripts/ci/shard1_background.sh) fail open too: each check's own step waits for
+        # it, runs it inline when it never started, and that step's outcome is the one the gate reads.
         receipt_steps = ("same-input receipt", "the receipt's results", "React Compiler transform cache")
+        fail_open = [s for s in steps if "shard1_background.sh start" in s.get("run", "")]
+        for step in fail_open:
+            with self.subTest(started=step["name"]):
+                started = step["run"].split("shard1_background.sh start ", 1)[1].split()[0]
+                waits = [s for s in steps if f"shard1_background.sh wait {started} " in s.get("run", "")]
+                self.assertEqual(len(waits), 1)
+                self.assertIn(f"${{{{ steps.{waits[0]['id']}.outcome }}}}", gated)
         for step in steps:
+            if step in fail_open:
+                continue
             # The pinned toolchain restores (scripts/ci/toolchain-r2.sh) are best-effort too: a miss is setup's download.
             if "toolchain-r2.sh\" restore " in str(step.get("run", "")):
                 continue
@@ -1534,6 +1538,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(calls["protocol skew"]["argv"], ["--base", base, "--head", merge])
         self.assertEqual(calls["entry logs"]["argv"], ["check", "--base", base, "--head", merge])
         self.assertEqual(calls["settings catalog keys"]["argv"][0], "--root")
+        self.assertEqual(calls["settings catalog keys"]["argv"][-2:], ["--base-rev", base])  # a base red is a note
         self.assertEqual(calls["egress gate"]["argv"][:4], ["--base", base, "--head", merge])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])

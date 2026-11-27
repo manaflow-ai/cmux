@@ -302,12 +302,20 @@ printf 'import sys\nsys.exit(1)\n' >"$C/scripts/ci/cargo_test_verdict.py"
 echo 1.24.0 >"$C/cmux-tui/crates/cmux-tailnet/go-version"
 git_fixture_init "$C" && git -C "$C" add -A && git -C "$C" -c user.email=t@t -c user.name=t commit -qm base
 cbase=$(git -C "$C" rev-parse HEAD)
-git -C "$C" -c user.email=t@t -c user.name=t commit -q --allow-empty -m head
 printf '#!/bin/bash\necho "go version go1.24.0 linux/amd64"\n' >"$TMP/bin/go"
 printf '#!/bin/bash\n' >"$TMP/bin/zig"
 chmod +x "$TMP/bin/go" "$TMP/bin/zig"
 ARGS=(clippy-changed "$cbase")
 crun() { (cd "$C" && env -i PATH="$TMP/bin:/usr/bin:/bin" HOME="$TMP" CMUX_CI_STEP_KEY=k "$@" /bin/bash "$SCRIPT" "${ARGS[@]}") 2>&1; }
+# A head that reaches no input of the check (here: a README) passes before any setup or lint.
+echo docs >"$C/README.md"
+git -C "$C" add README.md && git -C "$C" -c user.email=t@t -c user.name=t commit -qm "docs only"
+: >"$TMP/calls"
+out=$(crun CLIPPY_RED=1) || fail "clippy-changed with no input changed must pass: $out"
+[[ ! -s "$TMP/calls" ]] || fail "clippy-changed linted a change that reaches none of its inputs: $(calls)"
+grep -q '^clippy-changed inputs *pass (none changed)' <<<"$out" || fail "the summary does not say no input changed: $out"
+echo '// changed' >"$C/cmux-tui/crates/cmux-tailnet/lib.rs"
+git -C "$C" add -A && git -C "$C" -c user.email=t@t -c user.name=t commit -qm head
 : >"$TMP/calls"
 status=0; out=$(crun CLIPPY_RED=1) || status=$?
 [[ "$status" == 1 ]] || fail "clippy-changed with a red clippy step must exit 1, got $status: $out"

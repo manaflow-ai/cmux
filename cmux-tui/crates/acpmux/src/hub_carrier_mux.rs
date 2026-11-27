@@ -223,6 +223,11 @@ impl Mux {
         self.ended.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// Whether the circuit heard a record of any kind after `at`.
+    pub(crate) fn heard_since(&self, at: Instant) -> bool {
+        self.heard() > at
+    }
+
     fn heard(&self) -> Instant {
         *self.heard.lock().unwrap_or_else(|e| e.into_inner())
     }

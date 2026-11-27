@@ -71,6 +71,8 @@ mod link;
 #[path = "session_move_preflight.rs"]
 mod preflight;
 use link::SLOW_COPY;
+#[path = "session_move_files.rs"]
+mod files;
 #[path = "session_move_snapshot.rs"]
 pub(crate) mod snapshot;
 #[path = "session_move_target_ask.rs"]
@@ -1105,6 +1107,7 @@ async fn prepare(
     let mut carry = None;
     let mut at = None;
     let mut bundle = None;
+    let mut packed: Option<Vec<u8>> = None;
     // The commit the target's folder is made at, whether the folder has uncommitted work, and
     // its checkout's top folder on the source.
     let mut base: Option<(String, bool, PathBuf)> = None;
@@ -1120,6 +1123,29 @@ async fn prepare(
         record.set("bundled", json!(true));
         base = Some((read.0.clone(), *dirty, c.top.clone()));
         bundle = Some(read);
+    }
+    if let (Folder::Plain { .. }, None, None) = (&folder, &checkout, &args.cwd) {
+        // Not in a git checkout, and the folder is not named on the target: its files go too
+        // (never the home folder itself).
+        if cwd != home {
+            let read = tokio::task::spawn_blocking({
+                let (dir, ssh) = (cwd.to_path_buf(), source.ssh().map(str::to_owned));
+                move || files::pack_folder(ssh.as_deref(), &dir)
+            })
+            .await??;
+            match read {
+                files::Packed::Files(bytes) => {
+                    record.set("filesCopied", json!(bytes.len()));
+                    packed = Some(bytes);
+                }
+                files::Packed::TooBig(n) => bail!(
+                    "{} is {n} bytes packed, over the {} a move carries: pass --cwd to run the chat in a folder that is already there, or send the folder with `cmux link seed`",
+                    cwd.display(),
+                    files::MAX_BYTES
+                ),
+                files::Packed::Missing => {}
+            }
+        }
     }
     if let (Folder::Worktree { branch, dirty, snapshot, .. }, Some(c)) = (&folder, &checkout) {
         // A shared branch (main, master, origin's HEAD) is never pushed: its HEAD goes under a ref
@@ -1179,6 +1205,9 @@ async fn prepare(
         let (host, folder) = (target.ssh.clone(), folder.clone());
         let pin = at.as_ref().map(|(r, c, _)| (r.clone(), c.clone()));
         move || match (&folder, bundle) {
+            (Folder::Plain { cwd }, None) if packed.is_some() => {
+                files::unpack_folder(&host, cwd, packed.as_deref().unwrap_or_default())
+            }
             (Folder::Bundle { top, branch, subdir, .. }, Some((commit, bytes))) => {
                 unbundle_folder(&host, top, branch, subdir, &commit, &bytes)
             }
@@ -1231,11 +1260,13 @@ async fn checkout_unless_named(
 /// The fixed script that reads the checkout a folder is in on a source machine (`--from`): the
 /// folder on stdin; `none`, or tab-separated `top`, `branch`, `origin` and `default` (origin's
 /// HEAD, `origin/main`) lines and a `dirty`
-/// line when it has uncommitted changes. Exit 3: git status failed.
+/// line when it has uncommitted changes. Exit 3: git status failed. A repository with no origin
+/// and no commit answers `none`, as [`checkout_of`] reads it.
 const CHECKOUT_SCRIPT: &str = r#"read -r d || exit 2
 top=$(git -c core.fsmonitor=false -C "$d" rev-parse --show-toplevel 2>/dev/null) || { echo none; exit 0; }
 [ -n "$top" ] || { echo none; exit 0; }
 top=$(cd -- "$top" && pwd -P) || exit 2
+if ! git -C "$top" remote get-url origin >/dev/null 2>&1 && ! git -C "$top" rev-parse --verify -q HEAD >/dev/null; then echo none; exit 0; fi
 printf 'top\t%s\n' "$top"
 printf 'branch\t%s\n' "$(git -C "$top" symbolic-ref -q --short HEAD 2>/dev/null)"
 printf 'origin\t%s\n' "$(git -C "$top" remote get-url origin 2>/dev/null)"
@@ -1520,6 +1551,12 @@ fn checkout_of(cwd: &Path) -> Result<Option<Checkout>> {
     let top = top.canonicalize().unwrap_or(top);
     let branch = git(&top, &["symbolic-ref", "-q", "--short", "HEAD"]).filter(|b| !b.is_empty());
     let origin = git(&top, &["remote", "get-url", "origin"]).filter(|u| !u.is_empty());
+    // No origin and no commit (a home folder `git init`ed and never committed, as every lane VM's
+    // is): nothing to push or bundle, so it moves as the plain folder it is. Bundling it refused
+    // "it has no commit to carry", which kept a held VM's home-folder chats from ever draining.
+    if origin.is_none() && git(&top, &["rev-parse", "--verify", "-q", "HEAD"]).is_none() {
+        return Ok(None);
+    }
     let status = git(&top, &["status", "--porcelain", "--untracked-files=normal"])
         .ok_or_else(|| anyhow!("git status failed in {}", top.display()))?;
     let default_branch = git(&top, &["symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"])

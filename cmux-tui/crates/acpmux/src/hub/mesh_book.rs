@@ -447,10 +447,15 @@ impl Hub {
     pub(super) fn mesh_book_hosts(&self) -> Vec<Value> {
         let mut rows: Vec<Value> = {
             let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+            // One walk of the rows for every host, not one per host.
+            let mut counts: HashMap<&str, usize> = HashMap::new();
+            for (_, row) in book.rows.values() {
+                *counts.entry(row.peer.as_str()).or_default() += 1;
+            }
             book.hosts
                 .iter()
                 .map(|(host, seen)| {
-                    let count = book.rows.values().filter(|(_, r)| &r.peer == host).count();
+                    let count = counts.get(host.as_str()).copied().unwrap_or(0);
                     json!({
                         "name": host,
                         "connected": true,
@@ -515,7 +520,11 @@ impl Hub {
             .map(|(_, r)| r)
             .filter(|r| names_by_handle(r, key))
             .map(|r| (r.peer.clone(), r.receipt.mux_session_id.clone()));
-        let row = found.next()?;
+        let Some(row) = found.next() else {
+            drop(book);
+            // Created through the hub seconds ago: the book lists it at the next heartbeat.
+            return self.recent_create(key).filter(|(host, _)| self.peer(host).is_none());
+        };
         found.next().is_none().then_some(row)
     }
 

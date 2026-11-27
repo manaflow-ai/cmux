@@ -287,7 +287,9 @@ jobs:
           [ "$base" != "$GITHUB_SHA" ] || base=unknown  # a re-run whose own record was lost: its range is unknown
           echo "the first push of this window: the checks run on ${GITHUB_SHA:0:12}, covering every push since ${base:0:12}"
           echo "### $KEY: runs on ${GITHUB_SHA:0:12}, covering since ${base}" >> "$GITHUB_STEP_SUMMARY"
-          printf '%s\n' "$base" > .base-coalesce/record
+          # mkdir again: a pool runner's disk-floor prune can empty the workspace between steps (2026-11-25 20:11Z, job
+          # 139480437957 on w2a-0015: "No such file or directory", and the window's retry built nothing).
+          mkdir -p .base-coalesce && printf '%s\n' "$base" > .base-coalesce/record
           printf 'run=true\nbase=%s\nsave=true\nround=%s\n' "$base" "$round" >> "$GITHUB_OUTPUT"
 
       - name: Claim this window

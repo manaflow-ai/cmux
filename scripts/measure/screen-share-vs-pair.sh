@@ -36,10 +36,16 @@
 #   cmux-ci run ... --pair KEY --target-worker VIEWER_MAC --pin-strict --arg=role=viewer --arg=peer-token=$token \
 #     --artifact artifacts/screen-share-vs-pair/report.tgz
 #             The viewer half ends at the host half's /done, or after hold-s= (default 3600) seconds.
+# host-ip=lan|tailnet  the address the viewer dials for the clock probe and the stream (--host-ip). lan (default)
+#             is this Mac's en0/en1 address. tailnet is its 100.64.0.0/10 address: the viewer half's own sockets
+#             to an office-LAN address get EHOSTUNREACH (`No route to host`) from macOS Local Network privacy,
+#             which refuses launchd-started programs the LAN with no grant (cmuxterm-hq handbook
+#             host-stall-read-as-dead-network.md), while their sockets to a tailnet address pass. Two Macs on one
+#             LAN reach each other directly inside WireGuard; the leg's --link is `wired-tailnet` then.
 # Exit: 0 measured, 1 the run failed, 2 bad arguments, 3 the partner is unreachable or the tools did not build.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel)"
-mode="" partner="" partner_ip="" loss=0 profile= source=screen fps_trials=3 trials=10 inputs=key samples=30 host=commit role=host peer_token="" hold_s=3600
+mode="" partner="" partner_ip="" loss=0 profile= source=screen fps_trials=3 trials=10 inputs=key samples=30 host=commit role=host peer_token="" hold_s=3600 host_ip_kind=lan
 for arg in "$@"; do
   case "$arg" in
     mode=probe|mode=run) mode="${arg#mode=}" ;;
@@ -56,6 +62,7 @@ for arg in "$@"; do
     role=host|role=viewer) role="${arg#role=}" ;;
     peer-token=*) peer_token="${arg#peer-token=}" ;;
     hold-s=*) hold_s="${arg#hold-s=}" ;;
+    host-ip=lan|host-ip=tailnet) host_ip_kind="${arg#host-ip=}" ;;
     *) echo "screen-share-vs-pair.sh: unknown argument: $arg" >&2; exit 2 ;;
   esac
 done
@@ -144,6 +151,13 @@ viewer_ip="$partner_ip"
 [[ -n "$peer_token" ]] || viewer_ip=$(ssh -o BatchMode=yes "$target" 'ipconfig getifaddr en0 || ipconfig getifaddr en1' 2>/dev/null | tail -1)
 echo "SSVP pair host $self ${self_ip:-?} -> viewer $target ${viewer_ip:-?}" | tee -a "$work/probe.txt"
 [[ -n "$self_ip" ]] || { echo "SSVP no LAN address on $self" | tee -a "$work/probe.txt"; pack; exit 3; }
+dial_ip="$self_ip"
+if [[ "$host_ip_kind" == tailnet ]]; then
+  # This Mac's tailnet address, from its interfaces (no tailscale CLI needed): the first inet in 100.64.0.0/10.
+  dial_ip=$(ifconfig 2>/dev/null | awk '$1 == "inet" && $2 ~ /^100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./ {print $2; exit}')
+  [[ -n "$dial_ip" ]] || { echo "SSVP host-ip=tailnet: no 100.64.0.0/10 address on $self" | tee -a "$work/probe.txt"; pack; exit 3; }
+  echo "SSVP host-ip tailnet $dial_ip (the viewer dials it; LAN $self_ip)" | tee -a "$work/probe.txt"
+fi
 
 echo "SSVP building the rd tools at $(git rev-parse --short HEAD)"
 scripts/measure/screen-stream-eval.sh tools-only=1 >"$work/tools.log" 2>&1 \
@@ -192,6 +206,7 @@ if [[ "$source" == screen && -n "$rig_root" ]]; then
   fi
 fi
 link=wired loss_args=() profile_args=() suffix=
+[[ "$host_ip_kind" == tailnet ]] && link=wired-tailnet
 [[ -n "$profile" ]] && { profile_args=(--encode-profile "$profile"); suffix="-$profile"; }
 if [[ "$loss" != 0 ]]; then
   link="loss${loss}" loss_args=(--host-test-loss "$loss")
@@ -202,7 +217,7 @@ for kind in ${inputs//,/ }; do
   legfps=0; [[ "$first" == 1 ]] && legfps="$fps_trials"; first=0
   echo "SSVP leg input=$kind host=$host samples=$samples trials=$trials" | tee -a "$work/run.log"
   python3 -I "$vs" run \
-    --host "$self" --viewer "$target" --host-ip "$self_ip" --local-mac "$self" "${via_args[@]}" \
+    --host "$self" --viewer "$target" --host-ip "$dial_ip" --local-mac "$self" "${via_args[@]}" \
     --tools "$work/tools" ${host_args[@]+"${host_args[@]}"} --stacks cmux --source "$source" --link "$link" \
     ${loss_args[@]+"${loss_args[@]}"} ${profile_args[@]+"${profile_args[@]}"} --cmux-input "$kind" --samples "$samples" \
     --fps-trials "$legfps" --trials "$trials" --label "pair-job-$host-$kind$suffix" --rev "$(git rev-parse HEAD)" \

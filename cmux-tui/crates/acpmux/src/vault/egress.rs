@@ -360,7 +360,7 @@ fn bind_stable(dir: &Path, keep: bool) -> std::io::Result<std::net::TcpListener>
 fn ca_epoch(ca_pem: &str) -> String {
     use sha2::Digest as _;
     let digest = sha2::Sha256::digest(ca_pem.trim().as_bytes());
-    digest[..16].iter().map(|b| format!("{b:02x}")).collect()
+    digest.iter().take(16).map(|b| format!("{b:02x}")).collect()
 }
 
 /// `dir`, made and owner-only (0700).

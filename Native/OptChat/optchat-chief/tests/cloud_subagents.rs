@@ -2285,3 +2285,25 @@ fn a_tell_to_a_paused_vm_without_the_pool_tool_names_the_tool() {
     let told = format!("{:?}", run(&mut h, move || a.tell("a1", "one more thing")));
     assert!(told.contains("pool tool"), "{told}");
 }
+
+/// A cloud subagent's first message names the fleet (`cmux-ci`, `fleet-wait:`) only when
+/// this host has the fleet client; a person without it gets none of it (Leo, 2026-11-26:
+/// "identify all the weird opinoinated fleet things we shipped into the app and remove them").
+#[test]
+fn fleet_instructions_only_on_a_host_with_the_fleet_client() {
+    use optchat_chief::fleet_wait::client_in;
+    let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(home.join(".local/bin")).unwrap();
+    let bin = dir.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    assert!(!client_in(Some(&home), Some(bin.as_os_str())));
+    assert!(!client_in(None, None));
+    std::fs::write(bin.join("cmux-ci"), "").unwrap();
+    assert!(client_in(Some(&home), Some(bin.as_os_str())));
+    std::fs::write(home.join(".local/bin/cmux-ci"), "").unwrap();
+    assert!(client_in(Some(&home), None));
+    let task = cloud().task("a1", Some("~/fun/cmux"), "build the web page");
+    assert!(!task.contains("sr2"), "{task}");
+    assert!(!task.contains("fleet controller"), "{task}");
+}

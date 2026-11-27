@@ -196,18 +196,22 @@ def cargo_env(repo: Path) -> dict[str, str]:
     return env
 
 
-def cargo(args: list[str], cwd: Path, env: dict[str, str], timeout: float = TIMEOUT) -> tuple[int, str]:
-    """cargo's exit code and stderr; 124 past TIMEOUT, when cargo and everything it started (git, a registry
+def cargo(args: list[str], cwd: Path, env: dict[str, str], timeout: float = TIMEOUT,
+          out: list[str] | None = None) -> tuple[int, str]:
+    """cargo's exit code and stderr (and its stdout appended to OUT when given); 124 past TIMEOUT, when cargo and everything it started (git, a registry
     fetch) are stopped as one process group, so nothing of it outlives the limit or the deadline: SIGTERM, a
     grace period, then SIGKILL to the group whether or not cargo itself has exited, since a child that ignores
     SIGTERM and has closed stderr would otherwise outlive it unseen."""
     try:
         process = subprocess.Popen(["cargo", *args], cwd=cwd, env=env, text=True, stdin=subprocess.DEVNULL,
-                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True)
+                                   stdout=subprocess.DEVNULL if out is None else subprocess.PIPE,
+                                   stderr=subprocess.PIPE, start_new_session=True)
     except OSError as error:
         return 127, str(error)
     try:
-        _, err = process.communicate(timeout=timeout)
+        stdout, err = process.communicate(timeout=timeout)
+        if out is not None:
+            out.append(stdout or "")
     except subprocess.TimeoutExpired:
         err = ""
         try:
@@ -256,12 +260,52 @@ def judge(repo: Path, root: str, env: dict[str, str], passes: tuple[list[str], .
             return "timeout", "not started: the deadline was spent"
         code, err = cargo(["update", "--workspace", "--locked", *network], repo / root, env, timeout=limit)
         if code == 0:
-            return "ok", ""
+            extra = orphans(repo, root, env, remaining(end, timeout))
+            return ("stale", ORPHANED + ", ".join(extra)) if extra else ("ok", "")
         if DRIFT in err or STALE.search(err):
             return "stale", ""
         verdict = "timeout" if code == 124 else "unchecked"
         last = err.strip().splitlines()[-1] if err.strip() else f"exit {code}"
     return verdict, last
+
+
+# `cargo update --locked` accepts a lock that still lists a package nothing resolves to any more: cmux#57348
+# deleted the cmux-coderouter crate and its workspace entries, the check passed, and cmux-tui/Cargo.lock kept the
+# crate's [[package]] entry until `cargo update -w` dropped it (33 lines).
+ORPHANED = "lists packages its manifests no longer resolve: "
+LOCK_PACKAGE = re.compile(r'^\[\[package\]\]\s*\nname = "([^"]+)"\s*\nversion = "([^"]+)"', re.M)
+
+
+def lock_packages(text: str) -> set[tuple[str, str]]:
+    """The (name, version) of every [[package]] in a Cargo.lock (no tomllib: the pre-push hook's python3 can be
+    macOS's 3.9). cargo writes name, then version, first in every entry."""
+    return set(LOCK_PACKAGE.findall(text))
+
+
+def orphans(repo: Path, root: str, env: dict[str, str], timeout: float) -> list[str]:
+    """`name version` of each package ROOT's lock lists that its resolve (`cargo metadata --locked --offline`, all
+    targets) does not: a lock entry for a crate no manifest names. Empty when cargo gives no resolve (a fake, a
+    failure, no time left): this only adds to cargo's own verdict."""
+    if timeout <= 1:
+        return []
+    out: list[str] = []
+    code, _ = cargo(["metadata", "--format-version", "1", "--locked", "--offline"], repo / root, env,
+                    timeout=timeout, out=out)
+    if code != 0 or not out or not out[0].strip():
+        return []
+    try:
+        import json
+        resolved = {(p["name"], p["version"]) for p in json.loads(out[0]).get("packages", [])}
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return []
+    lock = repo / root / "Cargo.lock"
+    try:
+        listed = lock_packages(lock.read_text(encoding="utf-8"))
+    except OSError:
+        return []
+    if not resolved:
+        return []
+    return sorted(f"{name} {version}" for name, version in listed - resolved)
 
 
 def label(root: str) -> str:
@@ -567,8 +611,9 @@ def main(argv: list[str] | None = None) -> int:
             print(line)
         return 0
     for root in stale:
-        print(f"stale: {root + '/' if root else ''}Cargo.lock: does not match its manifests (cargo update --workspace "
-              f"--locked: {DRIFT})")
+        detail = results[root][1]
+        why = detail if detail.startswith(ORPHANED) else f"cargo update --workspace --locked: {DRIFT}"
+        print(f"stale: {root + '/' if root else ''}Cargo.lock: does not match its manifests ({why})")
     print(f"cargo-locks: {len(results)} workspaces, {len(stale)} stale, {len(unchecked)} unchecked"
           f"{f' ({len(excused)} untouched, warned)' if excused else ''}", file=sys.stderr)
     if stale:

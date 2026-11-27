@@ -68,12 +68,18 @@ on:
     branches:
       - main
       - feat-cmux-next
+    # The journey paths are here because journey-staging gates the deploy: when it goes red, the
+    # relay change waits undeployed, and the fix to the journey changes no relay path, so before
+    # this nothing retried. cmux#58430 sat 7 h merged and undeployed after cmux#58617 fixed the
+    # journey's install-token 401. A push that changes no relay source still deploys nothing
+    # (relay_deploy_plan.py compares with each relay's /version), so this costs a plan job.
     paths:
       - cmux-tui/relays/cloudflare-do/**
       - cmux-tui/crates/cmux-remote-protocol/**
       - .github/actions/setup-cmux-tui-rust/**
       - .github/actions/runner-cargo-home/**
       - .github/workflows/cloudflare-relay.yml
+      - scripts/cmux-next/cloud-journey*
   workflow_dispatch:
     inputs:
       action:

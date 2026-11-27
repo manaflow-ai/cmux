@@ -121,6 +121,8 @@ const LOADERS: Record<CategoryCard, () => Promise<CardRender>> = {
     import("./McpServersCard").then(({ McpServersCard }) => () => <McpServersCard />),
   integrationsHub: () =>
     import("./IntegrationsHubCard").then(({ IntegrationsHubCard }) => () => <IntegrationsHubCard />),
+  developerTokens: () =>
+    import("./DeveloperTokensCard").then(({ DeveloperTokensCard }) => () => <DeveloperTokensCard />),
   automationsCloud: () =>
     import("./AutomationsCard").then(({ AutomationsCard }) => () => <AutomationsCard />),
   tailnet: () =>

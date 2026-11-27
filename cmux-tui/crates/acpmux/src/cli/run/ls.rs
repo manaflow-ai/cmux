@@ -399,6 +399,20 @@ async fn scoped_output_with_budget(
     if rows.local_only() {
         params.set("localOnly", json!(true));
     }
+    // `--fields` with no filter of this side's that reads other members: the daemon sends only
+    // those members of each row (`hub/page_first.rs` `row_fields`), not whole rows to be cut
+    // here. A daemon from before it sends whole rows, cut below as before.
+    let reads_more = named
+        || tag.is_some()
+        || pending
+        || leads
+        || with_tools
+        || matches!(status.as_deref(), Some("stuck" | "waiting"));
+    if let Some(fields) = fields.as_deref()
+        && !reads_more
+    {
+        params.set("fields", json!(fields));
+    }
     let cutoff = since_ms.map(|duration| crate::store::now_ms().saturating_sub(duration));
     let keeps = |s: &Value| {
         let pend = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0;
@@ -466,9 +480,12 @@ async fn scoped_output_with_budget(
     {
         status_read = Some(read.await.ok().and_then(Result::ok));
     }
+    // Only the counts and peers (`listCounts`): the full status waits on its host, disk and
+    // agent reads, and this read runs before the list (#58414).
     if walks_all && status_read.is_none() {
-        status_read =
-            Some(request_bounded(client, method::MUX_STATUS, json!({}), budget).await.ok());
+        let mut counts = json!({});
+        counts.set(crate::rpc::LIST_COUNTS, json!(true));
+        status_read = Some(request_bounded(client, method::MUX_STATUS, counts, budget).await.ok());
     }
     let closed_listed = status_read
         .as_ref()

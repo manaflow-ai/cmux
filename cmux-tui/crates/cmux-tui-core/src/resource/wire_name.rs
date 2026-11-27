@@ -326,6 +326,7 @@ impl ResourceOperation {
             Self::CloudOwnerGithubApp => "cloud.owner.github_app",
             Self::CloudOwnerGithubRepos => "cloud.owner.github_repos",
             Self::CloudOwnerGithubConnect => "cloud.owner.github_connect",
+            Self::CloudOwnerOp => "cloud.owner.op",
             Self::CloudOwnerGithubComplete => "cloud.owner.github_complete",
             Self::CloudOwnerGithubList => "cloud.owner.github_list",
             Self::CloudOwnerGithubCloneToken => "cloud.owner.github_clone_token",

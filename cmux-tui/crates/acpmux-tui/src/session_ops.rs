@@ -540,19 +540,8 @@ impl App {
         }
         let Some(id) = self.selected_id() else { return };
         let detail = self.details.get(&id).cloned().unwrap_or(Value::Null);
-        let choices: Vec<(String, String)> = detail
-            .pointer("/modes/availableModes")
-            .and_then(Value::as_array)
-            .map(|a| {
-                a.iter()
-                    .map(|m| {
-                        let v = m.get("id").and_then(Value::as_str).unwrap_or("").to_owned();
-                        let n = m.get("name").and_then(Value::as_str).unwrap_or(&v).to_owned();
-                        (v, n)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        // Modes that only copy another option (Pi's thinking levels) are no modes (`modes.rs`).
+        let choices = crate::modes::real_modes(&detail);
         if choices.is_empty() {
             self.report_error("this agent has no modes".into());
             return;
@@ -817,12 +806,8 @@ impl App {
                     self.status = format!("draft: {group} · {value}");
                 } else if let Some(id) = live {
                     if same_harness {
-                        self.request_then(
-                            method::SESSION_SET_MODEL,
-                            json!({"sessionId": id.clone(), "modelId": value.clone()}),
-                            Some(format!("model {value}")),
-                            Reread::Detail(id.clone()),
-                        );
+                        // The chat's level holds across the switch (`picks_hold.rs`).
+                        self.set_model_keeping_level(&id, &value);
                     } else {
                         // Another harness: start a new session tab with it.
                         self.open_draft();

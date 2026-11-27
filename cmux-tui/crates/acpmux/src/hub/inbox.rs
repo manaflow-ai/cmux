@@ -128,6 +128,11 @@
 //! Leo, 2026-11-25: "is there a timeout where it can always check again at some point, like a
 //! promise of "i'll respond within x minutes since this isn't urgent"".
 //!
+//! The timer lives in memory: a restart reviews every restored inbox that holds new messages,
+//! a sweep reviews every chat's inbox every 10 minutes, and a message still undelivered a day
+//! past its deadline in a chat with no running turn expires and goes back to its sender with
+//! the reason (`inbox_deadline.rs`).
+//!
 //! The timer: one per session ([`Inbox::timer`]), for an idle chat's next wake or flush, or the
 //! flush of FYIs alone that wait for a running turn. Stop condition: it wakes once, at its
 //! deadline, and ends; it is armed only while a new message waits in an idle chat, or only FYIs
@@ -138,6 +143,8 @@
 //! the session weakly.
 
 use super::*;
+#[path = "inbox_deadline.rs"]
+pub(super) mod deadline;
 #[path = "inbox_page_rule.rs"]
 pub(super) mod page_rule;
 #[path = "inbox_reader.rs"]
@@ -2592,7 +2599,13 @@ impl Hub {
         // A needYou journaled before a restart is counted again by the pass (a rule may have
         // changed what counts: program notices are fyi now).
         surge_held |= inbox.surge_counts_need_you() > 0;
+        // New messages came back with no timer: the review arms their deadline wake again
+        // (`inbox_deadline.rs`), else they wait for a turn nothing starts.
+        let any_new = inbox.items.iter().any(|i| !i.noticed && !folded(i));
         drop(inbox);
+        if any_new {
+            deadline::review_after_restore(session);
+        }
         // A restart resumes the held backlog's triage with no new arrival (`surge_triage.rs`).
         if surge_held {
             super::surge_triage::resume_after_restore(session);

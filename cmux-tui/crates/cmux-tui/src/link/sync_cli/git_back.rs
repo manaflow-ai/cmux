@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{Context as _, bail};
+use cmux_projection::git_swap::SWAP_MARKER;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
@@ -489,8 +490,14 @@ pub(super) fn plan_from_layer(
     let Where { folder, common_dir, staging } = *at;
     let here = base_of(folder)?;
     let own_dir = local_git_dir(folder)?;
+    let machine_complete = machine_git.join(SWAP_MARKER).is_file();
     let read_either = |relative: &str| -> anyhow::Result<Option<Vec<u8>>> {
-        for dir in [machine_git, own_dir.as_path(), common_dir] {
+        let dirs: &[&Path] = if machine_complete {
+            &[machine_git]
+        } else {
+            &[machine_git, own_dir.as_path(), common_dir]
+        };
+        for dir in dirs {
             match std::fs::read(dir.join(relative)) {
                 Ok(bytes) => return Ok(Some(bytes)),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
@@ -503,8 +510,11 @@ pub(super) fn plan_from_layer(
     let quarantine = staging.join("quarantine.git");
     quarantined(&quarantine, common_dir)?;
     copy_layer_objects(machine_git, &quarantine)?;
-    let vm_index =
-        [machine_git.join("index"), own_dir.join("index")].into_iter().find(|path| path.is_file());
+    let vm_index = if machine_complete {
+        machine_git.join("index").is_file().then(|| machine_git.join("index"))
+    } else {
+        [machine_git.join("index"), own_dir.join("index")].into_iter().find(|path| path.is_file())
+    };
     let staged_path = quarantine.join("machine-staged");
     let staged_file = File::create(&staged_path)?;
     let mut list = quarantine_git(&quarantine);

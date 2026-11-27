@@ -64,6 +64,7 @@ pub(super) const fn handles(operation: ResourceOperation) -> bool {
             | Op::CloudOwnerGithubApp
             | Op::CloudOwnerGithubRepos
             | Op::CloudOwnerGithubConnect
+            | Op::CloudOwnerOp
             | Op::CloudOwnerGithubComplete
             | Op::CloudOwnerGithubList
             | Op::CloudOwnerGithubCloneToken

@@ -297,7 +297,10 @@ const createRecordedTimed = <C, S, M>(
           ...(proofs.network === undefined ? {} : { initialNetwork: vmNetworkEvidenceOf(proofs.network).receipt }),
         }, probe, floors: spec.size ?? {}, createdAt: createdAt.toISOString() };
         return limits.advance(caller.value.tenantId, attempt.key, { phase: "creating", vmId: cmuxId, reservationId: proofs.mayCreate.reservationId, context, createdBy, intent, ...(dispatch === undefined ? {} : { dispatch }), ...(attempt.snapshotId === undefined ? {} : { snapshotId: attempt.snapshotId }) }).pipe(
-          Effect.mapError(() => new UpstreamError({ operation: "persistCreateIntent", status: null })),
+          // Name the ledger's refusal (claim expired, intent changed, reservation expired, ...): an anonymous
+          // "persistCreateIntent (no response)" 503 left staging creates retrying blind until create_overdue.
+          Effect.tapError((e) => Effect.logWarning("create_intent_refused", { vmId: cmuxId, reason: createIntentRefusal(e) })),
+          Effect.mapError((e) => new UpstreamError({ operation: `persistCreateIntent: ${createIntentRefusal(e)}`, status: null })),
         );
       },
     };
@@ -1013,3 +1016,10 @@ export const vmsHandlers = HttpApiBuilder.group(CmuxVmApi, "vms", (handlers) =>
     )
     .handle("deleteVm", ({ path }) => deleteVmById(path.vmId))
 );
+
+/** The ledger's reason for refusing a create-intent write, from LimitsUnavailable's cause. */
+const createIntentRefusal = (e: { readonly cause: unknown }): string => {
+  const cause = e.cause;
+  const text = cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "unknown";
+  return text.replace(/[^a-z0-9 .:_-]/gi, "").slice(0, 80) || "unknown";
+};

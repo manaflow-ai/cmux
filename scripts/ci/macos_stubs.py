@@ -11,6 +11,7 @@ libSystem and libiconv come from the sysroot (scripts/ci/macos-cross.sh).
   macos_stubs.py generate <stub-dir> <mac-binary>...   write one .tbd per framework
   macos_stubs.py check <stub-dir> <mac-binary>...      exit 1 when a stub lacks an import
   macos_stubs.py install <stub-dir> <sysroot>          place the stubs where the linker looks
+  macos_stubs.py merge <stub-dir> <newer-stub-dir>     add the newer dir's symbols (and stubs) to stub-dir
 
 MACOS_STUBS_SYSTEM_TBD names the sysroot's libSystem.tbd: routines it exports
 need no framework stub (scripts/ci/macos-cross.sh sets it).
@@ -173,13 +174,41 @@ def cmd_install(stub_dir: Path, sysroot: Path) -> int:
     return 0
 
 
+def cmd_merge(stub_dir: Path, newer: Path) -> int:
+    """Union the newer stubs into stub_dir, so a head built on older stubs links what the base branch added."""
+    for path in sorted(newer.glob("*.tbd")):
+        install, symbols = read_stub(path)
+        dest = stub_dir / path.name
+        if dest.exists():
+            old_install, old = read_stub(dest)
+            if old_install != install:
+                raise SystemExit(f"{dest}: install-name {old_install} differs from {install}")
+            added = symbols - old
+            if not added:
+                continue
+            text = path.read_text()
+            cur = re.search(r"^current-version:\s+(\S+)", text, re.M)
+            compat = re.search(r"^compatibility-version:\s+(\S+)", text, re.M)
+            dest.write_text(render(install, {"current": cur.group(1), "compat": compat.group(1), "symbols": old | symbols}))
+            print(f"merged {dest.name}: +{len(added)} symbols")
+        else:
+            shutil.copyfile(path, dest)
+            print(f"merged {dest.name}: new stub")
+    headers = newer / "include"
+    if headers.is_dir():
+        shutil.copytree(headers, stub_dir / "include", dirs_exist_ok=True)
+    return 0
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) < 4 or argv[1] not in {"generate", "check", "install"}:
+    if len(argv) < 4 or argv[1] not in {"generate", "check", "install", "merge"}:
         print(__doc__, file=sys.stderr)
         return 2
     command, stub_dir = argv[1], Path(argv[2])
     if command == "install":
         return cmd_install(stub_dir, Path(argv[3]))
+    if command == "merge":
+        return cmd_merge(stub_dir, Path(argv[3]))
     system = Path(os.environ["MACOS_STUBS_SYSTEM_TBD"]) if os.environ.get("MACOS_STUBS_SYSTEM_TBD") else None
     return (cmd_generate if command == "generate" else cmd_check)(stub_dir, argv[3:], system)
 

@@ -29,16 +29,51 @@ class PlanTest(unittest.TestCase):
     def plan(self, *paths: str) -> dict:
         return fv.plan(list(paths))
 
-    def test_a_kit_source_runs_its_test_target_only(self) -> None:
+    def test_a_kit_source_runs_its_test_target_and_builds_the_app(self) -> None:
+        # The app and its UI tests link the kit: a kit API change that broke only them landed (cmux#55664).
         p = self.plan(KIT + "Sources/CmuxMobileShell/Foo.swift", KIT + "Sources/CmuxMobileChief/Bar.swift")
         self.assertTrue(p["run"])
         self.assertEqual(p["tests"], ["CmuxMobileChiefTests", "CmuxMobileShellTests"])
         self.assertFalse(p["build"])
-        self.assertFalse(p["app"])
+        self.assertTrue(p["app"])
 
-    def test_a_kit_test_file_runs_its_target(self) -> None:
+    def test_a_kit_test_file_runs_its_target_only(self) -> None:
         p = self.plan(KIT + "Tests/CmuxMobileVoiceTests/VoiceTests.swift")
         self.assertEqual(p["tests"], ["CmuxMobileVoiceTests"])
+        self.assertFalse(p["app"])
+
+    def test_a_shared_package_builds_the_kit_and_the_app(self) -> None:
+        p = self.plan("Packages/Shared/CmuxTheme/Sources/CmuxTheme/Theme.swift")
+        self.assertTrue(p["build"])
+        self.assertTrue(p["app"])
+
+    def test_a_rust_crate_the_ffi_compiles_builds_the_kit_and_the_app(self) -> None:
+        # cmux#55399: a cmux-tui crate change broke the iOS build and nothing iOS ran.
+        for path in ("cmux-tui/crates/cmux-wg/src/wireguard_dormant.rs", "cmux-tui/Cargo.lock",
+                     "cmux-tui/vendor/smoltcp/src/lib.rs"):
+            with self.subTest(path=path):
+                p = self.plan(path)
+                self.assertTrue(p["build"])
+                self.assertTrue(p["app"])
+                self.assertTrue(fv.affects([path]))
+
+    def test_a_rust_crate_the_ffi_does_not_compile_plans_nothing(self) -> None:
+        import ios_link_ffi_key
+        packages, _ = ios_link_ffi_key.closure("HEAD")
+        crates = ROOT / "cmux-tui" / "crates"
+        other = sorted(d.name for d in crates.iterdir() if d.is_dir() and f"cmux-tui/crates/{d.name}" not in packages)
+        if not other:
+            self.skipTest("the FFI compiles every cmux-tui crate")
+        path = f"cmux-tui/crates/{other[0]}/src/lib.rs"
+        self.assertFalse(self.plan(path)["run"])
+        self.assertFalse(fv.affects([path]))
+
+    def test_affects_matches_the_plan(self) -> None:
+        for path in ("docs/a.md", "web/app/page.tsx", KIT + "README.md", KIT + "Package.swift",
+                     "cmux-next-ios/App/A.swift", KIT + "Tests/CmuxMobileInstantPerfTests/A.swift"):
+            with self.subTest(path=path):
+                # A skipped test target is still an iOS path: the router holds the status for it.
+                self.assertEqual(fv.affects([path]), self.plan(path)["run"] or "/Tests/" in path)
 
     def test_every_planned_target_exists(self) -> None:
         have = fv.test_targets(fv.ROOT)
@@ -117,6 +152,96 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(json.loads(lines["plan"])["tests"], ["CmuxMobileShellTests"])
         self.assertEqual(lines["summary"], "tests CmuxMobileShellTests; app build")
 
+    def test_status_without_a_token_warns_and_passes(self) -> None:
+        env = {k: v for k, v in os.environ.items() if k not in ("TOKENS", "REPO", "SHA")}
+        r = subprocess.run([sys.executable, str(ROOT / "scripts/ci/ios_fast_verdict.py"), "status", "success", "x"],
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("not posted", r.stdout)
+
+    def test_status_posts_the_context_capped(self) -> None:
+        seen = []
+
+        class Resp:
+            status = 201
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def fake(req, timeout=0):
+            seen.append((req.full_url, json.loads(req.data), req.headers["Authorization"]))
+            if len(seen) == 1:
+                raise OSError("spent")
+            return Resp()
+
+        old = fv.urllib.request.urlopen
+        fv.urllib.request.urlopen = fake
+        try:
+            self.assertTrue(fv.post_status("pending", "d" * 300, "o/r", "abc", ["t1", "t2"], pause=0))
+        finally:
+            fv.urllib.request.urlopen = old
+        self.assertEqual([s[2] for s in seen], ["Bearer t1", "Bearer t2"])
+        self.assertEqual(seen[1][0], "https://api.github.com/repos/o/r/statuses/abc")
+        self.assertEqual(seen[1][1]["context"], "cmux/ios-fast")
+        self.assertEqual(len(seen[1][1]["description"]), 140)
+
+
+class RouterStatusTest(unittest.TestCase):
+    """pr_router.ios_status: the `cmux/ios-fast` state the route posts."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        import pr_router
+        cls.status = staticmethod(pr_router.ios_status)
+
+    def event(self, draft: bool = False, base: str = "feat-cmux-next", fork: bool = False) -> dict:
+        return {"pull_request": {"draft": draft, "base": {"ref": base, "repo": {"full_name": "o/r"}},
+                                 "head": {"repo": {"full_name": "x/r" if fork else "o/r"}}}}
+
+    def test_a_head_that_touches_nothing_ios_is_success_at_once(self) -> None:
+        state, desc = self.status(self.event(), ["web/app/page.tsx", "docs/a.md"], [], "pending")
+        self.assertEqual(state, "success")
+        self.assertLessEqual(len(desc), 140)
+
+    def test_an_ios_head_the_pipeline_runs_is_pending(self) -> None:
+        self.assertEqual(self.status(self.event(), [KIT + "Package.swift"], ["pr-pipeline.yml"], "success")[0],
+                         "pending")
+
+    def test_a_cheap_ios_head_waits_for_the_land(self) -> None:
+        state, desc = self.status(self.event(), ["cmux-tui/crates/cmux-wg/src/a.rs"], [], "pending")
+        self.assertEqual(state, "pending")
+        self.assertIn("ready-to-land", desc)
+
+    def test_a_carried_ios_head_carries(self) -> None:
+        self.assertEqual(self.status(self.event(), [KIT + "Package.swift"], [], "success")[0], "success")
+
+    def test_unknown_files_are_ios(self) -> None:
+        self.assertEqual(self.status(self.event(), None, [], "pending")[0], "pending")
+
+    def test_no_status_where_the_land_rule_does_not_apply(self) -> None:
+        for event in (self.event(draft=True), self.event(base="main"), self.event(fork=True)):
+            self.assertEqual(self.status(event, [KIT + "Package.swift"], [], ""), ("", ""))
+
+    def test_the_switch_off_is_success(self) -> None:
+        old = os.environ.get("CI_IOS_FAST_VERDICT")
+        os.environ["CI_IOS_FAST_VERDICT"] = "0"
+        try:
+            self.assertEqual(self.status(self.event(), [KIT + "Package.swift"], ["pr-pipeline.yml"], "")[0],
+                             "success")
+        finally:
+            if old is None:
+                os.environ.pop("CI_IOS_FAST_VERDICT")
+            else:
+                os.environ["CI_IOS_FAST_VERDICT"] = old
+
+    def test_every_description_fits(self) -> None:
+        for args in ((["docs/a.md"], [], ""), ([KIT + "P.swift"], ["pr-pipeline.yml"], ""),
+                     ([KIT + "P.swift"], [], "success"), ([KIT + "P.swift"], [], "pending")):
+            self.assertLessEqual(len(self.status(self.event(), *args)[1]), 140)
+
 
 class WorkflowTest(unittest.TestCase):
     @classmethod
@@ -163,6 +288,22 @@ class WorkflowTest(unittest.TestCase):
         for path in (ROOT / ".github").rglob("*.json"):
             with self.subTest(path=str(path.relative_to(ROOT))):
                 self.assertNotIn("ios fast verdict", path.read_text(errors="replace"))
+
+    def test_the_verdict_reaches_the_router(self) -> None:
+        call = yaml.safe_load((ROOT / ".github/workflows/pr-pipeline.yml").read_text())
+        outputs = call.get("on", call.get(True))["workflow_call"]["outputs"]
+        self.assertEqual(outputs["ios_fast_verdict"]["value"], "${{ jobs.ios-fast.outputs.verdict }}")
+        self.assertEqual(outputs["ios_fast_run"]["value"], "${{ jobs.ios-fast-runner.outputs.run }}")
+        record = next(s for s in self.jobs["ios-fast"]["steps"] if s.get("id") == "verdict")
+        self.assertIn("success() || failure()", record["if"])
+        router = yaml.safe_load((ROOT / ".github/workflows/pr-router.yml").read_text())["jobs"]
+        status = router["ios-fast-status"]
+        self.assertEqual(status["needs"], ["route", "pipeline"])
+        self.assertIn("needs.route.outputs.ios_status == 'pending'", status["if"])
+        self.assertEqual(status["permissions"]["statuses"], "write")
+        self.assertIn("scripts/ci/ios_fast_verdict.py", router["route"]["steps"][0]["with"]["sparse-checkout"])
+        post = next(s for s in router["route"]["steps"] if s.get("name") == "Post the iOS fast verdict status")
+        self.assertIn("ios_fast_verdict.py status", post["run"])
 
     def test_the_runner_script_parses(self) -> None:
         subprocess.run(["bash", "-n", str(ROOT / "scripts/ci/ios_fast_verdict.sh")], check=True)

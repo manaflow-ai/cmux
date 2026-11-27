@@ -9,7 +9,7 @@
 #                                   over 7 days ago; --from takes any build) as NAME; remade
 #                                   from another app, it clears the state of the identity it replaces.
 #                                   --customize: its customize folder is NAME/customize (CMUX_CUSTOMIZE_DIR
-#                                   in its LSEnvironment), not the account's ~/.config/cmux/customize, so a
+#                                   in its LSEnvironment), not the account's ~/.config/cmux-next/customize, so a
 #                                   measurement's extension saves never reach the Mac's own cmux
 #                                   --live-code: a live code build's copy watches live-code/ for
 #                                   Swift patches (docs/cmux-next/live-code.md)
@@ -337,7 +337,7 @@ case "$cmd" in
     "$buddy" -c "Print :LSEnvironment" "$plist" >/dev/null 2>&1 || "$buddy" -c "Add :LSEnvironment dict" "$plist"
     plist_set "$plist" LSEnvironment:CMUX_NEXT_CONFIG_FILE "$dir/config/cmux-next.json"
     # Its own customize folder (local/customize: the folder its daemon watches, where `cmux customize`
-    # and `cmux ext` write): without it every copy on the Mac shares ~/.config/cmux/customize, so one
+    # and `cmux ext` write): without it every copy on the Mac shares ~/.config/cmux-next/customize, so one
     # copy's extension shows in another's sidebar and a save reloads both.
     mkdir -p "$dir/config/customize"
     plist_set "$plist" LSEnvironment:CMUX_CUSTOMIZE_DIR "$dir/config/customize"

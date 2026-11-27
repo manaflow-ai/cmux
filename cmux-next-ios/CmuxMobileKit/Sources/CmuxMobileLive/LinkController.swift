@@ -230,30 +230,53 @@ public final class LinkController {
     /// the roam waits this long for the burst to end.
     nonisolated static let networkSettle: Duration = .milliseconds(150)
     @ObservationIgnored private var networkTask: Task<Void, Never>?
+    /// A roam is running (the dialer's `networkChanged` has not returned).
+    @ObservationIgnored private var roaming = false
+    /// A change came while a roam ran: one more roam follows it, onto the latest network.
+    @ObservationIgnored private var roamAgain: (baseURL: URL, teamID: String, deviceID: String)?
 
     /// The phone's network changed or came back: the live link moves onto it
     /// without a redial (WireGuard roams in place), and a link that already
     /// failed redials now instead of at its backoff.
+    ///
+    /// One roam at a time. A burst of changes settles first (`networkSettle`); a change during a
+    /// roam waits for it and then roams once more, however many came. Cancelling the settle never
+    /// stopped a roam already under way, so a burst ran several at once (four within 0.7 s on
+    /// a153's phone), each restarting the path and re-checking the signaling socket.
     public func networkChanged(baseURL: URL, teamID: String, deviceID: String) {
+        if roaming {
+            roamAgain = (baseURL, teamID, deviceID)
+            return
+        }
         networkTask?.cancel()
-        let dialer = dialer
-        let accessToken = accessToken
         let clock = clock
-        let events = events
         networkTask = Task { [weak self] in
             do { try await clock.sleep(for: Self.networkSettle) } catch { return }
-            ConnectTimeline.shared.mark("network_changed")
-            // Detached: the roam must not wait for the main actor.
-            let steps = await Task.detached { () -> [(String, Double)] in
-                guard let token = try? await accessToken(false) else { return [] }
-                return await dialer.networkChanged(baseURL: baseURL, teamID: teamID, deviceID: deviceID, accessToken: token)
-            }.value
-            log.info("network changed: \(steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "), privacy: .public)")
-            ConnectTimeline.shared.mark("network_roamed", detail: steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "))
-            events.roamed(steps)
-            guard let self, !Task.isCancelled else { return }
-            self.send(.networkChanged)
+            await self?.roam(baseURL: baseURL, teamID: teamID, deviceID: deviceID)
         }
+    }
+
+    private func roam(baseURL: URL, teamID: String, deviceID: String) async {
+        roaming = true
+        let dialer = dialer
+        let accessToken = accessToken
+        let events = events
+        ConnectTimeline.shared.mark("network_changed")
+        // Detached: the roam must not wait for the main actor.
+        let steps = await Task.detached { () -> [(String, Double)] in
+            guard let token = try? await accessToken(false) else { return [] }
+            return await dialer.networkChanged(baseURL: baseURL, teamID: teamID, deviceID: deviceID, accessToken: token)
+        }.value
+        roaming = false
+        log.info("network changed: \(steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "), privacy: .public)")
+        ConnectTimeline.shared.mark("network_roamed", detail: steps.map { "\($0.0)=\(Int($0.1.rounded()))" }.joined(separator: " "))
+        events.roamed(steps)
+        if let next = roamAgain {
+            roamAgain = nil
+            networkChanged(baseURL: next.baseURL, teamID: next.teamID, deviceID: next.deviceID)
+            return
+        }
+        send(.networkChanged)
     }
 
     /// Sign-out: forget warm sockets and cached servers.

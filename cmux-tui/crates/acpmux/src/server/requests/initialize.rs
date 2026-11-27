@@ -260,7 +260,7 @@ pub(super) fn initialize(
             "sessionCapabilities": {"list": {}, "fork": {}, "resume": {}, "close": {}, "delete": {}},
         },
         "authMethods": [],
-        "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::build(), "capabilities": capabilities,
+        "_meta": {"acpmux": {"version": VERSION, "abi": crate::protocol::ABI, "build": crate::hub::build(), "capabilities": capabilities,
         // `local`: the unix socket or the proven local app
         // (`local_app.rs`), which the session pool serves.
         "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },
