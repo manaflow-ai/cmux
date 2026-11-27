@@ -174,8 +174,16 @@ impl ResumeErrorClass {
         }
     }
 
-    fn index(self) -> usize {
-        self as usize
+    fn counter<T>(self, counters: [T; 6]) -> T {
+        let [gap, deadline, close, auth, transient, unknown] = counters;
+        match self {
+            Self::GapTooOld => gap,
+            Self::DeadlineExceeded => deadline,
+            Self::CleanClose => close,
+            Self::Auth => auth,
+            Self::Transient => transient,
+            Self::Unknown => unknown,
+        }
     }
 }
 
@@ -215,7 +223,7 @@ impl ResumeBudget {
     /// The answer to a failure of `class`.
     pub fn on_failure(&mut self, class: ResumeErrorClass) -> Decision {
         let policy = class.policy();
-        let used = &mut self.used[class.index()];
+        let used = class.counter(self.used.each_mut());
         if *used >= policy.attempts {
             return Decision::Surface { class, attempts: *used };
         }
@@ -237,7 +245,7 @@ impl ResumeBudget {
 
     /// The attempts `class` has spent since the last success.
     pub fn used(&self, class: ResumeErrorClass) -> u32 {
-        self.used[class.index()]
+        class.counter(self.used)
     }
 }
 

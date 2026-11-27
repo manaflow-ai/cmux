@@ -154,3 +154,24 @@ fn every_class_has_a_bounded_budget_and_a_stable_name() {
         assert!(names.insert(class.as_str()));
     }
 }
+
+#[test]
+fn every_class_spends_only_its_own_counter_and_reset_clears_all() {
+    for selected in ResumeErrorClass::ALL {
+        let mut budget = ResumeBudget::new();
+        for attempt in 1..=selected.policy().attempts {
+            assert!(matches!(budget.on_failure(selected), Decision::Act { .. }));
+            for class in ResumeErrorClass::ALL {
+                assert_eq!(budget.used(class), if class == selected { attempt } else { 0 });
+            }
+        }
+        assert_eq!(
+            budget.on_failure(selected),
+            Decision::Surface { class: selected, attempts: selected.policy().attempts }
+        );
+        budget.reset();
+        for class in ResumeErrorClass::ALL {
+            assert_eq!(budget.used(class), 0);
+        }
+    }
+}

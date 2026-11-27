@@ -55,15 +55,18 @@ impl Column {
         if self.rows.is_empty() {
             return 0..self.panes.len();
         }
-        let start = self.rows[..index].iter().map(|row| row.len).sum();
-        start..start + self.rows[index].len
+        let Some(row) = self.rows.get(index) else { return 0..0 };
+        let start: usize = self.rows.iter().take(index).map(|row| row.len).sum();
+        start..start + row.len
     }
 
     /// A pane was inserted into the row of pane position `anchor`.
     pub(crate) fn note_inserted(&mut self, anchor: usize) {
         if !self.rows.is_empty() {
             let index = self.row_index(anchor);
-            self.rows[index].len += 1;
+            if let Some(row) = self.rows.get_mut(index) {
+                row.len += 1;
+            }
         }
     }
 
@@ -76,8 +79,9 @@ impl Column {
             return;
         }
         let index = self.row_index(position);
-        self.rows[index].len -= 1;
-        if self.rows[index].len == 0 {
+        let Some(row) = self.rows.get_mut(index) else { return };
+        row.len = row.len.saturating_sub(1);
+        if row.len == 0 {
             let row = self.rows.remove(index);
             events.push(LayoutEvent::RowRemoved { row: row.id });
         }
@@ -102,6 +106,7 @@ pub fn row_layout_is_valid(column: &Column) -> bool {
 /// Where a pane sits: indexes of workspace, screen, column and position.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct At {
+    pub pane: PaneId,
     pub workspace: usize,
     pub screen: usize,
     pub column: usize,
@@ -117,7 +122,7 @@ impl LayoutState {
             for (screen, s) in w.screens.iter().enumerate() {
                 for (column, c) in s.columns.iter().enumerate() {
                     if let Some(position) = c.panes.iter().position(|id| *id == pane) {
-                        return Ok(At { workspace, screen, column, position });
+                        return Ok(At { pane, workspace, screen, column, position });
                     }
                 }
             }
@@ -125,8 +130,26 @@ impl LayoutState {
         Err(Reject::UnknownPane(pane))
     }
 
-    fn column_mut(&mut self, at: At) -> &mut Column {
-        &mut self.workspaces[at.workspace].screens[at.screen].columns[at.column]
+    fn screen_at(&self, at: At) -> Result<&crate::Screen, Reject> {
+        self.workspaces
+            .get(at.workspace)
+            .and_then(|w| w.screens.get(at.screen))
+            .ok_or(Reject::UnknownPane(at.pane))
+    }
+
+    fn screen_at_mut(&mut self, at: At) -> Result<&mut crate::Screen, Reject> {
+        self.workspaces
+            .get_mut(at.workspace)
+            .and_then(|w| w.screens.get_mut(at.screen))
+            .ok_or(Reject::UnknownPane(at.pane))
+    }
+
+    fn column_at(&self, at: At) -> Result<&Column, Reject> {
+        self.screen_at(at)?.columns.get(at.column).ok_or(Reject::UnknownPane(at.pane))
+    }
+
+    fn column_mut(&mut self, at: At) -> Result<&mut Column, Reject> {
+        self.screen_at_mut(at)?.columns.get_mut(at.column).ok_or(Reject::UnknownPane(at.pane))
     }
 
     /// Turns a split screen into columns mode (its tree becomes
@@ -138,17 +161,18 @@ impl LayoutState {
         base_column: ColumnId,
         base_row: RowId,
         events: &mut Vec<LayoutEvent>,
-    ) {
-        let screen = &mut self.workspaces[at.workspace].screens[at.screen];
+    ) -> Result<(), Reject> {
+        let screen = self.screen_at_mut(at)?;
         if !screen.columns_active {
             screen.columns_active = true;
-            screen.columns[0].id = base_column;
+            screen.columns.first_mut().ok_or(Reject::UnknownPane(at.pane))?.id = base_column;
             events.push(LayoutEvent::ColumnCreated { column: base_column, screen: screen.id });
         }
-        let column = self.column_mut(at);
+        let column = self.column_mut(at)?;
         if column.rows.is_empty() {
             column.rows.push(Row { id: base_row, height_permille: 1000, len: column.panes.len() });
         }
+        Ok(())
     }
 
     /// Ids a row op would create, given whether the screen still needs a
@@ -159,15 +183,15 @@ impl LayoutState {
         mut ids: Vec<u64>,
         base_column: ColumnId,
         base_row: RowId,
-    ) -> Vec<u64> {
-        let screen = &self.workspaces[at.workspace].screens[at.screen];
+    ) -> Result<Vec<u64>, Reject> {
+        let screen = self.screen_at(at)?;
         if !screen.columns_active {
             ids.push(base_column);
         }
-        if screen.columns[at.column].rows.is_empty() {
+        if screen.columns.get(at.column).ok_or(Reject::UnknownPane(at.pane))?.rows.is_empty() {
             ids.push(base_row);
         }
-        ids
+        Ok(ids)
     }
 
     /// Inserts row `new_row` holding the empty pane `new_pane` at row index
@@ -180,8 +204,8 @@ impl LayoutState {
         height: u16,
         new_pane: PaneId,
         events: &mut Vec<LayoutEvent>,
-    ) {
-        let column = self.column_mut(at);
+    ) -> Result<(), Reject> {
+        let column = self.column_mut(at)?;
         let position = if slot == column.rows.len() {
             column.panes.len()
         } else {
@@ -190,10 +214,11 @@ impl LayoutState {
         column.panes.insert(position, new_pane);
         column.rows.insert(slot, Row { id: new_row, height_permille: height, len: 1 });
         let column_id = column.id;
-        let screen_id = self.workspaces[at.workspace].screens[at.screen].id;
+        let screen_id = self.screen_at(at)?.id;
         self.panes.insert(new_pane, Vec::new());
         events.push(LayoutEvent::RowCreated { row: new_row, column: column_id, index: slot });
         events.push(LayoutEvent::PaneCreated { pane: new_pane, screen: screen_id });
+        Ok(())
     }
 
     fn column_by_id(&mut self, id: ColumnId) -> Option<&mut Column> {
@@ -233,13 +258,11 @@ pub(crate) fn insert_row(
     {
         return Err(Reject::ContentPlaced(*placed.0));
     }
-    let ids = state.row_op_ids(at, vec![new_row, new_pane, new_tab.tab], base_column, base_row);
+    let ids = state.row_op_ids(at, vec![new_row, new_pane, new_tab.tab], base_column, base_row)?;
     state.ensure_fresh(&ids)?;
-    state.open_rows(at, base_column, base_row, events);
-    let slot = state.workspaces[at.workspace].screens[at.screen].columns[at.column]
-        .row_index(at.position)
-        + 1;
-    state.insert_row(at, slot, new_row, height_permille, new_pane, events);
+    state.open_rows(at, base_column, base_row, events)?;
+    let slot = state.column_at(at)?.row_index(at.position) + 1;
+    state.insert_row(at, slot, new_row, height_permille, new_pane, events)?;
     state.panes.get_mut(&new_pane).ok_or(Reject::UnknownPane(new_pane))?.push(new_tab.tab);
     state.tabs.insert(new_tab.tab, new_tab.content.clone());
     events.push(LayoutEvent::TabCreated { tab: new_tab.tab, pane: new_pane });
@@ -272,11 +295,11 @@ pub(crate) fn move_tab_to_row(
     check_height(op.height_permille)?;
     let source = state.pane_of(op.tab).ok_or(Reject::UnknownTab(op.tab))?;
     let anchor = state.locate(op.anchor)?;
-    let only = state.panes[&source].len() == 1;
+    let only = state.panes.get(&source).ok_or(Reject::UnknownPane(source))?.len() == 1;
     if op.respawn.is_some() && !only {
         return Err(Reject::RespawnNotNeeded);
     }
-    let column = &state.workspaces[anchor.workspace].screens[anchor.screen].columns[anchor.column];
+    let column = state.column_at(anchor)?;
     let target = column.row_index(anchor.position) + usize::from(!op.before);
     if op.respawn.is_none() && only {
         let from = state.locate(source)?;
@@ -299,7 +322,7 @@ pub(crate) fn move_tab_to_row(
     if let Some(respawn) = op.respawn {
         ids.push(respawn.tab);
     }
-    let ids = state.row_op_ids(anchor, ids, op.base_column, op.base_row);
+    let ids = state.row_op_ids(anchor, ids, op.base_column, op.base_row)?;
     state.ensure_fresh(&ids)?;
     if let Some(respawn) = op.respawn {
         state.panes.get_mut(&source).ok_or(Reject::UnknownPane(source))?.push(respawn.tab);
@@ -308,8 +331,8 @@ pub(crate) fn move_tab_to_row(
     }
     // `open_rows` may add a base row before the target index; the index was
     // computed against the implicit row, which becomes row 0.
-    state.open_rows(anchor, op.base_column, op.base_row, events);
-    state.insert_row(anchor, target, op.new_row, op.height_permille, op.new_pane, events);
+    state.open_rows(anchor, op.base_column, op.base_row, events)?;
+    state.insert_row(anchor, target, op.new_row, op.height_permille, op.new_pane, events)?;
     state.move_tab(op.tab, source, op.new_pane, 0, events)?;
     Ok(())
 }

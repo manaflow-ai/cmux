@@ -729,8 +729,8 @@ impl LayoutState {
         None
     }
 
-    fn screen_mut(&mut self, slot: Slot) -> &mut Screen {
-        &mut self.workspaces[slot.workspace].screens[slot.screen]
+    fn screen_mut(&mut self, slot: Slot) -> Option<&mut Screen> {
+        self.workspaces.get_mut(slot.workspace).and_then(|w| w.screens.get_mut(slot.screen))
     }
 
     /// Whether `id` names any pane, real column, screen, workspace or tab.
@@ -751,7 +751,7 @@ impl LayoutState {
 
     fn ensure_fresh(&self, ids: &[u64]) -> Result<(), Reject> {
         for (index, id) in ids.iter().enumerate() {
-            if self.id_in_use(*id) || ids[..index].contains(id) {
+            if self.id_in_use(*id) || ids.iter().take(index).any(|earlier| earlier == id) {
                 return Err(Reject::IdInUse(*id));
             }
         }
@@ -784,7 +784,8 @@ fn apply_kind(
         LayoutOpKind::MoveTabToSplit { tab, pane, edge, new_pane, respawn } => {
             let source = state.pane_of(*tab).ok_or(Reject::UnknownTab(*tab))?;
             let slot = state.require_pane(*pane)?;
-            let only = source == *pane && state.panes[&source].len() == 1;
+            let only = source == *pane
+                && state.panes.get(&source).ok_or(Reject::UnknownPane(source))?.len() == 1;
             match respawn {
                 None if only => return Err(Reject::OnlyTabSplitOutOfOwnPane),
                 None => state.ensure_fresh(&[*new_pane])?,
@@ -801,10 +802,11 @@ fn apply_kind(
                     events.push(LayoutEvent::TabCreated { tab: respawn.tab, pane: source });
                 }
             }
-            let screen = state.screen_mut(slot);
+            let screen = state.screen_mut(slot).ok_or(Reject::UnknownPane(*pane))?;
             let at = if edge.before() { slot.pane } else { slot.pane + 1 };
-            screen.columns[slot.column].note_inserted(slot.pane);
-            screen.columns[slot.column].panes.insert(at, *new_pane);
+            let column = screen.columns.get_mut(slot.column).ok_or(Reject::UnknownPane(*pane))?;
+            column.note_inserted(slot.pane);
+            column.panes.insert(at, *new_pane);
             let screen_id = screen.id;
             state.insert_pane(*new_pane);
             events.push(LayoutEvent::PaneCreated { pane: *new_pane, screen: screen_id });
@@ -824,10 +826,16 @@ fn apply_kind(
             }
             let source = state.pane_of(*tab).ok_or(Reject::UnknownTab(*tab))?;
             let slot = state.require_pane(*anchor)?;
-            if source == *anchor && state.panes[&source].len() == 1 {
+            if source == *anchor
+                && state.panes.get(&source).ok_or(Reject::UnknownPane(source))?.len() == 1
+            {
                 return Err(Reject::OnlyTabSplitOutOfOwnPane);
             }
-            let screen = &state.workspaces[slot.workspace].screens[slot.screen];
+            let screen = state
+                .workspaces
+                .get(slot.workspace)
+                .and_then(|w| w.screens.get(slot.screen))
+                .ok_or(Reject::UnknownPane(*anchor))?;
             let position = match after_column {
                 Some(column) if screen.columns_active => {
                     screen
@@ -845,10 +853,10 @@ fn apply_kind(
             } else {
                 state.ensure_fresh(&[*new_pane, *new_column, *base_column])?;
             }
-            let screen = state.screen_mut(slot);
+            let screen = state.screen_mut(slot).ok_or(Reject::UnknownPane(*anchor))?;
             if !screen.columns_active {
                 screen.columns_active = true;
-                screen.columns[0].id = *base_column;
+                screen.columns.first_mut().ok_or(Reject::UnknownPane(*anchor))?.id = *base_column;
                 events.push(LayoutEvent::ColumnCreated { column: *base_column, screen: screen.id });
             }
             screen.columns.insert(position, Column::single(*new_column, vec![*new_pane]));
@@ -891,14 +899,21 @@ fn apply_kind(
             if source_workspace == Some(target) {
                 return Ok(());
             }
-            if !state.workspaces[target].screens.is_empty() {
+            if !state
+                .workspaces
+                .get(target)
+                .ok_or(Reject::UnknownWorkspace(*workspace))?
+                .screens
+                .is_empty()
+            {
                 let destination = pane
                     .filter(|pane| {
                         state.panes.contains_key(pane)
                             && state.slot(*pane).is_some_and(|slot| slot.workspace == target)
                     })
                     .ok_or(Reject::PaneNotInWorkspace { pane: *pane, workspace: *workspace })?;
-                let end = state.panes[&destination].len();
+                let end =
+                    state.panes.get(&destination).ok_or(Reject::UnknownPane(destination))?.len();
                 state.move_tab(*tab, source, destination, end, events)?;
             } else {
                 state.ensure_fresh(&[*new_screen, *new_pane])?;
@@ -908,7 +923,12 @@ fn apply_kind(
                     .iter()
                     .position(|candidate| candidate.id == *workspace)
                     .ok_or(Reject::UnknownWorkspace(*workspace))?;
-                state.workspaces[target].screens.push(single_pane_screen(*new_screen, *new_pane));
+                state
+                    .workspaces
+                    .get_mut(target)
+                    .ok_or(Reject::UnknownWorkspace(*workspace))?
+                    .screens
+                    .push(single_pane_screen(*new_screen, *new_pane));
                 state.panes.insert(*new_pane, vec![*tab]);
                 events.push(LayoutEvent::ScreenCreated {
                     screen: *new_screen,
