@@ -155,7 +155,7 @@ fn run_one(
         Ok((input, tempfile::tempfile()?, tempfile::tempfile()?))
     })();
     let Ok((input, mut out, mut err)) = files else { return Ran::default() };
-    let mut cmd = std::process::Command::new(&rule.argv[0]);
+    let mut cmd = cmux_process::Command::new(&rule.argv[0]);
     cmd.args(&rule.argv[1..]);
     for name in &rule.env {
         match env.get(name) {
@@ -170,11 +170,11 @@ fn run_one(
     }
     let (Ok(o), Ok(e)) = (out.try_clone(), err.try_clone()) else { return Ran::default() };
     cmd.stdin(input).stdout(o).stderr(e);
-    #[cfg(unix)]
-    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
+    cmd.process_group(0);
+    reap_lingering();
     let Ok(mut child) = cmd.spawn() else { return Ran::default() };
     let left = rule.timeout.saturating_sub(started.elapsed()).max(Duration::from_millis(10));
-    let status = wait_timeout::ChildExt::wait_timeout(&mut child, left).ok().flatten();
+    let status = child.wait_timeout(left).ok().flatten();
     let Some(status) = status else {
         if rule.kill {
             #[cfg(unix)]
@@ -182,11 +182,13 @@ fn run_one(
             unsafe {
                 libc::kill(-(child.id() as i32), libc::SIGKILL);
             }
-            #[cfg(not(unix))]
-            let _ = child.kill();
+            // The drop ends what is left of its group and reaps it.
+            drop(child);
+        } else {
+            // The answer goes on without it; it runs on, and the next rule's run reaps it.
+            child.detach("a hook rule without `kill` runs on past its timeout");
+            LINGERING.lock().unwrap_or_else(|e| e.into_inner()).push(child);
         }
-        // Reaped when it ends; the answer goes on without it.
-        std::thread::spawn(move || child.wait());
         return Ran::default();
     };
     let read = |f: &mut std::fs::File| {
@@ -196,6 +198,15 @@ fn run_one(
         s
     };
     Ran { code: status.code(), stdout: read(&mut out), stderr: read(&mut err) }
+}
+
+/// Commands past their timeout that run on (`kill` false), held until they end.
+static LINGERING: Mutex<Vec<cmux_process::Child>> = Mutex::new(Vec::new());
+
+/// Reap every lingering command that has ended; the rest stay held.
+fn reap_lingering() {
+    let mut held = LINGERING.lock().unwrap_or_else(|e| e.into_inner());
+    held.retain_mut(|c| matches!(c.try_wait(), Ok(None)));
 }
 
 /// The client's own answer when the daemon cannot be reached: the same rules, run here.
@@ -232,10 +243,11 @@ pub async fn serve(home: PathBuf) {
     tracing::info!("hook host: listening on {}", config.listen);
     let throttle = Arc::new(Mutex::new(Throttle::default()));
     let token = Arc::new(token);
+    let connections = cmux_scope::Scope::new("hook host");
     loop {
         let Ok((stream, _)) = listener.accept().await else { continue };
         let (rules, throttle, token) = (rules.clone(), throttle.clone(), token.clone());
-        tokio::spawn(async move {
+        connections.spawn_named("hook-host connection", async move {
             let _ = connection(stream, rules, throttle, token).await;
         });
     }
