@@ -1889,8 +1889,8 @@ CMUX_INSTANT_SKIP_TYPECHECK=1 bun run test:instant
 [step.react-apps-check]
 job = "web-browser"
 timeout = 1800
-# Its verdict follows the head's labels, sha and base, not only its tree.
-reuse = false
+# Its verdict follows the head's base and labels too: pr_receipt.py's key pins the paths the merge changes against
+# the base, and a full-ci run never takes a receipt.
 title = "React apps check"
 about = "webviews' source checks, bundles, PR-scoped rules and touched tests, judged against the base"
 needs = ["bun", "node"]
