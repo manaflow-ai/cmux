@@ -18,7 +18,7 @@ import CmuxNextWindowRules
 enum RemoteHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         // A joined machine's menu rows (machines joined through the hub): Check, Rotate Credential, Revoke….
-        MachineSectionHostView.bindJoinedActions(into: registry, context: context)
+        MachineRowActions.bindJoinedActions(into: registry, context: context)
         // Storage on This Mac: the disk, what worktree cleanup could free and Clean up now, over this app's acpmux.
         MachineStoragePopover(source: { [weak services = context.services] in
             guard let services, let acpmux = QuitAgents.environment(services) else { return nil }
