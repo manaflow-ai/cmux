@@ -100,6 +100,29 @@ fn hours(table: [u64; 3], pressure: Pressure) -> u64 {
     table[pressure as usize] * HOUR_MS
 }
 
+/// The managed checkout a PR-archived chat can reopen from a manifest.
+/// A different branch, HEAD, or repository at the old path belongs to somebody else.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ArchivedCheckout {
+    pub root: PathBuf,
+    pub common_dir: PathBuf,
+    pub branch: String,
+    pub head: String,
+}
+
+impl ArchivedCheckout {
+    fn reclaimable(&self, tree: &Worktree, facts: &crate::Facts) -> bool {
+        tree.path == self.root
+            && tree.branch.as_ref() == Some(&self.branch)
+            && tree.head.as_ref() == Some(&self.head)
+            && facts.git_dir.parent() == Some(self.common_dir.join("worktrees").as_path())
+            && facts.is_clean_and_pushed()
+            && facts.unarchivable.is_none()
+            && facts.build_output.is_empty()
+            && facts.submodules.is_empty()
+    }
+}
+
 /// An agent session and the folder it works in.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -108,6 +131,8 @@ pub struct Session {
     pub cwd: PathBuf,
     /// Not closed: it may run again in its folder.
     pub open: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archived_checkout: Option<ArchivedCheckout>,
     /// Milliseconds since the epoch of its last change.
     pub updated_ms: u64,
     /// Every id it goes by (acpmux's, its harness's), which a worktree's
@@ -125,6 +150,8 @@ pub enum Action {
     Trim,
     /// Its folder goes: nothing lives only there (the manifest is kept).
     Reclaim,
+    /// The active path is released by moving the complete linked checkout into the archive store.
+    Park,
     /// Its work goes into an archive, then its folder goes.
     Archive,
 }
@@ -167,12 +194,21 @@ pub fn decide(
     }
     // Sessions first, open or closed: a closed one's last change is use.
     let mut last_use = facts.last_activity_ms;
+    let mut pr_archived = false;
     for session in sessions.iter().filter(|s| inside(&s.cwd, &worktree.path)) {
         let stale = settings.headless
             && now_ms.saturating_sub(session.updated_ms.max(facts.last_activity_ms))
                 >= hours(settings.recent_hours, pressure);
         if session.open && !stale {
-            return verdict(Keep, format!("session {} is open in it", session.name));
+            if pr_archived
+                || !session
+                    .archived_checkout
+                    .as_ref()
+                    .is_some_and(|c| c.reclaimable(worktree, facts))
+            {
+                return verdict(Keep, format!("session {} is open in it", session.name));
+            }
+            pr_archived = true;
         }
         last_use = last_use.max(session.updated_ms);
     }
@@ -221,6 +257,9 @@ pub fn decide(
     }
     if idle < hours(settings.recent_hours, pressure) {
         return verdict(Keep, format!("used {} min ago", idle / 60_000));
+    }
+    if pr_archived {
+        return verdict(Park, format!("pull requests finished; idle {idle_hours} h"));
     }
     let only_here = !facts.is_clean_and_pushed();
     // Finished work (its PR merged or squashed in) needs no long wait.

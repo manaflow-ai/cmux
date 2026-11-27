@@ -395,6 +395,14 @@ if [[ "$mode" == clippy-changed ]]; then
     finish
   fi
   export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC="" CMUX_GHOSTTY_VT_ZIG_CPU=baseline
+  # No incremental compile, as cmux-tui-rust-check.sh's channel roll (#56014). sccache 0.17 refuses every
+  # incremental unit, so each workspace crate was checked from nothing in both clippy runs: on 2026-11-26 the step
+  # logged "680 hits, 2 misses, 916 not cacheable (incremental workspace crates, ...)", and of 38 sampled pool steps
+  # 25 began with a just-created slot (2.1 GiB kept: a fresh worker has no warm target to be incremental against),
+  # 5.3 min mean in clippy and 3.1 in the ratchet of a 15 min step. Without it a workspace crate this change does not
+  # reach comes from the shared cache, as the registry crates already do; the lint flags, targets and verdict are the
+  # same. head-check sets it too: the two share this target, and a different setting would recheck it all.
+  export CARGO_INCREMENTAL=0
   step "clippy-changed self-test" python3 .github/scripts/test_cmux_tui_clippy_changed.py
   tools="$(mktemp -d)"
   cp .github/scripts/cmux-tui-clippy-changed.py .github/scripts/cmux-tui-fmt-changed.py "$tools/"
@@ -444,7 +452,8 @@ if [[ "$mode" == head-check ]]; then
   # cmux-app-ffi Cargo.lock, each green on its own base). Setup failures are no verdict (3), never a red head.
   base="$(required_base "$workspace")" || exit 3
   echo "base: $base"
-  export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC="" CMUX_GHOSTTY_VT_ZIG_CPU=baseline
+  # Not incremental, as clippy-changed (whose warm target this shares): sccache serves the unchanged crates.
+  export GHOSTTY_ZIG_SOURCE=ghostty-next CMUX_GHOSTTY_SRC="" CMUX_GHOSTTY_VT_ZIG_CPU=baseline CARGO_INCREMENTAL=0
   ghostty_next || exit 3
   if ! command -v zig >/dev/null 2>&1; then ./scripts/install-zig-ci.sh || exit 3; fi
   use_pinned_cargo "$root/cmux-tui" || exit 3

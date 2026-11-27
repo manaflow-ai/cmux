@@ -33,7 +33,9 @@
 
 use super::*;
 
+mod pr_archive;
 pub(in crate::hub) mod revive;
+pub(in crate::hub) mod scratch;
 
 /// The refusal of a prompt for session `name` whose folder `cwd` is gone: `session.folder_missing`,
 /// naming the folder in its message and data. Retryable: a folder can come back (put back
@@ -116,7 +118,7 @@ use std::time::Duration;
 use cmux_worktree_care::Store as ArchiveStore;
 use cmux_worktree_care::care;
 use cmux_worktree_care::inventory::now_ms;
-use cmux_worktree_care::policy::{self as care_policy, Settings as CareSettings};
+use cmux_worktree_care::policy::Settings as CareSettings;
 use cmux_worktree_care::schedule::{self, Claim, Refused};
 
 const MINUTE_MS: u64 = 60 * 1000;
@@ -210,6 +212,10 @@ impl Hub {
             SessionStatus::Closed => "session_close",
             _ => return,
         };
+        self.care_wake(why);
+    }
+
+    pub(super) fn care_wake(&self, why: &'static str) {
         *CARE.why.lock().unwrap_or_else(|e| e.into_inner()) = why;
         CARE.wake.notify_one();
     }
@@ -246,7 +252,7 @@ impl Hub {
         })
     }
 
-    async fn care_if_due(&self, why: &'static str) {
+    async fn care_if_due(self: &Arc<Self>, why: &'static str) {
         let Some(_running) = Running::claim(&CARE.running) else { return };
         let claim = tokio::task::spawn_blocking(move || {
             if !auto_cleanup_enabled() {
@@ -328,19 +334,26 @@ impl Hub {
     /// Runs one pass; the caller holds `running` and the machine's `claim`,
     /// which ends with the pass.
     async fn care_run(
-        &self,
+        self: &Arc<Self>,
         claim: Claim,
         apply: bool,
         only: Vec<PathBuf>,
         look: Option<care::Look>,
     ) -> Result<Value, RpcError> {
         let home = dirs::home_dir().ok_or_else(|| RpcError::internal("no home folder"))?;
-        let live = self.care_sessions();
+        let hub = Arc::clone(self);
         let daemon_home = crate::config::home();
         let only_given = !only.is_empty();
         let report = tokio::task::spawn_blocking(move || {
+            let managed = pr_archive::managed_root(&home);
+            let rules = super::auto_settle::read_rules();
+            let live = hub.care_sessions(managed.as_deref(), &rules);
+            let released: std::collections::HashMap<_, _> = live
+                .iter()
+                .filter_map(|s| s.archived_checkout.as_ref().map(|c| (c.root.clone(), c.clone())))
+                .collect();
             let store = archive_store()?;
-            let config = crate::care_machine::config(
+            let mut config = crate::care_machine::config(
                 &home,
                 store,
                 live,
@@ -358,6 +371,19 @@ impl Hub {
                     pressure: None,
                 },
             );
+            // A PR-archived checkout moves whole: its tree, not its top level, is checked
+            // open, and the archive is rechecked right before it goes.
+            config.pass.open = Arc::new({
+                let home = home.clone();
+                move |root| {
+                    if let Some(expected) = released.get(root) {
+                        let open = cmux_worktree_care::procs::open_tree(root)?;
+                        hub.recheck_pr_archive(expected, &home, managed.as_deref())?;
+                        return Ok(open);
+                    }
+                    cmux_worktree_care::procs::open_inside(root)
+                }
+            });
             let caches_on = config.clean_caches;
             let report = care::run(&config, look.as_ref());
             if let Err(error) = claim.finish(now_ms()) {
@@ -424,28 +450,6 @@ impl Hub {
         CARE.last_report.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
-    /// This daemon's sessions, as cleanup sees them.
-    fn care_sessions(&self) -> Vec<care_policy::Session> {
-        let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
-        sessions
-            .values()
-            .map(|session| {
-                let meta = session.meta();
-                care_policy::Session {
-                    name: meta.name.clone(),
-                    cwd: meta.cwd.clone(),
-                    open: meta.status != SessionStatus::Closed,
-                    updated_ms: meta.updated_at,
-                    ids: std::iter::once(&meta.id)
-                        .chain(meta.agent_session_id.as_ref())
-                        .chain(&meta.previous_agent_session_ids)
-                        .cloned()
-                        .collect(),
-                }
-            })
-            .collect()
-    }
-
     /// Before a session's harness starts: its folder back, when cleanup
     /// reclaimed the worktree it is in. Logged as `worktree_restored`, or
     /// `worktree_restore_failed` (the start goes on and reports the
@@ -490,6 +494,24 @@ impl Hub {
     /// file or directory`.
     async fn folder_ready(&self, session: &Arc<Session>) -> Result<(), RpcError> {
         let meta = session.meta();
+        // A proven peer's scratch folder in the temp dir, gone with it (a reboot): made again,
+        // so a restart's continuation of its cut turn runs (`worktree_care/scratch.rs`).
+        #[cfg(unix)]
+        if meta.worktree.is_none() && !meta.remote_origin {
+            let cwd = meta.cwd.clone();
+            let made =
+                tokio::task::spawn_blocking(move || scratch::revive_peer_scratch(&cwd)).await;
+            match made {
+                Ok(Ok(true)) => {
+                    gone::forget(&meta.cwd);
+                    self.append(session, "mux", "scratch_recreated", json!({"cwd": meta.cwd}));
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!(session = %session.id, cwd = %meta.cwd.display(), "peer scratch folder not made again: {e}")
+                }
+                _ => {}
+            }
+        }
         if tokio::fs::try_exists(&meta.cwd).await.unwrap_or(true) {
             gone::forget(&meta.cwd);
         } else if let Some(what) = gone::known(&meta.cwd, &meta.worktree) {

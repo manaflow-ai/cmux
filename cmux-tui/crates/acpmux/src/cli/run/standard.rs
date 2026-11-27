@@ -21,6 +21,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Search { .. }
             | Command::SessionSearch(..)
             | Command::TagCmd { .. }
+            | Command::UnsettleCmd { .. }
             | Command::Archive { .. }
             | Command::Unarchive { .. }
             | Command::RulesCmd { .. }
@@ -177,6 +178,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         Command::TagCmd { session, assignments, remove, ttl } => {
             orchestrate::tag(connect(true).await?, &session, assignments, remove, ttl, json_out)
                 .await
+        }
+        Command::UnsettleCmd { session } => {
+            orchestrate::unsettle(connect(true).await?, &session, json_out).await
         }
         Command::Archive { sessions } => {
             crate::cli::archive::run(connect(true).await?, sessions, true, json_out).await
@@ -437,9 +441,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             // A detached launch only queues its prompt, with --json too. Known
             // before the create (a prompt file or words make the first prompt).
+            // `--ephemeral` is never such a launch: a throwaway's session goes once its
+            // reply is printed, and a detached one had nothing left to purge it. `acpmux
+            // run` and `exec` detach, and a prompt file made that a launch, so the
+            // condition-trigger evaluator's `run --ephemeral --prompt-file -` (no
+            // `--wait`) left 138 of its decision chats on a lane VM (2026-11-26).
             let one_shot = launch.first_prompt(&args, &Value::Null).is_some()
                 && (args.quiet || json_out || args.ephemeral)
-                && !(args.detach && launch.launches());
+                && !(args.detach && launch.launches() && !args.ephemeral);
             // Checked before the session exists, so a bad value leaves none behind.
             let on_permission = OnPermission::parse(&args.on_permission)?;
             // A route check an agent runs from its shell ("Reply with only: OK",

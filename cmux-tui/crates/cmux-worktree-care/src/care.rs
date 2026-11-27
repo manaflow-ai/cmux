@@ -585,6 +585,7 @@ mod tests {
             name: "s".into(),
             cwd: repo.clone(),
             open: false,
+            archived_checkout: None,
             updated_ms: 0,
             ids: Vec::new(),
         }];
