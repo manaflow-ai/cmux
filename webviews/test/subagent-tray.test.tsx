@@ -2172,3 +2172,19 @@ describe("the summary header", () => {
     });
   }
 });
+
+// Nightly c6ff1246 read-back: the default line hat must show while only background commands run.
+test("the line hat names background commands running with no subagent", async () => {
+  pinFoldHead("line");
+  const items = trayItems([], [command("bg-1", { command: "sleep 300" })], NONE, true);
+  const shown = await render(
+    createElement(SubagentTray, { items, finished: [], working: true, waiting: new Set<string>(), onOpen: () => {} }),
+  );
+  try {
+    const tray = shown.root.querySelector(".acpmux-running-tray");
+    expect(tray).not.toBeNull();
+    expect(tray!.textContent ?? "").toMatch(/background command/);
+  } finally {
+    await shown.done();
+  }
+});
