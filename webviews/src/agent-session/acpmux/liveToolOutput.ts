@@ -388,7 +388,8 @@ export function redrawWhy(
   pending: boolean,
   blocked: boolean,
   drawn?: AcpmuxSnapshot,
-  asIs?: (row: AcpmuxRow) => boolean,
+  asIs?: (row: AcpmuxRow) => string,
+  thought?: (previous: AcpmuxSnapshot, next: AcpmuxSnapshot, index: number) => string,
 ): string {
   // Whether the pane's drawn snapshot is behind the received one (a bypass drew a record without it):
   // `same`, `drift-rows` (a row moved on through a row's store) or `drift-fields` (Session Info's).
@@ -419,13 +420,53 @@ export function redrawWhy(
   // An activity row: how many items it gained, and the kinds of its last item before and now. A reply:
   // whether the transcript drew it as the pane holds it (streamingRow.ts `drawsAsIs`).
   const items = (row: Record<string, unknown>) => (Array.isArray(row.items) ? (row.items as { kind?: unknown }[]) : []);
+  const lastWas = items(was).at(-1);
+  const lastNow = items(now).at(-1);
+  const declined =
+    lastWas?.kind === "thought" && lastNow?.kind === "thought" && thought
+      ? thought(received, next, index)
+      : lastNow?.kind === "tool"
+        ? toolDeclined(received.rows[index]!, next.rows[index]!)
+        : "";
   const detail =
     now.kind === "activity"
-      ? `:${items(now).length - items(was).length}:${String(items(was).at(-1)?.kind)}>${String(items(now).at(-1)?.kind)}`
+      ? `:${items(now).length - items(was).length}:${String(lastWas?.kind)}>${String(lastNow?.kind)}:${declined}`
       : now.kind === "assistant" && drawn && asIs
-        ? `:asIs=${String(drawn.rows[index] !== undefined && asIs(drawn.rows[index]!))}`
+        ? `:drawn=${drawn.rows[index] ? asIs(drawn.rows[index]!) : "none"},streaming=${String(now.streaming)}`
         : "";
   return `row${kind}:${String(now.kind)}:${moved}${detail}`;
+}
+
+/// Which of `toolOutputOnly`'s checks a one-row tool change failed (measuring only, `redrawWhy`).
+function toolDeclined(before: AcpmuxRow, after: AcpmuxRow): string {
+  if (!sameExcept(before, after, ROW_KEYS)) return "row-keys";
+  const was = before.items ?? [];
+  const now = after.items ?? [];
+  if (was.length !== now.length) return "count";
+  let changed = 0;
+  let reason = "none";
+  for (let index = 0; index < now.length; index += 1) {
+    const a = was[index]!;
+    const b = now[index]!;
+    if (a === b) continue;
+    changed += 1;
+    if (!a.tool || !b.tool) {
+      reason = `not-tool:${String(b.kind)}`;
+      continue;
+    }
+    if (!sameExcept(a, b, ITEM_KEYS)) {
+      reason = "item-keys";
+      continue;
+    }
+    const from = a.tool;
+    const to = b.tool;
+    const moved = [...new Set([...Object.keys(from), ...Object.keys(to)])]
+      .filter((key) => !Object.is((from as Record<string, unknown>)[key], (to as Record<string, unknown>)[key]))
+      .sort()
+      .join("+");
+    reason = `${String(to.kind)}/${String(from.status)}>${String(to.status)}/${moved}${from.output ? "" : "/no-output"}`;
+  }
+  return changed > 1 ? `items=${changed}` : reason;
 }
 
 function sameSettled(before: unknown, after: unknown): boolean {

@@ -154,6 +154,41 @@ export function thoughtOnly(
   return { id: now.id, before, after };
 }
 
+/// Which of `thoughtOnly`'s checks a one-row thought change failed, for the replay bench's redraw table
+/// (measuring only; liveToolOutput.ts `redrawWhy`).
+export function thoughtDeclined(previous: AcpmuxSnapshot, next: AcpmuxSnapshot, index: number): string {
+  const row = previous.rows[index];
+  const now = next.rows[index];
+  if (!sameButRows(previous, next)) return "fields";
+  if (!row || !now || row.id !== now.id) return "id";
+  if (now.streaming !== true) return `streaming=${String(now.streaming)}`;
+  if (!sameExcept(row, now, ROW_KEYS)) return "row-keys";
+  const was = row.items ?? [];
+  const items = now.items ?? [];
+  if (was.length !== items.length) return "count";
+  const last = items.length - 1;
+  for (let at = 0; at < last; at += 1) if (was[at] !== items[at]) return `earlier-item:${String(items[at]?.kind)}`;
+  const before = was[last]!;
+  const after = items[last]!;
+  if (!isThought(before) || !isThought(after) || before.tool || after.tool) return "not-thought";
+  if (!sameExcept(before, after, ITEM_KEYS)) return "item-keys";
+  if (!after.text.startsWith(before.text)) return "not-grown";
+  const drawnNow = drawnThought(now.id);
+  if (drawnNow === undefined)
+    return hiddenUnderFold(next.rows, index)
+      ? drewEmptyFold() && !isQuietThought(after)
+        ? "fold-unquiet"
+        : "took"
+      : "undrawn";
+  if (!sameThought(drawnNow, before))
+    return drawnNow.text === after.text
+      ? "drawn-ahead"
+      : after.text.startsWith(drawnNow.text)
+        ? "drawn-behind"
+        : "drawn-other";
+  return "took";
+}
+
 /// The thought the transcript drew for row `id`: the one in its rows, or the newer one this store
 /// gave that row since (a chunk after a chunk).
 function drawnThought(id: string): AcpmuxActivity | undefined {

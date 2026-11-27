@@ -55,6 +55,15 @@ export function drewStreamingRow(id: string | undefined, text: string | undefine
   drawn = id === undefined || text === undefined ? undefined : { id, text };
 }
 
+/// How the transcript's drawn reply stands to `row`, for the replay bench's redraw table (measuring only).
+export function drawnReplyState(row: AcpmuxRow): string {
+  if (!drawn) return "none";
+  if (drawn.id !== row.id) return "other-id";
+  const text = row.text ?? "";
+  if (drawn.text === text) return "as-is";
+  return text.startsWith(drawn.text) ? "behind" : drawn.text.startsWith(text) ? "ahead" : "shaped";
+}
+
 export function drawsAsIs(row: AcpmuxRow): boolean {
   return drawn !== undefined && drawn.id === row.id && drawn.text === row.text;
 }
