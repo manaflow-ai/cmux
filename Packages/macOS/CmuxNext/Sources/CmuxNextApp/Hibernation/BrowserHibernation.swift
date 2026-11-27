@@ -534,8 +534,10 @@ final class BrowserHibernation {
         replan()
     }
 
+    /// CEF reports an explicit loading-settled transition; WebKit keeps the pre-existing state check.
     private func isLoadingSettled(_ tab: any BrowserTab) -> Bool {
-        (tab as? CEFTab)?.isLoadingSettled ?? !tab.state.isLoading
+        guard let cef = tab as? CEFTab else { return !tab.state.isLoading }
+        return cef.isLoadingSettled
     }
 
     /// Freezes every hidden page past `freezeSeconds` and arms one deadline
