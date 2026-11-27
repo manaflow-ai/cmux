@@ -223,3 +223,55 @@ async fn a_websocket_to_an_unlisted_host_is_refused_before_connecting() {
     assert!(text.contains("refused-ws-test.org"), "{text}");
     assert!(ws::checked("ws://127.0.0.1:9/x", "cmux_egress::tests").is_ok());
 }
+
+/// NIGHTLY, DEV and staging bundles enforce; stable, rc and anything else keep the build default.
+#[test]
+fn a_bundle_id_names_its_build_channel_mode() {
+    for id in [
+        "com.cmuxterm.app.nightly",
+        "com.cmuxterm.app.nightly.cmux-next",
+        "com.cmuxterm.app.debug",
+        "com.cmuxterm.app.debug.my-tag",
+        "com.cmuxterm.app.staging",
+        "com.cmuxterm.app.staging.t1",
+        "com.cmuxterm.app.other",
+    ] {
+        assert_eq!(bundle_mode(id), Some(Mode::Enforce), "{id}");
+    }
+    for id in [
+        "com.cmuxterm.app",
+        "com.cmuxterm.app.rc",
+        "com.cmuxterm.app.rc.next",
+        "com.example.app",
+        "",
+        "com.cmuxterm.app.",
+    ] {
+        assert_eq!(bundle_mode(id), None, "{id}");
+    }
+}
+
+/// A binary in `Foo.app/Contents/Resources/bin` (directly or through a symlink) reads the app's bundle id.
+#[test]
+fn a_bundled_binary_reads_its_app_bundle_id() {
+    let root = std::env::temp_dir().join(format!("cmux-egress-bundle-{}", std::process::id()));
+    let bin = root.join("cmux NIGHTLY.app/Contents/Resources/bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::write(
+        root.join("cmux NIGHTLY.app/Contents/Info.plist"),
+        "<plist><dict>\n\t<key>CFBundleName</key>\n\t<string>cmux</string>\n\t<key>CFBundleIdentifier</key>\n\t<string>com.cmuxterm.app.nightly</string>\n</dict></plist>",
+    )
+    .unwrap();
+    let exe = bin.join("cmux");
+    std::fs::write(&exe, "").unwrap();
+    assert_eq!(bundle_id_of_exe(&exe).as_deref(), Some("com.cmuxterm.app.nightly"));
+    #[cfg(unix)]
+    {
+        let link = root.join("cmux-link");
+        std::os::unix::fs::symlink(&exe, &link).unwrap();
+        assert_eq!(bundle_id_of_exe(&link).as_deref(), Some("com.cmuxterm.app.nightly"));
+    }
+    let loose = root.join("loose-cmux");
+    std::fs::write(&loose, "").unwrap();
+    assert_eq!(bundle_id_of_exe(&loose), None);
+    std::fs::remove_dir_all(&root).unwrap();
+}

@@ -25,8 +25,9 @@
 //!
 //! [`Mode::Enforce`] refuses the rest; [`Mode::Log`] only reports it. The mode
 //! is `CMUX_EGRESS` (`enforce`, `log` or `off`) when set, else enforce in a
-//! debug build and log in a release build; the app sets `CMUX_EGRESS=enforce`
-//! for nightly. Every refusal (or would-be refusal) prints one
+//! debug build and in a binary inside a NIGHTLY, DEV or staging app bundle
+//! ([`bundle_mode`]), else log; the app also sets `CMUX_EGRESS=enforce` for
+//! the children it starts in those builds. Every refusal (or would-be refusal) prints one
 //! `egress.unlisted host=H site=S mode=M` line to stderr and is kept in
 //! [`unlisted`] for diagnostics.
 //!
@@ -99,7 +100,44 @@ impl Mode {
     }
 }
 
-const DEFAULT_MODE: Mode = if cfg!(debug_assertions) { Mode::Enforce } else { Mode::Log };
+/// The mode when nothing set one: enforce in a debug build; in a release build, the mode of the
+/// app bundle this binary sits in ([`bundle_mode`] of [`bundle_id_of_exe`]), else log. A NIGHTLY's
+/// bundled `cmux` started from a shell outside cmux (no `CMUX_EGRESS` inherited) still enforces.
+fn default_mode() -> Mode {
+    if cfg!(debug_assertions) {
+        return Mode::Enforce;
+    }
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| bundle_id_of_exe(&exe))
+        .and_then(|id| bundle_mode(&id))
+        .unwrap_or(Mode::Log)
+}
+
+/// The mode a macOS app's bundle id names, by the app's build kinds (BuildIdentity.Kind):
+/// NIGHTLY (`com.cmuxterm.app.nightly[.x]`), DEV (`com.cmuxterm.app.debug[.tag]` or any other
+/// `com.cmuxterm.app.x`) and staging (`com.cmuxterm.app.staging[.tag]`) enforce; stable
+/// (`com.cmuxterm.app`), rc (`com.cmuxterm.app.rc[.x]`) and any other bundle keep the default (None).
+pub fn bundle_mode(bundle_id: &str) -> Option<Mode> {
+    let id = bundle_id.trim();
+    let rest = id.strip_prefix("com.cmuxterm.app.")?;
+    if rest.is_empty() || rest == "rc" || rest.starts_with("rc.") {
+        return None;
+    }
+    Some(Mode::Enforce)
+}
+
+/// The `CFBundleIdentifier` of the nearest `*.app` bundle holding `exe` (symlinks resolved, so
+/// `/usr/local/bin/cmux` names the app it points into), from its XML `Contents/Info.plist`.
+/// None outside a bundle or for a plist that is not XML.
+pub fn bundle_id_of_exe(exe: &std::path::Path) -> Option<String> {
+    let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
+    let app = exe.ancestors().find(|dir| dir.extension().is_some_and(|ext| ext == "app"))?;
+    let plist = std::fs::read_to_string(app.join("Contents/Info.plist")).ok()?;
+    let after = plist.split_once("<key>CFBundleIdentifier</key>")?.1.trim_start();
+    let value = after.strip_prefix("<string>")?.split_once("</string>")?.0.trim();
+    (!value.is_empty()).then(|| value.to_owned())
+}
 
 static MODE: AtomicU8 = AtomicU8::new(0);
 
@@ -114,7 +152,7 @@ pub fn mode() -> Mode {
                 .ok()
                 .as_deref()
                 .and_then(Mode::parse)
-                .unwrap_or(DEFAULT_MODE);
+                .unwrap_or_else(default_mode);
             MODE.store(mode.code(), Ordering::Relaxed);
             mode
         }

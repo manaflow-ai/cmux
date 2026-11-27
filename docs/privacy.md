@@ -62,7 +62,7 @@ The host list below is checked in CI (`tests/test_outbound_hosts.py`) and at run
 HTTP clients through one egress gate (`cmux-tui/crates/cmux-egress`), whose resolver checks each host before it is
 looked up; the Mac and iPhone apps' Swift makes its sessions, WebSockets and network connections through the same
 gate's Swift side (`Packages/Shared/CmuxEgress`): in dev and nightly builds a host with no `connects` row is refused and logged (`egress.unlisted host=...
-site=...`); a release build logs it. `CMUX_EGRESS=enforce|log|off` overrides the mode. Hosts you configure yourself
+site=...`); a stable or rc build logs it. A Rust binary shipped inside a dev or nightly app enforces even when started outside the app. `CMUX_EGRESS=enforce|log|off` overrides the mode. Hosts you configure yourself
 (a self-hosted server, an API endpoint, an SSH or git host) pass because you named them; loopback, IP addresses and
 reserved names, single-label names and private-network names (`.ts.net`, `.internal`, `.lan`) pass. The gate's
 allowlist, `cmux-tui/crates/cmux-egress/hosts.txt`, is the one source: it records each host with what the app sends
