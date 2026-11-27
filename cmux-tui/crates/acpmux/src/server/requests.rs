@@ -4625,6 +4625,8 @@ async fn dispatch_request_with_identity(
             hub.handoff_start(&params, control, sender).await
         }
         method::MUX_HANDOFF_DISCARD => heap(|| hub.handoff_discard(&params)).await,
+        // A session move's wait handoff (`bg_rearm.rs`): the person's, here or from a peer.
+        method::MUX_BG_REARM => super::bg_rearm::handle(hub, conn, &params).await,
         // Anything else that names a session goes to the agent untouched, from the unix
         // socket (the app: only a subagent stop); it may spawn or read (`remote_guard.rs`).
         other => {
