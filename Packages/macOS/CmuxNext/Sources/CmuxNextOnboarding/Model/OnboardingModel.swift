@@ -27,6 +27,10 @@ public final class OnboardingModel {
     @ObservationIgnored public let services: any OnboardingServices
     /// Set once the window ended, so a second close does not report twice.
     public private(set) var ended = false
+    /// Make cmux Yours' bundle for this install, read when the step first shows (nil: no split source).
+    public private(set) var walkBundle: String?
+    /// The walk's screen index the page last reported (`screen` on its next or skip); logged with the end.
+    public var walkScreen = 0
     /// The window asks to close (the controller observes this).
     public var onEnd: ((Bool) -> Void)?
 
@@ -140,8 +144,23 @@ public final class OnboardingModel {
         case .importData: importer.detect()
         case .computerUse: computerUse.start()
         case .agents: agents.start()
-        case .makeItYours: makeItYours.start()
+        case .makeItYours:
+            makeItYours.start()
+            recordWalkStart()
         }
+    }
+
+    /// The walk's start, once per window, against this install's bundle.
+    private func recordWalkStart() {
+        guard walkBundle == nil, let split = services.introWalkSplit, let bundle = split.bundle() else { return }
+        walkBundle = bundle
+        split.record(bundle: bundle, ending: .started, screen: walkScreen)
+    }
+
+    /// The walk's end: Continue is completed; Skip, the close button and quit are skipped.
+    private func recordWalkEnd(completed: Bool) {
+        guard step == .makeItYours, let bundle = walkBundle else { return }
+        services.introWalkSplit?.record(bundle: bundle, ending: completed ? .completed : .skipped, screen: walkScreen)
     }
 
     /// The window became key: back from an agent's sign-in, the Agents step reads again.
@@ -154,6 +173,7 @@ public final class OnboardingModel {
     public func leave() {
         guard !ended else { return }
         ended = true
+        recordWalkEnd(completed: false)
         computerUse.stop()
         importer.stopDetecting()
         agents.stop()
@@ -163,6 +183,7 @@ public final class OnboardingModel {
     public func finish(completed: Bool) {
         guard !ended else { return }
         ended = true
+        recordWalkEnd(completed: completed)
         computerUse.stop()
         importer.stopDetecting()
         agents.stop()
