@@ -428,7 +428,7 @@
         ]
       },
       "ios-placeholder-bounds": {
-        "why": "runs on every pull request on purpose: land-judge's required list is to name its check run, so it records a pass on every head; seconds of stdlib Python",
+        "why": "its check run reports on every head for land-judge's required list: it runs when the diff reaches its suggested_inputs (or this workflow), read by workflow-start-lint's route step, and reports skipped (a pass) otherwise; seconds of stdlib Python",
         "suggested_inputs": [
           "cmux-next-ios/",
           "scripts/ci/ios_placeholder_bounds.py",
