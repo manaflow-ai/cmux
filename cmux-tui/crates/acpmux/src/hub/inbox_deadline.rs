@@ -42,7 +42,9 @@ pub(in crate::hub) fn review_after_restore(session: &Session) {
     }
     let Some(hub) = session.hub_ref.get().and_then(Weak::upgrade) else { return };
     let id = session.id.clone();
-    tokio::spawn(async move {
+    let weak = Arc::downgrade(&hub);
+    hub.scope.spawn_until_cancelled("inbox review after restore", async move {
+        let Some(hub) = weak.upgrade() else { return };
         if let Some(session) = hub.session_get(&id) {
             hub.inbox_review(&session);
         }

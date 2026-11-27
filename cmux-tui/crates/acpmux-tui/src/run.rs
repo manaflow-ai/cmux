@@ -240,6 +240,7 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
             _ = tokio::time::sleep_until(settle) => break,
         }
     }
+    app.scope.close(std::time::Duration::from_secs(1)).await;
     app.set_pointer(false);
     let _ = crossterm::execute!(
         std::io::stdout(),
@@ -282,6 +283,7 @@ pub(super) fn make_app(
     let keymap = keymap::Keymap::new(&tui)?;
     let palette_aliases = tui.palette_aliases.clone();
     Ok(App {
+        scope: cmux_scope::Scope::new("acpmux terminal UI"),
         client: client.clone(),
         tx: tx.clone(),
         sessions,
