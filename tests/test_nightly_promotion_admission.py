@@ -1002,7 +1002,8 @@ def test_non_macos_nightly_next_orchestration_uses_the_trusted_fast_check_fallba
         assert "blacksmith-2vcpu-ubuntu-2404" in runner, name
         assert runner != "ubuntu-24.04", name
     probe = yaml.safe_load((ROOT / ".github/workflows/nightly-tag-permission-probe.yml").read_text())
-    assert "blacksmith-2vcpu-ubuntu-2404" in str(probe["jobs"]["probe"]["runs-on"])
+    # The probe holds a write token, so it runs on the secret JIT label.
+    assert "cmux-gcp-secret-jit-x64" in str(probe["jobs"]["probe"]["runs-on"])
     for workflow in ("nightly-next-tick.yml", "nightly-next-feed-watch.yml"):
         document = yaml.safe_load((ROOT / ".github/workflows" / workflow).read_text())
         for name, job in document["jobs"].items():

@@ -28,7 +28,7 @@ jobs:
       matrix:
         agent: [claude, codex]
     # It holds the cmux-bot App key, so LINUX_RUNNER may only pick a Blacksmith label from this list.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-secret-jit-x64' }}
     permissions:
       actions: write
       contents: read
@@ -90,7 +90,8 @@ jobs:
         with:
           github-token: ${{ steps.cmux-bot-token.outputs.token || github.token }}
           script: |
-            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core });
+            // Reads fall over to github.token's budget when the cmux-bot installation's is spent (run 45848953731).
+            if (process.env.GH_BUDGET_WAIT_JS) require(process.env.GH_BUDGET_WAIT_JS).install({ github, core, spare: process.env.FALLBACK_TOKEN ? getOctokit(process.env.FALLBACK_TOKEN) : undefined });
             const { owner, repo } = context.repo;
             const agent = process.env.AGENT;
             // GITHUB_RUN_ATTEMPT, not context: a rerun must never find the run an earlier attempt started.

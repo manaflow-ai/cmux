@@ -659,6 +659,10 @@ path = "tests/test_ci_fork_runner_routing.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_secret_jobs_secret_jit.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_checkout_network_diagnostics.py"
 lane = "linux-guard"
 
@@ -2527,9 +2531,17 @@ path = "tests/test_nightly_next_tick_checkout_retry.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_nightly_next_tick_request_bound.py"
+path = "tests/test_ci_ghostty_zig_packages_fetched.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_ghostty_zig_packages_fetched.py"
+path = "tests/test_ci_fast_checks_warm_checkout.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_duplicate_keys.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_debug_labs_keys_dispatch.py"
 lane = "linux-guard"

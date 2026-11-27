@@ -613,6 +613,7 @@ _GATEWAY_ONLY = (
     "feat-cmux-next only; its job runs on the frozen glaeda gateway label (cmux#54437: CI_COMPILE_CHECK_GATEWAY or CI_EVAL_STEP_GATEWAY written out as 'glaeda-gateway-xcode-26.6'), a thin cmux-ci client the gateway hook admits by job name (glaeda-cmux-runner-hook GATEWAY_JOBS) and no other runner may take, so no move off it exists: a person re-runs it"
 )
 UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/cmux-next-fast-tier-batch.yml": _GATEWAY_ONLY,  # swift-fleet, only when the public route cannot serve
     ".github/workflows/cmux-next-head-compile.yml": _GATEWAY_ONLY,
     ".github/workflows/cmux-next-ios-energy-nightly.yml": _GATEWAY_ONLY,
     ".github/workflows/cmux-next-ios-keyboard-motion.yml": _GATEWAY_ONLY,
