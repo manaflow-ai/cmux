@@ -27,12 +27,16 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
+import tempfile
 
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
 SCALE = "schemas/design-scale/design-scale.json"
 TABLE = "schemas/design-scale/swift-parity.json"
 TOKENS_FILE = "CmuxNextDesignTokens/DesignTokens.swift"
+GENERATOR = "scripts/cmux-next/gen-design-scale-swift.py"
+GENERATED_FILE = "DesignScale.generated.swift"
 NUMBER = r"-?\d+(?:\.\d+)?"
 MODIFIERS = r"(?:(?:@\w+|public|internal|private|fileprivate|nonisolated|static|final)\s+)*"
 DECLARATION = r"^[ \t]*" + MODIFIERS + r"(?:let|var)\s+{name}\s*(?::\s*[\w.]+\s*)?=\s*(?P<value>[^\n]+?)\s*(?://[^\n]*)?$"
@@ -112,7 +116,42 @@ def swift_value(root: str, swift_root: str, symbol: str, depth: int = 0) -> floa
     alias = re.fullmatch(r"DesignTokens\.(\w+)", value)
     if alias and depth < 3:
         return swift_value(root, swift_root, f"{TOKENS_FILE}:{alias.group(1)}", depth + 1)
-    raise Unreadable(f"{symbol}: `{value}` is not a literal or a DesignTokens alias")
+    generated = re.fullmatch(r"DesignScale\.(NativeOverride\.)?(\w+)", value)
+    if generated:
+        if generated.group(1):
+            OVERRIDDEN.add(symbol)
+        return design_scale_value(root, symbol, generated.group(2), bool(generated.group(1)))
+    raise Unreadable(f"{symbol}: `{value}` is not a literal, a DesignTokens alias or a DesignScale alias")
+
+
+_GENERATED: dict[str, str] = {}
+# Pairs whose Swift side is a DesignScale.NativeOverride: drift the generator records (NATIVE_OVERRIDES, with
+# its reason), so it counts as recorded drift here and needs no second entry in swift-parity.json.
+OVERRIDDEN: set[str] = set()
+
+
+def design_scale_value(root: str, symbol: str, name: str, override: bool = False) -> float:
+    """The number `DesignScale.NAME` holds. DesignScale is generated at build time from design-scale.json by
+    scripts/cmux-next/gen-design-scale-swift.py, so the checker runs that generator into a temp dir and reads it."""
+    if root not in _GENERATED:
+        with tempfile.TemporaryDirectory() as out:
+            subprocess.run([sys.executable, "-I", os.path.join(root, GENERATOR), "--swift-out", out],
+                           check=True, capture_output=True, cwd=root)
+            with open(os.path.join(out, GENERATED_FILE), encoding="utf-8") as handle:
+                _GENERATED[root] = strip_comments(handle.read())
+    code = _GENERATED[root]
+    block = re.search(r"enum NativeOverride\s*\{(?P<body>[^}]*)\}", code)
+    if override:
+        code = block.group("body") if block else ""
+    elif block:
+        code = code[:block.start()] + code[block.end():]
+    found = list(re.finditer(DECLARATION.format(name=re.escape(name)), code, re.M))
+    if len(found) != 1:
+        raise Unreadable(f"{symbol}: DesignScale.{name} has {len(found)} declarations in {GENERATED_FILE}")
+    value = found[0].group("value").strip()
+    if not re.fullmatch(NUMBER, value):
+        raise Unreadable(f"{symbol}: DesignScale.{name} is `{value}`, not a literal")
+    return float(value)
 
 
 def same(a: float, b: float) -> bool:
@@ -137,6 +176,7 @@ def check(root: str, table_path: str) -> tuple[list[str], str]:
             has_schema = True
         except KeyError:
             has_schema = False
+        OVERRIDDEN.clear()  # swift_value fills it when the alias chain ends in a NativeOverride
         try:
             got = swift_value(root, swift_root, symbol)
             has_swift = True
@@ -168,6 +208,8 @@ def check(root: str, table_path: str) -> tuple[list[str], str]:
             continue
         if same(want, got):
             equal += 1
+        elif OVERRIDDEN:
+            drifting += 1
         else:
             errors.append(f"differs: {label}: schema {want:g}, Swift {got:g}; change them together")
     for symbol in sorted(set(drift) - seen_drift):

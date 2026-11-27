@@ -77,7 +77,7 @@ nonisolated extension AcpmuxEnvironment {
         }
         let configured = customHome == nil ? nil : environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
         let socket = AcpmuxEnvironment.socketPath(configured: configured, home: home, uid: uid)
-        var childEnvironment = ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1",
+        var childEnvironment = ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket,
                                 "ACPMUX_SECRET_TOOLS": "1"]
         childEnvironment.merge(launchEnvironment) { _, new in new }
         for key in AcpmuxEnvironment.agentLaunchKeys + AcpmuxEnvironment.traceKeys {

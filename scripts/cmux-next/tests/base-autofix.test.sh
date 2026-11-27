@@ -184,14 +184,152 @@ grep -qx 'web/scripts/export-next-docs.ts --settings' "$tmp/bun-args" || fail "t
 pin="$tmp/pin"; pgen="$tmp/pin-generated"; mk=cmux-tui/crates/cmux-action-catalog/tests/awaiting-repin
 mkdir -p "$pin/plans/cmux-next" "$pin/$mk/actions" "$pin/$mk/removal" "$pgen/plans/cmux-next"
 for f in actions/landed actions/waiting actions/half removal/gone removal/kept; do echo '# note' > "$pin/$mk/$f"; done
+# fields/ markers: a pointer the regenerated export changed from the committed one is settled (taken out; the
+# file goes with its last), one it left alone or a /surfacePlan/ one stays.
+mkdir -p "$pin/$mk/fields"
+printf '# the dump has the old flag until the re-pin\n/focuses\n' > "$pin/$mk/fields/kept"
+printf '# note\n/focuses\n/title\n' > "$pin/$mk/fields/landed"
+printf '/surfacePlan/palette\n' > "$pin/$mk/fields/plan"
 echo '{"actions":[{"id":"kept"}]}' > "$pin/plans/cmux-next/action-surfaces.json"
-echo '{"actions":[{"id":"kept"}]}' > "$pin/plans/cmux-next/action-catalog.json"
+echo '{"actions":[{"id":"kept","focuses":false},{"id":"landed","focuses":false,"title":"A"},{"id":"plan","surfacePlan":{"palette":"x"}}]}' > "$pin/plans/cmux-next/action-catalog.json"
 echo '{"actions":[{"id":"landed"},{"id":"half"},{"id":"kept"}]}' > "$pgen/plans/cmux-next/action-surfaces.json"
-echo '{"actions":[{"id":"landed"},{"id":"kept"}]}' > "$pgen/plans/cmux-next/action-catalog.json"
+echo '{"actions":[{"id":"landed","focuses":true,"title":"A"},{"id":"kept","focuses":true},{"id":"plan","surfacePlan":{"palette":"y"}}]}' > "$pgen/plans/cmux-next/action-catalog.json"
 git -C "$pin" init -q && git -C "$pin" add -A && git -C "$pin" -c user.name=t -c user.email=t@t commit -qm fixture
 bash "$FIX" --no-fmt --generated "$pgen" "$pin" > "$tmp/out" 2>&1 || fail "the fixer must succeed on settled re-pin markers"
 [[ ! -e "$pin/$mk/actions/landed" ]] || fail "an actions marker both regenerated exports carry must be deleted"
 [[ ! -e "$pin/$mk/removal/gone" ]] || fail "a removal marker neither regenerated export has must be deleted"
 for f in actions/waiting actions/half removal/kept; do [[ -e "$pin/$mk/$f" ]] || fail "the unsettled marker $f must stay"; done
 grep -q "^fixed: deleted $mk/actions/landed" "$tmp/out" || fail "a deleted marker must be reported"
+[[ ! -e "$pin/$mk/fields/kept" ]] || fail "a fields marker whose every pointer the regenerated export changed must be deleted"
+grep -q "^fixed: deleted $mk/fields/kept" "$tmp/out" || fail "a deleted fields marker must be reported"
+[[ "$(grep -v '^#' "$pin/$mk/fields/landed")" == /title ]] || fail "only the settled pointer must leave a fields marker: $(cat "$pin/$mk/fields/landed")"
+grep -q '^# note' "$pin/$mk/fields/landed" || fail "a fields marker keeps its note"
+grep -q "^fixed: took /focuses out of $mk/fields/landed" "$tmp/out" || fail "a settled pointer must be reported"
+[[ "$(cat "$pin/$mk/fields/plan")" == /surfacePlan/palette ]] || fail "a /surfacePlan/ pointer stays for a person"
+# --acpmux-ir blesses the acpmux protocol IR and ABI surface with acpmux's own protocol tests (#56240 and #57905
+# each registered a method on 11-26 and left both stale on feat-cmux-next). A stand-in cargo plays the test: it
+# writes both files, and fails like protocol_abi_breaks_have_rules when ABI_BREAK says a break has no rule; then
+# both files are put back and the break is left to a person.
+ir="$tmp/ir"; spec=cmux-tui/crates/acpmux/spec
+mkdir -p "$ir/$spec" "$tmp/cargobin"
+printf '[package]\nname = "acpmux"\n' > "$ir/cmux-tui/crates/acpmux/Cargo.toml"
+echo old > "$ir/$spec/acpmux-protocol.json"; echo old > "$ir/$spec/acpmux-abi.surface.json"
+cat > "$tmp/cargobin/cargo" <<'SH'
+#!/bin/sh
+printf '%s\n' "$PWD $ACPMUX_PROTOCOL_BLESS $*" > "$CARGO_ARGS"
+echo new > crates/acpmux/spec/acpmux-protocol.json
+if [ -n "$ABI_BREAK" ]; then
+  echo "thread 'protocol::tests::protocol_abi_breaks_have_rules' panicked at crates/acpmux/src/protocol/tests.rs:266:5:"
+  exit 101
+fi
+echo new > crates/acpmux/spec/acpmux-abi.surface.json
+SH
+chmod +x "$tmp/cargobin/cargo"
+git -C "$ir" init -q && git -C "$ir" add -A && git -C "$ir" -c user.name=t -c user.email=t@t commit -qm fixture
+CARGO_ARGS="$tmp/cargo-args" PATH="$tmp/cargobin:$PATH" bash "$FIX" --no-fmt "$ir" > "$tmp/out" 2>&1 || fail "the fixer must succeed without --acpmux-ir"
+[[ ! -e "$tmp/cargo-args" ]] || fail "the IR must be blessed only with --acpmux-ir"
+ABI_BREAK=1 CARGO_ARGS="$tmp/cargo-args" PATH="$tmp/cargobin:$PATH" bash "$FIX" --no-fmt --acpmux-ir "$ir" > "$tmp/out" 2>&1 || fail "the fixer must succeed when the bless fails"
+[[ -z "$(git -C "$ir" status --porcelain)" ]] || fail "an uncovered ABI break must leave both files as they were"
+grep -q '^left: acpmux protocol tests fail with ACPMUX_PROTOCOL_BLESS=1 .*panicked at' "$tmp/out" || fail "an uncovered ABI break must be reported"
+CARGO_ARGS="$tmp/cargo-args" PATH="$tmp/cargobin:$PATH" bash "$FIX" --no-fmt --acpmux-ir "$ir" > "$tmp/out" 2>&1 || fail "the fixer must succeed blessing the IR"
+grep -qx "$ir/cmux-tui 1 test --locked -p acpmux --lib -- protocol::" "$tmp/cargo-args" || fail "the bless must be acpmux's protocol tests in cmux-tui: $(cat "$tmp/cargo-args")"
+for f in acpmux-protocol.json acpmux-abi.surface.json; do
+  [[ "$(cat "$ir/$spec/$f")" == new ]] || fail "$f must be blessed"
+  grep -q "^fixed: blessed $spec/$f" "$tmp/out" || fail "a blessed $f must be reported"
+done
+# A regenerated settings schema grows schemas/settings/published-keys.txt with cmux-config's writer (step 5c):
+# run 45924857630's schema gate refused a repair for 11 new keys the record lacked. A stand-in cargo plays the
+# writer: it appends NEW_KEY, and fails when KEYS_FAIL says so; then the record is put back and left to a person.
+pk="$tmp/pk"; mkdir -p "$pk/cmux-tui/crates/cmux-config/tests" "$pk/schemas/settings" "$tmp/pkbin"
+echo '// stand-in' > "$pk/cmux-tui/crates/cmux-config/tests/published_keys.rs"
+echo '{"rows":["a"]}' > "$pk/schemas/settings/settings-schema.json"
+printf '# record\na\n' > "$pk/schemas/settings/published-keys.txt"
+cat > "$tmp/pkbin/cargo" <<'SH'
+#!/bin/sh
+printf '%s\n' "$PWD $CMUX_PUBLISHED_KEYS_WRITE $*" > "$CARGO_ARGS"
+[ -n "$KEYS_FAIL" ] && { echo "error: could not compile"; exit 101; }
+echo b >> ../schemas/settings/published-keys.txt
+SH
+chmod +x "$tmp/pkbin/cargo"
+git -C "$pk" init -q && git -C "$pk" add -A && git -C "$pk" -c user.name=t -c user.email=t@t commit -qm fixture
+rm -f "$tmp/cargo-args"
+CARGO_ARGS="$tmp/cargo-args" PATH="$tmp/pkbin:$PATH" bash "$FIX" --no-fmt "$pk" > "$tmp/out" 2>&1 || fail "the fixer must succeed on an unchanged schema"
+[[ ! -e "$tmp/cargo-args" ]] || fail "the record must be written only after the schema changed"
+echo '{"rows":["a","b"]}' > "$pk/schemas/settings/settings-schema.json"
+CARGO_ARGS="$tmp/cargo-args" PATH="$tmp/pkbin:$PATH" bash "$FIX" --no-fmt --unverified-settings-exports "$pk" > "$tmp/out" 2>&1 || fail "the fixer must succeed with unverified settings exports"
+[[ ! -e "$tmp/cargo-args" ]] || fail "the record must wait for verified settings exports"
+grep -q '^left: schemas/settings/published-keys.txt (waits' "$tmp/out" || fail "the waiting record must be reported"
+KEYS_FAIL=1 CARGO_ARGS="$tmp/cargo-args" PATH="$tmp/pkbin:$PATH" bash "$FIX" --no-fmt "$pk" > "$tmp/out" 2>&1 || fail "the fixer must succeed when the writer fails"
+git -C "$pk" diff --quiet -- schemas/settings/published-keys.txt || fail "a failed writer must leave the record as it was"
+grep -q '^left: schemas/settings/published-keys.txt not written .*could not compile' "$tmp/out" || fail "a failed writer must be reported"
+CARGO_ARGS="$tmp/cargo-args" PATH="$tmp/pkbin:$PATH" bash "$FIX" --no-fmt "$pk" > "$tmp/out" 2>&1 || fail "the fixer must succeed growing the record"
+grep -qx "$pk/cmux-tui 1 test --locked -p cmux-config --test published_keys" "$tmp/cargo-args" || fail "the record must be cmux-config's writer in cmux-tui: $(cat "$tmp/cargo-args")"
+[[ "$(grep -v '^#' "$pk/schemas/settings/published-keys.txt" | paste -sd ' ' -)" == "a b" ]] || fail "the record must gain the new key"
+grep -q '^fixed: recorded the regenerated settings schema.s new keys in schemas/settings/published-keys.txt' "$tmp/out" || fail "a grown record must be reported"
+# --sdk also refreshes the daemon surface, independently of whether bindings need a write.
+abi="$tmp/daemon-abi"; surface=cmux-tui/spec/api-compat.surface.json
+mkdir -p "$abi/cmux-tui/crates/cmux-api-compat" "$abi/cmux-tui/spec" "$tmp/abibin"
+echo '[package]' > "$abi/cmux-tui/crates/cmux-api-compat/Cargo.toml"
+echo old > "$abi/$surface"
+cat > "$tmp/abibin/cargo" <<'SH'
+#!/bin/sh
+printf '%s\n' "$PWD $*" >> "$CARGO_ARGS"
+if [ -n "$ABI_REQUIRE_LOCK" ] && [ ! -f Cargo.lock ]; then
+  echo 'error: lock repair must precede the locked ABI checker' >&2
+  exit 1
+fi
+# Even a failed generator that wrote first must preserve the incoming surface.
+echo new > spec/api-compat.surface.json
+if [ -n "$ABI_BREAK" ]; then
+  echo 'api-compat-check: breaking protocol change without a compat rule' >&2
+  exit 1
+fi
+SH
+chmod +x "$tmp/abibin/cargo"
+git -C "$abi" init -q && git -C "$abi" add -A && git -C "$abi" -c user.name=t -c user.email=t@t commit -qm fixture
+abi_run() { CARGO_ARGS="$tmp/abi-args" PATH="$tmp/abibin:$PATH" bash "$FIX" --no-fmt "$@" "$abi" > "$tmp/out" 2>&1; }
+abi_run || fail "repair without --sdk failed"
+[[ ! -e "$tmp/abi-args" ]] || fail "daemon refresh ran without --sdk"
+echo incoming-edit > "$abi/$surface"
+ABI_BREAK=1 abi_run --sdk || fail "an uncovered daemon ABI break must be reported, not abort other repairs"
+[[ "$(cat "$abi/$surface")" == incoming-edit ]] || fail "a failed refresh lost the incoming surface"
+grep -q '^left: cmux-tui/spec/api-compat.surface.json not refreshed .*api-compat-check: breaking' "$tmp/out" || fail "daemon refusal diagnostic missing"
+abi_run --sdk || fail "daemon refresh failed"
+grep -qx "$abi/cmux-tui run --locked -p cmux-api-compat --bin api-compat-check -- --write" "$tmp/abi-args" || fail "daemon refresh must use the locked checker in cmux-tui"
+[[ "$(cat "$abi/$surface")" == new ]] || fail "daemon surface was not refreshed"
+grep -q "^fixed: refreshed $surface" "$tmp/out" || fail "daemon refresh was not reported"
+abi_run --sdk || fail "current daemon surface failed"
+if grep -q '^fixed: refreshed' "$tmp/out"; then fail "an unchanged surface must not report a repair"; fi
+# Copy the script beside a fixture freeze list, without modifying the repository's policy.
+mkdir -p "$tmp/frozen-fixer"
+cp "$FIX" "$tmp/frozen-fixer/base-autofix.sh"
+printf '%s\n' "$surface" > "$tmp/frozen-fixer/base-autofix-frozen.txt"
+calls="$(wc -l < "$tmp/abi-args")"
+echo frozen-edit > "$abi/$surface"
+CARGO_ARGS="$tmp/abi-args" PATH="$tmp/abibin:$PATH" bash "$tmp/frozen-fixer/base-autofix.sh" --no-fmt --sdk "$abi" > "$tmp/out" 2>&1 || fail "frozen daemon refresh failed"
+[[ "$(cat "$abi/$surface")" == frozen-edit ]] || fail "a frozen surface was changed"
+[[ "$(wc -l < "$tmp/abi-args")" == "$calls" ]] || fail "a frozen surface ran the checker"
+grep -q "^skipped (frozen): $surface" "$tmp/out" || fail "frozen daemon surface was not reported"
+# A missing baseline is evidence we cannot recreate; never invoke a writer without it.
+mv "$abi/$surface" "$tmp/saved-daemon-surface"
+abi_run --sdk || fail "a missing baseline must not abort other repairs"
+[[ ! -e "$abi/$surface" ]] || fail "a missing baseline was invented"
+[[ "$(wc -l < "$tmp/abi-args")" == "$calls" ]] || fail "a missing baseline ran the checker"
+grep -q "^left: $surface missing" "$tmp/out" || fail "missing baseline was not reported"
+mv "$tmp/saved-daemon-surface" "$abi/$surface"
+# Combined lock + SDK repair must repair locks before invoking the locked checker.
+mkdir -p "$tmp/lock-fixer"
+cp "$FIX" "$tmp/lock-fixer/base-autofix.sh"
+cat > "$tmp/lock-fixer/cargo-locks.py" <<'PY'
+import pathlib
+import sys
+repo = pathlib.Path(sys.argv[sys.argv.index("--repo") + 1])
+(repo / "cmux-tui/Cargo.lock").write_text("repaired lock\n")
+print("fixed: repaired test lock")
+PY
+ABI_REQUIRE_LOCK=1 CARGO_ARGS="$tmp/abi-args" PATH="$tmp/abibin:$PATH" \
+  bash "$tmp/lock-fixer/base-autofix.sh" --no-fmt --sdk --locks "$abi" > "$tmp/out" 2>&1 \
+  || fail "combined lock and daemon repair failed"
+[[ "$(cat "$abi/$surface")" == new ]] || fail "daemon refresh ran before lock repair"
+grep -q "^fixed: refreshed $surface" "$tmp/out" || fail "combined daemon repair was not reported"
 echo "base autofix: ok"

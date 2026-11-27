@@ -11,6 +11,7 @@
 # Prints "BENCH-AT <sha>" then `BENCH baseline|duress n=… p50=…ns p99=…ns p999=…ns max=…ns` per SHA, and the load average.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
+source scripts/measure/fetch-commit.sh
 pkg=Packages/macOS/CmuxNext
 src=$pkg/Sources/CmuxNextHangReports/HangReportCollector.swift
 bench=$pkg/Tests/CmuxNextHangReportsTests/NoteStallBench.swift
@@ -52,6 +53,9 @@ struct NoteStallBench {
         return "BENCH \(label) n=\(iterations) p50=\(p(0.5))ns p99=\(p(0.99))ns p999=\(p(0.999))ns max=\(times.last!)ns"
     }
 
+    /// The spinners' join, synchronous: `DispatchGroup.wait` is unavailable in an async function (Swift 6).
+    static func joined(_ group: DispatchGroup) -> Bool { group.wait(timeout: .now() + 10) == .success }
+
     @Test func noteStallMainThreadCost() async throws {
         guard ProcessInfo.processInfo.environment["NOTE_STALL_BENCH"] == "1" else { return }
         _ = await Self.run("warmup", iterations: 500)
@@ -68,7 +72,7 @@ struct NoteStallBench {
         }
         defer {
             stop.value.store(true, ordering: .releasing)
-            #expect(group.wait(timeout: .now() + 10) == .success)
+            #expect(Self.joined(group))
         }
         try await Task.sleep(for: .milliseconds(200))
         print(await Self.run("duress", iterations: 6000))
@@ -82,7 +86,7 @@ SWIFT
 ncpu=$(sysctl -n hw.ncpu 2>/dev/null || nproc)
 echo "host: $(uname -sm) ncpu=$ncpu"
 for sha in "$@"; do
-  git cat-file -e "$sha^{commit}" 2>/dev/null || git fetch -q origin "$sha"
+  measure_fetch_commit . "$sha" || exit 1
   git show "$sha:$src" > "$src" || { echo "no $src at $sha" >&2; exit 1; }
   echo "BENCH-AT $(git rev-parse --short "$sha")"
   (cd "$pkg" && NOTE_STALL_BENCH=1 swift test -c release --filter NoteStallBench)

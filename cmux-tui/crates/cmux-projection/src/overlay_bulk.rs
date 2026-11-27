@@ -167,10 +167,11 @@ impl Overlay {
                 continue;
             }
             let at = u64::from(chunk) * CHUNK;
+            let generation = self.generation_of(index);
             match self.fetch.read(index, at, u32::try_from(len).unwrap_or(0)) {
                 Ok(bytes) if bytes.len() as u64 == len => {
                     self.count(len);
-                    self.store(key, &bytes);
+                    self.store(key, &bytes, generation);
                     *projected += len;
                     report.bytes += len;
                     report.requests += 1;
