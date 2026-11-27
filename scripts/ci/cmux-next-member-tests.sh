@@ -3,6 +3,7 @@
 # cmux-next-tui-core and cmux-next-tui steps. The same cargo test the post-merge gate (cmux-next-daemon-tests) runs for
 # that member, with the gate's build env, so the gate's saved target (scripts/ci/cmux-tui-test-target.sh, from the last
 # feat-cmux-next push) is fresh here and only what the pull request changed compiles.
+# (probe: do not merge; routes all three member steps)
 #
 #   scripts/ci/cmux-next-member-tests.sh MEMBER_DIR     (MEMBER_DIR under cmux-tui/, e.g. crates/acpmux)
 #

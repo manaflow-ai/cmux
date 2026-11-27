@@ -45,7 +45,10 @@ fn subscribe(f: &Fixture, sub: u64, stream: &str) {
 fn cmux_next_provider_changed_tells_the_readable_subscribers_of_its_family() {
     let f = chat_fixture();
     subscribe(&f, 41, "agent_chat.changed");
-    assert_eq!(f.supervisor.provider_changed(PROVIDER, APP, "agent_chat").unwrap(), json!({}));
+    assert_eq!(
+        f.supervisor.provider_changed(PROVIDER, APP, "agent_chat").unwrap(),
+        json!({"probe": true})
+    );
     f.wait("agent_chat.changed invalidation", |e| {
         e["event"] == "apps-log" && e["message"] == "event-body 41 {}"
     });
