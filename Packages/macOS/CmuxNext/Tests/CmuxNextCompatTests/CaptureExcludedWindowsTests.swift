@@ -1,3 +1,4 @@
+#if canImport(CoreGraphics)
 @testable import CmuxNextCompat
 import CoreGraphics
 import Testing
@@ -21,3 +22,4 @@ struct CaptureExcludedWindowsTests {
         #expect(CaptureExcludedWindows(pid: 300).excluded(windows).isEmpty)
     }
 }
+#endif

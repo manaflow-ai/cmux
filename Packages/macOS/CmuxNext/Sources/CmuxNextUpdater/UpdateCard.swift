@@ -52,6 +52,7 @@ nonisolated public enum UpdateCardAction: String, Sendable, CaseIterable {
         switch self {
         case .update: UpdaterStrings.update
         case .releaseNotes: UpdaterStrings.releaseNotes
+        // retry-prompt-ok: an update that downloads and replaces binaries
         case .retry: UpdaterStrings.retry
         case .details: UpdaterStrings.details
         case .cancelDownload: UpdaterStrings.cancel

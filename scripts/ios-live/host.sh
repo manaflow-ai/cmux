@@ -13,11 +13,12 @@
 #          in the simulator's keychain, which survives a reinstall.
 #
 # IOS_LIVE_ROOT (default ~/ios-live) holds:
-#   src/          blobless clone of manaflow-ai/cmux, at the live base plus the current patch
+#   src/          clone of manaflow-ai/cmux at the live base plus the current patch: on a fleet Mac it
+#                 borrows the fleet's git mirror (no GitHub transfer), elsewhere a blobless GitHub clone
 #   live/         the live code build (ios-sim.sh build OUT): dd/, xcodebuild.log, live/ (patch folder)
 #   dd/           plain DerivedData, used when the checkout has no ios-sim.sh
 #   sims/         simctl device set with one iPhone named cmux-ios-live
-#   tools/        pinned xcodegen
+#   tools/        pinned xcodegen (IOS_LIVE_TOOLS moves it, so scratch roots share one download)
 #   launch.env    KEY=VALUE lines passed to the app as its launch environment (its sign-in target)
 #   lease/        the driver lease: one driver at a time
 #   state.json    base, patch, app, timings of the last up/swap/swift
@@ -49,6 +50,8 @@ person="${IOS_LIVE_PERSON:-}"
 slot_count="${IOS_LIVE_SLOTS_PER_HOST:-3}"
 root="$base_root"
 repo_url="https://github.com/manaflow-ai/cmux.git"
+# A fleet Mac's full git mirror, which its build steps already borrow (scripts/ci/ios-sim-fetch-commit.sh).
+mirror="${CMUX_CI_STEP_GLAEDA_MIRROR_DIR:-/Users/Shared/cmux-build-fleet/git}/cmux.git"
 branch="feat-cmux-next"
 device_name="cmux-ios-live"
 pooled=""  # a slot or a person slot: slimmed device, animations off
@@ -73,7 +76,8 @@ xcodegen_sha256=4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806
 jobs="${IOS_LIVE_JOBS:-4}"
 src="$root/src"
 sims="$root/sims"
-mkdir -p "$root/logs" "$base_root/tools" "$sims" "$root/lease"
+tools_root="${IOS_LIVE_TOOLS:-$base_root/tools}"
+mkdir -p "$root/logs" "$tools_root" "$sims" "$root/lease"
 
 die() { echo "ios-live: $*" >&2; exit 1; }
 now_ms() { python3 -c 'import time; print(int(time.time()*1000))'; }
@@ -169,22 +173,34 @@ pick_xcode() {
 }
 
 ensure_xcodegen() {
-  local d="$base_root/tools/xcodegen-$xcodegen_version"
+  local d="$tools_root/xcodegen-$xcodegen_version"
   xcodegen="$d/xcodegen/bin/xcodegen"
   [[ -x "$xcodegen" ]] && return 0
-  rm -rf "$d"; mkdir -p "$d"
-  curl -fsSL --retry 3 -o "$d/xcodegen.zip" \
-    "https://github.com/yonaskolb/XcodeGen/releases/download/$xcodegen_version/xcodegen.zip"
-  [[ "$(shasum -a 256 "$d/xcodegen.zip" | awk '{print $1}')" == "$xcodegen_sha256" ]] || die "xcodegen checksum mismatch"
-  unzip -q "$d/xcodegen.zip" -d "$d"
+  # Fetched beside the final folder and renamed in, so a failed or concurrent download leaves no half tree.
+  local tmp; tmp="$(mktemp -d "$tools_root/.xcodegen.XXXXXX")"
+  bash "$src/scripts/ci/fetch-xcodegen.sh" "$xcodegen_version" "$xcodegen_sha256" "$tmp" >/dev/null \
+    || { rm -rf "$tmp"; die "xcodegen fetch failed"; }
+  mv "$tmp" "$d" 2>/dev/null || rm -rf "$tmp"
+  [[ -x "$xcodegen" ]] || die "no xcodegen binary at $xcodegen"
 }
 
 # checkout BASE [PATCH]: src at BASE (fetched when absent) plus PATCH; prints the full base sha.
 checkout() {
   local ref="$1" patch="${2:-}" sha
-  [[ -d "$src/.git" ]] || git clone -q --filter=blob:none --no-checkout "$repo_url" "$src"
+  if [[ ! -d "$src/.git" ]]; then
+    # Borrowed only when full: a blobless mirror has no blobs to lend, and the clone could not fetch them.
+    if [[ -d "$mirror" && -z "$(git -C "$mirror" config --get-regexp '^(extensions\.partialclone|remote\..*\.promisor)$' 2>/dev/null)" ]]; then
+      git clone -q --shared --no-checkout "$mirror" "$src"  # objects/info/alternates: no copy, no GitHub
+    else
+      git clone -q --filter=blob:none --no-checkout "$repo_url" "$src"
+    fi
+  fi
   if ! sha="$(git -C "$src" rev-parse -q --verify "$ref^{commit}" 2>/dev/null)"; then
-    git -C "$src" fetch -q origin "$branch" "$ref" 2>/dev/null || git -C "$src" fetch -q origin "$branch"
+    git -C "$src" fetch -q origin "$branch" "$ref" 2>/dev/null || git -C "$src" fetch -q origin "$branch" || true
+    # A head the mirror has not fetched yet (a fresh push) comes from GitHub by URL.
+    git -C "$src" rev-parse -q --verify "$ref^{commit}" >/dev/null 2>&1 \
+      || [[ "$(git -C "$src" remote get-url origin)" == "$repo_url" ]] \
+      || git -C "$src" -c protocol.version=2 fetch -q --no-tags "$repo_url" "$ref" 2>/dev/null || true
     sha="$(git -C "$src" rev-parse -q --verify "$ref^{commit}")" || die "no commit $ref on origin (push it, or use a feat-cmux-next ancestor)"
   fi
   git -C "$src" checkout -q --detach -f "$sha"
@@ -202,6 +218,7 @@ checkout() {
 # (a laptop) gets it copied in with `ios-live ffi-sync`.
 ffi_stamp() { git -C "$src" ls-files -s cmux-next-ios/rust | git hash-object --stdin; git -C "$src" diff HEAD -- cmux-next-ios/rust | git hash-object --stdin; }
 build_ffi() {
+  [[ -x "${CARGO_HOME:-$HOME/.cargo}/bin/rustup" ]] && PATH="${CARGO_HOME:-$HOME/.cargo}/bin:$PATH"
   local stamp xcf="$src/cmux-next-ios/CmuxMobileKit/Frameworks/CmuxMobileLinkFFI.xcframework"
   stamp="$(ffi_stamp | tr '\n' '-')"
   if [[ -f "$xcf/Info.plist" && "$(cat "$root/ffi.stamp" 2>/dev/null)" == "$stamp" ]]; then ffi_how=unchanged; return 0; fi
@@ -215,12 +232,26 @@ build_ffi() {
   if [[ "$key" =~ ^[0-9a-f]{64}$ ]] && (cd "$src" && python3 -I scripts/ci/ios_ffi_cache.py restore "$src" "$key") >"$root/logs/ffi-cache.log" 2>&1 \
     && [[ -f "$xcf/Info.plist" ]]; then
     ffi_how="cache hit"
-  elif rustup target list --installed 2>/dev/null | grep -q aarch64-apple-ios-sim; then
-    (cd "$src" && JOBS="$jobs" bash cmux-next-ios/rust/scripts/build-xcframework.sh) >"$root/logs/ffi.log" 2>&1 \
-      || { tail -40 "$root/logs/ffi.log"; die "FFI build failed (log $root/logs/ffi.log)"; }
+  elif command -v rustup >/dev/null 2>&1; then
+    # A miss builds as the simulator CI step does (scripts/ci/cmux-next-ios-sim.sh):
+    # build-xcframework.sh adds the iOS targets the workspace's pinned toolchain lacks, the build
+    # runs in a warm per-worker cargo target dir when CMUX_CI_CACHE_DIR names one, and the result
+    # is stored under its key so the next run on this host restores it.
+    local rc_file="$root/logs/ffi-build.rc" rc=0
+    rm -f "$rc_file"
+    (cd "$src" && JOBS="$jobs" python3 -I scripts/ci/ios_ffi_cache.py build "$src" "$rc_file" \
+      bash cmux-next-ios/rust/scripts/build-xcframework.sh) >"$root/logs/ffi.log" 2>&1 || rc=$?
+    [[ -f "$rc_file" ]] && rc="$(cat "$rc_file")"
+    [[ "$rc" == 0 ]] || { tail -40 "$root/logs/ffi.log"; die "FFI build failed (log $root/logs/ffi.log)"; }
     ffi_how=built
+    if [[ "$key" =~ ^[0-9a-f]{64}$ ]]; then
+      (cd "$src" && python3 -I scripts/ci/ios_ffi_cache.py probe "$root/logs/ffi-inputs.json" "$root/logs/ffi-tip.json" \
+        && python3 -I scripts/ci/ios_ffi_cache.py store "$src" "$root/logs/ffi-inputs.json" "$root/logs/ffi-tip.json") \
+        >>"$root/logs/ffi-cache.log" 2>&1 && ffi_how="built, stored ${key:0:12}" \
+        || echo "ios-live: storing the FFI build in the cache failed (log $root/logs/ffi-cache.log); built anyway" >&2
+    fi
   else
-    die "the Rust FFI changed and this host has no Rust iOS targets: ios-live ffi-sync FROM_HOST (a fleet host that built it)"
+    die "the Rust FFI changed, the FFI cache has no build of it and this host has no rustup: ios-live ffi-sync FROM_HOST (a fleet host that built it)"
   fi
   echo "$stamp" >"$root/ffi.stamp"
 }
