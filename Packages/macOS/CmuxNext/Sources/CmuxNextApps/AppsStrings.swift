@@ -6,6 +6,14 @@ nonisolated enum AppsStrings {
         String(localized: key, defaultValue: value, bundle: .localizedModule)
     }
 
+
+    // The sidebar's Apps section (RFD 0003 E-C, ``AppsTierSectionView``).
+    static var tierTitle: String { t("appsTier.sidebar.title", "Apps") }
+    static var tierPublishRow: String { t("appsTier.sidebar.publishRow", "+ Publish preview…") }
+    static var tierPublishHint: String { t("appsTier.sidebar.publishHint", "Open a Cloud preview in a browser pane to publish it.") }
+    static var tierLoading: String { t("appsTier.sidebar.loading", "Loading apps…") }
+    /// The list was refused (%@: the reason).
+    static func tierFailed(_ reason: String) -> String { String(format: t("appsTier.sidebar.failed", "Couldn’t list apps: %@"), reason) }
     static var windowTitle: String { t("store.window.title", "App Store") }
     /// Undo Look Change (`customize.revert`) could not run: no bundled `cmux` CLI.
     static var customizeNoCLI: String { t("customize.revert.noCLI", "This build does not include the cmux CLI.") }

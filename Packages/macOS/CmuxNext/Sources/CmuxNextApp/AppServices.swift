@@ -379,6 +379,8 @@ final class AppServices {
     )
     /// Native input for `browser.page.mouse|wheel|insert_text|key` (`BrowserNativeInputs`).
     let browserNativeInputs = BrowserNativeInputs()
+    /// The Cloud previews opened in browser panes, for the Publish button (`AppsTierPreviews`).
+    let appsTierPreviews = AppsTierPreviews()
     /// Each pane's own Hide Tab Bar choice (`PaneTabBarChoices`).
     let paneTabBars = PaneTabBarChoices()
     /// The panes in Full Width Tab mode (`PaneFullWidthTabs`).

@@ -5,6 +5,9 @@ nonisolated extension Strings {
     static func toolbarZoom(_ percent: Int) -> String {
         String(localized: "browser.toolbar.zoom", defaultValue: "Zoom \(percent)%: Reset to Actual Size", bundle: .localizedModule)
     }
+    static var toolbarPublish: String {
+        String(localized: "browser.toolbar.publish", defaultValue: "Publish", bundle: .localizedModule)
+    }
     static var toolbarMedia: String {
         String(localized: "browser.toolbar.media", defaultValue: "Media Controls", bundle: .localizedModule)
     }

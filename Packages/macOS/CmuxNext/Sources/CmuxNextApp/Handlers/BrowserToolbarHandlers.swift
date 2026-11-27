@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextBrowserTabs
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
 
@@ -19,6 +21,7 @@ import CmuxNextSettings
 /// | theme | a menu of `browserTheme` system, light, dark |
 /// | DevTools | `toggleBrowserDeveloperTools` |
 /// | More | `browser.overflow.menu` |
+/// | Publish | the Publish popover (`BrowserPublishPopover`), on a Cloud preview with `experiments.appsTier` on |
 enum BrowserToolbarHandlers {
     /// The action a press runs (`BrowserToolbarButton.actionName`).
     static func actionID(for button: BrowserToolbarButton) -> ActionID { ActionID(rawValue: button.actionName) }
@@ -53,7 +56,7 @@ enum BrowserToolbarHandlers {
         let key = entry.key
         entry.state.onToolbarPress = { [weak services, weak entry] button in
             guard let services, let entry else { return }
-            press(button, entry: entry, registry: services.registry)
+            press(button, entry: entry, services: services)
         }
         entry.state.configureToolbar = { [weak services] buttons in
             buttons.shortcutHint = { [weak services] button in
@@ -65,6 +68,9 @@ enum BrowserToolbarHandlers {
             }
             buttons.media = { [weak services] in services.map { $0.cache.pageRequests.media.toolbar(in: $0.cache) } ?? BrowserToolbarMedia() }
             buttons.pins = { [weak services] in services?.settings.map(BrowserToolbarButtonsSetting.current)?.pinned ?? BrowserToolbarButtonsSetting.fallback }
+            buttons.publishable = { [weak services] url, title in
+                services.map { publisher(url: url, title: title, services: $0) != nil } ?? false
+            }
         }
         entry.state.profileName = profileName(forTab: key, services: services)
         // The omnibar's "Focus Mode" badge leaves focus mode (the action's one path).
@@ -93,12 +99,50 @@ enum BrowserToolbarHandlers {
         return true
     }
 
-    static func press(_ button: BrowserToolbarButton, entry: BrowserEntry, registry: ActionRegistry) {
+    static func press(_ button: BrowserToolbarButton, entry: BrowserEntry, services: AppServices) {
+        let registry = services.registry
         let target = tabTarget(entry)
         if button == .theme {
             return entry.chrome?.toolbarButtons.present(themeMenu(target: target, registry: registry), from: .theme) ?? ()
         }
+        if button == .publish { return showPublish(for: entry, services: services) }
         registry.perform(actionID(for: button), invocation: ActionInvocation(target: target, origin: .user))
+    }
+
+    /// The page's publish (``AppsTierPublisher``): a Cloud preview this app opened, with `experiments.appsTier` on.
+    static func publisher(url: URL?, title: String?, services: AppServices) -> AppsTierPublisher? {
+        url.flatMap { AppsTierPublisher(enabled: services.settings?.snapshot.experimentSwitches["appsTier"] == true, url: $0,
+                                        title: title, previews: services.appsTierPreviews.previews) }
+    }
+
+    /// Opens (or closes) the Publish popover under `entry`'s Publish button; Open shows the app in a new tab.
+    static func showPublish(for entry: BrowserEntry, services: AppServices) {
+        guard let popover = entry.chrome?.toolbarButtons.publishPopover else { return }
+        if popover.isShown { return popover.close() }
+        guard let page = publisher(url: entry.tab.state.url, title: entry.tab.state.title, services: services) else { return }
+        popover.toggle(BrowserPublishSource(
+            suggestedName: page.target.suggestedName,
+            form: { name, team in
+                page.popover(name: name, team: team).map { laid in
+                    BrowserPublishForm(hostLabel: laid.hostLabel, startFrom: laid.startFrom, canPublish: laid.canPublish,
+                                       problem: laid.problem.map { $0 == "nameEmpty" ? .nameEmpty : .other($0) })
+                }
+            },
+            publish: { [weak services] name, team in
+                guard let api = services?.cloud.machineAPI else { return .unreachable(CancellationError().localizedDescription) }
+                switch await page.publish(name: name, team: team, exec: { try await api.exec($0, command: $1, timeoutMs: $2) }) {
+                case .published(let url): return .published(url)
+                case .failed(let code, let message): return .failed(code: code, message: message)
+                case .unreadable(let exit): return .unreadable(exit: exit)
+                case .unreachable(let why): return .unreachable(why)
+                }
+            },
+            open: { [weak services] url in
+                guard let services, let pane = services.windows.active?.focusedPane?.pane else { return }
+                // task-owner: one tab opening after the popover closed; its failure leaves the link in the popover's answer.
+                Task { _ = try? await services.cache.browserTabs.open(BrowserEngineChoice(engine: .cef, pinned: true), in: pane,
+                                                                      url: url.absoluteString, activate: true) }
+            }))
     }
 
     static func profileName(forTab key: String, services: AppServices) -> String {
@@ -154,7 +198,7 @@ enum BrowserToolbarHandlers {
             // Zoom is the zoom row; Bookmark Manager and Downloads are rows of their own.
             // The media hub only while a tab has media.
             case .media: if buttons?.hasContent(.media) == true { entries.append(.action("browser.media.show")) }
-            case .designMode, .zoom, .favorites, .downloads, .overflow: break
+            case .publish, .designMode, .zoom, .favorites, .downloads, .overflow: break
             }
         }
         // Show in Toolbar's rows run the palette's Pin or Unpin Browser Toolbar Button… (one handler).

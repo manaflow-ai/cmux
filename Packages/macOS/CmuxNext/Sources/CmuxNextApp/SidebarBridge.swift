@@ -7,6 +7,7 @@ import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextLayout
 import CmuxNextSettings
@@ -111,7 +112,9 @@ final class SidebarBridge {
         // The React update surfaces: the staged card's highlights popover and the Updated card (cx-urd.61.2).
         container.sidebarView.updateSurfaces = UpdateSurfaceIslands(services: services)
         appSections?.releaseAll()
-        let sections = SidebarAppSections(client: services.apps.client, isPresented: { [weak apps = services.apps] in apps?.client.presence.isPresented($0) == true }, team: { [weak services] in services?.cloudTeam.makeSectionView() })
+        let sections = SidebarAppSections(client: services.apps.client, isPresented: { [weak apps = services.apps] in apps?.client.presence.isPresented($0) == true }, team: { [weak services] in services?.cloudTeam.makeSectionView() },
+                                           appsTier: AppsTierSidebarFeed(isEnabled: { [weak services] in services?.settings?.snapshot.experimentSwitches["appsTier"] == true },
+                                                                         auth: services.cloud.auth, cli: services.bundledCLI, registry: services.registry))
         appSections = sections
         container.sidebarView.appSections = sections
         // Return or Escape in the inline rename field gives the keyboard

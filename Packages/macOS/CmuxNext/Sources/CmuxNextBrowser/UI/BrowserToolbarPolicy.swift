@@ -29,7 +29,7 @@ public nonisolated struct BrowserToolbarPolicy {
         switch button {
         case .zoom, .profile, .theme: return true
         case .overflow: return false
-        case .media, .favorites, .downloads, .designMode, .devTools: return shortcut != nil
+        case .publish, .media, .favorites, .downloads, .designMode, .devTools: return shortcut != nil
         }
     }
 
@@ -37,6 +37,9 @@ public nonisolated struct BrowserToolbarPolicy {
                                      shortcut: String?) -> BrowserToolbarButtonState {
         func hinted(_ text: String) -> String { shortcut.map { "\(text) (\($0))" } ?? text }
         switch button {
+        case .publish:
+            // chrome-icons: allow Chrome has no Publish button
+            return BrowserToolbarButtonState(icon: .cloud, label: hinted(Strings.toolbarPublish))
         case .media:
             return BrowserToolbarButtonState(icon: .browserToolbarMedia, label: hinted(Strings.toolbarMedia))
         case .zoom:
