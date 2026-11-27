@@ -88,8 +88,8 @@ impl Client {
 }
 
 async fn pair() -> (Arc<Hub>, Arc<Hub>, Arc<Peer>, Client) {
-    let a = Arc::new(Hub::new(config(), store(&config())));
-    let b = Arc::new(Hub::new(config(), store(&config())));
+    let a = Hub::new(config(), store(&config()));
+    let b = Hub::new(config(), store(&config()));
     let home = tempfile::tempdir().unwrap();
     let auth = PeerAuth::create(home.path()).unwrap();
     let peer_token =
@@ -240,7 +240,7 @@ async fn two_hubs_presence_visibility_p95_and_ttl() {
     }
     let mut sorted = visibility.clone();
     sorted.sort();
-    let p95 = sorted[((SAMPLES - 1) * 95 / 100)];
+    let p95 = sorted[(SAMPLES - 1) * 95 / 100];
     assert!(
         p95 < VISIBILITY_P95,
         "presence visibility p95 {:?} exceeded {:?}; samples={:?}",
