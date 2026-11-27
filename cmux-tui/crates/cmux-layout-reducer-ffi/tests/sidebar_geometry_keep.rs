@@ -2,7 +2,7 @@
 //! dropped and answers `gone`. Its own test binary, so the churn never drops a
 //! geometry another test is asking.
 
-use cmux_layout_reducer_ffi::sidebar_geometry::KEEP;
+use cmux_layout_reducer_ffi::SIDEBAR_GEOMETRY_KEEP as KEEP;
 use cmux_layout_reducer_ffi::{OK, cmux_layout_reducer_json};
 use serde_json::{Value, json};
 use std::ffi::CString;

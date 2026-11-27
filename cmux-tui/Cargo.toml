@@ -22,6 +22,7 @@ members = [
     "crates/cmux-terminal-host-protocol",
     "crates/acpmux-tui",
     "crates/cmux-egress",
+    "crates/cmux-proxy",
     "crates/acpmux-core",
     "crates/acpmux-client",
     "crates/acpmux-list-types",
@@ -106,6 +107,7 @@ members = [
     "crates/cmux-holder",
     "crates/cmux-launch-preread",
     "crates/cmux-flow-trace",
+    "crates/cmux-critpath",
     "crates/cmux-holder-v3",
     "crates/cmux-process",
     "crates/cmux-hub-host",
@@ -444,6 +446,7 @@ await_holding_refcell_ref = "deny"
 
 [workspace.dependencies]
 cmux-egress = { path = "crates/cmux-egress" }
+cmux-proxy = { path = "crates/cmux-proxy" }
 chrono = "0.4"
 chrono-tz = "0.10"
 cmux-coderouter = { path = "crates/cmux-coderouter" }
