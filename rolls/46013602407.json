@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46013602407",
+  "recorded_at": "2026-11-27T14:16:00Z",
+  "reason": "cmux-tui 619f68420c8b changes the image's cmux-tui (pinned 7788b32b071b)",
+  "dry_run": false,
+  "cmux_tui": "619f68420c8b62c4d761b1dbecb96f70868c75a6",
+  "fixes": [
+    {
+      "sha": "5dcadfb342baafde34373f0b5072dddcb429eb81",
+      "mergedAt": "2026-11-27T13:34:44+00:00",
+      "subject": "cmux-host: gate carried GitHub login on Unix (#61783)"
+    },
+    {
+      "sha": "d13bce1fed3bfec7ad1c1c2d1ae2618f5bfbb720",
+      "mergedAt": "2026-11-27T13:25:54+00:00",
+      "subject": "fix(setups): make terminal-first open terminal tabs (#60084)"
+    },
+    {
+      "sha": "ef2a9021026f01f788073403d52f43a3ad25edbf",
+      "mergedAt": "2026-11-27T13:25:29+00:00",
+      "subject": "Agent chat: measure composer key to painted frame in production (#51596)"
+    },
+    {
+      "sha": "8d5195f768658c5d0fcec8d165be43643f5b832c",
+      "mergedAt": "2026-11-27T13:24:16+00:00",
+      "subject": "acpmux: harness magic dirRules shows a directory's AGENTS.md on first touch (RFD 0158 §12) (#59653)"
+    },
+    {
+      "sha": "11db1d8762cef0a75a0894d9a6726b94d150fc68",
+      "mergedAt": "2026-11-27T13:22:14+00:00",
+      "subject": "cmux-computer-use: drop unneeded super:: qualification (clippy unused-qualifications) (#61749)"
+    },
+    {
+      "sha": "8c2de44b877d6f4ae1b2effcaf6c3bc22f115312",
+      "mergedAt": "2026-11-27T13:21:42+00:00",
+      "subject": "cmux CLI: a terminal's stale pre-move CMUX_SOCKET_PATH reaches the moved NIGHTLY (#60924)"
+    },
+    {
+      "sha": "1ee8222c373770f6f48f32b66ebbfb7feb973414",
+      "mergedAt": "2026-11-27T13:18:27+00:00",
+      "subject": "cmux-nat-probe: measure NAT traversal on real host pairs (#56698)"
+    },
+    {
+      "sha": "a6358c21fce72f895c64340ec8972ea57573d907",
+      "mergedAt": "2026-11-27T13:18:04+00:00",
+      "subject": "cmux-layout-reducer: WindowRegistry rules in Rust over registry_apply (swift-out step A) (#57754)"
+    },
+    {
+      "sha": "77214fc346eb5407210cfc11c208889ac4eae6ed",
+      "mergedAt": "2026-11-27T13:17:47+00:00",
+      "subject": "WIP: automatic checkpoint (SessionEnd) (#60499)"
+    },
+    {
+      "sha": "05fbe1894fa11c96b74e7e6b73a636164a5bdb39",
+      "mergedAt": "2026-11-27T13:15:32+00:00",
+      "subject": "Test: a daemon killed mid-turn posts the turn's finish once (#61432)"
+    },
+    {
+      "sha": "db7d5225dcb5996dadb97a552bd3da7e2adf135a",
+      "mergedAt": "2026-11-27T13:15:09+00:00",
+      "subject": "acpmux: held pipes outlive the far daemon restarting (pipe host) and `machine pipe` (#56271)"
+    },
+    {
+      "sha": "f47a5a1de24a4af2c79533180de25cb8dd60598c",
+      "mergedAt": "2026-11-27T13:10:48+00:00",
+      "subject": "cli: vm new opens the new machine with new-terminal-on-machine; test every CLI-run action name (#58525)"
+    },
+    {
+      "sha": "7d02c95c0e47a36a9959689c8094e2c76d61baed",
+      "mergedAt": "2026-11-27T13:08:04+00:00",
+      "subject": "cmux-config: settings schema export, surface plan and batch schema.rows in Rust (#57280)"
+    },
+    {
+      "sha": "eeeb81694ce06415a28997515784f788bdb38d90",
+      "mergedAt": "2026-11-27T13:08:01+00:00",
+      "subject": "acpmux: fix base-red tests at their cause, run durable_watch_lifecycle in CI (#61428)"
+    },
+    {
+      "sha": "6d71111454d26448cede2f8555bc8f15d8e48953",
+      "mergedAt": "2026-11-27T13:07:42+00:00",
+      "subject": "app-ffi: keep proc-macros unstripped under Xcode 27 strip (#61499)"
+    },
+    {
+      "sha": "4529c0a7cd13abc57e065ec1e54541eb4343bfce",
+      "mergedAt": "2026-11-27T13:07:20+00:00",
+      "subject": "CAPY-3 acpmux: preserve staged changes during carried moves (#47623)"
+    },
+    {
+      "sha": "640eeab4f99bfad179af928db4b76b9bd5e954ae",
+      "mergedAt": "2026-11-27T13:06:26+00:00",
+      "subject": "acpmux: opening PEER/NAME dials PEER when no row of NAME is known yet (#60107)"
+    },
+    {
+      "sha": "606f78d2cab865ada6047e4362dcc41542e8537e",
+      "mergedAt": "2026-11-27T13:01:00+00:00",
+      "subject": "cmux vault on iPhone: Settings > Cloud > Vault, sealing to machines the phone starts (stacked on #56890) (#56920)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-27T14:16:00Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
