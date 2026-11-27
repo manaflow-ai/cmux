@@ -689,6 +689,7 @@ import {
   startedSessions,
 } from "./started/startedSessions";
 import { experimentArm } from "../../experiments/experiment";
+import { useSessionStatus } from "./sessionStatus";
 import { usePaneView } from "./paneViewStore";
 import { useExperimentSwitch } from "../../experiments/switches";
 import { holdWebSwap } from "../../pages/shared/webSwap";
@@ -706,7 +707,7 @@ import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHin
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { evacuateActions } from "./place/usePlace";
-import { PlaceChip } from "./place/PlaceMounts";
+import { ComputerStatusLine, PlaceChip } from "./place/PlaceMounts";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import {
   copyShowsRunningTurn,
@@ -4418,13 +4419,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const showOpenAppCard = !quick && cloudPreviewChat && cloudPreviewPortList.length > 0;
   useEffect(() => {
     const machineID = cloudMachineID ?? snapshot.summary?.machine;
-    setCloudPreviewContext({
-      machineID,
-      sessionId: shownSessionId,
-      turnId: cloudPreviewTurnId,
-      active: !quick && snapshot.isWorking && cloudPreviewChat,
-    });
+    setCloudPreviewContext(
+      {
+        machineID,
+        sessionId: shownSessionId,
+        turnId: cloudPreviewTurnId,
+        active: !quick && snapshot.isWorking && cloudPreviewChat,
+      },
+      paneView,
+    );
   }, [
+    paneView,
     cloudPreviewChat,
     cloudMachineID,
     cloudPreviewTurnId,
@@ -10587,6 +10592,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       <>
         <PlaceChip session={placeSession} say={notices.transient} claims={claims} />
         <HybridChip session={placeSession} say={notices.transient} claims={claims} />
+        <ComputerStatusLine session={placeSession} say={notices.transient} claims={claims} />
       </>
     );
   }, [placeSession, notices.transient]);
