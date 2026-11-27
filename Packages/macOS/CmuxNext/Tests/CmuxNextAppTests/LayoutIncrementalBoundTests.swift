@@ -83,7 +83,8 @@ struct LayoutIncrementalBoundTests {
             await DividerDragFrameTickTests.turns()
         }
         let after = screen.baseGeometry.panes
-        let tick = Tick(visits: count.visits, places: count.places, shapes: count.shapes,
+        let counted = count.value
+        let tick = Tick(visits: counted.visits, places: counted.places, shapes: counted.shapes,
                         moved: after.filter { before[$0.key] != $0.value }.count, reconciles: screen.reconcilePasses - passes)
         handle.mouseUp(with: probe.event(.leftMouseUp, point(-12)))
         await DividerDragFrameTickTests.turns()

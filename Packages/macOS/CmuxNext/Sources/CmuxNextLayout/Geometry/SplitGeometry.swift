@@ -1,4 +1,5 @@
 public import CoreGraphics
+import CmuxNextCompat
 
 /// A divider in computed geometry. All rects use a top-left origin.
 public nonisolated struct DividerGeometry: Hashable, Sendable {
@@ -25,10 +26,21 @@ public nonisolated struct SplitLayoutResult: Hashable, Sendable {
 /// Op counts of the layout path, read by LayoutIncrementalBoundTests (RFD 0199 §4): split tree nodes visited,
 /// pane frames placed and pane shapes applied. Counted only while a test binds `current`
 /// (`LayoutOpCount.$current.withValue`); each pass reads the task local once, so an unbound pass costs one read.
-public nonisolated final class LayoutOpCount: @unchecked Sendable {
-    public var visits = 0, places = 0, shapes = 0
+public nonisolated final class LayoutOpCount: Sendable {
+    public struct Counts: Sendable { public var visits = 0, places = 0, shapes = 0 }
+    private let counts = Mutex(Counts())
     public init() {}
     @TaskLocal public static var current: LayoutOpCount?
+
+    public var value: Counts { counts.load() }
+
+    func add(visits: Int = 0, places: Int = 0, shapes: Int = 0) {
+        counts.withLock {
+            $0.visits += visits
+            $0.places += places
+            $0.shapes += shapes
+        }
+    }
 }
 
 /// Pure frame computation for split trees. Coordinates are top-left origin
@@ -49,7 +61,7 @@ public nonisolated enum SplitGeometry {
         _ = collectMinimums(node, style: style, into: &minimums, repeated: &repeated, visits: &visits)
         for id in repeated { minimums[id] = nil }
         layout(node, in: rect, style: style, scale: scale, minimums: minimums, into: &result, visits: &visits)
-        LayoutOpCount.current?.visits += visits
+        LayoutOpCount.current?.add(visits: visits)
         return result
     }
 
