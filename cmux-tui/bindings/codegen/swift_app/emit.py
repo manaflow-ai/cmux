@@ -89,7 +89,7 @@ MUTATION = "mutation"
 _MUTATION_WIRE = ("origin", "mutation_id", "expected_generation", "expected_revision")
 # A read type's field may also take a Swift default (a lenient read: a missing key decodes as it) or be made
 # optional although the schema requires it (an app that still reads an older daemon that left it out).
-_READ_FIELD_KEYS = _FIELD_KEYS | {"default", "optional", "lenient", "when", "prefer"}
+_READ_FIELD_KEYS = (_FIELD_KEYS - {"encode_when"}) | {"default", "optional", "lenient", "when", "prefer"}
 _OBJECT_KEYS = frozenset({"$comment", "type", "result", "doc", "conformances", "order", "fields", "extra", "init", "omit"})
 _EXTRA_KEYS = frozenset({"type", "default", "doc"})
 DEFAULT_CONFORMANCES = ("Decodable", "Sendable", "Equatable")
@@ -373,6 +373,7 @@ class _Renderer:
             override = _check_keys(
                 f"{where}.{wire}", overrides.get(wire, {}), _READ_FIELD_KEYS if read else _FIELD_KEYS
             )
+            encode_when = override.get("encode_when")
             swift_type = override.get("type") or self.swift_type(
                 spec["type"], where=f"{where}.{wire}", wire=wire, nested=nested
             )
@@ -413,9 +414,12 @@ class _Renderer:
                 default = override.get("default", "false" if when_true else None)
                 if default is not None and (not isinstance(default, str) or not default):
                     raise BindingError(f"{where}.{wire}: default is a Swift expression")
-                encode_when = override.get("encode_when")
                 if encode_when is not None and (not isinstance(encode_when, str) or not encode_when.strip()):
                     raise BindingError(f"{where}.{wire}: encode_when is a non-empty Swift condition")
+                if encode_when is not None and (required or when_true or update):
+                    raise BindingError(
+                        f"{where}.{wire}: encode_when needs an optional field without when_true or update"
+                    )
             doc = list(override.get("doc") or ([spec["description"]] if spec.get("description") else []))
             doc += _constraint_lines(spec.get("constraints", ()))
             if spec.get("capability") and read:

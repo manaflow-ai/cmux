@@ -551,6 +551,10 @@ class ReadTypeBindingErrorTests(unittest.TestCase):
         self.assert_refused("which the schema does not have", {"ZoomState": {
             "type": "ZoomPaneResult", "fields": {"pane": {"prefer": "nope"}}}})
 
+    def test_write_only_encode_when_is_refused_for_read_types(self) -> None:
+        self.assert_refused("unknown key", {"ZoomState": {
+            "type": "ZoomPaneResult", "fields": {"zoomed": {"encode_when": "pane"}}}})
+
     def test_type_and_result_are_exclusive(self) -> None:
         self.assert_refused("exactly one of type", {"Z": {"type": "ZoomPaneResult", "result": "zoom-pane"}})
         self.assert_refused("exactly one of type", {"Z": {}})
@@ -670,6 +674,14 @@ class FlattenAndWhenTrueTests(unittest.TestCase):
     def test_encode_when_requires_a_non_empty_string(self) -> None:
         with self.assertRaises(BindingError):
             self.source(fields={"before": {"encode": "when_true"}, "label": {"encode_when": ""}})
+
+    def test_encode_when_cannot_gate_required_or_when_true_fields(self) -> None:
+        for fields in (
+            {"pane": {"encode_when": "before"}},
+            {"before": {"encode": "when_true", "encode_when": "label"}},
+        ):
+            with self.subTest(fields), self.assertRaises(BindingError):
+                self.source(fields=fields)
 
     def test_bad_flatten_and_when_true_bindings_are_refused(self) -> None:
         cases = {
