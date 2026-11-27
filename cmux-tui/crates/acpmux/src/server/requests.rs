@@ -27,6 +27,9 @@ pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
 #[path = "requests/hold_attach_tests.rs"]
 mod hold_attach_tests;
 #[cfg(test)]
+#[path = "requests/keyed_update_tests.rs"]
+mod keyed_update_tests;
+#[cfg(test)]
 #[path = "requests/op_once_tests.rs"]
 mod op_once_tests;
 #[cfg(test)]
@@ -4542,6 +4545,9 @@ async fn dispatch_request_with_identity(
             let exec_update = if params.get("execUpdate").and_then(Value::as_bool) == Some(true)
                 && params.get("restart").and_then(Value::as_bool) == Some(true)
                 && params.get("endAgents").and_then(Value::as_bool) != Some(true)
+                // Keyed daemons keep the established drained shutdown/restart protocol.
+                // Their app or provisioner enrolls the successor; exec never exports a key.
+                && !hub.person.has_key()
             {
                 Some(crate::daemon::exec_update::prepare(hub).await.map_err(|error| {
                     RpcError::new(

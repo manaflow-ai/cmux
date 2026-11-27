@@ -1,4 +1,5 @@
-//! Watches the installed executable and requests a drained, same-process exec update.
+//! Watches the installed executable and requests a drained update. Unkeyed daemons exec;
+//! keyed daemons retain their supervisor/takeover and app re-enrollment protocol.
 //! An unfinished turn defers the attempt; a bad build leaves the old daemon serving.
 
 use std::path::{Path, PathBuf};
@@ -200,6 +201,21 @@ impl Watch {
                 return std::future::pending().await;
             }
             retries.busy = false;
+            // The existing app/provisioner owns keyed enrollment. Keep its established
+            // handoff instead of refusing every automatic update or exporting its key.
+            if hub.person.has_key() {
+                match super::keyed_swap::replace(installed.clone(), drain.owner()).await {
+                    Ok(()) => {
+                        drain.commit();
+                        return std::future::pending().await;
+                    }
+                    Err(error) => {
+                        retries.failed();
+                        tracing::warn!("keyed update failed; daemon serves on: {error}");
+                        continue;
+                    }
+                }
+            }
             match super::exec_update::prepare(&hub).await {
                 Ok(receipt) => {
                     tracing::info!(update_id = %receipt["updateId"], "update ready; draining before exec");

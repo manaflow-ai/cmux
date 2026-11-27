@@ -63,6 +63,8 @@ pub use connect::{
 pub(crate) mod exec_update;
 mod handover;
 mod home_watch;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod keyed_swap;
 #[cfg(unix)]
 pub(crate) mod listener_handover;
 #[cfg(unix)]
