@@ -3,6 +3,7 @@
 use super::*;
 use crate::heap_future::heap;
 use crate::no_panic::{JsonExt, LockExt};
+use futures::future::BoxFuture;
 
 mod briefs;
 pub(super) mod cancel_refused;
@@ -446,7 +447,15 @@ fn brief_for(
     Ok(row)
 }
 
-async fn dispatch_brief(
+fn dispatch_brief<'a>(
+    hub: &'a Arc<Hub>,
+    conn: &'a Arc<Conn>,
+    params: Value,
+) -> BoxFuture<'a, Result<Value, RpcError>> {
+    Box::pin(dispatch_brief_inner(hub, conn, params))
+}
+
+async fn dispatch_brief_inner(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     mut params: Value,
@@ -785,14 +794,21 @@ async fn dispatch_brief(
         }
         return heap(|| workflow_dispatch::local(hub, conn, &params, &id, new_params, row)).await;
     }
-    let created =
-        match heap(|| dispatch_request(hub, conn, method::SESSION_NEW, new_params, None)).await {
-            Ok(created) => created,
-            Err(error) => {
-                hub.briefs.release(&id);
-                return Err(error);
-            }
-        };
+    // On a task of its own (`request_cancel::on_own_task`): served on this stack, the nested
+    // session/new overflowed a 2 MiB worker.
+    let (task_hub, task_conn) = (hub.clone(), conn.clone());
+    let made = crate::request_cancel::on_own_task(async move {
+        dispatch_request(&task_hub, &task_conn, method::SESSION_NEW, new_params, None).await
+    })
+    .await
+    .unwrap_or_else(|e| Err(RpcError::internal(format!("dispatch session/new: {e}"))));
+    let created = match made {
+        Ok(created) => created,
+        Err(error) => {
+            hub.briefs.release(&id);
+            return Err(error);
+        }
+    };
     let sid = created
         .get("sessionId")
         .and_then(Value::as_str)
@@ -1395,25 +1411,22 @@ fn cross_host_prompt(origin: Origin, m: &str, params: &Value) -> Option<Value> {
     Some(fields)
 }
 
-pub(super) async fn dispatch_request(
-    hub: &Arc<Hub>,
-    conn: &Arc<Conn>,
-    m: &str,
+pub(super) fn dispatch_request<'a>(
+    hub: &'a Arc<Hub>,
+    conn: &'a Arc<Conn>,
+    m: &'a str,
     params: Value,
     resolved: Option<Arc<crate::hub::Session>>,
-) -> Result<Value, RpcError> {
-    heap(|| {
-        dispatch_request_with_identity(
-            hub,
-            conn,
-            m,
-            params,
-            resolved,
-            None,
-            tokio::time::Instant::now(),
-        )
-    })
-    .await
+) -> BoxFuture<'a, Result<Value, RpcError>> {
+    dispatch_request_with_identity(
+        hub,
+        conn,
+        m,
+        params,
+        resolved,
+        None,
+        tokio::time::Instant::now(),
+    )
 }
 
 /// `_acpmux/rename`: a chat's name, or its spoken handle (`newHandle`).
@@ -1483,7 +1496,21 @@ fn synced_mark(hub: &Hub, params: &Value, read: bool) {
 }
 
 /// A fixed identity is a typed internal argument, never a session/new field.
-async fn dispatch_request_with_identity(
+fn dispatch_request_with_identity<'a>(
+    hub: &'a Arc<Hub>,
+    conn: &'a Arc<Conn>,
+    m: &'a str,
+    params: Value,
+    resolved: Option<Arc<crate::hub::Session>>,
+    fixed_id: Option<String>,
+    received: tokio::time::Instant,
+) -> BoxFuture<'a, Result<Value, RpcError>> {
+    Box::pin(dispatch_request_with_identity_inner(
+        hub, conn, m, params, resolved, fixed_id, received,
+    ))
+}
+
+async fn dispatch_request_with_identity_inner(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
     m: &str,
@@ -1591,7 +1618,7 @@ async fn dispatch_request_with_identity(
         }
         // Boxed: dispatch_brief's future is large, and inline it widens every request's future
         // (a debug test thread's stack overflowed on an unrelated request).
-        method::MUX_DISPATCH => heap(|| dispatch_brief(hub, conn, params)).await,
+        method::MUX_DISPATCH => dispatch_brief(hub, conn, params).await,
         method::MUX_STEER => briefs::steer(hub, conn, params).await,
         method::MUX_BRIEFS => briefs::list(hub, conn, params).await,
         method::MUX_REPORT => briefs::report(hub, conn, params).await,
