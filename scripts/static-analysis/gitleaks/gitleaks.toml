@@ -28,8 +28,8 @@ regexes = [
   '''^FBC6C273-1E11-4696-A320-1B29E00E73C7$''',
   '''^df65220e9948cbe76924483c2a7ae1a98d52efbc$''',
   '''^(0123456789abcdef)+$''',
-  # The same for acpmux's (cmux#49122): a made-up ghp_ token the audit redaction test masks, and two test strings.
-  '''^ghp_aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jSaZ3k$''',
+  # The same for acpmux's (cmux#49122, #55107): made-up ghp_ tokens the audit redaction and list_tee summary tests mask, and two test strings.
+  '''^ghp_aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS(aZ3k|1234)$''',
   '''^ghs_(secret|minted)0123''',
   '''same-length-secret-001''',
   # The made-up Stripe test key in cmux hub's parser tests (cmux-tui cli/hub_tests.rs): no account has it.
