@@ -46,7 +46,7 @@ pub(super) async fn run(hub: Arc<Hub>) {
                     )
                     .await
                     {
-                        tracing::warn!(session_id = %session.id, %error, "running chat replica failed; previous root retained");
+                        tracing::warn!(session_id = %session.id, %error, "running chat replica checkpoint failed");
                     }
                 }
             }

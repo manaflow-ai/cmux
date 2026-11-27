@@ -221,6 +221,25 @@ async fn only_a_web_connection_may_sign_in() {
     assert_eq!(error["data"]["reason"], "browser.sign_in.not_started", "{error}");
 }
 
+#[tokio::test]
+async fn running_replica_is_local_only_before_handler_access() {
+    let mut config = crate::config::Config::default();
+    config.store.mode = crate::config::StoreMode::Memory;
+    let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = crate::hub::Hub::new(config, store);
+
+    for origin in [Origin::Web, Origin::Peer] {
+        let error =
+            request(&hub, origin, method::MUX_RUNNING_REPLICA, json!({"action": "status"})).await;
+        assert_eq!(error["code"], -32601, "{origin:?}: {error}");
+    }
+    for origin in [Origin::Local, Origin::LocalApp] {
+        let error =
+            request(&hub, origin, method::MUX_RUNNING_REPLICA, json!({"action": "status"})).await;
+        assert_ne!(error["code"], -32601, "{origin:?} must reach the handler: {error}");
+    }
+}
+
 /// The error object of one request on a fresh connection served as `origin`.
 async fn request(hub: &Arc<crate::hub::Hub>, origin: Origin, m: &str, params: Value) -> Value {
     let (tx, in_rx) = mpsc::channel(16);

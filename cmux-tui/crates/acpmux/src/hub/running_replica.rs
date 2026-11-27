@@ -646,6 +646,228 @@ mod tests {
         assert!(project_history(tmp.path(), &mut meta("test", tmp.path())).is_err());
     }
 
+    #[cfg(unix)]
+    struct RunningTestTool {
+        // Written by this test's stand-in agent after starting its own process group.
+        pid_file: PathBuf,
+        hub: Option<Arc<Hub>>,
+    }
+
+    #[cfg(unix)]
+    impl Drop for RunningTestTool {
+        fn drop(&mut self) {
+            if let Some(pid) = std::fs::read_to_string(&self.pid_file)
+                .ok()
+                .and_then(|text| text.trim().parse::<i32>().ok())
+                .filter(|pid| *pid > 1)
+            {
+                // SAFETY: fake_agent.py's auto-run starts this test's shell with
+                // start_new_session=True. The private pid file identifies only that group.
+                unsafe {
+                    libc::killpg(pid, libc::SIGKILL);
+                }
+            }
+            if let Some(hub) = self.hub.take() {
+                tokio::spawn(async move {
+                    hub.shutdown_all().await;
+                });
+            }
+        }
+    }
+
+    /// A real ACP agent and shell are live at both capture and recovery. This complements
+    /// the synthetic crash fixture above: no test appends journal events on this path.
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn running_replica_live_agent_recovers_long_history_mid_silent_tool() {
+        use cmux_session_cloud::{Cloud, replica, seal, store::FsStore};
+        use std::time::{Duration, Instant};
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().join("source-cwd");
+        let restored_cwd = tmp.path().join("restored-cwd");
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::create_dir_all(&restored_cwd).unwrap();
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let cfg: Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake], "family": "claude",
+                "env": {"FAKE_CLAUDE_STORE": "1", "FAKE_RESET_CANCEL_ON_PROMPT": "1"}}},
+            "defaultHarness": "fake", "store": {"mode": "local"},
+            "titles": {"generate": false}
+        }))
+        .unwrap();
+        let source = Hub::new(
+            cfg.clone(),
+            crate::store::open(&cfg.store, &tmp.path().join("source-store")).unwrap(),
+        );
+        let out = tmp.path().join("tool.log");
+        let mut cleanup =
+            RunningTestTool { pid_file: out.with_extension("log.pid"), hub: Some(source.clone()) };
+        let session = source
+            .new_session(NewRequest { cwd: Some(cwd.clone()), ..Default::default() })
+            .await
+            .unwrap();
+        let native_id = session.meta().agent_session_id.unwrap();
+        let source_native = native_path(&cwd, &native_id);
+        let destination_native = native_path(&restored_cwd, &native_id);
+        let _native_cleanup = NativeFiles(vec![source_native.clone(), destination_native.clone()]);
+        tokio::time::timeout(
+            Duration::from_secs(60),
+            source.prompt(
+                &session,
+                vec![json!({"type":"text", "text":"delta-chunks: 12000 128"})],
+                "test",
+                false,
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let mut updates = source.subscribe();
+        let source_for_turn = source.clone();
+        let session_for_turn = session.clone();
+        let prompt = format!("auto-run: {}", out.display());
+        let live_prompt = prompt.clone();
+        let live = tokio::spawn(async move {
+            source_for_turn
+                .prompt(
+                    &session_for_turn,
+                    vec![json!({"type":"text", "text":live_prompt})],
+                    "test",
+                    false,
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(60), async {
+            loop {
+                let event = updates.recv().await.unwrap();
+                if event.session_id == session.id && event.record.kind == "tool_call" {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while std::fs::read_to_string(&out).unwrap_or_default() != "start\n"
+            || !cleanup.pid_file.is_file()
+        {
+            assert!(Instant::now() < deadline, "live tool did not start");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(session.turn().is_some());
+        assert!(!live.is_finished());
+        let cloud = Cloud {
+            store: Box::new(FsStore::new(tmp.path().join("cloud")).unwrap()),
+            key: seal::Key::from_bytes([8; 32]),
+            root_prefix: "m.live-running-test.".into(),
+        };
+        let snapshot =
+            source.capture_running_replica(&session, &tmp.path().join("snapshot")).unwrap();
+        let receipt = replica::publish(&snapshot, &session.id, &cloud).unwrap();
+        let manifest: Value =
+            serde_json::from_slice(&std::fs::read(snapshot.join("manifest.json")).unwrap())
+                .unwrap();
+        let through = manifest["lastSeq"].as_u64().unwrap();
+        assert!(through > 256, "live chat spans multiple event pages");
+        let mut source_log = Vec::new();
+        source
+            .scan_off(&session.id, 0, &mut |event| {
+                source_log.push(event);
+                true
+            })
+            .unwrap();
+        let reply_bytes: usize = source_log
+            .iter()
+            .filter(|event| event.kind == "agent_message_chunk")
+            .filter_map(|event| {
+                event.msg.pointer("/params/update/content/text").and_then(Value::as_str)
+            })
+            .map(str::len)
+            .sum();
+        assert_eq!(reply_bytes, 12_000 * 128, "all streamed reply bytes reached the durable log");
+        let native_before = std::fs::read_to_string(&source_native).unwrap();
+        assert!(native_before.contains("delta-chunks: 12000 128"));
+        assert!(native_before.contains(&prompt));
+        std::fs::remove_dir_all(snapshot).unwrap();
+        let download = tmp.path().join("download");
+        replica::recover(&receipt.pair, &download, &cloud).unwrap();
+        let dest_store = tmp.path().join("destination-store");
+        let destination =
+            Hub::new(cfg.clone(), crate::store::open(&cfg.store, &dest_store).unwrap());
+        let result = destination
+            .recover_running_replica(&download, &restored_cwd, Some("recovered-live"))
+            .await
+            .unwrap();
+        let id = result["sessionId"].as_str().unwrap();
+        let recovered = destination.resolve_here(id).unwrap();
+        assert_ne!(id, session.id);
+        assert_eq!(recovered.meta().status, SessionStatus::Idle);
+        assert!(recovered.turn().is_none());
+        assert!(recovered.child.lock().await.is_none(), "recovery did not start an agent");
+        let mut restored_log = Vec::new();
+        destination
+            .scan_off(id, 0, &mut |event| {
+                restored_log.push(event);
+                true
+            })
+            .unwrap();
+        let transcript = |log: &[EventRecord]| {
+            log.iter()
+                .filter(|e| {
+                    e.seq <= through && crate::store::HISTORY_KINDS.contains(&e.kind.as_str())
+                })
+                .map(|e| (e.seq, e.kind.clone(), e.msg.clone()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            transcript(&restored_log),
+            transcript(&source_log),
+            "full live transcript recovered"
+        );
+        let native_records = |text: &str| {
+            text.lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            native_records(&std::fs::read_to_string(&destination_native).unwrap()),
+            native_records(&native_before)
+        );
+        assert!(
+            restored_log
+                .iter()
+                .any(|e| e.kind == "turn_result" && e.msg["detail"] == "outcome_unknown")
+        );
+        destination.restore_queue(&recovered);
+        assert!(recovered.queue.lock().unwrap().is_empty());
+        assert!(session.turn().is_some(), "source remains live during explicit recovery");
+        assert!(!live.is_finished());
+        assert_eq!(std::fs::read_to_string(&out).unwrap(), "start\n", "tool was not replayed");
+        let recovered_id = id.to_owned();
+        drop(recovered);
+        destination.shutdown_all().await;
+        drop(destination);
+        let restarted = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &dest_store).unwrap());
+        let recovered = restarted.resolve_here(&recovered_id).unwrap();
+        restarted.restore_queue(&recovered);
+        assert!(recovered.queue.lock().unwrap().is_empty());
+        assert!(recovered.turn().is_none());
+        assert!(recovered.child.lock().await.is_none());
+        assert_eq!(std::fs::read_to_string(&out).unwrap(), "start\n");
+        eprintln!(
+            "ordinary-running-replica: live_chunks=12000 live_bytes={reply_bytes} records={through} recovered_idle=true replayed_tools=0"
+        );
+        // Kill the test-owned shell group while its leader is still alive; cancel alone
+        // would kill the shell but leave its detached sleep child until its time limit.
+        cleanup.hub = None;
+        drop(cleanup);
+        source.cancel(&session).await.unwrap();
+        let _ = tokio::time::timeout(Duration::from_secs(10), live).await.unwrap();
+        source.shutdown_all().await;
+        restarted.shutdown_all().await;
+    }
+
     #[test]
     fn running_replica_control_history_cannot_restart_queues_or_timers() {
         for kind in [
