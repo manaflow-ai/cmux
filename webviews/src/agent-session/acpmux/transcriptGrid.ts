@@ -335,6 +335,11 @@ export function transcriptGap(previous: number, next: number): number {
   // before's "Worked for" (it sat flush): the same gap as the "Worked for" rule below.
   if ((next & MARK_HEADS_TURN) !== 0) return workedHeadGap();
   next = baseMark(next);
+  // Two of the person's own messages with nothing drawn between them (a steer right under the prompt or
+  // the steer before it) stick together as one group, the footer gap apart, not a turn gap each (Leo,
+  // 2026-11-27: "potentially we can just stick the steered together"). The upper one's action row moves
+  // beside its bubble (conversation.css `acpmux-row--before-own-message`), so nothing overlaps.
+  if (previous === MARK_PROMPT && next === MARK_PROMPT) return TRANSCRIPT_FOOTER_GAP;
   if (previous === MARK_WORKED && next !== MARK_PROMPT) return 0;
   if (previous === MARK_WORKED) previous = MARK_STEP;
   // A turn's "Working for" or "Worked for" line opens that turn's work. Right under a one-line row

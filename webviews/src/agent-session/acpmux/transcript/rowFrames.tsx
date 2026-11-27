@@ -244,6 +244,7 @@ export function drawRowFrames(
           opensTurn={opensBackgroundTurn(row, prev)}
           beforeFooter={isBeforeFooter(row, next)}
           beforeIndicator={next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_INDICATOR}
+          beforeOwnMessage={next !== undefined && rowMark(row) === MARK_PROMPT && rowMark(next) === MARK_PROMPT}
           replyActions={keepsReplyRoom(row, next)}
           status={statusEdge(row, next, prev)}
           lastFooter={isLastFooter(row, next)}
