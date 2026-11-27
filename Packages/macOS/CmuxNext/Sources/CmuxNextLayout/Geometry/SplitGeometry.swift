@@ -22,6 +22,15 @@ public nonisolated struct SplitLayoutResult: Hashable, Sendable {
     public var dividers: [DividerGeometry] = []
 }
 
+/// Op counts of the layout path, read by LayoutIncrementalBoundTests (RFD 0199 §4): split tree nodes visited,
+/// pane frames placed and pane shapes applied. Counted only while a test binds `current`
+/// (`LayoutOpCount.$current.withValue`); each pass reads the task local once, so an unbound pass costs one read.
+public nonisolated final class LayoutOpCount: @unchecked Sendable {
+    public var visits = 0, places = 0, shapes = 0
+    public init() {}
+    @TaskLocal public static var current: LayoutOpCount?
+}
+
 /// Pure frame computation for split trees. Coordinates are top-left origin
 /// (views in this module are flipped).
 public nonisolated enum SplitGeometry {
@@ -36,20 +45,23 @@ public nonisolated enum SplitGeometry {
         // without split ids, LayoutHandleMap): those splits use the recursive path.
         var minimums: [SplitID: (a: CGSize, b: CGSize)] = [:]
         var repeated: Set<SplitID> = []
-        _ = collectMinimums(node, style: style, into: &minimums, repeated: &repeated)
+        var visits = 0
+        _ = collectMinimums(node, style: style, into: &minimums, repeated: &repeated, visits: &visits)
         for id in repeated { minimums[id] = nil }
-        layout(node, in: rect, style: style, scale: scale, minimums: minimums, into: &result)
+        layout(node, in: rect, style: style, scale: scale, minimums: minimums, into: &result, visits: &visits)
+        LayoutOpCount.current?.visits += visits
         return result
     }
 
     private static func collectMinimums(_ node: SplitNode, style: LayoutStyle, into minimums: inout [SplitID: (a: CGSize, b: CGSize)],
-                                        repeated: inout Set<SplitID>) -> CGSize {
+                                        repeated: inout Set<SplitID>, visits: inout Int) -> CGSize {
+        visits += 1
         switch node {
         case .leaf:
             return style.minimumPaneSize
         case let .split(id, axis, _, a, b):
-            let first = collectMinimums(a, style: style, into: &minimums, repeated: &repeated)
-            let second = collectMinimums(b, style: style, into: &minimums, repeated: &repeated)
+            let first = collectMinimums(a, style: style, into: &minimums, repeated: &repeated, visits: &visits)
+            let second = collectMinimums(b, style: style, into: &minimums, repeated: &repeated, visits: &visits)
             if minimums.updateValue((first, second), forKey: id) != nil { repeated.insert(id) }
             return combine(first, second, axis: axis, divider: style.dividerThickness)
         }
@@ -65,7 +77,9 @@ public nonisolated enum SplitGeometry {
     }
 
     private static func layout(_ node: SplitNode, in rect: CGRect, style: LayoutStyle, scale: CGFloat,
-                               minimums: [SplitID: (a: CGSize, b: CGSize)], into result: inout SplitLayoutResult) {
+                               minimums: [SplitID: (a: CGSize, b: CGSize)], into result: inout SplitLayoutResult,
+                               visits: inout Int) {
+        visits += 1
         switch node {
         case let .leaf(pane):
             result.panes[pane] = rect
@@ -96,8 +110,8 @@ public nonisolated enum SplitGeometry {
                                   crossLength: axis == .horizontal ? rect.height : rect.width, scale: scale).hit
             result.dividers.append(DividerGeometry(id: id, axis: axis, frame: divider, hitFrame: hit, container: rect,
                                                    minimumA: minimumA, minimumB: minimumB))
-            layout(a, in: aRect, style: style, scale: scale, minimums: minimums, into: &result)
-            layout(b, in: bRect, style: style, scale: scale, minimums: minimums, into: &result)
+            layout(a, in: aRect, style: style, scale: scale, minimums: minimums, into: &result, visits: &visits)
+            layout(b, in: bRect, style: style, scale: scale, minimums: minimums, into: &result, visits: &visits)
         }
     }
 

@@ -210,6 +210,14 @@ benches = ["TabSwitchPathBench", "TabSwitchCycleBench", "TabSwitchViewSwapBench"
 tests = ["swift test --package-path Packages/macOS/CmuxNext --filter CmuxNextPagesTests"]
 
 [[area]]
+name = "Pane layout"
+paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextLayout"]
+situations = ["main-thread"]
+benches = ["LayoutDragBench", "PaneMotionBench"]
+tests = ["swift test --package-path Packages/macOS/CmuxNext --filter LayoutIncrementalBoundTests"]
+budget = "drag tick: O(depth + moved panes) node visits; 8.33 ms a move (LayoutDragBench)"
+
+[[area]]
 name = "Palette and omnibar"
 paths = ["Packages/macOS/CmuxNext/Sources/CmuxNextPalette"]
 situations = ["main-thread"]

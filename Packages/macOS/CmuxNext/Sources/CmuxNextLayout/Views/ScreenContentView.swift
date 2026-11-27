@@ -310,6 +310,7 @@ final class ScreenContentView: NSView {
         let before = geometry
         // One style read per pass: it is resolved from the settings.
         let style = context.style
+        let ops = LayoutOpCount.current // RFD 0199 §4 bound test; nil outside it
         reconcilePasses += 1
         applyCamera()
         reconciledScale = scale
@@ -352,6 +353,7 @@ final class ScreenContentView: NSView {
                 }
                 if rebasing, !structural, existing.rect != existing.targetRect { existing.rebase(onto: target) }
                 place(&existing, at: target, animated: tiled && (animateFrames || floatsOnly && existing.targetRect == target))
+                ops?.places += 1
                 paneFrames[pane] = existing
             } else {
                 // A pane the layout gets: a new one, a close taken back before its host went, or one a zoom covered. One
@@ -368,6 +370,7 @@ final class ScreenContentView: NSView {
             }
             // A floating pane's shape is its card's (`FloatingPanesState.present`).
             if baseGeometry.floatingCards[pane] == nil {
+                ops?.shapes += 1
                 context.hosts[pane]?.applyShape(padding: style.panePadding, cornerRadius: style.paneCornerRadius, wholeCard: style.floatingPanes)
             }
         }
