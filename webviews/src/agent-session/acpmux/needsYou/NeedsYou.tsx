@@ -30,7 +30,7 @@ import { HeaderIcon } from "../header/HeaderIcon";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { useAnswerHoldSet } from "../answerHold";
-import { Keycap } from "../Keycap";
+import { KeyHint } from "../../../ui/KeyHint";
 import { nextShortAge, shortAge } from "../sessionList";
 import { Popover } from "../../../ui/Popover";
 import { usePopoverTrigger } from "../../../ui/popoverTrigger";
@@ -443,7 +443,7 @@ const NeedsYouRow = memo(function NeedsYouRow({
                           ? t("needsYou.resume")
                           : choice.label}
                   </span>
-                  {key && <Keycap>{key.toUpperCase()}</Keycap>}
+                  {key && <KeyHint keys={key.toUpperCase()} aria-hidden="true" />}
                 </button>
               );
             })}
