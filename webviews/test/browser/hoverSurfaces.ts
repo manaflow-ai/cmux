@@ -11,7 +11,6 @@ export const HOVER_SURFACES: HoverSurface[] = [
   { name: "title tooltip (ui/titleTooltips.ts)", className: "ui-title-tooltip ui-glass" },
   { name: "toolbar hint (ui/Toolbar.tsx)", className: `${CARD} ui-hint` },
   { name: "goal preview (TaskGoalStrip.tsx)", className: `${TOOLTIP} ui-card acpmux-goal-preview` },
-  { name: "PR checks (PullRequestCard.tsx)", className: `${TOOLTIP} ui-card acpmux-pr-card__checkNames` },
   { name: "message group hover (MessageGroupHead.tsx)", className: `${TOOLTIP} ui-card cv-group-hover__popup` },
   {
     name: "subagent preview (SubagentPreview.tsx)",
