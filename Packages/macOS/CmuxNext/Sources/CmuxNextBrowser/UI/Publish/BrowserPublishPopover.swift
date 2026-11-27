@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextBrowserCore
 import CmuxNextDesign
 
