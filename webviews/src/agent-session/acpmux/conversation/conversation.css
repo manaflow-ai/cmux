@@ -2978,6 +2978,14 @@ body {
   height: 1px;
   background: var(--cv-rule);
 }
+/* A closed turn that said nothing after its work (`workedAlone`: tool rows alone, no reply) has no
+   reply for the rule to set off, so it draws none: the line ends the turn on its own, not a rule over
+   an empty band (Leo, 2026-11-27: "that's fine btw. but we do have a slightly awkward rendering
+   situation here"). The line keeps its height, so nothing moves; opened, the rule sets off its work.
+   The unread divider's lit rule (unread.css) is more specific and still draws. */
+.cv-worked.has-divider[data-alone][aria-expanded="false"]::after {
+  background: transparent;
+}
 .cv-worked__chevron {
   margin-top: 0;
   margin-inline-start: calc(var(--cv-disclosure-gap) - var(--cv-worked-gap, 2px));

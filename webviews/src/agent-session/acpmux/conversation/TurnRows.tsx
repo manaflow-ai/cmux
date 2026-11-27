@@ -210,6 +210,7 @@ export function WorkedFor({
     <button
       type="button"
       className="cv-worked has-divider is-toggle"
+      data-alone={row.workedAlone ? "" : undefined}
       aria-expanded={expanded}
       aria-controls={expanded ? controls : undefined}
       onClick={onToggle}
