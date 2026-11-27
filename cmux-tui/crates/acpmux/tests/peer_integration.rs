@@ -608,7 +608,7 @@ async fn peer_presence_recovers_unchanged_participants_after_reconnect() {
         method::MUX_VIEW,
         json!({
             "sessionId": sid, "visible": true,
-            "_meta": {"acpmux": {"author": {"id": "stable-ana", "name": "Ana"}}}
+            "_meta": {"acpmux": {"author": {"id": "tailnet:stable-ana", "name": "Ana"}}}
         }),
     )
     .await
@@ -628,13 +628,13 @@ async fn peer_presence_recovers_unchanged_participants_after_reconnect() {
         )
         .await
         .unwrap();
-    assert_eq!(attached["presence"]["participants"][0]["id"], "stable-ana");
+    assert_eq!(attached["presence"]["participants"][0]["id"], "tailnet:stable-ana");
     let peer = a.peer_by_name("b").unwrap();
     let epoch = peer.link_epoch();
     let mut settled = peer.settled();
     flap.send(()).unwrap();
     ca.wait(method::MUX_PRESENCE, |p| p["participants"] == json!([])).await;
-    ca.wait(method::MUX_PRESENCE, |p| p["participants"][0]["id"] == "stable-ana").await;
+    ca.wait(method::MUX_PRESENCE, |p| p["participants"][0]["id"] == "tailnet:stable-ana").await;
     tokio::time::timeout(Duration::from_secs(15), async {
         while peer.link_epoch() == epoch
             || !peer.connected.load(std::sync::atomic::Ordering::SeqCst)
@@ -645,7 +645,7 @@ async fn peer_presence_recovers_unchanged_participants_after_reconnect() {
     .await
     .expect("peer reconnects");
     // No client on B changed presence after the initial view.
-    assert_eq!(b.presence.snapshot(sid)["participants"][0]["id"], "stable-ana");
+    assert_eq!(b.presence.snapshot(sid)["participants"][0]["id"], "tailnet:stable-ana");
 }
 
 /// Identical raw ids from different peers never mix their presence in a local client.
@@ -754,8 +754,12 @@ async fn hears_no_local_presence(local: &mut C, far: &mut C, own: &str) {
     loop {
         let line =
             tokio::time::timeout(Duration::from_secs(20), far.rx.recv()).await.unwrap().unwrap();
-        assert!(!line.contains("_acpmux/presence"), "{line}");
-        if matches!(Message::parse(&line), Ok(Message::Response { id, .. }) if id == far.next) {
+        let message = Message::parse(&line).unwrap();
+        assert!(
+            !matches!(&message, Message::Notification { method, .. } if method == method::MUX_PRESENCE),
+            "{line}"
+        );
+        if matches!(message, Message::Response { id, .. } if id == far.next) {
             break;
         }
     }

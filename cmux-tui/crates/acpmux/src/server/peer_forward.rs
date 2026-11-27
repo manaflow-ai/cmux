@@ -1186,6 +1186,13 @@ async fn forward_inner(
             let on = (peer.name.as_str(), peer.generation, link, asked);
             hub.capture_peer_page(on, (&id, m == method::MUX_EVENTS), params, &result);
         }
+        // Older peers omit presence entirely. Keep the attach reply's empty baseline while
+        // retaining a current peer's authored snapshot.
+        if m == method::MUX_ATTACH
+            && let Some(obj) = result.as_object_mut()
+        {
+            obj.entry("presence").or_insert_with(|| crate::hub::presence::none(&id));
+        }
         if let Some((snapshot, revision)) = presence_baseline
             && let Some(note) = result.get("presence")
         {
