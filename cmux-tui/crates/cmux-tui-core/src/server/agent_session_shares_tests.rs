@@ -667,9 +667,8 @@ fn a_view_only_invitee_watches_but_never_prompts_or_types() {
     let mut owner = Client::connect(&mux, "share-invite-view-owner");
     let share = create(&mut owner, surface, json!({}));
     assert_eq!(invite(&mut owner, &share, "ann@example.com", Some("view"))["ok"], true);
-    // Asking again with the same role is a no-op; another role is refused (uninvite first).
+    // Asking again with the same role is a no-op.
     assert_eq!(invite(&mut owner, &share, "ann@example.com", Some("view"))["ok"], true);
-    assert_code(&invite(&mut owner, &share, "ann@example.com", Some("talk")), "share.invited");
     let guest = redeem_as(&mut owner, &share, "ann@example.com", "a1");
     let (mut client, _) = bind(&mux, &share, &guest, "share-invite-view-ann");
     for frame in [
@@ -692,6 +691,53 @@ fn a_view_only_invitee_watches_but_never_prompts_or_types() {
         assert_code(&client.request(frame), "agent_session.scope_not_granted");
     }
     fake.no_frame();
+}
+
+/// A role change is the invite again with another role: the account keeps its invite (no remove
+/// first, so a failed step never leaves it without access), its joined guest takes the role, and
+/// that guest's connection closes so it binds again with the new role's author.
+#[test]
+fn another_role_changes_the_invite_in_place_and_rebinds_its_guests() {
+    let fake = FakeAcpmux::start("share-role-change");
+    let mux = mux_with(&fake, "share-role-change");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-role-change-owner");
+    let share = create(&mut owner, surface, json!({}));
+    invite(&mut owner, &share, "ann@example.com", Some("talk"));
+    invite(&mut owner, &share, "bo@example.com", Some("talk"));
+    let ann = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    let bo = redeem_as(&mut owner, &share, "bo@example.com", "b1");
+    let (_ann_client, bound) = bind(&mux, &share, &ann, "share-role-change-ann");
+    assert_eq!(bound["ok"], true, "{bound}");
+    let (mut bo_client, _) = bind(&mux, &share, &bo, "share-role-change-bo");
+    let changed = invite(&mut owner, &share, "Ann@example.com", Some("view"));
+    assert_eq!(changed["ok"], true, "{changed}");
+    assert_eq!(changed["data"]["role"], "view");
+    wait_unbound(&mux, 1);
+    let still = bo_client.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+    assert_eq!(still["ok"], true, "another invitee stays bound: {still}");
+    fake.frame();
+    let shown = list(&mut owner);
+    assert_eq!(shown[0]["invitees"][0]["role"], "view");
+    assert_eq!(shown[0]["invitees"][0]["state"], "invited", "never removed on the way");
+    let guest =
+        shown[0]["guests"].as_array().unwrap().iter().find(|g| g["account"] == "ann@example.com");
+    assert_eq!(guest.unwrap()["role"], "view", "the joined guest takes the new role");
+    // The same guest, still active: its retry is that guest, and it binds again as a viewer.
+    let again = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    assert_eq!(again["data"]["guest_id"], ann["data"]["guest_id"], "{again}");
+    assert_eq!(again["data"]["role"], "view");
+    let (mut client, rebound) = bind(&mux, &share, &ann, "share-role-change-ann-again");
+    assert_eq!(rebound["ok"], true, "{rebound}");
+    let attach = client.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+    assert_eq!(attach["ok"], true, "{attach}");
+    assert_eq!(fake.frame()["params"]["_meta"]["acpmux"]["author"]["role"], "view");
+    let prompt =
+        json!({"cmd":"agent-session-prompt", "surface":surface, "client_id":"c1", "text":"hi"});
+    assert_code(&client.request(prompt), "agent_session.scope_not_granted");
+    // And back to talk.
+    assert_eq!(invite(&mut owner, &share, "ann@example.com", Some("talk"))["data"]["role"], "talk");
+    assert_eq!(list(&mut owner)[0]["invitees"][0]["role"], "talk");
 }
 
 #[test]
@@ -1408,6 +1454,39 @@ fn revoking_drive_refuses_the_old_guest_and_lowering_to_talk_holds_the_next_prom
     assert_eq!(bound.get("ok"), Some(&json!(true)), "{bound}");
     let attach = talk.request(json!({"cmd":"agent-session-attach", "surface":surface}));
     assert_eq!(attach.get("ok"), Some(&json!(true)), "{attach}");
+    let prompt = talk.request(json!({"cmd":"agent-session-prompt", "surface":surface,
+        "client_id":"c1", "text":"next message"}));
+    assert_eq!(prompt.pointer("/data/awaiting_owner"), Some(&json!(true)), "{prompt}");
+    assert_code(
+        &talk.request(json!({"cmd":"agent-session-cancel", "surface":surface})),
+        "agent_session.scope_not_granted",
+    );
+}
+
+#[test]
+fn lowering_drive_in_place_rebinds_the_same_guest_and_holds_its_next_prompt() {
+    let fake = FakeAcpmux::start("share-drive-lower");
+    let mux = mux_with(&fake, "share-drive-lower");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "share-drive-lower-owner");
+    let share = create(&mut owner, surface, json!({}));
+    invite(&mut owner, &share, "ann@example.com", Some("drive"));
+    let ann = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    let (mut driver, bound) = bind(&mux, &share, &ann, "share-drive-lower-ann");
+    assert_eq!(bound["ok"], true, "{bound}");
+    let changed = invite(&mut owner, &share, "ann@example.com", Some("talk"));
+    assert_eq!(changed["data"]["role"], "talk", "{changed}");
+    wait_unbound(&mux, 0);
+    assert!(driver.ends_within(WAIT));
+    let again = redeem_as(&mut owner, &share, "ann@example.com", "a1");
+    assert_eq!(again["data"]["guest_id"], ann["data"]["guest_id"], "{again}");
+    assert_eq!(again["data"]["role"], "talk");
+    assert_eq!(list(&mut owner)[0]["invitees"][0]["state"], "invited");
+    let (mut talk, rebound) = bind(&mux, &share, &ann, "share-drive-lower-rebound");
+    assert_eq!(rebound["ok"], true, "{rebound}");
+    let attach = talk.request(json!({"cmd":"agent-session-attach", "surface":surface}));
+    assert_eq!(attach["ok"], true, "{attach}");
+    assert_eq!(fake.frame()["params"]["_meta"]["acpmux"]["author"]["role"], "talk");
     let prompt = talk.request(json!({"cmd":"agent-session-prompt", "surface":surface,
         "client_id":"c1", "text":"next message"}));
     assert_eq!(prompt.pointer("/data/awaiting_owner"), Some(&json!(true)), "{prompt}");

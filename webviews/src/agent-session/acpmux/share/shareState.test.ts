@@ -141,10 +141,20 @@ test("Copy link reuses the page's live viewer link, and Restricted revokes every
   expect(calls.filter(([op]) => op === "link")).toHaveLength(2);
 });
 
-test("a role change is uninvite then invite, in that order", async () => {
+test("a role change is one invite with the new role, never a remove first", async () => {
+  const calls: [string, Record<string, unknown>][] = [];
+  await shareClient("chat", async (op, params = {}) => void calls.push([op, params])).setRole("@sam", "view");
+  expect(calls).toEqual([["invite", { account: "@sam", role: "view", session: "chat" }]]);
+});
+
+test("a role change the daemon refuses leaves the person invited: nothing was removed", async () => {
   const ops: string[] = [];
-  await shareClient("chat", async (op) => void ops.push(op)).setRole("@sam", "talk");
-  expect(ops).toEqual(["uninvite", "invite"]);
+  const refusing = async (op: string) => {
+    ops.push(op);
+    throw new Error("share.limit");
+  };
+  await expect(shareClient("chat", refusing).setRole("@sam", "talk")).rejects.toThrow("share.limit");
+  expect(ops).toEqual(["invite"]);
 });
 
 test("accounts are an email or an @handle", () => {
