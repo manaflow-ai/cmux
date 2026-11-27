@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/45958496981",
+  "recorded_at": "2026-11-27T07:56:07Z",
+  "reason": "image inputs changed in 02271216e889bc1083cade81276edca691d2f1f1..c9248d58cb755b9ae7e7dded59280973a8e0281f; cmux-tui stays f7b548a59a63 (latest build 3bb7a878c526 is not on HEAD; none of the 40 newest commits after the pin has a published build)",
+  "dry_run": false,
+  "cmux_tui": "f7b548a59a63a0a8dad488e5d38d00e0fd3aa65e",
+  "fixes": [
+    {
+      "sha": "c9248d58cb755b9ae7e7dded59280973a8e0281f",
+      "mergedAt": "2026-11-27T07:26:34+00:00",
+      "subject": "Retry the VM start's 429 INFRASTRUCTURE_OVERLOADED in the image scripts (#60983)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-27T07:56:07Z",
+    "snapshot_id": "sh-657d86c1cb95411797ee87090b043b4b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 45958496981): 34 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "70a83c1aa1cb4980cf601bf62fa28ea92ff3e203",
+    "image": "cloud-native-auto-f7b548a5-45958496981-1",
+    "revision": "ci-45958496981-1",
+    "at": "2026-11-27T07:56:07Z"
+  },
+  "rolled_back": false
+}
