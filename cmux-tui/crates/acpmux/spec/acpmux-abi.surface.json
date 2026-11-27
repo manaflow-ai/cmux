@@ -1831,6 +1831,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -1856,6 +1859,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -2136,6 +2142,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -2161,6 +2170,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -2444,6 +2456,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -2469,6 +2484,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -2746,6 +2764,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -2771,6 +2792,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -3051,6 +3075,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -3076,6 +3103,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -3350,6 +3380,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -3375,6 +3408,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -3661,6 +3697,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -3686,6 +3725,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -3963,6 +4005,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -3988,6 +4033,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -4262,6 +4310,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -4287,6 +4338,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -4567,6 +4621,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -4592,6 +4649,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -4872,6 +4932,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -4897,6 +4960,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -5174,6 +5240,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -5199,6 +5268,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -5479,6 +5551,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -5504,6 +5579,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -5781,6 +5859,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -5806,6 +5887,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -6083,6 +6167,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -6108,6 +6195,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -6409,6 +6499,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -6434,6 +6527,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -6781,6 +6877,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -6806,6 +6905,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -7155,6 +7257,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -7180,6 +7285,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -7454,6 +7562,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -7479,6 +7590,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -7789,6 +7903,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -7814,6 +7931,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -8142,6 +8262,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -8167,6 +8290,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -8747,6 +8873,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -8772,6 +8901,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -9088,6 +9220,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -9113,6 +9248,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -9387,6 +9525,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -9412,6 +9553,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -9900,6 +10044,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -9925,6 +10072,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -10250,6 +10400,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -10275,6 +10428,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -10549,6 +10705,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -10574,6 +10733,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -10860,6 +11022,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -10885,6 +11050,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -11162,6 +11330,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -11187,6 +11358,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -11470,6 +11644,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -11495,6 +11672,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -11793,6 +11973,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -11818,6 +12001,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -12153,6 +12339,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -12178,6 +12367,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -12455,6 +12647,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -12480,6 +12675,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -12757,6 +12955,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -12782,6 +12983,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -13222,6 +13426,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -13247,6 +13454,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -13557,6 +13767,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -13582,6 +13795,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -14098,6 +14314,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -14123,6 +14342,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -14424,6 +14646,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -14449,6 +14674,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -14741,6 +14969,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -14766,6 +14997,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -15046,6 +15280,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -15071,6 +15308,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -15348,6 +15588,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -15373,6 +15616,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -15659,6 +15905,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -15684,6 +15933,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -16039,6 +16291,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -16064,6 +16319,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -16350,6 +16608,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -16375,6 +16636,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -16670,6 +16934,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -16695,6 +16962,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -17277,6 +17547,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -17302,6 +17575,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -17616,6 +17892,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -17641,6 +17920,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -17921,6 +18203,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -17946,6 +18231,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -18235,6 +18523,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -18260,6 +18551,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -18549,6 +18843,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -18574,6 +18871,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -18857,6 +19157,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -18882,6 +19185,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -19156,6 +19462,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -19181,6 +19490,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -19452,6 +19764,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -19477,6 +19792,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -19755,6 +20073,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -19780,6 +20101,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -20063,6 +20387,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -20088,6 +20415,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -20365,6 +20695,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -20390,6 +20723,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -20679,6 +21015,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -20704,6 +21043,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -20981,6 +21323,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -21006,6 +21351,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -21331,6 +21679,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -21356,6 +21707,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -21660,6 +22014,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -21685,6 +22042,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -22037,6 +22397,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -22062,6 +22425,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -22402,6 +22768,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -22427,6 +22796,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -22911,6 +23283,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -22936,6 +23311,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -23234,6 +23612,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -23259,6 +23640,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -23536,6 +23920,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -23561,6 +23948,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -23841,6 +24231,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -23866,6 +24259,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -24143,6 +24539,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -24168,6 +24567,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -24445,6 +24847,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -24470,6 +24875,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -24744,6 +25152,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -24769,6 +25180,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -25046,6 +25460,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -25071,6 +25488,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -25360,6 +25780,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -25385,6 +25808,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -25674,6 +26100,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -25699,6 +26128,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -25976,6 +26408,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -26001,6 +26436,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -26290,6 +26728,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -26315,6 +26756,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -26604,6 +27048,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -26629,6 +27076,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -27190,6 +27640,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -27215,6 +27668,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -27501,6 +27957,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -27526,6 +27985,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -27959,6 +28421,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -27984,6 +28449,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -28305,6 +28773,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -28330,6 +28801,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -28706,6 +29180,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -28731,6 +29208,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -29011,6 +29491,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -29036,6 +29519,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -29367,6 +29853,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -29392,6 +29881,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -29678,6 +30170,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -29703,6 +30198,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -30007,6 +30505,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -30032,6 +30533,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -30312,6 +30816,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -30337,6 +30844,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -30623,6 +31133,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -30648,6 +31161,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -30928,6 +31444,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -30953,6 +31472,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {
@@ -31230,6 +31752,9 @@
       "/_meta/acpmux": {
         "ty": "object"
       },
+      "/_meta/acpmux/abi": {
+        "ty": "json"
+      },
       "/_meta/acpmux/adopt": {
         "ty": "json"
       },
@@ -31255,6 +31780,9 @@
         "ty": "json"
       },
       "/_meta/acpmux/beforePromptId": {
+        "ty": "json"
+      },
+      "/_meta/acpmux/build": {
         "ty": "json"
       },
       "/_meta/acpmux/callerKind": {

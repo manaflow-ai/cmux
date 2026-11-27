@@ -184,6 +184,10 @@ impl Peer {
                 // What this build reads (`server/client_features.rs`): the peer sends a gated
                 // notification only once it is listed.
                 crate::server::client_features::FIELD: crate::server::client_features::own()}}});
+        // The ABI hello (`abi_hello.rs`): this build's revision and build id.
+        if let Some(meta) = hello.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
+            crate::abi_hello::stamp(meta);
+        }
         // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
         if self.github_broker() {
             hello.set_path(&["_meta", "acpmux", "githubBroker"], json!(true));

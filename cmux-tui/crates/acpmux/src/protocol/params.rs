@@ -76,6 +76,7 @@ impl JsonSchema for AcpmuxRequestMeta {
 
 /// [`AcpmuxRequestMeta`]'s keys.
 pub const ACPMUX_REQUEST_META: &[&str] = &[
+    "abi",
     "adopt",
     "agentSessionId",
     "answeredBy",
@@ -85,6 +86,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "author",
     "autoPlace",
     "beforePromptId",
+    "build",
     "callerKind",
     "callerProtocol",
     "callerSession",
