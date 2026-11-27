@@ -11,10 +11,9 @@ let package = Package(
     products: [
         .executable(name: "cmux-ui-layer", targets: ["UiLayerHost"]),
         .executable(name: "cmux-ui-layer-watch", targets: ["UiLayerSourceWatcher"]),
-        // The heavy modules' scene hosts, each built only when a push touches its module (ui-preview-worker.py
-        // HEAVY_SCENES), so a leaf change never waits on them: HomeEngine, and the app library.
+        // A heavy module's scene host, built only when a push touches its module (ui-preview-worker.py
+        // HEAVY_SCENES), so a leaf change never waits on it.
         .executable(name: "cmux-ui-home", targets: ["UiHomeHost"]),
-        .executable(name: "cmux-ui-app", targets: ["UiAppHost"]),
     ],
     dependencies: [
         .package(path: "../../Packages/macOS/CmuxNext"),
@@ -39,14 +38,6 @@ let package = Package(
                 "UiShellShootKit",
             ],
             path: "Sources/UiHomeHost"
-        ),
-        .executableTarget(
-            name: "UiAppHost",
-            dependencies: [
-                .product(name: "CmuxNextApp", package: "CmuxNext"),
-                "UiShellShootKit",
-            ],
-            path: "Sources/UiAppHost"
         ),
         .executableTarget(name: "UiLayerSourceWatcher", path: "Sources/UiLayerSourceWatcher"),
         .testTarget(name: "UiLayerHostTests", dependencies: ["UiLayerHost", "UiShellShootKit"]),

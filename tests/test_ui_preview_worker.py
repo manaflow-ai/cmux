@@ -45,19 +45,19 @@ class PlanTests(unittest.TestCase):
                          list(w.SHELL_SCENES))
 
     def test_a_heavy_module_shoots_its_own_hosts_scene(self):
-        p = w.plan(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift",
-                    "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefTeleportPlayground.swift"])
-        self.assertEqual(p["swift"], ["chief-teleport", "density-playground"])
+        p = w.plan(["Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefTeleportPlayground.swift"])
+        self.assertEqual(p["swift"], ["chief-teleport"])
         self.assertEqual(p["needs_build"], [])
-        self.assertEqual(w.plan(["Prototypes/UiLayerHost/Sources/UiAppHost/UiAppHostMain.swift"])["swift"],
-                         ["density-playground"])
+        self.assertEqual(w.plan(["Prototypes/UiLayerHost/Sources/UiHomeHost/UiHomeHostMain.swift"])["swift"],
+                         ["chief-teleport"])
+        app = "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppDelegate.swift"
+        self.assertEqual(w.plan([app])["needs_build"], [app])
         self.assertEqual(w.plan(["Prototypes/UiLayerHost/Sources/UiShellShootKit/UiShellShootKit.swift"])["swift"],
                          list(w.SHELL_SCENES))
 
     def test_every_heavy_scene_has_a_host_and_a_module(self):
         drawn = {s for scenes in w.SWIFT_SCENES.values() for s in scenes}
         self.assertEqual(set(w.HEAVY_SCENES) - drawn, set())
-        self.assertTrue(set(w.HEAVY_SCENES.values()) <= set(w.HEAVY_HOST_SOURCES) | {"cmux-ui-home", "cmux-ui-app"})
         manifest = (ROOT / w.SHELL_PACKAGE / "Package.swift").read_text()
         for product in set(w.HEAVY_SCENES.values()) | {w.SHELL_PRODUCT}:
             self.assertIn(f'"{product}"', manifest)
@@ -176,13 +176,11 @@ class HeavyHostTests(unittest.TestCase):
                 return {s: f"{s}.png" for s in scenes}
             worker.shoot_product = shoot_product
             out = Path(tmp) / "out"
-            got = worker.shoot_shell(["tabs", "density-playground", "chief-teleport"], out)
-            self.assertEqual(got, {"tabs": "tabs.png", "density-playground": "density-playground.png",
-                                   "chief-teleport": "chief-teleport.png"})
+            got = worker.shoot_shell(["tabs", "chief-teleport"], out)
+            self.assertEqual(got, {"tabs": "tabs.png", "chief-teleport": "chief-teleport.png"})
             self.assertEqual(sorted(p.name for p in out.iterdir()), sorted(got.values()))
-            self.assertEqual(built, ["cmux-ui-app", "cmux-ui-home"])  # the leaf shell is the caller's build
-            self.assertEqual(shot, [("cmux-ui-layer", ["tabs"]), ("cmux-ui-app", ["density-playground"]),
-                                    ("cmux-ui-home", ["chief-teleport"])])
+            self.assertEqual(built, ["cmux-ui-home"])  # the leaf shell is the caller's build
+            self.assertEqual(shot, [("cmux-ui-layer", ["tabs"]), ("cmux-ui-home", ["chief-teleport"])])
 
     def test_a_failed_heavy_host_keeps_the_other_scenes(self):
         with tempfile.TemporaryDirectory() as tmp:

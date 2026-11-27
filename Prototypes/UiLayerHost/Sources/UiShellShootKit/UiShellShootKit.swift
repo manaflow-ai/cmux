@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 // The shoot core every UI shell host shares: the leaf shell (cmux-ui-layer, UiShellShoot.swift) and the heavy-module
-// hosts (cmux-ui-home, cmux-ui-app), each with its own scenes. `HOST --shoot DIR [--scene a,b] [--themes DIR]` opens
+// hosts (cmux-ui-home), each with its own scenes. `HOST --shoot DIR [--scene a,b] [--themes DIR]` opens
 // the chosen scenes' playground windows, draws each into a PNG with cacheDisplay (no Screen Recording permission),
 // writes DIR/receipt.json with each scene's time, and exits. AppKit and Foundation only: no CmuxNext module, so a
 // host links only the modules its own scenes draw.

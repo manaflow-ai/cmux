@@ -10,7 +10,7 @@ import UiShellShootKit
 // `cmux-ui-layer --shoot DIR [--scene a,b] [--themes DIR]` opens the real modules' playground windows, the same ones
 // the app's Debug menu opens, and draws each into a PNG (UiShellShootKit). It links only the leaf UI modules
 // (CmuxNextUiShellModules), never the app composition root, the daemon, Ghostty or Chromium, so a changed UI file
-// costs a leaf rebuild. The heavy modules' scenes live in their own hosts (cmux-ui-home, cmux-ui-app) so that a leaf
+// costs a leaf rebuild. The heavy modules' scenes live in their own hosts (cmux-ui-home) so that a leaf
 // change never waits on them.
 
 @MainActor
