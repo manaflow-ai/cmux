@@ -76,6 +76,7 @@ import { withoutFrames } from "./composer/videoPrompt";
 import { isBehindSend, sendBehind, settleAllBehindSend } from "./composer/sendBehind";
 import { PeerStateEvents } from "./peerStateEvents";
 import {
+  peerCloudRegistriesFromStatus,
   peerAgentLoginFromStatus,
   peerConnectedFromStatus,
   peerKindsFromStatus,
@@ -84,6 +85,7 @@ import {
   peerStatesFromStatus,
 } from "./environments";
 import type { PeerLinkDetail } from "./linkState";
+import { readComposerStatus } from "./composerStatusModel";
 import { peerResourcesFromStatus } from "./machineResources";
 import {
   type ChatOpenRefusal,
@@ -985,6 +987,9 @@ function rememberCommands(sessionId: string, commands: SlashCommand[]) {
 /// The longest a chat switch keeps the chat before on screen while the new one attaches. Match the
 /// cold-open hold: a busy daemon must not expose a blank transcript between the old and new chats.
 const SWITCH_HOLD_MS = 1_500;
+/// How many chats this page keeps the rows of once left (`leftRows`): one map of row references each,
+/// the rows themselves already held by the chat's kept tail (tailCache.ts `KEPT_TAILS`).
+const LEFT_ROWS_KEPT = 8;
 /// The longest a chat drawn from its own rows (a copy kept while its machine was down) keeps that
 /// frame while its machine's page and the records between them are read (`reattachPeerCopy`): the
 /// copy, marked offline, is a whole transcript, where the page alone has a hole in it. The hold
@@ -1451,6 +1456,14 @@ export class AcpmuxDirectClient {
   private budget = new RequestBudget();
   private events: EventRecord[] = [];
   private rows = new OrderedRows();
+  /// Each chat this page left, its rows as drawn then (`rememberCurrentTail`), newest last, at most
+  /// ``LEFT_ROWS_KEPT``. A chat opened again is refolded from its kept tail into new objects; the rows
+  /// that came out unchanged get these objects back (`OrderedRows.keepSame`), so what is keyed on a
+  /// row object (shaped turns, drawn heights, memoized rows) is not built again on every chat switch
+  /// (settled-page bench, chat_switch).
+  private readonly leftRows = new Map<string, ReadonlyMap<string, AcpmuxRow>>();
+  /// The left rows of the chat a kept tail is being drawn for, for that rebuild alone (`drawKeptTail`).
+  private revisitRows: ReadonlyMap<string, AcpmuxRow> | undefined;
   /// Each drawn offer's row (a suggested tasks card), by offer id (offer/SuggestedTasks.tsx).
   private offerRows = new Map<string, string>();
   /// Offers whose result prompt reached this chat (its user_message): a replayed `queued` record
@@ -2143,6 +2156,7 @@ export class AcpmuxDirectClient {
   private peers: string[] = [];
   /// Each peer's transport, for the environment picker's SSH and Cloud sections (environments.ts).
   private peerKinds: Record<string, "ssh" | "cloud"> = {};
+  private peerCloudRegistries: Record<string, string> = {};
   private peerConnected: Record<string, boolean> = {};
   /// Each peer's `agentLogin` (environments.ts peerAgentLoginFromStatus): a chat there gets the
   /// sign-in card only when that peer runs the login (cloudAgentLogin.ts agentLoginSupported).
@@ -3473,6 +3487,12 @@ export class AcpmuxDirectClient {
     // A chat on the store keeps its window instead (rows/chatSource.ts): one kept thing a chat.
     if (!sessionId || !tail || this.chatRows.holds(sessionId)) return undefined;
     rememberTail(sessionId, tail, forThisPage, toHost);
+    if (forThisPage) {
+      this.leftRows.delete(sessionId);
+      this.leftRows.set(sessionId, new Map(this.rows));
+      // ends: each pass deletes the oldest key, so the map shrinks to LEFT_ROWS_KEPT
+      while (this.leftRows.size > LEFT_ROWS_KEPT) this.leftRows.delete(this.leftRows.keys().next().value!);
+    }
     return { sessionId, tail };
   }
 
@@ -3987,7 +4007,12 @@ export class AcpmuxDirectClient {
     // native root while it consumes the historical events, not after the malformed tree is drawn.
     const keptSummary = { ...kept.summary, ...listed };
     this.summary = keptSummary;
-    this.rebuild();
+    this.revisitRows = this.leftRows.get(sessionId);
+    try {
+      this.rebuild();
+    } finally {
+      this.revisitRows = undefined;
+    }
     // A session_changed can carry newer live state than the kept tail. Restore it after replay;
     // only the root identity needs to be visible during the fold rebuild itself.
     this.summary = keptSummary;
@@ -7580,7 +7605,14 @@ export class AcpmuxDirectClient {
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
       this.retryOwedLagRead();
-      this.summary = { ...this.summary, ...session, loopEpisode: session.loopEpisode ?? null };
+      // Session changes are complete summaries. Keep the projection in sync even when an older
+      // daemon omits composerStatus: omission means there are no status items to publish.
+      this.summary = {
+        ...this.summary,
+        ...session,
+        composerStatus: readComposerStatus(session.composerStatus),
+        loopEpisode: session.loopEpisode ?? null,
+      };
       // Built when sent, after the record it follows: it settles the turn the records folded.
       this.settleTurnWithHost();
       // The chat may run now (a prompt sent elsewhere), or rest: its quiet is watched while it runs.
@@ -9327,6 +9359,9 @@ export class AcpmuxDirectClient {
     // Rows kept from before (a prompt that failed or still sends) are newer than every replayed event.
     this.rows.placeLocalLast();
     this.rows.keepSame(previous);
+    // A chat opened again from its kept tail: its rows from when it was left (`leftRows`). For the
+    // objects alone, not `adoptFrames`: those rows are not on screen.
+    if (this.revisitRows) this.rows.keepSame(this.revisitRows);
     // A rail jump that replaced the held window (`jumpNewer`, `jumpWindow`) shows none of the messages drawn
     // before it, so no frame is kept for them: matching every gone message against every new one cost a slow
     // rail click ~100 ms of its paint (bench/chat-fast-scroll.bench.ts, rail_click_paint p95).
@@ -12101,6 +12136,7 @@ export class AcpmuxDirectClient {
           machine: text(summary.machine),
           peer: text(summary.peer),
           hostKind: hostKind(summary.hostKind),
+          composerStatus: readComposerStatus(summary.composerStatus),
           // Auto (autoSession/autoSession.ts): the same object while acpmux's row says the same.
           ...((this.publishedAuto = autoSessionOf(summary.autoSession, this.publishedAuto)) && {
             autoSession: this.publishedAuto,
@@ -12333,6 +12369,7 @@ export class AcpmuxDirectClient {
       browserWorkspaces: this.browserWorkspaces,
       peers: this.peers,
       peerKinds: this.peerKinds,
+      peerCloudRegistries: this.peerCloudRegistries,
       peerConnected: this.peerConnected,
       peerStates: this.peerStates,
       peerLinks: this.peerLinks,
@@ -14952,13 +14989,14 @@ export class AcpmuxDirectClient {
     });
     // l10n-allow: refuses the card's answer so it stays answerable; never shown.
     if (!fork?.ticket || !fork.fork || typeof fork.forkMs !== "number") throw new Error("the fork named no copy");
-    await this.typed("_acpmux/permission_respond", {
+    const response = {
       sessionId,
       permissionId,
       optionId,
       forkCheckpoint: { machine: offer.machine, fork: fork.fork, forkMs: fork.forkMs },
       ...gestureMeta(fork.ticket),
-    });
+    };
+    await this.typed("_acpmux/permission_respond", response);
   }
   /// Builds a plan the chat's plan approval asks about (`_acpmux/plan/build`): `here` approves it
   /// in this chat; `worktree` and `compare` start it in new worktrees as sub-sessions (one, or one
@@ -15414,6 +15452,7 @@ export class AcpmuxDirectClient {
     model: string | undefined = this.host.model,
     waitForTrust = false,
     forSend = false,
+    cloudRegistryId?: string,
   ): Promise<string | undefined> {
     this.cancelTrustStart?.();
     const generation = this.selectionGeneration;
@@ -15449,8 +15488,16 @@ export class AcpmuxDirectClient {
                 if (this.closed || generation !== this.selectionGeneration) return cancel();
                 if (settled || running) return;
                 running = true;
-                void this.startSession(harness, cwd, peer, run, noProject, model, () =>
-                  finish(undefined, startCancelled()),
+                void this.startSession(
+                  harness,
+                  cwd,
+                  peer,
+                  run,
+                  noProject,
+                  model,
+                  () => finish(undefined, startCancelled()),
+                  false,
+                  cloudRegistryId,
                 ).then(
                   (id) => finish(id),
                   (error: unknown) => {
@@ -15465,9 +15512,15 @@ export class AcpmuxDirectClient {
               harness,
               cwd,
               peer,
-              () => void this.create(harness, cwd, peer, noProject, model).catch(() => undefined),
+              () =>
+                void this.create(harness, cwd, peer, noProject, model, false, false, cloudRegistryId).catch(
+                  () => undefined,
+                ),
               noProject,
               model,
+              undefined,
+              false,
+              cloudRegistryId,
             );
       // A user who opened another chat while session/new was out owns that selection.
       if (this.closed || generation !== this.selectionGeneration) {
@@ -15530,6 +15583,7 @@ export class AcpmuxDirectClient {
     model?: string,
     declined?: () => void,
     restricted = false,
+    cloudRegistryId?: string,
   ): Promise<string | undefined> {
     const startHost = newSessionHost(this.host, cwd, peer, noProject);
     const folders = this.newChatFolders;
@@ -15550,6 +15604,7 @@ export class AcpmuxDirectClient {
         model,
         extraFoldersParam(onMachine, startHost.cwd),
         restricted,
+        cloudRegistryId,
         autoPlace,
       ),
       again,
@@ -17116,6 +17171,9 @@ export class AcpmuxDirectClient {
   peerHarnesses(peer: string): Promise<unknown> {
     return this.request("_acpmux/harnesses", { _meta: { acpmux: { peer } } });
   }
+  cloudPeerRegistry(peer: string): string | undefined {
+    return Object.hasOwn(this.peerCloudRegistries, peer) ? this.peerCloudRegistries[peer] : undefined;
+  }
   /// Reads acpmux's peers again (`_acpmux/status`): the environment picker asks as it opens, so a
   /// machine that connected or dropped since shows as it is now. Local/app peer events keep the
   /// closed control current when the daemon advertises them; older daemons keep their last snapshot.
@@ -17192,6 +17250,7 @@ export class AcpmuxDirectClient {
           .filter((peer: string | undefined): peer is string => Boolean(peer))
       : [];
     this.peerKinds = peerKindsFromStatus(status);
+    this.peerCloudRegistries = peerCloudRegistriesFromStatus(status);
     this.peerConnected = peerConnectedFromStatus(status);
     this.peerAgentLogin = peerAgentLoginFromStatus(status);
     this.peerStates = peerStatesFromStatus(status);

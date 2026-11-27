@@ -934,3 +934,28 @@ test("every failed start offers a way on in the card: the folder, a new Cloud ch
   );
   expect(container.querySelector(".acpmux-cloud-start__way-on")).toBeNull();
 });
+
+test("the connection card offers the preserved send on This Mac", async () => {
+  const container = installDom();
+  root = createRoot(container);
+  const task = "keep this prompt";
+  const local: string[] = [];
+  const connect: string[] = [];
+  await act(async () =>
+    root!.render(
+      <CloudStartView
+        start={{ key: "k", task, state: "failed", code: "cloud_setup_required", cloudSetup: { family: "codex" } }}
+        onRunHere={() => local.push(task)}
+        onSetUp={(action) => connect.push(action)}
+        onSetUpDismiss={() => undefined}
+      />,
+    ),
+  );
+  const buttons = [...container.querySelectorAll("button")];
+  expect(buttons.map((button) => button.dataset.action)).toEqual(["addKey", "run-here", "dismiss"]);
+  expect(buttons[1]?.textContent).toBe("Run on This Mac");
+  expect(container.textContent).toContain(task);
+  await act(async () => buttons[1]!.click());
+  expect(local).toEqual([task]);
+  expect(connect).toEqual([]);
+});
