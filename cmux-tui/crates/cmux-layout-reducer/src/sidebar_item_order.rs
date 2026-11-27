@@ -120,7 +120,7 @@ impl Order {
             return true;
         }
         let Some(index) = self.rows.iter().position(|row| *row == stop) else { return false };
-        self.rows[..index].iter().all(Item::is_top)
+        self.rows.get(..index).unwrap_or_default().iter().all(Item::is_top)
     }
 
     /// The item Cmd-`number` selects: 1...8 count in order; 9 is the last or the ninth; past the end the last with
@@ -134,8 +134,10 @@ impl Order {
         if settings.cmd9 == NinthKey::Last && number >= 9 {
             return Some(last);
         }
-        if let Some(item) =
-            usize::try_from(number).ok().filter(|n| *n <= list.len()).map(|n| list[n - 1].clone())
+        if let Some(item) = usize::try_from(number)
+            .ok()
+            .filter(|n| *n <= list.len())
+            .and_then(|n| list.get(n - 1).cloned())
         {
             return Some(item);
         }
@@ -182,7 +184,10 @@ impl Order {
                 let top =
                     if settings.stepping == Scope::AllItems { self.top_items.len() } else { 0 };
                 let before = top
-                    + self.rows[..place.min(self.rows.len())]
+                    + self
+                        .rows
+                        .get(..place.min(self.rows.len()))
+                        .unwrap_or_default()
                         .iter()
                         .filter(|item| walked(item))
                         .count();
@@ -201,12 +206,12 @@ impl Order {
         };
         let count = i64::try_from(list.len()).unwrap_or(i64::MAX);
         if (0..count).contains(&next) {
-            return usize::try_from(next).ok().map(|n| list[n].clone());
+            return usize::try_from(next).ok().and_then(|n| list.get(n).cloned());
         }
         if !settings.stepping_wraps {
             return None;
         }
-        usize::try_from(next.rem_euclid(count)).ok().map(|n| list[n].clone())
+        usize::try_from(next.rem_euclid(count)).ok().and_then(|n| list.get(n).cloned())
     }
 }
 
@@ -320,7 +325,15 @@ pub fn drawn_place(order_rows: &[Item], drawn: &[Item], id: &str) -> Option<usiz
     for (i, item) in order_rows.iter().enumerate() {
         index.entry(item).or_insert(i);
     }
-    Some(drawn[..at].iter().rev().find_map(|item| index.get(item)).map_or(0, |i| i + 1))
+    Some(
+        drawn
+            .get(..at)
+            .unwrap_or_default()
+            .iter()
+            .rev()
+            .find_map(|item| index.get(item))
+            .map_or(0, |i| i + 1),
+    )
 }
 
 /// A request to the `sidebar_item_order` FFI op.
