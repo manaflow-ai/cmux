@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { RESUME_NOTE_DELAY_MS, useAfterDelay, useLinkDownSaid } from "./afterDelay";
 import type { ChatUnavailable } from "./chatUnavailable";
-import { Spinner } from "./conversation/icons";
+import { WaitSpinner } from "./conversation/WaitSpinner";
 import { relativeTime } from "./conversation/relativeTime";
 import { currentLanguage, useT } from "./i18n";
 import { shortSession } from "./chatUnavailableStateModel";
@@ -190,7 +190,7 @@ export function ChatUnavailableState({
         data-enter="top"
       >
         <p className="acpmux-peer-copy-title">
-          {resuming && <Spinner size={12} loading className="acpmux-peer-copy-spinner" />}
+          {resuming && <WaitSpinner size={12} loading className="acpmux-peer-copy-spinner" />}
           {title}
         </p>
         {error && (
@@ -241,12 +241,12 @@ export function ChatUnavailableState({
           <span className="acpmux-unavailable-progress" aria-hidden={!resumeSlow}>
             {resumeSlow && (
               <span className="acpmux-unavailable-progress-mark" data-enter="fade">
-                <Spinner size={20} loading />
+                <WaitSpinner size={20} loading />
               </span>
             )}
           </span>
         ) : (
-          resuming && <Spinner size={20} loading />
+          resuming && <WaitSpinner size={20} loading />
         )}
         {error && (
           <p className="acpmux-unavailable-detail" role="alert">

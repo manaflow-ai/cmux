@@ -100,13 +100,13 @@ class FakeWorker(w.Worker):
     def prefetch(self, req):
         self.prefetched.append((req["head_sha"], req["base_sha"]))
 
-    def web_install(self):
-        return False
+    def gallery_for(self, sha, avoid=()):
+        g = self.web
+        g.install = lambda: False
+        g.scenes = lambda files: ["entry.a"]
+        return g
 
-    def web_scenes(self, files):
-        return ["entry.a"]
-
-    def web_side(self, sha, entries):
+    def web_side(self, sha, entries, gallery=None):
         out = self.state / "shots" / "web" / sha
         out.mkdir(parents=True, exist_ok=True)
         self.shot.append(f"web:{sha}")
@@ -117,11 +117,14 @@ class FakeWorker(w.Worker):
     def ensure_clone(self):
         pass
 
-    def fetch(self, *shas):
+    def fetch(self, *shas, branches=()):
         pass
 
     def on_branch_tip_or_landed(self, head, branch):
         return head == HEAD
+
+    def has_gallery(self, sha):
+        return getattr(self, "gallery_in_tree", True)
 
     def ensure_tree(self, tree, sparse, sha):
         self.checked_out = sha
@@ -177,6 +180,24 @@ class LookTests(unittest.TestCase):
             receipt = worker.look(request(ui_files=["Packages/macOS/CmuxNext/Sources/CmuxNextApp/A.swift"]))
             self.assertIn("needs an app build", receipt["error"])
             self.assertEqual(worker.shot, [])
+
+    def test_a_web_push_off_main_has_no_gallery_and_shoots_nothing(self):
+        # Branches off main carry webviews/ but no gallery: touched.ts was "Module not found" and each one a miss.
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            worker.gallery_in_tree = False
+            receipt = worker.look(request(ui_files=["webviews/src/a.tsx"]))
+            self.assertIsNone(receipt["posted_at"])
+            self.assertTrue(receipt["error"].startswith("no scene shows these files"), receipt["error"])
+            self.assertTrue(receipt["plan"]["no_gallery"])
+            self.assertEqual(worker.shot, [])
+
+    def test_a_web_push_with_a_gallery_is_shot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            receipt = worker.look(request(ui_files=["webviews/src/a.tsx"]))
+            self.assertIsNotNone(receipt["posted_at"], receipt.get("error"))
+            self.assertIn(f"web:{HEAD}", worker.shot)
 
     def test_a_web_only_worker_shoots_no_swift(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -341,7 +362,7 @@ class SpeedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
             both_fetching = threading.Barrier(2, timeout=5)
-            worker.fetch = lambda *shas: both_fetching.wait()
+            worker.fetch = lambda *shas, **kw: both_fetching.wait()
             jobs = w.queue.Queue()
             for n in "12":
                 jobs.put((request(head_sha=n * 40, branch=f"lane/{n}", ui_files=["webviews/src/a.tsx"]),
@@ -394,8 +415,8 @@ for line in sys.stdin:
             (worker.web_tree / "webviews").mkdir(parents=True)
             worker.bun = lambda: str(fake)
             try:
-                self.assertEqual(worker.shoot_gallery(["a.b"], Path(tmp) / "one"), {"a.b": "a.b.png"})
-                self.assertEqual(worker.shoot_gallery(["c"], Path(tmp) / "two"), {"c": "c.png"})
+                self.assertEqual(worker.web.shoot(["a.b"], Path(tmp) / "one"), {"a.b": "a.b.png"})
+                self.assertEqual(worker.web.shoot(["c"], Path(tmp) / "two"), {"c": "c.png"})
                 self.assertEqual(launches.read_text(), "x")
             finally:
                 worker.stop_shooter()
@@ -440,12 +461,48 @@ class StallTests(unittest.TestCase):
             try:
                 self.assertTrue(worker.on_branch_tip_or_landed(landed, "lane/x"))
                 self.assertEqual(asked, [], "a landed head asked GitHub")
-                # A head not under the base tip (another branch's commit): GitHub's turn (here: no origin).
+                # A head not under the base tip (another branch's commit): one fetch of the branch and the base,
+                # by tracking refspec as the lane VMs' brokered fetch takes it (here: no origin).
                 with self.assertRaises(w.LookError):
                     worker.on_branch_tip_or_landed(fork, "lane/x")
-                self.assertEqual(asked, ["ls-remote"])
+                self.assertEqual(asked, ["fetch"])
             finally:
                 w.git = real_git
+
+    def test_every_fetch_is_one_the_brokered_fetch_carries_and_a_branch_tip_passes(self):
+        """lane-1/2 (2026-11-26): the lane VMs' git fetch goes through the broker, which carries plain branch names
+        and tracking refspecs only; the worker's --filter=blob:none fetch killed every warm-up."""
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "src"
+            subprocess.run(["git", "init", "-q", "-b", w.BASE_BRANCH, str(src)], check=True)
+            base = commit(src, {"a": "1"})
+            subprocess.run(["git", "-C", str(src), "checkout", "-q", "-b", "lane/x"], check=True)
+            head = commit(src, {"b": "x"})
+            subprocess.run(["git", "-C", str(src), "checkout", "-q", "-b", "other", base], check=True)
+            other = commit(src, {"c": "z"})  # on no branch the look names, never landed
+            worker = w.Worker(Path(tmp) / "state", None, None, None, host="t")
+            worker.mirror = None
+            subprocess.run(["git", "init", "-q", "--bare", str(worker.clone)], check=True)
+            subprocess.run(["git", "-C", str(worker.clone), "remote", "add", "origin", str(src)], check=True)
+            fetches = []
+            real_git = w.git
+            w.git = lambda repo, *args, **kw: (args[0] == "fetch" and fetches.append(args)) or real_git(repo, *args,
+                                                                                                         **kw)
+            try:
+                worker.fetch(head, base, branches=("lane/x",))
+                self.assertTrue(worker.has_commit(head) and worker.has_commit(base))
+                self.assertTrue(worker.on_branch_tip_or_landed(head, "lane/x"))
+                self.assertEqual(len(fetches), 1, "the branch tip was fetched again for the ancestry check")
+                subprocess.run(["git", "-C", str(worker.clone), "fetch", "-q", "origin", other], check=True)
+                self.assertFalse(worker.on_branch_tip_or_landed(other, "lane/x"))
+            finally:
+                w.git = real_git
+            for args in fetches:
+                words = [a for a in args[1:] if not a.startswith("-")]
+                self.assertEqual(words[0], "origin")
+                self.assertFalse([a for a in args if a.startswith("--filter")], args)
+                for spec in words[1:]:
+                    self.assertRegex(spec, r"^\+refs/heads/([A-Za-z0-9._][A-Za-z0-9._/-]*):refs/remotes/origin/\1$")
 
     def test_a_checkout_that_changes_the_gallery_config_restarts_the_gallery(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -457,15 +514,16 @@ class StallTests(unittest.TestCase):
             three = commit(worker.clone, {"webviews/vite.config.ts": "b"})
             four = commit(worker.clone, {"webviews/dev-server/galleryHost.ts": "c"})
             stops = []
-            worker.stop_gallery = lambda: stops.append(1)
-            worker.checkout_web(one)  # first checkout: nothing ran on another config
-            worker.checkout_web(two)
+            g = worker.web
+            g.stop = lambda: stops.append(1)
+            g.checkout(one)  # first checkout: nothing ran on another config
+            g.checkout(two)
             self.assertEqual(stops, [])
-            worker.checkout_web(three)
+            g.checkout(three)
             self.assertEqual(stops, [1])
-            worker.checkout_web(four)
+            g.checkout(four)
             self.assertEqual(stops, [1, 1])
-            worker.checkout_web(four)
+            g.checkout(four)
             self.assertEqual(stops, [1, 1])
 
     def test_an_entry_the_side_lacks_is_a_card_not_a_60_s_wait(self):
@@ -475,10 +533,12 @@ class StallTests(unittest.TestCase):
             src.mkdir(parents=True)
             (src / "a.gallery.tsx").write_text('const o = { id: "nested.option" };\nexport default { id: "held.a" };\n')
             (src / "b.gallery.ts").write_text('export default define({ id: "held.b", title: "B" });\n')
-            self.assertEqual(worker.entry_ids(), {"held.a", "held.b"})
-            worker.checkout_web = lambda sha: None
-            worker.web_install = lambda: False
-            worker.start_gallery = lambda: None
+            g = worker.web
+            self.assertEqual(g.entry_ids(), {"held.a", "held.b"})
+            g.checkout = lambda sha: None
+            g.install = lambda: False
+            g.start = lambda: None
+            worker.gallery_for = lambda sha, avoid=(): g
             seen = {}
 
             def shoot(entries, out, absent=None):
@@ -490,7 +550,7 @@ class StallTests(unittest.TestCase):
                     (out / files[e]).write_bytes(b"png")
                 return files
 
-            worker.shoot_gallery = shoot
+            g.shoot = shoot
             got = worker.web_side(BASE, ["held.a", "new.c"])
             self.assertEqual(seen, {"new.c": BASE})
             self.assertTrue(got["new.c"].name.startswith(w.ABSENT_PREFIX))
@@ -500,7 +560,7 @@ class StallTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             worker = FakeWorker(Path(tmp))
 
-            def web_side(sha, entries):
+            def web_side(sha, entries, gallery=None):
                 out = worker.state / "shots" / "web" / sha
                 out.mkdir(parents=True, exist_ok=True)
                 name = (w.ABSENT_PREFIX if sha == BASE else "") + "entry.a.png"
@@ -515,6 +575,115 @@ class StallTests(unittest.TestCase):
             self.assertNotIn("after_absent", scene)
             [sent] = list((Path(tmp) / "outbox").iterdir())
             self.assertIn("new: not in the base", sent.read_text())
+
+
+class ConfigPushTests(unittest.TestCase):
+    """A push that changes the gallery config (vite.config.ts) restarted the one vite for each side, and each restart
+    recompiled the pages cold: 105 s. Now each config keeps its own warm gallery, and the two sides shoot at once."""
+
+    def test_sides_on_two_configs_shoot_at_once_on_two_galleries_and_restart_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            class ConfigWorker(FakeWorker):
+                web_side = w.Worker.web_side
+                gallery_for = w.Worker.gallery_for
+                ensure_tree = w.Worker.ensure_tree
+
+                def on_branch_tip_or_landed(self, head, branch):
+                    return True
+
+            worker = ConfigWorker(Path(tmp))
+            worker.clone.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q", str(worker.clone)], check=True)
+            base = commit(worker.clone, {"webviews/vite.config.ts": "a", "webviews/src/a.tsx": "1"})
+            head = commit(worker.clone, {"webviews/vite.config.ts": "b", "webviews/src/a.tsx": "2"})
+            head2 = commit(worker.clone, {"webviews/src/a.tsx": "3"})
+            self.assertNotEqual(worker.gallery_key(base), worker.gallery_key(head))
+            self.assertEqual(worker.gallery_key(head), worker.gallery_key(head2))
+            both_shooting = threading.Barrier(2, timeout=10)
+            events = []
+            saved = {k: getattr(w.Gallery, k) for k in ("install", "start", "stop", "scenes", "shoot")}
+
+            def shoot(g, entries, out, absent=None):
+                events.append(("shoot", g.name, g.key))
+                if len(events) <= 2:
+                    both_shooting.wait()  # the first look: both sides must be shooting at once
+                out.mkdir(parents=True, exist_ok=True)
+                for e in entries:
+                    (out / f"{e}.png").write_bytes(g.key.encode())
+                return {e: f"{e}.png" for e in entries}
+
+            w.Gallery.install = lambda g: False
+            w.Gallery.start = lambda g: events.append(("start", g.name))
+            w.Gallery.stop = lambda g: events.append(("stop", g.name))
+            w.Gallery.scenes = lambda g, files: ["entry.a"]
+            w.Gallery.shoot = shoot
+            try:
+                first = worker.look(request(head_sha=head, base_sha=base, ui_files=["webviews/src/a.tsx"]))
+                self.assertIsNotNone(first["posted_at"], first.get("error"))
+                second = worker.look(request(head_sha=head2, base_sha=base, ui_files=["webviews/src/a.tsx"]))
+                self.assertIsNotNone(second["posted_at"], second.get("error"))
+            finally:
+                for k, v in saved.items():
+                    setattr(w.Gallery, k, v)
+            shots = [e for e in events if e[0] == "shoot"]
+            self.assertEqual({(n, k) for _, n, k in shots[:2]},
+                             {("web", worker.gallery_key(head)), ("web-2", worker.gallery_key(base))})
+            self.assertEqual(shots[2:], [("shoot", "web", worker.gallery_key(head))])  # base cached; head2 warm
+            self.assertNotIn("stop", [e[0] for e in events], events)
+            self.assertEqual(len(worker.galleries), 2)
+            self.assertNotEqual(worker.galleries[0].port, worker.galleries[1].port)
+
+
+class ColdSideTests(unittest.TestCase):
+    """A config push's side on a restarted vite recompiled agent-pane's React Compiler pass cold (41-63 s; App.tsx
+    alone ~33 s) and re-optimized deps a sibling had already bundled. Every gallery vite now reads one transform
+    cache on disk, and each config keeps its own deps folder."""
+
+    def test_every_gallery_vite_shares_the_transform_cache_and_each_config_its_deps(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            worker = FakeWorker(Path(tmp))
+            g2 = w.Gallery(worker, worker.state / "web-2", w.GALLERY_PORT + 1, "web-2")
+            worker.galleries.append(g2)
+            for g in worker.galleries:
+                (g.tree / "webviews" / "node_modules").mkdir(parents=True)
+            worker.web.key, g2.key = "k1", "k1"
+            e1, e2 = worker.web.vite_env(), g2.vite_env()
+            self.assertEqual(e1["CMUX_VITE_TRANSFORM_CACHE"], e2["CMUX_VITE_TRANSFORM_CACHE"])
+            self.assertEqual(e1["CMUX_VITE_TRANSFORM_CACHE"], str(worker.state / "vite-transforms"))
+            self.assertEqual(e1["CMUX_REACT_COMPILER"], "oxc")
+            self.assertNotEqual(e1["CMUX_VITE_CACHE_DIR"], e2["CMUX_VITE_CACHE_DIR"])  # never one folder for two vites
+            # Inside webviews/ (the gallery's fs.allow), so vite serves it.
+            self.assertTrue(e1["CMUX_VITE_CACHE_DIR"].startswith(str(worker.web.tree / "webviews") + os.sep))
+            # A spare on the same config starts from the sibling's bundled deps, not a scan and bundle.
+            deps = worker.web.deps_dir() / "deps"
+            deps.mkdir(parents=True)
+            (deps / "_metadata.json").write_text('{"configHash": "x"}')
+            (worker.web.deps_dir() / "deps_temp_1").mkdir()
+            g2.seed_deps()
+            self.assertEqual((g2.deps_dir() / "deps" / "_metadata.json").read_text(), '{"configHash": "x"}')
+            self.assertFalse((g2.deps_dir() / "deps_temp_1").exists())
+            # A gallery back on a config it served keeps that config's folder; the newest DEPS_KEYS stay.
+            for i in range(w.DEPS_KEYS + 2):
+                worker.web.key = f"n{i}"
+                worker.web.seed_deps()
+                os.utime(worker.web.deps_dir(), (1000 + i, 1000 + i))
+            left = sorted(p.name for p in (worker.web.tree / "webviews" / "node_modules").glob(".vite-*"))
+            self.assertEqual(len(left), w.DEPS_KEYS)
+            self.assertIn(f".vite-n{w.DEPS_KEYS + 1}", left)
+            self.assertNotIn(".vite-n0", left)
+
+    def test_the_transform_cache_is_pruned_oldest_first_under_its_cap(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "vite-transforms"
+            for i in range(8):
+                f = folder / f"{i:02x}" / f"{i}.json"
+                f.parent.mkdir(parents=True)
+                f.write_bytes(b"x" * (256 << 10))
+                os.utime(f, (1000 + i, 1000 + i))
+            self.assertEqual(w.prune_transforms(folder, cap_mb=4), 0)  # 2 MB under a 4 MB cap: nothing
+            self.assertEqual(w.prune_transforms(folder, cap_mb=1), 5)  # down to 3/4 MB: the 5 oldest go
+            self.assertEqual(sorted(p.name for p in folder.rglob("*.json")), ["5.json", "6.json", "7.json"])
+            self.assertEqual(w.prune_transforms(Path(tmp) / "absent"), 0)
 
 
 if __name__ == "__main__":

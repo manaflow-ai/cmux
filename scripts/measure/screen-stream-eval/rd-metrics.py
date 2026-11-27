@@ -70,6 +70,13 @@ def main(argv: list[str]) -> int:
              and r["width"] > 0 and r["height"] > 0]
     bpp = sorted(r["encoded_bytes"] * 8 / (r["width"] * r["height"]) for r in sized)
     bpp_measured = bool(encoded_rows) and len(sized) == len(encoded_rows)
+    # The ladder's budget per pixel per frame: the target over the picture at its fps cap.
+    # This is what the ladder holds at or above its 0.05 floor; a frame's coded bits are not
+    # (an idle or one-glyph P frame codes about 1e-4 whatever the budget).
+    budgeted = [r for r in sized if type(r.get("fps")) is int and r["fps"] > 0
+                and number(r.get("target_kbps")) is not None]
+    budget = sorted(r["target_kbps"] * 1000 / (r["width"] * r["height"] * r["fps"]) for r in budgeted)
+    budget_measured = bpp_measured and len(budgeted) == len(encoded_rows)
     quality = [r for r in (raw_obj.get("quality_samples") or [])
                if r.get("identity_verified") is True and number(r.get("squared_error_sum")) is not None
                and number(r.get("pixels")) is not None and r["pixels"] > 0]
@@ -92,6 +99,10 @@ def main(argv: list[str]) -> int:
         "quality_samples": quality,
         "min_bits_per_pixel": round(bpp[0], 5) if bpp_measured else None,
         "median_bits_per_pixel": round(bpp[len(bpp) // 2], 5) if bpp_measured else None,
+        "budget_bits_per_pixel_min": round(budget[0], 5) if budget_measured else None,
+        "budget_bits_per_pixel_median": round(budget[len(budget) // 2], 5) if budget_measured else None,
+        "budget_bits_per_pixel_source": ("controller target over the frame's encoded picture at its fps cap"
+                                         " (host timing log)" if budget_measured else None),
         "bits_per_pixel_source": ("encoded access unit bytes over the frame's encoded picture (host timing log)"
                                   if bpp_measured else None),
         "idr_count_source": "per-encode timing records" if idrs is not None else None,

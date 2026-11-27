@@ -201,7 +201,8 @@ bench() {
   [[ "$mode" == background && "$surface" == terminal ]] && filter=(--exact background_catch_up_after_time_away)
   [[ "$mode" == background && "$surface" == chat ]] && filter=(--exact chat_background_catch_up_after_time_away)
   # One target directory for every leg: the dependencies build once.
-  (cd "$tree/cmux-tui" && CARGO_TARGET_DIR="${IOS_NETCOND_TARGET_DIR:-$work/target}" \
+  # env, not a bare prefix: a ${x:+NAME=v} expansion is never an assignment, bash runs it as the command.
+  (cd "$tree/cmux-tui" && env CARGO_TARGET_DIR="${IOS_NETCOND_TARGET_DIR:-$work/target}" \
     NETCOND_PROFILES="$profiles" NETCOND_SCALES="$scales" NETCOND_RUNS="$n" NETCOND_SEED_BASE="$seed" NETCOND_RELAY="$relay" \
     NETCOND_DURESS_PROFILES="$duress_profiles" NETCOND_SENDS="$n" NETCOND_SEND_BLACKOUT_MS="$blackout_ms" \
     NETCOND_SEND_ROWS="$send_rows" NETCOND_AWAY="$away" NETCOND_LOADS="$loads" ${attach_bytes:+NETCOND_ATTACH_BYTES="$attach_bytes"} \
