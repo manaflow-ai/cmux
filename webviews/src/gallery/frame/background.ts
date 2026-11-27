@@ -6,22 +6,30 @@
 // (webThemePayload's `seeThrough`), and the same still goes to the page's glass lens through
 // `cmuxTheme.backdrop`, as GlassBackdropFeed sends it. The pictures are bundled: the synthetic SVGs,
 // and `painting`, a public-domain painting (Monet, Impression, Sunrise), the gallery shell's default so a
-// preview is seen as over a picture people set (Leo, 2026-10-20). No photo, no capture.
+// preview is seen as over a picture people set (Leo, 2026-10-20), and three photographs (`photo-light`,
+// `photo-dark`, `photo-busy`; fixtures/photos/README.md), so glass is seen over the photos people
+// actually set, light, dark and busy, not only over flat art.
 import painting from "../fixtures/art/monet-impression-sunrise.jpg?inline";
 import busy from "../fixtures/backgrounds/busy.svg?inline";
 import dark from "../fixtures/backgrounds/dark.svg?inline";
 import light from "../fixtures/backgrounds/light.svg?inline";
+import photoBusy from "../fixtures/photos/tulip-market.jpg?inline";
+import photoDark from "../fixtures/photos/frontenac-night.jpg?inline";
+import photoLight from "../fixtures/photos/snowy-dunes.jpg?inline";
 import type { GalleryBackground, GalleryEnv } from "../env";
 import { css, wallpaperTintOpacity, withAlpha, type ThemeTokens } from "../theme/tokens";
 import { entryPane, windowGeometry, windowSize, type ChromeMetrics, type Rect } from "../window";
 
 type Picture = { image: string; width: number; height: number };
-/** Every picture and its own size: an SVG's width and height, the painting's pixels. */
+/** Every picture and its own size: an SVG's width and height, a JPEG's pixels. */
 export const BACKGROUND_PICTURES: Record<Exclude<GalleryBackground, "none">, Picture> = {
   painting: { image: painting, width: 480, height: 300 },
   light: { image: light, width: 1600, height: 1000 },
   dark: { image: dark, width: 1600, height: 1000 },
   busy: { image: busy, width: 1600, height: 1000 },
+  "photo-light": { image: photoLight, width: 1280, height: 857 },
+  "photo-dark": { image: photoDark, width: 1280, height: 819 },
+  "photo-busy": { image: photoBusy, width: 1280, height: 853 },
 };
 
 /** The window's tint over a picture: the theme's window color at its wallpaper tint opacity. */

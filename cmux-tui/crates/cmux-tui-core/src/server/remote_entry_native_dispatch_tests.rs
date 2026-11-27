@@ -316,6 +316,7 @@ fn native_data_frames_reach_only_the_owner() {
         crate::fs_ops::FS_CAPABILITY,
         crate::fs_ops::FS_SYMLINK_CAPABILITY,
         crate::fs_ops::FS_WRITE_DEFLATE_CAPABILITY,
+        crate::fs_ops::FS_WRITE_ZSTD_CAPABILITY,
         crate::fs_ops::FS_WRITE_NOFOLLOW_CAPABILITY,
         crate::fs_ops::FS_READ_NOFOLLOW_CAPABILITY,
         crate::git_seed::GIT_SEED_CAPABILITY,

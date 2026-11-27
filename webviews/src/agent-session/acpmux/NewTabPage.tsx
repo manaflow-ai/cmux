@@ -24,7 +24,7 @@ import { BrowseFailure } from "./BrowseFailure";
 import { ErrorDetails } from "./conversation/ErrorDetails";
 import { browseFailureMessage } from "./browseFailureModel";
 import { defaultRow, stepSelection, EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "./omnibar";
-import { firstProject, homePath, mostRecentProject, projectLabel, isTemporaryFolder } from "./sessionList";
+import { firstProject, FolderRecency, homePath, projectLabel, isTemporaryFolder } from "./sessionList";
 import { useT } from "./i18n";
 import { ShortcutKeycaps } from "./ButtonKeycaps";
 import { SHORTCUT_ACTIONS, useShortcut } from "./shortcuts";
@@ -34,7 +34,7 @@ import { usePasteAnywhere } from "./composer/pasteAnywhere";
 import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
 import type { ComposerAttachment } from "./attachments";
 import { AttachmentStrip } from "./composer/attachmentIntake";
-import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "./composer/attachmentIntakeModel";
+import { useAttachmentIntake, useSendWhenAttached } from "./composer/attachmentIntakeModel";
 import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
@@ -49,7 +49,7 @@ import {
   NEW_TAB_LABELS,
   prefixedEdit,
   cycleKind,
-  recentSessions,
+  RecentChats,
 } from "./newTabModel";
 import { focusRoute } from "../../ui/focusRoute";
 
@@ -215,14 +215,22 @@ export function NewTabPage({
       browsePending.current = false;
     }
   };
+  // The chats' folders newest first (sessionList.ts `FolderRecency`) and the recent rows
+  // (newTabModel.ts `RecentChats`), each kept at the cost of the chats that changed: a key typed, or a
+  // chat working elsewhere, costs this page no pass over every listed chat
+  // (test/new-tab-no-whole-list-passes.test.tsx).
+  const [lists] = useState(() => ({ folders: new FolderRecency(), recent: new RecentChats() }));
+  const localFolders = lists.folders.of(snapshot.sessions);
+  const newestProject = useMemo(
+    () => (home ? firstProject(localFolders, home, knownProjects) : undefined),
+    [localFolders, home, knownProjects],
+  );
   const [started] = useState(() => (home ? startedProjectChoices(startedProject) : []));
   const projectCwd =
     picked ??
     ((isStartableProject(cwd) && !isTemporaryFolder(cwd)) || !home
       ? cwd
-      : (firstProject(started, home, knownProjects) ??
-        mostRecentProject(snapshot.sessions, home, knownProjects) ??
-        cwd));
+      : (firstProject(started, home, knownProjects) ?? newestProject ?? cwd));
   // Where the chips' picks start the chat: the project, never the tab's inherited `~` or agent-home
   // folder by itself (cmux#40938: a Codex pick then started in the home folder, which the pane
   // refuses). None: the host starts the chat in its own start folder. A terminal still opens in
@@ -379,7 +387,8 @@ export function NewTabPage({
   // The failure line sits where the rows float: they wait for the next edit, which clears the line.
   const open = focused && query.trim() !== "" && query !== dismissed && !openFailed;
   // The recent chats are sorted only while the rows show: a page at rest never sorts every chat.
-  const recent = useMemo(() => (open ? recentSessions(snapshot.sessions) : []), [open, snapshot.sessions]);
+  const recentChats = lists.recent;
+  const recent = useMemo(() => (open ? recentChats.of(snapshot.sessions) : []), [open, recentChats, snapshot.sessions]);
   const rows = useMemo(
     () =>
       open
@@ -588,13 +597,8 @@ export function NewTabPage({
       event.preventDefault();
       changeKind(beforePrefix);
       setBeforePrefix(undefined);
-    } else {
-      // Backspace at the field's start takes back the last chip (backspacedAttachment).
-      const backspaced = backspacedAttachment(event, field.current?.atStart() ?? false, attachments);
-      if (!backspaced) return;
-      event.preventDefault();
-      setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
     }
+    // Backspace takes no image: this page's attachments are a strip, and go only by their ×.
   };
   const prefixReset = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {

@@ -20,7 +20,7 @@ import CmuxMobileLinkFFI
         try! JSONDecoder().decode(JSONValue.self, from: Data(text.utf8))
     }
 
-    static func row(_ id: String, name: String) -> String {
+    nonisolated static func row(_ id: String, name: String) -> String {
         #"{"sessionId":"\#(id)","name":"\#(name)","harness":"codex","cwd":"/tmp/w","status":"idle"}"#
     }
 
@@ -138,10 +138,13 @@ import CmuxMobileLinkFFI
         #expect(hub.catchUpChats().first?.lastSeq == 200)
     }
 
+    // `MacCatchUps` lives behind `canImport(CmuxMobileLinkFFI)`; plain `swift test` on macOS has no FFI.
+    #if canImport(CmuxMobileLinkFFI)
     @Test func settingOffAsksNoMac() {
         let defaults = UserDefaults(suiteName: "AcpmuxHubCatchUpTests.\(UUID().uuidString)")!
         #expect(MacCatchUps.macsToCatchUp(served: ["mac-a", "mac-b"], defaults: defaults).isEmpty)
         defaults.set(true, forKey: MacCatchUps.enabledKey)
         #expect(MacCatchUps.macsToCatchUp(served: ["mac-a", "mac-b", "mac-a"], defaults: defaults) == ["mac-a", "mac-b"])
     }
+    #endif
 }
