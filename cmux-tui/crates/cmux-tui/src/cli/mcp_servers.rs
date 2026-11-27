@@ -398,6 +398,8 @@ async fn run(common: &Common, verb: &Verb, key: Option<Zeroizing<String>>) -> Va
         Ok(p) => p,
         Err(e) => return error_json("cli.invalid_args", &e),
     };
+    // Through the egress gate (docs/privacy.md); --platform or CMUX_PLATFORM_URL is a host the person named.
+    cmux_egress::allow_named(&platform);
     let http = match cmux_egress::client_builder("cmux_tui::cli::mcp_servers")
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(concat!("cmux/", env!("CARGO_PKG_VERSION")))
