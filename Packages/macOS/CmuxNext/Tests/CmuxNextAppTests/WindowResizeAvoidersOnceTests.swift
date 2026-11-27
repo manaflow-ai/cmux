@@ -40,11 +40,20 @@ struct WindowResizeAvoidersOnceTests {
         var count = 0
     }
 
+    /// `-[NSView layout]` calls of Home's chat column since launch (`LayoutPassGuard`, by class).
+    static func columnLayouts() -> Int {
+        let name = String(describing: HomeChatColumnView.self)
+        return LayoutPassGuard.shared.passesByClass.reduce(0) { $0 + ($1.viewClass == name ? $1.passes : 0) }
+    }
+
     /// The window's bottom edge goes down 20 pt a step and its top stays, as in a corner drag: the traffic lights do
-    /// not move on screen, so Home's Chats button moves once a step (the column is taller, its buttons stay on the
-    /// lights' line), never to a place of the old frame first.
-    @Test func aHeightResizeMovesTheChatButtonsOnceAStep() throws {
+    /// not move on screen, so Home's chat column lays out once a step and its Chats button moves once (the column is
+    /// taller, its buttons stay on the lights' line), never at the old frame first. Both are counted: the column's
+    /// layouts are the cost (its glass buttons render at each), and a stale layout that put the button where the final
+    /// one puts it again would move it no more than once.
+    @Test func aHeightResizeLaysOutTheChatColumnOnceAStep() throws {
         _ = NSApplication.shared
+        LayoutPassGuard.shared.install()
         let design = DesignSettings.shared
         let saved = design.titlebar
         defer { design.titlebar = saved }
@@ -84,15 +93,53 @@ struct WindowResizeAvoidersOnceTests {
 
         for step in 1...4 {
             moves.count = 0
+            let layoutsBefore = Self.columnLayouts()
             var frame = window.frame
             frame.origin.y -= 20
             frame.size.height += 20
             window.setFrame(frame, display: true)
             window.layoutIfNeeded()
+            let layouts = Self.columnLayouts() - layoutsBefore
+            #expect(layouts == 1, "step \(step): the chat column laid out \(layouts) times for one resize")
             #expect(moves.count == 1, "step \(step): the Chats button moved \(moves.count) times for one resize")
             let lights = try #require(TrafficLightsLine.restingFrame(in: window), "step \(step): no traffic lights")
             let chats = column.chats.convert(column.chats.bounds, to: nil)
             #expect(abs(chats.midY - lights.midY) <= 1, "step \(step): the Chats button left the lights' line: \(chats) against \(lights)")
         }
+    }
+
+    /// A view that counts its re-checks.
+    final class CheckCounter: NSView, WindowControlsAvoiding {
+        var checks = 0
+        func updateWindowControlsAvoidance() { checks += 1 }
+    }
+
+    /// A batch an exception left open ends at the window's next update. AppKit catches an Objective-C exception thrown
+    /// in a layout pass (a layout loop it stops), which skips the Swift `defer` that ends the batch: every later re-check
+    /// of the window then waited for an end that never came. A Swift test cannot raise and catch one, so the batch's body
+    /// calls the window's `update()` (what `NSApplication.updateWindows` calls once per event loop turn) while the batch
+    /// is open: the re-check asked before it runs there, one asked after it runs at once, and once the body ends the next
+    /// re-check runs at once too (the batch's own end does not count it twice).
+    @Test func theWindowsUpdateEndsABatchLeftOpen() {
+        _ = NSApplication.shared
+        let window = ShellWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 400),
+                                 styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        window.contentView = content
+        let probe = CheckCounter(frame: NSRect(x: 0, y: 360, width: 100, height: 40))
+        content.addSubview(probe)
+        WindowControlsAvoiders.join(probe)
+        window.windowControlsAvoiders.batching(in: window) {
+            WindowControlsAvoiders.refresh(in: window)
+            #expect(probe.checks == 0, "a re-check inside a batch ran before its end")
+            window.update()
+            #expect(probe.checks == 1, "the window's update did not run the re-check an open batch held")
+            WindowControlsAvoiders.refresh(in: window)
+            #expect(probe.checks == 2, "after the window's update a re-check still waited for the batch's end")
+        }
+        WindowControlsAvoiders.refresh(in: window)
+        #expect(probe.checks == 3, "after the batch a re-check waited: the batch's end left it open")
     }
 }
