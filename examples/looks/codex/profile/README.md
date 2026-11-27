@@ -15,7 +15,8 @@ cmux setup remove manaflow-ai/codex-profile   # everything you had comes back
 - `cmux-setup.json`: the settings, with each pending key as a comment naming its pull request.
 - `themes/codex-app.json`: the colors `appearance.themeFile: codex-app` loads (the codex-app recipe's), shipped in
   the pack so a fresh install finds it.
-- `agent-pane/theme.css`: every composer icon button highlights as a circle (`--cv-composer-icon-radius`).
+- `agent-pane/theme.css`: every composer icon button highlights as a circle (`--cv-composer-icon-radius`), and
+  the reference app's own durations and curves on cmux's motion tokens (Motion, below).
 - `keybindings.json`: the reference app's keys.
 - `customize/`: one customize app, `local/customize`, with the Chats section, the thread hover card,
   the row decorations (from `../sidebar`) and the builder New Tab page (from `../send-parity`), each
@@ -31,11 +32,12 @@ Totals: 6 matched, 18 partial, 3 missing, out of 27.
 | --- | --- | --- |
 | Integrated terminal scoped to the checkout | matched | cmux is terminal-native: every workspace has terminals in its cwd. |
 | Split and full tab views | matched | `tabs.hideLoneChatTab`. |
+| Composer placeholder ("Ask for follow-up changes") | matched | `agentPane.composerPlaceholder`. |
 | Slash commands in the composer | matched | cmux's agent composer offers the harness's slash commands; Codex's list itself is harness-defined. |
 | Automations (scheduled tasks in project or worktree) | matched | cmux has automations (scheduled, catch-up, failure states); look surfaces them in the sidebar like Codex. |
 | Search chats | matched | `tabs.toolbarButtons` carries `agentPane.searchChats`. |
-| Keyboard shortcut set (new chat, diff, model switch, sidebar tab cycling, shortcut search) | partial | keybindings.json binds all seven keys. |
-| Jump to next chat that needs attention | partial | Gap: no public action names "next chat that needs you", so no key is bound. |
+| Keyboard shortcut set (new chat, diff, model switch, previous and next chat, rename, archive, pin, mark unread, copy link and path, reopen, shortcut search) | partial | keybindings.json binds 16 keys to the cmux commands that do the same; eight more are cmux's defaults already. Gap: the reference app's toggle terminal (Command-J), side chat, temporary chat and copy last code block have no cmux command. |
+| Jump to next chat that needs attention | partial | Option-Command-A runs `jumpToUnread` (the latest unread). Gap: the reference app's walks every chat waiting on you in turn. |
 | Deep links (codex:// to chats and Settings pages) | partial | cmux has its own cmux:// links; no codex:// scheme, and Settings sub-page links are not checked against Codex's. |
 | Diff / review pane beside the thread | partial | `openDiffViewer` in the toolbar and on `ctrl+shift+g`, `diff.layout: unified`. Gap: opens as a tab, not docked. |
 | Stage / revert per file or hunk, inline diff comments the agent addresses | partial | cmux's diff viewer has hunk actions and inline comments in code; not verified to send comments back to the chat the way Codex does. |
@@ -59,18 +61,24 @@ Totals: 6 matched, 18 partial, 3 missing, out of 27.
 
 ## Motion
 
-The reference app moves little and fast. There is no public recording of it, so none of its timings
-can be measured, and this look does not invent any. It keeps cmux's `ui.animationSpeed: fast`, pane
-animations and every `ui.animations.*` group on. A sent prompt already lands in one frame.
+The reference app's timings come from its shipped desktop build (26.1120.50957): its stylesheets'
+duration and curve tokens and its motion module, read value by value. None is a guess. The look puts
+them on cmux's motion tokens in `agent-pane/theme.css`; animations off or Reduce Motion still put
+cmux's own values back.
 
-| Motion | Reference | In this look |
+| Motion | Reference (source) | In this look |
 | --- | --- | --- |
-| Model picker open and close | unmeasured | cmux's overlay motion at fast speed |
-| Account menu open and close | unmeasured | cmux's overlay motion at fast speed |
-| Settings open | unmeasured | cmux's page motion at fast speed |
-| Streaming text reveal | unmeasured | gap: no `agentPane.display.streaming` setting |
-| Hover and press on rows and chips | unmeasured | cmux's feedback motion; circular icon highlight from theme.css |
-| Sidebar reorder on new activity | unmeasured | cmux's sidebar motion at fast speed |
+| Hover and press on rows and chips | 75 ms, `ease` (row and button hover rules) | `--cmux-motion-quick: 75ms`; circular icon highlight |
+| Model picker, menus and popovers open | 0.15 s on `cubic-bezier(0.23, 1, 0.32, 1)` (basic duration; motion module base) | `--cmux-motion-micro: 150ms`, `--cmux-ease-out` |
+| A panel or card entering | 0.2 s (moderate duration) | `--cmux-motion-standard: 200ms` |
+| A sheet, drawer, Settings open, the chat switch | 0.3 s (relaxed duration) | `--cmux-motion-large: 300ms` |
+| A fold opening or closing | 0.24 s on `cubic-bezier(0.22, 1, 0.36, 1)` (disclosure rows) | `--cmux-motion-settle: 240ms`, `--cmux-ease-settle` |
+| A selection that travels | the snappy `linear()` spring (20 stops) | `--cmux-ease-spring` |
+| Working line shine | one band half the line wide, -100% to 250% in 2 s, `steps(48)` | `agentPane.display.thinking.shimmer: continuous`, `shimmerPeriod: 2000`, `shimmerBand: 0`. Gap: cmux's band eases, the reference steps |
+| Streaming text reveal | each new word fades in over 0.7 s on `cubic-bezier(0.37, 0.55, 0.86, 0.88)`, no stagger, while live; 0.15 s with a 24 ms stagger (at most 0.8 s) otherwise | cmux's word fade (`agentPane.display.streaming: words`), 120 ms. Gap: no token for its length |
+| Send button morph (send, stop, voice) | 0.48 to 0.52 s keyframes, the stop square turning 90 degrees | Gap: cmux's send button swaps its icon |
+| Sent prompt and the thread's rise | a 0.5 s spring, no bounce | left to `../send-parity` (the send placement is still being chosen) |
+| Sidebar reorder on new activity | not found in the build (its list moves run in script) | cmux's sidebar motion at fast speed |
 
 ## Gaps
 
@@ -88,9 +96,10 @@ These are the places where the public API could not express the reference app:
   workspace switcher header over the sidebar.
 - **Settings nav and section rows.** `sidebar.nav` styles the sidebar only; no setting restyles the Settings window's
   nav or rows (the `settingsSections` look is not a key), so the Settings gap stays.
-- **No motion timings.** A look can switch animations on or off and pick a speed. It cannot set a
-  duration or an easing for any one transition.
-- **No "next chat that needs you" action** to bind a key to.
+- **Motion left.** The streaming fade's length, the send button's icon morph and the stepped shine
+  have no token yet (Motion, above).
+- **No "next chat that needs you" action** that walks every waiting chat; Option-Command-A jumps to the
+  latest unread.
 - **Model and effort as separate chips.** Effort is inside the model menu. `cmux.composer.chip/1` could draw an effort chip, but it would need its own customize app (see the first gap).
 - **No location and branch chip row** under the composer (Local, Worktree, Cloud), and no handoff of
   a chat between the main checkout and a worktree.

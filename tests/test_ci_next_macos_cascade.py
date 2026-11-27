@@ -1658,7 +1658,9 @@ class Wiring(unittest.TestCase):
                                      ref="refs/heads/feat-cmux-next" if event == "push" else "refs/pull/1/merge")
             context["github"]["event"]["pull_request"]["labels"] = [{"name": label} for label in labels]
             context["vars"]["CI_FAST_LANE_RUNNER"] = fast_lane
-            context["needs"]["path_route"] = {"outputs": {"swift_canary": canary, "scheme": scheme, "native": native}}
+            # The tiers read the PR's live labels from path_route (#57329), not the event's.
+            context["needs"]["path_route"] = {"outputs": {"swift_canary": canary, "scheme": scheme, "native": native,
+                                                          "labels": "," + ",".join(labels) + ","}}
             return set(evaluate(expression, context).split())
 
         # A pull request's fast tier and Swift canary are pr-pipeline.yml's `mac` job (ci/steps.toml, note-556):
@@ -1790,7 +1792,10 @@ class Wiring(unittest.TestCase):
         self.assertEqual(job["permissions"].get("actions"), "read")
         place = next(step for step in job["steps"] if step.get("id") == "place")
         # The pool snapshot reads with the glaeda read token (its own budget), else GITHUB_TOKEN.
-        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"], "${{ steps.snapshot-read-token.outputs.token || github.token }}")
+        # Even run ids mint on cmux-bot's installation first (#56395), so per-PR reads split two budgets.
+        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"],
+                         "${{ (steps.snapshot-read-token-bot.outputs.token || steps.snapshot-read-token.outputs.token)"
+                         " || github.token }}")
         for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "nightly_runner_ready"):
             self.assertEqual(job["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")
         self.assertFalse({"hosted_jobs", "hosted_runner"} & set(job["outputs"]))
@@ -2616,8 +2621,6 @@ class BlacksmithMacosOffSwitch(unittest.TestCase):
         "cmux-tui-team-signed.yml build-helper: runs-on[0]",
         "cmux-tui-team-signed.yml sign-helper: runs-on[0]",
         "ios-appstore-upload.yml upload: runs-on[0]",
-        # #50338: the App Store keys in the release environment, as ios-appstore-upload.
-        "ios-internal-submit.yml submit: runs-on[0]",
         "ios-e2e.yml mac-ios-e2e: runs-on[0]",
         "ios-internal-nightly.yml archive: runs-on[0]",
         "ios-internal-nightly.yml upload: runs-on[0]",

@@ -162,6 +162,10 @@ async fn take_over_holder(
         .into());
     }
     tracing::info!(pid, "another daemon of this home serves its socket; asking it to hand over");
+    #[cfg(unix)]
+    if let Some(pid) = pid {
+        listener_handover::note_took_over_from(pid);
+    }
     // Its listeners too, by descriptor, so the listen queue never closes
     // (`daemon/listener_handover.rs`). A daemon from before this ignores the key and stops.
     #[cfg(unix)]
@@ -169,8 +173,9 @@ async fn take_over_holder(
     #[cfg_attr(not(unix), allow(unused_mut))]
     let mut params = serde_json::json!({"reason": "handover: another daemon of this home starts"});
     #[cfg(unix)]
-    if let Some(side) = &side {
-        params[listener_handover::PARAM] = serde_json::json!(side.path());
+    if let (Some(side), Some(map)) = (&side, params.as_object_mut()) {
+        map.insert(listener_handover::PARAM.to_owned(), serde_json::json!(side.path()));
+        map.insert(listener_handover::PARAM_CONNS.to_owned(), serde_json::json!(true));
     }
     let answer = client.request(crate::rpc::method::MUX_SHUTDOWN, params).await;
     #[cfg(unix)]
