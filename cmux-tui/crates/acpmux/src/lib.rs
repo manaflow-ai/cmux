@@ -223,6 +223,7 @@ pub(crate) mod linux_sandbox;
 pub mod list_bytes;
 pub mod listener_record;
 pub mod live_models;
+pub(crate) mod local_sandbox;
 pub mod local_stream;
 pub mod log_keep;
 pub mod log_sink;
@@ -289,6 +290,7 @@ pub mod peer_link;
 // How good a peer's link is (`quality` in `_acpmux/peers`), and RTT-scaled liveness waits.
 pub mod peer_link_quality;
 pub mod perf_trace;
+pub(crate) mod sandbox_authority;
 // One host-wide gate for peer links' dials, so many dropped links do not redial in one instant.
 pub mod peer_dial_gate;
 pub(crate) mod peer_notice_outbox;

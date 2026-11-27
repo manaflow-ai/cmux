@@ -399,23 +399,6 @@ fn build_harness_command(
     if opencode_ask {
         ask_opencode(&mut cmd, name, !remote_environment);
     }
-    cmd
-        // Claude refuses to nest inside another Claude session.
-        .env_remove("CLAUDECODE")
-        .env_remove("CLAUDE_CODE_ENTRYPOINT")
-        .current_dir(cwd)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
-    // Own process group, so stopping the session stops everything the
-    // agent started underneath it (background shells included). Windows: a
-    // job object (`job.rs`), made where the agent is spawned.
-    #[cfg(unix)]
-    cmd.process_group(0);
-    // A sub-session's harness execs only in the folder its start checked (`cwd_pin.rs`).
-    #[cfg(unix)]
-    crate::cwd_pin::CwdPin::pin(crate::cwd_pin::CwdPin::current(), &mut cmd);
     // Only its own session's credential: never acpmux's, a preset's or a Chief's.
     crate::launch_credential::apply(&mut cmd, session.map(|(id, _)| id));
     // And its own chat secrets, never another chat's (`chat_secrets.rs`).
@@ -514,7 +497,68 @@ fn build_harness_command(
     if plugin_hooks && !remote_environment {
         cmd.env(crate::bg_hook::HOME_ENV, crate::config::home());
     }
+    // Derive the local boundary only after login, machine, profile, session and secret env
+    // have been applied. The settings and API route must be the ones the child receives.
+    // Do this before stdio, process-group and CwdPin setup so no spawn hooks are lost.
+    if claude_session && !remote_environment {
+        let final_env = command_env(&cmd);
+        let final_env_map = final_env.iter().cloned().collect();
+        let final_args: Vec<String> =
+            cmd.as_std().get_args().map(|arg| arg.to_string_lossy().into_owned()).collect();
+        if let Some((sandbox_program, sandbox_args)) =
+            crate::local_sandbox::prefix(&final_args, cwd, &final_env_map)
+        {
+            cmd = wrap_local_sandbox_command(
+                cmd,
+                sandbox_program,
+                sandbox_args,
+                session.map(|(id, _)| id),
+                &env,
+                &final_env,
+            );
+        }
+    }
+    cmd
+        // Claude refuses to nest inside another Claude session.
+        .env_remove("CLAUDECODE")
+        .env_remove("CLAUDE_CODE_ENTRYPOINT")
+        .current_dir(cwd)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+    // Own process group, so stopping the session stops everything the
+    // agent started underneath it (background shells included). Windows: a
+    // job object (`job.rs`), made where the agent is spawned.
+    #[cfg(unix)]
+    cmd.process_group(0);
+    // A sub-session's harness execs only in the folder its start checked (`cwd_pin.rs`).
+    #[cfg(unix)]
+    crate::cwd_pin::CwdPin::pin(crate::cwd_pin::CwdPin::current(), &mut cmd);
     Ok((cmd, codex))
+}
+
+/// Prefix a launch with the local sandbox while preserving the exact environment the
+/// unwrapped command would receive. Reconstructing only `get_envs()` leaves a wrapper
+/// dependent on whatever ambient environment happens to be present when it starts.
+fn wrap_local_sandbox_command(
+    cmd: Command,
+    sandbox_program: &str,
+    sandbox_args: Vec<String>,
+    session: Option<&str>,
+    scope_env: &std::collections::BTreeMap<String, String>,
+    final_env: &[(String, String)],
+) -> Command {
+    let program = cmd.as_std().get_program().to_owned();
+    let args: Vec<_> = cmd.as_std().get_args().map(|arg| arg.to_owned()).collect();
+    let mut wrapped = crate::session_scope::command(sandbox_program, session, scope_env, false);
+    wrapped.env_clear();
+    wrapped
+        .args(sandbox_args)
+        .arg(program)
+        .args(args)
+        .envs(final_env.iter().map(|(key, value)| (key, value)));
+    wrapped
 }
 
 /// OpenCode asked to ask (`opencode_ask.rs`): the `OPENCODE_CONFIG_CONTENT`
@@ -850,6 +894,22 @@ mod tests {
             env.iter().any(|(key, _)| key == "CARGO_MANIFEST_DIR"),
             "hosted projection discarded the local daemon environment"
         );
+    }
+
+    #[test]
+    fn local_sandbox_wrapper_preserves_the_final_environment() {
+        let mut original = Command::new("/usr/bin/true");
+        original.env_clear().env("ACPMUX_ENV_PARITY", "final").env_remove("PATH");
+        let expected = command_env_cleared(&original);
+        let wrapped = wrap_local_sandbox_command(
+            original,
+            "/usr/bin/sandbox-exec",
+            vec!["-p".into(), "(version 1)".into()],
+            None,
+            &std::collections::BTreeMap::new(),
+            &expected,
+        );
+        assert_eq!(command_env_cleared(&wrapped), expected);
     }
 
     /// An agent acpmux starts reads the settings file the app runs on: the app

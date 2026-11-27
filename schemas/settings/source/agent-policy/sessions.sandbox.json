@@ -1,0 +1,4 @@
+{
+  "agent": "destructive",
+  "why": "An agent must not turn off the sandbox it runs in."
+}

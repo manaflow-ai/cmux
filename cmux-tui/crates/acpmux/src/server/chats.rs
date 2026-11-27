@@ -67,12 +67,14 @@
 //!   a transcript; its store root joins the index (recorded roots file).
 //! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots,
 //!   permissionMode?, permissionModeManaged?, allowFullAccess?,
-//!   allowFullAccessManaged?, promptSuggestions?, promptSuggestionsManaged?}`:
+//!   allowFullAccessManaged?, promptSuggestions?, promptSuggestionsManaged?, sandbox?,
+//!   sandboxManaged?}`:
 //!   the app's effective cmux.json `agents.chats.*` values (`chats/settings.rs`)
-//!   and its effective `agents.defaultPermissionMode`, `sessions.allowFullAccess`
+//!   and its effective `agents.defaultPermissionMode`, `sessions.allowFullAccess`, `sessions.sandbox`
 //!   and `agents.promptSuggestions`, each with whether MDM or the team policy
 //!   forces it (`hub/start_mode_state.rs`; a forced full-access off is an upper
-//!   bound, a forced prompt-suggestions value beats the file); answers the roots view with
+//!   bound, a forced prompt-suggestions value beats the file). Sandbox enforcement is read
+//!   separately from the managed-preference source by `local_sandbox`; answers the roots view with
 //!   `applied: true`. While chats are off, `_acpmux/chats` answers
 //!   `enabled: false` and no chats.
 //!
@@ -569,6 +571,9 @@ pub(super) async fn route(
             let forced = full_access_managed
                 .then(|| params.get("allowFullAccess") == Some(&Value::Bool(true)));
             hub.apply_full_access_push(forced).await;
+            // `sessions.sandbox` management is read from cmux's managed-preference source by
+            // `local_sandbox::enabled`. Never trust the effective value sent over this local
+            // socket: a sandboxed agent can call `_acpmux/chat_settings` too.
             hub.apply_prompt_suggestions_push(prompt_suggestions_forced(&params)?).await;
             hub.set_session_recap(settings.session_recap);
             hub.set_terminal_chat_writable(settings.terminal_chat_writable).await;

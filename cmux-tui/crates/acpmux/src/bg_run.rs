@@ -124,6 +124,10 @@ pub struct Spec {
     /// its end goes to that subagent while it runs (`hub/bg_notify.rs`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subagent: Option<serde_json::Value>,
+    /// The chat's local sandbox (`sandbox_authority.rs`): `sandbox-exec` arguments up to the
+    /// program. Set, the task's shell runs inside it, as the chat's agent does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sandbox: Option<Vec<String>>,
 }
 
 /// `<id>.json`, written whole (to a temporary file, then renamed) each time it changes.
@@ -636,10 +640,15 @@ pub fn main() -> anyhow::Result<()> {
         let spool = Spool::create_with_retention(&dir, &id, spec.segment, spec.retain_all)?;
         let (reader, writer) = std::io::pipe()?;
         let shell = ["/bin/bash", "/bin/sh"].into_iter().find(|s| Path::new(s).exists());
-        let mut cmd = std::process::Command::new(shell.unwrap_or("/bin/sh"));
+        let (program, args) = crate::sandbox_authority::wrap_shell(
+            spec.sandbox.as_deref(),
+            shell.unwrap_or("/bin/sh"),
+            &spec.command,
+        );
+        let mut cmd = std::process::Command::new(program);
         // Exactly the env the daemon built (the agent's), never this runner's own on top of it,
         // plus the task's mark.
-        cmd.arg("-c").arg(&spec.command).current_dir(&spec.cwd).env_clear().envs(&spec.env);
+        cmd.args(args).current_dir(&spec.cwd).env_clear().envs(&spec.env);
         cmd.env(TASK_MARK, &mark);
         cmd.stdin(std::process::Stdio::null()).stdout(writer.try_clone()?).stderr(writer);
         // SAFETY: setsid, signal and sigprocmask are async-signal-safe. The task leads its own

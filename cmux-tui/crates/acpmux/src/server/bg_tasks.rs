@@ -87,8 +87,21 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<
                 .map_err(RpcError::invalid_params)?;
             // The Claude Code subagent whose MCP call starts it (`subagent_call.rs`), `{id, type}`:
             // a label its commands carry, as its Bash calls do; the session's token is the proof.
-            hub.bg_start(&session, command, cwd, description, notify, result_line, subagent, class)
-                .await
+            // Only the person's own start runs outside the chat's local sandbox; the chat's agent
+            // (its caller token) never escapes it through the daemon (cmuxterm-hq#32166).
+            let by_person = conn.is_person() && !own_agent;
+            hub.bg_start(
+                &session,
+                command,
+                cwd,
+                description,
+                notify,
+                result_line,
+                subagent,
+                by_person,
+                class,
+            )
+            .await
         }
         method::MUX_BG_LIST => Ok(hub.bg_list_as(&session, &scope("all")?)),
         // The chat's own agent reading a task's end (`bg_output`, or `run_wait` given a task)

@@ -39,6 +39,9 @@ const START_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 struct BgSpawn<'a> {
     fixed_id: Option<&'a str>,
     subagent: Option<Value>,
+    /// The person started it on their own connection (`hub/person.rs`): it runs outside the
+    /// chat's local sandbox. Anything else runs inside it (`sandbox_authority.rs`).
+    by_person: bool,
     /// Its CPU class (`bg_start`'s `class`): a filler task's scope runs at `CPUWeight=idle`.
     class: crate::session_budget::TaskClass,
 }
@@ -117,9 +120,10 @@ impl Hub {
         notify: bool,
         result_line: bool,
         subagent: Option<Value>,
+        by_person: bool,
         class: crate::session_budget::TaskClass,
     ) -> Result<Value, RpcError> {
-        let spawn = BgSpawn { fixed_id: None, subagent, class };
+        let spawn = BgSpawn { fixed_id: None, subagent, by_person, class };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 
@@ -138,7 +142,8 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        let spawn = BgSpawn { fixed_id, subagent, class: Default::default() };
+        // A workflow's task is the agent's: it runs inside the chat's sandbox.
+        let spawn = BgSpawn { fixed_id, subagent, by_person: false, class: Default::default() };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 
@@ -152,7 +157,7 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        let BgSpawn { fixed_id, subagent, class } = spawn;
+        let BgSpawn { fixed_id, subagent, by_person, class } = spawn;
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
         }
@@ -191,7 +196,10 @@ impl Hub {
         // these arbitrary caps yo"). Each costs a constant: its own runner process, a spool of at
         // most two segments (`bg_run::SEGMENT`), and with `notify` one daemon watch thread
         // (`bg_notify.rs`, a small stack) holding one descriptor. A start reads no other task.
-        let mut env = self.bg_env(session, &meta).await?;
+        let (mut env, boundary) = self.bg_launch(session, &meta).await?;
+        // The chat's agent runs in the local sandbox: so does what the daemon runs for it
+        // (cmuxterm-hq#32166). Only the person's own start runs outside it.
+        let sandbox = boundary.filter(|_| !by_person);
         let word = |key: &str| subagent.as_ref()?.get(key)?.as_str();
         if let (Some(kind), Some(sub)) = (word("type"), word("id")) {
             env.insert(crate::cli::sender::SUBAGENT_ENV.to_owned(), format!("{kind}:{sub}"));
@@ -240,6 +248,7 @@ impl Hub {
             notify,
             result_line,
             subagent,
+            sandbox,
         };
         bg_spawn(&runner, &spec, class).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
         // A stop or purge that came meanwhile missed it: it ends here.
@@ -260,11 +269,14 @@ impl Hub {
     /// the launch's own builder (`agent::harness_command`) from the profile as a spawn builds it
     /// now (`Hub::spawn_profile_for`: defaults, preset, chat store, session env, expansions).
     /// That is the env the agent wakes with, since a hibernated agent starts again from it.
-    pub(super) async fn bg_env(
+    ///
+    /// With it, the local sandbox that launch runs in (`sandbox_authority::command_prefix`):
+    /// the daemon's own decision for the chat now, never one the agent sends.
+    pub(super) async fn bg_launch(
         &self,
         session: &Session,
         meta: &SessionMeta,
-    ) -> Result<BTreeMap<String, String>, RpcError> {
+    ) -> Result<(BTreeMap<String, String>, Option<Vec<String>>), RpcError> {
         let (profile, defaults) = {
             let cfg = self.config.read().await;
             let profile =
@@ -277,7 +289,8 @@ impl Hub {
         let cmd = crate::agent::harness_command_ready(&meta.harness, &profile, &meta.cwd, None, at)
             .await
             .map_err(|e| RpcError::internal(format!("{e:#}")))?;
-        Ok(crate::agent::command_env(&cmd).into_iter().collect())
+        let boundary = crate::sandbox_authority::command_prefix(cmd.as_std());
+        Ok((crate::agent::command_env(&cmd).into_iter().collect(), boundary))
     }
 
     /// The folder's tasks, oldest first: only records of its own generation, so a runner that

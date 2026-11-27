@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.sessions.sandbox.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code can't read your credentials, write outside its folders or reach other ports."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا يستطيع Claude Code قراءة بيانات اعتمادك أو الكتابة خارج مجلداته أو الوصول إلى منافذ أخرى."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code ne može čitati vaše vjerodajnice, pisati izvan svojih mapa niti pristupati drugim portovima."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code kan ikke læse dine loginoplysninger, skrive uden for sine mapper eller nå andre porte."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code kann deine Zugangsdaten nicht lesen, nicht außerhalb seiner Ordner schreiben und keine anderen Ports erreichen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code no puede leer tus credenciales, escribir fuera de sus carpetas ni acceder a otros puertos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code ne peut ni lire vos identifiants, ni écrire hors de ses dossiers, ni joindre d’autres ports."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code non può leggere le tue credenziali, scrivere fuori dalle sue cartelle né raggiungere altre porte."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code は認証情報を読み取れず、自分のフォルダ外への書き込みや他のポートへの接続もできません。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code មិនអាចអានព័ត៌មានសម្ងាត់របស់អ្នក សរសេរនៅក្រៅថតរបស់វា ឬភ្ជាប់ទៅច្រកផ្សេងទៀតបានទេ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code는 자격 증명을 읽거나, 자기 폴더 밖에 쓰거나, 다른 포트에 연결할 수 없습니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code kan ikke lese påloggingsinformasjonen din, skrive utenfor mappene sine eller nå andre porter."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code nie może odczytać Twoich danych logowania, zapisywać poza swoimi folderami ani łączyć się z innymi portami."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Claude Code não pode ler suas credenciais, gravar fora das pastas dele nem acessar outras portas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code не может читать ваши учётные данные, писать за пределами своих папок и подключаться к другим портам."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code อ่านข้อมูลรับรองของคุณ เขียนนอกโฟลเดอร์ของตน หรือเชื่อมต่อพอร์ตอื่นไม่ได้"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code kimlik bilgilerinizi okuyamaz, kendi klasörleri dışına yazamaz ve başka bağlantı noktalarına erişemez."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code не може читати ваші облікові дані, писати поза своїми папками чи під’єднуватися до інших портів."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code không thể đọc thông tin đăng nhập của bạn, ghi ra ngoài thư mục của nó hay kết nối tới cổng khác."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code 无法读取你的凭据、在其文件夹之外写入，也无法连接其他端口。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Claude Code 無法讀取你的憑證、在其資料夾以外寫入，也無法連線至其他連接埠。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

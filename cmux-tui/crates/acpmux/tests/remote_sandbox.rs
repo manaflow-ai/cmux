@@ -4,7 +4,7 @@
 //! Its Bash (any child) cannot write outside the allowed folders or reach a
 //! loopback port. Linux enforces the same parsed policy with bwrap, seccomp,
 //! the notify supervisor and the proxy. Other platforms refuse remote Claude.
-//! A local session's Claude spawns as before.
+//! A local session's Claude runs in the looser local profile (`sandbox/local-agent.sb`).
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -53,6 +53,18 @@ fn hub_with(d: &Path, vm_host: Option<bool>) -> Arc<Hub> {
                     "REMOTE_PROFILE_VALUE": "profile-authorized",
                     "FAKE_KEYCHAIN_PATH": d.join("work/test.keychain-db")
                 }
+            },
+            "fakeclaudehome": {
+                "argv": ["python3", FAKE_CLAUDE],
+                "kind": "claude-stdio",
+                "env": {"HOME": d.join("agent-home")}
+            },
+            "fakeclaudelastsettings": {
+                "argv": ["python3", FAKE_CLAUDE,
+                         "--settings", "{\"sandbox\":{\"enabled\":true}}",
+                         "--settings", "{\"sandbox\":{\"enabled\":false}}"],
+                "kind": "claude-stdio",
+                "env": {"HOME": d.join("agent-home")}
             },
             "fakeacp": {
                 "argv": ["python3", FAKE_AGENT],
@@ -672,12 +684,13 @@ async fn a_remote_chain_cannot_write_outside_its_folders_or_reach_a_loopback_por
     let outside = home.join(format!(".acpmux test probe-{}", std::process::id()));
     let _ = std::fs::remove_file(&outside);
     let probe = format!("sandbox-probe {} {port}", outside.display());
-    // The control: a local session's agent may do all three.
+    // A local session's agent runs in the local sandbox (`local_sandbox.rs`, on by default):
+    // loopback stays (dev servers), the home outside its folders does not.
     let mut local = Client::new(&hub, Origin::Local);
     let seen: Value =
         serde_json::from_str(&local.run(&d, &probe).await.unwrap_or_else(|e| panic!("{e}")))
             .unwrap();
-    assert_eq!(seen, json!({"outside": "allowed", "loopback": "allowed", "cwd": "allowed"}));
+    assert_eq!(seen, json!({"outside": "denied", "loopback": "allowed", "cwd": "allowed"}));
     let _ = std::fs::remove_file(&outside);
     // A remote chain's agent: only its folder.
     let mut web = Client::new(&hub, Origin::Web);
@@ -688,9 +701,101 @@ async fn a_remote_chain_cannot_write_outside_its_folders_or_reach_a_loopback_por
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// The local sandbox's red team (`local_sandbox.rs`): a local chat's Claude Code, as a
+/// prompt-injected agent would, tries to read planted secrets in `~/.ssh` and `~/.aws`, write
+/// outside its folder and send to an outside host on a port that is not 443. All fail; its folder
+/// and the rest of its home stay readable and writable.
 #[cfg(target_os = "macos")]
+#[tokio::test]
+async fn a_local_chat_cannot_read_credentials_write_outside_or_send_on_other_ports() {
+    let d = dir("local-redteam");
+    let agent_home = d.join("agent-home");
+    for (path, text) in [
+        (".ssh/id_ed25519", "-----BEGIN OPENSSH PRIVATE KEY----- synthetic"),
+        (".aws/credentials", "[default]\naws_secret_access_key = synthetic"),
+        ("notes.txt", "not a secret"),
+    ] {
+        let path = agent_home.join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    let hub = hub(&d);
+    // Outside the chat folder and the temporary folders: the real home.
+    let home = std::fs::canonicalize(dirs_home()).unwrap();
+    let outside = home.join(format!(".acpmux local probe-{}", std::process::id()));
+    let _ = std::fs::remove_file(&outside);
+    // TEST-NET-3 (RFC 5737): no host answers, so only the sandbox answers "denied" at once.
+    let probe = format!("secret-probe {} 203.0.113.7 4444", outside.display());
+    let mut local = Client::new(&hub, Origin::Local);
+    let seen = local.run_harness(&d, Some("fakeclaudehome"), &probe).await;
+    let _ = std::fs::remove_file(&outside);
+    let seen: Value = serde_json::from_str(&seen.unwrap_or_else(|e| panic!("{e}"))).unwrap();
+    assert_eq!(
+        seen,
+        json!({"ssh": "denied", "aws": "denied", "notes": "allowed", "outside": "denied",
+               "send": "denied", "cwd": "allowed"})
+    );
+    assert!(d.join("work/secret-probe.txt").exists());
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// The local Seatbelt keeps the sandbox on when Claude receives two settings flags, because the
+/// final flag disables Claude's own sandbox. It also protects the cmux setting, gh credentials,
+/// and hard-link escape path that a prompt-injected child could otherwise use for persistence.
+#[cfg(target_os = "macos")]
+#[tokio::test]
+async fn a_local_chat_enforces_settings_credentials_and_hard_link_boundaries() {
+    let d = dir("local-enforcement");
+    let agent_home = d.join("agent-home");
+    let config = agent_home.join(".config/cmux-next/cmux-next.json");
+    let gh_hosts = agent_home.join(".config/gh/hosts.yml");
+    let link_source = agent_home.join("notes.txt");
+    let link_target = d.join("work/hard-link");
+    for path in [config.as_path(), gh_hosts.as_path(), link_source.as_path()] {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "synthetic").unwrap();
+    }
+    let home = std::fs::canonicalize(dirs_home()).unwrap();
+    let outside = home.join(format!(".acpmux local enforcement-{}", std::process::id()));
+    let _ = std::fs::remove_file(&outside);
+    let probe = format!(
+        "local-security-probe {}",
+        serde_json::to_string(&[
+            config.display().to_string(),
+            gh_hosts.display().to_string(),
+            link_source.display().to_string(),
+            link_target.display().to_string(),
+            outside.display().to_string(),
+        ])
+        .unwrap()
+    );
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let seen = local.run_harness(&d, Some("fakeclaudelastsettings"), &probe).await;
+    let _ = std::fs::remove_file(&outside);
+    let _ = std::fs::remove_file(&link_target);
+    let seen: Value = serde_json::from_str(&seen.unwrap_or_else(|e| panic!("{e}"))).unwrap();
+    assert_eq!(
+        seen,
+        json!({"config_write": "denied", "gh_hosts": "denied", "hard_link": "denied",
+               "outside": "denied", "cwd": "allowed"})
+    );
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), "synthetic");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[cfg(target_os = "macos")]
+/// The account's own home from its passwd entry, not `$HOME`: a CI step's `HOME` is a folder in
+/// its workspace under the temporary roots both profiles let an agent write, so a probe there
+/// would prove nothing about the home.
 fn dirs_home() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").expect("HOME"))
+    use std::ffi::CStr;
+    use std::os::unix::ffi::OsStrExt;
+    // SAFETY: getpwuid returns a pointer into static storage or null; the test reads it at once.
+    let pw = unsafe { libc::getpwuid(libc::getuid()) };
+    assert!(!pw.is_null(), "no passwd entry for this user");
+    let dir = unsafe { CStr::from_ptr((*pw).pw_dir) };
+    PathBuf::from(std::ffi::OsStr::from_bytes(dir.to_bytes()))
 }
 
 #[cfg(target_os = "macos")]

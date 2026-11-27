@@ -29,6 +29,10 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
     /// not a boolean), nil when nothing forces it. acpmux takes a forced value over the settings file at
     /// each Claude or Codex start (`cmux-tui/crates/acpmux/src/claude_stdio/prompt_suggestions.rs`).
     public let promptSuggestionsManaged: Bool?
+    /// The `sessions.sandbox` MDM or the team policy forces (`false` for a forced value that is not
+    /// `true`), nil when nothing forces it. acpmux takes only a forced on: the policy can turn the
+    /// local agent sandbox on, never off (`cmux-tui/crates/acpmux/src/local_sandbox.rs`).
+    public let sandboxManaged: Bool?
 
     // Paths and defaults: schemas/settings/source/chats.json (SettingsSchema+Chats.generated.swift).
     public static let booleanKeys = [enabledPath, discoveryPath, sessionRecapPath, terminalChatWritablePath].map { $0.joined(separator: ".") }
@@ -57,6 +61,9 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
         let suggestionsPath = SessionSettings.claudePromptSuggestionsPath
         promptSuggestionsManaged = managedKeys[suggestionsPath.joined(separator: ".")] == nil
             ? nil : effective.value(at: suggestionsPath)?.boolValue ?? false
+        let sandboxPath = SessionSettings.sandboxPath
+        sandboxManaged = managedKeys[sandboxPath.joined(separator: ".")] == nil
+            ? nil : effective.value(at: sandboxPath)?.boolValue == true
     }
 
     /// `_acpmux/chat_settings` params. The daemon persists this device-local projection.
@@ -68,7 +75,8 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
          "sessionRecap": .bool(sessionRecap),
          "terminalChatWritable": .bool(terminalChatWritable),
          "promptSuggestions": promptSuggestionsManaged.map(JSONValue.bool) ?? .null,
-         "promptSuggestionsManaged": .bool(promptSuggestionsManaged != nil)]
+         "promptSuggestionsManaged": .bool(promptSuggestionsManaged != nil),
+         "sandbox": sandboxManaged.map(JSONValue.bool) ?? .null, "sandboxManaged": .bool(sandboxManaged != nil)]
     }
 
     /// Initialize followed by one request, each terminated by a newline.
