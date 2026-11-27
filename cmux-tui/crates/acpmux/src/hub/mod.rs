@@ -132,7 +132,7 @@ mod git_watch;
 mod cache_alarm;
 // The dynamic CPU class's controller (`cpu_class/pressure.rs`).
 mod cpu_pressure;
-mod github_owner;
+pub(crate) mod github_owner;
 mod goal_tools;
 mod handoff;
 mod harness_key;
@@ -173,6 +173,8 @@ pub mod journal_restore;
 mod journal_restore_tests;
 pub(crate) mod key_route;
 mod key_store;
+// A dead lane on a peer tells its starter here (`lane_death_watch.rs`).
+mod lane_death_watch;
 // The per-lane fan-out cap (`lane_fanout.rs`).
 pub(crate) mod lane_fanout;
 mod lane_report_reads;
@@ -315,6 +317,7 @@ pub(crate) mod queue_origin;
 mod queued_turn;
 pub mod races;
 pub(crate) mod rate_hold;
+mod recent_creates;
 mod rediscover;
 #[cfg(test)]
 mod refused_append_tests;
@@ -1639,6 +1642,8 @@ pub struct Hub {
     pub(crate) peer_accepts: outbox::PeerAccepts,
     /// A peer's live asks for sessions it has not listed yet (`held_asks.rs`).
     pub(crate) held_peer_asks: held_asks::HeldAsks,
+    /// Sessions just created on another machine (`recent_creates.rs`).
+    pub(crate) recent_creates: recent_creates::RecentCreates,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
@@ -2037,6 +2042,7 @@ impl Hub {
             watches: Default::default(),
             peer_accepts: Default::default(),
             held_peer_asks: Default::default(),
+            recent_creates: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
             #[cfg(all(unix, feature = "tailnet"))]

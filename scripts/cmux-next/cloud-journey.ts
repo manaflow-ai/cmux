@@ -3165,6 +3165,8 @@ const FACTS_READ_MS = 10_000;
 /** The guest's size, measured on it: CPU count, memory and root disk, in the form sizeReadingProblem reads. */
 export const SIZE_READ = "echo journey-ok; uname -m; echo cpu=$(nproc) mem_mib=$(free -m | awk '/^Mem:/{print $2}') disk_mib=$(df -BM --output=size / | tail -1 | tr -dc 0-9)";
 export const COLD_CREATE_STEP = "cold create (asked size)";
+/** Journey-only checks whose red is recorded while the run goes on: the platform's own record of the machine. */
+export const RECORD_ONLY_STEPS = ["listed", DEFAULT_SIZE_STEP] as const;
 export const JOURNEY_ONLY_STEPS = ["listed", DEFAULT_SIZE_STEP, "first exec", COLD_CREATE_STEP, "machine facts", "GitHub connection (team status)", "GitHub on the machine (stub)", "GitHub on the machine (live)", "GitHub by the agent (live)"] as const;
 
 /** A Swift `static let NAME = #"""...."""#` raw string, with the closing delimiter's indentation stripped. */
@@ -5574,7 +5576,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         // The size the platform recorded: the one the VM read back at create, not the one asked for.
         const size = row.size ? ` size=${row.size.cpu ?? "?"}/${row.size.memory_mb ?? "?"}/${row.size.disk_mb ?? "?"}` : "";
         return { value: null, detail: `${detail}${size}` };
-      });
+      }).catch(() => undefined);
+      // "listed" and DEFAULT_SIZE_STEP record what the platform says about the machine; a red one is recorded and the
+      // run goes on (RECORD_ONLY_STEPS): nothing after them needs it, and ending there left a --chaos-move run with no
+      // drill at all (run 45896711769 kill-src: staging recorded 4/8192/32768 for a default create, the move never ran).
       // A new machine made at the default size is recorded at it: 2 vCPU / 4096 MB / 20480 MB, the size the platform
       // keeps spares at. Read after the create answered and the machine ran (event order); the read has its own deadline.
       if (!reuse) await J.step(DEFAULT_SIZE_STEP, async () => {
@@ -5585,7 +5590,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         const why = defaultSizeProblem(m?.size);
         if (why) throw new Error(why);
         return { value: null, detail: `${created.id} size ${m.size.cpu}/${m.size.memory_mb}/${m.size.disk_mb}` };
-      });
+      }).catch(() => undefined);
       await J.step("first exec", async () => {
         // The machine's real size, measured on it (cpu, memory and root disk), beside what the platform recorded (the
         // "listed" step): the size a create asks for is not always the size it boots at (cmux-platform#1504).

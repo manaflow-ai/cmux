@@ -272,7 +272,38 @@ fn codex_cli_at(
         .filter(|p| !p.is_empty())
         .cloned()
         .unwrap_or_else(|| command.clone());
-    Ok(CodexCli { program, globals: codex_globals(args).to_vec(), env: layered.env })
+    Ok(CodexCli { program, globals: codex_config_args(args), env: layered.env })
+}
+
+/// Codex also accepts config overrides after app-server. Carry them into a
+/// catalog or login command without copying transport or startup actions.
+fn codex_config_args(args: &[String]) -> Vec<String> {
+    let before = codex_globals(args);
+    let mut globals = before.to_vec();
+    if args.get(before.len()).is_some_and(|arg| arg == "app-server") {
+        let mut tail = args.iter().skip(before.len().saturating_add(1));
+        while let Some(arg) = tail.next() {
+            let (name, attached) =
+                arg.split_once('=').map_or((arg.as_str(), false), |(name, _)| (name, true));
+            if matches!(name, "-c" | "--config" | "--enable" | "--disable") {
+                globals.push(arg.clone());
+                if !attached && let Some(value) = tail.next() {
+                    globals.push(value.clone());
+                }
+            }
+        }
+    }
+    globals
+}
+
+/// The account and configuration the native bridge uses, for its model catalog probe.
+pub(crate) fn catalog_launch(
+    cfg: &Config,
+    id: &str,
+    profile: &HarnessProfile,
+) -> Result<(Vec<String>, BTreeMap<String, String>)> {
+    let cli = codex_cli(cfg, id, profile)?;
+    Ok((cli.argv(&[]), cli.env))
 }
 
 /// The global options before `app-server` in a bridge launch's args, read
