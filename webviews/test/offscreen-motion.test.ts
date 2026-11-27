@@ -363,3 +363,31 @@ test("a scroller with no height yet has not been laid out: nothing in it is ende
     sheet.close();
   }
 });
+
+test("a commit with no motion it could end reads no box: a chat switch's new rows, a looping spinner", async () => {
+  // Each box read laid the switched-to page out again ahead of its first frame (settled-page bench).
+  const sheet = page({ top: 0, height: 300 });
+  const proto = sheet.window.HTMLElement.prototype;
+  const box = proto.getBoundingClientRect;
+  let reads = 0;
+  proto.getBoundingClientRect = function (this: HTMLElement) {
+    reads += 1;
+    return box.call(this);
+  };
+  const stop = endOffscreenMotion(sheet.scroller);
+  try {
+    for (let at = 0; at < 20; at += 1) sheet.add(sheet.scroller, "acpmux-row", { top: at * 60 - 400, height: 60 });
+    const spinner = sheet.plays(sheet.add(sheet.scroller, "acpmux-row", { top: 900, height: 20 }), sheet.loop());
+    await sheet.flush();
+    expect(reads).toBe(0);
+    expect(spinner.finished).toBe(0);
+    // One motion it could end, out of the view: the gate reads boxes again and ends it.
+    const below = sheet.plays(sheet.add(sheet.scroller, "acpmux-row", { top: 700, height: 60 }), sheet.fade());
+    await sheet.flush();
+    expect(reads).toBeGreaterThan(0);
+    expect(below.finished).toBe(1);
+  } finally {
+    stop();
+    sheet.close();
+  }
+});

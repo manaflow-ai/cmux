@@ -41,7 +41,7 @@
 //
 //   bun bench/settled-page.bench.ts [rounds=3] [turns=120]
 //   ONLY=chat_switch,restart  ARMS=idle  TRACE=1 (each scenario's worst round frame by frame)
-//   PROFILE=1 (an unminified build and a CPU profile of each chat switch: its top functions)
+//   PROFILE=1 (an unminified build and a CPU profile of each chat and workspace switch: its top functions)
 /// <reference types="bun" />
 import fs from "node:fs";
 import os from "node:os";
@@ -67,7 +67,7 @@ type Arm = (typeof ARMS)[number];
 const scenarios = pickNames<Scenario>(process.env.ONLY, SCENARIOS, "scenario");
 const arms = pickNames<Arm>(process.env.ARMS, ARMS, "arm");
 const TRACE = process.env.TRACE === "1";
-// PROFILE=1: an unminified build and a CPU profile of each chat switch, its top functions by self and total time.
+// PROFILE=1: an unminified build and a CPU profile of each chat and workspace switch, its top functions by self and total time.
 const PROFILE = process.env.PROFILE === "1";
 
 type CpuProfile = {
@@ -803,6 +803,12 @@ try {
         newTurn(target, arm === "stream");
         await settleIdle(page);
         if (arm === "stream") startStream();
+        if (PROFILE) {
+          profiler = await context.newCDPSession(page);
+          await profiler.send("Profiler.enable");
+          await profiler.send("Profiler.setSamplingInterval", { interval: 100 });
+          await profiler.send("Profiler.start");
+        }
         await page.evaluate(() => {
           (window as unknown as { __hidden: boolean }).__hidden = false;
           const w = window as unknown as { __settle: { start(t0: number): void } };

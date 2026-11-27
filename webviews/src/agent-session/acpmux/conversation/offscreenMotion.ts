@@ -14,8 +14,9 @@
 // (infinite iterations: a spinner) are left alone. WAAPI motions are not seen here; each WAAPI site
 // gates itself (turnEndFold.ts).
 //
-// Cost: per commit that adds nodes or changes a class, one box read for the view and one per changed
-// row and element; none at rest, none for a text-only change.
+// Cost: per commit that adds nodes or changes a class, one read of the scroller's motions; only when one of
+// them could be ended, one box read for the view and one per changed row and element. None at rest, none
+// for a text-only change.
 
 /// A box this far past the view's edge still counts as in it (rounding, a 1 px border).
 const EDGE_PX = 1;
@@ -72,13 +73,18 @@ function paintsOnly(animation: Animation): boolean {
   return true;
 }
 
+/// Whether this gate would end `animation`: still to play, paint only, with a finite end.
+function finishable(animation: Animation): boolean {
+  if (animation.playState === "finished" || animation.playState === "idle") return false;
+  if (!paintsOnly(animation)) return false;
+  const end = animation.effect?.getComputedTiming?.().endTime;
+  return end !== undefined && Number.isFinite(Number(end));
+}
+
 /// Finishes each of `animations` that has a finite end, is still to play and paints only.
 function finishAll(animations: readonly Animation[]): void {
   for (const animation of animations) {
-    if (animation.playState === "finished" || animation.playState === "idle") continue;
-    if (!paintsOnly(animation)) continue;
-    const end = animation.effect?.getComputedTiming?.().endTime;
-    if (end === undefined || !Number.isFinite(Number(end))) continue;
+    if (!finishable(animation)) continue;
     try {
       animation.finish();
     } catch {
@@ -120,6 +126,12 @@ export function endOffscreenMotion(scroller: HTMLElement | null | undefined): ()
           }
         }
         if (rows.size === 0) return;
+        // No motion under the scroller this gate could end (a chat switch's whole new transcript, at rest; a
+        // stream with only its spinner looping): nothing to judge, so no box is read. Each row's box read
+        // here laid the new page out ahead of its first frame (settled-page bench PROFILE=1, chat_switch
+        // stream: 8.9 ms in this observer; Leo, 2026-11-21: "chat switch ... reach a settled page ... within 2x of a derived
+        // bound").
+        if (!cssOf(scroller).some(finishable)) return;
         const view = scroller.getBoundingClientRect();
         for (const row of rows) if (misses(row.getBoundingClientRect(), view)) finishAll(cssOf(row));
         for (const element of changed)
