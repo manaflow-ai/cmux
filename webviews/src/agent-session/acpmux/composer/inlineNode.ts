@@ -7,7 +7,7 @@
 // attachments.ts inlineCopyId). The node draws nothing itself: the composer draws each
 // attachment's chip into the node's element (composer/inlineAttachments.tsx), which `InlineViews`
 // hands it.
-import { closeHistory } from "@milkdown/kit/prose/history";
+import { closeHistory, isHistoryTransaction } from "@milkdown/kit/prose/history";
 import { Fragment, type Node as ProseNode, Slice } from "@milkdown/kit/prose/model";
 import {
   type EditorState,
@@ -31,12 +31,18 @@ import { intl } from "../../../ui/intl";
 
 export const INLINE_NODE = "inline_attachment";
 
+/// Set on an edit that takes placed attachments' nodes out on purpose: an attachment's own × or the
+/// chip it became (`removeInline`), a value set from outside (MarkdownField setDocument). Any other
+/// edit that takes a hidden node out puts it back (`keepHidden`).
+export const INLINE_REMOVE = "inlineRemove";
+
 /// Where the composer draws each placed attachment: the element of its node, by id.
 export type InlineViews = {
   add(id: string, dom: HTMLElement): void;
   remove(id: string, dom: HTMLElement): void;
   /// Whether the nodes are hidden: Settings' strip view (the default) draws the attachments in the
-  /// strip alone, so a node in the text is not there for the person's keys (`hiddenDelete`).
+  /// strip alone, so a node in the text is not there for the person's keys (`hiddenDelete`), and no
+  /// edit of the text takes one out (`keepHidden`).
   hidden?(): boolean;
 };
 
@@ -349,6 +355,9 @@ export function inlinePlugin(views: InlineViews) {
       new Plugin({
         props: {
           decorations: selectedDecorations,
+          // A copy or drag of the text never carries a hidden node: the strip's attachment is not in
+          // the text the person selected, so a paste of it brings no second picture.
+          transformCopied: (slice) => (views.hidden?.() ? withoutInline(slice) : slice),
           nodeViews: { [INLINE_NODE]: (node, view) => nodeView(node, view, views) },
           // A click on a chip's face opens it (its own handler) and leaves the selection where it
           // was: the press that started it is the editor's only so the chip can be dragged.
@@ -391,7 +400,9 @@ export function inlinePlugin(views: InlineViews) {
             return true;
           },
         },
-        appendTransaction: (transactions, previous, state) => normalize(transactions, previous, state),
+        appendTransaction: (transactions, previous, state) =>
+          (views.hidden?.() ? keepHidden(transactions, previous, state) : null) ??
+          normalize(transactions, previous, state),
       }),
   );
 }
@@ -436,7 +447,7 @@ function deleteKey(view: EditorView, event: KeyboardEvent): { backward: boolean;
 
 /// Backspace and Delete while the nodes are hidden (Settings' strip view, the default): the strip
 /// alone shows the attachments, so the keys pass over their nodes as if they were not in the text,
-/// and only the strip's × or a whole-draft delete takes an attachment out. Before, the first
+/// and only the strip's × takes an attachment out. Before, the first
 /// Backspace after a paste (the caret right after its hidden node) took the picture out of the strip
 /// and left the letter it was pressed for. True: the key is done
 /// here (sometimes as nothing); false: the editor's as before.
@@ -447,12 +458,9 @@ export function hiddenDelete(view: EditorView, event: KeyboardEvent): boolean {
   const { state } = view;
   const { selection, doc } = state;
   if (!(selection instanceof TextSelection)) return false;
-  if (!selection.empty) {
-    // A selection across hidden nodes: its text goes, the nodes stay where it was. The whole draft
-    // selected is the strip's too (ComposerBox `dropStrip`), and goes with it as before.
-    if (selection.from <= Selection.atStart(doc).from && selection.to >= Selection.atEnd(doc).to) return false;
-    return deleteKeeping(view, selection.from, selection.to);
-  }
+  // A selection across hidden nodes, the whole draft too (Select All): its text goes, the nodes stay
+  // where it was. The strip is not in the text's selection (ComposerBox).
+  if (!selection.empty) return deleteKeeping(view, selection.from, selection.to);
   const pos = selection.from;
   // A word or line delete (Option, Command) is the browser's own: it would take a hidden node in its
   // reach with the text, so where its range holds one, the text goes here and the nodes stay.
@@ -587,9 +595,18 @@ export function insertInline(
 }
 
 function insertInlineAtStart(view: EditorView, ids: readonly string[], recorded: boolean): boolean {
-  const { schema, doc } = view.state;
-  const type = schema.nodes[INLINE_NODE]!;
-  const nodes = Fragment.from(ids.map((id) => type.create({ id })));
+  const type = view.state.schema.nodes[INLINE_NODE]!;
+  const tr = view.state.tr;
+  if (!insertAtStart(tr, Fragment.from(ids.map((id) => type.create({ id }))))) return false;
+  if (!recorded) tr.setMeta("addToHistory", false);
+  view.dispatch(tr);
+  return true;
+}
+
+/// Puts `nodes` at the start of the first line of `tr`'s document that can hold them, or on a new
+/// first line when none can (a prompt that is all code); false where not even that can go.
+function insertAtStart(tr: Transaction, nodes: Fragment): boolean {
+  const { doc } = tr;
   let lands: number | undefined;
   doc.descendants((node, pos) => {
     if (lands !== undefined) return false;
@@ -597,16 +614,69 @@ function insertInlineAtStart(view: EditorView, ids: readonly string[], recorded:
     if (node.inlineContent && !node.type.spec.code && node.canReplace(0, 0, nodes)) lands = pos + 1;
     return false;
   });
-  const tr = view.state.tr;
-  if (lands !== undefined) tr.insert(lands, nodes);
-  else {
-    const line = schema.nodes.paragraph?.createAndFill(null, nodes);
-    if (!line || !doc.canReplace(0, 0, Fragment.from(line))) return false;
-    tr.insert(0, line);
+  if (lands !== undefined) {
+    tr.insert(lands, nodes);
+    return true;
   }
-  if (!recorded) tr.setMeta("addToHistory", false);
-  view.dispatch(tr);
+  const line = doc.type.schema.nodes.paragraph?.createAndFill(null, nodes);
+  if (!line || !doc.canReplace(0, 0, Fragment.from(line))) return false;
+  tr.insert(0, line);
   return true;
+}
+
+/// Whether `nodes` can stand at `pos` in `doc`: in a line of text, never in code.
+function holdsAt(doc: ProseNode, pos: number, nodes: Fragment): boolean {
+  const $pos = doc.resolve(pos);
+  const { parent } = $pos;
+  return parent.inlineContent && !parent.type.spec.code && parent.canReplace($pos.index(), $pos.index(), nodes);
+}
+
+/// `slice` without placed attachments' nodes.
+function withoutInline(slice: Slice): Slice {
+  if (!sliceHoldsInline(slice)) return slice;
+  const strip = (content: Fragment): Fragment => {
+    const kept: ProseNode[] = [];
+    content.forEach((node) => {
+      if (node.type.name === INLINE_NODE) return;
+      kept.push(node.isLeaf ? node : node.copy(strip(node.content)));
+    });
+    return Fragment.from(kept);
+  };
+  return new Slice(strip(slice.content), slice.openStart, slice.openEnd);
+}
+
+/// While the nodes are hidden (Settings' strip view, the default): an edit of the text that took
+/// placed attachments' nodes out puts each back where the edit was, in its order. The strip alone
+/// shows the attachments, and the text holds each one's node, so before this Select All and then
+/// Backspace, a letter typed over a selection, a cut or a paste over it took the picture out of the
+/// strip (Lucas, 2026-11-27: "it keeps disappearing"); only the attachment's own × does now
+/// (`INLINE_REMOVE`). A value set from outside (a sent prompt's clear, a draft read back) and undo or
+/// redo go as they are. A node that can stand nowhere (a prompt that is all code it cannot join)
+/// stays out, its attachment with it.
+function keepHidden(transactions: readonly Transaction[], previous: EditorState, state: EditorState) {
+  if (!transactions.some((tr) => tr.docChanged)) return null;
+  if (transactions.some((tr) => tr.getMeta(INLINE_REMOVE) || isHistoryTransaction(tr))) return null;
+  const before = inlineNodes(previous.doc);
+  if (!before.length) return null;
+  const now = new Set(inlineNodes(state.doc).map((node) => node.id));
+  // Where each lost node's place went: a node inside a deleted range goes to the range's start.
+  const lost = new Map<number, ProseNode[]>();
+  for (const { id, pos } of before) {
+    if (now.has(id)) continue;
+    let at = pos;
+    for (const tr of transactions) at = tr.mapping.map(at, -1);
+    const node = previous.doc.nodeAt(pos);
+    if (node) lost.set(at, [...(lost.get(at) ?? []), node]);
+  }
+  if (!lost.size) return null;
+  const tr = state.tr;
+  for (const [pos, nodes] of [...lost].sort(([a], [b]) => a - b)) {
+    const content = Fragment.from(nodes);
+    const at = tr.mapping.map(pos, 1);
+    if (holdsAt(tr.doc, at, content)) tr.insert(at, content);
+    else insertAtStart(tr, content);
+  }
+  return tr.docChanged ? tr : null;
 }
 
 /// Takes attachment `id`'s node out of the prompt, as an undoable edit.
@@ -624,7 +694,7 @@ export function removeInline(view: EditorView, id: string, caret = false) {
   // `caret`: what goes in next (a pasted chip's text) takes the attachment's place, not the caret's,
   // and the two are one undo step of their own, as a Backspace over the node is: an undo brings the
   // chip back, never the typing before it.
-  const tr = caret ? closeHistory(view.state.tr) : view.state.tr;
+  const tr = (caret ? closeHistory(view.state.tr) : view.state.tr).setMeta(INLINE_REMOVE, true);
   const first = found[0]!.pos;
   for (const { pos } of found.reverse()) tr.delete(pos, pos + 1);
   if (caret) tr.setSelection(TextSelection.create(tr.doc, first));

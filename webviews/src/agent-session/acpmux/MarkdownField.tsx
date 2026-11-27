@@ -14,6 +14,7 @@ import "./markdownField.css";
 import { followScrollEdges } from "./summary/scrollEdges";
 import {
   inlineAttachmentNode,
+  INLINE_REMOVE,
   inlineIds,
   inlinePlugin,
   insertInline,
@@ -1834,7 +1835,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         if (!parsed) return;
         const { tr, doc } = current.state;
         tr.replace(0, doc.content.size, new Slice(parsed.content, 0, 0));
-        current.dispatch(placeTokensIn(tr, inlineKnown).setMeta("addToHistory", undoable));
+        current.dispatch(placeTokensIn(tr, inlineKnown).setMeta("addToHistory", undoable).setMeta(INLINE_REMOVE, true));
       });
     else editor.current?.action(replaceAll(markdown));
     const current = view.current;

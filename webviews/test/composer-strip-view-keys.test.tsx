@@ -400,3 +400,98 @@ test("inline view: Backspace right after the image's chip takes the chip out, as
   expect(shown()).toBe("look ");
   expect(chips()).toHaveLength(0);
 });
+
+// Lucas, 2026-11-27: "CMD a should not select the image ... it keeps disappearing ... when i
+// backspace". The strip view keeps its attachments apart from the text: Select All selects the text
+// alone, and no edit of the text (Backspace or typing over a selection, a paste over it) takes the
+// hidden node out, so the picture stays until its ×.
+async function selectAll() {
+  await act(async () => markdownField().selectAll());
+}
+
+test("strip view: Select All does not select the strip's image", async () => {
+  await openComposer();
+  await view("strip");
+  await paste({ files: [screenshot(10)] });
+  await typed("sdad");
+  await selectAll();
+  expect(host.querySelector(".acpmux-composer-box [data-selected]")).toBeNull();
+});
+
+test("strip view: Select All then Backspace clears the text and keeps the image", async () => {
+  await openComposer();
+  await view("strip");
+  await paste({ files: [screenshot(11)] });
+  await typed("sdad");
+  await selectAll();
+  await press("Backspace");
+  expect(shown()).toBe("[image]");
+  expect(chips()).toHaveLength(1);
+  await typed("next");
+  expect(shown()).toBe("[image]next");
+  expect(chips()).toHaveLength(1);
+});
+
+test("strip view: typing over Select All keeps the image", async () => {
+  await openComposer();
+  await view("strip");
+  await typed("before ");
+  await paste({ files: [screenshot(12)] });
+  await typed(" after");
+  await selectAll();
+  await typed("x");
+  expect(shown()).toBe("[image]x");
+  expect(chips()).toHaveLength(1);
+});
+
+test("strip view: typing over a selection across the image keeps the image", async () => {
+  await openComposer();
+  await view("strip");
+  await typed("keep ");
+  await paste({ files: [screenshot(13)] });
+  await typed(" drop");
+  const plain = markdownField().plainText();
+  await act(async () => markdownField().writeText(plain, 4, plain.length));
+  await typed("!");
+  expect(shown()).toBe("keep[image]!");
+  expect(chips()).toHaveLength(1);
+});
+
+test("strip view: a paste of text over Select All keeps the image", async () => {
+  await openComposer();
+  await view("strip");
+  await paste({ files: [screenshot(14)] });
+  await typed("old");
+  await selectAll();
+  await act(async () => markdownField().pasteText("new"));
+  expect(shown()).toBe("[image]new");
+  expect(chips()).toHaveLength(1);
+});
+
+test("strip view: the image's × still takes it out, and undo brings it back", async () => {
+  await openComposer();
+  await view("strip");
+  await typed("hi ");
+  await paste({ files: [screenshot(15)] });
+  const remove = host.querySelector<HTMLButtonElement>(
+    ".acpmux-composer-box .acpmux-attachment-remove, .acpmux-composer-box [aria-label^='Remove']",
+  );
+  expect(remove).not.toBeNull();
+  await act(async () => remove!.click());
+  await until(() => chips().length === 0, "the image removed");
+  expect(shown()).toBe("hi ");
+  await act(async () => markdownField().undo());
+  await until(() => chips().length === 1, "the image back");
+  expect(shown()).toStartWith("hi [image]");
+});
+
+test("inline view: Select All then Backspace takes the chips with the text, as before", async () => {
+  await openComposer();
+  await view("inline");
+  await paste({ files: [screenshot(16)] });
+  await typed("sdad");
+  await selectAll();
+  await press("Backspace");
+  expect(shown()).toBe("");
+  expect(chips()).toHaveLength(0);
+});
