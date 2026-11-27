@@ -119,6 +119,7 @@ extension ScreenContentView {
         }
         perform(#selector(dropSnapshotOpenFailsafe), with: nil, afterDelay: SplitSnapshotOpen.failsafe)
         markSnapshotSplit(giver: giver)
+        // perf-gate-ok: the snapshot path commits its picture in the input's own turn (the first frame of the open, #59586).
         CATransaction.flush()
     }
 
