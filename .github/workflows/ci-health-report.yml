@@ -56,20 +56,48 @@ jobs:
       issues: write
       contents: read
     name: Report CI health
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    # The read-token mint holds App keys, so the job runs where no variable can
+    # move it: the owned one-job Linux fleet label (tests/test_ci_fork_runner_routing.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-fleet-linux-x64' }}
     # Measured against this repo: a window's run listings plus ~160 job
     # listings is a few hundred calls, and the Actions API answers each one
     # in seconds on a repo this size. 15 minutes was not enough headroom.
     timeout-minutes: 30
     steps:
       - name: Check out trusted report code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
+
+      # Reads on an App's own budget. On github.token every run listing came back
+      # 403 rate limited (runs 45785213483, 45841655893, 45892781642 on
+      # 2026-11-26: "0 runs fetched", 26 calls), because every workflow in the
+      # repository spends that one token budget. The spread mint picks whichever
+      # App has more left; it only reads, so the issue comment stays on
+      # github.token. A failed mint leaves the read token empty and the script
+      # reads on github.token as before.
+      - name: Mint a read token on the App with the most budget
+        id: read-token
+        if: vars.GLAEDA_ROUTE_APP_ID != '' || vars.CMUX_BOT_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: ./.github/actions/app-token-spread
+        with:
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-actions: read
+          permission-contents: read
+          skip-token-revoke: true
 
       - name: Measure the window and refresh the report
         env:
           GH_TOKEN: ${{ github.token }}
+          CI_HEALTH_READ_TOKEN: ${{ steps.read-token.outputs.token }}
+          CI_HEALTH_READ_APP: ${{ steps.read-token.outputs.app }}
           GH_REPO: ${{ github.repository }}
           WINDOW_HOURS: ${{ inputs.window_hours || '6' }}
           MAX_RUN_PAGES: ${{ vars.CI_HEALTH_MAX_RUN_PAGES }}

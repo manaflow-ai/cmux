@@ -53,14 +53,14 @@ jobs:
     # depend on the fleet. A fork takes the GitHub-hosted owner branch (no
     # Blacksmith there); manaflow-ai runs on Blacksmith so that a GitHub
     # billing block cannot stop the graph that this job starts.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: resolves the fleet, so reads no runner variable; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: resolves the fleet, so reads no runner variable
     timeout-minutes: 5
     outputs:
       map: ${{ steps.resolve.outputs.map }}
       fleet: ${{ steps.resolve.outputs.fleet }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           submodules: false

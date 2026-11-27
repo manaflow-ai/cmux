@@ -73,7 +73,7 @@ jobs:
     # after a first attempt (2026-10-28: every Blacksmith Linux size stopped starting jobs from
     # ~20:00Z); a tick's first attempt has run on the JIT VM since 2026-11-20, and
     # RUNNER_POOLS.linux_2 still moves a re-run between Blacksmith sizes.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     # 15 minutes of work, plus the request step's 25-minute bound (its rate-limit waits
     # included, below). It was 75 for an hour of waits, and ticks then held the one tick group
     # 30+ minutes (2026-11-25 23:41Z to 11-26 02:45Z: the feed stood still for 3 hours).
@@ -101,7 +101,7 @@ jobs:
       # A reset fetch is tried once more: tick 45696501186's successor (2026-11-25 21:37Z) died in
       # checkout on "curl 56 connection reset", and no tick promoted for another 30 minutes.
       - id: checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         continue-on-error: true
         with:
@@ -109,7 +109,7 @@ jobs:
           ref: ${{ inputs.sha != '' && inputs.sha || 'refs/heads/feat-cmux-next' }}
           fetch-depth: 150
       - if: steps.checkout.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         with:
           persist-credentials: false
@@ -120,7 +120,7 @@ jobs:
       # tried once more, as the branch checkout above is: one curl 56 here ends the tick too.
       - name: Checkout the gh rate-limit wait
         id: tooling
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         continue-on-error: true
         with: &request-tooling
@@ -135,7 +135,7 @@ jobs:
           fetch-depth: 1
       - name: Checkout the gh rate-limit wait (retry)
         if: steps.tooling.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         with: *request-tooling
 
@@ -300,6 +300,7 @@ jobs:
           GH_BUDGET_WAIT_MAX_SECONDS: "300"
           TICK_COMMIT_SECONDS: "330"
           TICK_WALK_BUDGET_SECONDS: "900"
+          TICK_SCAN_SECONDS: "180"
         run: |
           set -euo pipefail
           # The tip's cmux-tui tree is often still publishing, so walk back
@@ -356,16 +357,48 @@ jobs:
           SH
           chmod +x "$GH_TICK_CACHE/bin/gh"
           export PATH="$GH_TICK_CACHE/bin:$PATH"
-          dedupe=""
-          if line="$(timeout -k 5 60 git ls-remote origin refs/heads/nightly-next 2>/dev/null)" \
-             && git cat-file -e "${line%%[[:space:]]*}^{commit}" 2>/dev/null; then
-            dedupe=1
+          dedupe="" promoted="" published=""
+          if refs="$(timeout -k 5 60 git ls-remote origin refs/heads/nightly-next refs/tags/nightly-next 'refs/tags/nightly-next^{}' 2>/dev/null)"; then
+            promoted="$(awk '$2 == "refs/heads/nightly-next" {print $1}' <<<"$refs")"
+            published="$(awk '$2 == "refs/tags/nightly-next^{}" {print $1}' <<<"$refs")"
+            [[ -n "$published" ]] || published="$(awk '$2 == "refs/tags/nightly-next" {print $1}' <<<"$refs")"
+            git cat-file -e "${promoted:-0}^{commit}" 2>/dev/null && dedupe=1 || promoted=""
           fi
+          # 4. The precheck first, for the whole walk (scripts/ci/nightly_next_precheck_scan.py): each
+          #    commit's script searched for its cmux-tui tree, and for an older one when its own was
+          #    missing (older-tree-for-tip.sh, a CDN walk of about 80 commits), before it read the
+          #    build fleet's Release compile verdict. Tick 45821041380 (2026-11-26 12:38Z) refused 15
+          #    commits at 82-101 s each, "not prechecked yet" on every one, spent its 900 s and
+          #    promoted nothing while an older commit was promotable. The scan reads the same
+          #    verdicts once (about 150 reads of about 60 ms, in parallel), and the walk passes over
+          #    a commit its script would refuse on the precheck without running it, so it reaches
+          #    the newest prechecked commit (on a compile break, the newest green one) at once. An
+          #    asked commit's script still runs every check. A scan that fails or does not answer
+          #    in TICK_SCAN_SECONDS asks every commit, as before.
+          plan="$RUNNER_TEMP/precheck-plan.txt"
+          : > "$plan"
+          scan_started=$SECONDS
+          if ! timeout -k 5 "${TICK_SCAN_SECONDS:-180}" python3 .tick-tooling/scripts/ci/nightly_next_precheck_scan.py \
+              --repo "$GITHUB_REPOSITORY" --commits 120 --promoted "$promoted" --published "$published" > "$plan.tmp"; then
+            echo "::warning title=nightly-next tick::the precheck scan failed; every commit is asked"
+            : > "$plan.tmp"
+          fi
+          mv "$plan.tmp" "$plan"
+          echo "precheck scan: $(grep -c ' ask ' "$plan" || true) to ask, $(grep -c ' skip ' "$plan" || true) passed over, in $((SECONDS - scan_started))s"
           asked_keys=" "
           walk_started=$SECONDS
           for sha in $(git rev-list --first-parent -n 120 HEAD); do
             if (( SECONDS - walk_started >= ${TICK_WALK_BUDGET_SECONDS:-900} )); then
               echo "::notice title=nightly-next tick::walk budget of ${TICK_WALK_BUDGET_SECONDS:-900}s spent before ${sha:0:12}; the next tick walks again"
+              break
+            fi
+            verdict="$(awk -v s="$sha" '$1 == s {print $2; exit}' "$plan")"
+            if [[ "$verdict" == skip ]]; then
+              echo "not promoting ${sha:0:12}: $(awk -v s="$sha" '$1 == s {$1 = ""; $2 = ""; sub(/^  /, ""); print; exit}' "$plan") (read before the walk; its request was not run)" | tee -a "$refusals"
+              continue
+            fi
+            if [[ "$verdict" == stop ]]; then
+              echo "not requesting ${sha:0:12}: it is already on nightly-next (${promoted:0:12}); the walk ends"
               break
             fi
             git checkout -q --detach "$sha"
@@ -424,7 +457,7 @@ jobs:
     if: github.repository == 'manaflow-ai/cmux' && inputs.sha == '' && (github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository && (github.event.workflow_run.head_branch != 'nightly-next' || github.event.workflow_run.name == 'Nightly macOS build'))
     # The linux_2 pool's members (.github/runners.json), named here, because this job holds an App key:
     # no variable may put it on a machine this line does not name (tests/test_ci_fork_runner_routing.py).
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), fromJSON(vars.RUNNER_POOLS || '{}').linux_2) && fromJSON(vars.RUNNER_POOLS || '{}').linux_2 || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.run_attempt == 1 && 'cmux-gcp-nightly-jit-x64' || 'blacksmith-2vcpu-ubuntu-2404' }}
     # Two bounded steps of reads and at most one cancel and one re-run.
     timeout-minutes: 25
     concurrency:
@@ -439,7 +472,7 @@ jobs:
       # checkout with an `origin` (it reads nightly-next with ls-remote). A reset fetch is tried
       # once more.
       - id: tooling
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         continue-on-error: true
         with: &unstick-tooling
@@ -453,7 +486,7 @@ jobs:
           # second fetch to stall.
           fetch-depth: 1
       - if: steps.tooling.outcome == 'failure'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         timeout-minutes: 4
         with: *unstick-tooling
 

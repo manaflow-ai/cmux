@@ -651,6 +651,51 @@ class SliceTests(unittest.TestCase):
         self.assertLess(metrics.covered_hours, CURRENT_WINDOW.hours)
 
 
+class SpentBudgetTests(unittest.TestCase):
+    def test_a_spent_budget_stops_further_run_listings(self):
+        github = report.GitHub("token", REPO)
+        calls = []
+
+        def refused(window, max_pages):
+            calls.append(window)
+            github.spent = True
+            return report.SliceResult(window=window, runs=[], capped=True), ["rate limited (403)"]
+
+        github.runs_in_slice = refused
+        window, _ = report.windows(NOW, 6)
+        runs, results, partial = github.runs_in_window(window, max_pages=3, slices=12)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(runs, [])
+        self.assertEqual(len(results), 12)
+        self.assertTrue(all(result.capped for result in results))
+        self.assertEqual(sum("skipped" in reason for reason in partial), 11)
+
+    def test_main_reads_on_the_read_token_and_publishes_on_gh_token(self):
+        import os
+        from unittest import mock
+
+        made = []
+
+        class Recorder:
+            def __init__(self, token, repo):
+                self.token, self.repo, self.calls = token, repo, 0
+                made.append(self)
+
+        published = []
+        empty = mock.MagicMock()
+        with mock.patch.object(report, "GitHub", Recorder), \
+                mock.patch.object(report, "collect_window", return_value=empty), \
+                mock.patch.object(report, "collect_cache_section", return_value=""), \
+                mock.patch.object(report, "render_report", return_value="report"), \
+                mock.patch.object(report, "publish_to_issue",
+                                  side_effect=lambda gh, n, body: published.append(gh.token) or "ok"), \
+                mock.patch.dict(os.environ, {"GH_TOKEN": "workflow", "CI_HEALTH_READ_TOKEN": "app",
+                                             "GH_REPO": REPO}, clear=False):
+            self.assertEqual(report.main(["--issue", "5"]), 0)
+        self.assertEqual(made[0].token, "app")
+        self.assertEqual(published, ["workflow"])
+
+
 class RenderTests(unittest.TestCase):
     def setUp(self) -> None:
         self.current = metrics_from(load("window.json"), CURRENT_WINDOW)
@@ -972,10 +1017,11 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn('- cron: "37 2,8,14,20 * * *"', self.text)
         self.assertIn("workflow_dispatch:", self.text)
 
-    def test_the_runner_is_the_persistent_linux_pool_behind_the_overflow_switch(self):
+    def test_the_runner_is_the_owned_one_job_linux_fleet_no_variable_moves(self):
+        # The job holds App keys for its read token, so no variable may route it.
         self.assertIn(
             "runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' "
-            "|| vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}",
+            "|| 'cmux-fleet-linux-x64' }}",
             self.text,
         )
 
@@ -1006,6 +1052,16 @@ class WorkflowStructureTests(unittest.TestCase):
 
     def test_it_allows_enough_time_for_a_few_hundred_api_calls(self):
         self.assertIn("timeout-minutes: 30", self.text)
+
+    def test_reads_use_the_spread_app_token_and_the_comment_github_token(self):
+        # On github.token alone every run listing was refused 403 (2026-11-26, three runs, 0 runs fetched).
+        self.assertIn("uses: ./.github/actions/app-token-spread", self.text)
+        self.assertIn("CI_HEALTH_READ_TOKEN: ${{ steps.read-token.outputs.token }}", self.text)
+        self.assertIn("GH_TOKEN: ${{ github.token }}", self.text)
+        mint = self.text.split("id: read-token", 1)[1].split("- name:", 1)[0]
+        self.assertIn("continue-on-error: true", mint)
+        self.assertIn("permission-actions: read", mint)
+        self.assertNotIn("permission-issues", mint)
 
     def test_it_never_opens_an_issue(self):
         self.assertNotIn("create-issue", self.text)

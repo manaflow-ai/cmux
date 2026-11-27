@@ -120,7 +120,7 @@ class Declared(unittest.TestCase):
                 found += 1
                 with self.subTest(workflow=workflow.name):
                     self.assertLessEqual(set(members), set(json.loads(match.group(1))))
-        self.assertGreater(found, 0)
+        # found may be 0: main's bounded selectors were written out as the label they resolved to (2026-11-24).
 
     def test_no_pool_names_a_reused_machine(self) -> None:
         # A job reading a pool, a fork's pull request included, never lands on an owned Mac:
@@ -274,7 +274,9 @@ class Declared(unittest.TestCase):
         self.assertNotIn("secrets.", path.read_text())
         self.assertNotIn("CI_LIGHT_LANE_RUNNER", rescue["runs-on"])
         self.assertNotIn("CI_SIDE_LANE_RUNNER", rescue["runs-on"])
-        self.assertIn("vars.CI_TRUSTED_RUNNER", rescue["runs-on"])
+        # The reserved queue one-job JIT label its switches resolved to, written out (2026-11-24).
+        self.assertEqual(rescue["runs-on"],
+                         "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-queue-jit-x64' }}")
         self.assertIn("ephemeral-required", path.read_text())
         self.assertEqual(rescue["steps"][0]["with"]["ref"], "refs/heads/main")
         self.assertTrue((ROOT / "scripts/ci/hosted_light_rescue.py").is_file())
@@ -490,6 +492,38 @@ class Evidence(unittest.TestCase):
                 # its 8 vCPU VMs goes straight to Blacksmith. Leo, 2026-11-19: "stop ... relying on it".
                 self.assertEqual(value["linux"], "cmux-freestyle-linux-x64")
                 self.assertEqual(value["linux_16"], "blacksmith-16vcpu-ubuntu-2404")
+
+    def test_a_freestyle_rung_that_waited_two_minutes_moves_its_pools_to_gcp(self) -> None:
+        # Detector: 2026-11-26 19:40-20:30Z, Freestyle jobs started at p95 13.7 min, 20 still waited at 20:35Z (oldest
+        # 28 min), while the Blacksmith cutoff (10 min) kept every Freestyle-led pool on the rung. Every Linux job
+        # should start within 2 min (cmuxterm-hq goals/ci-linux-on-pool.md); the GCP pool after it starts one in
+        # seconds. Leo, 2026-11-19: "We still keep Blacksmith sometimes, but stop fucking relying on it."
+        rung, gcp = "cmux-freestyle-linux-x64", "cmux-fleet-linux-x64"
+        pools = runner_pools.load_pools()
+        fresh, _ = runner_pools.reconcile({}, pools, dead_now=(), served_now=(), now=NOW)
+        for oldest, moves in ((runner_pools.OWNED_FREESTYLE_STALL_MINUTES - 0.5, False),
+                              (runner_pools.OWNED_FREESTYLE_STALL_MINUTES, True), (3, True)):
+            with self.subTest(oldest=oldest):
+                snapshot = copy.deepcopy(RECORDED)
+                snapshot["pools"][rung] = {"queued": 7, "running": 40, "reserved_queued": 0,
+                                           "oldest_queued_minutes": oldest}
+                # The GCP label's own queue at the same wait is not full: its cutoff is still the Blacksmith one.
+                snapshot["pools"][gcp] = {"queued": 3, "running": 600, "reserved_queued": 0,
+                                          "oldest_queued_minutes": oldest}
+                snapshot["label_started"] = {rung: runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=1)),
+                                             gcp: runner_pools.iso(SNAPSHOT_AT - dt.timedelta(minutes=1))}
+                dead, started, _ = runner_pools.label_evidence(None, snapshot, now=NOW)
+                self.assertEqual(rung in dead, moves)
+                self.assertNotIn(gcp, dead)
+                value, _ = runner_pools.reconcile(fresh, pools, dead_now=dead, served_now=started, now=NOW,
+                                                  covered=runner_pools.evidence_covers(None, snapshot, pools, now=NOW))
+                for name in FREESTYLE_LED:
+                    self.assertEqual(value[name], gcp if moves else rung, name)
+                for name in GCP_LED:
+                    self.assertEqual(value[name], gcp, name)
+        self.assertFalse(runner_pools.owned_stalled(rung, 0, 30))
+        self.assertFalse(runner_pools.owned_stalled(gcp, 3, runner_pools.simple_pool_picker.BLACKSMITH_STALL_MINUTES - 1))
+        self.assertTrue(runner_pools.owned_stalled(gcp, 3, runner_pools.simple_pool_picker.BLACKSMITH_STALL_MINUTES))
 
     def test_idle_runners_do_not_count_before_the_stall_cutoff_and_a_bad_reading_keeps_the_queue_rule(self) -> None:
         label, quiet = self.gcp_stall_snapshot(idle=0)
