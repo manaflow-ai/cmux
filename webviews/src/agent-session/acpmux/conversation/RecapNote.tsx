@@ -47,7 +47,7 @@ export function RecapNote({
               <span className="cv-recap__mark" aria-hidden="true">
                 ※
               </span>
-              {look === "terminal" && <>{` ${t("awayRecap.short")}:`}</>}{" "}
+              {look === "terminal" && <>{` ${t("awayRecap.short")}`}</>}{" "}
             </span>
           )}
           {recap.text}

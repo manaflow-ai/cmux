@@ -1,5 +1,5 @@
 //! The session recap's small-model call (`hub/away_recap.rs` `fallback_recap`, through
-//! `Hub::complete_own_strict`) runs on the route the chat itself runs on: its own binding, else
+//! `Hub::complete_own` with the chat's `ChatRoute`) runs on the route the chat itself runs on: its own binding, else
 //! its workspace's, as its spawn applies them, never the global default instead. A chat bound to
 //! a private endpoint never has its recent turns sent to another provider; a chat whose route
 //! cannot be applied gets no recap at all.
