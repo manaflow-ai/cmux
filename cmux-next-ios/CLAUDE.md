@@ -34,6 +34,8 @@ What CI runs on a PR into `feat-cmux-next` (checked against the workflows on 202
 
 ## Try a PR on the person's phone: cmux Dev
 
+The person's own page for every way onto their phone, cmux INTERNAL and iPhone YOLO included: [TESTING-ON-YOUR-IPHONE.md](TESTING-ON-YOUR-IPHONE.md).
+
 `cmux-next-ios/scripts/try.sh <PR|branch|sha|.>`, from the Mac the phone is attached to, puts that commit on every
 connected iPhone as **cmux Dev** (`dev.cmux.mobile.dev`): the iPhone twin of `cmux app try PR`. One app that
 every try replaces in place, so its sign-in and its pairing with the person's NIGHTLY Mac stay; it has no dev tag,
