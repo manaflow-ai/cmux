@@ -57,12 +57,12 @@ export const treeNameFade = defineExperiment({
   defaultArm: "w20",
 });
 
-/** The hover scroll of a clipped name (treeTitles.ts): the gallery's curve editor tunes it. */
+/** The keyboard-focus scroll of a clipped name (treeTitles.ts): the gallery's curve editor tunes it. */
 export const treeMarqueeEasing = defineTunable({
   id: "diff-tree-marquee-easing",
-  title: "Hover scroll easing",
+  title: "Focus scroll easing",
   description:
-    "How a clipped name scrolls on hover: x is time, y is how far it has scrolled. The start of the name is already on screen, so the shipped curve starts fast and settles slowly on the end.",
+    "How a clipped name scrolls on keyboard focus: x is time, y is how far it has scrolled. The start of the name is already on screen, so the shipped curve starts fast and settles slowly on the end.",
   kind: "cubic-bezier",
   defaultValue: [0.2, 0.6, 0.1, 1],
   presets: { "tabs (ease-in-out)": [0.42, 0, 0.58, 1] },

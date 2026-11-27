@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures, not shipped UI.
 // Long names in the changes tree: clipped at the column's edge with a fade (no ellipsis, the
-// extension is not kept), the counts whole, a marquee on hover and on keyboard focus. The
+// extension is not kept), the counts whole, a marquee on keyboard focus (not on hover). The
 // experiment compares the fade's length; Reduce Motion shows the full name in the tooltip instead.
 import { componentEntry } from "../../../gallery/format";
 import { LANGUAGE_FILES, LONG_NAMES, VERY_LONG_NAMES } from "../../../gallery/fixtures/changedFiles";

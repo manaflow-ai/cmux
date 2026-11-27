@@ -37,32 +37,11 @@ extension WorkspaceRowView {
         // into the next pass. Skipping it during a scroll or a list apply left
         // a row's controls up after hover cleared (no pointer event follows).
         needsLayout = true
-        // During a scroll the pointer is stationary while rows pass under it.
-        // A synchronous layout and a marquee for every crossing turn
-        // realization into a main-thread hitch, so those wait for real hover.
-        let list = superview as? SidebarListView
-        let suppressEffects = list?.hoverFollowsScroll == true || list?.suppressHoverEffects == true
-        guard isHovered, !renaming, !isPlaceholderRow, !suppressEffects else {
-            marqueeOnLayout = false
-            title.stopMarquee()
-            return
-        }
-        // The x and the more button draw over the title's end behind a fade,
-        // so the title keeps its width; a clipped title scrolls. Under Reduce
-        // Motion no marquee runs: the workspace hover card shows the whole
-        // name (wrapped), so no second popover (a tooltip) shows with it.
-        // The marquee reads the laid-out title, so it starts in the row's next layout: the frame's own pass,
-        // before the commit that shows the hover. The hover turn itself lays nothing out (contract item 3 of
-        // hover-preload-DESIGN.md; a sweep across rows paid one synchronous layout per row it crossed).
-        marqueeOnLayout = true
-    }
-
-    /// The end of `layout()`: the marquee a hover asked for starts on the title just laid out.
-    private func startMarqueeAfterLayout() {
-        guard marqueeOnLayout else { return }
-        marqueeOnLayout = false
-        guard isHovered, !renaming else { return }
-        title.startMarquee()
+        // The x and the more button draw over the title's end behind a fade, so the title keeps its width.
+        // A clipped title no longer scrolls on hover (Leo 2026-11-27: the hover slide should go); the
+        // workspace hover card shows the whole name (wrapped). The hover turn itself lays nothing out
+        // (contract item 3 of hover-preload-DESIGN.md).
+        title.stopMarquee()
     }
 
     /// Calm mode (`ui.calm`) runs no marquee and opens no hover card, so a clipped name shows as
@@ -322,7 +301,6 @@ extension WorkspaceRowView {
         let coverStart = overlayStart.map { min($0, driveStart ?? $0) }
         title.setTrailingOcclusion(coverStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
         updateCalmTitleTip()
-        startMarqueeAfterLayout()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: coverStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
         // The hovered controls replace every trailing mark, in every case (Leo 2026-11-22: "in all cases, the hovered

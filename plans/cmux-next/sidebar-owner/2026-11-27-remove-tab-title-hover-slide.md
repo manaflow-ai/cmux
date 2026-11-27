@@ -1,0 +1,1 @@
+- 2026-11-27 (lane/remove-tab-title-hover-slide, ask-8874a356c1): Sidebar-Look: Leo, 2026-11-27: "dont think we should have this hover anymore". A clipped workspace row title no longer slides left after a 0.6 s hover; it rests with its fade and the hover card shows the whole name (`WorkspaceRowView+Rendering.swift`). Kept as a ref only: the ask is held by the cmux#62977 owner.

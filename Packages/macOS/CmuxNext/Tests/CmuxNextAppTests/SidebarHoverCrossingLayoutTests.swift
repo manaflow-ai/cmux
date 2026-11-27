@@ -5,7 +5,7 @@ import Foundation
 import Testing
 
 /// HOVER PRELOAD 3 (cmux-ad m34, contract item 3): a pointer crossing a sidebar row records the hover and returns.
-/// The row's layout (its hover controls) and its title marquee wait for the frame's own layout pass, which AppKit runs
+/// The row's layout (its hover controls) waits for the frame's own layout pass, which AppKit runs
 /// before the commit that shows the hover, so the frame is the same. A synchronous layout of the row in every crossing
 /// put main-thread work per crossing into a sweep across rows (missed refreshes in every arm of run f5825187).
 @MainActor @Suite(.serialized, .closesItsWindows)
@@ -40,14 +40,12 @@ struct SidebarHoverCrossingLayoutTests {
         window.close()
     }
 
-    @Test func theFramesLayoutStartsTheHoveredRowsMarquee() {
+    /// Hover never scrolls a clipped title (Leo 2026-11-27: the hover slide should go).
+    @Test func hoverDoesNotScrollAClippedTitle() {
         let (view, window) = row()
         view.isHovered = true
         view.layoutSubtreeIfNeeded()
-        // Active after the frame's layout, unless it cannot start at all (motion reduced or off on this host).
-        #expect(view.title.isMarqueeActive || !view.title.startMarquee(), "the hovered row's clipped title did not scroll")
-        view.isHovered = false
-        #expect(!view.title.isMarqueeActive, "the marquee outlived the hover")
+        #expect(!view.title.isMarqueeActive, "the hovered row's clipped title scrolled")
         window.close()
     }
 

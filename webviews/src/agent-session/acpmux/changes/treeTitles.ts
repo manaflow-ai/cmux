@@ -1,9 +1,10 @@
 // Long names in the changes tree and the diff tab's files tree: clipped at the right edge with a fade (no ellipsis, no middle
-// truncation that keeps the extension), the +N -M counts always whole, and on hover or keyboard
-// focus the name scrolls once to show its end (the tabs' and workspaces' marquee: ui/titleFade.ts).
+// truncation that keeps the extension), the +N -M counts always whole, and on keyboard focus the
+// name scrolls once to show its end (ui/titleFade.ts). Hover does not scroll it (Leo 2026-11-27: the
+// hover slide should go, as on the tabs and workspaces).
 // Pierre renders the rows; TREE_TITLE_CSS lays its name out as one unclipped line inside the content
 // section, and this layer measures which names are clipped (one read pass, then one write pass,
-// after each change of rows) and runs the marquee on the hovered or focused one.
+// after each change of rows) and runs the marquee on the focused one.
 import { MOTION_SPRINGS, springCurve } from "../../../files-panel-motion";
 import { marqueeKeyframes, marqueeTiming, titleFade, titleFadeMask } from "../../../ui/titleFade";
 import { tunableValue } from "../../../experiments/tunable";
@@ -72,7 +73,6 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
   const marqueeEasing = cssBezier(tunableValue(treeMarqueeEasing));
   let frame = 0;
   let active: { row: HTMLElement; path: string; text: HTMLElement; animation: Animation } | null = null;
-  let hovered: HTMLElement | null = null;
   let focused: HTMLElement | null = null;
   let motionObserver: MutationObserver | null = null;
 
@@ -161,7 +161,7 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
     };
   };
 
-  const target = () => hovered ?? focused;
+  const target = () => focused;
   const update = () => {
     const row = target();
     if (row) start(row);
@@ -169,14 +169,6 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
   };
   const rowOf = (event: Event) =>
     event.composedPath().find((node): node is HTMLElement => node instanceof HTMLElement && node.matches(ROWS)) ?? null;
-  const onOver = (event: Event) => {
-    hovered = rowOf(event);
-    update();
-  };
-  const onLeave = () => {
-    hovered = null;
-    update();
-  };
   const onFocusIn = (event: Event) => {
     focused = rowOf(event);
     update();
@@ -200,8 +192,6 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
   });
   const resize = new ResizeObserver(schedule);
   resize.observe(host);
-  shadow.addEventListener("pointerover", onOver);
-  host.addEventListener("pointerleave", onLeave);
   shadow.addEventListener("focusin", onFocusIn);
   shadow.addEventListener("focusout", onFocusOut);
   schedule();
@@ -209,8 +199,6 @@ export function attachTreeTitles(container: HTMLElement, options: { fadeWidth: n
     mutations.disconnect();
     resize.disconnect();
     motionObserver?.disconnect();
-    shadow.removeEventListener("pointerover", onOver);
-    host.removeEventListener("pointerleave", onLeave);
     shadow.removeEventListener("focusin", onFocusIn);
     shadow.removeEventListener("focusout", onFocusOut);
     if (frame) cancelAnimationFrame(frame);

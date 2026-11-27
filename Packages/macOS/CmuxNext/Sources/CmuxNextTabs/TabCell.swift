@@ -88,8 +88,6 @@ final class TabCell {
     var runsIntoCard: Bool { cornerFoot > 0 && isSelected && !isLifted }
     /// The share of the selected fill's alpha a background window's active tab keeps.
     static let backgroundWindowSelectionShare: CGFloat = 0.55
-    /// Hover may start the title marquee (off while a drag or rename runs).
-    var allowsMarquee = true { didSet { if !allowsMarquee { titleFade.stopMarquee(animated: false) } } }
     /// A closing tab keeps the content it showed when the close began
     /// (`TabCell+Motion`).
     var isClosing = false { didSet { if oldValue != isClosing { closingChanged() } } }
@@ -320,16 +318,10 @@ final class TabCell {
         updateMarquee()
     }
 
-    /// The pointer resting on a clipped title scrolls it after the hover
-    /// delay; leaving stops it at once (TitleFade, Motion `MotionMarquee`).
+    /// Hover no longer scrolls a clipped title (Leo 2026-11-27: the hover slide should go; the tab's
+    /// hover card names the whole title). The fade stays; any pass still running stops.
     private func updateMarquee() {
-        // Not while the parts follow a moving width (the title's frames are the path's); the rest
-        // layout at the path's end starts it.
-        if isHovered, allowsMarquee, !isLifted, visibility.showsTitle, innerPath == nil {
-            titleFade.startMarquee()
-        } else {
-            titleFade.stopMarquee()
-        }
+        titleFade.stopMarquee()
     }
 
     private func updateLift() {
