@@ -36,7 +36,7 @@ import { clockSizerAcrossUnits } from "../../../ui/Typography";
 function useWorkingElapsed(row: AcpmuxRow, now: () => number) {
   const held = !row.below && row.durationMs !== undefined;
   const time = useTicking(!held, now);
-  return held ? row.durationMs! : Math.max(0, time - row.at);
+  return Math.max(0, held ? row.durationMs! : time - row.at);
 }
 function WorkingDuration({ row, now }: { row: AcpmuxRow; now: () => number }) {
   return <span className="cv-worked__time">{formatDuration(useWorkingElapsed(row, now))}</span>;
