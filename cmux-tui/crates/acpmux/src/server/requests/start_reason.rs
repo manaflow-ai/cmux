@@ -42,8 +42,11 @@ fn reason_of(error: &RpcError) -> String {
 }
 
 /// Gives a `session/new` error that has no short `data.reason` one. A reason that is already
-/// a short code stays; any other data keeps its fields (a non-object moves to `data.detail`).
+/// a short code stays; any other data keeps its fields (a non-object moves to `data.agentData`,
+/// as `recovery::object_data` moves it). Types the error first (`recovery::annotate`, which the
+/// connection loop runs again and which keeps a kind it finds), so its `errorKind` is the reason.
 pub(super) fn stamp(error: &mut RpcError) {
+    crate::recovery::annotate(error, None);
     if error
         .data
         .as_ref()
@@ -59,7 +62,7 @@ pub(super) fn stamp(error: &mut RpcError) {
         None | Some(Value::Null) => Map::new(),
         Some(other) => {
             let mut map = Map::new();
-            map.insert("detail".into(), other);
+            map.insert(crate::recovery::AGENT_DATA.into(), other);
             map
         }
     };

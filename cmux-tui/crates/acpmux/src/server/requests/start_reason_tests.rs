@@ -47,7 +47,7 @@ fn free_text_reason_and_odd_data_are_kept() {
     assert_eq!(data["reasonText"], "a long sentence, not a code");
     let data = stamped(RpcError::internal("x").with_data(json!("just text")));
     assert_eq!(data["reason"], "session_new.internal");
-    assert_eq!(data["detail"], "just text");
+    assert_eq!(data[crate::recovery::AGENT_DATA], "just text");
 }
 
 /// The daemon passes on a reason only when it is a short code; every stamped one is.
@@ -61,4 +61,12 @@ fn every_stamped_reason_is_a_short_code() {
         let reason = stamped(error)["reason"].as_str().unwrap().to_owned();
         assert!(super::is_code(&reason), "{reason}");
     }
+}
+
+/// acpmux's own answer for an agent gone before `session/new`: the bare ACP message, typed here.
+#[test]
+fn a_bare_agent_process_closed_is_agent_exited() {
+    let data = stamped(RpcError::internal("agent process closed"));
+    assert_eq!(data["reason"], "agent.exited");
+    assert_eq!(data["errorKind"], "agent.exited");
 }
