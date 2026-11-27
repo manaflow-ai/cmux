@@ -78,6 +78,8 @@ on:
       # The gallery index and looks the Customize checklist imports (src/pages/settings/customizeLooks.ts).
       - "examples/gallery/gallery.json"
       - "examples/looks/**"
+      # The setups the Make cmux Yours setups shelf imports (src/pages/onboarding/setupShelf.ts).
+      - "examples/setups/*/cmux-setup.json"
       - "scripts/cmux-next/web-bundle-archive.py"
       - "scripts/cmux-next/web-ota-pointer.py"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextUpdater/Resources/web-update-keys.json"
@@ -483,6 +485,7 @@ jobs:
           sparse-checkout-cone-mode: false
           sparse-checkout: |
             /.github/actions/setup-cmux-tui-rust/
+            /.github/actions/runner-cargo-home/
             /cmux-tui/
             /scripts/cmux-next/
             /.gitmodules

@@ -15,7 +15,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::{Deadline, Machine, Outcome, Request, Runner, at, fresh, make_room, run_once};
+use super::{
+    Deadline, Machine, Outcome, Request, Runner, at, fresh, make_room, run_once, start_fault,
+};
 
 /// Declares [`Class`] and [`Class::ALL`] from one list, so `ALL` names every variant by construction.
 macro_rules! classes {
@@ -27,10 +29,11 @@ macro_rules! classes {
             $($(#[$doc])* $name,)*
         }
 
-        #[cfg(test)]
         impl Class {
             /// Every class, in declaration order.
             pub(super) const ALL: &'static [Class] = &[$(Class::$name,)*];
+            /// Each class's variant name, in [`Class::ALL`]'s order (start_fault.rs reads `CMUX_CLOUD_FAULT` by it).
+            pub(super) const NAMES: &'static [&'static str] = &[$(stringify!($name),)*];
         }
     };
 }
@@ -185,7 +188,20 @@ pub(super) fn recover(
     runner: &mut dyn Runner,
     request: &Request,
     began: Instant,
+    outcome: Outcome,
+) -> Outcome {
+    let mut steps = Vec::new();
+    let outcome = run_table(runner, request, began, outcome, &mut steps);
+    record(outcome, &steps)
+}
+
+/// [`recover`]'s loop; each action it ran is pushed to `steps` as `(class, action)`, in order.
+fn run_table(
+    runner: &mut dyn Runner,
+    request: &Request,
+    began: Instant,
     mut outcome: Outcome,
+    steps: &mut Vec<(Class, Action)>,
 ) -> Outcome {
     // The run's one deadline: a rerun keeps it, as fresh.rs and make_room do.
     let until = request.until.or(Deadline::of(request, began).0);
@@ -196,7 +212,8 @@ pub(super) fn recover(
     let mut reruns = 0_u32;
     loop {
         let Outcome::Failed { error, .. } = &outcome else { return outcome };
-        let Some(action) = classify(error).and_then(recovery) else { return outcome };
+        let Some(class) = classify(error) else { return outcome };
+        let Some(action) = recovery(class) else { return outcome };
         outcome = match action {
             Action::FreshMachine if last != Some(Action::FreshMachine) => {
                 fresh::replace_stuck(runner, &current, began, outcome)
@@ -222,13 +239,46 @@ pub(super) fn recover(
                 pause = pause.saturating_mul(2).min(RERUN_MAX_PAUSE);
                 reruns = reruns.saturating_add(1);
                 current = again;
-                let next = run_once(runner, &current);
+                let next = start_fault::take().map_or_else(
+                    || run_once(runner, &current),
+                    |class| start_fault::error(class, &current),
+                );
                 annotate(keep_new_machine(next, made), reruns)
             }
             // Used up: the failure stands.
             Action::FreshMachine | Action::MakeRoom => return outcome,
         };
+        steps.push((class, action));
         last = Some(action);
+    }
+}
+
+/// The recovered event: on an answer the table won, `recovered` lists each `{class, action}` that ran, in order,
+/// so the probe counts a self-heal per class (shadow-leo 2f60d9d6e4cd: "log recovered events"); on a failure an
+/// action ran for and lost, `details.recovery_tried` lists the same. A start the table never acted on is unchanged.
+fn record(outcome: Outcome, steps: &[(Class, Action)]) -> Outcome {
+    if steps.is_empty() {
+        return outcome;
+    }
+    let list = json!(
+        steps
+            .iter()
+            .map(|(class, action)| json!({"class": format!("{class:?}"), "action": format!("{action:?}")}))
+            .collect::<Vec<_>>()
+    );
+    match outcome {
+        Outcome::Done(mut answer) => {
+            if let Some(fields) = answer.as_object_mut() {
+                fields.insert("recovered".to_owned(), list);
+            }
+            Outcome::Done(answer)
+        }
+        Outcome::Failed { mut error, exit } => {
+            if let Some(details) = error.get_mut("details").and_then(Value::as_object_mut) {
+                details.insert("recovery_tried".to_owned(), list);
+            }
+            Outcome::Failed { error, exit }
+        }
     }
 }
 
