@@ -2,7 +2,7 @@
 // #3e3b3a line at its edge, the clay accent kept for marks only. Every color here is measured from a
 // 2x capture of the real app (points, sRGB), not picked by eye.
 {
-  "name": "Kiln",
+  "name": "Claude Code app",
   "description": "Dark, warm sidebar, clay accent.",
 
   "appearance.theme": "Builtin Dark",
