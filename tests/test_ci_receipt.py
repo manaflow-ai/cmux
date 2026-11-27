@@ -75,6 +75,11 @@ def run_record(**overrides) -> dict:
     return record
 
 
+
+# The verifier reads compares with git first (ci_receipt.git_compare); these tests answer them from FakeGitHub's
+# REST compare, and GitCompareTest drives the git path against a local repository.
+ci_receipt.git_compare = lambda *args, **kwargs: None
+
 class FakeGitHub:
     def __init__(self, *, run: dict | None = None, log: str | None = None, compare: str = "ahead",
                  jobs: list | None = None, files: list[str] | None = None):
@@ -375,8 +380,10 @@ class Produce(unittest.TestCase):
         import os  # noqa: PLC0415
 
         out = io.StringIO()
-        saved_cwd, saved = Path.cwd(), ci_receipt.produce_fast_gates
+        saved_cwd, saved, saved_records = Path.cwd(), ci_receipt.produce_fast_gates, ci_receipt.lane_records
         ci_receipt.produce_fast_gates = runner
+        # Off a runner lane_records is true, and a test on a lane VM recorded a real receipt with the controller.
+        ci_receipt.lane_records = lambda args, env=None: False
         try:
             os.chdir(repo)
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
@@ -384,6 +391,7 @@ class Produce(unittest.TestCase):
         finally:
             os.chdir(saved_cwd)
             ci_receipt.produce_fast_gates = saved
+            ci_receipt.lane_records = saved_records
         return code, out.getvalue()
 
     def test_a_failed_execution_mints_no_receipt(self):
@@ -410,13 +418,24 @@ class Produce(unittest.TestCase):
                                  .split("=", 1)[1])
             self.assertEqual(receipt["job"], "fast-gates")
 
-    def test_a_dirty_tracked_tree_mints_no_receipt(self):
+    def test_a_dirty_tracked_tree_tests_and_names_the_commit_not_the_edit(self):
         with tempfile.TemporaryDirectory() as scratch:
             repo, _ = self.repo(scratch)
+            committed = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], check=True, capture_output=True,
+                                       text=True).stdout.strip()
             (repo / "a").write_text("edited, not committed")
-            code, out = self.run_produce(repo, lambda work, head, base: 0)
-            self.assertEqual(code, 2)
-            self.assertNotIn("CMUX_CI_RECEIPT=", out)
+            seen = []
+
+            def gates(work, head, base):
+                seen.append(((work / "a").read_text(), head))
+                return 0
+            code, out = self.run_produce(repo, gates)
+            self.assertEqual(code, 0)
+            self.assertNotEqual(seen[0][0], "edited, not committed")
+            self.assertEqual(seen[0][1], committed)
+            receipt = json.loads(next(line for line in out.splitlines() if line.startswith("CMUX_CI_RECEIPT="))
+                                 .split("=", 1)[1])
+            self.assertEqual(receipt["head"], committed)
 
     def test_tested_head_is_the_snapshot_parent_with_the_same_tree(self):
         with tempfile.TemporaryDirectory() as scratch:
@@ -650,5 +669,116 @@ class LaneRecord(unittest.TestCase):
             self.assertEqual(list(Path(folder).glob("*.json")), [])
 
 
+
+class GitCompareTest(unittest.TestCase):
+    """base_covers reads OLDER...BASE with git, so a REST budget spent elsewhere does not drop a receipt."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.repo = Path(self.dir.name) / "src"
+        self.repo.mkdir()
+        run = lambda *argv: subprocess.run(["git", "-C", str(self.repo), *argv], check=True, capture_output=True,
+                                           text=True).stdout.strip()
+        self.run = run
+        run("init", "-q", "-b", "main")
+        run("config", "user.email", "t@example.com")
+        run("config", "user.name", "t")
+        run("config", "uploadpack.allowFilter", "true")
+        run("config", "uploadpack.allowAnySHA1InWant", "true")
+        (self.repo / "a.txt").write_text("a\n")
+        run("add", ".")
+        run("commit", "-qm", "one")
+        self.older = run("rev-parse", "HEAD")
+        (self.repo / "crates").mkdir()
+        (self.repo / "crates" / "lib.rs").write_text("fn x() {}\n")
+        run("add", ".")
+        run("commit", "-qm", "two")
+        self.base = run("rev-parse", "HEAD")
+        self.token = {"GH_TOKEN": "t"}
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def compare(self, older, base, files=False):
+        from unittest import mock
+        with mock.patch.dict("os.environ", self.token):
+            return ci_receipt._git_compare(REPO, older, base, files=files, remote=f"file://{self.repo}")
+
+    def test_an_ancestor_is_ahead_without_rest(self):
+        self.assertEqual(self.compare(self.older, self.base), {"status": "ahead", "files": []})
+
+    def test_files_come_from_the_trees(self):
+        self.assertEqual(self.compare(self.older, self.base, files=True),
+                         {"status": "ahead", "files": [{"filename": "crates/lib.rs"}]})
+
+    def test_off_history_falls_back_to_rest(self):
+        self.run("checkout", "-q", "-b", "side", self.older)
+        (self.repo / "b.txt").write_text("b\n")
+        self.run("add", ".")
+        self.run("commit", "-qm", "side")
+        side = self.run("rev-parse", "HEAD")
+        self.assertIsNone(self.compare(side, self.base))
+
+    def test_no_token_falls_back_to_rest(self):
+        self.token = {"GH_TOKEN": ""}
+        self.assertIsNone(self.compare(self.older, self.base))
+
+    def test_base_covers_takes_the_git_answer(self):
+        def no_rest(path):
+            raise ci_receipt.Rejected(f"GitHub answered 403 for {path}")
+        saved = ci_receipt.git_compare
+        ci_receipt.git_compare = lambda *args, **kwargs: {"status": "ahead", "files": []}
+        try:
+            ci_receipt.base_covers(no_rest, repo=REPO, job="fast-gates", where="w", receipt_base=self.older,
+                                   receipt_tree="0" * 40, base=self.base, merge_tree="", rust_roots=None)
+        finally:
+            ci_receipt.git_compare = saved
+
+
+class LaneAskDeadlineTest(unittest.TestCase):
+    def test_lookup_waits_as_long_as_a_record(self):
+        seen = []
+        original = ci_receipt.deadline_http.request
+        ci_receipt.deadline_http.request = lambda request, deadline: (seen.append(deadline), (200, b"{}", {}))[1]
+        try:
+            ci_receipt.lane_ask({"tree": "t"}, "token", "https://example.invalid/lane-receipt")
+        finally:
+            ci_receipt.deadline_http.request = original
+        self.assertEqual(len(seen), 1)
+        self.assertAlmostEqual(seen[0], ci_receipt.LOOKUP_DEADLINE_S, delta=1)
+        self.assertGreaterEqual(ci_receipt.LOOKUP_DEADLINE_S, ci_receipt.RECORD_DEADLINE_S)
+
+    def _ask(self, answers):
+        now = [0.0]
+        slept = []
+        def sleep(seconds):
+            slept.append(seconds)
+            now[0] += seconds
+        original = ci_receipt.deadline_http.request
+        ci_receipt.deadline_http.request = lambda request, deadline: answers.pop(0)
+        try:
+            return ci_receipt.lane_ask({"tree": "t"}, "token", "https://example.invalid/lane-receipt",
+                                       clock=lambda: now[0], sleep=sleep), slept
+        finally:
+            ci_receipt.deadline_http.request = original
+
+    def test_a_starting_controller_is_asked_again(self):
+        starting = (503, b'{"error": "the controller is starting; retry"}', {})
+        answer, slept = self._ask([starting, starting, (200, b'{"receipt": null}', {})])
+        self.assertEqual(answer, {"receipt": None})
+        self.assertEqual(len(slept), 2)
+
+    def test_a_controller_down_past_the_deadline_is_no_receipt(self):
+        starting = (503, b'{"error": "the controller is starting; retry"}', {})
+        with self.assertRaisesRegex(ci_receipt.Rejected, "503"):
+            self._ask([starting] * 100)
+
+    def test_a_refusal_is_not_asked_again(self):
+        with self.assertRaisesRegex(ci_receipt.Rejected, "403"):
+            self._ask([(403, b'{"error": "no"}', {}), (200, b"{}", {})])
+
+
+
 if __name__ == "__main__":
     unittest.main()
+

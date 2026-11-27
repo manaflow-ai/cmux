@@ -336,6 +336,49 @@ def check_run(fetch: Fetch, *, repo: str, run_id: str, job: str, head_tree: str,
     return {"base": receipt_base, "run_url": url, "producer": producer}
 
 
+GIT_COMPARE_DEPTH = 600  # commits of the base's history read; ~a day of feat-cmux-next merges
+GIT_COMPARE_DEADLINE_S = 60
+
+
+def _git_compare(repo: str, older: str, base: str, *, files: bool, remote: str = "") -> dict | None:
+    """The REST compare's answer for OLDER...BASE from a throwaway git fetch of BASE's recent history: status
+    "ahead" when OLDER is in it, with the changed files when FILES (a blob-less fetch, so the trees are there).
+    None when git cannot tell (no token, a fetch error, or OLDER older than the depth or off BASE's history): the
+    caller asks REST. The token goes in through git's environment config, never argv."""
+    token = os.environ.get("GH_TOKEN", "")
+    if not token or not (SHA.match(older) and SHA.match(base)):
+        return None
+    import base64  # noqa: PLC0415
+    auth = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    env = {**os.environ, "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+           "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {auth}", "GIT_TERMINAL_PROMPT": "0"}
+    with tempfile.TemporaryDirectory(prefix="receipt-compare-") as scratch:
+        def git(*argv: str) -> subprocess.CompletedProcess:
+            return subprocess.run(["git", "-C", scratch, *argv], env=env, capture_output=True, text=True,
+                                  timeout=GIT_COMPARE_DEADLINE_S)
+        try:
+            if git("init", "-q", "--bare").returncode:
+                return None
+            fetched = git("fetch", "-q", "--no-tags", "--no-recurse-submodules", f"--depth={GIT_COMPARE_DEPTH}",
+                          "--filter=blob:none" if files else "--filter=tree:0", remote or f"https://github.com/{repo}", base)
+            if fetched.returncode or git("cat-file", "-e", f"{older}^{{commit}}").returncode:
+                return None  # not fetched, or OLDER is not within BASE's recent history
+            if git("merge-base", "--is-ancestor", older, base).returncode:
+                return None
+            if not files:
+                return {"status": "ahead", "files": []}
+            changed = git("diff", "--name-only", "--no-renames", older, base)
+            if changed.returncode:
+                return None
+            return {"status": "ahead", "files": [{"filename": name} for name in changed.stdout.splitlines() if name]}
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+
+
+# Swapped by tests (tests/test_ci_receipt.py), which answer compares from their fake GitHub.
+git_compare: Callable[..., dict | None] = _git_compare
+
+
 def base_covers(fetch: Fetch, *, repo: str, job: str, where: str, receipt_base: str, receipt_tree: str, base: str,
                 merge_tree: str, rust_roots: list[str] | None, same_head: bool = False) -> None:
     """A receipt's merge covers this run's: the same base and merge tree, or an older base that is an ancestor of
@@ -351,8 +394,12 @@ def base_covers(fetch: Fetch, *, repo: str, job: str, where: str, receipt_base: 
         if receipt_tree != merge_tree:
             raise Rejected(f"{where} tested merge tree {receipt_tree}, not this run's {merge_tree} (same base {base})")
     else:
-        # One page of up to 300 files: the base's commits since the receipt's base.
-        compared = json.loads(fetch(f"repos/{repo}/compare/{receipt_base}...{base}?per_page=300"))
+        # The base's commits since the receipt's base, read with git first: the REST compare spent the
+        # installation's budget and answered 403 on 8 of 33 land dispatches on 2026-11-27 10:02-10:52Z, each a
+        # lane receipt dropped and the gates re-run. REST stays as the fallback (one page of up to 300 files).
+        compared = git_compare(repo, receipt_base, base, files=job == "rust-workspaces")
+        if compared is None:
+            compared = json.loads(fetch(f"repos/{repo}/compare/{receipt_base}...{base}?per_page=300"))
         if compared.get("status") not in ("ahead", "identical"):
             raise Rejected(f"{where} merged onto base {receipt_base}, which is {compared.get('status')} of this "
                            f"run's base {base}, not an ancestor")
@@ -401,20 +448,42 @@ def lane_oidc_token(env=os.environ) -> str:
     return json.loads(body)["value"]
 
 
-def lane_ask(payload: dict, token: str, endpoint: str = LANE_ENDPOINT) -> dict:
-    request = urllib.request.Request(endpoint, data=json.dumps(payload).encode(), method="POST", headers={
-        "Authorization": f"Bearer {token}", "Content-Type": "application/json", "User-Agent": "cmux-ci-receipt"})
-    try:
-        status, body, _ = deadline_http.request(request, 20)
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
-        raise Rejected(f"the controller did not answer: {error}") from error
-    try:
-        answer = json.loads(body or b"{}")
-    except ValueError:
-        answer = {}
-    if status >= 300:
-        raise Rejected(f"the controller answered {status}: {answer.get('error') or body[:200]!r}")
-    return answer
+# The lookup crosses the same slow controller path as a record (see RECORD_DEADLINE_S): on 2026-11-27 10:1xZ six of
+# 33 dispatched land runs gave up at the old 20 s ("reading the answer: past the 20 s deadline") and re-ran the fast
+# gates, which costs minutes; waiting up to a minute for a receipt is cheaper than the gates it saves.
+LOOKUP_DEADLINE_S = 60
+
+
+# A restarting controller answers 503 "the controller is starting; retry" for a few seconds: on 2026-11-27
+# 11:5xZ four of 30 dispatched land runs took that first answer as no receipt and re-ran the fast gates. A lookup
+# only reads, so a 5xx or 429 is asked again, backing off, within the one LOOKUP_DEADLINE_S budget.
+LOOKUP_RETRY_PAUSE_S = 2.0
+LOOKUP_RETRY_PAUSE_MAX_S = 10.0
+
+
+def lane_ask(payload: dict, token: str, endpoint: str = LANE_ENDPOINT, *,
+             clock: Callable[[], float] = time.monotonic, sleep: Callable[[float], None] = time.sleep) -> dict:
+    data = json.dumps(payload).encode()
+    end = clock() + LOOKUP_DEADLINE_S
+    pause = LOOKUP_RETRY_PAUSE_S
+    while True:
+        request = urllib.request.Request(endpoint, data=data, method="POST", headers={
+            "Authorization": f"Bearer {token}", "Content-Type": "application/json", "User-Agent": "cmux-ci-receipt"})
+        try:
+            status, body, _ = deadline_http.request(request, max(end - clock(), 1.0))
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            raise Rejected(f"the controller did not answer: {error}") from error
+        try:
+            answer = json.loads(body or b"{}")
+        except ValueError:
+            answer = {}
+        if (status >= 500 or status == 429) and end - clock() > pause:
+            sleep(pause)
+            pause = min(pause * 2, LOOKUP_RETRY_PAUSE_MAX_S)
+            continue
+        if status >= 300:
+            raise Rejected(f"the controller answered {status}: {answer.get('error') or body[:200]!r}")
+        return answer
 
 
 LaneAsk = Callable[[dict], dict]
@@ -639,17 +708,54 @@ def produce_rust_workspaces(work: Path, head: str, base: str) -> int:
     return 0
 
 
+def sweep_dead_holders(prefix: str, grace_seconds: float = 600.0) -> int:
+    """Remove temp folders PREFIX* whose owner process is gone (a run killed by SIGKILL or a timeout never reached its
+    cleanup; a lane VM's acpmux session TMPDIR keeps them, ~1 GB each). No .owner-pid: judged by age. Same sweep as
+    scripts/web_lint_prepush.py's sweep_orphan_holders."""
+    import shutil
+    removed = 0
+    root = Path(tempfile.gettempdir())
+    try:
+        entries = [p for p in root.iterdir() if p.name.startswith(prefix) and p.is_dir() and not p.is_symlink()]
+    except OSError:
+        return 0
+    for holder in entries:
+        try:
+            owner = int((holder / ".owner-pid").read_text().strip())
+            try:
+                os.kill(owner, 0)
+                dead = False
+            except ProcessLookupError:
+                dead = True
+            except OSError:
+                dead = False
+        except (OSError, ValueError):
+            try:
+                dead = time.time() - holder.stat().st_mtime > grace_seconds
+            except OSError:
+                continue
+        if dead:
+            subprocess.run(["git", "worktree", "prune"], capture_output=True, check=False)
+            shutil.rmtree(holder, ignore_errors=True)
+            removed += 1
+    return removed
+
+
 def produce(args: argparse.Namespace) -> int:
     repo = Path(git(Path.cwd(), "rev-parse", "--show-toplevel").stdout.strip())
-    # The receipt names a commit's tree, and the merge is made from that commit: a tracked edit not in it would be
-    # neither tested nor named, so refuse it rather than claim a tree the edit is not in.
+    # The receipt names a commit's tree, and the merge is made from that commit in a worktree of its own
+    # (merge_worktree): a tracked edit not in the commit is neither tested nor named, so the receipt is true of the
+    # commit that is pushed. Refusing a dirty checkout here cost 4 of 78 lane pushes their receipt on one lane VM
+    # (2026-11-27, ~/.cache/wt-push/receipts), each a land run re-running the gates for a commit that had passed.
     dirty = git(repo, "status", "--porcelain", "--untracked-files=no").stdout.strip()
     if dirty:
-        log(f"ci-receipt: the checkout has tracked changes not in HEAD ({dirty.splitlines()[0]}...); commit them first")
-        return 2
+        log(f"ci-receipt: the checkout has tracked changes not in HEAD ({dirty.splitlines()[0]}...); they are not "
+            "tested: the receipt covers the commit")
     head = tested_head(repo)
     started = time.monotonic()
+    sweep_dead_holders("ci-receipt-")
     with tempfile.TemporaryDirectory(prefix="ci-receipt-") as scratch:
+        (Path(scratch) / ".owner-pid").write_text(str(os.getpid()))
         work = Path(scratch) / "merge"
         try:
             base = merge_worktree(repo, args.remote, head, work)
