@@ -3,6 +3,13 @@
 import importlib.util
 from pathlib import Path
 import unittest
+import json
+import sys
+import tempfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts/bench"))
+from benchlib.bench import BenchError, Context
+from benches.ci_mac_minutes import BENCH
 
 SPEC = importlib.util.spec_from_file_location("minutes", Path(__file__).resolve().parents[1] / "scripts/measure/ci-mac-minutes.py")
 minutes = importlib.util.module_from_spec(SPEC)
@@ -25,6 +32,28 @@ class MinutesTests(unittest.TestCase):
         group = report["inventory"][0]
         self.assertEqual(group["minutes"], 4)
         self.assertEqual(group["steps"]["portable tests"]["seconds"], 60)
+
+    def test_bench_refuses_partial_and_preserves_unknown_duration(self):
+        root = Path(__file__).resolve().parents[1]
+        row = json.loads((root / "scripts/bench/tests/fixtures/ci-mac-minutes/controller-row.json").read_text())
+        report = minutes.summarize([row], 1795651200, 1795737600)
+        ctx = Context(bench=BENCH, build={"channel": "local"}, host_role="anywhere")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "report.json"
+            path.write_text(json.dumps(report))
+            with self.assertRaises(BenchError):
+                BENCH.ingest(ctx, path)
+            report["coverage"] = "exporter reports complete; window and count verified"
+            path.write_text(json.dumps(report))
+            BENCH.ingest(ctx, path)
+            value = next(r for r in ctx.rows if r["metric"] == "job_minutes")
+            self.assertEqual(value["value"], 0.15)
+            self.assertEqual(value["labels"]["os"], "unknown")
+            ctx.rows.clear()
+            report["inventory"][0]["untimed_jobs"] = 1
+            path.write_text(json.dumps(report))
+            BENCH.ingest(ctx, path)
+            self.assertFalse(any(r["metric"] == "job_minutes" for r in ctx.rows))
 
     def test_unknown_is_not_linux_or_measured_zero(self):
         row = {"id": 1, "repo": "manaflow-ai/cmux", "at": "2026-11-25T00:00:00Z",
