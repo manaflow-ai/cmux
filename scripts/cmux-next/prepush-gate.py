@@ -237,6 +237,9 @@ SCOPES = (PKG + "/", "cmux-tui/", "webviews/")
 # The paths the trees hold: SCOPES and the Swift outside the macOS package some scanners judge (the visible-only
 # ratchet's Packages/Shared, Packages/iOS and cmux-next-ios; the App Store rules' cmux-next-ios).
 CHANGED_SCOPES = SCOPES + ("Packages/Shared/", "Packages/iOS/", "cmux-next-ios/")
+# Where a RATCHET_BASELINES row may name a file its scanner reads: CHANGED_SCOPES and the state-roots scanner's extra
+# scopes (its SCANNERS entry). ratchet_row_files puts those files in both trees so the row is judged against them.
+RATCHET_ROW_SCOPES = CHANGED_SCOPES + ("Packages/macOS/", SCRIPTS + "/")
 SWIFT_SCOPE = PKG + "/"
 # Files a scanner reads besides the changed ones: present in both trees, so they never differ.
 CONTEXT = (
@@ -813,7 +816,10 @@ def ratchet_row_files(repo: Path, base: str, head: str) -> list[str]:
         rows = [_ratchet_rows(blob.decode(errors="replace"), keys, count, name) if blob else {}
                 for blob in (blobs[f"{rev}:{SCRIPTS}/{name}"] for rev in (base, head))]
         files.update(key[0] for key in rows[0].keys() | rows[1].keys() if rows[0].get(key) != rows[1].get(key))
-    files = {p for p in files if p.startswith(CHANGED_SCOPES)}
+    # The scopes a ratchet's scanner reads, not just CHANGED_SCOPES: check-state-roots.sh's Classic ids check also
+    # reads Packages/macOS and scripts/cmux-next, so a row added there for an untouched script read as "no longer
+    # has ...: delete its row" (#62254, fast gates 140720698561: agent-conn-chaos/linux_daemon.py).
+    files = {p for p in files if p.startswith(RATCHET_ROW_SCOPES)}
     try:
         present = git_batch.cat_file(repo, [f"{rev}:{p}" for p in sorted(files) for rev in (base, head)])
     except git_batch.GitError as error:
