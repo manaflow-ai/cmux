@@ -1,0 +1,110 @@
+/* Starter workspaces card (StarterWorkspaces.tsx): same surface as Set Up cmux (.hm-setup). */
+.sw {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 560px;
+  padding: 12px;
+  border: 1px solid var(--cmux-separator);
+  border-radius: var(--ds-radius-md);
+  background: var(--cmux-elevated-background);
+  color: var(--cmux-text);
+  font-size: var(--text-body);
+}
+.sw__head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+}
+.sw__title {
+  font-weight: 600;
+}
+.sw__sub {
+  grid-column: 1;
+  color: var(--cmux-text-secondary);
+  font-size: var(--text-caption);
+}
+.sw__hide {
+  grid-column: 2;
+  grid-row: 1;
+  border: 0;
+  background: none;
+  color: var(--cmux-text-tertiary);
+  font: inherit;
+  font-size: var(--text-caption);
+  cursor: pointer;
+}
+.sw__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.sw__label {
+  color: var(--cmux-text-tertiary);
+  font-size: var(--text-caption);
+  font-weight: 600;
+}
+.sw__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sw__card,
+.sw__pick {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--cmux-separator);
+  border-radius: var(--ds-radius-md);
+}
+.sw__pick {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+.sw__row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sw__row-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+.sw__row-detail {
+  color: var(--cmux-text-secondary);
+  font-size: var(--text-caption);
+}
+.sw__chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+}
+.sw__chip,
+.sw__tag {
+  padding: 0 6px;
+  border-radius: var(--ds-radius-sm);
+  background: var(--cmux-separator);
+  color: var(--cmux-text-secondary);
+  font-size: var(--text-caption);
+}
+.sw__time {
+  color: var(--cmux-text-tertiary);
+  font-size: var(--text-caption);
+}
+.sw__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 4px;
+}
