@@ -86,6 +86,7 @@ const TAKES_VALUE: &[&str] = &[
     "--cwd",
     "--from-folder",
     "--environment",
+    "--provider",
     "--account",
     "--name",
     "--target",
@@ -125,6 +126,8 @@ pub(super) struct Request {
     /// `--environment ID|NAME`: the Cloud environment (`env_…`, or its name) a new machine boots in
     /// (`cloud new-machine --environment`).
     pub environment: Option<String>,
+    /// `--provider gcp|own-host|freestyle`: the infrastructure provider for a new machine.
+    pub provider: Option<String>,
     /// `--account user:ID|team:ID` (or `user:ID|personal`, `cmux_cloud_api::sandbox::account_scope`):
     /// nothing starts unless the app is signed in to that account, and the prompt goes only to a
     /// machine that account's list shows. The daemon's sandboxed Runs pass the Run's own.
@@ -254,6 +257,7 @@ pub(super) fn send_existing(
         cwd: None,
         from_folder: None,
         environment: None,
+        provider: None,
         account: None,
         machine: Machine::Target(machine_id.to_owned()),
         wait,
@@ -369,6 +373,7 @@ pub(super) fn wait_on(
         cwd: None,
         from_folder: None,
         environment: None,
+        provider: None,
         machine: Machine::Target(machine_id.to_owned()),
         wait: true,
         timeout: timeout.min(MAX_TIMEOUT),
@@ -555,6 +560,7 @@ pub(super) fn parse(
     let mut cwd = None;
     let mut from_folder = None;
     let mut environment = None;
+    let mut provider = None;
     let mut account = None;
     let mut name = None;
     let mut target = None;
@@ -595,6 +601,7 @@ pub(super) fn parse(
             "--cwd" => cwd = Some(value()?),
             "--from-folder" => from_folder = Some(value()?),
             "--environment" => environment = Some(value()?),
+            "--provider" => provider = Some(provider_word(&value()?)?),
             "--account" => account = Some(value()?),
             "--name" => name = Some(value()?),
             "--target" => target = Some(value()?),
@@ -674,6 +681,11 @@ pub(super) fn parse(
             "--environment makes a new machine; not with --target, whose environment is set",
         ));
     }
+    if provider.is_some() && target.is_some() {
+        return Err(UsageError::new(
+            "--provider makes a new machine; not with --target, whose provider cannot be verified",
+        ));
+    }
     let machine = match (name, target) {
         (Some(_), Some(_)) => return Err(UsageError::new("give --name or --target, not both")),
         (Some(name), None) if name.trim().is_empty() => {
@@ -698,6 +710,7 @@ pub(super) fn parse(
         cwd,
         from_folder,
         environment,
+        provider,
         account,
         machine,
         wait,
@@ -726,6 +739,17 @@ pub(super) fn setting_word(flag: &str, word: &str) -> Result<String, UsageError>
     } else {
         let example = if flag == "--effort" { "low, medium, high, xhigh or max" } else { "plan" };
         Err(UsageError::new(format!("{flag} {word:?}: a value such as {example}")))
+    }
+}
+
+/// `--provider` is deliberately a closed choice: the platform's start-chat providers are
+/// `gcp`, `own-host`, and `freestyle`; passing another value would otherwise silently select the default.
+pub(super) fn provider_word(word: &str) -> Result<String, UsageError> {
+    match word.trim() {
+        "gcp" | "own-host" | "freestyle" => Ok(word.trim().to_owned()),
+        value => {
+            Err(UsageError::new(format!("--provider {value:?}: use gcp, own-host or freestyle")))
+        }
     }
 }
 
@@ -1054,6 +1078,11 @@ pub(super) fn again_command(request: &Request, machine: &Machine) -> String {
     {
         words.push(format!("--environment {}", shell_quote(environment)));
     }
+    if let Some(provider) =
+        request.provider.as_ref().filter(|_| !matches!(machine, Machine::Target(_)))
+    {
+        words.push(format!("--provider {}", shell_quote(provider)));
+    }
     if request.agent != "claude" {
         words.push(format!("--agent {}", request.agent));
     }
@@ -1309,7 +1338,8 @@ impl Progress {
     /// with no answer keeps it: a rerun of the name then finds the create, or makes it in the environment.
     fn rerun(&self, request: &Request) -> Request {
         let environment = if self.created.is_some() { None } else { request.environment.clone() };
-        Request { environment, ..request.clone() }
+        let provider = if self.created.is_some() { None } else { request.provider.clone() };
+        Request { environment, provider, ..request.clone() }
     }
 
     /// The deadline passed during a step: that phase's timeout, whatever the step answered. Before the prompt may
@@ -1503,6 +1533,11 @@ fn run_once(runner: &mut dyn Runner, request: &Request) -> Outcome {
                 // A failure names its new machine for caller cleanup only when rollback has not deleted it.
                 let deleted =
                     details.get("cleanup").and_then(|c| c.get("deleted")) == Some(&json!(true));
+                // Unlike a same-name create already in flight, this run's accepted create
+                // proves its provider choice. Recovery can safely pin that surviving machine.
+                if progress.created.is_some() && !deleted {
+                    details.insert("creation_accepted".to_owned(), json!(true));
+                }
                 if let Some(id) = progress.made.as_ref().filter(|_| !deleted) {
                     details.insert("machine_id".to_owned(), json!(id));
                     details.insert("new_machine".to_owned(), json!(true));
@@ -1723,7 +1758,10 @@ fn steps(
         Ok(listed) => listed,
         Err(error) => return app_failure(error),
     };
-    if request.environment.is_some() || !matches!(request.machine, Machine::Target(_)) {
+    if request.environment.is_some()
+        || request.provider.is_some()
+        || !matches!(request.machine, Machine::Target(_))
+    {
         listed = loaded_list(runner, listed, deadline);
     }
     if listed.pointer("/account/signed_in") == Some(&Value::Bool(false)) {
@@ -1754,10 +1792,11 @@ fn steps(
             .and_then(|row| at(row, "machine_id").as_str().map(str::to_owned)),
         Machine::New => None,
     };
-    // `--environment` always makes a new machine (in_environment refuses an existing name first), so it has
+    // `--environment` always makes a new machine (in_configuration refuses an existing name first), so it has
     // no folder of an earlier bootstrap to wait for. A `--name` still being made is waited on until it is
     // listed, then checked like any machine.
     if request.environment.is_none()
+        && request.provider.is_none()
         && let Some(cwd) = &request.cwd
     {
         let machine = match (existing, &request.machine) {
@@ -1781,11 +1820,11 @@ fn steps(
         }
     }
     let mut wanted = request.machine.clone();
-    if request.environment.is_some() && deadline.passed(runner) {
+    if (request.environment.is_some() || request.provider.is_some()) && deadline.passed(runner) {
         return out_of_time(request, &request.machine, Value::Null);
     }
-    if let Some(environment) = &request.environment {
-        match in_environment(runner, request, environment, &listed, deadline, progress) {
+    if request.environment.is_some() || request.provider.is_some() {
+        match in_configuration(runner, request, &listed, deadline, progress) {
             Ok(id) => {
                 runner.stage("created");
                 progress.made = Some(id.clone());
@@ -2365,6 +2404,7 @@ pub(super) fn send(
         cwd: None,
         from_folder: None,
         environment: None,
+        provider: None,
         account: None,
         machine: Machine::Target(machine_id.to_owned()),
         wait: false,
@@ -3106,21 +3146,29 @@ fn await_created(
 /// name is made only on a list the app loaded (`loaded: false` lists no machines, which says nothing) with no
 /// create of it on its way: one in flight answers pending, one that failed (it waits in cmux for Retry) is
 /// refused, so a rerun or a second start never makes a second machine of that name.
-fn in_environment(
+fn in_configuration(
     runner: &mut dyn Runner,
     request: &Request,
-    environment: &str,
     listed: &Value,
     deadline: Deadline,
     progress: &mut Progress,
 ) -> Result<String, Outcome> {
     let machine = &request.machine;
+    let configuration = if request.provider.is_some() { "--provider" } else { "--environment" };
+    if matches!(machine, Machine::Target(_)) {
+        return Err(failed(
+            "usage.invalid",
+            format!("{configuration} makes a new machine; use a new --name"),
+            json!({}),
+            2,
+        ));
+    }
     if let Machine::Named(name) = machine {
         if at(listed, "loaded").as_bool() == Some(false) {
             return Err(list_unread(
                 runner,
                 format!(
-                    "the app has not loaded its Cloud machines yet, so no machine was made in the environment: \
+                    "the app has not loaded its Cloud machines yet, so no machine was made with {configuration}: \
                      one named {name} may exist already. Run this command again in a moment"
                 ),
                 json!({"machine_name": name, "list": "cmux cloud list-machines --json"}),
@@ -3132,8 +3180,8 @@ fn in_environment(
             return Err(failed(
                 "usage.invalid",
                 format!(
-                    "--environment makes a new machine, and {name} exists already: give a new --name, \
-                     or leave out --environment"
+                    "{configuration} makes a new machine, and {name} exists already: give a new --name, \
+                     or leave out {configuration}"
                 ),
                 json!({"machine_name": name}),
                 2,
@@ -3144,7 +3192,7 @@ fn in_environment(
         Machine::Named(name) => Some(name.as_str()),
         _ => None,
     };
-    new_machine(runner, request, listed, name, Some(environment), deadline, progress)
+    new_machine(runner, request, listed, name, request.environment.as_deref(), deadline, progress)
 }
 
 /// A create of `name` still on its way (`list-machines`' `creating` rows) answers pending, and one that failed (it
@@ -3204,6 +3252,9 @@ fn new_machine(
     args.push(name.clone());
     if let Some(environment) = environment {
         args.extend(["--environment".to_owned(), environment.to_owned()]);
+    }
+    if let Some(provider) = &request.provider {
+        args.extend(["--provider".to_owned(), provider.clone()]);
     }
     if request.no_focus {
         args.push("--no-focus".to_owned());

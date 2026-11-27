@@ -504,12 +504,16 @@ pub enum Call {
         machine: String,
         #[serde(default)]
         workspace: Option<String>,
+        #[serde(default)]
+        provider: Option<String>,
     },
     StartChatCreateBegin {
         key: String,
         account: String,
         name: String,
         create_key: String,
+        #[serde(default)]
+        provider: Option<String>,
     },
     StartChatCreateSent {
         key: String,
@@ -795,7 +799,7 @@ pub fn invocation(call: &Call) -> Invocation {
         Call::StartChatPlan { request } => {
             plain(words(&["link", "start-chat", "plan", "--request", request]))
         }
-        Call::StartChatPin { key, account, machine, workspace } => {
+        Call::StartChatPin { key, account, machine, workspace, provider } => {
             let mut args = words(&[
                 "link",
                 "start-chat",
@@ -810,21 +814,30 @@ pub fn invocation(call: &Call) -> Invocation {
             if let Some(workspace) = workspace {
                 args.extend(words(&["--workspace", workspace]));
             }
+            if let Some(provider) = provider {
+                args.extend(words(&["--provider", provider]));
+            }
             ledger(args)
         }
-        Call::StartChatCreateBegin { key, account, name, create_key } => ledger(words(&[
-            "link",
-            "start-chat",
-            "create-begin",
-            "--key",
-            key,
-            "--account",
-            account,
-            "--name",
-            name,
-            "--create-key",
-            create_key,
-        ])),
+        Call::StartChatCreateBegin { key, account, name, create_key, provider } => {
+            let mut args = words(&[
+                "link",
+                "start-chat",
+                "create-begin",
+                "--key",
+                key,
+                "--account",
+                account,
+                "--name",
+                name,
+                "--create-key",
+                create_key,
+            ]);
+            if let Some(provider) = provider {
+                args.extend(words(&["--provider", provider]));
+            }
+            ledger(args)
+        }
         Call::StartChatCreateSent { key, account, team, create_key, route } => {
             let mut args = words(&[
                 "link",

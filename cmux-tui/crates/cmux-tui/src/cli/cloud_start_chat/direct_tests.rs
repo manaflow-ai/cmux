@@ -41,8 +41,8 @@ impl Cloud for FakeCloud {
             .cloned()
             .ok_or_else(|| json!({"code": "cloud.machine.not_found", "message": "gone"}))
     }
-    fn create(&mut self, name: &str, key: &str) -> Result<Row, Value> {
-        self.asked.push(format!("create {name} {key}"));
+    fn create(&mut self, name: &str, key: &str, provider: Option<&str>) -> Result<Row, Value> {
+        self.asked.push(format!("create {name} {key} {}", provider.unwrap_or("default")));
         let made = row("vm-new", name, "provisioning", None);
         self.rows.push(row("vm-new", name, "running", Some("h-new")));
         Ok(made)
@@ -167,6 +167,122 @@ fn a_name_no_machine_has_is_made_once_and_waited_on() {
     assert_eq!(cloud.asked.iter().filter(|a| a.starts_with("create lane-x")).count(), 1);
     // The fake says nothing of a claim: the answer says so rather than guessing.
     assert_eq!(answer["machine_origin"], json!({"from": "unknown"}), "{answer}");
+}
+
+#[test]
+fn a_provider_is_forwarded_when_direct_route_creates_machine() {
+    let asked = request(&["--name", "lane-gcp", "--provider", "gcp"]);
+    let mut inner = Fake::new(vec![]);
+    let mut cloud = FakeCloud {
+        rows: vec![],
+        asked: Vec::new(),
+        execs: VecDeque::from([out("@@session None\n"), out("@@cwd\n")]),
+        commands: Vec::new(),
+    };
+    let done = run(&mut DirectRunner { inner: &mut inner, cloud: &mut cloud }, &asked);
+    assert!(matches!(done, Outcome::Done(_)), "{done:?}");
+    assert!(cloud.asked.iter().any(|call| call.ends_with(" gcp")), "{:?}", cloud.asked);
+}
+
+#[test]
+fn direct_new_machine_forwards_each_provider_and_returns_the_created_identity() {
+    for provider in ["gcp", "freestyle", "own-host"] {
+        let mut cloud = fake(vec![]);
+        let (answer, delegated) = verb(
+            &mut cloud,
+            &["cloud", "new-machine", "--name", "insurance", "--provider", provider, "--json"],
+        );
+        let answer = answer.expect("created");
+        assert_eq!(answer["machine_id"], "vm-new");
+        assert_eq!(answer["status"], "provisioning");
+        assert!(delegated.is_empty(), "create must not require an app");
+        assert_eq!(cloud.asked, vec![format!("create insurance key-0123456789abcdef {provider}")]);
+    }
+}
+
+#[test]
+fn direct_new_machine_keeps_the_default_and_refuses_unsupported_options_before_creating() {
+    let mut cloud = fake(vec![]);
+    let (answer, _) = verb(&mut cloud, &["cloud", "new-machine", "--name", "default"]);
+    assert!(answer.is_ok());
+    assert_eq!(cloud.asked, ["create default key-0123456789abcdef default"]);
+    for extra in [["--provider", "unknown"], ["--environment", "env_1"]] {
+        let mut cloud = fake(vec![]);
+        let (answer, _) =
+            verb(&mut cloud, &["cloud", "new-machine", "--name", "insurance", extra[0], extra[1]]);
+        assert!(answer.is_err());
+        assert!(cloud.asked.is_empty(), "unsupported options must not make a default machine");
+    }
+}
+
+#[test]
+fn an_explicit_provider_never_reuses_an_unverifiable_existing_machine() {
+    for provider in ["gcp", "freestyle", "own-host"] {
+        for target in [["--name", "existing"], ["--target", "machine:vm-1"]] {
+            let mut cloud = fake(vec![row("vm-1", "existing", "paused", None)]);
+            let (answer, delegated) = verb(
+                &mut cloud,
+                &["cloud", "start-session", target[0], target[1], "--provider", provider],
+            );
+            let refusal = answer.expect_err("catalog cannot verify provider");
+            assert_eq!(refusal["code"], "cloud.provider.unverified");
+            assert_eq!(refusal["details"]["machine_id"], "vm-1");
+            assert!(delegated.is_empty());
+            assert!(
+                cloud.asked.iter().all(|call| call == "list" || call == "get vm-1"),
+                "{:?}",
+                cloud.asked
+            );
+            assert!(cloud.commands.is_empty(), "nothing may execute on the wrong provider");
+        }
+    }
+}
+
+#[test]
+fn a_created_machine_can_be_retried_by_its_pinned_target_without_creating_again() {
+    let mut cloud = fake(vec![]);
+    let (made, _) =
+        verb(&mut cloud, &["cloud", "new-machine", "--name", "insurance", "--provider", "gcp"]);
+    assert_eq!(made.expect("created")["machine_id"], "vm-new");
+    cloud.execs.push_back(out("@@session sess-1\n"));
+    let (started, _) = verb(&mut cloud, &["cloud", "start-session", "--target", "machine:vm-new"]);
+    assert_eq!(started.expect("started")["machine_id"], "vm-new");
+    assert_eq!(cloud.asked.iter().filter(|call| call.starts_with("create ")).count(), 1);
+}
+
+#[test]
+fn direct_create_serialization_extends_the_generated_shape_without_replacing_it() {
+    use super::super::direct::DirectCreateParams;
+    use cmux_cloud_wire::{CloudMachineCreateParams, CloudMachineOrigin, CloudMachineSize};
+    let machine = CloudMachineCreateParams {
+        name: Some("insurance".into()),
+        size: CloudMachineSize { cpu: Some(2), memory_mb: Some(4096), disk_mb: Some(20480) },
+        image: Some("image-1".into()),
+        from_snapshot: Some("snapshot-1".into()),
+        origin: Some(CloudMachineOrigin {
+            kind: None,
+            label: "provider proof".into(),
+            url: None,
+            run: None,
+            workflow: None,
+            lane: None,
+        }),
+        ttl_seconds: Some(300),
+    };
+    let generated = serde_json::to_value(&machine).expect("generated shape");
+    let default = DirectCreateParams { machine: machine.clone(), provider: None };
+    assert_eq!(serde_json::to_value(&default).expect("default shape"), generated);
+    for provider in ["gcp", "freestyle", "own-host"] {
+        let explicit =
+            DirectCreateParams { machine: machine.clone(), provider: Some(provider.into()) };
+        let mut expected = generated.clone();
+        expected["provider"] = json!(provider);
+        assert_eq!(serde_json::to_value(&explicit).expect("explicit shape"), expected);
+        assert_eq!(
+            serde_json::from_value::<DirectCreateParams>(expected).expect("round trip"),
+            explicit
+        );
+    }
 }
 
 #[test]

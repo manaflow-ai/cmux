@@ -316,3 +316,24 @@ fn a_resize_takes_a_size_or_a_disk_in_four_gib_steps() {
     }
     assert_eq!(resize(&args(json!({}))), Err(Said::with("resizeNeedsSizeOrDisk", [names])));
 }
+
+#[test]
+fn new_machine_preserves_an_explicit_provider_and_refuses_invalid_values() {
+    for provider in ["gcp", "own-host", "freestyle"] {
+        let request = new_machine(&args(json!({"provider": provider})), HOME).unwrap();
+        assert_eq!(request.provider.as_deref(), Some(provider));
+        assert_eq!(serde_json::to_value(request).unwrap()["provider"], provider);
+    }
+    assert!(
+        serde_json::to_value(new_machine(&args(json!({})), HOME).unwrap())
+            .unwrap()
+            .get("provider")
+            .is_none()
+    );
+    for provider in [json!(null), json!(true), json!(""), json!("gce"), json!(" gcp "), json!(42)] {
+        assert_eq!(
+            new_machine(&args(json!({"provider": provider})), HOME).unwrap_err().key,
+            "providerInvalid"
+        );
+    }
+}

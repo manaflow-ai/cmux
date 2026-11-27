@@ -204,3 +204,14 @@ fn unknown_ops_and_bad_json_are_refused() {
         ERR_INVALID
     );
 }
+
+#[test]
+fn new_machine_provider_survives_the_swift_bridge() {
+    for provider in ["gcp", "own-host", "freestyle"] {
+        let body = ok(
+            c"cloud_handler_arg",
+            json!({"check": "newMachine", "home": "/Users/me", "args": {"provider": provider}}),
+        );
+        assert_eq!(body["value"]["provider"], provider);
+    }
+}

@@ -63,6 +63,90 @@ fn the_model_is_taken_from_model_or_agent_and_checked() {
 }
 
 #[test]
+fn explicit_provider_creates_before_starting_on_the_returned_machine() {
+    for provider in ["gcp", "own-host", "freestyle"] {
+        let asked = request(&["--provider", provider, "--name", "insurance", "--no-focus"]);
+        let mut fake = Fake::new(vec![signed_in(), made(), started(), exec_out("")]);
+        let outcome = run(&mut fake, &asked);
+        assert!(matches!(outcome, Outcome::Done(_)), "{outcome:?}");
+        assert_eq!(
+            fake.ran[1],
+            strings(&[
+                "cloud",
+                "new-machine",
+                "--name",
+                "insurance",
+                "--provider",
+                provider,
+                "--no-focus",
+                "--json"
+            ])
+        );
+        assert_eq!(
+            fake.ran[2],
+            strings(&[
+                "cloud",
+                "start-session",
+                "--target",
+                "machine:vm-1",
+                "--agent",
+                "claude",
+                "--no-focus",
+                "--json"
+            ])
+        );
+        let mut progress = Progress::default();
+        assert_eq!(progress.rerun(&asked).provider.as_deref(), Some(provider));
+        progress.created = Some("insurance".into());
+        assert_eq!(progress.rerun(&asked).provider, None);
+        assert!(
+            !again_command(&progress.rerun(&asked), &Machine::Target("vm-1".into()))
+                .contains("--provider")
+        );
+    }
+}
+
+#[test]
+fn explicit_provider_does_not_reuse_an_unverified_machine() {
+    assert!(
+        parse(&strings(&["--provider", "gcp", "--target", "vm:vm-1"]), || Ok(String::new()))
+            .is_err()
+    );
+    let asked = request(&["--provider", "own-host", "--name", "dev"]);
+    let mut fake = Fake::new(vec![signed_in()]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
+    assert_eq!(exit, 2);
+    assert!(error["message"].as_str().unwrap().contains("--provider"));
+    assert_eq!(fake.ran.len(), 1);
+}
+
+#[test]
+fn explicit_provider_pending_start_gives_a_parseable_retry_on_its_created_machine() {
+    let asked = request(&["--provider", "gcp", "--name", "insurance"]);
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        made(),
+        ok(json!({"pending": true, "machine_id": "vm-1", "text": "still starting"})),
+        signed_in(),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &asked) else { panic!() };
+    assert_eq!(exit, 75);
+    assert_eq!(error["details"]["creation_accepted"], true);
+    let again = error["details"]["again"].as_str().expect("retry command");
+    let args = again
+        .split_whitespace()
+        .skip(3)
+        .filter(|word| *word != "--json")
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let Parsed::Run(retry) = parse(&args, || Ok(String::new())).expect("valid retry") else {
+        panic!("{again}")
+    };
+    assert_eq!(retry.machine, Machine::Target("vm-1".into()));
+    assert_eq!(retry.provider, None);
+}
+
+#[test]
 fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
     let parsed = request(&["--prompt", "hi there"]);
     assert_eq!(
@@ -76,6 +160,7 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
             cwd: None,
             from_folder: None,
             environment: None,
+            provider: None,
             account: None,
             machine: Machine::New,
             wait: false,
@@ -112,6 +197,15 @@ fn parse_takes_the_prompt_and_defaults_to_claude_on_a_new_machine() {
     // After `--`, the prompt is text: an output flag or `-` is what it says.
     assert_eq!(request(&["--wait", "--", "--json"]).prompt.as_deref(), Some("--json"));
     assert_eq!(request(&["--", "-"]).prompt.as_deref(), Some("-"));
+}
+
+#[test]
+fn provider_is_closed_and_survives_retry_command() {
+    let asked = request(&["--provider", "gcp", "--prompt", "go"]);
+    assert_eq!(asked.provider.as_deref(), Some("gcp"));
+    assert!(again_command(&asked, &Machine::Named("chat-1".into())).contains("--provider gcp"));
+    assert!(parse(&strings(&["--provider", "aws"]), || Ok(String::new())).is_err());
+    assert!(TAKES_VALUE.contains(&"--provider"));
 }
 
 /// `cmux cloud start-chat -- --json` (cmuxterm-hq#7487 item 4): the global scan and the output
@@ -3161,6 +3255,7 @@ fn a_prompt_to_a_running_chat_on_a_vm_sends_and_waits_without_a_start() {
         cwd: None,
         from_folder: None,
         environment: None,
+        provider: None,
         account: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,
@@ -3203,6 +3298,7 @@ fn a_send_to_a_running_chat_past_its_deadline_sends_nothing_and_says_how_to_send
         cwd: None,
         from_folder: None,
         environment: None,
+        provider: None,
         account: None,
         machine: Machine::Target("vm-1".into()),
         wait: true,

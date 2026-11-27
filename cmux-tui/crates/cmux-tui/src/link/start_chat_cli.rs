@@ -125,15 +125,27 @@ pub(super) fn run(args: &[String]) -> i32 {
             })
         }),
         "pin" => match (flags.key(), flags.account(), flags.one("--machine"), flags.workspace()) {
-            (Some(key), Some(account), Some(machine), Some(workspace)) => {
-                Some(pin(&ledger, &key, account, machine, workspace))
-            }
+            (Some(key), Some(account), Some(machine), Some(workspace)) => Some(pin_with_provider(
+                &ledger,
+                &key,
+                account,
+                machine,
+                workspace,
+                flags.one("--provider"),
+            )),
             _ => None,
         },
         "create-begin" => {
             match (flags.key(), flags.account(), flags.one("--name"), flags.one("--create-key")) {
                 (Some(key), Some(account), Some(name), Some(create_key)) => {
-                    Some(create_begin(&ledger, &key, account, name, create_key))
+                    Some(create_begin_with_provider(
+                        &ledger,
+                        &key,
+                        account,
+                        name,
+                        create_key,
+                        flags.one("--provider"),
+                    ))
                 }
                 _ => None,
             }
@@ -340,6 +352,9 @@ struct PlanRequest {
     reservation_key: Option<String>,
     #[serde(default)]
     platform: Option<String>,
+    /// An explicit infrastructure provider. Omitted preserves the backend default.
+    #[serde(default)]
+    provider: Option<String>,
     /// The size a new machine needs for the chat's folder (`preflight`'s `needed_size`: `md`, `lg`, `xl`); none or
     /// `sm` is the platform's chat size. A larger one is never a warm spare: those are all `sm`.
     #[serde(default)]
@@ -395,6 +410,13 @@ fn plan_with_calls(
         return refused("bad_request", "the account is too long or has control characters");
     }
     if request
+        .provider
+        .as_deref()
+        .is_some_and(|provider| !matches!(provider, "gcp" | "own-host" | "freestyle"))
+    {
+        return refused("bad_request", "the provider must be gcp, own-host or freestyle");
+    }
+    if request
         .size
         .as_deref()
         .is_some_and(|size| !matches!(size, "sm" | "md" | "lg" | "xl" | "2xl"))
@@ -405,7 +427,7 @@ fn plan_with_calls(
         );
     }
     // A machine larger than the chat size is never a warm spare (every spare is `sm`): no reservation goes for it.
-    if larger_than_chat(request.size.as_deref()) {
+    if larger_than_chat(request.size.as_deref()) || request.provider.is_some() {
         request.reservation_key = None;
     }
     let workspace = request.workspace.as_deref();
@@ -425,6 +447,12 @@ fn plan_with_calls(
     let send = Send::new(&request.key, &request.account);
     match Ledger::update(ledger, |pins| pins.pending_create(&send)) {
         Ok(Some(pending)) => {
+            if pending.provider.as_deref() != request.provider.as_deref() {
+                return refused(
+                    "provider_conflict",
+                    "this send is already pinned to another provider",
+                );
+            }
             if let Some(key) = &pending.create_key {
                 keys.create = key.clone();
             }
@@ -441,10 +469,17 @@ fn plan_with_calls(
     let planned = Ledger::update(ledger, |pins| {
         let mut destination =
             pick::destination(&send, pins, &request.machines, &request.stored, request.loaded);
+        if request.provider.is_some()
+            && pins.provider(&send).as_deref() != request.provider.as_deref()
+            && matches!(destination, Destination::Machine(_))
+        {
+            return Err(anyhow::anyhow!("this send is already pinned to another provider"));
+        }
         // A new send reuses the person's own machine, unless it asks for what that machine may not
         // be: a Cloud image of its own (`environment`: a machine boots in its image only when made),
         // a size above the chat size, or a disk grown for the folder. Those make a new machine.
-        let reusable = request.environment.is_none()
+        let reusable = request.provider.is_none()
+            && request.environment.is_none()
             && !larger_than_chat(request.size.as_deref())
             && preflight::grown_disk_gib(
                 request.size.as_deref(),
@@ -464,15 +499,16 @@ fn plan_with_calls(
             }
         }
         if let Destination::Machine(id) = &destination {
-            pins.record(id, &send);
+            pins.record_made_with_provider(id, &send, false, request.provider.as_deref());
             // A retry of an older send keeps its machine, never the workspace's newer one,
             // and a machine another workspace has never becomes this one's too.
             if let Some(workspace) = workspace {
                 pick::claim(pins, workspace, &request.account, id);
             }
         }
-        destination
-    });
+        Ok(destination)
+    })
+    .and_then(|destination| destination);
     let repo = request.local.as_deref().and_then(folder_repo);
     let project_key = if matches!(&planned, Ok(Destination::New)) {
         match request.local.as_deref().map(|local| project::folder_key(ledger, local)).transpose() {
@@ -694,6 +730,9 @@ fn ensure_credential<'a>((session, install): (&'a str, &'a str)) -> &'a str {
 /// the account is the personal one (the App spells it `user/` with no team: workspace machines are made in
 /// the personal team) and the App handed over the credential.
 fn ensures(request: &PlanRequest, project_key: Option<&str>) -> bool {
+    if request.provider.is_some() {
+        return false;
+    }
     let personal = request
         .account
         .split_once('/')
@@ -1166,10 +1205,21 @@ pub(super) fn pin(
     machine: &str,
     workspace: Option<&str>,
 ) -> Value {
+    pin_with_provider(ledger, key, account, machine, workspace, None)
+}
+
+fn pin_with_provider(
+    ledger: &Path,
+    key: &str,
+    account: &str,
+    machine: &str,
+    workspace: Option<&str>,
+    provider: Option<&str>,
+) -> Value {
     match Ledger::update(ledger, |pins| {
         let send = Send::new(key, account);
         let before = pins.machine(&send);
-        pins.record_pin(machine, &send);
+        pins.record_pin_with_provider(machine, &send, provider);
         if let Some(workspace) = workspace {
             let repick = before.as_deref().is_some_and(|before| {
                 before != machine
@@ -1188,8 +1238,19 @@ pub(super) fn pin(
 }
 
 fn create_begin(ledger: &Path, key: &str, account: &str, name: &str, create_key: &str) -> Value {
+    create_begin_with_provider(ledger, key, account, name, create_key, None)
+}
+
+fn create_begin_with_provider(
+    ledger: &Path,
+    key: &str,
+    account: &str,
+    name: &str,
+    create_key: &str,
+    provider: Option<&str>,
+) -> Value {
     match Ledger::update(ledger, |pins| {
-        pins.begin_create(&Send::new(key, account), name, create_key)
+        pins.begin_create(&Send::new(key, account), name, create_key, provider)
     }) {
         Ok(true) => json!({"ok": true}),
         Ok(false) => refused("not_found", "no matching create key"),
