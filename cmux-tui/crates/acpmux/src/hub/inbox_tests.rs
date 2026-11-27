@@ -2207,3 +2207,75 @@ async fn explicit_gather_fyi_preserves_off_warm_ordinary_and_urgent_handling() {
     }
     super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(None));
 }
+
+#[tokio::test]
+async fn gathered_fyi_keeps_open_deadline_after_compaction_warms_metadata() {
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| {
+        k.set(Some(super::cold_wake::Knobs {
+            enabled: true,
+            compact: false,
+            compact_above: super::cold_wake::DEFAULT_COMPACT_ABOVE_TOKENS,
+        }))
+    });
+    let (hub, session) = hub_with_chat("gather-compacted");
+    let now = now_ms();
+    {
+        let mut meta = session.meta.lock().unwrap();
+        meta.usage = Some(json!({"used": 200_000,
+            "_meta": {"acpmux": {"cacheExpiresAt": now - 40 * 60_000}}}));
+        meta.last_turn = Some(json!({"endedAt": now - 45 * 60_000}));
+    }
+    let mut fyi = item("gather", "bridge", "slack-listen", PromptClass::Fyi, now, "update");
+    fyi.gather = true;
+    session.inbox().items.push(fyi);
+    hub.inbox_review(&session);
+    let due = session.cold_batch.lock().unwrap().expect("open batch").due;
+    // Completing compaction updates last_turn and makes cache_expires_at warm.
+    session.meta.lock().unwrap().last_turn = Some(json!({"endedAt": now_ms()}));
+    assert!(super::cold_wake::coldness(&session.meta(), now_ms()).is_none());
+    hub.inbox_review(&session);
+    assert_eq!(session.cold_batch.lock().unwrap().unwrap().due, due);
+    assert!(!tried(&session), "compaction cannot flush the pending FYI early");
+    session.cold_batch.lock().unwrap().as_mut().unwrap().due = now_ms().saturating_sub(1);
+    hub.inbox_review(&session);
+    assert_eq!(
+        carried(&session),
+        Some(vec!["gather".into()]),
+        "newly warm metadata cannot strand an open batch at the ordinary FYI deadline"
+    );
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(None));
+}
+
+#[tokio::test]
+async fn gathered_fyi_keeps_page_and_surge_holds() {
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| {
+        k.set(Some(super::cold_wake::Knobs {
+            enabled: true,
+            compact: false,
+            compact_above: super::cold_wake::DEFAULT_COMPACT_ABOVE_TOKENS,
+        }))
+    });
+    for (name, verdict, surge) in [
+        ("gather-page-hold", Some(page_rule::Verdict::Hold), false),
+        ("gather-page-fold", Some(page_rule::Verdict::Fold), false),
+        ("gather-surge-hold", None, true),
+    ] {
+        let (hub, session) = hub_with_chat(name);
+        let now = now_ms();
+        {
+            let mut meta = session.meta.lock().unwrap();
+            meta.usage = Some(json!({"used": 200_000,
+                "_meta": {"acpmux": {"cacheExpiresAt": now - 40 * 60_000}}}));
+            meta.last_turn = Some(json!({"endedAt": now - 45 * 60_000}));
+        }
+        let mut fyi = item("held", "bridge", "agent-forum", PromptClass::Fyi, now, "update");
+        fyi.gather = true;
+        fyi.verdict = verdict;
+        fyi.surge_held = surge;
+        session.inbox().items.push(fyi);
+        hub.inbox_review(&session);
+        assert!(session.cold_batch.lock().unwrap().is_none(), "{name}");
+        assert!(!tried(&session), "{name}");
+    }
+    super::cold_wake::KNOBS_FOR_TEST.with(|k| k.set(None));
+}

@@ -618,6 +618,9 @@ impl Hub {
                                 i.fire
                                     || matches!(i.class, PromptClass::Block | PromptClass::Question)
                             });
+                            let gather = new.iter().any(|i| {
+                                i.gather && !i.surge_held && i.verdict.is_none() && !quiet(i)
+                            });
                             if fyi_only {
                                 inbox.held_by_person = false;
                             }
@@ -634,12 +637,9 @@ impl Hub {
                             };
                             // A bridge can explicitly join the cold batch even when its class
                             // alone would wait for the inbox deadline. Keep page and reader holds.
-                            let gather = || {
-                                new.iter().any(|i| {
-                                    i.gather && !i.surge_held && i.verdict.is_none() && !quiet(i)
-                                })
-                            };
-                            let cold = if !blocker && (waking.is_some() || (lapsed && gather())) {
+                            // An open batch keeps its deadline after compaction warms the cache;
+                            // cold_batch_due rejects warm chats only when no batch exists.
+                            let cold = if !blocker && (waking.is_some() || gather) {
                                 self.cold_batch_due(session, &meta, now)
                             } else {
                                 None
