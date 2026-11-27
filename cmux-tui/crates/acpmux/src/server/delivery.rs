@@ -269,19 +269,29 @@ pub(super) fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             if rec.dir == "peer" && !view::a_link(conn) && !batched {
                 held_rows::flush(hub, conn);
                 let sid = remote.summary.session_id().unwrap_or(&ev.session_id);
-                // The packed row, parsed for this line only (`RemoteRef::summary`).
+                // The packed row, parsed once per record for every connection that sends it
+                // (`EventRow::peers`) and kept until the last takes the event (`SharedRow`).
                 let tools = attached || conn.watch_tools.load(Ordering::SeqCst);
-                let mut session: Value = serde_json::from_str(&remote.summary.changed_text(tools))
-                    .unwrap_or(Value::Null);
-                if conn.omit_time_breakdown.load(Ordering::SeqCst) {
-                    requests::without_time_breakdown(&mut session);
-                }
                 let qualified = remote.qualified_id(&ev.session_id);
                 if !attached && conn.leaves_out_row() {
                     // Read again with the list once a chat here shows (`leaves_out_row`).
                     session_patch::forget(conn, &qualified);
                     return;
                 }
+                let lean = conn.omit_time_breakdown.load(Ordering::SeqCst);
+                let session = ev
+                    .row
+                    .peer_cell(tools, lean)
+                    .get_or_build_for(ev.row.fanout.owed(), || {
+                        let mut session: Value =
+                            serde_json::from_str(&remote.summary.changed_text(tools))
+                                .unwrap_or(Value::Null);
+                        if lean {
+                            requests::without_time_breakdown(&mut session);
+                        }
+                        Some(session)
+                    })
+                    .unwrap_or_default();
                 if rec.kind == "purged" {
                     session_patch::forget(conn, &qualified);
                 } else if session.is_object() {
@@ -370,8 +380,9 @@ pub(super) fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         } else {
             list_row
         };
-        let summary = row.get_or_build(|| {
+        let summary = row.get_or_build_for(ev.row.fanout.owed(), || {
             let s = hub.resolve(&ev.session_id).ok()?;
+            hub.watcher_row_builds.fetch_add(1, Ordering::Relaxed);
             Some(if full {
                 let mut summary = hub.session_change_summary(&s, rec.seq);
                 if lean {

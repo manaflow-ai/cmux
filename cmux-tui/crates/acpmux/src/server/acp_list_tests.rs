@@ -13,7 +13,7 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 
 /// A hub mirroring `rows` chats from each of `peers` peers, each with a tool list of about 3.4 KB.
-async fn fleet_hub(peers: usize, rows: usize) -> Arc<crate::hub::Hub> {
+pub(super) async fn fleet_hub(peers: usize, rows: usize) -> Arc<crate::hub::Hub> {
     let mut config = Config::default();
     config.store.mode = StoreMode::Memory;
     let store = crate::store::open(&config.store, std::path::Path::new("/nonexistent")).unwrap();

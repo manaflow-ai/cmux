@@ -96,8 +96,11 @@ pub(super) fn deliver_once(hub: &Arc<Hub>, conn: &Arc<Conn>, ev: crate::hub::Hub
     let row = ev.row.clone();
     deliver(hub, conn, ev);
     // Queued what this connection owes for it: the last connection to get here times the
-    // event's fan-out (`gauges.fanout`).
-    row.fanout.taken();
+    // event's fan-out (`gauges.fanout`) and lets go of the rows kept for the others
+    // (`SharedRow`).
+    if row.fanout.taken() {
+        row.release();
+    }
 }
 
 pub(super) fn start(

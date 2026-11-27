@@ -765,7 +765,7 @@ pub(crate) fn question_prompt(request: &Value) -> Option<&str> {
 }
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::{Mutex, Notify, RwLock, broadcast, mpsc, oneshot};
 
@@ -814,32 +814,114 @@ pub struct HubEvent {
 
 /// A [`HubEvent`]'s cells its receivers share: its row without its tools, with them, and with
 /// them but no time breakdown (a client that draws none: its `initialize`'s `omitTimeBreakdown`,
-/// or an attach's, `SubOpts::omit_time_breakdown`), and the clock of its fan-out to the
-/// connections (`gauges::FanoutClock`).
+/// or an attach's, `SubOpts::omit_time_breakdown`), a peer's row parsed (`peers`, indexed by
+/// [`EventRow::peer_cell`]), and the clock of its fan-out to the connections
+/// (`gauges::FanoutClock`).
 #[derive(Debug, Default)]
 pub struct EventRow {
     pub cells: [SharedRow; 3],
+    /// A peer's row as `session_changed` carries it, parsed once per record: without and with
+    /// tools, each with and without its time breakdown.
+    pub peers: [SharedRow; 4],
     pub fanout: crate::gauges::FanoutClock,
 }
 
-/// One record's row, shared by the watchers sending it at the same time and held only while one
-/// does. The event ring keeps its last 8,192 events (`Events::new`), so a row each event kept
-/// stayed until 8,192 later records pushed it out: a full row carries up to 512 time spans,
-/// the tools and the MCP servers as `Value`s, and huge-blue's daemon grew about 1.1 GB an hour
-/// to 17 GB (cmuxterm-hq#14649); a lane VM's held 1.6 million spans in 6.4 GB after 6 hours.
+impl EventRow {
+    /// The cell of a peer's row for a connection that wants its `tools` and, when `lean`, no
+    /// time breakdown.
+    pub fn peer_cell(&self, tools: bool, lean: bool) -> &SharedRow {
+        &self.peers[usize::from(tools) * 2 + usize::from(lean)]
+    }
+
+    /// The last receiver took the event: every row held for the others goes now.
+    pub fn release(&self) {
+        for cell in self.cells.iter().chain(&self.peers) {
+            cell.release();
+        }
+    }
+}
+
+/// How many rows, over every event, are held for receivers that have not sent them yet. A held
+/// row is a built tree (a full one carries up to 512 time spans), so the bound is a count: past
+/// it a row is shared only while a receiver sends it, as before.
+pub(crate) const MAX_HELD_ROWS: usize = 256;
+
+static HELD_ROWS: AtomicUsize = AtomicUsize::new(0);
+
+/// Rows held now, over every event (a gauge for the tests).
+pub(crate) fn held_rows() -> usize {
+    HELD_ROWS.load(Ordering::Acquire)
+}
+
+/// One record's row, shared by the connections sending it. It is held until the event's last
+/// receiver takes it (`EventRow::release`, called by `server::fanout`), so one build serves all N
+/// connections, not one per connection that found it let go. The event ring keeps its last
+/// 8,192 events (`Events::new`), so a row each event kept stayed until 8,192 later records pushed
+/// it out: a full row carries up to 512 time spans, the tools and the MCP servers as `Value`s,
+/// and huge-blue's daemon grew about 1.1 GB an hour to 17 GB (cmuxterm-hq#14649); a lane VM's
+/// held 1.6 million spans in 6.4 GB after 6 hours. So the hold is bounded three ways: only for an
+/// event still owed to two or more connections, at most [`MAX_HELD_ROWS`] rows over every event,
+/// and dropped when the last receiver takes it or the event itself is dropped. A receiver that
+/// never takes it (a lag, a closed connection) keeps a slot only until the ring lets the event go.
 #[derive(Debug, Default)]
-pub struct SharedRow(std::sync::Mutex<std::sync::Weak<Value>>);
+pub struct SharedRow(std::sync::Mutex<Slot>);
+
+#[derive(Debug, Default)]
+struct Slot {
+    /// The row while a receiver still holds it, held or not.
+    seen: std::sync::Weak<Value>,
+    /// The row kept for the receivers to come (counted in [`HELD_ROWS`]).
+    held: Option<Arc<Value>>,
+}
+
+impl Slot {
+    fn release(&mut self) {
+        if self.held.take().is_some() {
+            HELD_ROWS.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+}
+
+impl Drop for SharedRow {
+    fn drop(&mut self) {
+        self.0.get_mut().unwrap_or_else(|e| e.into_inner()).release();
+    }
+}
 
 impl SharedRow {
-    /// The row a watcher is still sending, else `build`'s, which the next one shares.
+    /// The row a watcher is still sending, else `build`'s, which the next one shares. Kept no
+    /// longer than a receiver sends it.
     pub(crate) fn get_or_build(&self, build: impl FnOnce() -> Option<Value>) -> Option<Arc<Value>> {
-        let mut held = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(row) = held.upgrade() {
+        self.get_or_build_for(0, build)
+    }
+
+    /// As [`SharedRow::get_or_build`], and the row is kept for the `owed` connections yet to take
+    /// the event (`FanoutClock::owed`) when two or more do and the global bound allows.
+    pub(crate) fn get_or_build_for(
+        &self,
+        owed: usize,
+        build: impl FnOnce() -> Option<Value>,
+    ) -> Option<Arc<Value>> {
+        let mut slot = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(row) = slot.seen.upgrade() {
             return Some(row);
         }
         let row = Arc::new(build()?);
-        *held = Arc::downgrade(&row);
+        slot.seen = Arc::downgrade(&row);
+        // `seen` upgraded to nothing, so nothing is held: a new hold takes a slot or none.
+        if owed > 1 {
+            if HELD_ROWS.fetch_add(1, Ordering::AcqRel) < MAX_HELD_ROWS {
+                slot.held = Some(row.clone());
+            } else {
+                HELD_ROWS.fetch_sub(1, Ordering::AcqRel);
+            }
+        }
         Some(row)
+    }
+
+    /// Lets go of the row kept for later receivers.
+    pub(crate) fn release(&self) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).release();
     }
 }
 
@@ -1637,6 +1719,9 @@ pub struct Hub {
     /// copies, merges and encodes the record's params. HOT PATH AUDIT area F, row A4: once per record,
     /// not once per connection.
     pub(crate) session_update_encodes: std::sync::atomic::AtomicU64,
+    /// Session rows a watcher's delivery built (`server::deliver`): with N watchers, one per
+    /// record, not N.
+    pub(crate) watcher_row_builds: std::sync::atomic::AtomicU64,
     /// `_acpmux/wait` row evaluations since start (`server/wait.rs`): each builds the summaries of
     /// the chats it waits on. A streamed token must cost none (HOT PATH AUDIT area F, row A1).
     pub(crate) wait_evaluations: std::sync::atomic::AtomicU64,
@@ -2068,6 +2153,7 @@ impl Hub {
             subsession_runs: Default::default(),
             open_waits: Default::default(),
             session_update_encodes: Default::default(),
+            watcher_row_builds: Default::default(),
             wait_evaluations: Default::default(),
             subagent_retries: Default::default(),
             subagent_resumes: Default::default(),

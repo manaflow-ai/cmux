@@ -518,12 +518,12 @@ impl FanoutClock {
     }
 
     /// One connection's fan-out task queued the event; the last one records the sample.
-    pub fn taken(&self) {
-        self.taken_into(fanout_latency());
+    /// Returns whether it was the last one (the event's rows can go: `EventRow::release`).
+    pub fn taken(&self) -> bool {
+        self.taken_into(fanout_latency())
     }
 
     /// Connections' fan-out tasks yet to take the event.
-    #[cfg(test)]
     pub fn owed(&self) -> usize {
         self.left.load(Ordering::Acquire)
     }
@@ -533,14 +533,16 @@ impl FanoutClock {
         self.sent_ns.load(Ordering::Relaxed) > 0
     }
 
-    fn taken_into(&self, ring: &Latencies) {
+    fn taken_into(&self, ring: &Latencies) -> bool {
         let less = |left: usize| left.checked_sub(1);
         if self.left.fetch_update(Ordering::AcqRel, Ordering::Acquire, less) == Ok(1) {
             let sent = Duration::from_nanos(self.sent_ns.load(Ordering::Relaxed));
             if !sent.is_zero() {
                 ring.record(global().born.elapsed().saturating_sub(sent));
             }
+            return true;
         }
+        false
     }
 }
 
