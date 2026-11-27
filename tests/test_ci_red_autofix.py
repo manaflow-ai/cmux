@@ -679,6 +679,48 @@ class ChecksTests(unittest.TestCase):
         self.assertFalse(ok)
 
 
+class FixerResultTests(unittest.TestCase):
+    # Run 45738143849's fixer job 139639077216: the weekly limit, read back as subtype success with is_error.
+    WEEKLY = ('{"type":"result","subtype":"success","is_error":true,'
+              '"result":"You\'ve hit your weekly limit \u00b7 resets Dec 2, 3am (UTC)"}')
+
+    def test_weekly_limit_is_limited_never_ok(self):
+        got = ra.fixer_result("claude", self.WEEKLY, "", 1)
+        self.assertEqual(got["status"], "limited")
+        self.assertEqual(got["mechanical"], "false")
+        self.assertIn("weekly limit", got["why"])
+
+    def test_schema_answer_is_ok(self):
+        answer = '{"subtype":"success","is_error":false,"structured_output":{"mechanical":true,"summary":"fix  it"}}'
+        got = ra.fixer_result("claude", answer, "", 0)
+        self.assertEqual((got["status"], got["mechanical"], got["summary"]), ("ok", "true", "fix it"))
+
+    def test_not_mechanical_is_still_an_answer(self):
+        answer = '{"subtype":"success","result":"{\\"mechanical\\": false, \\"summary\\": \\"needs design\\"}"}'
+        got = ra.fixer_result("claude", answer, "", 0)
+        self.assertEqual((got["status"], got["mechanical"]), ("ok", "false"))
+
+    def test_no_answer_and_bad_login_is_limited(self):
+        got = ra.fixer_result("claude", "", "Invalid API key \u00b7 Please run /login", 1)
+        self.assertEqual(got["status"], "limited")
+
+    def test_crash_without_a_known_cause_is_failed(self):
+        got = ra.fixer_result("claude", "", "Segmentation fault", 139)
+        self.assertEqual(got["status"], "failed")
+        self.assertIn("exit 139", got["why"])
+
+    def test_codex_last_message_and_codex_quota(self):
+        self.assertEqual(ra.fixer_result("codex", '{"mechanical": true, "summary": "s"}', "", 0)["status"], "ok")
+        got = ra.fixer_result("codex", "", "ERROR: You've hit your usage limit. Try again in 3 days.", 1)
+        self.assertEqual(got["status"], "limited")
+
+    def test_workflow_falls_back_and_fails_when_no_fixer_ran(self):
+        text = (Path(__file__).resolve().parents[1] / ".github/workflows/red-autofix.yml").read_text()
+        for needle in ("claude-oauth claude-api codex", "secrets.ANTHROPIC_API_KEY", "secrets.CODEX_AUTH_JSON",
+                       "fixer-result --harness", 'echo "limited=true"', '[ "$NO_FIXER" = true ]'):
+            self.assertIn(needle, text)
+
+
 class CommentTests(unittest.TestCase):
     def test_only_the_bots_own_marker_comment_is_edited(self):
         # CodeRabbit 4691805886: anyone can paste the marker; only the Actions bot's comment is ours.

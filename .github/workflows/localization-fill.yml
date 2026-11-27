@@ -37,8 +37,11 @@ jobs:
   gaps:
     name: Find unfilled locales
     if: ${{ (vars.LOCALIZATION_FILL || 'on') != '0' && github.repository_owner == 'manaflow-ai' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_OVERFLOW_LINUX || 'cmux-linux' }}
+    timeout-minutes: 20
+    env:
+      # The wait gives up after 10 minutes; the next run fills what this one could not.
+      GH_BUDGET_WAIT_MAX_SECONDS: "600"
     permissions:
       contents: read
       pull-requests: read
@@ -46,9 +49,24 @@ jobs:
       rows: ${{ steps.gaps.outputs.rows }}
       head: ${{ steps.head.outputs.head }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh), as billing-nightly.yml: every later gh
+      # call waits through a rate limit or a GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: main
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: refs/heads/main
           path: main
           sparse-checkout: |
             scripts
@@ -121,9 +139,23 @@ jobs:
           npm install --global --no-fund --no-audit @anthropic-ai/claude-code@2.1.284 >/dev/null
           schema='{"type":"object","properties":{"translations":{"type":"array","items":{"type":"object","properties":{"id":{"type":"integer"},"value":{},"localization":{"type":"object"}},"required":["id"]}}},"required":["translations"]}'
           mkdir -p "$RUNNER_TEMP/empty"
+          rc=0
           (cd "$RUNNER_TEMP/empty" && claude -p \
             --disallowedTools "Bash,Read,Edit,Write,Glob,Grep,WebFetch,WebSearch,NotebookEdit,Task" \
-            --max-turns 4 --output-format json --json-schema "$schema" < "$RUNNER_TEMP/packet/prompt.txt") > "$RUNNER_TEMP/answer.json"
+            --max-turns 4 --output-format json --json-schema "$schema" < "$RUNNER_TEMP/packet/prompt.txt") > "$RUNNER_TEMP/answer.json" || rc=$?
+          # The CLI writes its error into the JSON answer, not stderr: print it, or a failure here says nothing.
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::claude -p exited $rc (CLAUDE_CODE_OAUTH_TOKEN set: $([ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && echo yes || echo no))"
+            python3 -I -c 'import json,sys
+          raw=open(sys.argv[1]).read()
+          try:
+              a=json.loads(raw)
+          except ValueError:
+              print("answer (not JSON):", raw[:2000]); raise SystemExit
+          print({k: a.get(k) for k in ("subtype","is_error","api_error_status","terminal_reason","stop_reason","num_turns")})
+          print("result:", str(a.get("result"))[:2000])' "$RUNNER_TEMP/answer.json" || true
+            exit "$rc"
+          fi
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: localization-answer
@@ -135,12 +167,30 @@ jobs:
     name: Open the fill
     needs: [gaps, translate]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    timeout-minutes: 20
+    env:
+      # The wait gives up after 10 minutes; the next run fills what this one could not.
+      GH_BUDGET_WAIT_MAX_SECONDS: "600"
     permissions:
       contents: read
     steps:
+      # This commit's GitHub API wait (scripts/ci/gh_budget_wait.sh), as billing-nightly.yml: every later gh
+      # call waits through a rate limit or a GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
+      - name: Checkout the GitHub API wait
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .gh-budget-tooling
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/gh_budget_wait.cjs
+          sparse-checkout-cone-mode: false
+      - name: Wait through GitHub API rate limits and 5xx in this job
+        working-directory: ${{ github.workspace }}
+        run: bash .gh-budget-tooling/scripts/ci/gh_budget_wait.sh --install
       # The helper at this workflow's own commit.
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.workflow_sha }}
           path: trusted
@@ -151,7 +201,7 @@ jobs:
             scripts/localization-plurals.json
           sparse-checkout-cone-mode: false
           persist-credentials: false
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.gaps.outputs.head }}
           path: fresh

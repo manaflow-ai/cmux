@@ -23,7 +23,7 @@ jobs:
   journey:
     if: github.repository == 'manaflow-ai/cmux'
     # It holds the cmux-bot App key, so LINUX_RUNNER may only pick a Blacksmith label from this list.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       actions: write
       contents: read
@@ -38,7 +38,7 @@ jobs:
       # each github-script step that installs gh_budget_wait.cjs, waits through a rate limit or a
       # GitHub 5xx under the job's GH_BUDGET_WAIT_MAX_SECONDS, then fails loud.
       - name: Checkout the GitHub API wait
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           ref: ${{ github.sha }}
@@ -68,7 +68,7 @@ jobs:
           permission-issues: write
 
       - name: Checkout the dispatcher script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1

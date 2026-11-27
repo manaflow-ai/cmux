@@ -375,7 +375,7 @@ class TickWiringTests(unittest.TestCase):
         steps = yaml.safe_load(TICK.read_text(encoding="utf-8"))["jobs"]["unstick"]["steps"]
         names = [step.get("name") for step in steps]
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
-        self.assertIn("scripts/ci/gh_app_token.sh", tooling["with"]["sparse-checkout"].split())
+        self.assertNotIn("sparse-checkout", tooling["with"])  # the whole tooling tree: scripts/ci/gh_app_token.sh is in it
         mint = steps[names.index("Mint the cmux-bot token for this job's reads")]
         self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
         self.assertEqual(mint["with"]["app-id"], "${{ vars.CMUX_BOT_APP_ID }}")
@@ -408,7 +408,7 @@ class TickWiringTests(unittest.TestCase):
         names = [step.get("name") for step in steps]
         self.assertNotIn("CI_CONTROL_RUNNER", job["runs-on"])
         tooling = next(step for step in steps if step.get("with", {}).get("path") == ".tick-tooling")
-        self.assertIn("scripts/ci/gh_app_token.sh", tooling["with"]["sparse-checkout"].split())
+        self.assertNotIn("sparse-checkout", tooling["with"])  # the whole tooling tree: scripts/ci/gh_app_token.sh is in it
         mint = steps[names.index("Mint the cmux-bot token for this job's gh calls")]
         self.assertTrue(mint["uses"].startswith("actions/create-github-app-token@"))
         self.assertEqual(mint["with"]["private-key"], "${{ secrets.CMUX_BOT_APP_KEY }}")

@@ -76,7 +76,7 @@ jobs:
       unsigned_sha256: ${{ steps.pack.outputs.sha256 }}
     steps:
       - name: Checkout trusted scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -179,7 +179,7 @@ jobs:
       artifact: rcodesign-${{ github.run_attempt }}
     steps:
       - name: Checkout trusted build scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.sha }}
           fetch-depth: 1
@@ -231,7 +231,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout the build commit's signer
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.prep.outputs.build_sha }}
           fetch-depth: 1
@@ -346,7 +346,7 @@ jobs:
       signer_sha: ${{ steps.next-signer.outputs.sha }}
     steps:
       - name: Checkout trusted signing scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -356,9 +356,9 @@ jobs:
       # nightly-next build is cut from.
       - name: Checkout feat-cmux-next's release signer
         if: inputs.helper_first
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           path: .next-signer
           fetch-depth: 1
           persist-credentials: false
@@ -433,7 +433,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -487,7 +487,7 @@ jobs:
     outputs:
       submission: ${{ steps.notarize.outputs.submission }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -556,7 +556,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout trusted scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -596,7 +596,7 @@ jobs:
     outputs:
       submission: ${{ steps.notarize.outputs.submission }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -669,7 +669,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout trusted scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -721,7 +721,7 @@ jobs:
 
       - name: Checkout the release signer's checks (helper_first)
         if: inputs.helper_first
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.sign-rcodesign.outputs.signer_sha }}
           path: .next-signer
@@ -759,7 +759,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout trusted scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1
@@ -799,7 +799,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout trusted scripts
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 1

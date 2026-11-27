@@ -40,9 +40,9 @@ jobs:
       actions: write
       contents: read
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
-          ref: feat-cmux-next
+          ref: refs/heads/feat-cmux-next
           # The lag is measured in first-parent history; 1500 commits covers more than a day of landings.
           fetch-depth: 1500
           persist-credentials: false

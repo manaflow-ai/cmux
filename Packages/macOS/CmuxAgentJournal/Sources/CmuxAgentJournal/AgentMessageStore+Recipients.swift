@@ -1,5 +1,10 @@
 import Foundation
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
+#if canImport(os)
 internal import os
+#endif
 
 private let optOutLogger = Logger(subsystem: "com.cmuxterm.app", category: "AgentMessages")
 

@@ -1,5 +1,8 @@
 import CoreFoundation
 import Foundation
+#if canImport(CmuxLinuxCompat)
+import CmuxLinuxCompat
+#endif
 
 /// The plan's shared Cloud VM resource pool and how much of it active machines
 /// use (`GET /api/vm` `limits.poolVcpus`, `poolMemoryMb`, `usedVcpus`,

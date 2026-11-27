@@ -44,11 +44,11 @@ jobs:
     permissions:
       actions: write
       contents: read
-    runs-on: ${{ vars.CI_QUEUE_RESERVED == '1' && 'cmux-gcp-queue-jit-x64' || vars.CI_CONTROL_RUNNER || 'cmux-gcp-nightly-x64' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-queue-jit-x64' }}
     timeout-minutes: 9 # under the */10 tick, so the next sweep rarely cancels a running one
     steps:
       - name: Check out the shed script
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci

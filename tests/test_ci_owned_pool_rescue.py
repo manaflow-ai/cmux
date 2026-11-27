@@ -7482,11 +7482,11 @@ class Workflow(unittest.TestCase):
     def test_polls_from_an_ephemeral_runner(self):
         # Never from an owned pool it may rescue, and never only from
         # GitHub-hosted: a GitHub billing block must not stop the rescue. Every
-        # event leads with the repair one-job JIT label, off the pools it
-        # rescues from, and the ephemeral selector follows it.
+        # event takes the reserved queue one-job JIT label (what its switches
+        # resolved to, written out), off the pools it rescues from.
         self.assertEqual(
             self.doc["jobs"]["rescue"]["runs-on"],
-            '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || vars.CI_QUEUE_RESERVED == \'1\' && \'cmux-gcp-queue-jit-x64\' || vars.CI_REPAIR_SKIP_FLEET != \'1\' && \'cmux-gcp-repair-jit-x64\' || contains(fromJSON(\'["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
+            "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'cmux-gcp-queue-jit-x64' }}",
         )
 
     def test_marker_steps_never_fail_the_changes_job(self):
@@ -10272,6 +10272,18 @@ class StallMove(unittest.TestCase):
         self.assertEqual(count, 1, logs)
         self.assertIn(f"workflow:{rescue.CMUX_NEXT_WORKFLOW_PATH}@{HEAD}", api.calls)
         self.assertEqual(starts[0][0].event, "workflow_dispatch")
+        # A head after cmux#45176 cut the clause: its placement reads the dispatch as its pull request's run.
+        placement = ("    env:\n      CMUX_NEXT_PULL_DISPATCH: ${{ github.event_name == 'workflow_dispatch' && 'true' || '' }}\n"
+                     "      CI_BLACKSMITH_MACOS: ${{ vars.CI_BLACKSMITH_MACOS }}\n")
+        logs = []
+        count, starts = scan(dispatch_api(placement), logs)
+        self.assertEqual(count, 1, logs)
+        # A head after cmux#45176 without the placement flag: its bot re-run keeps the side lane, so it is left.
+        cut = ("(vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || "
+               "fromJSON(vars.RUNNER_POOLS).macos_26)")
+        logs = []
+        self.assertEqual(scan(dispatch_api(cut), logs), (0, []))
+        self.assertTrue(any("leaves it" in line for line in logs), logs)
         # The head before the clause: its bot re-run still takes CI_SIDE_LANE_RUNNER.
         old = ("(vars.CI_BLACKSMITH_MACOS != 'pr-rescue' || github.event_name != 'pull_request' || "
                "github.run_attempt < 2) && vars.CI_BLACKSMITH_MACOS != 'on' && vars.CI_SIDE_LANE_RUNNER")

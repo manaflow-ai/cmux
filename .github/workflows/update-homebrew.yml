@@ -94,7 +94,7 @@ jobs:
     # environment's deployment branch policy: main, tags v*).
     environment: release
     needs: gate
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     if: ${{ needs.gate.outputs.proceed == 'true' }}
     steps:
       - name: Get version
@@ -159,7 +159,7 @@ jobs:
 
       - name: Checkout homebrew-cmux
         if: steps.version.outputs.skip != 'true'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           repository: manaflow-ai/homebrew-cmux
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}

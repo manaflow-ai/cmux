@@ -65,7 +65,7 @@ jobs:
     # build and pr_media.py plan would exit with nothing to tour: the job never asks for a runner. From
     # 15:33Z to 18:30Z on 2026-11-21 that was 280 of the 672 CI runs this condition let through.
     if: ${{ github.repository_owner == 'manaflow-ai' && (github.event_name == 'workflow_dispatch' || vars.CI_QUOTA_HOLD != '1' && github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.run_attempt == 1 && github.event.workflow_run.conclusion != 'cancelled' && github.event.workflow_run.conclusion != 'skipped') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: reads the pull request and mostly waits; keeps CI's Linux pool free; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: reads the pull request and mostly waits; keeps CI's Linux pool free
     # CI has completed, so its reads return at once.
     timeout-minutes: 10
     permissions:
@@ -83,13 +83,25 @@ jobs:
     steps:
       # Reads come from the org's route App on its own rate limit when it is
       # configured, as in ci-ui-tests.yml; writes stay on GITHUB_TOKEN.
-      - name: Mint the cmux-bot read token (even runs)
-        # Even run ids read on cmux-bot's installation budget, odd ones on
-        # manaflow-glaeda-route's, so per-PR reads stop draining the build
-        # controller's routing App (5067688 read 0 remaining at 02:17Z and
-        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0
+        # remaining at 02:17Z and 10:32Z on 2026-11-25 with the controller
+        # itself at 234 calls/h; an even/odd run-id split only cut it to
+        # ~9.5k/h on 2026-11-26).
         id: read-token-bot
-        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -106,17 +118,19 @@ jobs:
         if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.read-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-actions: read
           permission-contents: read
           permission-pull-requests: read
           skip-token-revoke: true
 
       - name: Checkout the planner from the default branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
@@ -170,7 +184,7 @@ jobs:
     name: Tour ${{ matrix.tour }}
     needs: plan
     if: ${{ needs.plan.outputs.run != '' && needs.plan.outputs.run != '[]' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds actions write and mostly waits for the tour run; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: holds actions write and mostly waits for the tour run
     # CI's build is done, so a tour waits only for its run
     # (pr_media.RUN_WAIT_SECONDS, 90 minutes, most of it queueing).
     timeout-minutes: 120
@@ -188,13 +202,25 @@ jobs:
     steps:
       # Reads come from the org's route App on its own rate limit when it is
       # configured, as in ci-ui-tests.yml; writes stay on GITHUB_TOKEN.
-      - name: Mint the cmux-bot read token (even runs)
-        # Even run ids read on cmux-bot's installation budget, odd ones on
-        # manaflow-glaeda-route's, so per-PR reads stop draining the build
-        # controller's routing App (5067688 read 0 remaining at 02:17Z and
-        # 10:32Z on 2026-11-25 with the controller itself at 234 calls/h).
+      - name: Check out the App token spread action
+        # Why: .github/actions/app-token-spread (mint on both Apps, spend the fuller one).
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: .app-token-spread
+          sparse-checkout: .github/actions/app-token-spread
+          persist-credentials: false
+      - name: Mint the cmux-bot read token
+        # Every run reads on cmux-bot's installation budget, so per-PR reads
+        # stop draining the build controller's routing App (5067688 read 0
+        # remaining at 02:17Z and 10:32Z on 2026-11-25 with the controller
+        # itself at 234 calls/h; an even/odd run-id split only cut it to
+        # ~9.5k/h on 2026-11-26).
         id: read-token-bot
-        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != '' && (endsWith(format('{0}', github.run_id), '0') || endsWith(format('{0}', github.run_id), '2') || endsWith(format('{0}', github.run_id), '4') || endsWith(format('{0}', github.run_id), '6') || endsWith(format('{0}', github.run_id), '8'))
+        if: (vars.CMUX_BOT_APP_ID != '') && vars.CMUX_BOT_APP_ID != ''
         continue-on-error: true
         timeout-minutes: 1
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -211,17 +237,19 @@ jobs:
         if: (vars.GLAEDA_ROUTE_APP_ID != '') && steps.read-token-bot.outputs.token == ''
         continue-on-error: true
         timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        uses: ./.app-token-spread/.github/actions/app-token-spread
         with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          route-app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          route-private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          bot-app-id: ${{ vars.CMUX_BOT_APP_ID }}
+          bot-private-key: ${{ secrets.CMUX_BOT_APP_KEY }}
           permission-actions: read
           permission-contents: read
           permission-pull-requests: read
           skip-token-revoke: true
 
       - name: Checkout the dispatcher from the default branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
@@ -326,7 +354,7 @@ jobs:
     name: Post media
     needs: [plan, tour]
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.tours != '' && needs.plan.outputs.tours != '[]' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_PR_CONTROL_SKIP_FLEET != '1' && 'cmux-gcp-pr-control-jit-x64' || contains(fromJSON('["blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","cmux-gcp-secret-jit-x64"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted contents and pull-request write token; CI_TRUSTED_RUNNER picks the Blacksmith size
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }} # ephemeral-required: trusted contents and pull-request write token
     # Room for the OCR install and a tesseract read of every shot and gif.
     timeout-minutes: 30
     # The private-terms list lives in this environment, which admits only the
@@ -341,7 +369,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout the publisher from the default branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false

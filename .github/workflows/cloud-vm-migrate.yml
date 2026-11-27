@@ -62,7 +62,7 @@ jobs:
         working-directory: web
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           # A push migrates the commit it pushed; a production dispatch takes main's tip.
           ref: ${{ github.event_name != 'push' && inputs.target == 'production' && 'refs/heads/main' || github.sha }}
@@ -85,7 +85,7 @@ jobs:
   migrate-staging:
     # A push has no inputs and migrates staging, then production.
     if: ${{ github.event_name == 'push' || inputs.target == 'staging' || inputs.target == 'production' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     needs: preflight
     environment: cloud-vm-staging
     defaults:
@@ -97,7 +97,7 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.preflight.outputs.source_sha }}
       - name: Setup Bun
@@ -131,7 +131,7 @@ jobs:
 
   migrate-production:
     if: ${{ github.event_name == 'push' || inputs.target == 'production' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     needs: [preflight, migrate-staging]
     environment: cloud-vm-production
     defaults:
@@ -143,7 +143,7 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ needs.preflight.outputs.source_sha }}
       - name: Setup Bun

@@ -90,6 +90,53 @@ mkdir -p "$DEST_DIR"
 
 sha256_of() { shasum -a 256 "$1" | awk '{print $1}'; }
 
+# The GitHub token's installation quota is shared by every workflow in the
+# repository; once it is spent (HTTP 403 "API rate limit exceeded for
+# installation"), `gh attestation verify` cannot list the manifest's attestations.
+# The attestations of a public repository are also readable without a token, on
+# the runner address's own budget, so fetch the Sigstore bundles that way and
+# verify each one offline with `gh attestation verify --bundle`. That checks the
+# same signer, repository and source commit against the Sigstore trust root as the
+# API lookup (which fetches these same bundles), so it admits nothing the lookup
+# would refuse; any failure here falls back to waiting out the quota.
+verify_attestation_bundles_anonymously() { # <owner/repo> <verify args...>
+  local repo="$1"; shift
+  local digest listing api="${GITHUB_API_URL:-https://api.github.com}" bundle n=0 i
+  digest="$(sha256_of "$MANIFEST")"
+  listing="$MANIFEST.attestations.json"
+  rm -f "$listing" "$MANIFEST".anon-*.sigstore.json
+  if ! curl --proto '=https' --tlsv1.2 -fsS --connect-timeout 10 --max-time 60 \
+      -A cmux-tui-installer -H 'Accept: application/vnd.github+json' \
+      -o "$listing" "$api/repos/$repo/attestations/sha256:$digest"; then
+    rm -f "$listing"
+    echo "warning: the unauthenticated attestation read failed too; waiting out the quota" >&2
+    return 1
+  fi
+  n="$(python3 -c '
+import json, sys
+attestations = json.load(open(sys.argv[1])).get("attestations") or []
+count = 0
+for attestation in attestations:
+    if isinstance(attestation.get("bundle"), dict):
+        json.dump(attestation["bundle"], open(f"{sys.argv[2]}-{count}.sigstore.json", "w"))
+        count += 1
+print(count)
+' "$listing" "$MANIFEST.anon" 2>/dev/null)" || n=0
+  [[ "$n" =~ ^[0-9]+$ ]] || n=0
+  rm -f "$listing"
+  for ((i = 0; i < n; i++)); do
+    bundle="$MANIFEST.anon-$i.sigstore.json"
+    if gh attestation verify "$MANIFEST" --bundle "$bundle" "$@" >&2; then
+      rm -f "$MANIFEST".anon-*.sigstore.json
+      echo "cmux-tui manifest attestation verified offline from a bundle read without the rate-limited token" >&2
+      return 0
+    fi
+  done
+  rm -f "$MANIFEST".anon-*.sigstore.json
+  echo "warning: no attestation bundle read without the token verified ($n read); waiting out the quota" >&2
+  return 1
+}
+
 # Fail closed: without a valid attestation nothing from the manifest is used, so
 # no binary it names is downloaded or executed.
 #
@@ -174,7 +221,9 @@ verify_manifest_attestation() {
   # An exhausted GitHub API quota says nothing about the attestation, and
   # failing on it discards a signed nightly leg (run 37526635018). Retry only
   # that answer, with backoff (1, 2, 4, 8 minutes by default); any other
-  # failure is a verdict and stays final.
+  # failure is a verdict and stays final. Before each wait, read the bundles
+  # without the token (verify_attestation_bundles_anonymously): run
+  # 45583224796 spent all four retries on a drained installation quota.
   local delay="${CMUX_TUI_ATTEST_RETRY_DELAY_SECONDS:-60}"
   local retries_left="${CMUX_TUI_ATTEST_RATE_LIMIT_RETRIES:-4}"
   local output status json="$MANIFEST.verify.json"
@@ -184,6 +233,10 @@ verify_manifest_attestation() {
     [[ -n "$output" ]] && printf '%s\n' "$output" >&2
     if [[ $status -eq 0 ]]; then
       save_verified_bundle "$json" "$cached"
+      rm -f "$json"
+      return 0
+    fi
+    if [[ "$output" == *"rate limit"* ]] && verify_attestation_bundles_anonymously "${ATTEST_SIGNER_WORKFLOW%%/.github/*}" "${ATTEST_ARGS[@]}"; then
       rm -f "$json"
       return 0
     fi
