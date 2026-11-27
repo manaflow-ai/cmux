@@ -173,10 +173,12 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
         ]);
       } catch (error) {
         console.error(`stage ${name}: ${await page.locator("body").innerText()}`);
-        const wire = await page.evaluate(async (modulePath) => {
-          const { acpWire } = await import(modulePath);
-          return acpWire.exportJsonl();
-        }, "/src/agent-session/acpmux/wire.ts");
+        const wire = await page
+          .evaluate(async (modulePath) => {
+            const { acpWire } = await import(modulePath);
+            return acpWire.exportJsonl();
+          }, "/wire.ts")
+          .catch((diagnosticError) => `wire diagnostic failed: ${String(diagnosticError)}`);
         console.error(`stage ${name} wire: ${wire}`);
         throw error;
       } finally {
@@ -317,6 +319,17 @@ await requireBrowserLane("new-tab-first-frame-project.test.ts", async () => {
       // that frame is captured; a fast machine cannot accidentally capture settled hydration.
       await page.locator(".nt-location").waitFor();
       await page.evaluate(() => window.cmuxPaintFrame());
+      // A blank first image must never satisfy the endpoint comparison. The cached
+      // composer already names its actual project, model and effort before host replies.
+      expect(await page.locator(".nt-location").getByText(settle).isVisible()).toBe(true);
+      const visibleFace = async (part: string) =>
+        page
+          .locator(`.acpmux-model [data-fit-part="${part}"]:visible`)
+          .evaluateAll((labels) =>
+            labels.map((label) => label.getAttribute("data-label") ?? label.textContent ?? "").join(" "),
+          );
+      expect(await visibleFace("model")).toMatch(/opus/i);
+      expect(await visibleFace("effort")).toMatch(/medium|med/i);
       expect(await page.evaluate(() => (window as unknown as { __hostPending: number }).__hostPending)).toBeGreaterThan(
         0,
       );
