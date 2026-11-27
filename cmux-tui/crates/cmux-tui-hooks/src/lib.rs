@@ -338,6 +338,18 @@ struct Provider {
     events: &'static [&'static str],
 }
 
+macro_rules! journal_plugin {
+    ($file:literal) => {
+        Format::Plugin {
+            template: concat!(
+                include_str!("../assets/agent-hooks/plugin-stream.js"),
+                "\n",
+                include_str!(concat!("../assets/agent-hooks/", $file))
+            ),
+        }
+    };
+}
+
 const PROVIDERS: &[Provider] = &[
     Provider {
         id: "codex",
@@ -415,7 +427,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".omp/agent/config.json",
         override_env: None,
         override_relative_path: "config.json",
-        format: Format::Plugin { template: include_str!("../assets/agent-hooks/omp.ts") },
+        format: journal_plugin!("omp.ts"),
         events: &[],
     },
     Provider {
@@ -424,7 +436,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".campfire/agent/config.json",
         override_env: None,
         override_relative_path: "config.json",
-        format: Format::Plugin { template: include_str!("../assets/agent-hooks/campfire.ts") },
+        format: journal_plugin!("campfire.ts"),
         events: &[],
     },
     Provider {
@@ -505,7 +517,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".config/opencode/plugins/cmux-tui-journal.js",
         override_env: Some("OPENCODE_CONFIG_DIR"),
         override_relative_path: "plugins/cmux-tui-journal.js",
-        format: Format::Plugin { template: include_str!("../assets/agent-hooks/opencode.js") },
+        format: journal_plugin!("opencode.js"),
         events: &[],
     },
     Provider {
@@ -514,7 +526,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".config/amp/plugins/cmux-tui-journal.ts",
         override_env: None,
         override_relative_path: "plugins/cmux-tui-journal.ts",
-        format: Format::Plugin { template: include_str!("../assets/agent-hooks/amp.ts") },
+        format: journal_plugin!("amp.ts"),
         events: &[],
     },
     Provider {
@@ -523,7 +535,7 @@ const PROVIDERS: &[Provider] = &[
         default_path: ".pi/agent/extensions/cmux-tui-journal.ts",
         override_env: Some("PI_CODING_AGENT_DIR"),
         override_relative_path: "extensions/cmux-tui-journal.ts",
-        format: Format::Plugin { template: include_str!("../assets/agent-hooks/pi.ts") },
+        format: journal_plugin!("pi.ts"),
         events: &[],
     },
 ];
