@@ -43,6 +43,7 @@ lib_name="libcmux_app_ffi.a"
 dylib_name="libcmux_app_ffi.dylib"
 headers_in=("$crates/acpmux-client/include/acpmux_client.h:CAcpmuxClientFFI"
             "$crates/cmux-rd-ffi/include/cmux_rd_ffi.h:CCmuxRdFFI"
+            "$crates/cmux-rd-core/include/cmux_screen_kit.h:CCmuxScreenKitFFI"
             "$crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h:CCmuxLayoutReducerFFI"
             "$crates/cmux-palette-ranker/include/cmux_palette_ranker.h:CCmuxPaletteRankerFFI"
             "$crates/cmux-app-ffi/include/cmux_motion_ffi.h:CCmuxMotionFFI"
@@ -70,6 +71,7 @@ headers_in=("$crates/acpmux-client/include/acpmux_client.h:CAcpmuxClientFFI"
             "$crates/cmux-screenshots/include/cmux_screenshots.h:CCmuxScreenshotsFFI"
             "$crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h:CCmuxSdkFFI"
             "$crates/cmux-terminal-prediction/include/cmux_terminal_prediction.h:CCmuxTerminalPredictionFFI"
+            "$crates/cmux-update-prewarm-core/include/cmux_update_prewarm.h:CCmuxUpdatePrewarmFFI"
             "$crates/cmux-url-input/include/cmux_url_input.h:CCmuxURLInputFFI")
 
 # Also available on Linux so the header/export contract needs no macOS build.
