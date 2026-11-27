@@ -588,6 +588,61 @@ class GreenBaseMergeTests(BranchRepo):
             self.assertFalse(pattern.match(message), message)
 
 
+    def merge_worded(self, message: str, branch: str = "feat-cmux-next") -> str:
+        """A merge of BRANCH on top of the head, worded MESSAGE (an agent's own `git merge -m`)."""
+        self.git("checkout", "-q", branch)
+        self.git("commit", "-q", "--allow-empty", "-m", f"{branch} moves", when=self.now - 20)
+        self.git("checkout", "-q", "lane/x")
+        self.git("merge", "-q", "--no-ff", "-m", message, branch, when=self.now - 10)
+        return self.git("rev-parse", "HEAD")
+
+    def facts_with_keys(self, sha: str, keys, env: dict | None = None) -> tuple[dict | None, list[str]]:
+        calls: list[str] = []
+        real = head_tier.own_patch_key
+        head_tier.own_patch_key = lambda repo, base, rev, token: calls.append(rev) or keys(rev)
+        try:
+            with unittest.mock.patch.dict(os.environ, {"GH_TOKEN": "t", "GITHUB_REPOSITORY": "manaflow-ai/cmux",
+                                                       **(env or {})}):
+                return head_tier.head_facts(self.event(sha)), calls
+        finally:
+            head_tier.own_patch_key = real
+
+    def test_a_merge_worded_its_own_way_counts_by_its_content(self) -> None:
+        sha = self.merge_worded(f"Merge commit '{'c' * 40}' into lane/x")
+        facts, calls = self.facts_with_keys(sha, lambda rev: "own change")
+        self.assertTrue(facts["base_merge_only"])
+        self.assertEqual(facts["merge_read"], "content")
+        self.assertEqual(facts["previous"], self.head)
+        self.assertEqual(facts["own_last"], self.now - 3 * DAY)  # walked past the worded merge's parents
+        self.assertEqual(calls, [sha, self.head])
+        self.assertEqual(self.tier("pull_request", self.event(sha), facts={**facts, "previous_green": True},
+                                   now=self.now)[0], "none")
+
+    def test_a_merge_that_changes_the_own_change_is_not_a_base_merge(self) -> None:
+        sha = self.merge_worded("Merge feat-cmux-next to resync PR head")
+        for keys in (lambda rev: rev[:7], lambda rev: None if rev == sha else "k", lambda rev: None):
+            facts, _ = self.facts_with_keys(sha, keys)
+            self.assertFalse(facts["base_merge_only"])
+            self.assertNotIn("merge_read", facts)
+
+    def test_a_merge_of_another_branch_adds_its_change(self) -> None:
+        self.git("checkout", "-q", "-b", "lane/other", self.own)
+        sha = self.merge_worded("Merge branch 'lane/other' into lane/x", branch="lane/other")
+        facts, _ = self.facts_with_keys(sha, lambda rev: "own + other" if rev == sha else "own")
+        self.assertFalse(facts["base_merge_only"])
+
+    def test_message_matched_merges_read_no_content(self) -> None:
+        facts, calls = self.facts_with_keys(self.head, lambda rev: "k")
+        self.assertTrue(facts["base_merge_only"])
+        self.assertNotIn("merge_read", facts)
+        self.assertEqual(calls, [])
+
+    def test_content_switch_off_counts_by_message_only(self) -> None:
+        sha = self.merge_worded(f"Merge commit '{'c' * 40}' into lane/x")
+        facts, calls = self.facts_with_keys(sha, lambda rev: "k", env={"CI_CONTENT_BASE_MERGE": "0"})
+        self.assertFalse(facts["base_merge_only"])
+        self.assertEqual(calls, [])
+
 class SamePatchTests(unittest.TestCase):
     """The same-patch rule: a head whose own change equals the previous head's (a rebase onto a newer base), with
     every run at the previous head green, runs nothing (goal ci-min-per-pr-30)."""

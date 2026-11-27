@@ -579,7 +579,9 @@ jobs:
               echo "no fleet-built xcframework within 240 s ($JOB: $state); building it here"
               exit 0
             fi
-            sleep 15
+            # The fleet build normally takes 3.3-5.0 min. Keep the fallback bound at 4 min while
+            # limiting token reads to one pass every 30 s (9 passes maximum at the boundary).
+            sleep 30
           done
 
       - name: Build CmuxMobileLinkFFI.xcframework

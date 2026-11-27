@@ -58,7 +58,7 @@ jobs:
     # the App Store shelf 45 min, the acpmux instruction counts 40 min, the compile canary 30 min, the cmux VM Rust
     # clients 30 min, the nightly and cmux-tui release guards 20 min, the cmux cloud CLI 15 min): 471 min with
     # 41 shared steps (21 waves), plus room for the checkout, so a slow step is reported by the runner, not cut here.
-    timeout-minutes: 477
+    timeout-minutes: 488
     permissions:
       contents: read
       # ci/run's step-result store (gh-events.cmux.com/github/step-results): the runner pool is off the tailnet.

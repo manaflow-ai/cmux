@@ -1186,6 +1186,12 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
     {
         eprintln!("{note}");
     }
+    // `tab new-mac-screen` answers with the tab it opened: the Screen Sharing tabs before the run,
+    // so the new one is the one that was not there (mac_screen_view).
+    let mac_screens_before = super::mac_screen_view::opens_tab(method, &params)
+        .then(|| super::mac_screen_view::request_state(stream, None).ok())
+        .flatten()
+        .map(|state| super::mac_screen_view::keys(&state));
     let response = match wait::request(global, stream, method, &params, timeout)
         .and_then(|response| join_change(global, stream, method, &params, timeout, response))
     {
@@ -1206,6 +1212,14 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                 None => None,
             }
             .unwrap_or(result);
+            let mut value = value;
+            if let Some(before) = &mac_screens_before
+                && let Ok(after) = super::mac_screen_view::request_state(stream, None)
+            {
+                let device = params.pointer("/args/device").and_then(Value::as_str);
+                let row = super::mac_screen_view::opened_row(before, &after, device);
+                super::mac_screen_view::with_opened(&mut value, row);
+            }
             warn_unstable_handles(method, &value, global.output);
             open_created(global, stream, &params, &value);
             if global.output == OutputMode::Human

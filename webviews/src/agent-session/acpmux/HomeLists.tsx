@@ -1,7 +1,7 @@
 import React, { memo } from "react";
 import { useStableCallback } from "./stableCallback";
 
-import { HomeAge, HomeInbox, type HomeInboxActions, type HomeInboxLook } from "./HomeInbox";
+import { HomeInbox, type HomeInboxActions, type HomeInboxLook, HomeAge } from "./HomeInbox";
 import { useT } from "./i18n";
 
 import { type WatchedAsk } from "./needsYou/model";
@@ -39,6 +39,7 @@ export function HomeLists({
 }) {
   const { waiting, review } = homeLists(sessions, currentId, asks, tabs);
   const t = useT();
+  // homeListsShown (homeListsModel.ts) answers the same question for the pane's `data-home-lists`.
   // One select for every row, calling the latest `onSelect`: a parent's new closure draws no row.
   const select = useStableCallback((sessionId: string) => onSelect(sessionId));
   if (waiting.length === 0 && review.length === 0) return null;

@@ -84,6 +84,7 @@ on:
       - "schemas/surface-roles/surface-roles.json"
       - "schemas/type-scale/scene-type.json"
       - "Packages/macOS/CmuxNext/Sources/CmuxNextPages/PageDescriptor.swift"
+      - "schemas/composer-status/peek-pin.json"
   workflow_dispatch:
     inputs:
       pr:
@@ -491,7 +492,7 @@ jobs:
 
       - name: Download the archive
         if: needs.build.outputs.published != 'true'
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-next-web-bundles
           path: ${{ runner.temp }}/web-bundles-publish
@@ -589,7 +590,7 @@ jobs:
 
       - name: Download the PR layer pointer
         if: inputs.pr || inputs.ref || needs.build.outputs.merged_pr
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-next-web-pr-layer
           path: ${{ runner.temp }}/pr-layer

@@ -2848,17 +2848,31 @@ impl PushedTurn {
     }
 }
 
-/// What a failed turn in `acp history` says about its end: its own error (a string, or an
-/// object's `message`), else its status (`the turn ended failed`).
+/// What a failed turn in `acp history` says about its end: its own error (`errorText`, as
+/// acpmux's `lastTurn` keeps it, or `error`: a string, or an object's `message`) and what to do
+/// (`recovery`), else its status (`the turn ended failed`) and that no reason was recorded.
 fn turn_failure_message(turn: &Turn) -> String {
-    let error = turn.value.get("error");
-    let said = error
-        .and_then(Value::as_str)
-        .or_else(|| error.and_then(|error| error.get("message")).and_then(Value::as_str));
-    match said.map(str::trim).filter(|said| !said.is_empty()) {
+    let said = ["errorText", "error"].into_iter().find_map(|key| {
+        let error = turn.value.get(key)?;
+        error
+            .as_str()
+            .or_else(|| error.get("message").and_then(Value::as_str))
+            .map(str::trim)
+            .filter(|said| !said.is_empty())
+    });
+    let mut message = match said {
         Some(said) => super::wire::sanitize_remote_text(said),
-        None => format!("the turn ended {}", turn.status),
+        None if turn.status == "cancelled" => format!("the turn ended {}", turn.status),
+        None => format!("the turn ended {} and its chat recorded no reason", turn.status),
+    };
+    if let Some(recovery) = turn.value.get("recovery").and_then(Value::as_str).map(str::trim)
+        && !recovery.is_empty()
+        && !message.contains(recovery)
+    {
+        message.push_str(if message.ends_with(['.', '!', '?']) { " " } else { ". " });
+        message.push_str(&super::wire::sanitize_remote_text(recovery));
     }
+    message
 }
 
 /// Stop reasons of a turn that ended without its reply (as the history's failed statuses).

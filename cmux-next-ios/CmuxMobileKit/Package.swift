@@ -391,7 +391,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
         "WorkspacesLaunchState.swift",
     ], dependencies: ["CmuxMobileModel"])
     try project("CmuxMobileLiveTests", directory: "Tests/CmuxMobileLiveTests", sources: [
-        "AwakeDeadline.swift", "ConnectivityMatrixTests.swift", "LinkRecoveryTests.swift",
+        "AwakeDeadline.swift", "ConnectionContractScenarioTests.swift", "ConnectivityMatrixTests.swift", "LinkRecoveryTests.swift",
         "LinkClockDriver.swift", "LinkTestClock.swift", "PairingRetryTests.swift", "TickRandom.swift",
     ], dependencies: ["CmuxMobileLive", "CmuxMobileModel", "CmuxMobileTransport"])
     try project("CmuxMobileWorkspacesTests", directory: "Tests/CmuxMobileWorkspacesTests", sources: [

@@ -1,134 +1,134 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "subagents.state.disconnected" : {
-      "comment" : "Agent pane",
+    "settings.experiments.setupShelf" : {
+      "comment" : "Settings > Advanced > Experiments: the title of the switch that adds the setups shelf (Calm, Dense, Chat-first, Terminal-first) to the first run's Make cmux Yours",
       "extractionState" : "manual",
       "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Setups in Make cmux Yours"
+          }
+        },
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "انقطع الاتصال"
+            "value" : "الإعدادات الجاهزة في «اجعل cmux لك»"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Veza prekinuta"
+            "value" : "Postavke u Prilagodi cmux"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Afbrudt"
+            "value" : "Opsætninger i Gør cmux til din"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Getrennt"
-          }
-        },
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Disconnected"
+            "value" : "Setups in „Mach cmux zu deinem“"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Desconectado"
+            "value" : "Configuraciones en Haz tuyo cmux"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Déconnecté"
+            "value" : "Configurations dans Personnalisez cmux"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Disconnesso"
+            "value" : "Configurazioni in Rendi tuo cmux"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "切断"
+            "value" : "「cmux を自分仕様に」のセットアップ"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "បានផ្ដាច់"
+            "value" : "ការរៀបចំក្នុង ធ្វើ cmux ជារបស់អ្នក"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "연결 끊김"
+            "value" : "'cmux를 내 것으로'의 설정 묶음"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Frakoblet"
+            "value" : "Oppsett i Gjør cmux til din"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Rozłączono"
+            "value" : "Zestawy w Dostosuj cmux"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Desconectado"
+            "value" : "Configurações em Deixe o cmux do seu jeito"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Отключено"
+            "value" : "Наборы в «Настройте cmux под себя»"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "ตัดการเชื่อมต่อแล้ว"
+            "value" : "ชุดตั้งค่าใน ทำให้ cmux เป็นของคุณ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Bağlantı kesildi"
+            "value" : "cmux'ı Kendinize Göre Ayarlayın'da kurulumlar"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Відключено"
+            "value" : "Набори в «Налаштуйте cmux під себе»"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Đã ngắt kết nối"
+            "value" : "Bộ thiết lập trong Biến cmux thành của bạn"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已断开"
+            "value" : "“打造你的 cmux”中的预设"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "已中斷連線"
+            "value" : "「打造你的 cmux」中的預設"
           }
         }
       }

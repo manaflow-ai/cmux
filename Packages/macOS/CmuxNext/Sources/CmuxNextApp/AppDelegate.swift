@@ -445,10 +445,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.bookmarks.follow(settings)
         services.apps.start()
         Task {
-            await settings.waitForLoad(atLeast: 1); await launchSettle.settled(within: .seconds(4)) // control socket: after the first frames (cx-z9kz0)
-            Task { [daemon = services.daemon] in await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy NEXT keys and stored defaults: written by the daemon once it is live; the control socket does not wait
+            Task { [daemon = services.daemon] in await settings.waitForLoad(atLeast: 1); await daemon.untilLive(); await settings.runLaunchMigrations(marker: .standard) } // legacy NEXT keys and stored defaults: written by the daemon once it is live; the control socket does not wait
             do {
-                try control.start(registry: registry, settings: settings, launch: environment.launch, services: services)
+                try await control.start(registry: registry, settings: settings, launch: environment.launch, services: services, afterFirstFrame: { [firstFrame] in await firstFrame.opened() })
                 control.registerCloudMethods(services)
                 control.registerAccountsMethods(services)
                 control.registerBillingMethods(services)

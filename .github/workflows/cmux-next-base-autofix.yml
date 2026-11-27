@@ -608,7 +608,8 @@ jobs:
     needs: [action-areas, pushed-exports, action-exports-linux, settings-exports-linux]
     # The action exports only as action-exports-linux's fallback and the settings exports only as
     # settings-exports-linux's (each logs why).
-    if: ${{ !cancelled() && ((needs.action-areas.outputs.actions == 'true' && (needs.action-exports-linux.result == 'skipped' || needs.action-exports-linux.outputs.fallback == 'true')) || (needs.action-areas.outputs.settings == 'true' && (needs.settings-exports-linux.result == 'skipped' || needs.settings-exports-linux.outputs.fallback == 'true'))) && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' }}
+    if: >-
+      ${{ !cancelled() && ((needs.action-areas.outputs.actions == 'true' && (needs.action-exports-linux.result == 'skipped' || needs.action-exports-linux.outputs.fallback == 'true')) || (needs.action-areas.outputs.settings == 'true' && (needs.settings-exports-linux.result == 'skipped' || needs.settings-exports-linux.outputs.fallback == 'true'))) && needs.action-areas.outputs.mac_busy != 'true' && needs.pushed-exports.outputs.deferred != 'true' && needs.pushed-exports.outputs.hit != 'true' && !(github.event_name == 'push' && github.event.head_commit.author.name == 'github-actions[bot]' && (startsWith(github.event.head_commit.message, 'chore(next): base autofix at ') || startsWith(github.event.head_commit.message, 'chore(next): pin GhosttyKit for ghostty '))) }}
     # No concurrency group: a queued job keeps its place. Cancelling a running one meant that with
     # merges minutes apart no Mac export ever finished (2026-10-19), and replacing a pending one did
     # the same once the Mac runners were saturated: each job waited minutes for a runner and the next
