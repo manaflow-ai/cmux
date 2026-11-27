@@ -54,11 +54,10 @@
   /* The transcript's own metadata type, as the Worked for line beside it draws it (conversation.css
      .cv-worked): its family, size, tracking and regular weight. Leo, 2026-11-25, of a bold caption
      "2 new messages": "honestly the font is wack it's different from the rest of the app", "size
-     and bolding". The size is the row metric (--cv-row-font-size), the one .cv-worked reads, not the
-     prose size: at --cv-font-size "2 new messages" drew a pixel larger than "Working for" on the same
-     line (Leo, 2026-11-27: "the font size on working for and new messages is different"). */
+     and bolding". The size is --cv-worked-font-size, the one .cv-worked reads, so the two never differ
+     (Leo, 2026-11-27: "the font size on working for and new messages is different"). */
   font-family: var(--cv-font);
-  font-size: var(--cv-row-font-size);
+  font-size: var(--cv-worked-font-size);
   font-weight: var(--weight-regular);
   letter-spacing: var(--cv-tracking, var(--instrument-type-chat-tracking, normal));
   white-space: nowrap;
