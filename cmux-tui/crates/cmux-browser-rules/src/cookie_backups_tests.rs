@@ -93,7 +93,7 @@ fn pruning_removes_only_readable_backups_with_every_cookie_expired() {
 fn summaries_list_newest_first_and_hide_unreadable_sites() {
     let entries: Vec<SummaryEntry> = serde_json::from_value(serde_json::json!([
         {"stem": "old", "readable": true, "site": "a.com", "createdAtMs": 1000.0},
-        {"stem": "bad", "readable": false, "modified": 5.0},
+        {"stem": "bad", "readable": false, "modified": 0.5},
         {"stem": "new", "readable": true, "site": "b.com", "createdAtMs": 9000.0},
         {"stem": "nosite", "readable": true},
     ]))
