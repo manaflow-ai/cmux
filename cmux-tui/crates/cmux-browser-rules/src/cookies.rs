@@ -90,7 +90,9 @@ pub struct StoredCookie {
 
 /// Whether `cookies.clear` on `host` deletes `cookie`: in scope and equal to every filter given.
 pub fn clear_matches(cookie: &StoredCookie, host: &str, filter: &ClearFilter) -> bool {
-    let given = |value: &Option<String>| value.as_deref().filter(|text| !text.is_empty());
+    fn given(value: &Option<String>) -> Option<&str> {
+        value.as_deref().filter(|text| !text.is_empty())
+    }
     in_scope(&cookie.domain, host)
         && given(&filter.name).is_none_or(|name| name == cookie.name)
         && given(&filter.domain).is_none_or(|domain| domain == cookie.domain)
