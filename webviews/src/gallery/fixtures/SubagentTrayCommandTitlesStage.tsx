@@ -12,7 +12,7 @@ import { minutesAgo } from "../clock";
 const NO_WAITING: ReadonlySet<string> = new Set();
 const shown = { current: "gallery-chat" as string | undefined };
 
-export type CommandTitlesScene = "terse" | "long" | "none" | "subagent";
+export type CommandTitlesScene = "terse" | "long" | "none" | "subagent" | "leo" | "owner-gone";
 
 const parentAgent: Subagent = {
   id: "gallery-chat/toolu_parent",
@@ -35,6 +35,19 @@ const reviewer: Subagent = {
   background: true,
   startedAt: minutesAgo(3),
 };
+
+const wedged: Subagent = {
+  id: "gallery-chat/toolu_wedged",
+  parent: null,
+  name: "acpmux delivery wedged + channel stuck",
+  task: "acpmux delivery wedged + channel stuck",
+  kind: "general-purpose",
+  state: "running",
+  background: true,
+  startedAt: minutesAgo(7),
+};
+const resolveAgent: Subagent = { ...wedged, id: "gallery-chat/toolu_resolve", name: "Resolve cmux#61365 conflict, land", task: "Resolve cmux#61365 conflict, land", startedAt: minutesAgo(1) };
+const brokerAgent: Subagent = { ...wedged, id: "gallery-chat/toolu_broker", name: "Broker allowlist for verdict dispatch", task: "Broker allowlist for verdict dispatch", startedAt: minutesAgo(2) };
 
 let next = 0;
 const command = (line: string, description: string | undefined, seconds: number, subagent?: string) => {
@@ -91,6 +104,17 @@ const SCENES: Record<CommandTitlesScene, { agents: Subagent[]; commands: Backgro
       command(WAIT_FILE, "review result", 23, reviewer.id),
       command("cd ~/Projects/app && bun run dev", "Run the dev server", 50),
     ],
+  },
+  // Leo's open hat (ask-31a1e4b192): a subagent and the `wt new` it started, which read as two lines
+  // with one title, apart by start time.
+  leo: {
+    agents: [wedged, resolveAgent, brokerAgent],
+    commands: [command("wt new manaflow-ai/cmux lane/acpmux-delivery-wedged --topic 'delivery wedged'", undefined, 353, wedged.id)],
+  },
+  // Its owner ended: the command names it first, as nothing else lists it.
+  "owner-gone": {
+    agents: [{ ...wedged, state: "completed" }],
+    commands: [command("wt new manaflow-ai/cmux lane/acpmux-delivery-wedged --topic 'delivery wedged'", undefined, 353, wedged.id)],
   },
 };
 

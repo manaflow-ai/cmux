@@ -19,11 +19,13 @@
    "Unfuck sideba…" becoming "Unfuck sidebar group lo… and Analyze Lucas's Claude bottlene…": "this
    is pretty weird? it was collasped then expanded? idk"). A name already on the line keeps its width
    when another joins; when the line runs short, the later names give way first (`data-at`), and the
-   first only once they are at their floor. */
+   first only once they are at their floor. The cap is 28em, not 16em: at 16em a lone name cut at a
+   third of a 660px chat with the rest of the line empty ("Resolve cmux#61365 conflict, l…": Leo,
+   ask-31a1e4b192, "this isn't great"); a short line still ends at the sentence's ellipsis. */
 .cv-subagent-started .cv-agent-tag.cv-subagent-started__name {
   flex: 0 1 auto;
   min-width: min(6em, 30%);
-  max-width: 16em;
+  max-width: var(--cv-started-name-max, 28em);
 }
 .cv-subagent-started .cv-agent-tag.cv-subagent-started__name[data-at]:not([data-at="0"]) {
   flex-shrink: 1000;

@@ -44,8 +44,18 @@ export default componentEntry<{ scene: CommandTitlesScene }>({
       play: open,
     },
     subagent: {
-      note: "A subagent's commands name it first: 'Reviewer · Waiting 14m · hold'; the chat's own command has no owner.",
+      note: "A subagent's commands sit right under its line and say what runs, 'via Reviewer' muted; the chat's own command has no owner.",
       props: { scene: "subagent" },
+      play: open,
+    },
+    leo: {
+      note: "Leo's open hat (ask-31a1e4b192): the `wt new` a subagent started sits under 'acpmux delivery wedged + channel stuck', named by its command, not a second copy of the title.",
+      props: { scene: "leo" },
+      play: open,
+    },
+    "owner-gone": {
+      note: "Its subagent ended and is not listed: the command names it first, 'acpmux delivery wedged… · wt new…'.",
+      props: { scene: "owner-gone" },
       play: open,
     },
   },

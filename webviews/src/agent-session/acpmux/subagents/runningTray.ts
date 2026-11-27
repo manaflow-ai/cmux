@@ -28,6 +28,10 @@ export type TrayItem =
       command: BackgroundCommand;
       /// The subagent whose call started it, when one did and the chat knows it: its line names it.
       owner?: Subagent;
+      /// Its owner's own line is listed too, and this line sits right under it (``newestFirst``): it
+      /// names what runs, with the owner as its muted "via", never the owner's title first, which read
+      /// as a second copy of the owner's line (Leo, ask-31a1e4b192: "this isn't great").
+      underOwner?: boolean;
     }
   | { kind: "session"; id: string; session: StartedSession }
   /// A turn something other than the person started that said nothing (conversation/silentTurns.ts):
@@ -98,10 +102,38 @@ export function trayItems(
 /// move as one, by the parent's start. Those with no start time go last, in their list order.
 function newestFirst(items: readonly TrayItem[]): TrayItem[] {
   const groups: { start: number; index: number; items: TrayItem[] }[] = [];
+  /// The group each listed subagent's line is in, so its commands join it.
+  const groupOf = new Map<string, { start: number; index: number; items: TrayItem[] }>();
+  const owned: TrayItem[] = [];
   for (const item of items) {
     const last = groups.at(-1);
-    if (last && item.kind === "agent" && item.depth > 0) last.items.push(item);
-    else groups.push({ start: itemStart(item) ?? Number.NEGATIVE_INFINITY, index: groups.length, items: [item] });
+    if (item.kind === "command" && item.owner && items.some((each) => each.kind === "agent" && each.id === item.owner!.id)) {
+      owned.push(item);
+      continue;
+    }
+    if (last && item.kind === "agent" && item.depth > 0) {
+      last.items.push(item);
+      groupOf.set(item.id, last);
+    } else {
+      const group = { start: itemStart(item) ?? Number.NEGATIVE_INFINITY, index: groups.length, items: [item] };
+      groups.push(group);
+      if (item.kind === "agent") groupOf.set(item.id, group);
+    }
+  }
+  // A subagent's command goes right under its owner's line (after the owner and what it nested),
+  // so the two read as one piece of work, not as two lines with one title.
+  for (const item of owned) {
+    if (item.kind !== "command") continue;
+    const group = groupOf.get(item.owner!.id)!;
+    const at = group.items.findIndex((each) => each.kind === "agent" && each.id === item.owner!.id);
+    let end = at + 1;
+    const depth = (group.items[at] as { depth: number }).depth;
+    while (end < group.items.length) {
+      const next = group.items[end]!;
+      if (next.kind === "agent" && next.depth <= depth) break;
+      end += 1;
+    }
+    group.items.splice(end, 0, { ...item, underOwner: true });
   }
   groups.sort((a, b) => b.start - a.start || a.index - b.index);
   return groups.flatMap((group) => group.items);

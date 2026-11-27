@@ -1337,18 +1337,25 @@ export const SubagentTray = memo(function SubagentTray({
         COMMAND_KIND_ICON[commandKind(item.command.command)],
         currentCommandRules(),
       );
-      // A subagent's command says whose it is: "Reviewer · Waiting 14m · hold".
+      // A subagent's command says whose it is: "Reviewer · Waiting 14m · hold"; right under its
+      // owner's line, "Waiting 14m · hold  via Reviewer" (runningTray.ts `underOwner`).
       const named = sendLabel(t, item.command) ?? read.label;
       const openTerminal = canOpenTerminal && onOpenCommand ? () => onOpenCommand(item.command) : undefined;
       return (
         <>
           {menu(
             <AgentLine
-              name={item.owner ? `${subagentTaskLabel(t, item.owner)} · ${named}` : named}
+              name={item.owner && !item.underOwner ? `${subagentTaskLabel(t, item.owner)} · ${named}` : named}
               latest={showLatest ? trimRawCommand(item.command.command, ROW_WIDTH) : undefined}
               latestAt={latestPlacement}
               latestCode
-              via={ownerParent ? subagentTaskLabel(t, ownerParent) : undefined}
+              via={
+                item.owner && item.underOwner
+                  ? subagentTaskLabel(t, item.owner)
+                  : ownerParent
+                    ? subagentTaskLabel(t, ownerParent)
+                    : undefined
+              }
               title={item.command.command}
               chevron
               icon={read.icon}
