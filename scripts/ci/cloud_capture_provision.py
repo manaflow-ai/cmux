@@ -505,6 +505,38 @@ def grant_only(stack, email, log=print):
         "metadata are unchanged")
 
 
+# `--plan-only`: the plans one existing production journey account may be moved to, and the one account it may touch.
+# next_pro is NEXT Pro: 32 machines running at once (cmux-platform Plan.ts), for the RFD 0135 matrix's parallel legs.
+PLAN_ONLY_TARGET = "journey-production"
+PLAN_ONLY_PLANS = frozenset({"pro", "next_pro"})
+
+
+def plan_only(stack, target, plan, log=print):
+    """Sets the operator plan grant of the production journey account to PLAN (pro or next_pro) and nothing else:
+    no password change, nothing sealed, never a create, other metadata kept. Reads it back."""
+    if plan not in PLAN_ONLY_PLANS:
+        raise ProvisionError(f"--plan-only takes one of {sorted(PLAN_ONLY_PLANS)}")
+    if target is not TARGETS[PLAN_ONLY_TARGET]:
+        raise ProvisionError(f"--plan-only touches only the {PLAN_ONLY_TARGET} target's account")
+    if stack.project_id != target.project:
+        raise ProvisionError("the Stack project is not the target's project; refusing to touch it")
+    user = stack.find(target.email)
+    if user is None:
+        raise ProvisionError("no account has the target's email; --plan-only never creates one")
+    metadata = user.get("client_read_only_metadata")
+    metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    before = metadata.get(PLAN_KEY)
+    if before != plan:
+        metadata[PLAN_KEY] = plan
+        stack.server("PATCH", f"/users/{urllib.parse.quote(user['id'])}", {"client_read_only_metadata": metadata})
+    after = stack.read(user["id"]).get("client_read_only_metadata")
+    read = after.get(PLAN_KEY) if isinstance(after, dict) else None
+    if read != plan:
+        raise ProvisionError(f"the account's {PLAN_KEY} did not read back as {plan!r}")
+    log(f"{target.email}: {PLAN_KEY} was {before!r}, reads back {read!r}" + (" (unchanged)" if before == plan else ""))
+    return before
+
+
 def team_only(stack, target, log=print):
     """Makes TARGET's existing account a member of its company team; no rotation, nothing sealed, never a create."""
     if not target.team_id:
@@ -600,6 +632,8 @@ def main(argv=None):
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--out", help="where to write the sealed bundle (ciphertext only)")
     mode.add_argument("--grant-only", metavar="EMAIL", help="only grant the operator plan to this existing capture account")
+    mode.add_argument("--plan-only", metavar="PLAN",
+                      help=f"only set the {PLAN_ONLY_TARGET} account's operator plan ({', '.join(sorted(PLAN_ONLY_PLANS))})")
     mode.add_argument("--team-only", action="store_true",
                       help="only make the target's existing account a member of its company team")
     mode.add_argument("--probe-teams", type=int, metavar="N",
@@ -618,6 +652,8 @@ def main(argv=None):
                       os.environ.get("NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY", ""), expected_project=target.project)
         if args.grant_only is not None:
             grant_only(stack, args.grant_only.strip().lower())
+        elif args.plan_only is not None:
+            plan_only(stack, target, args.plan_only.strip().lower())
         elif args.team_only:
             team_only(stack, target)
         elif args.probe_teams is not None:
