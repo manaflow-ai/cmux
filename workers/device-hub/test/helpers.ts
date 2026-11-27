@@ -86,6 +86,9 @@ export const platformTurn: { answer: PlatformTurnAnswer; calls: { authorization:
   calls: [],
 };
 
+/** Set `fail` to make the hub's own TURN mint (Cloudflare Realtime) refuse, as a key without TURN rights does. */
+export const localTurn = { fail: false };
+
 let stackKeys: CryptoKeyPair | null = null;
 export const outbound: string[] = [];
 
@@ -142,6 +145,7 @@ export function mockOutbound() {
       return Response.json("status" in answer ? (answer.body ?? {}) : answer.body, { status: "status" in answer ? answer.status : 200 });
     }
     if (url.startsWith("https://rtc.live.cloudflare.com/v1/turn/keys/turn-key/credentials/generate-ice-servers")) {
+      if (localTurn.fail) return Response.json({ errors: [{ code: 10000, message: "Authentication error" }] }, { status: 403 });
       return Response.json({
         iceServers: [
           { urls: ["stun:stun.cloudflare.com:3478"] },

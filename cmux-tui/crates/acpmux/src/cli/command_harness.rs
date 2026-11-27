@@ -25,7 +25,7 @@ pub enum HarnessCmd {
         #[arg(long)]
         folder: Option<PathBuf>,
     },
-    /// Write a new profile file into ~/.config/cmux/harnesses and check it.
+    /// Write a new profile file into ~/.config/cmux-next/harnesses and check it.
     #[command(after_help = crate::cli::harness::add_help())]
     Add {
         /// Profile id (file name); default: the example's id or the command's name.

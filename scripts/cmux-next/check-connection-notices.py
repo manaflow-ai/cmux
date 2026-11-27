@@ -28,7 +28,9 @@ when it
           NoticeTiming.connectionQuiet on the Mac, QuietStatusGate on iOS; schemas/notice-timing/notice-timing.json,
           each copy checked against it) or an existing hold built on one (TIME_GATES). A gate helper given a literal
           grace under the bound (`useLasting(down, 500)`) does not count: name the shared bound instead;
-  action  carries a person action: a button, a click or tap handler, an action closure (PERSON_ACTIONS);
+  action  carries a person action: a button, a click or tap handler, an action closure (PERSON_ACTIONS), or
+          draws a component named for its action that carries one (a web `<RetryButton>`, a Swift
+          `RetryButton(action: retry)`; drawn_actions, swift_drawn_actions);
   listed  is in the allowlist (scripts/cmux-next/connection-notices-allowlist.tsv: unit, surface, owner, reason).
 The allowlist only shrinks: with --base REV a row the list at REV lacks fails (a unit that moved to another file
 under the same name keeps its row), and a row whose unit no longer shows an unbounded connection state (fixed,
@@ -131,6 +133,10 @@ BOUND_COPIES: tuple[tuple[str, str, int], ...] = (
 # A person action on the same unit.
 PERSON_ACTIONS = re.compile(
     r"(\bonClick\s*=|\bonPress\s*=|<Button\b|<button\b|\bonAction\b|\bprimaryAction\b"  # web
+    # A web component the unit draws whose name says it is a button and that it hands a handler
+    # (`<ConnectButton onConnect={...} />`). A bare `<MarkButton />` is no action by its name alone: one declared
+    # or imported here counts only when it acts itself (drawn_actions).
+    r"|<[A-Z]\w*Button\b[^>]*?\bon[A-Z]\w*\s*="
     r"|\bButton\s*[({]|\bNSButton\b|\.onTapGesture\b|\baddAction\b|#selector\(|\bUIAction\b|\.swipeActions\b"  # Swift
     r"|\baction:\s*\{|\bactions:\s*\[|\baction:\s*\."
     # A Swift model that names the person's action for its state (`var action: Action?`), drawn by a view.
@@ -434,6 +440,7 @@ def scan(tree: Tree) -> list[Unit]:
         unit.literal_grace += [m.group(0) + ")" for m in SWIFT_LITERAL_GRACE.finditer(text)
                                if int(m.group(2).replace("_", "")) * (1000 if m.group(1) == "seconds" else 1) < bound]
     drawn_actions(units, imports)
+    swift_drawn_actions(units)
     propagate(units, imports)
     attribute_presenters(units, presenter_imports, opaque_modules, unresolved_exports)
     tree.unit_ids = set(units)  # every declaration read, connection words or not
@@ -446,10 +453,6 @@ def scan(tree: Tree) -> list[Unit]:
 # A component named for the action it draws (`ConnectButton`, `RetryAction`, `CardActions`); a component that only
 # holds some other click (a disclosure, a row) does not lend it to the words beside it.
 DRAWN_ACTION = re.compile(r"[A-Z]\w*(?:Button|Action|Actions)$")
-# A web component the unit draws whose name says it is a button (`<ConnectButton onConnect={...} />`). One the tree
-# declares (in the file or imported from it) lends its action only if it carries one (drawn_actions); one declared
-# out of sight (a kit package) is taken at its name.
-DRAWN_BUTTON = re.compile(r"<([A-Z]\w*Button)\b")
 
 
 def drawn_actions(units: dict[str, Unit], imports: dict[str, list[tuple[str, str]]]) -> None:
@@ -463,18 +466,6 @@ def drawn_actions(units: dict[str, Unit], imports: dict[str, list[tuple[str, str
             stem = unit.path[:-len(".tsx")]
             path_of[stem] = unit.path
             path_of.setdefault(stem.rsplit("/index", 1)[0], unit.path)
-    declared_by_file: dict[str, set[str]] = {}
-    for unit in units.values():
-        if unit.path.endswith(".tsx"):
-            declared_by_file.setdefault(unit.path, set()).add(unit.name)
-    for unit in units.values():
-        if unit.acted or not unit.path.endswith(".tsx"):
-            continue
-        known = set(declared_by_file.get(unit.path, set()))
-        known |= {local for local, target in imports.get(unit.path, [])
-                  if local in declared_by_file.get(path_of.get(target, ""), set())}
-        if any(name not in known for name in DRAWN_BUTTON.findall("\n".join(unit.lines))):
-            unit.acted = True
     for _round in range(3):
         acted_by_file = {}
         for unit in units.values():
@@ -491,6 +482,48 @@ def drawn_actions(units: dict[str, Unit], imports: dict[str, list[tuple[str, str
             if names and re.search(r"<(?:%s)\b" % "|".join(sorted(map(re.escape, names))), "\n".join(unit.lines)):
                 unit.acted = True
                 moved = True
+        if not moved:
+            break
+
+
+# A Swift view composed into the unit (`RetryButton(action: retry)`, `ConnectButton { … }`): a component named for its
+# action, called as a value (an initializer or a trailing closure). Not its declaration (`struct RetryButton: View {`,
+# `extension RetryButton {`), a return type (`-> RetryButton {`) or a static member (`RetryButton.defaultTitle`).
+SWIFT_DRAWN = re.compile(r"(?<![\w.])([A-Z]\w*(?:Button|Action|Actions))\s*(?:\(|\{)")
+SWIFT_DECLARES = re.compile(r"(?:\b(?:struct|class|enum|actor|extension|protocol|typealias|func|case)\s+|->\s*)$")
+
+
+def swift_drawn_actions(units: dict[str, Unit]) -> None:
+    """A Swift view that composes an action view (`RetryButton(action: retry)` beside its failure copy) carries that
+    action, as drawn_actions does for a web `<RetryButton>`. The component is named for its action (DRAWN_ACTION) and
+    declared in the tree on the same surface with an action of its own (its `Button {`): the same module's
+    declaration if it has one, else every declaration of that name on the surface. One declared out of sight (a
+    system or kit view) or one that draws no action lends nothing; a few hops, so a button wrapping a button counts."""
+    declared: dict[tuple[str, str], dict[str, list[Unit]]] = {}  # (surface, name) -> module -> its units
+    swift = [u for u in units.values() if u.path.endswith(".swift") and u.name != "<file>"]
+    for unit in swift:
+        declared.setdefault((unit.surface, unit.name), {}).setdefault(module_of(unit.path), []).append(unit)
+
+    def lends(surface: str, name: str, module: str) -> bool:
+        modules = declared.get((surface, name))
+        if not modules:
+            return False
+        scope = [modules[module]] if module in modules else list(modules.values())
+        return all(any(u.acted for u in group) for group in scope)
+
+    for _round in range(3):
+        moved = False
+        for unit in swift:
+            if unit.acted:
+                continue
+            module = module_of(unit.path)
+            for line in unit.lines:
+                drawn = [m[1] for m in SWIFT_DRAWN.finditer(line)
+                         if m[1] != unit.name and not SWIFT_DECLARES.search(line[:m.start()])]
+                if any(DRAWN_ACTION.match(name) and lends(unit.surface, name, module) for name in drawn):
+                    unit.acted = True
+                    moved = True
+                    break
         if not moved:
             break
 
