@@ -2,8 +2,7 @@ import CmuxNextSettings
 import Testing
 
 /// `sidebar.showSearchButton` (plans/cmux-next/sidebar-search.md): the sidebar footer's Search button
-/// is off by default (Lawrence 2026-11-20: "drastically simplify all parts of the UI"; search stays in
-/// the palette); the user shows it in Settings, cmux.json, `cmux settings set` or Cmd+Shift+P, and a
+/// is on by default again (Lawrence 2026-11-23: "bring it back"; it teaches Cmd+Shift+P); the user shows it in Settings, cmux.json, `cmux settings set` or Cmd+Shift+P, and a
 /// bad value keeps the default with a diagnostic.
 struct SidebarShowSearchButtonSettingTests {
     static func parse(_ value: JSONValue?) -> CmuxConfigSnapshot {
@@ -11,9 +10,9 @@ struct SidebarShowSearchButtonSettingTests {
         return CmuxConfigSnapshot.parse(root, validDensities: [], validMetrics: [])
     }
 
-    @Test func offByDefault() {
+    @Test func onByDefault() {
         let snapshot = Self.parse(nil)
-        #expect(snapshot.sidebarSections.showSearchButton == false)
+        #expect(snapshot.sidebarSections.showSearchButton)
         #expect(snapshot.diagnostics.isEmpty, "no key, no diagnostic: \(snapshot.diagnostics)")
     }
 
@@ -24,13 +23,13 @@ struct SidebarShowSearchButtonSettingTests {
 
     @Test func aBadValueKeepsTheDefaultWithADiagnostic() {
         let snapshot = Self.parse(.string("yes"))
-        #expect(snapshot.sidebarSections.showSearchButton == false)
+        #expect(snapshot.sidebarSections.showSearchButton)
         #expect(snapshot.diagnostics.contains { $0.path == "sidebar.showSearchButton" }, "\(snapshot.diagnostics)")
     }
 
-    @Test func settingsAndThePaletteListTheToggleOffByDefault() throws {
+    @Test func settingsAndThePaletteListTheToggleOnByDefault() throws {
         let descriptor = try #require(SettingsSchema.descriptor(for: ["sidebar", "showSearchButton"]))
-        #expect(descriptor.defaultValue == .bool(false))
+        #expect(descriptor.defaultValue == .bool(true))
         #expect(descriptor.section == .appearance)
         #expect(descriptor.isPaletteExposed, "Cmd+Shift+P lists every palette-exposed schema setting")
     }

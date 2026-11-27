@@ -244,6 +244,31 @@ class GuardTests(unittest.TestCase):
         for leak in (VM, logs.base.tag(VM), "hunter2", "1795721451000"):
             self.assertNotIn(leak, text)
 
+    def test_cmux_vm_window_keeps_the_create_queues_fields(self):
+        # cmux#61073 limits/create-admission.ts: a refused create's line and a create sent without the queue.
+        refused = event({"event": "vm_create", "vmId": VM, "ok": False, "preMs": 4, "admitWaitMs": 61, "admitQueueMs": 0,
+                         "admitInFlight": 3, "admitQueued": 2, "admission": "queue_full", "admitRetryAfterMs": 28000,
+                         "totalMs": 70})
+        odd = event({"event": "vm_create", "vmId": VM, "ok": True, "admission": "hunter2", "admitQueued": "7"})
+        unavailable = event({"event": "vm_create_admission_unavailable", "vmId": VM})
+        path = event_file({"service": VM_PROD, "id": "window", "needles": "vm_create"})
+        try:
+            code, _, _, upload = run_main(["--from", "2026-11-26T19:30:30Z", "--from-event", path],
+                                          response={"result": {"events": {"events": [refused, odd, unavailable]}}})
+        finally:
+            os.unlink(path)
+        self.assertEqual(code, 0)
+        _, _, rows = upload.call_args.args
+        logs_kept = sorted((r["log"] for r in rows), key=json.dumps)
+        self.assertIn({"event": "vm_create", "ok": False, "preMs": 4, "admitWaitMs": 61, "admitQueueMs": 0,
+                       "admitInFlight": 3, "admitQueued": 2, "admission": "queue_full", "admitRetryAfterMs": 28000,
+                       "totalMs": 70}, logs_kept)
+        self.assertIn({"event": "vm_create", "ok": True}, logs_kept)
+        self.assertIn({"event": "vm_create_admission_unavailable"}, logs_kept)
+        text = json.dumps(rows)
+        for leak in (VM, "hunter2"):
+            self.assertNotIn(leak, text)
+
     def test_cmux_vm_refuses_an_id_scoped_read(self):
         path = event_file({"service": VM_STAGING, "id": VM, "needles": "pause"})
         try:
@@ -451,6 +476,15 @@ class ProjectionTests(unittest.TestCase):
         self.assertEqual((row["log"]["bind_probe"]["agent_bind"], row["log"]["bind_probe"]["host_service"]),
                          ("other", "other"))
         self.assertNotIn("m_1", json.dumps(row))
+        row = logs.line(event({"msg": "cloud.machine.bind_late", "machine": VM, "bind_probe": {
+            "outcome": "ran", "out": "agent_bind=no_line\nagent_journal_lines=42\nagent_last=updater\n"}}))
+        self.assertEqual((row["log"]["bind_probe"]["agent_last"], row["log"]["bind_probe"]["agent_journal_lines"]),
+                         ("updater", 42))
+        row = logs.line(event({"msg": "cloud.machine.bind_late", "machine": VM, "bind_probe": {
+            "outcome": "ran", "out": "agent_last=/var/lib/cmux secret\nagent_journal_lines=x1\n"}}))
+        self.assertEqual(row["log"]["bind_probe"]["agent_last"], "other")
+        self.assertNotIn("agent_journal_lines", row["log"]["bind_probe"])
+        self.assertNotIn("secret", json.dumps(row))
         self.assertNotIn("10.0.0", json.dumps(logs.line(event({"msg": "cloud.machine.bind_late", "machine": VM,
                                                                "bind_probe": {"outcome": "ran", "out": out}}))))
 
@@ -616,6 +650,30 @@ class NeverBoundTests(unittest.TestCase):
         bare = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "attempt": 1, "outcome": "ok",
                                 "steps": {"power": 337}, "power": "fast", "total_ms": 337}))
         self.assertNotIn("power", bare["log"])
+
+    def test_a_first_reply_keeps_its_hop_split_first_hop_and_cold_flag(self):
+        """Production 2026-11-27 06:25Z (hq#32203): a create's first reply read 203.2 s with only `ms` and `path`; the
+        boot, agent start and model hops StartTrace.ts firstReplyOf logs were dropped, so the 140-180 s past the fill
+        wait could not be split."""
+        row = logs.line(event({"msg": "cloud.start.first_reply", "team": TEAM, "machine": VM, "ms": 203200,
+                               "path": "create", "first": "click",
+                               "steps": {"first_token": 3600, "click": 40, "boot": 61000, "agent_start": 118000,
+                                         "secret_hop": 7, "network": "x", "model_request": 1200},
+                               "cold": 1}))
+        self.assertEqual(row["log"], {"msg": "cloud.start.first_reply", "team": logs.base.tag(TEAM),
+                                      "machine": logs.base.tag(VM), "ms": 203200, "path": "create", "first": "click",
+                                      "steps": {"click": 40, "boot": 61000, "agent_start": 118000,
+                                                "model_request": 1200, "first_token": 3600},
+                                      "cold": 1})
+        self.assertEqual(list(row["log"]["steps"]), ["click", "boot", "agent_start", "model_request", "first_token"])
+        odd = logs.line(event({"msg": "cloud.start.first_reply", "machine": VM, "ms": 41200, "path": "spare",
+                               "first": "vm_secret", "steps": "fast", "cold": "yes"}))
+        for k in ("first", "steps", "cold"):
+            self.assertNotIn(k, odd["log"])
+        # The split is first_reply's own: another line's `first` or hop-named steps are not kept.
+        other = logs.line(event({"msg": "cloud.start.trace", "machine": VM, "first": "click", "cold": 1}))
+        self.assertNotIn("first", other["log"])
+        self.assertNotIn("cold", other["log"])
 
     def test_a_start_trace_keeps_its_kind_and_before_as_fixed_words_only(self):
         # hq#31259: the slow starts were spare wakes (window, refresh, warm) nobody waited on; the reader keeps which.
