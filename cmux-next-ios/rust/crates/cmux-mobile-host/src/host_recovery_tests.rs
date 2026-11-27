@@ -69,11 +69,17 @@ async fn recovery_sample(wake: bool, abandon_headers: bool) -> Duration {
     tasks.0.push(tokio::spawn(async move {
         let mut children = tokio::task::JoinSet::new();
         let mut first_socket = true;
-        while let Ok((mut stream, _)) = listener.accept().await {
+        'accept: while let Ok((mut stream, _)) = listener.accept().await {
             // Read just the HTTP headers. All requests in this rig are bounded.
             let mut head = Vec::new();
             while !head.ends_with(b"\r\n\r\n") {
-                head.push(stream.read_u8().await.unwrap());
+                match stream.read_u8().await {
+                    Ok(byte) => head.push(byte),
+                    // Wake cancels in-flight requests. An abandoned connection must not
+                    // kill the proxy or consume its first complete WebSocket handshake.
+                    Err(error) if matches!(error.kind(), std::io::ErrorKind::UnexpectedEof | std::io::ErrorKind::ConnectionReset) => continue 'accept,
+                    Err(error) => panic!("read recovery proxy headers: {error}"),
+                }
                 assert!(head.len() < 16384);
             }
             let head_text = String::from_utf8(head.clone()).unwrap();
