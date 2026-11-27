@@ -348,6 +348,10 @@ def main():
     parser.add_argument("--init-baseline", action="store_true", help="write the baseline from scratch (first run only)")
     parser.add_argument("--report", choices=["md", "json"])
     parser.add_argument("--base-clippy-json", help="the same run on the base: a count it already reaches is the base's red")
+    parser.add_argument("--same-at-base", default="", metavar="CRATE,...",
+                        help="without --base-clippy-json: these crates' base counts are this run's own (the change "
+                             "reaches none of their inputs), so a count over the baseline there is the base's red; "
+                             "any other crate is judged as if the base had none")
     parser.add_argument("--cargo-log",
                         help="the same run's cargo stderr: a stale Cargo.lock there is named as the cause")
     args = parser.parse_args()
@@ -382,6 +386,12 @@ def main():
             base_counts = None
             base_hits = None
             base_broken = True
+    elif args.same_at_base:
+        # The base run these crates would get is this one (their sources and inputs are the base's): the wrapper
+        # passes them so a HEAD over the baseline only where the base already was skips linting the base.
+        same = {crate for crate in args.same_at_base.split(",") if crate}
+        base_counts = {crate: lints for crate, lints in counts.items() if crate in same}
+        base_hits = {key: locs for key, locs in hits.items() if key[0] in same}
     if args.init_baseline:
         write_baseline({crate: counts.get(crate, collections.Counter()) for crate in checked})
         print(f"rust-panic-ratchet: wrote {os.path.relpath(BASELINE, args.repo)} for {len(checked)} crates")
