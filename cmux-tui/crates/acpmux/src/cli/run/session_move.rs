@@ -507,9 +507,11 @@ pub(super) async fn run(args: MoveArgs, json_out: bool) -> Result<()> {
         if args.carry_changes {
             bail!("--carry-changes does not go through the team hub yet: commit, or --leave-dirty");
         }
-        Some(hub::resolve(&src, &args.host).await.with_context(|| {
-            format!(
-                "{} is neither an ssh peer of this daemon nor a machine the team hub lists",
+        // The hub's own reason goes in the message: "not listed" and "not read yet" need
+        // different next steps, and `{}` of a context shows only the outer line.
+        Some(hub::resolve(&src, &args.host).await.map_err(|e| {
+            anyhow!(
+                "{} is neither an ssh peer of this daemon nor a machine the team hub lists ({e:#})",
                 args.host
             )
         })?)
