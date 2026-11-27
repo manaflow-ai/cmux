@@ -47,6 +47,29 @@ extension PaneCommitMotionTests {
         return times.map { time in zip(edges(place.value(at: time), size.value(at: time)), rest).map { $0 - $1 } }
     }
 
+    /// The start time that the row gives the first close's moves. No machine's clock is there in a run (it is more
+    /// than 3 years after the machine's start), so no commit puts such a move at its end.
+    static let startByHand: CFTimeInterval = 100_000_000
+
+    /// Does by hand what a commit to a render tree does in the app: each animation of the pane motion on `layer`,
+    /// on its sublayers and on their masks that has no start time yet gets the start time `time`. An animation that
+    /// is on a layer does not change, so a copy with the start time goes on the layer under the same key. Returns
+    /// how many animations got the start time.
+    static func giveStartTime(_ time: CFTimeInterval, toTheMovesUnder layer: CALayer) -> Int {
+        var count = 0
+        for key in layer.animationKeys() ?? [] where key.hasPrefix("pane.commit.") {
+            guard let animation = layer.animation(forKey: key), animation.beginTime == 0,
+                  let copy = animation.copy() as? CAAnimation else { continue }
+            copy.beginTime = time
+            layer.add(copy, forKey: key)
+            count += 1
+        }
+        for below in (layer.sublayers ?? []) + [layer.mask].compactMap({ $0 }) {
+            count += giveStartTime(time, toTheMovesUnder: below)
+        }
+        return count
+    }
+
     /// A hold of the close key in a column of 3 rows and in a row of 3 panes, as in
     /// ``afterASecondCloseKeyEachPaneThatLeftShowsWholeInTheRoomThatNoPaneHas(_:)``: the first key closes the middle
     /// pane, and 2 panes move, so no pane gets a mask. The second key closes the pane that has the focus, in that
@@ -59,11 +82,13 @@ extension PaneCommitMotionTests {
     ///    grows is from its place, by `MotionPath`. The times are from the start times on the layers, not from a
     ///    clock: the second close's start, and a quarter and a half of a close's time after it.
     ///
-    /// Between the 2 keys the row gives the first close's animations to the render tree (`CATransaction.flush()`),
-    /// as the app has them when a second key comes: Core Animation gives an animation its start time there. The row
-    /// prints the start times that it reads. If the first close's moves read the start time 0 (a test process with
-    /// no render tree for its window), the row prints that: then it proves each copy's fields and values, and not
-    /// the phase on a screen.
+    /// Between the 2 keys the row gives each animation of the first close a start time by hand
+    /// (``giveStartTime(_:toTheMovesUnder:)``), as a commit to a render tree gives one in the app before a second
+    /// key comes. The row makes no commit: with a commit there (`CATransaction.flush()`), on a test host whose
+    /// window has no render tree, the first close's moves were no longer on the layers at the second key. The row
+    /// prints the start times that it reads. It proves that a copy keeps the start time that its move has on its
+    /// layer, and each copy's fields and values. It does not prove that a commit gives a start time, and it does
+    /// not prove the phase on a screen.
     @Test(arguments: ["3 rows", "3 side by side"])
     func afterASecondCloseKeyTheHoleOfEachNewMaskGoesWithThePaneOverItEachMoveOnItsOwnTiming(_ scene: String) throws {
         let between = Self.between(scene)
@@ -78,7 +103,15 @@ extension PaneCommitMotionTests {
         _ = try #require(harness.model.showPaneClose(between.closes), "SETUP: the model does not show the close of \(between.closes)")
         harness.root.syncWithModel()
         _ = harness.root.advanceFrame(Self.dt)
-        CATransaction.flush()
+        let layers = try #require(screen.layer, "SETUP: the screen has no layer")
+        let given = Self.giveStartTime(Self.startByHand, toTheMovesUnder: layers)
+        try #require(given > 0, "SETUP: the first close put no animation with the start time 0 on a layer of the screen")
+        let opening = Self.acts(on: screen)
+        try #require(opening.count == 1, "SETUP: after the first close the panes have the moves of \(opening.count) acts, not of 1: \(opening)")
+        let openingMoves = screen.subviews.compactMap { ($0 as? PaneHostView)?.layer }.flatMap { Self.actMoves(opening[0], on: $0) }
+        let stamped = Set(openingMoves.map(\.beginTime))
+        let isStamped = stamped == [Self.startByHand]
+        try #require(isStamped, "SETUP: the moves of the first close on the layers of the panes that move read the start times \(stamped.sorted()), not \(Self.startByHand) alone")
         let next = try #require(harness.model.focusedPane, "SETUP: no pane has the focus after the first close")
         let second = try #require(rest[next], "SETUP: the pane \(next) that has the focus after the first close did not show at rest")
         try #require(second !== first, "SETUP: the pane that closed keeps the focus")
@@ -122,14 +155,21 @@ extension PaneCommitMotionTests {
 
         // 2. The hole and the pane, at 3 media times from the start times on the layers: the second close's start, and
         // a quarter and a half of a close's time after it. The second close's moves have no start time yet (the row
-        // gave them to no render tree): they start one frame after the first close's start, as the row's 2 keys do.
+        // gave them none): they start one frame after the first close's start, as the row's 2 keys do.
         // No clock is read: a slow machine does not put the first close's move at its end before these times.
+        // A set-up check says that each of the 3 times is before the end of the first close's move on the pane that
+        // grows: from that end on check 2 reads the second close's move alone.
         let starts: [CFTimeInterval] = begins.map { read in
             guard let last = read.last, last > 0 else { return 0 }
             return layer.convertTime(last, to: nil)
         }
         let now = starts[1] > 0 ? starts[1] : starts[0] + Self.dt
         let times = [0, Self.close.time / 4, Self.close.time / 2].map { now + $0 }
+        let firstEnds = Self.actMoves(acts[0], on: layer).map { starts[0] + $0.duration / Double(max($0.speed, Float.ulpOfOne)) }
+        let firstEnd = try #require(firstEnds.min(), "SETUP: the pane that grows has no move of the first close: check 2 has no end to read")
+        let after = times.map { $0 - starts[0] }
+        let inside = starts[0] > 0 && times.allSatisfy { $0 < firstEnd }
+        try #require(inside, "SETUP: check 2 is void: the 3 times are \(after) s after the first close's start, and its move ends \(firstEnd - starts[0]) s after it")
         let pane = try #require(Self.farFromPlace(layer, at: times, now: now), "SETUP: `MotionPath` does not read each animation on the layer of the pane that grows")
         for mask in masks {
             var far: [[[CGFloat]]] = []
@@ -149,13 +189,13 @@ extension PaneCommitMotionTests {
                     """)
             }
         }
-        let noStart = begins[0] == [0]
+        let oneStart = begins[0] == [Self.startByHand]
         print("ROW (HOLE TIMING): \(scene): the start times read back from the layers of the pane that grows and of the parts of the 2 masks:",
               "the first close's moves \(begins[0]), the second close's moves \(begins[1]); copies of the first close's move on the parts: \(copies);",
               "the 3 times are \(times.map { (($0 - starts[0]) * 10000).rounded() / 10000 }) s after the first close's start;",
               "at the 3 times the pane that grows is \(pane.map { $0.map { ($0 * 100).rounded() / 100 } }) pt from its place (min x, min y, max x, max y).",
-              noStart ? "NO START TIME: in this test process the first close's moves and their copies read the start time 0."
-                  + " The row proves the fields and the values of each copy, and not the phase on a screen."
-                  : "The first close's moves have a start time, and each copy has the same one.")
+              "The row gave \(given) animations of the first close the start time \(Self.startByHand) by hand before the second key.",
+              oneStart ? "Each copy of a move of the first close reads that start time."
+                  : "NOT ONE START TIME: a move of the first close or a copy of it reads another start time.")
     }
 }
