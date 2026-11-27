@@ -71,7 +71,7 @@ public struct HomeNewMessageComposerSource: HomeSource {
 
     /// Runs one of the source's gates (`compose.composerSource.*`); its refusal throws as the owner's.
     private static func gate(_ op: String, _ request: Gate.Request) throws {
-        let gate: Gate = HomeComposeRules.call(op, request, fallback: Gate(ok: false, invalid: "new_message.unsupported"))
+        let gate: Gate = HomeComposeRules().call(op, request, fallback: Gate(ok: false, invalid: "new_message.unsupported"))
         if !gate.ok { throw HomeRejection.invalid(gate.invalid ?? "new_message.unsupported") }
     }
 

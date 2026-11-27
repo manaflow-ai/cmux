@@ -31,7 +31,7 @@ public enum HomeTeamSeatImpact: Equatable, Sendable {
     public static func of(canInvite: Bool, planID: String?, hasSubscription: Bool, memberCount: Int, memberLimit: Int?) -> Self {
         let request = SeatRequest(canInvite: canInvite, planID: planID, hasSubscription: hasSubscription,
                                   memberCount: memberCount, memberLimit: memberLimit)
-        let reply: SeatReply = HomeComposeRules.call("team.seatImpact", request, fallback: SeatReply(impact: .init(kind: "unknown")))
+        let reply: SeatReply = HomeComposeRules().call("team.seatImpact", request, fallback: SeatReply(impact: .init(kind: "unknown")))
         let impact = reply.impact
         return switch impact.kind {
         case "notAllowed": .notAllowed

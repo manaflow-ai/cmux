@@ -46,7 +46,7 @@ public struct HomeTeamInviteRun {
     ///   `sent` and `team`, or (for a CLI or agent run) a refusal when the person cancels.
     public func effect(_ invocation: ActionInvocation, over window: NSWindow) -> ActionEffect {
         let raw = invocation["email"]?.stringValue ?? ""
-        let check: EmailCheck = HomeComposeRules.call("team.inviteEmail", EmailCheck.Request(text: raw),
+        let check: EmailCheck = HomeComposeRules().call("team.inviteEmail", EmailCheck.Request(text: raw),
                                                       fallback: EmailCheck(prefill: raw.trimmingCharacters(in: .whitespacesAndNewlines)))
         if let refused = check.refused {
             return .refused(HomeComposeOutcome.invalidAddress(refused.text).message ?? refused.text)
@@ -97,7 +97,7 @@ public struct HomeTeamInviteRun {
         case .notAllowed: InviteResult(kind: "notAllowed")
         case .unreachable: InviteResult(kind: "unreachable")
         }
-        let outcome: InviteOutcome = HomeComposeRules.call("team.inviteOutcome", ["result": result],
+        let outcome: InviteOutcome = HomeComposeRules().call("team.inviteOutcome", ["result": result],
                                                            fallback: InviteOutcome(kind: "cloudUnreachable"))
         switch outcome.kind {
         case "invited": return .invited(nil)

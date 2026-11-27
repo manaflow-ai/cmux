@@ -309,6 +309,7 @@ mod elicitation_tests;
 mod subagent_title_tests;
 // The chat's own tool calls running in the foreground, and for how long (`FOREGROUND_WORK`).
 mod dedupe;
+pub(crate) use dedupe::enabled_with as dedupe_enabled_with;
 mod dedupe_shell;
 #[cfg(test)]
 mod dedupe_tests;
