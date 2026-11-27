@@ -4,6 +4,19 @@ The versions of Instrument, cmux's web component kit (`kit/index.ts`, `INSTRUMEN
 A patch adds or re-exports pieces and moves no pixel; a minor moves a drawn default; a major removes or
 renames a piece. The token file (`schemas/instrument/instrument.json`) keeps its own changelog.
 
+## Unreleased (the next patch)
+
+Variants a host with its own sheet (the customize scene renderer) needs to draw with the kit,
+each off unless asked for and each reproducing a value the app already draws. No pixel moves.
+
+- `Button` `bare`: only the caller's class, no button look of its own.
+- `Row`: a `ref` and every other attribute or handler on the row element; `subtitleSize="detail"`;
+  `--kit-row-selected-fill` for a host's selection fill.
+- `Pill` `size="xs"`: the scene badge (16 tall, the detail step, a 14% fill of its own color);
+  `--kit-pill-radius` for a host's corner.
+- `grid(name)`, `GRID`: the layout grid's `--grid-*` lengths, which follow the interface scale.
+- `--ds-radius-full` (999px), `radius("full")`.
+
 ## 0.1.0 (2026-11-25)
 
 The look the app draws today, named. No product surface changes; only the kit gallery gains entries.

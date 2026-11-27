@@ -26,12 +26,17 @@ public nonisolated struct SidebarRowTuning {
     public static let rowGap = ComputedTunable(
         "sidebarRows.rowGap", section, "Row gap",
         help: "The gap between two rows, list and bands; two lit fills keep it between them.",
-        range: 0...12, code: "SidebarRowTuning.rowGap") { Metrics.densityToken("sidebarRowGap") ?? Metrics.space1 }
+        range: 0...12, code: "SidebarRowTuning.rowGap") {
+            // A look's `appearance.metrics.sidebarRowGap`, then the density's.
+            Metrics.lookOverride(.sidebarRowGap) ?? Metrics.densityToken("sidebarRowGap") ?? Metrics.space1
+        }
     /// The gap between a row's fill and the sidebar's edges.
     public static let outerInset = ComputedTunable(
         "sidebarRows.outerInset", section, "Fill to sidebar edge",
         help: "The gap between a row's fill and the sidebar's left and right edges. Default: Home's house centers under the red traffic light, and every row's first glyph or text-only title starts where the house does.",
         range: 0...24, code: "SidebarRowTuning.outerInset") {
+            // A look's `appearance.metrics.sidebarRowInset` sets it exactly, ahead of the density.
+            if let look = Metrics.lookOverride(.sidebarRowInset) { return look }
             // A custom density's `sidebarRowInset` sets it exactly. Else the fill sits so Home's house, which starts on the
             // content, one content inset in, centers under the red light (Lucas 2026-11-24: the light, the house, a globe
             // and a text-only title on one line; then the whole row moved, not only the glyph, so the house centers under
@@ -47,7 +52,9 @@ public nonisolated struct SidebarRowTuning {
     public static let contentInset = ComputedTunable(
         "sidebarRows.contentInset", section, "Fill to content",
         help: "Where a row's first glyph or text-only title starts inside its fill, and its last trailing mark ends.",
-        range: 0...24, code: "SidebarRowTuning.contentInset") { SidebarDensityTokens.derivedContentInset }
+        range: 0...24, code: "SidebarRowTuning.contentInset") {
+            Metrics.lookOverride(.sidebarRowPadding) ?? SidebarDensityTokens.derivedContentInset
+        }
     /// A row fill's corner radius.
     public static let cornerRadius = ComputedTunable(
         "sidebarRows.cornerRadius", section, "Fill corner radius",

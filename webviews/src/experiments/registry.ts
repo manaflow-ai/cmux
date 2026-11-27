@@ -24,6 +24,8 @@ import { cloudStartComposerLook } from "../agent-session/acpmux/cloudStartCompos
 import { composerFooterFacts } from "../agent-session/acpmux/composerFooterFacts.experiment";
 import { composerMachineAtRest } from "../agent-session/acpmux/composerMachineAtRest.experiment";
 import { cloudStartJustGo } from "../agent-session/acpmux/cloudStartJustGo.experiment";
+import { sendDrawsFirst } from "../agent-session/acpmux/sendDrawsFirst.experiment";
+import { waitSpinnerDelay } from "../agent-session/acpmux/waitSpinnerDelay.experiment";
 import { cloudProgressLook } from "../pages/cloud-progress/cloudProgress.experiment";
 import { startRecoveryLook } from "../agent-session/acpmux/startRecovery.experiment";
 import { cloudStartAskLook } from "../agent-session/acpmux/cloudStartAsk.experiment";
@@ -61,6 +63,7 @@ import { liveTurnWork } from "../agent-session/acpmux/conversation/liveTurnWork.
 import { jumpUpButton } from "../agent-session/acpmux/jumpUp.experiment";
 import { turnFoldReplies } from "../agent-session/acpmux/conversation/turnFoldReplies.experiment";
 import { turnFoldSteered } from "../agent-session/acpmux/conversation/turnFoldSteered.experiment";
+import { waitingMessagesOrder } from "../agent-session/acpmux/conversation/waitingMessagesOrder.experiment";
 import { sinceLook } from "../agent-session/acpmux/conversation/sinceLook.experiment";
 import { workedLine } from "../agent-session/acpmux/conversation/workedLine.experiment";
 import { toolRowWords } from "../agent-session/acpmux/conversation/toolRowWords.experiment";
@@ -85,6 +88,7 @@ import { hatDoneLook } from "../agent-session/acpmux/subagents/hatParts.experime
 import { hatOpenLook } from "../agent-session/acpmux/subagents/hatOpen.experiment";
 import { subagentForkChipsLook } from "../agent-session/acpmux/subagents/subagentForkChips.experiment";
 import { hatHeaderLook } from "../agent-session/acpmux/subagents/hatHeader.experiment";
+import { hatLineLook } from "../agent-session/acpmux/subagents/hatLine.experiment";
 import { goalHatPlace } from "../agent-session/acpmux/goalHat.experiment";
 import { customizeBarPlace } from "../agent-session/acpmux/customizeBar/customizeBar.experiment";
 import { trayHeadLook } from "../agent-session/acpmux/subagents/trayHead.experiment";
@@ -129,12 +133,14 @@ import { fieldGrowthMotion } from "../agent-session/acpmux/composer/fieldGrowth.
 import { composerDockMotion } from "../agent-session/acpmux/composer/dockMotion.experiment";
 import { teamAudit } from "../agent-session/acpmux/teamAudit/teamAudit.experiment";
 import { jumpPairLook } from "../agent-session/acpmux/jumpPair.experiment";
+import { transcriptScrollPacer } from "../agent-session/acpmux/transcriptScrollPacer.experiment";
 import { menuStyleV2 } from "../ui/menuStyleV2.experiment";
 import { menuRowStates } from "../ui/menuRowStates.experiment";
 import { jumpLatestPlace } from "../agent-session/acpmux/jumpPlace.experiment";
 import { hatPillPlace } from "../agent-session/acpmux/hatPillPlace.experiment";
 import { dockBand } from "../agent-session/acpmux/dockBand.experiment";
 import { draftFoot } from "../agent-session/acpmux/draftFoot.experiment";
+import { composerPlace } from "../agent-session/acpmux/composerPlace.experiment";
 import { outcomeAsk } from "../agent-session/acpmux/outcomeAsk.experiment";
 import { composerV2Look } from "../agent-session/acpmux/composerV2.experiment";
 import { composerShellLook } from "../agent-session/acpmux/composer/shellLook.experiment";
@@ -167,6 +173,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   jumpUpButton,
   turnFoldReplies,
   turnFoldSteered,
+  waitingMessagesOrder,
   workedLine,
   toolRowWords,
   sinceLook,
@@ -232,6 +239,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatOpenLook,
   subagentForkChipsLook,
   hatHeaderLook,
+  hatLineLook,
   goalHatPlace,
   customizeBarPlace,
   hatDoneLook,
@@ -258,6 +266,8 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerFooterFacts,
   composerMachineAtRest,
   cloudStartJustGo,
+  sendDrawsFirst,
+  waitSpinnerDelay,
   cmuxLinkLook,
   sentPasteJoin,
   sentMessageLook,
@@ -276,6 +286,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   composerDockMotion,
   teamAudit,
   jumpPairLook,
+  transcriptScrollPacer,
   shortcutKeycaps,
   holdToApprove,
   holdToApproveDuration,
@@ -283,6 +294,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hatPillPlace,
   dockBand,
   draftFoot,
+  composerPlace,
   outcomeAsk,
   glassToolbarLook,
   composerV2Look,

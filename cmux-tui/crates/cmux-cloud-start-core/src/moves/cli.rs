@@ -78,6 +78,9 @@ pub struct Answer {
     /// `link start-chat plan`'s `seed_refused` for a machine too small for the folder (`machine.too_small`): the
     /// machine's name, for "more than <machine> has room for".
     pub machine_title: Option<String>,
+    /// `link seed push`: how the folder reached the machine (copied, not cloned) and what stayed on
+    /// this Mac, for the done toast; none when it cloned and left nothing ([`super::landed::read`]).
+    pub landed: Option<super::landed::Landed>,
 }
 
 impl Answer {
@@ -178,6 +181,7 @@ pub fn parse(output: &Output) -> (Answer, Option<Map<String, Value>>) {
         left_on_mac: left_on_mac(&object),
         size_locked: object.get("size_locked").filter(|size| size.is_object()).cloned(),
         machine_title: string(&object, "machine_title"),
+        landed: super::landed::read(&object),
     };
     (answer, Some(object))
 }
@@ -466,6 +470,11 @@ pub enum Call {
     InferenceGatewayStatus {
         #[serde(default)]
         team: Option<String>,
+        /// The caller hands its held install token on stdin (`--token-stdin`), so the read mints none: the nested
+        /// `cmux auth token --team` mint could take up to 25 s inside this read's 10 s bound, and the gate then
+        /// refused a start the gateway served (hq#19758).
+        #[serde(default)]
+        held: bool,
     },
     /// `link start-chat reserve|release --request JSON`.
     StartChatReservation {
@@ -738,10 +747,13 @@ pub fn invocation(call: &Call) -> Invocation {
             min_timeout_seconds: None,
         },
         // One status read on a start's path, before any machine: short, so a slow API costs a start little.
-        Call::InferenceGatewayStatus { team } => {
+        Call::InferenceGatewayStatus { team, held } => {
             let mut args = words(&["inference", "gateway", "status", "--json"]);
             if let Some(team) = team {
                 args.extend(words(&["--team", team]));
+            }
+            if *held {
+                args.extend(words(&["--token-stdin"]));
             }
             Invocation { args, timeout_seconds: Some(10), min_timeout_seconds: None }
         }

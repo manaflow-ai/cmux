@@ -1,7 +1,7 @@
 import { createContext, useContext } from "react";
 
 /// One account a chat can run on: an acpmux route (`_acpmux/route/list`, routes.rs) that serves
-/// the chat's harness family, such as a direct subscription, an API key, a subrouter or CodeRouter.
+/// the chat's harness family, such as a direct subscription, an API key, or a subrouter.
 export type ChatAccount = { id: string; name: string; kind?: string };
 
 /// A new local account, sent only through the native host.

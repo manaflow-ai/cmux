@@ -53,7 +53,15 @@ import { workedCountParts, workedOutcome, workedOutcomeParts, workedSentence, ty
 import { TimedLabel } from "./TurnTokens";
 import { AlertCircle, Retry, Close } from "./icons";
 import { DisclosureChevron } from "./DisclosureChevron";
-import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
+import {
+  ForkButton,
+  MessageCopy,
+  MessageFooterRow,
+  MessageMore,
+  PinButton,
+  ReadAloudButton,
+  ReplyTime,
+} from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { dismissFailure, useFailureDismissed } from "./dismissedFailures";
 import { SteerChatContext } from "./pendingSteerModel";
@@ -543,6 +551,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           setRetryNote(note);
           setRetryWent(note === undefined ? true : undefined);
         },
+        // retry-prompt-ok: the resend the person clicked did not go; another resend is a paid model request.
         () => setRetryNote("retry.failed"),
       )
       .finally(() => setRetrying(false));
@@ -561,6 +570,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             // A chat without acpmux's retry sends the prompt again; a send that did not go says so.
             if (retrying) return;
             const rowId = row.retryRowId!;
+            // retry-prompt-ok: sends the prompt again, a paid model request.
             runRetry(async () => ((await retry(rowId, prompt)) === false ? "retry.failed" : undefined), "retry");
           }
         : undefined;
@@ -571,6 +581,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
     offersRetry(row) &&
     !isEmptyFooter(row);
   const footerRetry = failedRetry;
+  // retry-prompt-ok: the turn's Retry sends the prompt again, a paid model request (and may change files again).
   const retryTitle = row.changedFiles ? t("turn.retryChangedFiles") : t("turn.retryLabel");
   const retryModels = failed && prompt && retry && retryWith && retryWith.models.length > 1 ? retryWith : undefined;
   // The card's lead (errorRecovery.ts): Continue when the turn had done work, Retry when nothing
@@ -645,6 +656,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
                   <button
                     type="button"
                     className="cv-iconbtn cv-iconbtn--compact"
+                    // retry-prompt-ok: sends the turn's prompt again, a paid model request.
                     aria-label={t("turn.retry")}
                     title={retryTitle}
                     disabled={retrying}
@@ -680,6 +692,10 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
           </span>
           {stoppedLook === "word" && stoppedWord}
           {stoppedLook === "trailing" && stoppedWord}
+          {/* The reply's age after its buttons ("4 minutes ago", the exact time on its tooltip), shown
+              with the row while the pointer is on the turn, as Claude's (Leo, 2026-11-22: "you hover
+              and you get the timing ... and we already have logic for the timing"). */}
+          {!messages && !failed && <ReplyTime at={row.at} />}
           {!messages && endMark}
         </MessageFooterRow>
       </div>
@@ -903,6 +919,7 @@ function TurnFailure({
         )}
         {signInFirst && (
           <button type="button" className="cv-turn-auth-action cv-turn-error__primary" onClick={reauthenticate}>
+            {/* retry-prompt-ok: a sign-in the person does. */}
             {t("turn.signInAgain")}
           </button>
         )}
@@ -918,6 +935,7 @@ function TurnFailure({
             disabled={retrying}
             onClick={goOn}
           >
+            {/* retry-prompt-ok: sends the failed turn again, a paid model request. */}
             {goOnLabel === "continue" ? t("turn.continue") : t("turn.retry")}
           </button>
         )}

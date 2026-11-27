@@ -12,9 +12,26 @@ import UniformTypeIdentifiers
         let image = try #require(makeImage(width: 3000, height: 2200, alpha: false))
         let original = try encode(image, type: UTType.jpeg.identifier as CFString, quality: 1)
         let optimized = AgentImageOptimizer.optimize(original)
+        print("AgentImageOptimizer JPEG data bytes: \(original.count) -> \(optimized.count)")
 
         #expect(optimized.count < original.count)
         #expect(AgentAttachment(kind: .image, name: "photo", data: optimized).imageMIMEType == "image/jpeg")
+        let source = try #require(CGImageSourceCreateWithData(optimized as CFData, nil))
+        let thumbnail = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        #expect(max(thumbnail.width, thumbnail.height) <= AgentImageOptimizer.maxPixelSize)
+    }
+
+    @Test func shrinksLargeJPEGFromURL() throws {
+        let image = try #require(makeImage(width: 3000, height: 2200, alpha: false))
+        let original = try encode(image, type: UTType.jpeg.identifier as CFString, quality: 1)
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-attachment-\(UUID().uuidString).jpg")
+        try original.write(to: url, options: .atomic)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let optimized = try #require(AgentImageOptimizer.optimize(fileURL: url, byteCount: original.count))
+        print("AgentImageOptimizer JPEG URL bytes: \(original.count) -> \(optimized.count)")
+        #expect(optimized.count < original.count, "URL optimization must reduce the transfer copy")
         let source = try #require(CGImageSourceCreateWithData(optimized as CFData, nil))
         let thumbnail = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
         #expect(max(thumbnail.width, thumbnail.height) <= AgentImageOptimizer.maxPixelSize)
@@ -55,6 +72,24 @@ import UniformTypeIdentifiers
         let second = try #require(makeImage(width: 2, height: 2, alpha: true))
         let animated = try encodeAnimated([first, second])
         #expect(AgentImageOptimizer.optimize(animated) == animated)
+    }
+
+    @Test func optimizesMultiImageHEICWhenImageIOExposesMultipleFrames() throws {
+        let image = try #require(makeImage(width: 3000, height: 2200, alpha: false))
+        let first = try encode(image, type: UTType.heic.identifier as CFString)
+        let second = try encode(image, type: UTType.heic.identifier as CFString)
+        let data = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(data, UTType.heic.identifier as CFString, 2, nil))
+        let sourceOne = try #require(CGImageSourceCreateWithData(first as CFData, nil))
+        let sourceTwo = try #require(CGImageSourceCreateWithData(second as CFData, nil))
+        CGImageDestinationAddImage(destination, try #require(CGImageSourceCreateImageAtIndex(sourceOne, 0, nil)), nil)
+        CGImageDestinationAddImage(destination, try #require(CGImageSourceCreateImageAtIndex(sourceTwo, 0, nil)), nil)
+        #expect(CGImageDestinationFinalize(destination))
+        let optimized = AgentImageOptimizer.optimize(data as Data)
+        #expect(optimized != data as Data)
+        let source = try #require(CGImageSourceCreateWithData(optimized as CFData, nil))
+        let thumbnail = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        #expect(max(thumbnail.width, thumbnail.height) <= AgentImageOptimizer.maxPixelSize)
     }
 
     private func makeImage(width: Int, height: Int, alpha: Bool, smooth: Bool = false) -> CGImage? {

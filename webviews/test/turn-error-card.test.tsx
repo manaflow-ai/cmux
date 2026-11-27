@@ -538,7 +538,7 @@ test("a sign-in failure with no login to run keeps Switch model alone, with no R
   expect(button("Switch model")!.classList.contains("cv-turn-error__primary")).toBe(true);
 });
 
-test("routes the pane could not read are marked unread", () => {
+test("routes the pane could not read say so", () => {
   expect(readChatAccounts({ routes: [] }).unread).toBeUndefined();
   expect(readChatAccounts({ error: "nope" }).unread).toBe(true);
   expect(readChatAccounts(undefined).unread).toBe(true);

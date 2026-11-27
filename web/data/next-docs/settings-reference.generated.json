@@ -4119,7 +4119,7 @@
           "title": "Customization notices",
           "help": "",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "App Theme"
         },
         {
@@ -5022,14 +5022,6 @@
           "key": "sidebar.settleFinished",
           "title": "Settle Finished Chats",
           "help": "A chat whose answer you have read folds into Settled at the end of its list until its next turn.",
-          "kind": "toggle",
-          "default": false,
-          "group": "Sidebar"
-        },
-        {
-          "key": "sidebar.showAutomaticSessions",
-          "title": "Show Automatic Sessions",
-          "help": "Sessions that scripts and tools start show in place. Off, they wait in Automatic at the end of their list.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
