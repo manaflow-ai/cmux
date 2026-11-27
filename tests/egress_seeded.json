@@ -1,6 +1,6 @@
 {
  "about": "Every egress gate site and the seeded-secret test that covers it (tests/test_egress_seeded.py). todo_max only goes down.",
- "todo_max": 22,
+ "todo_max": 17,
  "sites": {
   "acpmux::cmux_rd::fetch": {
    "none": "one header-less GET of the pinned public cmux-rd release archive on github.com (and the object store it redirects to): no auth, cookie or person data"
@@ -108,7 +108,7 @@
    "test": "cmux-tui/crates/cmux-tui/src/cli/api_tokens_tests.rs::seeded_secrets_ride_only_in_their_headers"
   },
   "cmux_tui::cli::app::web_pieces": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/app/web_pieces_seeded_tests.rs::the_switch_fetch_carries_only_its_etag_and_no_credential"
   },
   "cmux_tui::cli::autocloud": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/autocloud_tests.rs::seeded_secrets_ride_only_where_the_platform_needs_them"
@@ -135,7 +135,7 @@
    "test": "cmux-tui/crates/cmux-tui/src/cli/device_login_tests.rs::seeded_secrets_ride_only_in_their_headers"
   },
   "cmux_tui::cli::ext::share": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/cli/ext/share_seeded_tests.rs::the_github_token_rides_only_in_authorization_and_the_words_only_in_the_query"
   },
   "cmux_tui::cli::hub": {
    "todo": true
@@ -171,7 +171,7 @@
    "todo": true
   },
   "cmux_tui::link::sync_cli::store": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/link/sync_cli/store_seeded_tests.rs::the_store_credential_rides_only_in_authorization"
   },
   "cmux_tui::owner_start::background_checks": {
    "none": "header-less GETs of the signed feature-flag file and the npm/PyPI registry entry: no cookie, token or person data in the request"
@@ -180,7 +180,7 @@
    "test": "cmux-tui/crates/cmux-tui/src/owner_start/crash_forward_tests.rs::seeded_secrets_never_reach_the_wire"
   },
   "cmux_tui::remote_cli::acpmux_peer": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui/src/remote_cli/acpmux_peer_seeded_tests.rs::the_peer_tokens_ride_only_in_their_headers"
   },
   "cmux_tui::vm_tailnet": {
    "test": "cmux-tui/crates/cmux-tui/src/cli/vm_tailnet/tests.rs::seeded_credentials_ride_only_to_the_server_that_mints"
@@ -201,7 +201,7 @@
    "none": "a GET of the pack URL from the signed manifest, no auth, no redirect: the request carries only the pack name"
   },
   "cmux_tui_core::server::agent_session_share_room": {
-   "todo": true
+   "test": "cmux-tui/crates/cmux-tui-core/src/server/agent_session_share_room_seeded_tests.rs::the_share_token_rides_only_in_authorization"
   },
   "cmux_tui_core::server::forum_routed": {
    "test": "cmux-tui/crates/cmux-tui-core/src/server/forum_routed_tests.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
