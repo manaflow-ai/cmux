@@ -168,7 +168,10 @@ function inboxChildren(row: AcpmuxRow, notice: LaneNotice): readonly AcpmuxRow[]
         inboxDelivery: true,
         inboxSource: row.id,
         ...(row.steer ? { steer: row.steer } : {}),
-        ...(!thread.messages?.length
+        // A tool's notice draws as its message's one notice line (IncomingMessageCard.tsx). An
+        // `inboxThread` would win in MessageRow.tsx and draw the raw text with no notice line: a
+        // background command's end (only `newest`, no `messages`) showed its whole output.
+        ...(!tool && !thread.messages?.length
           ? {
               inboxThread: {
                 threadId: thread.id,

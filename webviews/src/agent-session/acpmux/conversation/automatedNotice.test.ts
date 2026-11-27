@@ -199,3 +199,40 @@ test("a tool's notice relayed three times draws one line: its detector, severity
   expect(message?.notice?.host).toBeUndefined();
   expect(message?.text).toContain("12 queued");
 });
+
+test("a background command's end, whose thread holds only its newest message, draws its notice line", () => {
+  // The thread carries `newest` and no `messages` (hub/inbox.rs, bg_notify.rs): its row drew as a
+  // plain received message, "acpmux" over the command's whole output, with no notice line.
+  const body =
+    "[notice from acpmux] Background command finished: Run the review (exit 0)\nTask bg-1: codex exec\nLast 20 lines of its output:\nok";
+  const text = "[inbox] New messages from other agents in 1 thread.";
+  const provenance = {
+    kind: "inbox_notice",
+    noticeId: "n-bg",
+    threads: [
+      {
+        threadId: "declared:acpmux",
+        label: "messages",
+        new: 1,
+        from: ["acpmux"],
+        promptIds: ["bg-done-bg-1"],
+        preview: body.split("\n")[0],
+        newest: body,
+        notice: { sender: "acpmux", severity: "info", title: "Background command finished: Run the review (exit 0)" },
+      },
+    ],
+  };
+  const incoming = incomingPrompt(text, { client: "acpmux", _meta: { provenance } } as never)!;
+  expect(incoming.kind).toBe("inbox");
+  const row = { id: "r", version: 1, at: 1, kind: "user", text, untyped: true, incoming } as AcpmuxRow;
+  const lines = projectInboxRows([row]).flatMap((r) => r.laneNoticeBatch?.rows ?? [r]);
+  expect(lines.length).toBe(1);
+  expect(lines[0]!.inboxThread).toBeUndefined();
+  const message = lines[0]!.incoming?.kind === "message" ? lines[0]!.incoming.message : undefined;
+  expect(message?.notice).toMatchObject({
+    sender: "acpmux",
+    severity: "info",
+    title: expect.stringContaining("Run the review"),
+  });
+  expect(message?.text).toContain("Last 20 lines");
+});
