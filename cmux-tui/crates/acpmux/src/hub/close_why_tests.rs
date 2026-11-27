@@ -154,6 +154,31 @@ async fn the_daemons_own_closes_are_recorded() {
     assert_eq!(the_close(&hub, &chat)["outcome"], "moved");
 }
 
+/// A committed move's old copy closes `moved to HOST/NAME`, outcome `moved`: no lane with work
+/// reads `unfinished` here while it runs on at HOST (leo-workspace lane-deaths revived those).
+#[tokio::test]
+async fn a_committed_move_closes_its_old_copy_as_moved_to_its_host() {
+    let (hub, chat) = hub_with_chat().await;
+    lane(&hub, &chat);
+    let name = chat.meta().name.clone();
+    let transfer = uuid::Uuid::now_v7().to_string();
+    *chat.moving.lock().unwrap() = Some(transfer.clone());
+    let to = json!({"host": "gcp-agent-lane-7", "sessionId": chat.id});
+    hub.transfer_commit_with_epoch(&chat, &transfer, to, Some(chat.ownership_epoch()), None)
+        .await
+        .unwrap();
+    assert_eq!(chat.status(), SessionStatus::Closed);
+    let close = the_close(&hub, &chat);
+    assert_eq!(close["actor"], json!({"kind": "daemon"}));
+    assert_eq!(close["reason"], format!("moved to gcp-agent-lane-7/{name}"));
+    assert_eq!(close["outcome"], "moved");
+
+    // A `movedTo` with no host, or a chat with no name, still says where it went.
+    let why = crate::hub::transfer_out::moved_close_why(&json!({"sessionId": "s1"}), "");
+    assert_eq!(why.reason.as_deref(), Some("moved to another daemon/s1"));
+    assert_eq!(why.outcome.as_deref(), Some("moved"));
+}
+
 /// An expiry's close (an ephemeral chat whose connection ended) is `ttl`; its purge takes the
 /// log, so only the INFO line keeps it, and the purge still goes through.
 #[tokio::test]

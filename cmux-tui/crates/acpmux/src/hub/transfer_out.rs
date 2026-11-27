@@ -262,6 +262,25 @@ pub(super) fn names_a_move(mark: &str) -> bool {
     mark != MOVED_AWAY && mark != LOG_UNREADABLE && mark != IMPORTING && mark != super::AUTO_AWAY
 }
 
+/// The close of a chat's copy here once its move committed: reason `moved to HOST/NAME` (`to` is
+/// the commit's `movedTo`; NAME the chat's, which a move keeps), outcome `moved`, never
+/// `unfinished`: the work runs on at HOST. 2026-11-27, every source copy of a lane that
+/// lane_cap_rebalance moved read `daemon`/`unrecorded`/`unfinished`, and lane-deaths revived it
+/// on the machine it had left (leo-workspace#13747 reads `movedTo` meanwhile).
+pub(super) fn moved_close_why(to: &Value, name: &str) -> crate::close_why::CloseWhy {
+    let host = to
+        .get("host")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|h| !h.is_empty())
+        .unwrap_or("another daemon");
+    let name = Some(name.trim())
+        .filter(|n| !n.is_empty())
+        .or_else(|| to.get("sessionId").and_then(Value::as_str))
+        .unwrap_or("?");
+    crate::close_why::CloseWhy::by("daemon", &format!("moved to {host}/{name}")).outcome("moved")
+}
+
 #[path = "compaction_outline.rs"]
 pub(super) mod compaction_outline;
 /// Where a move's begin token is kept, in its bundle folder.
@@ -987,7 +1006,10 @@ impl Hub {
             moved.set("freeze", freeze);
         }
         self.append(session, "mux", "transferred", moved);
-        self.kill(session, false).await?;
+        // Its close says where it went, outcome `moved`: recorded `daemon`/`unrecorded`, a lane's
+        // old copy read `unfinished`, and lane-deaths restarted it on the machine it had left.
+        let why = moved_close_why(&to, &session.meta().name);
+        self.kill_why(session, false, why).await?;
         self.note_shipped(session, transfer_id);
         transfer_precopy::forget_prepared(&dir);
         let _ = crate::home_fs::remove_dir_all(transfers_dir().join(transfer_id));
