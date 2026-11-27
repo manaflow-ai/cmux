@@ -470,7 +470,7 @@ export const nextDocPages: NextDocPage[] = [
       { ul: [
         "One chat: use New Cloud Chat in the app or paste the setup prompt below into Chief. cmux prepares the machine and keeps the conversation in one place.",
         "Repeatable setup: use the CLI commands on this page. They expose machine ids, workspace ids, and session ids so a script or another agent can continue the same work.",
-        "Team and integration work: describe the checkout in .cmux/machine.toml, keep secrets in the Cloud secret store, and use MCP or acpmux when another client needs to drive the session.",
+        "Team and integration work: describe the checkout in .cmux/machine.toml, list secret names under [secrets], and store each value on your Mac with cmux cloud secret set (Secrets and the vault). Use MCP or acpmux when another client needs to drive the session.",
       ] },
       { h2: "Paste this into your agent" },
       { p: "Copy this into any agent chat in cmux, opened on the folder you want to work on. It signs you in, makes a machine if you have none, and starts an agent there. New to cmux? The prompt on Getting started installs it first." },
