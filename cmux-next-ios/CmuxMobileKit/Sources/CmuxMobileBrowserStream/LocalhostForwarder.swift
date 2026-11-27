@@ -252,10 +252,12 @@ public final class LocalhostForwarder {
         }
         guard !suspended else { throw .unavailable("not connected") }
         let localPort: UInt16
-        if let listener = route.listener, listener.state == .ready, let port = listener.port?.rawValue {
-            localPort = port
-        } else if let binding = route.binding {
+        // Readiness can precede bindProxy committing the stable endpoint. Every
+        // caller must await that commit before handing an address to WebKit.
+        if let binding = route.binding {
             localPort = try await binding.value.get()
+        } else if let listener = route.listener, listener.state == .ready, let port = route.localPort {
+            localPort = port
         } else {
             let (task, bindingID) = startProxyBinding(route, key: key)
             let result = await task.value
@@ -595,6 +597,10 @@ public final class LocalhostForwarder {
         }
         guard await Self.send(connection, Data("HTTP/1.1 200 Connection Established\r\n\r\n".utf8)) else {
             await channel.close(code: "eof", reason: "")
+            return
+        }
+        guard proxies[key] === route, !suspended, route.ports.contains(port) else {
+            await channel.close(code: "superseded", reason: "")
             return
         }
         await Self.pumpRaw(connection, channel: channel, initial: remainder)
