@@ -268,7 +268,7 @@ impl Hub {
     ///
     /// With it, the local sandbox that launch runs in (`sandbox_authority::command_prefix`):
     /// the daemon's own decision for the chat now, never one the agent sends.
-    pub(super) async fn bg_launch(
+    pub(crate) async fn bg_launch(
         &self,
         session: &Session,
         meta: &SessionMeta,

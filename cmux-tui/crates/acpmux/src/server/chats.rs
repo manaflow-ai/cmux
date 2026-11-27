@@ -125,6 +125,8 @@ pub(super) async fn route(
     let params = super::pairing::gate(conn, m, params)?;
     // So does a teammate through the Cloud carrier, to its verbs (`carrier.rs`).
     let params = super::carrier::gate(hub, conn, m, params)?;
+    // A sandboxed local agent keeps its boundary through this daemon (cmuxterm-hq#32166).
+    let params = super::sandbox_gate::gate(hub, conn, m, params).await?;
     // The app's and webviews' own spans of one user action, into this daemon's Perfetto trace
     // (`perf_trace.rs`): no store, no peer.
     if m == crate::perf_trace::METHOD_SPANS {

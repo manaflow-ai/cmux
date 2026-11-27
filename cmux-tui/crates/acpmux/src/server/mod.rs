@@ -90,6 +90,7 @@ mod fanout;
 #[cfg(test)]
 #[path = "fanout_encode_tests.rs"]
 mod fanout_encode_tests;
+mod sandbox_gate;
 // Which connections a hub event wakes, and what that costs at 4, 16 and 64 connections.
 #[cfg(test)]
 #[path = "fanout_interest_tests.rs"]
@@ -507,6 +508,9 @@ pub struct Conn {
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
     peer: Option<cmux_link::app_caller::PeerToken>,
+    /// The peer runs under a sandbox profile, by the kernel's answer for `peer` at accept
+    /// (`sandbox_gate.rs`). Never from anything the connection sends.
+    sandboxed_peer: bool,
     /// The unix socket peer's pid, read at accept (`SO_PEERCRED`, `LOCAL_PEERPID`), or the daemon's
     /// own outbox: where a send's process chain is walked from and whose check is carried
     /// (`sender_harness::check_trust`), provenance only, never a proof.
@@ -755,6 +759,12 @@ impl Conn {
                 *self.device_mesh.lock().unwrap_or_else(|e| e.into_inner()),
                 web_device::Slot::Empty
             )
+    }
+
+    /// Whether a sandboxed process (a local agent in `local_sandbox.rs`'s profile) is behind it,
+    /// by the kernel's answer at accept (`sandbox_gate.rs`). Never the proven person.
+    pub(super) fn sandboxed_peer(&self) -> bool {
+        self.sandboxed_peer && !self.is_person()
     }
 
     /// Whether this connection is the person (`hub/person.rs`).
