@@ -30,6 +30,8 @@
 
 #import <AppKit/AppKit.h>
 #include <dlfcn.h>
+#include <objc/runtime.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/socket.h>
@@ -72,6 +74,164 @@
   [super sendEvent:event];
 }
 @end
+
+// The activation probe (MEASUREMENT BRANCH ONLY; in-tree pages approach 4, rc-diag-1). On the other Mac each remote
+// page's host became the front app as its page opened (lsappinfo front: the host's pid, cmux's bundle id; cmux itself
+// never active), though this process is Accessory, orders its window with orderFrontRegardless and never calls
+// SetFocus in remote mode. This writes one line per call to every activation entry this process can reach, with the
+// stack (image + offset per frame, for atos against the framework's dSYM) for the first 4 calls of each, and the
+// activation policy at each step of a page's life, to /tmp/cmux-host-activation/host-<pid>.log (and NSLog):
+// -[NSApplication activateIgnoringOtherApps:], -activate, -setActivationPolicy:, -[NSRunningApplication
+// activateWithOptions:] and -activateFromApplication:options:, -[NSWindow makeKeyAndOrderFront:], the app's own
+// will/did become active and did resign active notifications, and the workspace's did-activate notification (which
+// pid became active). TransformProcessType and SetFrontProcess need no hook: the framework imports neither
+// (dyld_info -imports, cef-157-remote-cocoa-4) and this file calls neither.
+namespace actprobe {
+
+FILE* g_file = nullptr;
+NSMutableDictionary<NSString*, NSNumber*>* g_counts = nil;
+
+uint64_t UptimeNs() {
+  return clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+}
+
+FILE* File() {
+  if (g_file) return g_file;
+  mkdir("/tmp/cmux-host-activation", 0755);
+  char path[256];
+  snprintf(path, sizeof path, "/tmp/cmux-host-activation/host-%d.log", getpid());
+  g_file = fopen(path, "a");
+  return g_file;
+}
+
+NSString* Stack() {
+  NSMutableArray<NSString*>* frames = [NSMutableArray array];
+  NSArray<NSNumber*>* addresses = [NSThread callStackReturnAddresses];
+  for (NSUInteger i = 2; i < addresses.count && i < 40; i++) {  // skip this function and the hook
+    void* pc = reinterpret_cast<void*>(addresses[i].unsignedLongLongValue);
+    Dl_info info = {};
+    if (dladdr(pc, &info) && info.dli_fbase) {
+      const char* slash = info.dli_fname ? strrchr(info.dli_fname, '/') : nullptr;
+      [frames addObject:[NSString stringWithFormat:@"%s+0x%llx%s%s", slash ? slash + 1 : "?",
+                                                   (unsigned long long)((uintptr_t)pc - (uintptr_t)info.dli_fbase),
+                                                   info.dli_sname ? ":" : "", info.dli_sname ? info.dli_sname : ""]];
+    } else {
+      [frames addObject:[NSString stringWithFormat:@"0x%llx", (unsigned long long)(uintptr_t)pc]];
+    }
+  }
+  return [frames componentsJoinedByString:@" | "];
+}
+
+void Line(NSString* event, NSString* detail, bool withStack) {
+  @autoreleasepool {
+  NSRunningApplication* front = NSWorkspace.sharedWorkspace.frontmostApplication;
+  NSString* line = [NSString stringWithFormat:@"actprobe t=%.6f pid=%d event=%@ policy=%ld active=%d front_pid=%d%@%@%@",
+                    UptimeNs() / 1e9, getpid(), event, (long)NSApp.activationPolicy, NSApp.isActive ? 1 : 0,
+                    front ? front.processIdentifier : -1, detail.length ? @" " : @"", detail ?: @"",
+                    withStack ? [@" stack=" stringByAppendingString:Stack()] : @""];
+  if (FILE* f = File()) {
+    fprintf(f, "%s\n", line.UTF8String);
+    fflush(f);
+  }
+  NSLog(@"%@", line);
+  }
+}
+
+// One call: its line, with the stack for the first 4 of this kind.
+void Call(NSString* kind, NSString* detail) {
+  if (!g_counts) g_counts = [NSMutableDictionary dictionary];
+  const long n = g_counts[kind].longValue + 1;
+  g_counts[kind] = @(n);
+  Line(kind, [NSString stringWithFormat:@"n=%ld%@%@", n, detail.length ? @" " : @"", detail ?: @""], n <= 4);
+}
+
+// The originals the hooks call (this file is built without ARC: imp_implementationWithBlock copies each block).
+IMP g_activate_ignoring = nullptr, g_activate = nullptr, g_set_policy = nullptr, g_running_activate = nullptr,
+    g_running_from = nullptr, g_make_key = nullptr;
+
+IMP Wrap(Class cls, SEL selector, id block) {
+  Method method = class_getInstanceMethod(cls, selector);
+  if (!method) {
+    Line(@"no_method", [NSString stringWithFormat:@"class=%@ sel=%@", NSStringFromClass(cls),
+                                                  NSStringFromSelector(selector)], false);
+    return nullptr;
+  }
+  IMP original = method_getImplementation(method);
+  IMP replacement = imp_implementationWithBlock(block);
+  if (!class_addMethod(cls, selector, replacement, method_getTypeEncoding(method))) {
+    method_setImplementation(method, replacement);
+  }
+  return original;
+}
+
+void Install() {
+  if (!g_counts) g_counts = [[NSMutableDictionary alloc] init];
+  Class app = [NSApplication class];
+  g_activate_ignoring = Wrap(app, @selector(activateIgnoringOtherApps:), ^(id _self, BOOL flag) {
+    Call(@"activateIgnoringOtherApps", [NSString stringWithFormat:@"flag=%d", flag ? 1 : 0]);
+    reinterpret_cast<void (*)(id, SEL, BOOL)>(g_activate_ignoring)(_self, @selector(activateIgnoringOtherApps:), flag);
+  });
+  if ([NSApplication instancesRespondToSelector:@selector(activate)]) {
+    g_activate = Wrap(app, @selector(activate), ^(id _self) {
+      Call(@"activate", nil);
+      reinterpret_cast<void (*)(id, SEL)>(g_activate)(_self, @selector(activate));
+    });
+  }
+  g_set_policy = Wrap(app, @selector(setActivationPolicy:), ^BOOL(id _self, NSApplicationActivationPolicy policy) {
+    Call(@"setActivationPolicy", [NSString stringWithFormat:@"to=%ld", (long)policy]);
+    return reinterpret_cast<BOOL (*)(id, SEL, NSApplicationActivationPolicy)>(g_set_policy)(
+        _self, @selector(setActivationPolicy:), policy);
+  });
+  Class running = [NSRunningApplication class];
+  g_running_activate = Wrap(running, @selector(activateWithOptions:),
+                            ^BOOL(NSRunningApplication* _self, NSApplicationActivationOptions options) {
+    Call(@"runningActivateWithOptions", [NSString stringWithFormat:@"target_pid=%d options=%lu",
+                                         _self.processIdentifier, (unsigned long)options]);
+    return reinterpret_cast<BOOL (*)(id, SEL, NSApplicationActivationOptions)>(g_running_activate)(
+        _self, @selector(activateWithOptions:), options);
+  });
+  static SEL from = NSSelectorFromString(@"activateFromApplication:options:");
+  if ([NSRunningApplication instancesRespondToSelector:from]) {
+    g_running_from = Wrap(running, from, ^BOOL(NSRunningApplication* _self, NSRunningApplication* source,
+                                               NSApplicationActivationOptions options) {
+      Call(@"runningActivateFromApplication", [NSString stringWithFormat:@"target_pid=%d source_pid=%d options=%lu",
+                                               _self.processIdentifier, source.processIdentifier,
+                                               (unsigned long)options]);
+      return reinterpret_cast<BOOL (*)(id, SEL, id, NSApplicationActivationOptions)>(g_running_from)(_self, from, source,
+                                                                                                    options);
+    });
+  }
+  g_make_key = Wrap([NSWindow class], @selector(makeKeyAndOrderFront:), ^(NSWindow* _self, id sender) {
+    Call(@"makeKeyAndOrderFront", [NSString stringWithFormat:@"window=%@#%ld level=%ld",
+                                   NSStringFromClass([_self class]), (long)_self.windowNumber, (long)_self.level]);
+    reinterpret_cast<void (*)(id, SEL, id)>(g_make_key)(_self, @selector(makeKeyAndOrderFront:), sender);
+  });
+  NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+  [center addObserverForName:NSApplicationWillBecomeActiveNotification object:nil queue:nil
+                  usingBlock:^(NSNotification*) { Call(@"will_become_active", nil); }];
+  [center addObserverForName:NSApplicationDidBecomeActiveNotification object:nil queue:nil
+                  usingBlock:^(NSNotification*) { Call(@"did_become_active", nil); }];
+  [center addObserverForName:NSApplicationDidResignActiveNotification object:nil queue:nil
+                  usingBlock:^(NSNotification*) { Call(@"did_resign_active", nil); }];
+  [center addObserverForName:NSApplicationDidFinishLaunchingNotification object:nil queue:nil
+                  usingBlock:^(NSNotification*) { Call(@"did_finish_launching", nil); }];
+  [NSWorkspace.sharedWorkspace.notificationCenter
+      addObserverForName:NSWorkspaceDidActivateApplicationNotification object:nil queue:nil
+              usingBlock:^(NSNotification* note) {
+                NSRunningApplication* a = note.userInfo[NSWorkspaceApplicationKey];
+                Line(@"workspace_did_activate", [NSString stringWithFormat:@"app_pid=%d app=%@ is_self=%d",
+                                                 a.processIdentifier, a.bundleIdentifier,
+                                                 a.processIdentifier == getpid() ? 1 : 0], false);
+              }];
+  Line(@"installed", nil, false);
+}
+
+// The policy and activity at a step of the page's life (no stack).
+void Step(const char* where) {
+  Line([NSString stringWithFormat:@"step:%s", where], nil, false);
+}
+
+}  // namespace actprobe
 
 namespace {
 
@@ -220,6 +380,7 @@ void TryHosting() {
     h.v[0] = 1;
     Send(h);
     DiagViews("attached");
+    actprobe::Step("page_attached");
     return;
   }
   if (g_context || !g_browser || !g_set_layer_hosting) return;
@@ -282,7 +443,9 @@ void PlaceWindow() {
                                                     object:g_window
                                                      queue:nil
                                                 usingBlock:^(NSNotification*) { DiagViews("window_resize"); }];
+    actprobe::Step("before_order_front");
     [g_window orderFrontRegardless];
+    actprobe::Step("after_order_front");
   } else if (!NSEqualRects(g_window.frame, g_screen_rect)) {
     [g_window setFrame:g_screen_rect display:NO];
   }
@@ -327,6 +490,7 @@ class Client : public CefClient, public CefLifeSpanHandler, public CefDisplayHan
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
     g_browser = browser;
     g_creating = false;
+    actprobe::Step("page_created");
     ScheduleHosting();
   }
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
@@ -349,7 +513,10 @@ class Client : public CefClient, public CefLifeSpanHandler, public CefDisplayHan
   void OnTitleChange(CefRefPtr<CefBrowser>, const CefString& title) override {
     SendText(cmux_host::kTitle, title.ToString());
   }
-  void OnLoadingStateChange(CefRefPtr<CefBrowser>, bool, bool, bool) override { ScheduleHosting(); }
+  void OnLoadingStateChange(CefRefPtr<CefBrowser>, bool loading, bool, bool) override {
+    actprobe::Step(loading ? "page_loading" : "page_loaded");
+    ScheduleHosting();
+  }
   void OnRenderProcessTerminated(CefRefPtr<CefBrowser>, TerminationStatus status, int, const CefString&) override {
     cmux_host::Header h;
     h.kind = cmux_host::kRendererGone;
@@ -372,7 +539,9 @@ void CreateBrowserIfReady() {
   // Chrome's status bubble would be a window of this process over cmux's
   // other panes; the host's page shows no hovered link.
   settings.chrome_status_bubble = STATE_DISABLED;
+  actprobe::Step("before_create_browser");
   g_creating = CefBrowserHost::CreateBrowser(info, new Client(), g_pending_url, settings, nullptr, nullptr);
+  actprobe::Step("after_create_browser");
   if (!g_creating) SendText(cmux_host::kError, "CreateBrowser refused");
 }
 
@@ -623,6 +792,7 @@ class App : public CefApp, public CefBrowserProcessHandler {
   }
 
   void OnContextInitialized() override {
+    actprobe::Step("context_initialized");
     cmux_host::Header ready;
     ready.kind = cmux_host::kReady;
     ready.v[0] = g_fork_api;
@@ -670,7 +840,9 @@ int main(int argc, char* argv[]) {
 
   @autoreleasepool {
     [ChromiumHostApplication sharedApplication];
+    actprobe::Install();
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+    actprobe::Step("after_set_accessory");
   }
   // One thread so far: the framework's allocator and static initializers run
   // before any other thread exists (the race CmuxNextMallocZone removes in
@@ -725,6 +897,7 @@ int main(int argc, char* argv[]) {
     SendText(cmux_host::kError, "CefInitialize failed");
     return 67;
   }
+  actprobe::Step("after_cef_initialize");
   CefRunMessageLoop();
   if (g_window) [g_window close];
   CefShutdown();
