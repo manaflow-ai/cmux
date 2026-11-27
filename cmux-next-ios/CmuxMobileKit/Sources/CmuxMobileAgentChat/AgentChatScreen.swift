@@ -892,6 +892,7 @@ public struct AgentChatBottomStack: View {
                     .padding(16)
                     .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 28, style: .continuous))
                     .padding(.horizontal, 12)
+                    .chatReadyMarkOnShow()
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                 } else if let permission = store.pendingPermission, !surface.permissionBarHidden {
                     PermissionActionBar(request: permission.request, approvingOptionID: store.approvingOptionID) { option in
@@ -903,6 +904,7 @@ public struct AgentChatBottomStack: View {
                     .padding(12)
                     .cmuxMobileFloatingGlass(in: .rect(cornerRadius: 28, style: .continuous))
                     .padding(.horizontal, 12)
+                    .chatReadyMarkOnShow()
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                 } else {
                     let replying = store.pendingPermission != nil && surface.replyInsteadOfPermission
@@ -919,6 +921,10 @@ public struct AgentChatBottomStack: View {
                         .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .named(Self.stackSpace)).minY }) { offset in
                             if composerOffset != offset { composerOffset = offset }
                         }
+                        // The layout-shift count: the drawn composer must not move or resize in
+                        // its dock on its own (the offline-send stall flipped it between one and
+                        // two rows every frame). Before the entrance, which is render only.
+                        .layoutShiftTracked(inHost: "composer")
                         // The space between the composer and a raised keyboard is darkened from the
                         // card's middle down, as the ChatGPT and Claude iOS apps draw it (Leo,
                         // 2026-11-23: "they properly darken the ... space between the ios composer
@@ -931,6 +937,8 @@ public struct AgentChatBottomStack: View {
                         // measured place (the transcript's inset, the keyboard pin) is the resting one.
                         .newChatEntrance(.composer, style: entranceStyle, settled: composerSettled)
                         .releasesNewChatEntrance($composerSettled) { [store] in store.newChatEntrance.composer = true }
+                        // Collapsed or open: the capsule a chat with turns opens on builds no text field.
+                        .chatReadyMarkOnShow()
                         .transition(.opacity)
                 }
             }

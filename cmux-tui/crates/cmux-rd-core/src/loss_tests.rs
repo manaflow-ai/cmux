@@ -1,0 +1,209 @@
+use super::*;
+
+fn sent(count: u16) -> LossMeter {
+    let mut meter = LossMeter::default();
+    for seq in 0..count {
+        meter.on_sent(seq);
+    }
+    meter
+}
+
+#[test]
+fn counts_gaps_before_the_newest_arrival_only() {
+    let mut m = sent(10);
+    assert_eq!(m.on_arrivals([0, 1, 3, 4], 0), None);
+    assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.2));
+    assert_eq!(m.on_arrivals(5..10, REORDER_GRACE_US), None);
+    assert_eq!(m.on_arrivals([], 2 * REORDER_GRACE_US), Some(0.0));
+    assert_eq!(m.on_arrivals([], 3 * REORDER_GRACE_US), None);
+}
+
+#[test]
+fn a_forgotten_datagram_is_not_loss() {
+    let mut m = sent(10);
+    for seq in 3..7 {
+        m.forget(seq);
+    }
+    assert_eq!(m.on_arrivals([0, 1, 2, 7, 8, 9], 0), None);
+    assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0));
+    assert_eq!(m.take_congestion_loss(0), None, "six settled, too few for a sample");
+    m.forget(42); // unknown: ignored
+}
+
+#[test]
+fn reversed_feedback_chunks_do_not_invent_loss() {
+    let mut m = sent(300);
+    assert_eq!(m.on_arrivals(256..300, 0), None);
+    assert_eq!(m.on_arrivals(128..256, 25_000), None);
+    assert_eq!(m.on_arrivals(0..128, 75_000), None);
+    assert_eq!(m.on_arrivals([], REORDER_GRACE_US - 1), None);
+    assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0));
+}
+
+#[test]
+fn a_resent_datagram_is_loss_even_when_its_copy_arrives() {
+    let mut m = sent(10);
+    assert_eq!(m.on_arrivals([0, 1, 2, 4, 5, 6, 7, 8, 9], 0), None);
+    m.on_resent(3);
+    assert_eq!(m.on_arrivals([3], 10_000), None, "the copy's receipt");
+    assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.1));
+}
+
+#[test]
+fn a_resend_after_a_receipt_is_not_loss() {
+    let mut m = sent(4);
+    assert_eq!(m.on_arrivals([0, 1, 2, 3], 0), None);
+    m.on_resent(2);
+    m.on_resent(77); // unknown: ignored
+    assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0));
+}
+
+#[test]
+fn one_percent_repaired_by_nack_reads_one_percent() {
+    let mut m = sent(1000);
+    let dropped = |s: &u16| s % 100 == 37;
+    assert_eq!(m.on_arrivals((0..1000).filter(|s| !dropped(s)), 0), None);
+    for seq in (0..1000).filter(dropped) {
+        m.on_resent(seq);
+    }
+    assert_eq!(m.on_arrivals((0..1000).filter(dropped), 8_000), None);
+    assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.01));
+}
+
+#[test]
+fn a_repaired_packet_is_path_loss_but_not_congestion_loss() {
+    let mut m = sent(20);
+    m.on_resent(3);
+    assert_eq!(m.on_arrivals(0..20, 0), None);
+    assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.05));
+    assert_eq!(m.take_congestion_loss(REORDER_GRACE_US), None);
+    assert_eq!(m.take_congestion_loss(REORDER_GRACE_US + 500_000), Some(0.0));
+}
+
+#[test]
+fn arrival_in_the_deadline_call_is_recorded_before_settlement() {
+    let mut m = sent(4);
+    assert_eq!(m.on_arrivals([0, 2, 3], 0), None);
+    assert_eq!(m.on_arrivals([1], REORDER_GRACE_US), Some(0.0));
+}
+
+#[test]
+fn continuous_feedback_does_not_postpone_genuine_loss() {
+    let mut m = sent(20);
+    assert_eq!(m.on_arrivals([1], 0), None);
+    for seq in 2..12 {
+        let result = m.on_arrivals([seq], u64::from(seq - 1) * 10_000);
+        if seq < 11 {
+            assert_eq!(result, None);
+        } else if seq == 11 {
+            assert_eq!(result, Some(0.5), "the first gap settles after 100 ms");
+        }
+    }
+}
+
+#[test]
+fn unknown_and_duplicate_receipts_do_not_expose_or_delay_gaps() {
+    let mut m = sent(4);
+    assert_eq!(m.on_arrivals([900, 901], 0), None);
+    assert_eq!(m.on_arrivals([], REORDER_GRACE_US), None);
+    assert_eq!(m.on_arrivals([1, 1, 901], 200_000), None);
+    assert_eq!(m.on_arrivals([1, 902], 250_000), None);
+    assert_eq!(m.on_arrivals([1, 902], 300_000), Some(0.5));
+    assert_eq!(m.on_arrivals([1, 902], 400_000), None);
+}
+
+#[test]
+fn reordered_receipts_wrap_around_u16() {
+    let mut m = LossMeter::default();
+    for seq in [65534, 65535, 0, 1] {
+        m.on_sent(seq);
+    }
+    assert_eq!(m.on_arrivals([0, 1], 0), None);
+    assert_eq!(m.on_arrivals([65534, 65535], 50_000), None);
+    assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.0));
+}
+
+#[test]
+fn eviction_does_not_shift_deadlines_onto_unexposed_packets() {
+    let mut m = sent(MAX_TRACKED as u16);
+    assert_eq!(m.on_arrivals(0..100, 0), None);
+    for seq in MAX_TRACKED as u16..MAX_TRACKED as u16 + 200 {
+        m.on_sent(seq);
+    }
+    assert_eq!(m.on_arrivals([], REORDER_GRACE_US), None);
+    assert_eq!(m.on_arrivals(200..MAX_TRACKED as u16 + 200, 200_000), None);
+    assert_eq!(m.on_arrivals([], 300_000), Some(0.0));
+    assert!(m.order.is_empty());
+    assert!(m.ordinals.is_empty());
+}
+
+#[test]
+fn path_reset_discards_unsettled_old_path_feedback() {
+    let mut m = sent(100);
+    m.on_arrivals(50..100, 0);
+    m.reset_congestion_window();
+    for seq in 100..120 {
+        m.on_sent(seq);
+    }
+    assert_eq!(m.on_arrivals(0..120, 200_000), None);
+    assert_eq!(m.on_arrivals([], 300_000), Some(0.0));
+    assert_eq!(m.take_congestion_loss(300_000), None);
+    assert_eq!(m.take_congestion_loss(800_000), Some(0.0));
+}
+
+#[test]
+fn congestion_weights_packets_and_consumes_each_window_once() {
+    let mut m = sent(100);
+    m.on_arrivals([0, 1, 3], 0);
+    m.on_arrivals((4..100).filter(|&s| s != 50), 50_000);
+    assert_eq!(m.on_arrivals([], 100_000), Some(0.25));
+    assert_eq!(m.take_congestion_loss(100_000), None);
+    m.on_arrivals([], 150_000);
+    assert_eq!(m.take_congestion_loss(599_999), None);
+    assert_eq!(m.take_congestion_loss(600_000), Some(0.02));
+    assert_eq!(m.take_congestion_loss(1_100_000), None);
+}
+
+#[test]
+fn genuine_heavy_loss_still_reaches_congestion() {
+    let mut m = sent(100);
+    m.on_arrivals(20..100, 0);
+    assert_eq!(m.on_arrivals([], REORDER_GRACE_US), Some(0.2));
+    assert_eq!(m.take_congestion_loss(REORDER_GRACE_US), None);
+    assert_eq!(m.take_congestion_loss(REORDER_GRACE_US + 500_000), Some(0.2));
+}
+
+#[test]
+fn sparse_feedback_waits_for_the_minimum_packet_sample() {
+    let mut m = sent(4);
+    m.on_arrivals([0, 1, 3], 0);
+    m.on_arrivals([], 100_000);
+    assert_eq!(m.take_congestion_loss(100_000), None);
+    assert_eq!(m.take_congestion_loss(600_000), None, "four packets are insufficient");
+    for seq in 4..24 {
+        m.on_sent(seq);
+    }
+    m.on_arrivals(4..24, 700_000);
+    m.on_arrivals([], 800_000);
+    assert_eq!(m.take_congestion_loss(800_000), Some(1.0 / 24.0));
+    assert_eq!(m.take_congestion_loss(1_300_000), None);
+}
+
+#[test]
+fn traffic_after_idle_gets_a_fresh_observation_window() {
+    let mut m = sent(20);
+    m.on_arrivals(0..20, 0);
+    m.on_arrivals([], 100_000);
+    assert_eq!(m.take_congestion_loss(100_000), None);
+    assert_eq!(m.take_congestion_loss(600_000), Some(0.0));
+    for seq in 20..220 {
+        m.on_sent(seq);
+    }
+    m.on_arrivals((20..40).filter(|s| ![22, 25, 28].contains(s)), 1_500_000);
+    m.on_arrivals(40..220, 1_550_000);
+    m.on_arrivals([], 1_600_000);
+    assert_eq!(m.take_congestion_loss(1_600_000), None);
+    m.on_arrivals([], 1_650_000);
+    assert_eq!(m.take_congestion_loss(2_099_999), None);
+    assert_eq!(m.take_congestion_loss(2_100_000), Some(0.015));
+}

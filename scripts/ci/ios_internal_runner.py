@@ -24,7 +24,7 @@ Each listed label must name a machine that runs no pull request code (same trust
   only on that attempt, so a re-run of failed jobs that keeps this job's outputs takes Blacksmith.
 
 - `fallback`: FALLBACK_MAC (an ephemeral Blacksmith Mac, whose image has Xcode 27) when the runner census
-  (CI_RUNNER_STATE) shows no online Mac runner carrying FLEET_XCODE's Xcode label, else empty (the archive
+  (CI_RUNNER_STATE) shows no online and idle Mac runner carrying FLEET_XCODE's Xcode label, else empty (the archive
   takes the fleet's `cmux-mac` + `xcode-27.0`). Leo, 2026-11-26: "refuse to queue a job for a label no live
   runner has". Run 45717448413's archive asked for cmux-mac + xcode-27.0 at 22:59Z on 11-25 and started at
   01:22Z on 11-26: 2 h 23 min with no Mac offering Xcode 27, while a Blacksmith Mac takes it in minutes. An
@@ -96,15 +96,18 @@ def pick(label: str, read: Callable[[], Sequence[Mapping[str, Any]] | None], *,
         sleep(look_seconds)
 
 
-def xcode_carried(labels: Sequence[str], runners: Sequence[Mapping[str, Any]] | None) -> bool | None:
-    """Whether an online runner carries every `xcode-<v>` label of `labels`; None when the runners are unread.
+def xcode_carried(labels: Sequence[str], runners: Sequence[Mapping[str, Any]] | None,
+                  idle: bool = False) -> bool | None:
+    """Whether an online (with `idle`, online and idle) runner carries every `xcode-<v>` label of `labels`; None
+    when the runners are unread.
 
     A standing glaeda runner carries `xcode-<v>` only for an Xcode its host really has (glaeda_fleet_labels), and a
     granted runner only for the Xcode its Mac asked with, so an online one is a Mac that can run the job."""
     if runners is None:
         return None
     need = {label for label in labels if label.startswith("xcode-")}
-    return any(runner.get("status") == "online" and need <= pool.runner_labels(runner) for runner in runners)
+    return any(runner.get("status") == "online" and need <= pool.runner_labels(runner)
+               and not (idle and runner.get("busy")) for runner in runners)
 
 
 def fleet_fallback(env: Mapping[str, str]) -> tuple[str, str]:
@@ -113,13 +116,21 @@ def fleet_fallback(env: Mapping[str, str]) -> tuple[str, str]:
     if not fallback:
         return "", "FALLBACK_MAC is unset"
     document = pool.runner_state(env.get("GITHUB_REPOSITORY", ""), raw=env.get("CI_RUNNER_STATE", ""))
-    carried = xcode_carried(FLEET_XCODE, None if document is None else pool.census_runners(document))
+    runners = None if document is None else pool.census_runners(document)
+    carried = xcode_carried(FLEET_XCODE, runners)
     xcode = " + ".join(FLEET_XCODE)
     if carried is None:
         return "", f"no fresh runner census: `{xcode}` kept"
-    if carried:
-        return "", f"an online runner carries `{xcode}`"
-    return fallback, f"no online runner carries `{xcode}`: `{fallback}`"
+    if not carried:
+        return fallback, f"no online runner carries `{xcode}`: `{fallback}`"
+    # A busy fleet holds the archive behind every PR's Mac jobs, and no rescue moves it (cmux-mac is not an owned
+    # pool). Run 45936877784's archive asked for cmux-mac + xcode-27.0 at 03:55Z on 11-27 and was still queued at
+    # 04:47Z, 82 runs queued, while builds take 17 to 22 min. Leo, 2026-11-27: "and then idk what im supposed to be
+    # able to do to test and verify on my end either like faster dev loops and testflight or anything"; the
+    # promise is merge to TestFlight in about 30 min, so only an idle carrier keeps the fleet label.
+    if xcode_carried(FLEET_XCODE, runners, idle=True):
+        return "", f"an online runner carrying `{xcode}` is idle"
+    return fallback, f"every online runner carrying `{xcode}` is busy: `{fallback}`"
 
 
 def main(env: Mapping[str, str] = os.environ,

@@ -15,7 +15,7 @@
 /*
  Bumped on any change to a type or a function.
  */
-#define CMUX_SCREENSHOTS_ABI_VERSION 1
+#define CMUX_SCREENSHOTS_ABI_VERSION 4
 
 /*
  The panes unlocked this launch.
@@ -28,6 +28,11 @@ typedef struct CmuxScreenshotsGate CmuxScreenshotsGate;
 typedef struct CmuxScreenshotsListing CmuxScreenshotsListing;
 
 /*
+ The Screenshots pane's sources: what to read, watch, drop and look at.
+ */
+typedef struct CmuxScreenshotsPane CmuxScreenshotsPane;
+
+/*
  Where an environment callback writes its answer (`cmux_screenshots_reply_set`); no call means
  none (nil).
  */
@@ -37,6 +42,11 @@ typedef struct CmuxScreenshotsReply CmuxScreenshotsReply;
  A scan rule (a source's `rule` from `cmux_screenshots_detect`).
  */
 typedef struct CmuxScreenshotsRule CmuxScreenshotsRule;
+
+/*
+ A read of one source in progress (`cmux_screenshots_walk_new`).
+ */
+typedef struct CmuxScreenshotsWalk CmuxScreenshotsWalk;
 
 /*
  One directory entry for `cmux_screenshots_newest_picture`.
@@ -126,11 +136,6 @@ typedef struct {
 } CmuxScreenshotsEnvironment;
 
 /*
- The ABI version of this library.
- */
-uint32_t cmux_screenshots_abi_version(void);
-
-/*
  Frees a string this library returned; null does nothing.
 
  # Safety
@@ -154,19 +159,6 @@ bool cmux_screenshots_page_matches(const uint8_t *url, size_t url_len);
  `key` is null or `key_len` readable bytes.
  */
 bool cmux_screenshots_looks_like_folder_key(const uint8_t *key, size_t key_len);
-
-/*
- The string value of `key` in a settings file's `text` (format 1 ini, 2 json); null when
- missing, empty or the format is unknown.
-
- # Safety
- `key` and `text` are null or their lengths' readable bytes.
- */
-char *cmux_screenshots_settings_value(uint32_t format,
-                                      const uint8_t *key,
-                                      size_t key_len,
-                                      const uint8_t *text_ptr,
-                                      size_t text_len);
 
 /*
  The name of an image dropped as data, from the local time it was saved.
@@ -220,19 +212,6 @@ uint32_t cmux_screenshots_rule_item_kind(const CmuxScreenshotsRule *rule,
                                          const uint8_t *name,
                                          size_t name_len,
                                          uint32_t system_kind);
-
-/*
- Whether the scan reads a directory entry as a subfolder, `depth` levels below the source folder.
-
- # Safety
- `rule` is null or a live rule; `name` is null or `name_len` readable bytes.
- */
-bool cmux_screenshots_rule_enters(const CmuxScreenshotsRule *rule,
-                                  uint32_t entry_kind,
-                                  bool hidden,
-                                  const uint8_t *name,
-                                  size_t name_len,
-                                  size_t depth);
 
 /*
  The position of the newest picture among `entries` (the first listed wins a tie), or -1.
@@ -417,5 +396,174 @@ char *cmux_screenshots_detect(const CmuxScreenshotsEnvironment *env,
  As `cmux_screenshots_detect`.
  */
 char *cmux_screenshots_system_folder(const CmuxScreenshotsEnvironment *env, const uint8_t *home, size_t home_len);
+
+/*
+ A pane with no sources; `listing` reads and watches as soon as sources are set. Free it with
+ `cmux_screenshots_pane_free`.
+ */
+CmuxScreenshotsPane *cmux_screenshots_pane_new(bool listing);
+
+/*
+ Frees a pane; null does nothing.
+
+ # Safety
+ `pane` is null or from `cmux_screenshots_pane_new`, freed once.
+ */
+void cmux_screenshots_pane_free(CmuxScreenshotsPane *pane);
+
+/*
+ Starts reading and watching; false when it already was. On true the app reads every source
+ and watches the state's `watched` folders.
+
+ # Safety
+ `pane` is null or a live pane.
+ */
+bool cmux_screenshots_pane_start(CmuxScreenshotsPane *pane);
+
+/*
+ Stops reading and watching (access was taken back): forgets failed reads and entered
+ subfolders.
+
+ # Safety
+ `pane` is null or a live pane.
+ */
+void cmux_screenshots_pane_pause(CmuxScreenshotsPane *pane);
+
+/*
+ Shows these sources: `json` is an array, in menu order, of `{id, label, folder, acceptsDrops,
+ rule: {kinds, extraImageExtensions, namePrefixes, depth, folderPrefix}}` (an entry without an
+ id or a folder is skipped). Returns `{changed, removed: [id], read: [id]}`: when changed, the
+ app drops the removed sources' reads and files and reads the `read` ones (when listing).
+
+ # Safety
+ `pane` is null or a live pane; `json` is null or `json_len` readable bytes.
+ */
+char *cmux_screenshots_pane_set_sources(CmuxScreenshotsPane *pane, const uint8_t *json, size_t json_len);
+
+/*
+ Takes a finished read of source `id`: `folders_json` is the JSON array of the folders it
+ covered (read when `readable`). False when `id` is no longer a source (the app drops the read).
+
+ # Safety
+ `pane` is null or a live pane; `id` and `folders_json` are null or their lengths' bytes.
+ */
+bool cmux_screenshots_pane_read_done(CmuxScreenshotsPane *pane,
+                                     const uint8_t *id,
+                                     size_t id_len,
+                                     bool readable,
+                                     const uint8_t *folders_json,
+                                     size_t folders_json_len);
+
+/*
+ The pane's state: `{listing, accessMissing, unreadable: [id], watched: [path] or null}`
+ (`watched` null when not listing: the app keeps its watches as they are).
+
+ # Safety
+ `pane` is null or a live pane.
+ */
+char *cmux_screenshots_pane_state(const CmuxScreenshotsPane *pane);
+
+/*
+ The id of the source a drop is saved into: `selected` (null or empty for none) when it takes
+ drops, else the first that does; null when none does.
+
+ # Safety
+ `pane` is null or a live pane; `selected` is null or `selected_len` readable bytes.
+ */
+char *cmux_screenshots_pane_drop_source(const CmuxScreenshotsPane *pane, const uint8_t *selected, size_t selected_len);
+
+/*
+ The id of the source whose folder holds `path` (the deepest), or null.
+
+ # Safety
+ `pane` is null or a live pane; `path` is null or `path_len` readable bytes.
+ */
+char *cmux_screenshots_pane_source_containing(const CmuxScreenshotsPane *pane, const uint8_t *path, size_t path_len);
+
+/*
+ What a watch event of `folder` asks: `names_json` is the JSON array of the changed entries'
+ names, null for an event that is not a list of names. Returns null for nothing,
+ `{"rescan": id}` to read the source again, or `{"source": id, "relist": bool, "paths": [path]}`
+ to look at each path alone (`cmux_screenshots_pane_entry_action`) and then read the source
+ again when `relist`.
+
+ # Safety
+ `pane` is null or a live pane; `folder` and `names_json` are null or their lengths' bytes.
+ */
+char *cmux_screenshots_pane_change(const CmuxScreenshotsPane *pane,
+                                   const uint8_t *folder,
+                                   size_t folder_len,
+                                   const uint8_t *names_json,
+                                   size_t names_json_len);
+
+/*
+ What a looked-at `path` of a watch event of `folder` in source `id` does to the listing:
+ 0 remove it, 1 read the source again (a subfolder the rule enters), 2 list it. `entry` is
+ what the disk says is at `path` now (its name, kind, hidden flag and system kind), null when
+ it is gone.
+
+ # Safety
+ `pane` is null or a live pane; `id`, `folder` and `path` are null or their lengths' bytes;
+ `entry` is null or one readable entry whose name is readable.
+ */
+uint32_t cmux_screenshots_pane_entry_action(const CmuxScreenshotsPane *pane,
+                                            const uint8_t *id,
+                                            size_t id_len,
+                                            const uint8_t *folder,
+                                            size_t folder_len,
+                                            const uint8_t *path,
+                                            size_t path_len,
+                                            const CmuxScreenshotsEntry *entry);
+
+/*
+ A read of the folder at `root` under `rule` (the rule is copied). Free it with
+ `cmux_screenshots_walk_free`; null when `rule` is null.
+
+ # Safety
+ `rule` is null or a live rule; `root` is null or `root_len` readable bytes.
+ */
+CmuxScreenshotsWalk *cmux_screenshots_walk_new(const CmuxScreenshotsRule *rule, const uint8_t *root, size_t root_len);
+
+/*
+ Frees a walk; null does nothing.
+
+ # Safety
+ `walk` is null or from `cmux_screenshots_walk_new`, freed once.
+ */
+void cmux_screenshots_walk_free(CmuxScreenshotsWalk *walk);
+
+/*
+ The next folder to list (the caller frees it), or null when the read is done. Hand its
+ listing to `cmux_screenshots_walk_listed` before asking again.
+
+ # Safety
+ `walk` is null or a live walk.
+ */
+char *cmux_screenshots_walk_next(CmuxScreenshotsWalk *walk);
+
+/*
+ Takes the listing of the folder `cmux_screenshots_walk_next` named (`readable` false: it could
+ not be read) and writes into `kinds` the kind each entry is listed as (1 image, 2 video,
+ 3 other; 0: not listed, or a subfolder the walk reads next).
+
+ # Safety
+ `walk` is null or a live walk; `entries` is null or `count` readable entries whose names are
+ readable; `kinds` is null or `count` writable values.
+ */
+void cmux_screenshots_walk_listed(CmuxScreenshotsWalk *walk,
+                                  bool readable,
+                                  const CmuxScreenshotsEntry *entries,
+                                  size_t count,
+                                  uint32_t *kinds);
+
+/*
+ What the read found, as JSON `{"folders": [...], "readable": bool}` (the caller frees it):
+ every folder listed (the source's and each subfolder entered), and false when the source's
+ own folder could not be read. Null when `walk` is null.
+
+ # Safety
+ `walk` is null or a live walk.
+ */
+char *cmux_screenshots_walk_result(const CmuxScreenshotsWalk *walk);
 
 #endif  /* CMUX_SCREENSHOTS_H */

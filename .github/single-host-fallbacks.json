@@ -78,10 +78,18 @@
     "glaeda-trusted-next-nightly"
   ],
   "variables": {
+    "CI_FORK_LINUX_RUNNER": {
+      "fallback": "ubuntu-24.04 when unset; the selector keeps fork pull requests on the untrusted hosted runner",
+      "after_minutes": 5
+    },
     "CI_OVERFLOW_MAC": {
       "fallback": "an overflow switch, not a host: unset (the default), every own-branch Mac job that needs only a plain Mac with Xcode 26.6 takes cmux-mac, the label on the 60 shared Mac runners (vars.CI_OVERFLOW_MAC || 'cmux-mac'); an operator or the watchdog sets it to a bare Blacksmith macOS label only during an outage of those runners and deletes it after, which puts new runs back on cmux-mac",
       "after_minutes": 5,
       "note": "docs/design/ci-v2.md, \"Blacksmith is a switch, not a route\". Leo, 2026-11-21: \"unfuck the labels. idk why you guys named them such stupid things in the first place\" (ask c-ab6690acae)."
+    },
+    "CI_FORK_LINUX_RUNNER": {
+      "fallback": "unset by default, so a fork pull_request's Linux job (pinned-files-mirror.yml mirror, swift-linux-packages.yml linux-targets) takes GitHub-hosted ubuntu-24.04 in the same runs-on (`vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04'`); it is read only on a pull_request from a fork, never on a push or a same-repository pull_request, which take cmux-linux. Clearing it puts fork runs back on ubuntu-24.04",
+      "after_minutes": 5
     },
     "CI_OVERFLOW_LINUX": {
       "fallback": "unset by default, so every job on the ci-v2 one-label form (pr-pipeline's linux job, the PR checks moved in hq#13994 step 8) runs on cmux-linux, the label every owned Linux pool host carries (many hosts, not one); the overflow switch sets it to an overflow label while cmux-linux starts nothing, and deletes it to put the jobs back",
@@ -220,6 +228,10 @@
       "fallback": "the route-defined owned-pool or Blacksmith fallback",
       "after_minutes": 5
     },
+    "CI_FORK_LINUX_RUNNER": {
+      "fallback": "read only for a fork's pull request; unset, those jobs take GitHub-hosted ubuntu-24.04 (many hosts, not one), and every other run takes cmux-linux",
+      "after_minutes": 5
+    },
     "LINUX_ARM64_RUNNER": {
       "fallback": "unset or empty, fromJSON(vars.RUNNER_POOLS).linux_arm64, the declared Blacksmith arm64 Linux pool; cmux-browser-host-release.yml's aarch64 build leg reads it through matrix.runs_on",
       "after_minutes": 5
@@ -339,16 +351,33 @@
       "after_minutes": 10
     },
     "CI_FORK_LINUX_RUNNER": {
-      "fallback": "unset or empty, ubuntu-24.04, GitHub's hosted Linux image (many hosts, not one); only a fork pull request's job reads it, and a same-repo job runs on cmux-linux",
-      "after_minutes": 5
+      "fallback": "unset by default, so a fork PR's Linux job runs on GitHub's ubuntu-24.04 hosted runners (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04'), never an owned host; an operator sets it only to move fork PRs to another hosted label and deletes it to put them back",
+      "after_minutes": 5,
+      "note": "Read by pinned-files-mirror.yml (#57315) and swift-linux-packages.yml linux-targets (#57703); only on fork pull requests."
     }
   },
   "nightly_workflow_marker": "nightly",
   "nightly_terminal_labels": {
+    "cmux-mac": {
+      "fallback": "blacksmith-6vcpu-macos-26 after the owned Mac pool is unavailable",
+      "after_minutes": 10,
+      "served_by": "owned Mac runners carrying cmux-mac"
+    },
+    "xcode-27.0": {
+      "fallback": "blacksmith-6vcpu-macos-26 after the owned Xcode 27 pool is unavailable",
+      "after_minutes": 10,
+      "served_by": "owned Mac runners carrying Xcode 27.0"
+    },
     "glaeda-gateway-xcode-26.6": {
       "fallback": "the gateway job is skipped when its CI_*_GATEWAY variable is unset; an operator restores the gateway pool before enabling it again",
       "after_minutes": 10,
       "served_by": "the build-fleet gateway runners"
+    },
+    "mac-gateway": {
+      "fallback": "the gateway job is skipped when its CI_*_GATEWAY variable is unset; an operator restores the gateway pool before enabling it again",
+      "after_minutes": 10,
+      "served_by": "the build-fleet gateway runners",
+      "note": "RFD 0185 phase 2 (cmux#61222) renamed glaeda-gateway-xcode-26.6 to mac-gateway in the nightly workflows (cmux-next-ios-energy-nightly.yml bench); the same gateway runners carry both labels until phase 3 drops the old one."
     },
     "blacksmith-12vcpu-macos-26": {
       "fallback": "blacksmith-6vcpu-macos-26, then an owned Mac through the controller",
@@ -467,6 +496,12 @@
       "after_minutes": 25,
       "served_by": "the nightly slot on every std PR-runner mini (nightly_slot_policy_test.py), never one host",
       "note": "cmux main nightly.yml decide on refs/heads/main only (cmux#30058): vars.CI_NIGHTLY_NEXT_BUILD_RUNNER when it starts with glaeda-nightly-, else this literal. RC and dogfood refs keep blacksmith-2vcpu-ubuntu-2404."
+    },
+    "mac-nightly": {
+      "fallback": "no single host to fall back from: the label is the nightly slot (overrides.runner.nightlySlot, glaeda#1684) on every std PR-runner mini, and build-fleet/nightly_slot_policy_test.py fails any std PR mini without one (#5641). No PR job asks for the label, so a queued job goes to the first idle slot on any of those minis. There is no paid overflow by design: cmux#30058 keeps main's nightly decide job on the owned fleet until controller admission can give a run-bound no-start receipt (Leo, 2026-10-31: \"FOR OUR NIGHTLIES ARE THEY END TO END ON OUR FLEET? WE CAN'T BE RELYING ON BLACKSMITH THAT CUTS OUT\").",
+      "after_minutes": 25,
+      "served_by": "the nightly slot on every std PR-runner mini (nightly_slot_policy_test.py), never one host",
+      "note": "RFD 0185 phase 2 (cmux#61222) renamed glaeda-nightly-std-xcode-26.6 to mac-nightly as nightly.yml's last literal (promote, build-inputs, ghostty-cli-helper and verify jobs); the same nightly slots carry both labels until phase 3 drops the old one."
     },
     "glaeda-nightly-only-m4pro": {
       "fallback": "no single host to fall back from: the label is a pool, the nightly-only runners (runner.dedicatedOnly, glaeda-nightly-only-admit) on both cmux7s-mac-mini and cmux15 (build-fleet/mini-fleet.json), which admit only NEXT nightly work, so no PR or DEV job competes for them and a queued job goes to the first idle one on either mini. There is no Blacksmith, GitHub-hosted or fleet Linux overflow by design: cmux 0962b8a946c ends the secret-free nightly controls and light jobs (decide, the resolvers, the pickers, the visual-gate controls, published-in, the failure reports) on this pool on every attempt (Lawrence, 2026-11-04: \"Nightlies run only on our own Mac minis: no Blacksmith, no GitHub-hosted runner, no fleet Linux\"; Leo, 2026-11-01: \"ok just dedicate at least one m4 pro mini just completely to the nightly situation idgaf anymore\").",
@@ -592,6 +627,7 @@
         "cmux-mac",
         "xcode-27.0"
       ],
+      "array_pin": "glaeda-runner-",
       "constrained_by": "ios-internal-nightly.yml's picker emits the fallback only when no idle dedicated mini is available; the fallback is the configured Blacksmith macOS 26 route.",
       "empty_falls_back_to": "the picker emits the fleet capability array [cmux-mac, xcode-27.0] when a live Xcode 27 runner exists."
     },
