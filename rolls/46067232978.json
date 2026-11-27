@@ -1,0 +1,140 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/46067232978",
+  "recorded_at": "2026-11-27T21:23:12Z",
+  "reason": "cmux-tui d4b5818b7ef7 changes the image's cmux-tui (pinned be5cfa23956d)",
+  "dry_run": false,
+  "cmux_tui": "d4b5818b7ef7afc9e4989a965ece26af7a3c8d46",
+  "fixes": [
+    {
+      "sha": "bccae414c7d5e1b5965a8fb747ab08ab1290e197",
+      "mergedAt": "2026-11-27T18:58:56Z",
+      "subject": "cmux-tui: terminal warm compaction is opt-in, as for chats (compacted after ~5 min) (#62190)"
+    },
+    {
+      "sha": "8fc13aaeef6fd454e16c5a3ac60035017ce29442",
+      "mergedAt": "2026-11-27T18:58:47Z",
+      "subject": "acpmux: a tool call's wait cap never passes to the daemon, its agents or background tasks (#61784)"
+    },
+    {
+      "sha": "b8cb371194da64f7cf5ba8d4eee5024adf941e19",
+      "mergedAt": "2026-11-27T18:56:59Z",
+      "subject": "acpmux: send direct to the target machine while the hub is down (RFD 0086) (#60532)"
+    },
+    {
+      "sha": "498aa8ca3d65000d3334682ef264fc0803f6ce90",
+      "mergedAt": "2026-11-27T18:54:51Z",
+      "subject": "screen-share-vs-pair: run the viewer's peer-serve inside the launcher app, check Local Network first (#62271)"
+    },
+    {
+      "sha": "484ae0ade6eff708b1f3e7abd30b108a1123aca6",
+      "mergedAt": "2026-11-27T18:37:32Z",
+      "subject": "cmux-host updater: carrier session reads out of role.rs (101.0 KB -> 93.6 KB) (#62150)"
+    },
+    {
+      "sha": "6b04d3d8bedacc8ef6b9435d8cde4291f9ca2cfe",
+      "mergedAt": "2026-11-27T18:33:17Z",
+      "subject": "acpmux: fix base reds (protocol registry, bg_list order, hold flags, help examples) (#54158)"
+    },
+    {
+      "sha": "9578c397bcc5edb3c49755c95ca96301d097ea06",
+      "mergedAt": "2026-11-27T18:32:32Z",
+      "subject": "acpmux: a Cloud machine's no-route wait runs once per machine, not 20 s per failed turn (#62239)"
+    },
+    {
+      "sha": "1a5486efbc3dde75b336d0e9f69c0bc976580e3f",
+      "mergedAt": "2026-11-27T18:27:07Z",
+      "subject": "acpmux tests (lib, hub_integration) green on feat-cmux-next again (#58835)"
+    },
+    {
+      "sha": "76b6395fd6fa0dcb910738e4f11490f575b54de5",
+      "mergedAt": "2026-11-27T18:27:02Z",
+      "subject": "acpmux: hold the systemd watchdog across a VM pause (daemon watchdog-hold) (#62081)"
+    },
+    {
+      "sha": "515eddd3e5b631bc574245918f49891c0ef66eec",
+      "mergedAt": "2026-11-27T18:24:29Z",
+      "subject": "launch tti: a plan that fits its step, and a PTY open that rides out a refusal (#62389)"
+    },
+    {
+      "sha": "0c62214886ef02871cbb06a42d212a176e07320c",
+      "mergedAt": "2026-11-27T18:22:39Z",
+      "subject": "acpmux: sidecar permission-stall rule (RFD 0158 §2), off by default (#59656)"
+    },
+    {
+      "sha": "caabd601f3efa3941b10f41af7edc29ed09d4662",
+      "mergedAt": "2026-11-27T18:17:25Z",
+      "subject": "cmux-host: stop the periodic ARP announce after 4 repeats so an idle VM can pause (#62015)"
+    },
+    {
+      "sha": "4b301959fc430694315622099b59face384d3a51",
+      "mergedAt": "2026-11-27T18:16:20Z",
+      "subject": "daemon-restart part: a failed run says why the daemon went away (#61699)"
+    },
+    {
+      "sha": "a89ff173715f34fb73432851617f8fd17c6f5089",
+      "mergedAt": "2026-11-27T18:15:31Z",
+      "subject": "fix(next): swift_parity base reds: profile menu strings and step-A re-pin markers (#60939)"
+    },
+    {
+      "sha": "744d397fdd9af534c09333ea0da2dee1fc8e974e",
+      "mergedAt": "2026-11-27T18:10:45Z",
+      "subject": "acpmux test fakes: read the hidden cmux block sources from one product-checked file (#62040)"
+    },
+    {
+      "sha": "8855164a3fe4183389fb61014158c254e4805169",
+      "mergedAt": "2026-11-27T18:08:08Z",
+      "subject": "acpmux: prove a web device's key on each connection (RFD 0083) (#53616)"
+    },
+    {
+      "sha": "9f8a210bf57e4e680663c5a7bb101b021a855f3d",
+      "mergedAt": "2026-11-27T18:05:37Z",
+      "subject": "netcond attach: the bound guards each send and a breach is a miss; skipped inline legs print one NETCOND-SKIP, not five errors (#62110)"
+    },
+    {
+      "sha": "8dc86eea65fdf6be5a08cfa405391f0fe0f84ae5",
+      "mergedAt": "2026-11-27T18:05:31Z",
+      "subject": "acpmux: cache fault accounting per call (RFD 0182 B6) (#60434)"
+    },
+    {
+      "sha": "9fa467ab3384f828f0c5b81511d08dba8ff26d3e",
+      "mergedAt": "2026-11-27T17:53:08Z",
+      "subject": "cmux vm resume: stop the node when the vault's lease moved meanwhile (RFD 0169) (#57977)"
+    },
+    {
+      "sha": "12d15b4932e95b2e416072762c7098be75107da3",
+      "mergedAt": "2026-11-27T17:52:02Z",
+      "subject": "seed pull: read the working copy without finding its GitHub remote (#61869)"
+    },
+    {
+      "sha": "f0f0135cc2acbdc78f40fd6fd5ce59e199d88b3b",
+      "mergedAt": "2026-11-27T17:50:07Z",
+      "subject": "cmux-rd-link: TURN over TCP and TLS when UDP is blocked (#57755)"
+    },
+    {
+      "sha": "389f93532d3f0be63c73855edc89b778aa33dd7b",
+      "mergedAt": "2026-11-27T17:49:40Z",
+      "subject": "Reuse the terminal plugin journal helper across tool calls (#60732)"
+    },
+    {
+      "sha": "c37acbff92cd4398126792f2ac3d10dbf07aea7e",
+      "mergedAt": "2026-11-27T17:45:19Z",
+      "subject": "cmux-team-messaging: RFD 0170 phase 3 document room (presence leases, access requests, revoke disconnects) (#61895)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-27T21:23:12Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
