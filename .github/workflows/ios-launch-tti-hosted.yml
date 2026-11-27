@@ -40,8 +40,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - leg: cells
-            ref: 752c2dccc2a83484f4e52d47f1ce868dcdeb5c81
+          - leg: profile
+            ref: d605bad0560c6d2ab5e799d40d46e4283ff6c598
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -76,6 +76,7 @@ jobs:
         id: run
         env:
           JOBS: "6"
+          TEST_RUNNER_CMUX_MOBILE_LAUNCH_PROFILE: "1"
         run: |
           set -uo pipefail
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -88,6 +89,7 @@ jobs:
           [ -z "$sampler" ] || kill "$sampler" 2>/dev/null
           ls -la "$S" | head -40
           mkdir -p artifacts/ios-sim; tar -czf artifacts/ios-sim/samples.tgz -C "$RUNNER_TEMP" samples
+          grep -rhoI 'LAUNCHPROFILE {.*' artifacts/ios-sim --include='*.txt' | sort -u > artifacts/ios-sim/launch-profile.txt || true
 
       - name: Export the time-profile table
         if: ${{ !cancelled() }}
@@ -143,5 +145,6 @@ jobs:
             artifacts/ios-sim/samples.tgz
             artifacts/ios-sim/ui-tests-failures.txt
             artifacts/ios-sim/launch-tti-error.txt
+            artifacts/ios-sim/launch-profile.txt
           retention-days: 3
           if-no-files-found: warn
