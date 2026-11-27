@@ -671,6 +671,35 @@ fn a_link_that_closes_mid_turn_falls_back_to_exec() {
     };
     assert_eq!(answer["reply"], "4");
     assert_eq!(answer["wait_route"], "exec");
+    assert!(answer.get("turn_ms").is_none(), "no first output was read: {answer}");
+}
+
+/// The link read the reply's first output, then closed before the turn ended (hq run 45241258907): the exec
+/// route reads the end, and the answer keeps the first output the link saw, the only first-text time there is.
+#[test]
+fn a_link_that_closes_after_the_first_output_keeps_it_on_the_exec_route() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started_with_surface(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\ndelivery-1\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"completed\",\"endedAt\":9}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"4\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    fake.stream = Some(Ok(json!({"socket": "/tmp/link.sock"})));
+    let chunk = json!({"seq": 2, "at": 3_200, "dir": "in", "kind": "notification",
+        "msg": {"method": "session/update", "params": {"sessionId": "s", "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "4"}}}}});
+    fake.pushes.push_back(Ok(json!({"records": [
+        {"seq": 1, "at": 1_000, "dir": "mux", "kind": "user_message", "msg": {"text": "x"}},
+    ], "last_seq": 1, "ended": "timeout"})));
+    fake.pushes.push_back(Ok(json!({"records": [chunk], "last_seq": 2, "ended": "closed"})));
+    let Outcome::Done(answer) = run(&mut fake, &request(&["--prompt", "x", "--wait"])) else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(answer["reply"], "4");
+    assert_eq!(answer["wait_route"], "exec");
+    assert_eq!(answer["turn_ms"], json!({"first_output": 2_200}));
 }
 
 /// No app answers the link's socket (an older app) or the link cannot be observed: the turn is read through the

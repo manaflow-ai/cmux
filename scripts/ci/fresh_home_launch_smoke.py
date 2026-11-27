@@ -696,6 +696,52 @@ def read_marks(path: Path) -> dict[str, float]:
     return marks
 
 
+def read_launch_time(path: Path, wait: float = 5.0) -> dict | None:
+    """Read this launch's app-owned Home mark from ``launch-times.jsonl``.
+
+    The recorder writes on a files lane after the awaited marks arrive, so a short bounded
+    wait is necessary after the socket watch observes Home.  The fresh smoke HOME has no older
+    records; the newest valid line is therefore this process's launch.  Malformed or partial
+    lines are ignored while the recorder's atomic rewrite completes.
+    """
+    deadline = time.monotonic() + max(0.0, wait)
+    while True:
+        records: list[dict] = []
+        try:
+            for line in path.read_text(errors="replace").splitlines():
+                try:
+                    value = json.loads(line)
+                except (TypeError, ValueError):
+                    continue
+                if isinstance(value, dict):
+                    records.append(value)
+        except OSError:
+            pass
+        if records:
+            record = records[-1]
+            ms = record.get("reveal_home_ms")
+            if not isinstance(ms, (int, float)) or isinstance(ms, bool):
+                # Records written before reveal_home_ms was added still have the page mark.
+                ms = record.get("home_first_page_ms") if record.get("home_revealed_by") == "mark" else None
+            if isinstance(ms, (int, float)) and not isinstance(ms, bool):
+                return {"ms": round(float(ms), 1), "revealed_by": record.get("home_revealed_by"),
+                        "record": record}
+            if "home_revealed_by" in record:
+                return {"ms": None, "revealed_by": record.get("home_revealed_by"), "record": record}
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(0.05)
+
+
+def app_launch_reading(home: Path, bundle_id: str, rendered_at: float | None, wait: float = 5.0) -> dict | None:
+    """Return the persisted app mark and the old wall-clock reading for one launch."""
+    record = read_launch_time(home / "Library" / "Application Support" / bundle_id / "launch-times.jsonl", wait)
+    if record is None:
+        return None
+    return {"ms": record["ms"], "source": "launch-times.jsonl", "revealed_by": record["revealed_by"],
+            "harness_ms": None if rendered_at is None else round(rendered_at * 1000), "record": record["record"]}
+
+
 def crash_reports(directory: Path, executable: str, since: float) -> list[Path]:
     if not directory.is_dir():
         return []
@@ -1505,6 +1551,12 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
             os.close(marks_read)
         report.update(seen)
         report["marks"] = read_marks(marks_path)
+        app_launch = app_launch_reading(
+            Path(env["HOME"]), bundle_id, seen["rendered_at"],
+            wait=float(os.environ.get("CMUX_FRESH_SMOKE_LAUNCH_TIMES_WAIT", "1.0")))
+        if app_launch is not None:
+            report["app_launch"] = app_launch
+            report["harness_launch_ms"] = app_launch["harness_ms"]
         report["home_tab"] = home_tab(seen["snapshot"])
         if out is not None and seen["exit"] is None:
             report["screenshot"] = screenshot(out)
