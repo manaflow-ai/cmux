@@ -66,9 +66,12 @@ enum VideoRecompressor {
         let out = folder.appendingPathComponent(outName)
         await report?(0)
         // The export's progress, a quarter second apart, to the pending bubble's bar.
+        // The task reads only the states stream, made here (AVFoundation's observation API, meant to
+        // be read beside the running export); the session itself never crosses into it.
+        let states = ExportStates(stream: session.states(updateInterval: 0.25))
         let watcher = report.map { report in
             Task {
-                for await state in session.states(updateInterval: 0.25) {
+                for await state in states.stream {
                     if case .exporting(let progress) = state { await report(progress.fractionCompleted) }
                 }
             }
@@ -101,3 +104,10 @@ enum VideoRecompressor {
         #endif
     }
 }
+
+#if os(iOS)
+/// The export's states stream, handed to the task that forwards its progress.
+private struct ExportStates<Stream: AsyncSequence>: @unchecked Sendable where Stream.Element == AVAssetExportSession.State, Stream.Failure == Never {
+    let stream: Stream
+}
+#endif
