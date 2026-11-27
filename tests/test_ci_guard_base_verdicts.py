@@ -135,7 +135,7 @@ class MainTests(unittest.TestCase):
             out = Path(tmp, "out.json")
             argv = ["--repo", REPO, "--base", BASE, "--root", tmp, "--steps", str(red), "--out", str(out)]
             printed = io.StringIO()
-            with mock.patch.dict("os.environ", {"GH_TOKEN": "t"}), mock.patch("sys.stdout", printed), \
+            with mock.patch.dict("os.environ", {"GH_TOKEN": "t", "CI_CACHE_R2_PUBLIC_URL": ""}), mock.patch("sys.stdout", printed), \
                     mock.patch("sys.stderr", io.StringIO()):
                 with mock.patch.multiple(gbv, **patches):
                     self.assertEqual(gbv.main(argv), 0)
@@ -168,6 +168,80 @@ class MainTests(unittest.TestCase):
         )
         self.assertEqual(left, [])
         self.assertEqual(body, {"A": False, "_cmux_complete": False})
+
+
+def tar_blob(files: dict[str, dict]) -> bytes:
+    import tarfile
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as archive:
+        for name, body in files.items():
+            data = json.dumps(body).encode()
+            info = tarfile.TarInfo(f"./{name}")
+            info.size = len(data)
+            archive.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+class R2Tests(unittest.TestCase):
+    """The CI cache copy: a public URL, no token, so a spent REST quota never forces the base re-run."""
+
+    def fetcher(self, objects: dict[str, bytes]):
+        seen: list[str] = []
+
+        def fetch(url: str) -> bytes | None:
+            seen.append(url)
+            return next((blob for key, blob in objects.items() if url.endswith(key)), None)
+        return fetch, seen
+
+    def test_reads_the_base_with_no_token(self) -> None:
+        blob = tar_blob({"guards-head.json": {"A": False}, "guards-head.json.failures.json": {"A": "log"}})
+        fetch, seen = self.fetcher({f"guard-verdicts-{BASE}.tar.gz": blob})
+        hit = gbv.r2_source("https://cache.example", Path("."), BASE, fetch=fetch, shas=[BASE, ANCESTOR])
+        self.assertEqual(hit, (BASE, ({"A": False}, {"A": "log"}), None))
+        self.assertTrue(all(url.startswith("https://cache.example/v1/guard-verdicts/objects/") for url in seen))
+
+    def test_nearest_ancestor_carries_its_diff(self) -> None:
+        fetch, _ = self.fetcher({f"guard-verdicts-{ANCESTOR}.tar.gz": tar_blob({"guards-head.json": {"A": True}})})
+        with mock.patch.object(gbv, "changed_between", return_value=["docs/x.md"]):
+            hit = gbv.r2_source("https://cache.example", Path("."), BASE, fetch=fetch, shas=[BASE, OTHER, ANCESTOR])
+        self.assertEqual(hit, (ANCESTOR, ({"A": True}, {}), ["docs/x.md"]))
+
+    def test_nothing_in_the_cache(self) -> None:
+        fetch, _ = self.fetcher({})
+        self.assertIsNone(gbv.r2_source("https://cache.example", Path("."), BASE, fetch=fetch, shas=[BASE]))
+
+    def test_main_prefers_the_cache_over_the_api(self) -> None:
+        def no_api(*_args, **_kwargs):
+            raise AssertionError("the artifact API was read")
+        with tempfile.TemporaryDirectory() as tmp:
+            red = Path(tmp, "red.txt")
+            red.write_text("A\nC\n")
+            out = Path(tmp, "out.json")
+            printed = io.StringIO()
+            with mock.patch.dict("os.environ", {"CI_CACHE_R2_PUBLIC_URL": "https://cache.example", "GH_TOKEN": ""}), \
+                    mock.patch("sys.stdout", printed), mock.patch("sys.stderr", io.StringIO()), \
+                    mock.patch.multiple(gbv, sources=no_api,
+                                        r2_source=lambda *_a, **_k: (BASE, ({"A": False}, {}), None)):
+                self.assertEqual(gbv.main(["--repo", REPO, "--base", BASE, "--root", tmp, "--steps", str(red),
+                                           "--out", str(out)]), 0)
+            self.assertEqual(printed.getvalue().split(), ["C"])
+            self.assertEqual(json.loads(out.read_text()), {"A": False, "_cmux_complete": False})
+
+    def test_a_broken_cache_read_falls_to_the_api(self) -> None:
+        def broken(*_a, **_k):
+            raise OSError("bucket down")
+        with tempfile.TemporaryDirectory() as tmp:
+            red = Path(tmp, "red.txt")
+            red.write_text("A\n")
+            printed = io.StringIO()
+            with mock.patch.dict("os.environ", {"CI_CACHE_R2_PUBLIC_URL": "https://cache.example", "GH_TOKEN": "t"}), \
+                    mock.patch("sys.stdout", printed), mock.patch("sys.stderr", io.StringIO()), \
+                    mock.patch.multiple(gbv, r2_source=broken,
+                                        sources=lambda *_: iter([({"id": 1, "head_sha": BASE}, None)]),
+                                        download_results=lambda *_: ({"A": True}, {})):
+                gbv.main(["--repo", REPO, "--base", BASE, "--root", tmp, "--steps", str(red),
+                          "--out", str(Path(tmp, "o.json"))])
+            self.assertEqual(printed.getvalue().split(), [])
 
 
 class MergeTests(unittest.TestCase):
@@ -204,7 +278,7 @@ class MergeTests(unittest.TestCase):
 class UnreachableTests(unittest.TestCase):
     def test_everything_reason_reuses_nothing(self) -> None:
         self.assertEqual(gbv.unreachable_steps(ROOT, ["Validate Python test harness syntax"],
-                                               [f"f{i}" for i in range(1000)]), set())
+                                               [f"f{i}" for i in range(gbv.ANCESTOR_MAX_CHANGED + 1)]), set())
 
     def test_docs_only_diff_reaches_few_steps(self) -> None:
         import guard_step_inputs
@@ -212,6 +286,51 @@ class UnreachableTests(unittest.TestCase):
         unreached = gbv.unreachable_steps(ROOT, names + ["not a ci-guards step"], ["docs/nothing-reads-this.txt"])
         self.assertNotIn("not a ci-guards step", unreached)
         self.assertTrue(unreached <= set(names))
+
+    def test_runner_change_reuses_nothing(self) -> None:
+        self.assertEqual(gbv.unreachable_steps(ROOT, ["Validate Python test harness syntax"],
+                                               ["docs/x.txt", "scripts/ci/run_ci_guards.py"]), set())
+
+    def _workflow_change(self, edit) -> set[str]:
+        import guard_step_inputs
+        import run_ci_guards
+        names = [s[0] for s in guard_step_inputs.guard_steps(ROOT)]
+        older = run_ci_guards.load_yaml(ROOT / gbv.WORKFLOW_PATH)
+        edit(older)
+        original = gbv.workflow_at
+        gbv.workflow_at = lambda git_root, sha: older
+        try:
+            return gbv.unreachable_steps(ROOT, names, ["docs/nothing-reads-this.txt", gbv.WORKFLOW_PATH],
+                                         ROOT, "ancestor")
+        finally:
+            gbv.workflow_at = original
+
+    def test_workflow_change_elsewhere_still_reuses(self) -> None:
+        # A step the diff's ci-guards.yml edit did not touch keeps its ancestor verdict, unless it reads the workflow.
+        unreached = self._workflow_change(lambda wf: None)
+        self.assertTrue(unreached)
+
+    def test_changed_step_definition_is_not_reused(self) -> None:
+        import guard_step_inputs
+        unchanged = self._workflow_change(lambda wf: None)
+        target = sorted(unchanged)[0]
+
+        def edit(wf: dict) -> None:
+            for job in wf["jobs"].values():
+                for step in job.get("steps") or []:
+                    if step.get("name") == target:
+                        step["run"] = str(step.get("run")) + "\ntrue"
+        self.assertNotIn(target, self._workflow_change(edit))
+        self.assertIn(target, {s[0] for s in guard_step_inputs.guard_steps(ROOT)})
+
+    def test_changed_job_env_reuses_none_of_its_steps(self) -> None:
+        def edit(wf: dict) -> None:
+            wf["env"] = dict(wf.get("env") or {}, CMUX_TEST_ONLY="1")
+        self.assertEqual(self._workflow_change(edit), set())
+
+    def test_unreadable_ancestor_workflow_reuses_nothing(self) -> None:
+        self.assertEqual(gbv.unreachable_steps(ROOT, ["Validate Python test harness syntax"],
+                                               [gbv.WORKFLOW_PATH], ROOT, "0" * 40), set())
 
 
 if __name__ == "__main__":

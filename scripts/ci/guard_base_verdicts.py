@@ -31,7 +31,10 @@ import argparse
 import io
 import json
 import os
+import subprocess
 import sys
+import tarfile
+import tempfile
 import urllib.error
 import urllib.request
 import zipfile
@@ -41,7 +44,9 @@ API = "https://api.github.com"
 WORKFLOW = "cmux-next-guards.yml"
 BRANCH = "feat-cmux-next"
 ARTIFACT_PREFIX = "guard-verdicts-"
-MAX_BEHIND = 60
+# Finished push runs come about every 20 minutes and 40 commits (11-26: 82 commits between two of them), and a pull
+# request's base lags the tip: 60 commits back missed the nearest finished run for one of three sampled bases.
+MAX_BEHIND = 120
 RUNS_PAGE = 100
 CHECK_SEPARATOR = " :: "
 TIMEOUT_S = 20
@@ -140,15 +145,172 @@ def download_results(repo: str, run: dict, token: str, get=api_json, fetch=_requ
     return results, failures
 
 
-def unreachable_steps(root: Path, steps: list[str], changed: list[str]) -> set[str]:
-    """The steps (of STEPS) the CHANGED paths cannot reach, by guard_step_inputs.py's selection on ROOT."""
+# The push run's verdicts in the CI cache bucket too (the ci-guard-verdicts-r2 job): its public URL answers with no
+# token, so this read spends none of the repository's REST quota. 2026-11-26: 3 of 3 sampled pull request guard
+# groups read HTTP 403 from the artifact API (the hourly quota spent), re-ran 48-52 red steps on the base for
+# 301-406 s, and every one of them was red on the base too.
+R2_NAMESPACE = "guard-verdicts"
+R2_EXTENSIONS = ("tar.zst", "tar.gz")
+
+
+def ancestors(root: Path, base: str, depth: int = MAX_BEHIND) -> list[str]:
+    """BASE and its first-parent ancestors, nearest first, from ROOT's git (deepened blobless when shallow)."""
+    def git(*args: str) -> str:
+        return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, text=True,
+                              timeout=60).stdout
+    try:
+        listed = git("rev-list", "--first-parent", f"--max-count={depth + 1}", base).split()
+    except (subprocess.SubprocessError, OSError):
+        listed = []
+    if len(listed) <= depth:
+        try:
+            git("fetch", "--no-tags", "--quiet", "--filter=blob:none", f"--depth={depth + 1}", "origin", base)
+            listed = git("rev-list", "--first-parent", f"--max-count={depth + 1}", base).split()
+        except (subprocess.SubprocessError, OSError):
+            pass
+    return listed or [base]
+
+
+def changed_between(root: Path, older: str, newer: str) -> list[str] | None:
+    try:
+        out = subprocess.run(["git", "-C", str(root), "diff", "--no-renames", "--name-only", older, newer],
+                             check=True, capture_output=True, text=True, timeout=60).stdout
+    except (subprocess.SubprocessError, OSError):
+        return None
+    return [line for line in out.splitlines() if line]
+
+
+def _fetch_public(url: str) -> bytes | None:
+    try:
+        with urllib.request.urlopen(urllib.request.Request(url), timeout=TIMEOUT_S) as response:
+            return response.read()
+    except urllib.error.HTTPError as error:
+        if error.code in (403, 404):
+            return None  # the bucket answers 403 or 404 for a key it does not hold
+        raise
+
+
+def _unpack(blob: bytes, extension: str) -> tuple[dict, dict] | None:
+    if extension == "tar.zst":
+        try:
+            blob = subprocess.run(["zstd", "-dc"], input=blob, check=True, capture_output=True, timeout=60).stdout
+        except (subprocess.SubprocessError, OSError):
+            return None
+    with tarfile.open(fileobj=io.BytesIO(blob), mode="r:*") as archive:
+        members = {Path(m.name).name: m for m in archive.getmembers() if m.isfile()}
+
+        def read(name: str) -> dict | None:
+            member = members.get(name)
+            handle = archive.extractfile(member) if member is not None else None
+            found = json.loads(handle.read().decode("utf-8")) if handle is not None else None
+            return found if isinstance(found, dict) else None
+
+        results = read("guards-head.json")
+        if results is None:
+            return None
+        return results, read("guards-head.json.failures.json") or {}
+
+
+def r2_results(public_url: str, sha: str, fetch=_fetch_public) -> tuple[dict, dict] | None:
+    for extension in R2_EXTENSIONS:
+        blob = fetch(f"{public_url.rstrip('/')}/v1/{R2_NAMESPACE}/objects/{ARTIFACT_PREFIX}{sha}.{extension}")
+        if blob is not None:
+            found = _unpack(blob, extension)
+            if found is not None:
+                return found
+    return None
+
+
+def r2_source(public_url: str, root: Path, base: str, fetch=_fetch_public, shas: list[str] | None = None):
+    """(sha, (results, failures), ancestor..base changed paths or None at the base) of the nearest verdicts in R2."""
+    for sha in shas if shas is not None else ancestors(root, base):
+        found = r2_results(public_url, sha, fetch=fetch)
+        if found is None:
+            continue
+        if sha == base:
+            return sha, found, None
+        changed = changed_between(root, sha, base)
+        return sha, found, (changed if changed is not None else ["<unlisted>"] * 10_000)
+    return None
+
+
+# A change to these changes how every step runs (the runner, its shell, its expressions): nothing is reused across it.
+# ci-guards.yml and the selection are left out of it here: a step whose own definition (step_definitions) and whose
+# inputs are the same at the ancestor and the base gives the same verdict, whatever else the workflow changed.
+# 11-26: ci-guards.yml changed in every 40-commit window between two finished push runs, so the whole-run rule
+# reused nothing from any ancestor and every pull request re-ran 48-52 base-red steps (301-406 s).
+RUNNER_INPUTS = frozenset({
+    "scripts/ci/run_ci_guards.py",
+    "scripts/ci/guards-local.sh",
+    "scripts/ci/gh_expressions.py",
+    "scripts/cmux-next/safe_log.py",
+})
+WORKFLOW_PATH = ".github/workflows/ci-guards.yml"
+ANCESTOR_MAX_CHANGED = 2000  # a diff past this reuses nothing: a bound on the selection's cost, not its truth
+
+
+def step_definitions(workflow: dict) -> dict[str, str]:
+    """{step name: what its verdict depends on besides its inputs}: the workflow's env, the step's job (all but
+    its steps), the job's setup steps run_ci_guards.py leaves to Actions, the steps before it that hand it state,
+    and the step itself, for every group it runs in."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import hashlib  # noqa: PLC0415
+    import run_ci_guards  # noqa: PLC0415
+
+    jobs = workflow.get("jobs") or {}
+    found: dict[str, list[str]] = {}
+    for unit in run_ci_guards.plan(workflow, "BASE_SHA", "HEAD"):
+        job = jobs.get(unit.job) or {}
+        setup = [raw for raw in job.get("steps") or []
+                 if "uses" in raw or str(raw.get("name")) in run_ci_guards.DEPENDENCY_STEPS
+                 or str(raw.get("name")) in run_ci_guards.WORKSPACE_STEPS]
+        context = {"env": workflow.get("env"), "job": {k: v for k, v in job.items() if k != "steps"}, "setup": setup}
+        handed: list = []
+        for step in unit.steps:
+            own = [step.name, step.run, step.working_directory, sorted(step.env.items())]
+            text = json.dumps([context, unit.group, handed, own], sort_keys=True, default=str)
+            found.setdefault(step.name, []).append(hashlib.sha256(text.encode("utf-8")).hexdigest())
+            if run_ci_guards.hands_state(step):
+                handed.append(own)
+    return {name: ",".join(sorted(hashes)) for name, hashes in found.items()}
+
+
+def workflow_at(git_root: Path, sha: str) -> dict | None:
+    """ci-guards.yml as it was at SHA, from GIT_ROOT's git (a blobless clone fetches the one blob)."""
+    try:
+        import yaml  # type: ignore  # noqa: PLC0415
+
+        text = subprocess.run(["git", "-C", str(git_root), "show", f"{sha}:{WORKFLOW_PATH}"], check=True,
+                              capture_output=True, text=True, timeout=120).stdout
+        loaded = yaml.safe_load(text)
+    except Exception:  # noqa: BLE001 - an unreadable ancestor workflow reuses nothing
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def unreachable_steps(root: Path, steps: list[str], changed: list[str], git_root: Path | None = None,
+                      ancestor: str | None = None) -> set[str]:
+    """The steps (of STEPS) whose verdict at the ancestor is the base's: the CHANGED paths (ancestor..base) reach
+    none of their inputs by guard_step_inputs.py's selection on ROOT (the base), and their definition in
+    ci-guards.yml is the same at ANCESTOR as at the base when the diff touches it."""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     import guard_step_inputs  # noqa: PLC0415 - the selection, beside this script
+    import run_ci_guards  # noqa: PLC0415
 
-    if guard_step_inputs.everything_reason(changed):
+    if len(changed) > ANCESTOR_MAX_CHANGED or RUNNER_INPUTS.intersection(changed):
         return set()
     known = {s[0]: s for s in guard_step_inputs.guard_steps(root)}
     wanted = [known[name] for name in steps if name in known]
+    if WORKFLOW_PATH in changed:
+        older = workflow_at(git_root or root, ancestor) if ancestor else None
+        if older is None:
+            return set()
+        try:
+            before = step_definitions(older)
+        except Exception:  # noqa: BLE001 - an ancestor workflow the runner cannot plan reuses nothing
+            return set()
+        now = step_definitions(run_ci_guards.load_yaml(root / WORKFLOW_PATH))
+        wanted = [s for s in wanted if before.get(s[0]) is not None and before.get(s[0]) == now.get(s[0])]
     picked = guard_step_inputs.select(guard_step_inputs.Tree(root), wanted, changed)
     # A step the selection does not know (a routed group outside ci-guards.yml) is never reused from an ancestor.
     return {s[0] for s in wanted if s[0] not in picked}
@@ -213,6 +375,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--root", required=True, help="the base checkout")
     parser.add_argument("--steps", required=True, help="the head's red steps, one a line")
     parser.add_argument("--out", required=True, help="where the reused base results go")
+    parser.add_argument("--git-root", default=".", help="a checkout whose git holds the base (deepened when shallow)")
     args = parser.parse_args(argv)
     steps = [s for s in Path(args.steps).read_text(encoding="utf-8").splitlines() if s.strip()]
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
@@ -225,6 +388,18 @@ def main(argv: list[str]) -> int:
 
     if not steps:
         return 0
+    public_url = os.environ.get("CI_CACHE_R2_PUBLIC_URL") or ""
+    if public_url:
+        try:
+            hit = r2_source(public_url, Path(args.git_root), args.base)
+        except Exception as error:  # noqa: BLE001 - an R2 read that breaks falls to the artifact API
+            print(f"base verdicts: the CI cache read failed ({type(error).__name__}: {error})", file=sys.stderr)
+            hit = None
+        if hit is not None:
+            sha, downloaded, changed = hit
+            usable = None if changed is None else unreachable_steps(Path(args.root), steps, changed, Path(args.git_root), sha)
+            return write_reused(Path(args.out), downloaded, steps, usable,
+                                f"the CI cache at {'the base itself' if changed is None else f'an ancestor {sha[:12]} ({len(changed)} paths behind)'}")
     if not token:
         return everything("no token")
     try:
@@ -241,23 +416,26 @@ def main(argv: list[str]) -> int:
             return everything(f"no completed {BRANCH} push run at {args.base[:12]} or within {MAX_BEHIND} commits before it")
         if downloaded is None:
             return everything(f"push runs {', '.join(tried)} uploaded no {ARTIFACT_PREFIX}artifact")
-        usable = None if changed is None else unreachable_steps(Path(args.root), steps, changed)
+        usable = None if changed is None else unreachable_steps(Path(args.root), steps, changed, Path(args.git_root),
+                                                                 run.get("head_sha"))
     except (OSError, ValueError, KeyError, zipfile.BadZipFile, urllib.error.URLError) as error:
         return everything(f"{type(error).__name__}: {error}")
     except Exception as error:  # noqa: BLE001 - a broken read fails open: every step re-runs on the base
         return everything(f"{type(error).__name__}: {error}")
+    where = "the base itself" if changed is None else f"an ancestor {run.get('head_sha', '')[:12]} ({len(changed)} paths behind)"
+    return write_reused(Path(args.out), downloaded, steps, usable, f"push run {run.get('id')} at {where}")
+
+
+def write_reused(out: Path, downloaded: tuple[dict, dict], steps: list[str], usable: set[str] | None, where: str) -> int:
     kept, kept_failures, left = reuse(*downloaded, steps, usable)
-    out = Path(args.out)
     # Incomplete: a red step with no key here (left to the re-run, or new) is never read as new to the base.
     out.write_text(json.dumps({**kept, "_cmux_complete": False}, indent=2) + "\n", encoding="utf-8")
     Path(str(out) + ".failures.json").write_text(json.dumps(kept_failures, indent=2) + "\n", encoding="utf-8")
-    where = "the base itself" if changed is None else f"an ancestor {run.get('head_sha', '')[:12]} ({len(changed)} paths behind)"
-    print(f"base verdicts: {len(steps) - len(left)} of {len(steps)} red steps reused from push run {run.get('id')} at {where}; "
+    print(f"base verdicts: {len(steps) - len(left)} of {len(steps)} red steps reused from {where}; "
           f"{len(left)} re-run on the base", file=sys.stderr)
     for step in left:
         print(step)
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))
