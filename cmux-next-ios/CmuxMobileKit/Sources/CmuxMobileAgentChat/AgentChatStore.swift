@@ -2268,8 +2268,11 @@ private final class EarlierHistorySource: AgentSessionSource {
 extension AgentChatStore {
     /// What the chat's loading state says. Never the link: a chat waiting on its Mac loads like any other (Leo, 2026-11-22: "i dont
     /// wanna see connecting to cosmic-gray... with the spinner").
+    /// A start whose send is over on a Mac that dropped stops saying "Starting" once the quiet
+    /// bound passed (live run 12: it said so for good), and loads like any other chat.
     public var loadingText: String {
-        isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
+        if quietStatus.isShown, summary.status == .disconnected || isOffline && !awaitsFirstPrompt { return "Loading chat…" }
+        return isStarting || awaitsFirstPrompt ? Self.startingText(summary) : "Loading chat…"
     }
 
     /// The loading state's words show. A start says so at once (the person just asked for

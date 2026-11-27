@@ -69,8 +69,8 @@ import Testing
 
     /// Live run 12: a task that never left the phone (the Mac's agent server went away) left its
     /// chat on "Starting <agent>…" for good. Once its send is over, a chat whose Mac is unreachable
-    /// says it is connecting.
-    @Test func aChatWhoseMacDroppedSaysConnectingOnceItsSendIsOver() {
+    /// loads like any other chat once the quiet bound passed.
+    @Test func aChatWhoseMacDroppedLoadsOnceItsSendIsOver() {
         final class Dropped: AgentSessionSource {
             let summary = AgentSessionSummary(id: "t", name: "New session", harness: "claude", agentName: "Claude", cwd: "~/p",
                                               workspaceTitle: "w", macName: "Mac")
@@ -86,7 +86,9 @@ import Testing
         let store = AgentChatStore(source: source)
         #expect(store.loadingText == "Starting Claude…")
         source.inFlight = false
-        #expect(store.loadingText == "Loading chat…", "never \"Connecting to Mac…\" (Leo 2026-11-22)")
+        #expect(store.loadingText == "Starting Claude…", "nothing changes inside the quiet bound")
+        let shown = AgentChatStore(source: source, quietStatus: QuietStatusGate(delay: .zero))
+        #expect(shown.loadingText == "Loading chat…", "past the bound: loading, never \"Connecting to Mac…\" (Leo 2026-11-22)")
     }
 
     @Test func theChatStaysStartingUntilItsFirstSendEnds() {
