@@ -164,7 +164,7 @@ async fn helper_retries_do_not_start_paid_parent_turns_while_parent_is_held() {
             .count();
         assert_eq!(parent_turns, 0, "a held parent must not receive a paid retry prompt");
         // Positive control: once the parent's hold is released, the already-due helper fires.
-        session.auto_resume.lock().take();
+        hub.set_ending_for_test(&session, None);
         if reason == RetryReason::RateLimit {
             hub.lift_rate_hold(&session, "test");
         }
