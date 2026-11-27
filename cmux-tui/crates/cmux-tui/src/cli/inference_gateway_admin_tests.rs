@@ -50,7 +50,7 @@ fn the_apps_exec_answer_is_the_route() {
 #[test]
 fn parses_status_mode_and_route() {
     let (c, v) = parse(&words(&["status", "--personal"]), &env).unwrap();
-    assert_eq!(c.api, "https://api.cmux.test");
+    assert_eq!(c.api.as_deref(), Some("https://api.cmux.test"));
     assert_eq!(v, Verb::Status { personal: true });
     let (_, v) =
         parse(&words(&["mode", "gateway", "--gateway-machine", "vm_abcdefghij0123456789"]), &env)
@@ -77,6 +77,29 @@ fn parses_status_mode_and_route() {
     );
     assert!(parse(&words(&["mode"]), &env).is_err());
     assert!(parse(&words(&["mode", "on"]), &env).is_err());
+    // `joined`, with a joined machine as the gateway machine (cmux-platform's JOINED_MACHINE) or a Cloud one.
+    let joined = "machine_0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b";
+    let (_, v) = parse(&words(&["mode", "joined", "--gateway-machine", joined]), &env).unwrap();
+    assert_eq!(
+        v,
+        Verb::Mode { personal: false, mode: "joined".into(), machine: Some(Some(joined.into())) }
+    );
+    let (_, v) = parse(&words(&["mode", "joined"]), &env).unwrap();
+    assert_eq!(v, Verb::Mode { personal: false, mode: "joined".into(), machine: None });
+    for bad in [
+        "machine_0F1E2D3C-4B5A-6978-8A9B-0C1D2E3F4A5B",
+        "machine_0f1e2d3c4b5a69788a9b0c1d2e3f4a5b",
+        "machine_0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5",
+        "machine_0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5g",
+        "cmm_0f1e2d3c",
+    ] {
+        assert!(!joined_machine(bad), "{bad}");
+        assert!(
+            parse(&words(&["mode", "joined", "--gateway-machine", bad]), &env).is_err(),
+            "{bad}"
+        );
+    }
+    assert!(parse(&words(&["mode", "joined", "off"]), &env).is_err());
     assert!(parse(&words(&["route", "--machine", "nope"]), &env).is_err());
     assert!(
         parse(
@@ -100,6 +123,8 @@ fn scopes_the_status_and_keeps_api_error_codes() {
     for gateway in [
         json!({"mode": "gateway", "online": false}),
         json!({"mode": "off", "online": true}),
+        // `joined` takes only hub-joined machines' calls: a Cloud chat is not served.
+        json!({"mode": "joined", "online": true}),
         json!({}),
     ] {
         let answer = status_answer(false, &json!({"ok": true, "gateway": gateway}));
@@ -124,4 +149,58 @@ fn reads_the_machine_probe() {
     );
     assert!(probe_command("claude").ends_with("/v1/cmux/route?agent=claude'"));
     assert!(!probe_command("claude").contains("x-cmux-inference-authorization"));
+}
+
+/// The app runs `inference gateway status` with its own environment, which names no API (hq#15762): with the app's
+/// token the verb asks the API that issued it; any other token still needs `--api`.
+#[test]
+fn status_with_no_api_asks_the_api_that_issued_the_apps_token() {
+    let none = |_: &str| None;
+    let (c, v) = parse(&words(&["status"]), &none).unwrap();
+    assert_eq!((c.api, c.token, v), (None, TokenSource::App, Verb::Status { personal: false }));
+    let token_env = |k: &str| (k == "CMUX_CLOUD_ACCESS_TOKEN").then(|| "tok".to_owned());
+    assert!(parse(&words(&["status"]), &token_env).unwrap_err().contains("--api"));
+    assert!(
+        parse(&words(&["status", "--token-file", "/tmp/t"]), &none).unwrap_err().contains("--api")
+    );
+
+    assert_eq!(
+        api_origin(None, Some("https://cloud-api.cmux.test")).unwrap(),
+        "https://cloud-api.cmux.test"
+    );
+    assert_eq!(
+        api_origin(Some("https://api.cmux.test"), Some("https://cloud-api.cmux.test")).unwrap(),
+        "https://api.cmux.test",
+    );
+    assert!(api_origin(None, Some("http://cloud-api.cmux.test")).is_err());
+    assert!(api_origin(None, None).unwrap_err().contains("named none"));
+}
+
+/// The app's Cloud start gate hands the install token it holds on stdin (hq#19758): like the app's own token, it names
+/// the API that issued it, so no `--api` is needed, and `--token-stdin` takes no value.
+#[test]
+fn a_held_token_on_stdin_needs_no_api() {
+    let none = |_: &str| None;
+    let (c, v) = parse(&words(&["status", "--team", "team_x", "--token-stdin"]), &none).unwrap();
+    assert_eq!(
+        (c.api, c.team.as_deref(), c.token, v),
+        (None, Some("team_x"), TokenSource::Stdin, Verb::Status { personal: false })
+    );
+    assert!(parse(&words(&["status", "--token-stdin=tok"]), &none).is_err());
+}
+
+#[test]
+fn a_token_answer_gives_its_token_and_the_api_that_issued_it() {
+    use super::super::inference_gateway::credential_answer;
+    assert_eq!(credential_answer(" tok \n"), ("tok".to_owned(), None));
+    assert_eq!(
+        credential_answer(
+            r#"{"access_token":"tok","api_origin":"https://cloud-api.cmux.test","team":"t"}"#
+        ),
+        ("tok".to_owned(), Some("https://cloud-api.cmux.test".to_owned())),
+    );
+    assert_eq!(
+        credential_answer(r#"{"access_token":"tok","api_origin":""}"#),
+        ("tok".to_owned(), None)
+    );
 }

@@ -2,7 +2,7 @@
 """cmux-next guardrails: refuse new architecture debt in what a push adds; warn on hot paths and owned areas.
 
 Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain local `prepush-gate.py`),
-never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
+never by CI (Lawrence 2026-10-23: no new CI gates, lifted 2026-11-18). Only Swift lines the push ADDS under
 Packages/macOS/CmuxNext/Sources count, plus unchanged lines that become debt because the push changed the
 line that gives them their context (`struct` -> `class` around a static, a view renamed to a `...Row`, an
 edited or deleted deinit in a generic class's body, or a type made generic around the classes in its
@@ -39,7 +39,8 @@ Warnings (never refuse):
             its declaration, trailing on the declaration line, or trailing on the `{` line of a wrapped
             signature); names the bench from scripts/cmux-next/perf-hot-benches.json to run before and after
             on the fleet. A marker the push touches that marks no declaration warns too.
-  owner     the push touches an area in plans/cmux-next/OWNERS.md; names the owner and the doc to read.
+  owner     the push touches an area in plans/cmux-next/OWNERS.md; names the owner and the doc to read. On a
+            local push, the live session holding it now (owner_live.py) is named and sent the push.
 
 `app-size` is a net count over the push, not a per-line rule, in source lines as CI's check-app-size.sh --base
 counts them (count-swift-code-lines.py's lexer: blank and comment lines never count, either way). It refuses
@@ -2118,6 +2119,19 @@ RULES = (
          "// generic-class-allow: <why this class is not main-actor isolated> (`concurrency-allow:` also works)",
          matcher_rule(Matcher(CLASS_DECL, GENERIC_CLASS_ALLOW, implicit_deinit)),
          scope=(SOURCES, TESTS)),
+    Rule("expect-keypath-call",
+         "A `#expect` / `#require` whose whole condition is a call with a key-path argument "
+         "(`#expect(xs.allSatisfy(\\.isActive))`)",
+         "Xcode 26.6's swift-testing expands it into `__checkFunctionCall` with the key path as a throwing function "
+         "argument, so the expansion fails with \"call can throw, but it is not marked with 'try'\" and the whole "
+         "CmuxNext test build stops on macOS 27 hosts (2026-11-26: HoverCardBodyHandOffTests from #57323 broke every "
+         "suite step on the fleet; Xcode 26.3 CI compiled it)",
+         "pass a closure instead of the key path (`xs.allSatisfy { $0.isActive }`), or read it into a `let` first",
+         None,
+         # No `?` in the receiver: swift-testing leaves an optional chain unexpanded, and
+         # `try #require(a.first?.items.map(\\.id))` compiles on 26.6.
+         line_rule(r"#(?:expect|require)\(\s*(?:try\s+)?(?:await\s+)?[\w.!\[\]]+\.\w+\(\s*(?:\w+:\s*)?\\\.[\w.]+\s*\)\s*[,)]", None),
+         scope=(TESTS,)),
     Rule("action-wait", "An action handler that can wait: an untyped bind (`invoke:` / `run:` / `handler:` / a trailing closure) "
          "or a `.waiting` effect",
          "an untyped handler can start a Task that awaits the daemon before anything shows, and nothing in its type says so: the "
@@ -2195,6 +2209,13 @@ RULES = (
          "// index-allow: <why the index is valid here>",
          line_rule(r"\.(clickedRow|clickedColumn|selectedColumn)\b|\bitem\(atRow:|\bselectedRow\(inColumn:",
                    "index-allow:")),
+    Rule("module-strings", "A string read from `bundle: .module` (CMUX-570)",
+         "the app ships English only: the other languages are downloaded packs, read through `Bundle.localizedModule` "
+         "(`Bundle.module.inAppLanguage`, which also applies `app.language`); a lookup in `.module` stays English after the person's pack lands (14 came in "
+         "from feat-cmux-next in the day #45928 was open)",
+         "`bundle: .localizedModule` (the module's Bundle+AppLanguage.swift); in CmuxNextApp, `bundle: .module.inAppLanguage`",
+         "// module-strings-allow: <why this is not a localized string (an image, a resource file)>",
+         line_rule(r"\bbundle:\s*\.module\b(?!\.inAppLanguage)", "module-strings-allow:")),
     Rule("path-name-by-stat", "A file URL made only to read a path's name "
          "(`URL(fileURLWithPath: path).lastPathComponent` or `.pathExtension`)",
          "that initializer runs lstat on the path to learn whether it is a folder before it answers from the "
@@ -2995,6 +3016,22 @@ def marker_ids(lines) -> collections.Counter:
     return found
 
 
+def owner_specs(base: str, head: str) -> list[tuple[str, str]]:
+    """The OWNERS.md reads owners_text needs, for the caller's one blobs() batch (no git call of its own)."""
+    return [(head, OWNERS), (base, OWNERS), (UPSTREAM, OWNERS)]
+
+
+def owners_text(texts: dict[tuple[str, str], str], base: str, head: str) -> str | None:
+    """OWNERS.md as merged upstream, unless the push itself (BASE..HEAD) edits it. Who holds an area is the merged
+    table's answer: 2026-11-27 a lane cut before cmux#60006 dropped `design-*motion*` from Layout motion still sent
+    its pushes to the transcript-motion lane, because the hook read the row from the lane's own stale copy. A push
+    that rewrites the table means its own rows, so those stand. None: no table anywhere."""
+    mine, merged = texts.get((head, OWNERS)), texts.get((UPSTREAM, OWNERS))
+    if merged is None or (mine is not None and texts.get((base, OWNERS)) != mine):
+        return mine
+    return merged
+
+
 def parse_owners(text: str) -> list[tuple[str, list[str], str, str]]:
     """(area, path globs, owner, doc) from OWNERS.md's table (columns: Area | Paths | Owner | Read first)."""
     rows, header = [], None
@@ -3046,6 +3083,15 @@ def owner_warnings(files: list[str], owners: list[tuple[str, list[str], str, str
     (glob_specificity of its best glob), so a folder row (`cmux-tui/crates/cmux-tui-core/`) never names a second
     owner for a file a narrower row assigns (`cmux-tui/crates/cmux-tui-core/src/holder_runtime/`); rows tied on the
     same glob both name theirs. A file no row matches names no owner: a new crate has none until a row lists it."""
+    out = []
+    for area, owner, doc, hit in owner_hits(files, owners):
+        more = f" and {len(hit) - 1} more" if len(hit) > 1 else ""
+        out.append(f"touches {area} ({hit[0]}{more}): owner {owner}. Read {doc} first; tell the owner what changed.")
+    return out
+
+
+def owner_hits(files: list[str], owners: list[tuple[str, list[str], str, str]]) -> list[tuple[str, str, str, list[str]]]:
+    """(area, owner cell, doc, its files) for each owned area of FILES, by owner_warnings' most-specific-row rule."""
     hits: dict[int, list[str]] = collections.defaultdict(list)
     for path in files:
         scored = [(max(glob_specificity(g) for g in globs if glob_match(path, g)), row)
@@ -3055,12 +3101,87 @@ def owner_warnings(files: list[str], owners: list[tuple[str, list[str], str, str
             for score, row in scored:
                 if score == best:
                     hits[row].append(path)
+    return [(area, owner, doc, hits[row]) for row, (area, _, owner, doc) in enumerate(owners) if hits.get(row)]
+
+
+def load_owner_live():
+    """owner_live.py next to this file: who holds an OWNERS.md area now, and the notice to it."""
+    name = "cmux_next_owner_live"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, Path(__file__).resolve().parent / "owner_live.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+# A file a base merge carried in is upstream's, not the push's: on 2026-11-25 lane/port-46285 (webviews only) and
+# lane/gate-held-token, pushed after a feat-cmux-next merge, sent the live iOS lane "you hold it now" for
+# Packages/iOS/CmuxTabsKit, because base..head was diffed as two trees and the base was the old remote head (the
+# upstream fetch had not reached the merged commit). The files are those of the push's own commits instead: every
+# non-merge commit head has that base, any range the push does not own, or any remote branch lacks, less those
+# GitHub committed (a squash merge or web edit landed upstream; a lane's own commit is never committed by GitHub).
+GITHUB_COMMITTER = "noreply@github.com"
+
+
+def owner_route_files(repo: Path, own) -> list[str]:
+    """The files the push's own non-merge commits touch (see the note above)."""
+    if not own.base:
+        return []
+    nots = [own.base, *(after for _, after in getattr(own, "before", ()) or ())]
+    out = git(repo, "log", "--no-merges", "--format=%x00%ce", "--name-only", own.head, "--not", *nots, "--remotes")
+    files: set[str] = set()
+    for commit in out.split("\0")[1:]:
+        committer, _, names = commit.partition("\n")
+        if committer.strip() != GITHUB_COMMITTER:
+            files.update(f for f in names.split("\n") if f.strip())
+    return sorted(files)
+
+
+def owner_route(repo: Path, ranges: list, listing=None, coordinator: str | None = None) -> list[str]:
+    """The push's owned areas, each with the live session that holds it now (owner_live.holder), which gets one
+    notice per area and pushed head. LISTING: owner_live.list_sessions() unless given (tests). Lines for the
+    report; never a refusal, and nothing on CI or without acpmux."""
+    live = load_owner_live()
+    hits: dict[str, tuple[str, str, list[str], str]] = {}
+    for own in ranges:
+        if not own.head:
+            continue
+        try:
+            owners = parse_owners(owners_text(blobs(repo, owner_specs(own.base, own.head)), own.base, own.head) or "")
+            names = owner_route_files(repo, own)
+        except (Exception, SystemExit):  # an unreadable head (a range the push could not name) routes nothing
+            continue
+        for area, cell, doc, files in owner_hits(names, owners):
+            prev = hits.get(area)
+            hits[area] = (cell, doc, sorted(set(files) | set(prev[2] if prev else [])), own.head)
+    if not hits:
+        return []
+    rows, error = listing if listing is not None else live.list_sessions()
+    if rows is None:
+        return [f"owner: no live holder looked up ({error})"] if error else []
+    try:
+        branch = git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip() or None
+    except (Exception, SystemExit):
+        branch = None
     out = []
-    for row, (area, _, owner, doc) in enumerate(owners):
-        hit = hits.get(row)
-        if hit:
-            more = f" and {len(hit) - 1} more" if len(hit) > 1 else ""
-            out.append(f"touches {area} ({hit[0]}{more}): owner {owner}. Read {doc} first; tell the owner what changed.")
+    for area, (cell, doc, files, head) in hits.items():
+        who, how = live.holder(cell, rows, coordinator, area)
+        if not who:
+            out.append(f"owner: {area}: {how}. Tag a holder: `acpmux session tag SESSION owns={live.tag_hint(area, cell)}`.")
+            continue
+        fallback = live.is_fallback(how)
+        text = (live.unheld_notice if fallback else live.notice)(area, cell, files, head, branch, doc)
+        # A fallback hears of an unheld area once a UTC day, not every push into it (the coordinator flood of
+        # 2026-11-20); a holder hears of each branch once a UTC day, not each pushed head: on 2026-11-24 one
+        # branch's rebases sent its holder seven notices in 35 s and 20 branches sent 30. The notice names the
+        # branch, so the later heads are a `git log` away. A detached push (no branch) keys on its head.
+        day = time.strftime("day %Y-%m-%d", time.gmtime())
+        key = day if fallback else (f"{branch} {day}" if branch and branch != "HEAD" else head)
+        failed = live.notify(who, area, key, text)
+        out.append(f"owner: {area} is held by {who} ({how}); "
+                   + (f"not told: {failed}" if failed else "told of this push"))
     return out
 
 
@@ -3162,7 +3283,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     names = git(repo, "diff", "--name-only", "--no-renames", base, head, check=False)
     early = sorted(p for p in set(names.split("\n")) if p and in_diff_scope(p))
     blob_ids: dict[tuple[str, str], str] = {}
-    texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES), (head, OWNERS)]
+    texts = blobs(repo, [(head, p) for p in early] + [(base, p) for p in early] + [(head, BENCHES)] + owner_specs(base, head)
                   + [(head, MANIFEST), (base, MANIFEST), (head, THREADING_DOC), (head, PACKAGE_MANIFEST)], blob_ids)
     diff = diff_proc.communicate()[0].decode("utf-8", "replace")
     changes = parse_diff(diff)
@@ -3224,10 +3345,11 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
         warnings += [("perf-hot", w) for w in perf_hot_warnings(changes, benches)]
     except Exception as error:  # a broken warning must not switch off the refusals above
         warnings.append(("guardrails", check_failure("perf-hot", error)))
-    if (head, OWNERS) in texts:
+    owners = owners_text(texts, base, head)
+    if owners is not None:
         names_list = [f for f in names.split("\n") if f]
         try:
-            warnings += [("owner", w) for w in owner_warnings(names_list, parse_owners(texts[(head, OWNERS)]))]
+            warnings += [("owner", w) for w in owner_warnings(names_list, parse_owners(owners))]
         except Exception as error:  # a broken warning must not switch off the refusals above
             warnings.append(("guardrails", check_failure("owner", error)))
     return found, warnings
@@ -3497,6 +3619,11 @@ def run_push(repo: Path, ranges: list, ratchet: Ratchet | None = None) -> bool:
         if pin:
             print(pin)
             refused = True
+    try:
+        for line in owner_route(repo, ranges):
+            print(line)
+    except Exception as error:  # fail open: a broken route must not stop the push
+        print(f"guardrails: {check_failure('owner-route', error)}")
     text, refuse = ratchet.finish()
     if text:
         print(text)

@@ -9,12 +9,14 @@
 import { act, type ReactNode } from "react";
 import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { LASTING_MS } from "../../ui/lasting";
+import { CONNECTION_QUIET_MS } from "../../ui/lasting";
 import { teardownDom } from "../../../test/support/domTeardown";
 import { installVirtualSizes } from "../../../test/support/virtualSizes";
 import { createStrings } from "./i18n";
 
 const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "http://localhost/" });
+// jsdom draws no layout, so it has no scrollIntoView; the Bookmarks tree reveals its selected row with it.
+dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
 const globals = globalThis as Record<string, unknown>;
 const replacements = {
   window: dom.window,
@@ -72,7 +74,7 @@ test("Settings: a lost link drops in no read-only banner until it lasts", async 
   await mounted(<ReadOnlyNotice connected={false} loaded readable />, async (element) => {
     const banner = () => element.querySelector("[data-read-only=disconnected]");
     expect(banner()).toBeNull();
-    await advance(LASTING_MS - 100);
+    await advance(CONNECTION_QUIET_MS - 100);
     expect(banner()).toBeNull();
     await advance(200);
     expect(banner()).not.toBeNull();
@@ -99,11 +101,14 @@ test("Keybindings: a lost link keeps the list and says so only once it lasts", a
       await settle();
     });
     expect(store.getSnapshot().connection).toBe("disconnected");
-    await advance(LASTING_MS - 100);
+    await advance(CONNECTION_QUIET_MS - 100);
     expect(element.querySelector(".keys-scroll")).not.toBeNull();
-    expect(element.textContent).not.toContain(message);
+    expect(element.querySelector("[data-connection-chip]")).toBeNull();
     await advance(200);
-    expect(element.textContent).toContain(message);
+    expect(element.querySelector("[data-connection-chip]")).not.toBeNull();
+    // The list stays; the sentence is the mark's tooltip, not a body in its place.
+    expect(element.querySelector(".keys-scroll")).not.toBeNull();
+    expect(element.querySelector("[data-connection-chip]")!.getAttribute("title")).toBe(message);
   });
 });
 
@@ -124,29 +129,129 @@ test("Passwords: a lost link keeps the list and says so only once it lasts", asy
       await settle();
     });
     expect(store.getSnapshot().connection).toBe("disconnected");
-    await advance(LASTING_MS - 100);
+    await advance(CONNECTION_QUIET_MS - 100);
     expect(element.querySelector(".pw-row")).not.toBeNull();
-    expect(element.querySelector(".pw-disconnected")).toBeNull();
+    expect(element.querySelector("[data-connection-chip]")).toBeNull();
     await advance(200);
-    expect(element.querySelector(".pw-disconnected")).not.toBeNull();
+    // Past the bound: a corner mark, and the rows stay (never wiped, never a sentence in their place).
+    expect(element.querySelector("[data-connection-chip]")).not.toBeNull();
+    expect(element.querySelector(".pw-row")).not.toBeNull();
   });
 });
 
-test("CodeRouter: a page with nothing read yet stays blank, not 'not available', until the loss lasts", async () => {
-  const { CodeRouterPage } = await import("../coderouter/CodeRouterPage");
-  const { CodeRouterStore } = await import("../coderouter/store");
-  const table = (await import("../coderouter/generated/strings.json")).default;
-  const strings = createStrings(table);
-  // No host: the store is disconnected from its first frame, with no status read.
-  const store = new CodeRouterStore(null);
-  await mounted(<CodeRouterPage store={store} strings={strings} />, async (element) => {
-    const message = strings.t("disconnected");
-    expect(element.textContent).not.toContain(message);
-    await advance(LASTING_MS - 100);
-    expect(element.textContent).not.toContain(message);
-    await advance(200);
-    expect(element.textContent).toContain(message);
-  });
+/// One page, one dropped link: what the page shows is the same text before and after the bound
+/// (nothing wiped, no sentence in its place), plus the chip, and no chip before the bound.
+async function keepsContentWhenDown(
+  element: HTMLElement,
+  message: string,
+  drop: () => Promise<void>,
+  connectionOf: () => string,
+): Promise<void> {
+  const shown = () => element.textContent!.replace(message, "");
+  const before = shown();
+  expect(before.length).toBeGreaterThan(0);
+  await drop();
+  expect(connectionOf()).toBe("disconnected");
+  await advance(CONNECTION_QUIET_MS - 100);
+  expect(element.querySelector("[data-connection-chip]")).toBeNull();
+  expect(shown()).toBe(before);
+  await advance(200);
+  const chip = element.querySelector("[data-connection-chip]");
+  expect(chip).not.toBeNull();
+  expect(chip!.getAttribute("title")).toBe(message);
+  expect(shown()).toBe(before);
+}
+
+function sizedForLists() {
+  installVirtualSizes(dom.window, (element) => (/scroll|list/.test(element.className) ? 600 : 30));
+}
+
+test("History: a lost link keeps the rows and says so only once it lasts", async () => {
+  sizedForLists();
+  const { HistoryPage } = await import("../history/HistoryPage");
+  const { HistoryStore } = await import("../history/store");
+  const { MockHistoryProvider } = await import("../history/mockProvider");
+  const strings = createStrings((await import("../history/generated/strings.json")).default);
+  const provider = new MockHistoryProvider();
+  const store = new HistoryStore(provider);
+  await mounted(<HistoryPage store={store} strings={strings} />, (element) =>
+    keepsContentWhenDown(
+      element,
+      strings.t("page.disconnected"),
+      () =>
+        act(async () => {
+          provider.page.setConnected(false);
+          await settle();
+        }),
+      () => store.getSnapshot().connection,
+    ),
+  );
+});
+
+test("Stash: a lost link keeps the rows and says so only once it lasts", async () => {
+  sizedForLists();
+  const { StashPage } = await import("../stash/StashPage");
+  const { StashStore } = await import("../stash/store");
+  const { MockStashProvider } = await import("../stash/mockProvider");
+  const strings = createStrings((await import("../stash/generated/strings.json")).default);
+  const provider = new MockStashProvider();
+  const store = new StashStore(provider);
+  await mounted(<StashPage store={store} strings={strings} />, (element) =>
+    keepsContentWhenDown(
+      element,
+      strings.t("stash.disconnected"),
+      () =>
+        act(async () => {
+          provider.page.setConnected(false);
+          await settle();
+        }),
+      () => store.getSnapshot().connection,
+    ),
+  );
+});
+
+test("Bookmarks: a lost link keeps the rows and says so only once it lasts", async () => {
+  sizedForLists();
+  const { BookmarksPage } = await import("../bookmarks/BookmarksPage");
+  const { BookmarksStore } = await import("../bookmarks/store");
+  const { MockBookmarksProvider } = await import("../bookmarks/mockProvider");
+  const strings = createStrings((await import("../bookmarks/generated/strings.json")).default);
+  const provider = new MockBookmarksProvider();
+  const store = new BookmarksStore(provider);
+  await mounted(<BookmarksPage store={store} strings={strings} />, (element) =>
+    keepsContentWhenDown(
+      element,
+      strings.t("page.disconnected"),
+      () =>
+        act(async () => {
+          provider.streams.setConnected(false);
+          await settle();
+        }),
+      () => store.getSnapshot().connection,
+    ),
+  );
+});
+
+test("Apps: a lost link keeps the listings and says so only once it lasts", async () => {
+  sizedForLists();
+  const { AppsPage } = await import("../apps/AppsPage");
+  const { AppsStore } = await import("../apps/store");
+  const { MockAppsProvider } = await import("../apps/mockProvider");
+  const strings = createStrings((await import("../apps/generated/strings.json")).default);
+  const provider = new MockAppsProvider();
+  const store = new AppsStore(provider);
+  await mounted(<AppsPage store={store} strings={strings} />, (element) =>
+    keepsContentWhenDown(
+      element,
+      strings.t("store.disconnected"),
+      () =>
+        act(async () => {
+          provider.page.setConnected(false);
+          await settle();
+        }),
+      () => store.getSnapshot().connection,
+    ),
+  );
 });
 
 test("Tasks: an owner that drops is said lost only once that lasts", async () => {
@@ -169,9 +274,40 @@ test("Tasks: an owner that drops is said lost only once that lasts", async () =>
       await settle();
     });
     expect(store.getSnapshot().connection).toBe("unreachable");
-    await advance(LASTING_MS - 100);
-    expect(element.querySelector(".tasks-banner")).toBeNull();
+    await advance(CONNECTION_QUIET_MS - 100);
+    expect(element.querySelector("[data-connection-chip]")).toBeNull();
     await advance(200);
-    expect(element.querySelector(".tasks-banner")).not.toBeNull();
+    expect(element.querySelector("[data-connection-chip]")).not.toBeNull();
+  });
+});
+
+// Leo, 2026-11-21: "these messages should not be pushing up the text ... stop layout shifting". The
+// mark a lost link leaves is out of flow (jsdom has no layout engine, so the proof is structural: the
+// stylesheet that styles the mark fixes it to the viewport, and a page's content has the same DOM
+// before and after it comes), and it comes only after the shared 10 s bound.
+test("the corner mark takes no room: fixed to the viewport, and the shared 10 s bound holds it", async () => {
+  const css = await Bun.file(new URL("../../ui/connectionChip.css", import.meta.url)).text();
+  expect(css).toMatch(/\.ui-connection-chip\s*\{[^}]*position:\s*fixed/);
+  expect(CONNECTION_QUIET_MS).toBe(10_000);
+  const { ReadOnlyNotice } = await import("../settings/components/ReadOnlyBanner");
+  await mounted(<ReadOnlyNotice connected={false} loaded readable />, async (element) => {
+    await advance(CONNECTION_QUIET_MS + 100);
+    const chip = element.querySelector("[data-connection-chip]")!;
+    expect(chip).not.toBeNull();
+    // Its sentence is the tooltip and the accessible text; nothing of it is a row in the page's flow.
+    expect(chip.getAttribute("title")).toBe(chip.textContent);
+    expect(element.querySelector(".banner")).toBeNull();
+  });
+});
+
+test("AutoResumeNotice: the daemon's retry wait says nothing until it has lasted 10 s", async () => {
+  const { AutoResumeNotice } = await import("../../agent-session/acpmux/AutoResumeNotice");
+  const retry = { retry: { attempt: 2, of: 4, reason: "transport" }, attempt: 1 };
+  await mounted(<AutoResumeNotice state={retry} />, async (element) => {
+    expect(element.querySelector("[data-auto-resume]")).toBeNull();
+    await advance(CONNECTION_QUIET_MS - 100);
+    expect(element.querySelector("[data-auto-resume]")).toBeNull();
+    await advance(200);
+    expect(element.querySelector("[data-auto-resume]")).not.toBeNull();
   });
 });

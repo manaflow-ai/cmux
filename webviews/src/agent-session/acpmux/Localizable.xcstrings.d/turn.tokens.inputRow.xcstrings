@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "turn.tokens.inputRow" : {
+      "comment" : "Agent pane: a reply time's tooltip, one row: the input the turn's model calls read, added up over its calls. {uncached} is what was new to the prompt cache (fresh input and cache writes), {cached} what the calls read again from the cache; each a compact count (14.2K, 930.9K).",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "المدخلات {uncached} غير مخزنة · {cached} مخزنة"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ulaz {uncached} nekeširano · {cached} keširano"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Input {uncached} ikke cachet · {cached} cachet"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Eingabe {uncached} ungecacht · {cached} gecacht"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Input {uncached} uncached · {cached} cached"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Entrada {uncached} sin caché · {cached} en caché"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Entrée {uncached} hors cache · {cached} en cache"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Input {uncached} non in cache · {cached} in cache"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "入力 {uncached} 非キャッシュ · {cached} キャッシュ"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការបញ្ចូល {uncached} មិនបានរក្សាទុក · {cached} បានរក្សាទុក"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "입력 {uncached} 비캐시 · {cached} 캐시"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Inndata {uncached} ikke bufret · {cached} bufret"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Wejście {uncached} spoza pamięci podręcznej · {cached} z pamięci podręcznej"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Entrada {uncached} sem cache · {cached} em cache"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ввод {uncached} без кэша · {cached} из кэша"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "อินพุต {uncached} ไม่ได้แคช · {cached} แคช"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Girdi {uncached} önbelleksiz · {cached} önbellekli"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ввід {uncached} без кешу · {cached} з кешу"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Đầu vào {uncached} chưa lưu đệm · {cached} đã lưu đệm"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "输入 {uncached} 未缓存 · {cached} 已缓存"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "輸入 {uncached} 未快取 · {cached} 已快取"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

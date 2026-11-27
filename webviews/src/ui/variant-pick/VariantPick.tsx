@@ -96,6 +96,7 @@ export function VariantPick({
             );
           })}
         </div>
+        {/* retry-prompt-ok: "Check the tracker before retrying": a pick writes to the tracker; the person checks first. */}
         <output aria-live="polite">{pending ? strings.t("pending") : failed ? strings.t("error") : ""}</output>
       </fieldset>
     </>

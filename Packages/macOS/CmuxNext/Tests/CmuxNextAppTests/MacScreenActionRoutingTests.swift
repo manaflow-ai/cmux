@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextControl
 @testable import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDevices
@@ -83,6 +84,52 @@ struct MacScreenActionRoutingTests {
         #expect(opened.items.count == 4)
     }
 
+    /// The same `--autoconnect` run into a tab that is never shown (the open does not focus it, so
+    /// nothing calls `makeView`): the tab's created hook, as the app's open runs it
+    /// (MacScreenPageService.open), still asks the hub to view, and a run without it still waits.
+    @Test func autoconnectIntoATabThatIsNeverShownStillConnects() throws {
+        let pages = pages()
+        let opened = OpenedTabs()
+        let actions = MacScreenActions(pages: pages, selectedTab: { nil }, providerKey: { id, _ in id },
+                                       open: { record, _, byPerson in
+                                           let key = "background-\(opened.items.count)"
+                                           opened.items.append(key)
+                                           pages.prepare(key, record: try record(), byPerson: byPerson)
+                                           pages.whenCreated(key, focus: false, then: nil)?()
+                                       }, refusal: { Issue.record("refused: \($0)") })
+        let registry = ActionRegistry.standard()
+        actions.bind(into: registry)
+        defer { opened.items.forEach(pages.tabClosed) }
+        func run(_ autoconnect: Bool) throws -> String {
+            var invocation = ActionInvocation(arguments: ["device": .string(device), "autoconnect": .bool(autoconnect)], origin: .cli)
+            invocation.viaControlSocket = true
+            #expect(registry.perform("macScreen.open", invocation: invocation))
+            return try #require(opened.items.last)
+        }
+        let waiting = try run(false)
+        #expect(pages.tab(waiting) == nil, "no scope asked: nothing is made until the tab is shown")
+        let background = try run(true)
+        let hub = try #require(pages.tab(background)?.pane?.model.hub, "the view is made without being shown")
+        #expect(hub.phase != .idle, "the hub was asked (refused here: this test has no signed-in hub)")
+        #expect(hub.resumeScope == nil && pages.pendingScopes.isEmpty, "the scope was spent on the request")
+    }
+
+    /// Only Your Click Starts Viewing a Screen wins over `autoconnect`: with it on, an automation open that asked for
+    /// it still waits at Connect, and asks nothing of the hub.
+    @Test func onlyYourClickHoldsAnAutoconnectOpen() throws {
+        let pages = pages()
+        var invocation = ActionInvocation(arguments: ["device": .string(device), "autoconnect": .bool(true)], origin: .cli)
+        invocation.viaControlSocket = true
+        pages.onlyPersonStartsViewing = true
+        _ = try MacScreenActions.record(invocation, pages: pages)
+        #expect(pages.pendingScopes.isEmpty)
+        #expect(pages.pendingStarters.isEmpty)
+        pages.onlyPersonStartsViewing = false
+        _ = try MacScreenActions.record(invocation, pages: pages)
+        #expect(pages.pendingScopes[device] == .view)
+        #expect(pages.pendingStarters[device] != nil, "an autoconnect start says an agent started it")
+    }
+
     @Test func aMalformedDeviceDoesNotBecomeTheHomePage() {
         let pages = pages()
         for value: ActionValue in [.string(""), .string("ssh:studio"), .int(1)] {
@@ -111,8 +158,24 @@ struct MacScreenActionRoutingTests {
         }
         #expect(try MacScreenActions.deviceID(named: "leo-s-mac-studio", among: devices) == other)
         #expect(try MacScreenActions.deviceID(named: device.uppercased(), among: []) == device)
+        // A `cmux device list` row id names the machine (2026-11-23: a Linux desktop's `--device peer:NAME` named no device).
+        let linux = [HubDevice(id: third, name: "desk-1", online: true)]
+        #expect(try MacScreenActions.deviceID(named: "peer:desk-1", among: linux) == third)
         // A non-person invocation opens the tab at Connect: it asks for no scope.
         #expect(pages.pendingScopes.isEmpty)
+    }
+
+    /// A name the app's list lacks (a machine joined since the list was read, 2026-11-26 probe: "No device is named
+    /// probe-desktop-…-hub" for 180 s) reads the hub's list again; a listed name or an id does not.
+    @Test func aNameTheListLacksReadsTheHubListAgain() {
+        let devices = [HubDevice(id: device, name: "Mac Mini")]
+        let ask = { (text: String) in ActionInvocation(arguments: ["device": .string(text)], origin: .cli) }
+        #expect(MacScreenActions.missesList(ask("probe-desktop-1-hub"), among: devices))
+        #expect(MacScreenActions.missesList(ask("probe-desktop-1-hub"), among: []))
+        #expect(!MacScreenActions.missesList(ask("mac-mini"), among: devices))
+        #expect(!MacScreenActions.missesList(ask(other), among: devices))
+        #expect(!MacScreenActions.missesList(ask("  "), among: devices))
+        #expect(!MacScreenActions.missesList(ActionInvocation(arguments: [:], origin: .cli), among: devices))
     }
 
     @Test func anAmbiguousNameFailsListingTheDevicesItCouldMean() {
@@ -161,17 +224,55 @@ struct MacScreenActionRoutingTests {
         #expect(pages.pendingScopes.isEmpty)
     }
 
+    /// `cmux tab new-mac-screen --device X` that cannot open answers the caller with why, where the run used to answer
+    /// done with the reason only in the app's notice, so the CLI printed nothing. A malformed device is refused at once;
+    /// a name Screen Sharing does not list asks `cmux device list`, and a machine listed there says why it offers no
+    /// screen, never "No device is named". Leo, 2026-11-21: "...most of our vms ... dont have screns...".
+    @Test func aFailedOpenAnswersTheCallerWithItsReason() async throws {
+        let listed = [MacScreenListedDevice(name: "my-vm", noScreenReason: "unknown"),
+                      MacScreenListedDevice(name: "Studio", noScreenReason: "offline"),
+                      MacScreenListedDevice(name: "new-mac", noScreenReason: nil)]
+        let actions = MacScreenActions(pages: pages(), selectedTab: { nil }, providerKey: { id, _ in id },
+                                       open: { record, _, _ in _ = try record() },
+                                       refusal: { Issue.record("swallowed: \($0)") }, listedDevices: { listed })
+        let registry = ActionRegistry.standard()
+        actions.bind(into: registry)
+        let bridge = RegistryControlBridge(registry: registry)
+        let malformed = bridge.performAction(.init(actionID: "macScreen.open", arguments: ["device": .int(1)]))
+        guard case .refused(let reason) = malformed else { Issue.record("a malformed device answered \(malformed)"); return }
+        #expect(reason.contains("Pass a device name or id"))
+        func refusal(_ name: String) async -> String? {
+            let run = bridge.performActionTracked(.init(actionID: "macScreen.open", arguments: ["device": .string(name), "autoconnect": .bool(true)]))
+            guard case .ran = run.outcome, run.work.count == 1, let work = run.work.first, let failure = await work.value else {
+                Issue.record("\(name): \(run.outcome), \(run.work.count) tasks")
+                return nil
+            }
+            #expect(failure.refusal == .unavailable, "the CLI answers `unavailable` with the reason")
+            return failure.message
+        }
+        #expect(await refusal("my-vm") == "my-vm offers no screen: cmux cannot tell whether it has a desktop to share.")
+        #expect(await refusal("studio") == "Studio offers no screen: it is offline.")
+        #expect(await refusal("new-mac")?.contains("Screen Sharing does not list it yet") == true)
+        #expect(await refusal("office-imac")?.contains("No device is named “office-imac”") == true)
+    }
+
     @Test func noDeviceStillOpensTheHomePage() throws {
         let record = try MacScreenActions.record(ActionInvocation(), pages: pages(), devices: [HubDevice(id: device, name: "Mac Mini")])
         #expect(record.isHome)
     }
 
-    private func screenTree() -> DaemonTree {
+    /// `parked`: a second workspace, "parked-ws", with one terminal tab, for a window that shows the first.
+    private func screenTree(parked: Bool = false) -> DaemonTree {
         var tab = TabSnapshot(surface: 1, kind: .conversation, title: "Screen")
         tab.conversation = ConversationTabRef(page: InternalPageID.macScreen.rawValue, route: "device:" + device)
         let pane = PaneSnapshot(id: 1, tabs: [tab])
         let screen = ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])
-        return DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: "screen-route", name: "Screen", screens: [screen])])
+        var workspaces = [WorkspaceSnapshot(id: 1, key: "screen-route", name: "Screen", screens: [screen])]
+        if parked {
+            let other = PaneSnapshot(id: 2, tabs: [TabSnapshot(surface: 2, title: "~")])
+            workspaces.append(WorkspaceSnapshot(id: 2, key: "parked-ws", name: "Parked", screens: [ScreenSnapshot(id: 2, layout: .leaf(2), panes: [other])]))
+        }
+        return DaemonTree(workspaces: workspaces)
     }
 
     @Test func aDuplicateTabOnAnotherMachineCannotStopTheOwnedViewer() throws {
@@ -212,6 +313,42 @@ struct MacScreenActionRoutingTests {
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: appTab), origin: .cli)
         #expect(services.registry.perform("macScreen.open", invocation: invocation))
         #expect(services.pages.tabIDs(in: pane.paneKey).count == before.count + 1)
+    }
+
+    /// `cmux action run macScreen.open --target pane:… --device X --autoconnect --wait` on a pane whose workspace its
+    /// window does not show (an agent's probe while the person works elsewhere): the tab opens in that pane and asks
+    /// the hub at once, and the window still shows the person's workspace and tab, nothing selected or focused. Before,
+    /// the open refused with "pane:… is not shown in any window" and made no tab.
+    @Test func autoconnectIntoAPaneNoWindowShowsOpensThereUnseen() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        services.windows.ordersWindowsIn = false
+        services.daemon.store.apply(snapshot: screenTree(parked: true))
+        _ = services.windows.registry.apply { $0.openWindow(id: "screen-route-window", workspaceIDs: ["screen-route", "parked-ws"]) }
+        let window = services.windows.makeController(for: try #require(services.windows.registry.value.window("screen-route-window")))
+        defer { window.teardown(); window.window?.close() }
+        window.state.showWorkspace("screen-route")
+        window.showWorkspace(requested: "screen-route")
+        let shown = try #require(window.content?.panes.values.first)
+        let parked = try #require(services.daemon.store.workspaces.first { $0.key == WorkspaceKey(rawValue: "parked-ws") }?.screens.first?.panes.first)
+        try #require(services.paneController(for: parked) == nil, "a window shows the parked workspace")
+        AgentHandlers.bind(into: services.registry, context: AppActionContext(services: services))
+        let shownWorkspace = window.state.workspaceID, shownTab = shown.stripModel.selectedID
+        var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: parked.id),
+                                          arguments: ["device": .string(device), "autoconnect": .bool(true)], origin: .cli)
+        invocation.viaControlSocket = true
+        let refusal = services.registry.capturingRefusal { #expect(services.registry.perform("macScreen.open", invocation: invocation)) }
+        #expect(refusal == nil, "\(refusal ?? "")")
+        let opened = services.pages.tabIDs(in: parked.id).filter { LocalPageTab.page(of: $0) == .macScreen }
+        #expect(opened.count == 1, "one Screen Sharing tab in the parked pane: \(opened)")
+        defer { opened.forEach { services.pages.close($0) } }
+        let key = try #require(opened.first)
+        #expect(services.pages.tabIDs(in: shown.paneKey).allSatisfy { LocalPageTab.page(of: $0) != .macScreen }, "nothing opened in the shown pane")
+        let hub = try #require(services.macScreenPages.tab(key)?.pane?.model.hub, "the screen is made without being shown")
+        #expect(hub.phase != .idle, "the hub was asked (refused here: this test has no signed-in hub)")
+        #expect(services.paneController(for: parked) == nil, "the parked workspace is still not shown")
+        #expect(window.state.workspaceID == shownWorkspace, "the window still shows the person's workspace")
+        #expect(shown.stripModel.selectedID == shownTab, "the person's tab is still selected")
     }
 
     @Test func stopTargetsOneUnfocusedViewerAndNeverAnUnknownTab() throws {

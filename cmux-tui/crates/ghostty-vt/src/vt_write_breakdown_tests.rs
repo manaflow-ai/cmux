@@ -6,8 +6,10 @@ use std::time::Instant;
 use super::*;
 
 /// The cmux-tui host-stage payload: compiler-style lines, a quarter of the
-/// words colored with SGR, a tenth UTF-8.
+/// words colored with SGR, a tenth UTF-8. `CMUX_VT_PAYLOAD=utf8` makes every
+/// word non-ASCII (box drawing, CJK, emoji: a TUI or a CJK log).
 fn payload(bytes: usize) -> Vec<u8> {
+    let all_utf8 = std::env::var("CMUX_VT_PAYLOAD").is_ok_and(|value| value == "utf8");
     let words =
         ["cargo", "build", "warning:", "error[E0308]:", "src/main.rs:42:7", "Compiling", "ok"];
     let utf8 = ["é", "→", "✓", "日本語", "│", "🙂"];
@@ -24,7 +26,9 @@ fn payload(bytes: usize) -> Vec<u8> {
             if i > 0 {
                 out.push(b' ');
             }
-            if kind < 25 {
+            if all_utf8 {
+                out.extend_from_slice(utf8[next(utf8.len())].as_bytes());
+            } else if kind < 25 {
                 out.extend_from_slice(
                     format!("\x1b[38;5;{}m{}\x1b[0m", next(256), words[next(words.len())])
                         .as_bytes(),
@@ -114,6 +118,23 @@ fn vt_write_step_breakdown_bench() {
                 std::hint::black_box(term.feed_trackers(frame));
             }
             report("trackers", started.elapsed().as_secs_f64());
+        }
+        if wanted("prepare_write") {
+            // Everything vt_write does to the bytes before the parse, as it runs
+            // there: one neutral scan, then C1, Kitty filter and trackers on the rest.
+            let mut term = terminal();
+            let started = Instant::now();
+            for frame in &frames {
+                std::hint::black_box(term.prepare_write(frame));
+            }
+            report("prepare_write", started.elapsed().as_secs_f64());
+        }
+        if wanted("neutral_scan") {
+            let started = Instant::now();
+            for frame in &frames {
+                std::hint::black_box(byte_scan::neutral_run_end(frame, 0, true));
+            }
+            report("neutral_scan", started.elapsed().as_secs_f64());
         }
         if wanted("history_bookkeeping") {
             // Everything vt_write does around the parse, on a terminal whose

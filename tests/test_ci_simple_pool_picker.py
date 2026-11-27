@@ -723,5 +723,62 @@ class AQueuedReleaseBuildHoldsItsLabel(unittest.TestCase):
         self.assertEqual(picker.pick(state).label, small)
 
 
+
+class ExpectedWaitAdmissionTests(unittest.TestCase):
+    """An owned pool the probe's RUNNER_POOLS `_admission` verdict calls saturated is skipped (cmuxterm-hq#16113)."""
+
+    NOW = dt.datetime(2026, 11, 20, 18, 0, tzinfo=dt.timezone.utc)
+
+    def pools(self, at=None, **saturated):
+        at = at or self.NOW
+        return json.dumps({"linux": "blacksmith-4vcpu-ubuntu-2404",
+                           "_admission": {"at": at.strftime("%Y-%m-%dT%H:%M:%SZ"), "target_s": 300,
+                                          "pools": {STD: {"saturated": saturated.get("std", True)}}}})
+
+    def state(self, band=picker.PRIORITY_PR, saturated=frozenset({STD})):
+        return picker.State(jobs=1, owned=(pool(STD, 8, free=8), pool(LIGHT, 4, free=4)),
+                            blacksmith=(pool(picker.BLACKSMITH[1], 10),), owned_enabled=True, band=band,
+                            saturated=saturated)
+
+    def test_a_saturated_owned_pool_takes_the_next_rung(self):
+        self.assertEqual(picker.pick(self.state()).label, LIGHT)
+        both = self.state(saturated=frozenset({STD, LIGHT}))
+        self.assertEqual(picker.pick(both).label, picker.BLACKSMITH[1])
+        self.assertEqual(picker.pick(self.state(saturated=frozenset())).label, STD)
+
+    def test_nightly_and_promote_never_skip_an_owned_pool(self):
+        for band in (picker.PRIORITY_NIGHTLY, picker.PRIORITY_PROMOTE):
+            with self.subTest(band=band):
+                self.assertEqual(picker.pick(self.state(band=band)).label, STD)
+
+    def test_only_a_fresh_saturated_verdict_counts(self):
+        self.assertEqual(picker.saturated_labels(self.pools(), now=self.NOW), frozenset({STD}))
+        self.assertEqual(picker.saturated_labels(self.pools(std=False), now=self.NOW), frozenset())
+        stale = self.NOW - dt.timedelta(minutes=picker.VERDICT_MAX_MINUTES + 1)
+        self.assertEqual(picker.saturated_labels(self.pools(at=stale), now=self.NOW), frozenset())
+        future = self.NOW + dt.timedelta(hours=1)
+        self.assertEqual(picker.saturated_labels(self.pools(at=future), now=self.NOW), frozenset())
+        for raw in (None, "", "not json", "[]", '{"_admission": "x"}', '{"_admission": {"pools": {}}}',
+                    '{"_admission": {"at": "nope", "pools": {}}}'):
+            with self.subTest(raw=raw):
+                self.assertEqual(picker.saturated_labels(raw, now=self.NOW), frozenset())
+
+    def test_state_from_reads_the_verdict_from_runner_pools(self):
+        with mock.patch.object(picker, "saturated_labels", return_value=frozenset({STD})) as read:
+            state = picker.state_from(jobs=1, env={"RUNNER_POOLS": self.pools()}, fork=False, runners=None,
+                                      snapshot=None, fallback=picker.BLACKSMITH[1], owned_enabled=True)
+        read.assert_called_once_with(self.pools())
+        self.assertEqual(state.saturated, frozenset({STD}))
+        no_env = picker.state_from(jobs=1, env={}, fork=False, runners=None, snapshot=None,
+                                   fallback=picker.BLACKSMITH[1], owned_enabled=True)
+        self.assertEqual(no_env.saturated, frozenset())
+
+    def test_ci_passes_runner_pools_to_the_picker(self):
+        text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        step = text[:text.index("run: python3 scripts/ci/simple_pool_picker.py")]
+        step = step[step.rindex("env:"):]
+        self.assertIn("RUNNER_POOLS: ${{ vars.RUNNER_POOLS }}", step)
+
+
 if __name__ == "__main__":
     unittest.main()

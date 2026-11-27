@@ -1,5 +1,5 @@
 #if DEBUG
-import SwiftUI
+import Foundation
 
 /// DEBUG ONLY (Environment Secrets Playground): one sample row of an environment. Sample data only:
 /// every value is a made-up `EXAMPLE` string, never a real secret.

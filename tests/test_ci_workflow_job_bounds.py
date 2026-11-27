@@ -9,7 +9,8 @@ a summary after a failed, skipped or queue-cancelled need, and skips it only whe
 
 scripts/ci/workflow_job_bounds.py is byte-identical to manaflow-ai/cmuxterm-hq tests/workflow_job_bounds.py and
 teamleaderleo/glaeda scripts/workflow_job_bounds.py. The pre-push hook refuses a push that adds either problem
-(scripts/cmux-next/prepush-gate.py JOB_BOUNDS_CHECK). Manual lane: no new CI tests (CLAUDE.md; Lawrence, 2026-10-23).
+(scripts/cmux-next/prepush-gate.py JOB_BOUNDS_CHECK). Manual lane: kept manual under the 2026-10-23 no-new-CI rule
+(lifted 2026-11-18).
 """
 from __future__ import annotations
 

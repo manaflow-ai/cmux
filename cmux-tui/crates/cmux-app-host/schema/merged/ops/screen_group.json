@@ -1,0 +1,40 @@
+{
+  "family": "screen_group",
+  "ops": {
+    "screen_group.add_screens": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "4eaae7441c3fffdb"
+    },
+    "screen_group.create": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "deaf9de94b83074e"
+    },
+    "screen_group.get": {
+      "source": "local",
+      "class": "read",
+      "digest": "6515b6fff9e91578"
+    },
+    "screen_group.list": {
+      "source": "local",
+      "class": "read",
+      "digest": "e351863e9799b4bc"
+    },
+    "screen_group.remove_screens": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "031fd867eceac5f4"
+    },
+    "screen_group.ungroup": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "1e65a5882a2baaa5"
+    },
+    "screen_group.update": {
+      "source": "local",
+      "class": "mutation",
+      "digest": "7e491b061c052429"
+    }
+  }
+}

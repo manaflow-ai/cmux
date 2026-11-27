@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "git.push.detachedHead" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD منفصل. انتقل إلى فرع للدفع."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD je odvojen. Prebacite se na granu da biste pushali."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD er frakoblet. Check en gren ud for at pushe."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD ist losgelöst. Checke einen Branch aus, um zu pushen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HEAD is detached. Check out a branch to push."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD está desacoplado. Cambia a una rama para enviar."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD est détaché. Extrayez une branche pour pousser."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD è scollegato. Esegui il checkout di un ramo per il push."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "HEAD がデタッチされています。プッシュするにはブランチをチェックアウトしてください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD ត្រូវបានផ្ដាច់។ សូម Checkout Branch មួយដើម្បី Push ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD가 분리되어 있습니다. 푸시하려면 브랜치를 체크아웃하십시오."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD er frakoblet. Sjekk ut en gren for å pushe."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD jest odłączony. Przełącz się na gałąź, aby wypchnąć."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "O HEAD está desanexado. Faça checkout de um branch para fazer push."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD отсоединён. Переключитесь на ветку, чтобы отправить."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD อยู่ในสถานะ detached เช็กเอาต์แบรนช์เพื่อพุช"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD ayrılmış durumda. Push etmek için bir dala geçin."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD від’єднано. Перейдіть на гілку, щоб виконати push."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD đang tách rời. Hãy checkout một nhánh để push."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD 处于分离状态。请检出一个分支后再推送。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "HEAD 處於分離狀態。請簽出一個分支後再推送。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

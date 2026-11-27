@@ -1,0 +1,44 @@
+// Fuji in mist: Hokusai's Umezawa Manor and Mount Fuji behind pale frosted glass, sea-green ink, a two-tone window.
+// The print's mist (#eef0ea) and the cranes' sea green (#4f7f80). ANSI colors are solved in OKLCH at one lightness over the page, so
+// no hue shouts. An opt-in look: nothing here changes until you pick it.
+{
+  "name": "Fuji in mist",
+  "description": "Hokusai's Umezawa Manor and Mount Fuji behind pale frosted glass, sea-green ink, a two-tone window.",
+  "appearance.theme": "Builtin Light",
+  "appearance.appTheme": "followTerminal",
+  "colors": {
+    "background": "#eef0ea",
+    "foreground": "#1f3438",
+    "selection": "#d4dcd6",
+    "accent": "#4f7f80"
+  },
+  "appearance.accent": "theme",
+  "ghostty": [
+    "background = #eef0ea",
+    "foreground = #1f3438",
+    "cursor-color = #4f7f80",
+    "cursor-text = #eef0ea",
+    "selection-background = #d4dcd6",
+    "selection-foreground = #1f3438",
+    "palette = 0=#1f3438",
+    "palette = 1=#a03f3c",
+    "palette = 2=#27762f",
+    "palette = 3=#805e00",
+    "palette = 4=#2863ab",
+    "palette = 5=#8b4486",
+    "palette = 6=#007780",
+    "palette = 7=#66696f",
+    "palette = 8=#83868c",
+    "palette = 9=#b4514c",
+    "palette = 10=#3b8841",
+    "palette = 11=#926f00",
+    "palette = 12=#3a75bf",
+    "palette = 13=#9e5598",
+    "palette = 14=#008a92",
+    "palette = 15=#8f9298"
+  ],
+  "appearance.background": "hokusai-umezawa",
+  "appearance.backgroundBlur": "frosted",
+  "appearance.backgroundOpacity": 0.8,
+  "appearance.chromeStyle": "two-tone"
+}

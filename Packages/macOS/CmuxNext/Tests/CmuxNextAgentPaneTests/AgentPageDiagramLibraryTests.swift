@@ -14,7 +14,12 @@ struct AgentPageDiagramLibraryTests {
     static let repoRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-    static let libraries = repoRoot.appending(path: "Resources/markdown-viewer", directoryHint: .isDirectory)
+    /// The bundled libraries' folder. Built from two names so the CI target graph records the files the
+    /// tests read (``libraryReads``), not the whole folder: its regenerated web bundle is no input here.
+    static let libraries = repoRoot.appending(path: "Resources", directoryHint: .isDirectory)
+        .appending(path: "markdown-viewer", directoryHint: .isDirectory)
+    /// What these tests read from ``libraries`` (Ondine, Mermaid, Vega): a read of the CI target graph.
+    static let libraryReads = "Resources/markdown-viewer/*.min.js"
 
     /// The chart from the user's screenshot (webviews/test/fixtures, which the pane's own tests
     /// draw too): subgraphs, `<br/>` labels, quoted edge labels with braces, `:::` classes and `classDef` lines.

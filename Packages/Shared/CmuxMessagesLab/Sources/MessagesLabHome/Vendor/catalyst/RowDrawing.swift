@@ -1043,7 +1043,8 @@ final class RowBitmaps {
     /// holds them during each page slide, so rows slide in without text and the bench's empty-row
     /// check must find them.
     static var testHold = false
-    private var held: [(Key, CGImage, Int, PaletteBox?)] = []
+    /// The finished bitmaps held while `testHold` is set, in the order they finished (a test may reorder them).
+    var held: [(Key, CGImage, Int, PaletteBox?)] = []
     func releaseHeld() {
         guard !held.isEmpty else { return }
         let batch = held

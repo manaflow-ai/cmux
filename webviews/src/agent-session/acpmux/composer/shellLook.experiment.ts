@@ -36,6 +36,18 @@ export const composerShellLook = defineExperiment({
       description:
         "The shipped box, and its hat (the queued prompts or the running tray over it) as a second rounded glass a small gap above it, each with its own rim and shadow.",
     },
+    "stacked-glass-wide": {
+      label: "Stacked glass, wide gap",
+      description: "Stacked glass with an 8 px gap between the hat and the box, so each reads as its own pane.",
+    },
+    "stacked-glass-hairline": {
+      label: "Stacked glass, hairline gap",
+      description: "Stacked glass with a 2 px gap: the hat nearly sits on the box, each keeping its own rim.",
+    },
+    "stacked-glass-round": {
+      label: "Stacked glass, rounder",
+      description: "Stacked glass with a 24 px corner on both glasses, the box and its hat.",
+    },
   },
   defaultArm: "shipped",
 });

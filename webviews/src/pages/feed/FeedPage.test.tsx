@@ -43,6 +43,15 @@ beforeAll(() => {
     setTimeout(() => callback(Date.now()), 0) as unknown as number;
   scope.cancelAnimationFrame = (handle: number) => clearTimeout(handle);
   dom.window.HTMLElement.prototype.scrollIntoView = () => undefined;
+  // jsdom has no layout. The Feed's lines keep only the rows in view (VirtualList), so each element is
+  // a 400 by 4000 box here: a viewport tall enough to hold every sample line, as a window would.
+  const box = { x: 0, y: 0, top: 0, left: 0, right: 400, bottom: 4000, width: 400, height: 4000 };
+  Object.defineProperties(dom.window.HTMLElement.prototype, {
+    getBoundingClientRect: { configurable: true, value: () => ({ ...box, toJSON: () => box }) },
+    offsetHeight: { configurable: true, get: () => box.height },
+    offsetWidth: { configurable: true, get: () => box.width },
+    clientHeight: { configurable: true, get: () => box.height },
+  });
 });
 
 afterEach(() => {
@@ -62,7 +71,7 @@ afterAll(async () => {
 const { createRoot } = await import("react-dom/client");
 const { FeedPage, rejectText } = await import("./FeedPage");
 const { UiProvider } = await import("../../ui/UiProvider");
-const { LASTING_MS, setLastingGrace } = await import("../../ui/lasting");
+const { CONNECTION_QUIET_MS, setLastingGrace } = await import("../../ui/lasting");
 const { createStrings } = await import("../shared/i18n");
 const table = (await import("./generated/strings.json")).default as Record<string, Record<string, string>>;
 const { MockFeedProvider, manyNotices, sampleFeed } = await import("./mockProvider");
@@ -312,7 +321,7 @@ test("Needs you: rows with one-click answers, cards, and the one-line bar", asyn
 test("a disconnected owner shows the banner and turns the answers off", async () => {
   setLastingGrace(0);
   await mount("#/list", { connection: { state: "disconnected", reason: "" } });
-  expect(host.querySelector(".feed-banner")!.textContent).toBe("Feed is unreachable");
+  expect(host.querySelector("[data-connection-chip]")!.textContent).toBe("Feed is unreachable");
   expect(button("Allow").hasAttribute("disabled") || button("Allow").hasAttribute("data-disabled")).toBe(true);
   setLastingGrace(25_000);
 });
@@ -322,13 +331,13 @@ test("a disconnected owner shows no banner until it lasts (a daemon restart drop
   try {
     await mount("#/list", { connection: { state: "disconnected", reason: "" } });
     await act(async () => {
-      jest.advanceTimersByTime(LASTING_MS - 100);
+      jest.advanceTimersByTime(CONNECTION_QUIET_MS - 100);
     });
-    expect(host.querySelector(".feed-banner")).toBeNull();
+    expect(host.querySelector("[data-connection-chip]")).toBeNull();
     await act(async () => {
       jest.advanceTimersByTime(200);
     });
-    expect(host.querySelector(".feed-banner")!.textContent).toBe("Feed is unreachable");
+    expect(host.querySelector("[data-connection-chip]")!.textContent).toBe("Feed is unreachable");
   } finally {
     jest.useRealTimers();
   }

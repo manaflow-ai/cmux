@@ -190,11 +190,10 @@ import Testing
         let ssh = try #require(rows["gpu-box"])
         #expect(shown(ssh) == shown(local), "gpu-box draws more than this Mac's row: \(shown(ssh)) vs \(shown(local))")
         #expect((ssh.accessibilityLabel() ?? "").contains("gpu-box"), "the row's label lost its machine")
-        // A Cloud row's one sign is the small cloud after its name (2026-11-10: "a cloud icon right next to its
-        // name"); it never names the machine.
+        // A Cloud row draws no cloud (cmux#55668: only a Cloud chat's tab wears it) and never names the machine.
         let cloud = try #require(rows["cloud-a"])
-        #expect(shown(cloud) == (shown(local) + ["DecorativeImageView"]).sorted() && !cloud.cloudMark.isHidden)
+        #expect(shown(cloud) == shown(local), "\(shown(cloud)) vs \(shown(local))")
         let label = cloud.accessibilityLabel() ?? ""
-        #expect(label.contains(Strings.hoverCloud) && !label.contains("cloud-a"), "\(label)")
+        #expect(!label.contains("cloud-a"), "\(label)")
     }
 }

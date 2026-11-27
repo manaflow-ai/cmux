@@ -44,5 +44,11 @@
   "appearance.surfaces.markdown.opacity": 1,
 
   // Panes as cards floating on the glass, rounded like the glass around them.
-  "appearance.chromeStyle": "card"
+  "appearance.chromeStyle": "card",
+
+  // Shape, not only color (Leo: "customizing the tabs/sidebars a lot deeper"): glass chrome: 10 pt tabs and rows on a 270 pt sidebar.
+  "density": { "basedOn": "cozy", "tokens": {"tabCornerRadius": 10, "verticalTabCornerRadius": 10, "sidebarCornerRadius": 10, "itemCornerRadius": 8, "sidebarWidth": 270, "sidebarRowGap": 2, "tabGap": 4 } },
+  "window.titlebarButtons": "always",
+  "tabs.plusButton": "always",
+  "agentPane.display.sessionInfo.placement": "overlay"
 }

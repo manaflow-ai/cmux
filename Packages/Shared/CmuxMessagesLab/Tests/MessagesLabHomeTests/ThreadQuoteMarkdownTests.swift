@@ -22,9 +22,7 @@ import UniformTypeIdentifiers
 
     init() {
         HomeMarkdownPolicy.install()
-        CustomRows.unregister(HomeTableRowProvider.kind)
-        CustomRows.unregister(HomePlanRowProvider.kind)
-        HomeTableRowProvider.install()
+        HomeTableRowProvider.reinstall()
     }
 
     static func date(_ t: Double) -> Date { Replay.base.addingTimeInterval(t) }

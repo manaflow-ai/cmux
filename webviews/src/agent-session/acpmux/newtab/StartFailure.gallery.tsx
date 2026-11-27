@@ -25,6 +25,7 @@ export default componentEntry({
   anchors: [{ selector: ".acpmux-start-failure" }],
   variants: {
     "not-installed": {
+      // retry-prompt-ok: Retry sends the draft to the agent again, a paid model request.
       note: "No Claude Code on this Mac: plain words, Install (Agents setup, then the draft sends), Retry and Dismiss.",
       props: {
         ...base,
@@ -52,6 +53,7 @@ export default componentEntry({
       play: details,
     },
     "open-refused": {
+      // retry-prompt-ok: Retry opens the chat's workspace and moves the person there; only their click does.
       note: "A recent chat that would not open: the host's words, Retry and Dismiss.",
       props: { ...base, failure: { error: "Machine unavailable", local: true, retry: () => undefined } },
     },

@@ -3,6 +3,7 @@
 // intents; an intent leaves the log on its echo or its reject). No I/O, no timers.
 import { format, L, type StringKey } from "./strings";
 import type { CloudDiskHealth, CloudMachine, CloudPlan, MachineEvent, MachineSize, MachineStatus } from "./ops";
+import { intl } from "../../ui/intl";
 
 /** The machine list layout (Debug setting `cloud.machines.layout`, README.md). */
 export type MachineLayout = "rows" | "cards";
@@ -62,16 +63,24 @@ export function machineTitle(machine: CloudMachine): string {
   return machine.name || machine.id;
 }
 
-const STATUSES = new Set<string>([
-  "provisioning",
-  "starting",
-  "running",
-  "pausing",
-  "paused",
-  "deleting",
-  "failed",
-  "unknown",
-]);
+/**
+ * Each status the page knows, with its label. `MachineStatus` is the generated wire's status plus
+ * `unknown`, and a `Record` over it names every one, so this is the page's one status list.
+ * `powerTable.test.ts` replays schemas/cloud-machine-power/table.json (cmux-cloud-machine's power
+ * table) against it.
+ */
+export const StatusLabel: Record<MachineStatus, StringKey> = {
+  provisioning: L.statusProvisioning,
+  starting: L.statusStarting,
+  running: L.statusRunning,
+  pausing: L.statusPausing,
+  paused: L.statusPaused,
+  deleting: L.statusDeleting,
+  failed: L.statusFailed,
+  unknown: L.statusUnknown,
+};
+
+const STATUSES = new Set<string>(Object.keys(StatusLabel));
 
 /** A status the page does not know becomes `unknown`, like the server's decoder. */
 export function normalizeMachine(machine: CloudMachine): CloudMachine {
@@ -127,6 +136,16 @@ export function settled(intent: PendingIntent, machines: CloudMachine[], revisio
  */
 export const QUICK_INTENTS = new Set<IntentKind>(["rename", "idle", "keep"]);
 
+/** A full list's machines, each unchanged one kept as the object already shown (one pass per list). */
+export function keptMachines(previous: readonly CloudMachine[], next: CloudMachine[]): CloudMachine[] {
+  if (previous.length === 0) return next;
+  const byId = new Map(previous.map((machine) => [machine.id, machine]));
+  return next.map((machine) => {
+    const old = byId.get(machine.id);
+    return old && JSON.stringify(old) === JSON.stringify(machine) ? old : machine;
+  });
+}
+
 /** The rows the list draws: every mirrored machine with its newest pending intent, then creates. */
 export function visibleRows(machines: CloudMachine[], pending: PendingIntent[]): MachineRow[] {
   const rows: MachineRow[] = machines.map((machine) => {
@@ -153,17 +172,6 @@ export function visibleRows(machines: CloudMachine[], pending: PendingIntent[]):
   }
   return rows;
 }
-
-export const StatusLabel: Record<MachineStatus, StringKey> = {
-  provisioning: L.statusProvisioning,
-  starting: L.statusStarting,
-  running: L.statusRunning,
-  pausing: L.statusPausing,
-  paused: L.statusPaused,
-  deleting: L.statusDeleting,
-  failed: L.statusFailed,
-  unknown: L.statusUnknown,
-};
 
 export const IntentLabel: Record<IntentKind, StringKey> = {
   create: L.pendingCreate,
@@ -207,7 +215,7 @@ export function moveSelection(rows: MachineRow[], selection: string | undefined,
 
 export function formatMegabytes(mb: number, t: (key: string) => string, language: string): string {
   const gb = mb / 1024;
-  const value = new Intl.NumberFormat(language, { maximumFractionDigits: gb < 10 ? 1 : 0 }).format(gb);
+  const value = intl.NumberFormat(language, { maximumFractionDigits: gb < 10 ? 1 : 0 }).format(gb);
   return format(t(L.gigabytes), { value });
 }
 
@@ -215,32 +223,13 @@ export const DISK_HEALTH_MAX_AGE_MS = 15 * 60_000;
 
 export type DiskHealthState = "healthy" | "warning" | "stale" | "unknown";
 
-/** A report is actionable only while all capacity values are finite and non-negative. */
+/** The API validates capacity and computes the state. The client only tracks freshness. */
 export function diskHealthState(health: CloudDiskHealth | null | undefined, now = Date.now()): DiskHealthState {
   if (!health) return "unknown";
   if (!Number.isFinite(now) || !Number.isFinite(health.observed_at)) return "unknown";
   if (health.observed_at > now) return "unknown";
   if (now - health.observed_at > DISK_HEALTH_MAX_AGE_MS) return "stale";
-  if (
-    ![health.free_mb, health.used_mb, health.total_mb, health.floor_mb].every(
-      (value) => Number.isFinite(value) && value >= 0,
-    ) ||
-    health.total_mb < health.free_mb ||
-    health.total_mb < health.used_mb ||
-    health.free_mb + health.used_mb > health.total_mb ||
-    !Array.isArray(health.top_users) ||
-    health.top_users.some(
-      (user) =>
-        !user ||
-        typeof user.path !== "string" ||
-        user.path.length === 0 ||
-        !Number.isFinite(user.used_mb) ||
-        user.used_mb < 0,
-    )
-  ) {
-    return "unknown";
-  }
-  return health.free_mb <= health.floor_mb ? "warning" : "healthy";
+  return health.state === "healthy" || health.state === "warning" ? health.state : "unknown";
 }
 
 /** "4 CPU · 8 GB memory · 64 GB disk" from the machine record's size. */
@@ -285,7 +274,7 @@ export function formatDate(value: number | null | undefined, language: string, w
   const options: Intl.DateTimeFormatOptions = withTime
     ? { dateStyle: "medium", timeStyle: "short" }
     : { dateStyle: "medium" };
-  return new Intl.DateTimeFormat(language, options).format(new Date(value));
+  return intl.DateTimeFormat(language, options).format(new Date(value));
 }
 
 export function percent(used: number | null | undefined, total: number | null | undefined): number | undefined {

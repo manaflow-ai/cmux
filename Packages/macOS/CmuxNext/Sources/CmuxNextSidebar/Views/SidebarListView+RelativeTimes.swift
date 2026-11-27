@@ -8,7 +8,7 @@ extension SidebarListView {
     /// Arms (or drops) the next relative-time reload after a reload.
     func scheduleRelativeTimesTick() {
         guard model.showsTimestamps, model.relativeTimestamps,
-              let delay = SidebarRelativeTimesTick.delay(workspaces.values.lazy.compactMap(\.lastActivity), now: Date())
+              let delay = SidebarRelativeTimesTick.delay(workspaces.values.lazy.compactMap(\.rowAge), now: Date())
         else {
             relativeTimesTick.cancel()
             return

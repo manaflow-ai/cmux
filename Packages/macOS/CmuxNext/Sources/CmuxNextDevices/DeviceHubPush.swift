@@ -114,6 +114,9 @@ public enum DeviceHubPush: Sendable, Equatable {
     case devicesChanged
     case permissionsChanged(hostID: String?)
     case relaysChanged
+    /// The account's settings changed (`GET /v1/settings` again): "My agents can turn screen
+    /// sharing and control on my machines".
+    case settingsChanged
     /// To the host: a viewer asks.
     case sessionRequest(SessionRequest)
     /// To both devices: the session is approved; signal with this.
@@ -136,6 +139,7 @@ public enum DeviceHubPush: Sendable, Equatable {
         case "devices.changed": self = .devicesChanged
         case "permissions.changed": self = .permissionsChanged(hostID: envelope.hostId)
         case "relays.changed": self = .relaysChanged
+        case "settings.changed": self = .settingsChanged
         case "session.request":
             guard let request = try? decoder.decode(RequestMessage.self, from: data) else { return nil }
             self = .sessionRequest(request.session)

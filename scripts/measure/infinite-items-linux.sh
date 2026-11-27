@@ -12,6 +12,12 @@
 #   infinite-items-linux.sh before=hosts ...: first runs the same build with CMUX_TUI_TERMINAL_HOST_MODEL=hosts (a
 #     cmux-tui-host per terminal), then the product default (also hosts while the holder is off by default).
 #   infinite-items-linux.sh ... --terminal-host-model=holder: measures the one holder (the harness ignores the caller's env).
+#   infinite-items-linux.sh live=1 ...: first runs the same build with idle hibernation off (ACPMUX_IDLE_CHILD_SECS=0, so
+#     every chat keeps its agent) and no simulated day (LIVE lines): what an item costs live, beside what it costs
+#     hibernated, from one build on one runner in one job. live_counts=50,200 gives the live pass its own counts
+#     (each live chat holds an agent host and an agent, so 1,000 of them need tens of GB).
+#   infinite-items-linux.sh freed=1 ...: last, runs the same build with every tab parked after the open and each day
+#     (--park-idle, FREED lines): what an item costs once the app's freeing tier (workspaces.freeing, a day idle) took it.
 #   infinite-items-linux.sh musl=1 ...: builds the shipped musl flavor (cargo-zigbuild, x86_64-unknown-linux-musl) and
 #     measures those binaries (not with before=ref:, which builds REF for the host).
 # Builds release acpmux and cmux-tui (cmux-tui/), then prints INFINITE and PERF_ROW lines.
@@ -24,6 +30,10 @@ build_only=0
 before=""
 musl=0
 repeat=1
+live=0
+live_counts=""
+freed=0
+cap_ab=""
 extra=()
 for arg in "$@"; do
   case "$arg" in
@@ -34,6 +44,10 @@ for arg in "$@"; do
     before=*) before="${arg#before=}" ;;
     musl=*) musl="${arg#musl=}" ;;
     repeat=*) repeat="${arg#repeat=}" ;;
+    live=*) live="${arg#live=}" ;;
+    live_counts=*) live_counts="${arg#live_counts=}" ;;
+    freed=*) freed="${arg#freed=}" ;;
+    cap_ab=*) cap_ab="${arg#cap_ab=}" ;;
     page_counts=*) page_counts="${arg#page_counts=}" ;;
     --*) extra+=("$arg") ;;
     *) echo "infinite-items-linux.sh: unknown argument $arg" >&2; exit 2 ;;
@@ -94,6 +108,12 @@ else
 fi
 status=0
 ulimit -n 65536 2>/dev/null || ulimit -n "$(ulimit -Hn)" || true
+if [[ "$live" == 1 ]]; then
+  echo "INFINITE-LIVE counts=${live_counts:-$counts} head=$(git rev-parse HEAD) mem_gb=$(awk '/MemTotal/ {printf "%.0f", $2 / 1048576}' /proc/meminfo)"
+  python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
+    --counts "${live_counts:-$counts}" --days 0 --idle-child-secs=0 ${extra[@]+"${extra[@]}"} 2>&1 \
+    | sed -u 's/^/LIVE /' || status=$?
+fi
 if [[ "$before" == own-exe ]]; then
   own_dir="$(mktemp -d)"
   cp "$bin/cmux-tui" "$own_dir/cmux-tui"
@@ -122,7 +142,21 @@ elif [[ "$before" == ref:* ]]; then
   # --depth only in a checkout that is already shallow: a depth fetch in a full clone makes it shallow.
   depth=()
   [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
-  git rev-parse --verify -q "$ref^{commit}" >/dev/null || git fetch -q ${depth[@]+"${depth[@]}"} origin "$ref"
+  if ! git rev-parse --verify -q "$ref^{commit}" >/dev/null; then
+    if [[ "$ref" =~ ^[0-9a-f]{4,39}$ ]]; then
+      # GitHub fetches a commit only by its full SHA: an abbreviated one is looked up in the base branches'
+      # recent history instead (the usual before=ref: is the merge base).
+      git fetch -q ${depth[@]+"${depth[@]/--depth=1/--depth=500}"} origin feat-cmux-next main
+      git rev-parse --verify -q "$ref^{commit}" >/dev/null || {
+        echo "infinite-items-linux.sh: $ref is in neither feat-cmux-next's nor main's last 500 commits; give the full SHA" >&2
+        exit 2
+      }
+    else
+      # A fleet step's source has no origin: the helper falls back to the public repository.
+      source "$root/scripts/measure/fetch-commit.sh"
+      measure_fetch_commit "$root" "$ref" || exit 2
+    fi
+  fi
   base_sha="$(git rev-parse --verify -q "$ref^{commit}" || git rev-parse FETCH_HEAD)"
   if [ "$(git rev-parse "$base_sha:ghostty-next")" != "$(git rev-parse HEAD:ghostty-next)" ]; then
     echo "infinite-items-linux.sh: $base_sha pins another ghostty-next; before=ref: needs the same pin" >&2
@@ -153,8 +187,25 @@ elif [ -n "$before" ]; then
   echo "infinite-items-linux.sh: unknown before=$before (own-exe, hosts, ref:REF)" >&2
   exit 2
 fi
+# cap_ab=N: ACPMUX_RESIDENT_CAP off against N, REPEAT times each, interleaved (off, N, off, N, ...) on this
+# runner with this build; each INFINITE line carries its arm and repeat (CAPAB arm=off|capN rI).
+if [[ -n "$cap_ab" ]]; then
+  for r in $(seq 1 "$repeat"); do
+    for arm in off "cap$cap_ab"; do
+      flag=(); [[ "$arm" == off ]] || flag=(--resident-cap "$cap_ab")
+      python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
+        --counts "$counts" --days "$days" ${flag[@]+"${flag[@]}"} ${extra[@]+"${extra[@]}"} 2>&1 \
+        | sed -u "s/^/CAPAB arm=$arm r$r /" || status=$?
+    done
+  done
+  exit "$status"
+fi
 python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
   --counts "$counts" --days "$days" --out "$out/infinite-items.json" ${extra[@]+"${extra[@]}"} || status=$?
+if [[ "$freed" == 1 ]]; then
+  python3 scripts/measure/infinite-items.py --acpmux "$bin/acpmux" --tui "$bin/cmux-tui" \
+    --counts "$counts" --days "$days" --park-idle ${extra[@]+"${extra[@]}"} 2>&1 | sed -u 's/^/FREED /' || status=$?
+fi
 if [[ "$pages" == 1 ]]; then
   cd "$root/webviews"
   if command -v bun >/dev/null; then

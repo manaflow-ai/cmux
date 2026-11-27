@@ -113,9 +113,10 @@ describe("Move to terminal (header/terminalMoveRow.ts)", () => {
   });
 
   test("the chat menu draws the row, guarded, and releases with a conditional stop that keeps the chat", () => {
-    const app = readFileSync(join(import.meta.dir, "../App.tsx"), "utf8");
-    const start = app.indexOf("const chatMenu = (): ChatMenuItem[] =>");
-    const chatMenu = app.slice(start, app.indexOf("\n  };\n", start));
+    // AcpmuxPane's chatMenu builds its rows in pane/chatMenu.ts.
+    const menu = readFileSync(join(import.meta.dir, "../pane/chatMenu.ts"), "utf8");
+    const start = menu.indexOf("export function chatMenuItems(");
+    const chatMenu = menu.slice(start, menu.indexOf("\n}\n", start));
     expect(chatMenu).toContain("const terminalMove = guarded(");
     expect(chatMenu).toContain('callNative("chats.openInTerminal", { key: chat })');
     expect(chatMenu).toContain("...terminalMove");

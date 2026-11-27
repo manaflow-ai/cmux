@@ -161,7 +161,7 @@ test("each answer shows its letter on the card, and lists it in aria-keyshortcut
   const button = (className: string) =>
     host.querySelector<HTMLButtonElement>(`.acpmux-permission-buttons ${className}`)!;
   const keycaps = (element: Element) =>
-    [...element.querySelectorAll(".acpmux-keycap")].map((keycap) => keycap.textContent);
+    [...element.querySelectorAll(".ui-key-hint")].map((keycap) => keycap.textContent);
   expect(keycaps(button(".acpmux-permission-primary"))[0]).toBe("Y");
   expect(keycaps(button(".acpmux-permission-deny"))[0]).toBe("N");
   const always = [...host.querySelectorAll(".acpmux-permission-buttons button")].find(
@@ -229,7 +229,7 @@ test("Needs you: the letters show on the answers and a text field keeps them", a
     ask: async () => "",
   };
   await act(async () => root.render(<NeedsYouPanel items={[approval("only", 1)]} actions={actions} />));
-  const caps = [...host.querySelectorAll(".acpmux-needs-you-answer .acpmux-keycap")].map((node) => node.textContent);
+  const caps = [...host.querySelectorAll(".acpmux-needs-you-answer .ui-key-hint")].map((node) => node.textContent);
   expect(caps).toEqual(["Y", "N"]);
   // Ask about this opens a field in the row: typing there answers nothing.
   await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-needs-you-ask-about")!.click());

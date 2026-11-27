@@ -4,6 +4,8 @@
 /// `home.chiefDock.*` in cmux.json: the Chief panel (user 2026-11-06). The Chief chat floats over the workspace a
 /// window shows, or docks to an edge as a Chief-only pane once the person docks it; never over Home.
 ///
+/// - `home.chiefDock.sidePanel`: Chief in Side Panel: every window keeps the Chief docked at the edge below, beside the
+///   workspace it shows (never over Home); off when unset, so the Chief floats only on Show/Hide Chief (Cmd-I).
 /// - `home.chiefDock.edge`: the edge the Chief docks to (its panel's Dock button): `left` (the default), `right`,
 ///   `top` or `bottom`.
 /// - `home.chiefPanel.style`: how the floating Chief looks: `composeBar` (the default: only the message box, which

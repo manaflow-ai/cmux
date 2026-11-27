@@ -74,7 +74,7 @@ export type BedrockInvokeBody = {
  * Everything else Claude Code sends (`metadata`, `thinking.display`, tools,
  * cache_control) is accepted by Bedrock, verified live 2026-09-02.
  */
-const BEDROCK_REJECTED_TOP_LEVEL_FIELDS = ["context_management"] as const;
+const BEDROCK_REJECTED_TOP_LEVEL_FIELDS = ["context_management", "thread"] as const;
 
 /** Removes `model` and `stream`, drops fields Bedrock rejects, pins `anthropic_version`. */
 export function bedrockInvokeBody(value: Record<string, unknown>): BedrockInvokeBody {

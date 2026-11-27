@@ -61,6 +61,19 @@ pub trait VideoEncoder: Send {
     fn set_bitrate(&mut self, kbps: u32);
     fn kbps(&self) -> u32;
     fn name(&self) -> String;
+    /// Supplies tokens the receiver has confirmed as fully received.
+    fn set_acknowledged_ltr_tokens(&mut self, _tokens: &[u64]) {}
+    /// Requests a long-term-reference refresh on the next encode.
+    fn set_force_ltr_refresh(&mut self, _refresh: bool) {}
+    /// Token emitted for the most recent long-term-reference frame.
+    fn ltr_token(&self) -> Option<u64> {
+        None
+    }
+    /// Whether every stream it makes is Constrained Baseline whatever profile it was asked for
+    /// (OpenH264 has no other), so a `h264.baseline` viewer can take it as it is.
+    fn constrained_baseline(&self) -> bool {
+        false
+    }
     /// The codec of the access units [`VideoEncoder::encode`] emits.
     fn codec(&self) -> Codec {
         Codec::H264
@@ -87,6 +100,11 @@ pub trait VideoDecoder {
     fn decode(&mut self, au: &[u8], out: &mut I420) -> Res<bool>;
     fn codec(&self) -> Codec;
     fn name(&self) -> String;
+    /// How the pictures `decode` returns convert to RGB: what the stream's tag says
+    /// (H.264: the last SPS's VUI), else what the hosts send.
+    fn color(&self) -> crate::color::Yuv {
+        crate::color::Yuv::SCREEN
+    }
 }
 
 /// Annex-B NAL units of `au` (start codes 00 00 01 or 00 00 00 01).

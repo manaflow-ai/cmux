@@ -25,4 +25,32 @@ pub static ACTIONS: &[Action] = &[
         waits_for_person: true,
         ..Action::DEFAULT
     },
+    Action {
+        id: "cloud.computerControl",
+        group: GROUP,
+        title: t("CloudSessionActions", "action.cloud.computerControl", "Chief Computer Control…"),
+        description: Some("Who drives the Chief's computer on a Cloud machine (--machine <id>, the bare id): action status, request_human (with --reason: what the person should do), hand_back (ends your own ask) or take_over (the person only). Returns machine, holder (chief or human), since_ms and reason. While holder is human, send the computer no input."),
+        keywords: &["vm", "cloud", "chief", "computer", "desktop", "control", "take over", "hand back", "human"],
+        category: "cloud",
+        symbol: "hand.raised.square",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::COMPUTER_CONTROL_MACHINE, args::COMPUTER_CONTROL_ACTION, args::COMPUTER_CONTROL_REASON],
+        cli_name: "cloud computer-control",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
+    Action {
+        id: "cloud.chiefComputer",
+        group: GROUP,
+        title: t("CloudSessionActions", "action.cloud.chiefComputer", "Use Chief’s Own Computer…"),
+        description: Some("A Chief of this Mac uses its own Cloud computer (Set Up Computer in its profile; engine.json computer chief:<id>): --chief <id>, --op screenshot, windows, click, move, drag, scroll, type, key, open, control, request_human, hand_back or start, --args a JSON object of the op's fields (x, y, to_x, to_y, button, count, text, keys, direction, amount, url, reason, shot). Returns done, image (base64 PNG or JPEG), windows, screen and control; refused with computer.human_has_control while the person holds it."),
+        keywords: &["cloud", "chief", "computer", "desktop", "screenshot", "click", "type"],
+        category: "cloud",
+        symbol: "desktopcomputer",
+        surface_plan: SurfacePlan { cli: Some(Decision::Offered), context_menu_exemption: Some("pointerMenuTrim"), ..SurfacePlan::DEFAULT },
+        arguments: &[args::CHIEF_COMPUTER_CHIEF, args::CHIEF_COMPUTER_OP, args::CHIEF_COMPUTER_ARGS],
+        cli_name: "cloud chief-computer",
+        waits_for_result: true,
+        ..Action::DEFAULT
+    },
 ];

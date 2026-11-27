@@ -140,15 +140,10 @@ impl Surface {
                 }
             };
             drop(term);
-            if let Some((offset, at_bottom)) = scroll_changed
+            if scroll_changed.is_some()
                 && let Some(mux) = pty.mux.upgrade()
             {
-                pty.frame_requests.publish_scroll_now(
-                    &mux,
-                    pty.event_surface_id,
-                    offset,
-                    at_bottom,
-                );
+                pty.frame_requests.flush_scroll(&mux, pty.event_surface_id);
             }
             // What the person cleared never comes back: the journal records
             // the clear, and a holder gets the cleared screen as the

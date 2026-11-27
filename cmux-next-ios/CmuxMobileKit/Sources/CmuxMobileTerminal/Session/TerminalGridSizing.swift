@@ -60,8 +60,21 @@ public struct TerminalGridSizing: Equatable, Sendable {
     /// header while the grid fits, while the lift already shows the grid's
     /// top (the cursor is near it), or when the cursor is in the header rows
     /// (the grid's top is shown as it is).
-    public func keyboardPlacement(gridRows: Int, visibleHeight: CGFloat, cursorRow: Int?) -> KeyboardPlacement {
+    ///
+    /// `areaRows`: the area's rows (the host, bottom-pinned to the stack) when
+    /// the grid is shorter and sits at its top (a Mac grid smaller than the
+    /// page). The empty rows under the grid are lifted out first, so the grid
+    /// keeps its place under the toolbar and only what is still clipped moves.
+    public func keyboardPlacement(gridRows: Int, visibleHeight: CGFloat, cursorRow: Int?,
+                                  areaRows: Int? = nil) -> KeyboardPlacement {
         guard cellHeight > 0, gridRows > 0 else { return KeyboardPlacement(lift: 0, headerRows: 0) }
+        if let areaRows, areaRows > gridRows {
+            let blank = max(0, min(CGFloat(areaRows) * cellHeight - max(0, visibleHeight),
+                                   CGFloat(areaRows - gridRows) * cellHeight))
+            var placement = keyboardPlacement(gridRows: gridRows, visibleHeight: visibleHeight, cursorRow: cursorRow)
+            placement.lift += blank
+            return placement
+        }
         let clipped = CGFloat(gridRows) * cellHeight - max(0, visibleHeight)
         guard clipped > 0.5 else { return KeyboardPlacement(lift: 0, headerRows: 0) }
         let header = max(0, min(headerRows, Int(floor(max(0, visibleHeight) / cellHeight)) / 3))

@@ -10,7 +10,7 @@ import Testing
 // seeded faults, on virtual time (TickHarness.swift). Each prints one MATRIX
 // line with the virtual time covered and the wall time spent.
 //
-// Leo, 2026-11-10: "[forget] soaks we just slam shit and artificially tick
+// Leo, 2026-11-10: "[forget] soaks we just slam s*** and artificially tick
 // stuff into oblivion" (connectivity, CPU, RAM, disk).
 
 private let studio = LinkMachine.Target(macID: "m1", name: "Studio", isOnline: true)
@@ -91,8 +91,9 @@ private func runReconnects(drops target: Int, seed: UInt64) -> ReconnectRun {
                 run.worst = max(run.worst, took)
                 run.worstOverBound = max(run.worstOverBound, took - (base + slack))
                 backAt = nil
-                // Backoff: an outage of T seconds costs at most T/15 + 10 dials.
-                if Double(dialsThisOutage) > outage.tickSeconds / 15 + 10 { run.excessDials += 1 }
+                // Backoff: an outage of T seconds costs at most T/15 + 25 dials (the first
+                // ~75 s retry every 5 s or sooner, about 20 dials; then 10, 15, 30 s).
+                if Double(dialsThisOutage) > outage.tickSeconds / 15 + 25 { run.excessDials += 1 }
                 if run.drops < target {
                     clock.schedule(.networkDown, after: random.logDuration(Duration.seconds(1)...(.seconds(600))))
                 }
@@ -127,7 +128,7 @@ private func runReconnects(drops target: Int, seed: UInt64) -> ReconnectRun {
                 }
             case .scheduleRetry(let gen, let after):
                 clock.schedule(.machine(.retryDue(generation: gen)), after: after)
-            case .close, .probe, .quickProbe:
+            case .close, .probe, .quickProbe, .keepStandby, .promoteStandby, .closeStandby, .park, .resumeParked:
                 break
             }
         }

@@ -57,6 +57,7 @@ exports:
                        '_kSecCodeInfoTeamIdentifier',
                        '_kSecCodeInfoUnique',
                        '_kSecGuestAttributeAudit',
+                       '_kSecGuestAttributePid',
                        '_kSecImportExportPassphrase',
                        '_kSecKeyAlgorithmECDSASignatureDigestX962SHA256',
                        '_kSecKeyAlgorithmECDSASignatureDigestX962SHA384',

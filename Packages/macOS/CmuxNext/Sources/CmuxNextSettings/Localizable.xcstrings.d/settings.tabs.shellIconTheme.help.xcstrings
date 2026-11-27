@@ -1,0 +1,137 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "settings.tabs.shellIconTheme.help" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Machines shows each shell tab with the icon of the machine it runs on."
+          }
+        },
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "يعرض خيار الأجهزة كل علامة تبويب طرفية بأيقونة الجهاز الذي تعمل عليه."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Mašine prikazuju svaku karticu ljuske s ikonom mašine na kojoj radi."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Maskiner viser hver skalfane med ikonet for den maskine, den kører på."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "„Maschinen“ zeigt jeden Shell-Tab mit dem Symbol der Maschine, auf der er läuft."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Máquinas muestra cada pestaña de shell con el icono de la máquina en la que se ejecuta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Machines affiche chaque onglet shell avec l’icône de la machine sur laquelle il s’exécute."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Macchine mostra ogni scheda shell con l’icona della macchina su cui viene eseguita."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「マシン」では、各シェルタブに実行中のマシンのアイコンを表示します。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ម៉ាស៊ីន បង្ហាញផ្ទាំង Shell នីមួយៗជាមួយរូបតំណាងនៃម៉ាស៊ីនដែលវាដំណើរការលើ។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "머신을 선택하면 각 셸 탭에 실행 중인 머신의 아이콘이 표시됩니다."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Maskiner viser hver skallfane med ikonet til maskinen den kjører på."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Maszyny pokazują każdą kartę powłoki z ikoną maszyny, na której działa."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Máquinas mostra cada aba de shell com o ícone da máquina em que ela roda."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Машины» показывает у каждой вкладки оболочки значок машины, на которой она работает."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "เครื่อง จะแสดงแต่ละแท็บเชลล์ด้วยไอคอนของเครื่องที่แท็บนั้นทำงานอยู่"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Makineler, her kabuk sekmesini çalıştığı makinenin simgesiyle gösterir."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "«Машини» показує в кожній вкладці оболонки значок машини, на якій вона працює."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Máy hiển thị mỗi tab shell kèm biểu tượng của máy mà nó đang chạy."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "“机器”会为每个 Shell 标签页显示其运行所在机器的图标。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "「機器」會為每個 Shell 分頁顯示其執行所在機器的圖示。"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

@@ -73,6 +73,44 @@ import Testing
         #expect(seen.last == .hostGridOwner("Other iPhone"))
     }
 
+    /// Leo, 2026-11-15, on his phone: "39x26 set by another device thing? ...
+    /// its not accurtae". Under Fit the Smallest Viewer a narrow Mac pane set
+    /// the columns and the phone the rows; the phone owning one dimension made
+    /// the note say "another device" instead of naming the Mac.
+    @Test func aGridThePhoneSharesNamesTheOtherOwner() {
+        let session = DaemonTerminalSession(surface: 7, clientInfo: ["device_kind": "iphone", "device_id": "me"]) {
+            throw LinkError(code: "unused", message: "")
+        }
+        var seen: [TerminalSessionEvent] = []
+        session.start { seen.append($0) }
+        func state(_ generation: Int, owners: [String], participants: [[String: Any]]) -> Data {
+            FakeTerminalDaemon.line(["event": "size-state", "surface": 7, "self_participant": "p1", "state": [
+                "generation": generation, "cols": 39, "rows": 26, "reason": "smallest", "owners": owners,
+                "policy": ["mode": "smallest", "priority": [], "fixed": NSNull()],
+                "participants": participants,
+            ] as [String: Any]])
+        }
+        let phone: [String: Any] = ["id": "p1", "device_kind": "iphone", "device_name": "Leo's iPhone",
+                                    "device_id": "me", "viewport": ["cols": 54, "rows": 26], "counts": true]
+        let mac: [String: Any] = ["id": "m1", "device_kind": "mac", "device_name": "Leo's MacBook Pro",
+                                  "viewport": ["cols": 39, "rows": 40], "counts": true]
+        session.handle(state(1, owners: ["p1", "m1"], participants: [phone, mac]))
+        #expect(seen.last == .hostGridOwner("Leo's MacBook Pro"), "the phone sets the rows, the Mac pane the columns")
+        // An unnamed Mac view is named by its kind, not "another device".
+        var unnamed = mac
+        unnamed["device_name"] = nil
+        session.handle(state(2, owners: ["p1", "m1"], participants: [phone, unnamed]))
+        #expect(seen.last == .hostGridOwner("a Mac"))
+        // Another view of this same phone is this iPhone.
+        var twin = phone
+        twin["id"] = "p2"
+        session.handle(state(3, owners: ["p2"], participants: [phone, twin]))
+        #expect(seen.last == .hostGridOwner("this iPhone"))
+        // The phone alone owns it: no other device to name.
+        session.handle(state(4, owners: ["p1"], participants: [phone, mac]))
+        #expect(seen.last == .hostGridOwner(nil))
+    }
+
     @Test func thePhoneSaysItRendersTheMacsGrid() async throws {
         let daemon = FakeTerminalDaemon()
         let link = MockMacLink { service, line in daemon.respond(service, line) }

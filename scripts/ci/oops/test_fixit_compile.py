@@ -177,5 +177,44 @@ class CargoEndToEnd(unittest.TestCase):
         self.assertIn("not every one", got.stdout)
 
 
+class TscHelperFailures(unittest.TestCase):
+    """A type check's verdict is its own: a tsc-fixits helper that prints no plan, or a crash in planning, keeps the
+    check's exit status and adds no traceback (a webviews fast-gate check compares that output with the base's)."""
+
+    def run_tsc(self, runner_body):
+        root = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, root)
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        runner = root / "runner.sh"
+        runner.write_text("#!/bin/sh\n" + runner_body)
+        runner.chmod(0o755)
+        check = root / "check.sh"
+        check.write_text("#!/bin/sh\necho \"src/a.ts(3,5): error TS2307: Cannot find module './x.json'.\"\nexit 2\n")
+        check.chmod(0o755)
+        env = {**os.environ, "FIXIT_COMPILE_TS_RUNNER": str(runner), "GITHUB_STEP_SUMMARY": ""}
+        return subprocess.run([sys.executable, "-I", str(HERE / "fixit_compile.py"), "run", "--kind", "tsc", "--out",
+                               str(root / "out"), "--", str(check)], cwd=root, capture_output=True, text=True, env=env)
+
+    def test_a_helper_that_prints_no_plan_leaves_the_red_as_it_is(self):
+        got = self.run_tsc("cat >/dev/null\nexit 0\n")
+        self.assertEqual(got.returncode, 2, got.stdout + got.stderr)
+        self.assertNotIn("Traceback", got.stdout + got.stderr)
+        self.assertIn("printed no JSON plan", got.stdout)
+
+    def test_a_crash_while_planning_keeps_the_checks_status(self):
+        original = fc.tsc_plan
+        self.addCleanup(setattr, fc, "tsc_plan", original)
+        fc.tsc_plan = lambda *a: (_ for _ in ()).throw(RuntimeError("boom"))
+        root = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, root)
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        cwd = os.getcwd()
+        self.addCleanup(os.chdir, cwd)
+        os.chdir(root)
+        status = fc.main(["run", "--kind", "tsc", "--out", str(root / "out"), "--", "sh", "-c",
+                          "echo \"src/a.ts(3,5): error TS2307: no.\"; exit 3"])
+        self.assertEqual(status, 3)
+
+
 if __name__ == "__main__":
     unittest.main()

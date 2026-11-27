@@ -1,0 +1,138 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "error.noFolderChanges" : {
+      "comment" : "Agent pane",
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ليس لهذه المحادثة مجلد عمل لقراءة التغييرات منه"
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ovaj chat nema radni folder iz kojeg bi se čitale promjene"
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne chat har ingen arbejdsmappe at læse ændringer fra"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Dieser Chat hat keinen Arbeitsordner, aus dem Änderungen gelesen werden können"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This chat has no working folder to read changes from"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este chat no tiene carpeta de trabajo de la que leer cambios"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cette discussion n’a pas de dossier de travail dont lire les modifications"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Questa chat non ha una cartella di lavoro da cui leggere le modifiche"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "このチャットには変更を読み取る作業フォルダがありません"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "ការជជែកនេះមិនមានថតការងារសម្រាប់អានការផ្លាស់ប្តូរទេ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "이 채팅에는 변경 사항을 읽을 작업 폴더가 없습니다"
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Denne chatten har ingen arbeidsmappe å lese endringer fra"
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Ten czat nie ma folderu roboczego, z którego można odczytać zmiany"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Este chat não tem pasta de trabalho da qual ler alterações"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "У этого чата нет рабочей папки, из которой можно прочитать изменения"
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "แชทนี้ไม่มีโฟลเดอร์ทำงานให้อ่านการเปลี่ยนแปลง"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Bu sohbetin değişikliklerin okunacağı bir çalışma klasörü yok"
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "У цього чату немає робочої папки, з якої можна прочитати зміни"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "Cuộc trò chuyện này không có thư mục làm việc để đọc thay đổi"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此对话没有可供读取更改的工作文件夹"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "needs_review",
+            "value" : "此對話沒有可供讀取變更的工作檔案夾"
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

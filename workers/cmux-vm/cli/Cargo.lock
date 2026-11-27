@@ -234,12 +234,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-lifeline"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "cmux-vm"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "clap",
  "cmux-cloud-config",
+ "cmux-lifeline",
  "cmux-vm-client",
  "futures",
  "nix",

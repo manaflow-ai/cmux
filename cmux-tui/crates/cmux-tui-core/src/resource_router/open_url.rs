@@ -257,6 +257,26 @@ pub(crate) fn right_pane_beside_focused_dock(
     mux: &Mux,
     selectors: &ResourceSelectors,
 ) -> Option<PanePublicId> {
+    let side = workspace_side(mux, selectors)?;
+    let dock_focused = side.dock.is_some() && side.dock == side.focused;
+    dock_focused.then(|| side.ranked.first().map(|pane| pane.id.clone())).flatten()
+}
+
+/// The sides of the screen a request shows that names a workspace and
+/// nothing below it, with an agent chat that is not docked on the chat side
+/// ([`beside_agent_chats`]). `None` for a request that names no workspace or
+/// names a screen, a pane or a tab: its place is the caller's choice.
+fn workspace_side(mux: &Mux, selectors: &ResourceSelectors) -> Option<RightSide> {
+    if !names_only_workspace(selectors) {
+        return None;
+    }
+    let workspace =
+        mux.resolve_resource_path(ResourceTarget::Workspace, selectors).ok()?.workspace?;
+    Some(beside_agent_chats(mux, mux.with_state(|state| right_side(state, &workspace))?))
+}
+
+/// Whether `selectors` name a workspace and nothing below it.
+pub(super) fn names_only_workspace(selectors: &ResourceSelectors) -> bool {
     let below = [
         &selectors.screen,
         &selectors.pane,
@@ -265,14 +285,31 @@ pub(crate) fn right_pane_beside_focused_dock(
         &selectors.browser,
         &selectors.frontend_projection,
     ];
-    if selectors.workspace.is_none() || below.iter().any(|selector| selector.is_some()) {
+    selectors.workspace.is_some() && below.iter().all(|selector| selector.is_none())
+}
+
+/// The agent chat that is not docked on the screen a workspace-only request
+/// shows (`selectors` name the workspace and nothing below it).
+pub(super) struct UndockedChat {
+    /// The chat's pane: the focused one when the screen holds two chats.
+    pub(super) pane: PanePublicId,
+    /// The chat has the focus and the screen holds nothing but chats, so a
+    /// tab made in the workspace has no pane to go to but the chat's own
+    /// ([`right_pane_beside_focused_dock`] finds none).
+    pub(super) alone: bool,
+}
+
+/// [`UndockedChat`] of the request's workspace. `None` on a screen with a
+/// dock or with no agent chat that runs a session, and for a request that
+/// names more than the workspace.
+pub(super) fn undocked_chat(mux: &Mux, selectors: &ResourceSelectors) -> Option<UndockedChat> {
+    let side = workspace_side(mux, selectors)?;
+    if !side.undocked_chat {
         return None;
     }
-    let workspace =
-        mux.resolve_resource_path(ResourceTarget::Workspace, selectors).ok()?.workspace?;
-    let side = beside_agent_chats(mux, mux.with_state(|state| right_side(state, &workspace))?);
-    let dock_focused = side.dock.is_some() && side.dock == side.focused;
-    dock_focused.then(|| side.ranked.first().map(|pane| pane.id.clone())).flatten()
+    let pane = side.dock?;
+    let alone = side.ranked.is_empty() && side.focused.as_ref() == Some(&pane);
+    Some(UndockedChat { pane, alone })
 }
 
 /// `side` of a screen with no dock, with an agent chat that is not docked on
