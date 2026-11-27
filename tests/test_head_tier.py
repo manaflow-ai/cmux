@@ -953,8 +953,12 @@ RERUN_ONLY_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "repair")}
 # (advisory-only PR runs off), so no head of theirs is gated.
 NEVER_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "push")}
 # Runs on every head: deletes the pull request's preview when it closes; ios-placeholder-bounds (seconds of Python)
-# records a pass on every pull request so land-judge's required list can name it.
+# records a pass on every pull request so land-judge's required list can name it; rust-notices-tree generates the
+# notices as the nightly does when a dependency or the notices tooling changes (skipped on cmux#59540, an unmatched
+# license merged and broke the nightly), and ends after a sparse checkout otherwise;
+# app-store-shelf-pr checks the App Store shelf on every pull request.
 KEEP_ON_EVERY_HEAD = {("backend.yml", "preview-cleanup"), ("cmux-next-guards.yml", "ios-placeholder-bounds"),
+                      ("cmux-next-guards.yml", "rust-notices-tree"),
                       ("cmux-next-guards.yml", "app-store-shelf-pr")}
 # The full-ci base merge carry job (head_tier.full_carry): runs only on the full-ci or ready-to-land label event the
 # land tier itself runs on, before that tier's jobs, so it carries the label condition instead of the land condition. It runs only

@@ -185,12 +185,16 @@
       "was skipped on them: #49946 (test_web_validation), #48644, #51100, #50061 (tests/test_cmux_next_fast_gates.py),",
       "#51339 (swift-test-targets.json), #42999 (test_ios_sim_create), #51672 (test_ios_chief_benchmark_route), #48300",
       "(rust-daemon-miss-builds fixture), #51590 (scripts/measure tests). Since 2026-11-19 its setup-tooling-route step",
-      "(scripts/ci/tooling_steps.py) runs on a pull request only the steps its changed files can fail."
+      "(scripts/ci/tooling_steps.py) runs on a pull request only the steps its changed files can fail.",
+      "cmux-next-guards.yml rust-notices-tree is not listed (2026-11-27). It was Tier A (47 runs on 52 merged pull",
+      "requests, 0 with a red, 0 of them the pull request's own; 79 job-minutes), but it is the pull request copy of the",
+      "nightly's \"Generate third-party notices (cmux-next)\": skipped on cmux#59540, a dependency whose license",
+      "license_match.py had no text for (jpeg-encoder, IJG) merged green and broke the nightly for about 3 hours. It now",
+      "runs on every pull request head and ends after a sparse checkout unless a notice input changed."
     ],
     "workflows": {
       ".github/workflows/cmux-next-guards.yml": {
         "static-checks": "45 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 95 job-minutes",
-        "rust-notices-tree": "47 runs on 52 merged pull requests, 0 with a red, 0 of them the pull request's own; 79 job-minutes",
         "ci-guard-group": "33 runs on 52 merged pull requests, 12 with a red, 1 of them the pull request's own (#46253): Tier B, fixed forward on the push; 814 job-minutes",
         "fast-check-route": "80 runs on 40 merged pull requests (11-25 timing feed), 11 red and 3 cancelled, 0 of them read by a job: it feeds only ci-guard-group and own-change-checks, both skipped on a pull request into feat-cmux-next without full-ci, so it skips with them; 1,115 runs in 5.1 h of 11-25 (timing feed 19:00Z..00:08Z, about 1,974 runner-min), each a runner start that decided nothing a job read",
         "own-change-checks": "46 runs on 52 merged pull requests, 1 with a red, 1 of them the pull request's own (#46652): Tier B, fixed forward on the push; 253 job-minutes; the miss is #46652: 28 untranslated strings it added",
