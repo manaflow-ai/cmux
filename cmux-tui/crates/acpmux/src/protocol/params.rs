@@ -100,6 +100,7 @@ pub const ACPMUX_REQUEST_META: &[&str] = &[
     "decisionNonce",
     "disallowedTools",
     "dispatchSource",
+    "draft",
     "effort",
     "env",
     "ephemeral",

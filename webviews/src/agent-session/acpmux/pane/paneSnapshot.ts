@@ -2373,9 +2373,10 @@ export function paneSnapshotEffect({
         "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
         // A draft's unsent images, kept in acpmux too so they move with the chat (RFD 0138).
         "chat.draftImages.get": ({ sessionId }) => client.readDraftImages(String(sessionId)),
-        "chat.draftImages.set": ({ sessionId, attachments }) =>
+        "chat.draftImages.set": ({ sessionId, draftId, attachments }) =>
           client.writeDraftImages(
             String(sessionId),
+            String(draftId ?? ""),
             Array.isArray(attachments) ? (attachments as ComposerAttachment[]) : [],
           ),
         "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),

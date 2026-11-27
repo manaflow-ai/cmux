@@ -212,8 +212,8 @@ import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { toolMentionContext, toolMentionsIn } from "./toolMentions";
 import { sentWords } from "./computerUse/computerUseState";
 import { promptContext } from "./composer/videoTranscript";
-import { pageSurface, promptSurfaceMeta } from "./surfaces/promptSurface";
-import { readCarriedImages, writeCarriedImages } from "./composer/carriedDraftImages";
+import { promptSurfaceMeta } from "./surfaces/promptSurface";
+import { readCarriedImages, sentDraft, writeCarriedImages } from "./composer/carriedDraftImages";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, fullAccessTicket, rememberFullAccess, startModeChanged } from "./startMode";
 import { harnessModeName, highestMode } from "./harnessModes";
@@ -5999,14 +5999,14 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/draft_set", { sessionId, text });
   }
 
-  /// Keeps the chat's unsent composer images in acpmux under this page's surface, so they travel
-  /// with the chat when it moves (RFD 0138; composer/carriedDraftImages.ts).
-  writeDraftImages(sessionId: string, attachments: ComposerAttachment[]): Promise<void> {
-    return writeCarriedImages((method, params) => this.request(method, params), sessionId, pageSurface(), attachments);
+  /// Keeps the chat's unsent composer images in acpmux in its draft `draftId`, so they travel with
+  /// the chat when it moves (RFD 0138; composer/carriedDraftImages.ts).
+  writeDraftImages(sessionId: string, draftId: string, attachments: ComposerAttachment[]): Promise<void> {
+    return writeCarriedImages((method, params) => this.request(method, params), sessionId, draftId, attachments);
   }
 
-  /// The chips of the unsent images the chat's app drafts hold in acpmux (a moved chat's).
-  readDraftImages(sessionId: string): Promise<ComposerAttachment[]> {
+  /// The chat's one app draft in acpmux and its unsent images' chips (a moved or reopened chat's).
+  readDraftImages(sessionId: string): Promise<{ draftId?: string; attachments: ComposerAttachment[] }> {
     return readCarriedImages((method, params) => this.request(method, params), sessionId);
   }
 
@@ -12900,6 +12900,8 @@ export class AcpmuxDirectClient {
       attachments = attachments.map((chip) => linked.get(chip.id) ?? chip);
     }
     const { blocks, inline, fileDisplay, text, pasted } = sentPromptShape(input, carried, options);
+    // Named by the composer's chip ids, as its draft writes keyed them (composer/carriedDraftImages.ts).
+    const draft = sentDraft(sessionId, attachments);
     // The prompt's own id keys its row even once a hand-off turn names it: the bubble drawn ahead
     // of the ask (`asksBeforeSend`) is the row this send draws over, never a second one. The named
     // id finds it through `promptRowKeys`, as acpmux's echo does.
@@ -13135,6 +13137,8 @@ export class AcpmuxDirectClient {
                   ...(context ? { context } : {}),
                   ...(fileDisplay.length ? { inlineParts: fileDisplay } : {}),
                   ...promptSurfaceMeta(),
+                  // The draft images this prompt sends: acpmux drops exactly these once it takes it.
+                  ...(draft ? { draft } : {}),
                 },
                 ...(gesture ? { cmuxGesture: gesture } : {}),
                 // A frame redeeming a gesture ticket carries nothing else in _meta (R1).

@@ -31,19 +31,28 @@ public final class AgentPaneDraftAttachments {
 
     /// The chips chat `sessionId` was left with, contents read back; empty when it holds none.
     public func attachments(for sessionId: String) async -> [AgentPaneWakeState.Attachment] {
-        guard let folder = folder(for: sessionId) else { return [] }
+        await draft(for: sessionId).attachments
+    }
+
+    /// The chips chat `sessionId` was left with and the id of the acpmux draft they are kept under
+    /// (RFD 0138), nil for a list an older build wrote or none kept.
+    public func draft(for sessionId: String) async -> (attachments: [AgentPaneWakeState.Attachment], draftId: String?) {
+        guard let folder = folder(for: sessionId) else { return ([], nil) }
         return await queued(sessionId) { Self.read(folder) }
     }
 
-    /// Keeps `list` (the page's chips, as JSON) as chat `sessionId`'s chips; none forgets them. A
-    /// chip sent without its contents keeps the file it already has. Answers the ids of the chips
-    /// whose contents are kept, so the page knows which it need not send again; nil when `list` is
-    /// not a list of chips. The list is decoded in the chat's queue, off the main actor.
-    public func keep(_ list: JSONValue, for sessionId: String) async -> [String]? {
+    /// Keeps `list` (the page's chips, as JSON) as chat `sessionId`'s chips; none forgets them and
+    /// their draft id. `draftId` names the acpmux draft the page keeps their images under (RFD
+    /// 0138), so every pane of the chat and a reopened one write that one draft; nil keeps the id
+    /// the list has (an older page names none). A chip sent without its contents keeps the file it
+    /// already has. Answers the ids of the chips whose contents are kept, so the page knows which it
+    /// need not send again; nil when `list` is not a list of chips. The list is decoded in the chat's
+    /// queue, off the main actor.
+    public func keep(_ list: JSONValue, draftId: String? = nil, for sessionId: String) async -> [String]? {
         guard let directory, let folder = folder(for: sessionId) else { return [] }
         return await queued(sessionId) { () -> [String]? in
             guard let attachments = Self.decode(list) else { return nil }
-            return Self.write(attachments, to: folder, in: directory)
+            return Self.write(attachments, draftId: draftId, to: folder, in: directory)
         }
     }
 
@@ -91,6 +100,8 @@ public final class AgentPaneDraftAttachments {
         var files: [String: String]?
         /// The file holding each chip's text (a pasted chip's, a text file's), by attachment id.
         var texts: [String: String]?
+        /// The acpmux draft the chips' images are kept under (RFD 0138); nil in an older list.
+        var draftId: String?
     }
 
     private nonisolated static func saved(in folder: URL) -> Saved? {
@@ -99,13 +110,14 @@ public final class AgentPaneDraftAttachments {
         return try? JSONDecoder().decode(Saved.self, from: data)
     }
 
-    private nonisolated static func read(_ folder: URL) -> [AgentPaneWakeState.Attachment] {
-        guard let saved = saved(in: folder) else { return [] }
+    private nonisolated static func read(_ folder: URL) -> (attachments: [AgentPaneWakeState.Attachment], draftId: String?) {
+        guard let saved = saved(in: folder) else { return ([], nil) }
         let bytes = AgentPaneAttachmentFiles.readBack(saved.attachments, files: saved.files ?? [:], in: folder)
-        return AgentPaneAttachmentFiles.readBack(bytes, .text, files: saved.texts ?? [:], in: folder)
+        return (AgentPaneAttachmentFiles.readBack(bytes, .text, files: saved.texts ?? [:], in: folder), saved.draftId)
     }
 
-    private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], to folder: URL, in directory: URL) -> [String] {
+    private nonisolated static func write(_ attachments: [AgentPaneWakeState.Attachment], draftId: String?, to folder: URL,
+                                          in directory: URL) -> [String] {
         let manager = FileManager.default
         let kept = saved(in: folder)
         // A chat whose chips' contents can't be kept (none sent and no file, or a file that can't be
@@ -122,7 +134,8 @@ public final class AgentPaneDraftAttachments {
         do {
             try manager.createDirectory(at: folder, withIntermediateDirectories: true)
             let list = try JSONEncoder().encode(Saved(attachments: texts.attachments, files: bytes.files.isEmpty ? nil : bytes.files,
-                                                      texts: texts.files.isEmpty ? nil : texts.files))
+                                                      texts: texts.files.isEmpty ? nil : texts.files,
+                                                      draftId: draftId ?? kept?.draftId))
             try list.write(to: folder.appending(path: listName), options: .atomic)
         } catch {
             return []

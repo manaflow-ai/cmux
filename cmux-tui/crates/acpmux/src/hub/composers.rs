@@ -35,6 +35,8 @@ const SENT_LEDGER: usize = 64;
 pub const MAX_DRAFT_IMAGES: usize = 32;
 const MAX_IMAGE_NAME_CHARS: usize = 256;
 const MAX_IMAGE_MIME_CHARS: usize = 128;
+/// Longest key a draft image carries: a client's chip id (`carried-` and a SHA-256 is 72).
+pub const MAX_DRAFT_KEY_CHARS: usize = 128;
 
 /// One place a person types into a chat.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,7 +90,9 @@ struct Draft {
     surface: Surface,
     text: String,
     /// Each as a prompt's record names it: `{id, mimeType, name?, width?, height?}`, its bytes
-    /// kept under `attachments/` by the SHA-256 that is its id (`prompt_images.rs`).
+    /// kept under `attachments/` by the SHA-256 that is its id (`prompt_images.rs`), and `key?`:
+    /// the client's name for the chip it shows, so two panes writing one draft (RFD 0138) each
+    /// remove and send only their own, and two chips of equal bytes stay two.
     images: Vec<Value>,
     updated_at: u64,
     /// When it was typed into, among this chat's drafts: orders them, unlike a clock.
@@ -120,6 +124,17 @@ impl Composers {
             .values()
             .flat_map(|d| d.images.iter())
             .find(|image| image_id(image).as_deref() == Some(id))
+    }
+
+    /// Takes the images keyed `keys` out of draft `id` (a prompt sent them); the draft's
+    /// surface when that left it empty, so it is no longer composing.
+    fn take_sent(&mut self, id: &str, keys: &[String]) -> Option<Surface> {
+        let d = self.drafts.get_mut(id)?;
+        d.images.retain(|image| image_key(image).is_none_or(|k| !keys.iter().any(|s| s == k)));
+        if !d.images.is_empty() || !d.text.trim().is_empty() {
+            return None;
+        }
+        self.drafts.remove(id).map(|d| d.surface)
     }
 
     fn sent_by(&self, prompt_id: &str) -> Option<&Surface> {
@@ -227,7 +242,77 @@ fn carried_image(raw: &Value) -> Option<Value> {
             v.set(key, json!(n));
         }
     }
+    if let Some(key) = raw.get("key").and_then(Value::as_str).filter(|k| valid_key(k)) {
+        v.set("key", json!(key));
+    }
     Some(v)
+}
+
+/// Whether `key` may name a draft's chip: one line of 1-[`MAX_DRAFT_KEY_CHARS`] characters, none
+/// hidden, as a surface's fields are checked.
+fn valid_key(key: &str) -> bool {
+    !key.trim().is_empty() && key.chars().count() <= MAX_DRAFT_KEY_CHARS && !key.chars().any(hidden)
+}
+
+/// The key of a draft image's record, when it has one.
+fn image_key(image: &Value) -> Option<&str> {
+    image.get("key").and_then(Value::as_str)
+}
+
+/// The `key` an item of `images` names (optional; missing or null is none).
+fn item_key(item: &Value) -> Result<Option<String>, RpcError> {
+    let Some(raw) = item.get("key").filter(|k| !k.is_null()) else { return Ok(None) };
+    match raw.as_str().filter(|k| valid_key(k)) {
+        Some(key) => Ok(Some(key.to_owned())),
+        None => Err(image_refusal(format!(
+            "an image's key must be one line of 1-{MAX_DRAFT_KEY_CHARS} characters"
+        ))),
+    }
+}
+
+/// A list of draft keys (`composer_set`'s `base`, a prompt's `_meta.acpmux.draft.keys`);
+/// missing or null is None.
+fn keys(raw: Option<&Value>, what: &str) -> Result<Option<Vec<String>>, RpcError> {
+    let Some(raw) = raw.filter(|v| !v.is_null()) else { return Ok(None) };
+    let bad = || image_refusal(format!("{what} must be a list of at most {MAX_DRAFT_IMAGES} keys"));
+    let list = raw.as_array().filter(|l| l.len() <= MAX_DRAFT_IMAGES).ok_or_else(bad)?;
+    list.iter()
+        .map(|k| k.as_str().filter(|k| valid_key(k)).map(str::to_owned).ok_or_else(bad))
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
+}
+
+/// A draft's images after a write that saw `base` (the keys it last read in that draft): another
+/// writer's image, keyed outside `base` and `new`, stays before `new`; one in `base` and not in
+/// `new` was removed by this writer and goes. A keyless image (an older client's) is no one's to
+/// remove by key, so it stays. Without `base` the write is the draft's whole list, as before.
+fn merged(had: &[Value], new: Vec<Value>, base: Option<&[String]>) -> Vec<Value> {
+    let Some(base) = base else { return new };
+    let named = |key: &str| new.iter().any(|n| image_key(n) == Some(key));
+    let mut out: Vec<Value> = had
+        .iter()
+        .filter(|h| image_key(h).is_none_or(|k| !base.iter().any(|b| b == k) && !named(k)))
+        .cloned()
+        .collect();
+    // The writer's own images are kept first when the draft is full.
+    let room = MAX_DRAFT_IMAGES.saturating_sub(new.len());
+    if out.len() > room {
+        out.drain(..out.len() - room);
+    }
+    out.extend(new);
+    out
+}
+
+/// The draft a prompt's images came from (`_meta.acpmux.draft`, `{id, keys}`): the draft's
+/// surface id and the keys of the images the prompt sent, which the hub removes once it takes
+/// the prompt. None when the prompt names none.
+pub fn sent_draft(v: Option<&Value>) -> Result<Option<(String, Vec<String>)>, RpcError> {
+    let Some(v) = v.filter(|v| !v.is_null()) else { return Ok(None) };
+    let bad = || image_refusal("draft must be {id, keys}".into());
+    let id = v.get("id").and_then(Value::as_str).ok_or_else(bad)?;
+    let id = field(&json!({"id": id}), "id", true)?.unwrap_or_default();
+    let keys = keys(v.get("keys"), "draft.keys")?.ok_or_else(bad)?;
+    Ok(Some((id, keys)))
 }
 
 fn image_refusal(message: String) -> RpcError {
@@ -252,10 +337,13 @@ fn draft_images(raw: Option<&Value>, held: &[Value]) -> Result<Vec<Value>, RpcEr
                 return Err(image_refusal("an image block's data must be base64".into()));
             }
             let kept = super::prompt_images::keep_sourced(std::slice::from_ref(item), None);
-            let kept = kept.into_iter().next().ok_or_else(|| {
+            let mut kept = kept.into_iter().next().ok_or_else(|| {
                 RpcError::internal("could not keep the image")
                     .with_data(json!({"reason": "composer.image.unkept"}))
             })?;
+            if let (Some(key), Some(record)) = (item_key(item)?, kept.as_object_mut()) {
+                record.insert("key".into(), json!(key));
+            }
             out.push(kept);
             continue;
         }
@@ -273,7 +361,15 @@ fn draft_images(raw: Option<&Value>, held: &[Value]) -> Result<Vec<Value>, RpcEr
                 ))
                 .with_data(json!({"reason": "composer.image.unknown", "id": id}))
             })?;
-        out.push(known.clone());
+        // The bytes are the held image's; the key is this item's (or none), never another chip's.
+        let mut known = known.clone();
+        if let Some(record) = known.as_object_mut() {
+            record.remove("key");
+            if let Some(key) = item_key(item)? {
+                record.insert("key".into(), json!(key));
+            }
+        }
+        out.push(known);
     }
     Ok(out)
 }
@@ -314,9 +410,11 @@ pub fn surface(v: Option<&Value>) -> Result<Option<Surface>, RpcError> {
 }
 
 impl Hub {
-    /// `_acpmux/composer_set {sessionId, surface, text, images?}` from the connection `client`:
-    /// the surface's unsent text and the images it holds unsent (`draft_images`; a request
-    /// without `images` holds none). Whitespace and no image clears it. Records `composer` when the surface starts or
+    /// `_acpmux/composer_set {sessionId, surface, text, images?, base?}` from the connection
+    /// `client`: the surface's unsent text and the images it holds unsent (`draft_images`; a
+    /// request without `images` holds none). With `base`, the keys this writer last saw in the
+    /// draft, the images merge with another writer's of the same draft ([`merged`]); without it
+    /// they replace the draft's. Whitespace and no image clears it. Records `composer` when the surface starts or
     /// stops composing (or renames itself while it composes), so every client sees who is typing
     /// without a record per key. Answers only this surface's state; `_acpmux/composers` has all.
     pub fn composer_set(
@@ -325,27 +423,31 @@ impl Hub {
         surface: Surface,
         text: &str,
         images: Option<&Value>,
+        base: Option<&Value>,
         client: &str,
     ) -> Result<Value, RpcError> {
         if session.moving().is_some() {
             return Err(queue::moving_error(session));
         }
+        let base = keys(base, "base")?;
         let held: Vec<Value> = {
             let c = session.composers.lock().unwrap_or_else(|e| e.into_inner());
             c.drafts.values().flat_map(|d| d.images.iter().cloned()).collect()
         };
         // Kept before the lock: a large image is written to disk.
         let images = draft_images(images, &held)?;
-        let composing = !text.trim().is_empty() || !images.is_empty();
-        let changed = {
+        let (composing, changed) = {
             let mut c = session.composers.lock().unwrap_or_else(|e| e.into_inner());
             let before = c.drafts.get(&surface.id).map(|d| d.surface.clone());
+            let had = c.drafts.get(&surface.id).map(|d| d.images.as_slice()).unwrap_or_default();
+            let all = merged(had, images.clone(), base.as_deref());
+            let composing = !text.trim().is_empty() || !all.is_empty();
             if composing {
                 c.typed = c.typed.saturating_add(1);
                 let draft = Draft {
                     surface: surface.clone(),
                     text: text.to_owned(),
-                    images: images.clone(),
+                    images: all,
                     updated_at: now_ms(),
                     order: c.typed,
                 };
@@ -353,13 +455,14 @@ impl Hub {
             } else {
                 c.drafts.remove(&surface.id);
             }
-            before.as_ref() != composing.then_some(&surface)
+            (composing, before.as_ref() != composing.then_some(&surface))
         };
         if changed {
             self.append(session, "mux", "composer", surface.composer(client, composing));
         }
         let mut answer =
             json!({"sessionId": session.id, "surfaceId": surface.id, "composing": composing});
+        // This write's images only, in its order: the writer names each by id next time.
         if composing && !images.is_empty() {
             answer.set("images", json!(images));
         }
@@ -384,6 +487,28 @@ impl Hub {
             "mimeType": mime,
             "data": base64::engine::general_purpose::STANDARD.encode(bytes),
         }))
+    }
+
+    /// The hub took a prompt whose images came from draft `draft` (`_meta.acpmux.draft` on
+    /// `session/prompt`, its surface id and the sent images' keys): exactly those images leave
+    /// it, another pane's in the same draft stay. A duplicate prompt id was the first one's.
+    pub fn composer_draft_sent(
+        &self,
+        session: &Session,
+        draft: &(String, Vec<String>),
+        client: &str,
+        accepted: &Value,
+    ) {
+        if accepted.get("duplicate") == Some(&json!(true)) || accepted.get("promptId").is_none() {
+            return;
+        }
+        let emptied = {
+            let mut c = session.composers.lock().unwrap_or_else(|e| e.into_inner());
+            c.take_sent(&draft.0, &draft.1)
+        };
+        if let Some(surface) = emptied {
+            self.append(session, "mux", "composer", surface.composer(client, false));
+        }
     }
 
     /// The hub took a prompt a surface sent through the connection `client`
@@ -564,5 +689,132 @@ mod tests {
         let mut back = Composers::default();
         back.restore(&bundled);
         assert!(back.drafts.is_empty(), "{:?}", back.drafts);
+    }
+
+    /// An image block of `bytes`, keyed `key`, as the page sends one.
+    fn keyed_block(bytes: &[u8], key: &str) -> Value {
+        use base64::Engine as _;
+        let data = base64::engine::general_purpose::STANDARD.encode(bytes);
+        json!({"type": "image", "mimeType": "image/png", "data": data, "key": key})
+    }
+
+    fn png(seed: u8) -> Vec<u8> {
+        let mut bytes = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        bytes.extend([seed; 16]);
+        bytes
+    }
+
+    fn keys_of(images: &[Value]) -> Vec<&str> {
+        images.iter().filter_map(image_key).collect()
+    }
+
+    fn base(keys: &[&str]) -> Vec<String> {
+        keys.iter().map(|k| (*k).to_owned()).collect()
+    }
+
+    #[test]
+    fn a_write_that_saw_base_keeps_another_panes_images_and_removes_only_its_own() {
+        // Pane A wrote a1, pane B wrote b1 into the same draft (they share its id).
+        let a1 = draft_images(Some(&json!([keyed_block(&png(1), "a1")])), &[]).unwrap();
+        let b1 = draft_images(Some(&json!([keyed_block(&png(2), "b1")])), &[]).unwrap();
+        let both = merged(&a1, b1.clone(), Some(&base(&[])));
+        assert_eq!(keys_of(&both), ["a1", "b1"], "B's write keeps A's image");
+        // A removes a1: it saw a1 and b1, and writes nothing.
+        let after = merged(&both, Vec::new(), Some(&base(&["a1", "b1"])));
+        assert_eq!(keys_of(&after), Vec::<&str>::new(), "a key in base and not written goes");
+        // A removes a1 having seen only a1: B's b1 stays.
+        let after = merged(&both, Vec::new(), Some(&base(&["a1"])));
+        assert_eq!(keys_of(&after), ["b1"], "another pane's image stays");
+        // An older client's keyless image is no one's to remove by key; no base replaces.
+        let legacy = vec![json!({"id": "c".repeat(64), "mimeType": "image/png"})];
+        assert_eq!(merged(&legacy, b1.clone(), Some(&base(&["b1"]))).len(), 2);
+        assert_eq!(keys_of(&merged(&both, b1, None)), ["b1"], "without base the write is the list");
+    }
+
+    #[test]
+    fn equal_bytes_under_two_keys_are_two_images() {
+        let bytes = png(3);
+        let a = draft_images(Some(&json!([keyed_block(&bytes, "a")])), &[]).unwrap();
+        let b = draft_images(Some(&json!([keyed_block(&bytes, "b")])), &[]).unwrap();
+        assert_eq!(image_id(&a[0]), image_id(&b[0]), "one hash, kept once");
+        let both = merged(&a, b, Some(&base(&[])));
+        assert_eq!(keys_of(&both), ["a", "b"]);
+        // B names its image by id, as a later write does: the held record's key is not taken.
+        let again = json!([{"id": image_id(&both[0]).unwrap(), "key": "b"}]);
+        let again = draft_images(Some(&again), &both).unwrap();
+        assert_eq!(keys_of(&again), ["b"]);
+        // B removes its copy; A's of the same bytes stays.
+        let after = merged(&both, Vec::new(), Some(&base(&["b"])));
+        assert_eq!(keys_of(&after), ["a"]);
+        let mut c = Composers::default();
+        let mac = Surface { id: "d-1".into(), name: "Mac".into(), kind: Some("app".into()) };
+        let draft =
+            Draft { surface: mac, text: String::new(), images: both, updated_at: 1, order: 1 };
+        c.drafts.insert("d-1".into(), draft);
+        assert_eq!(c.take_sent("d-1", &base(&["a"])), None, "b is still waiting");
+        assert_eq!(keys_of(&c.drafts["d-1"].images), ["b"]);
+    }
+
+    #[test]
+    fn a_sent_prompt_takes_only_its_named_keys_of_its_named_draft() {
+        let bytes = png(4);
+        let images =
+            draft_images(Some(&json!([keyed_block(&bytes, "a"), keyed_block(&png(5), "b")])), &[])
+                .unwrap();
+        let mut c = Composers::default();
+        for id in ["d-1", "d-2"] {
+            let surface = Surface { id: id.into(), name: "Mac".into(), kind: Some("app".into()) };
+            let draft = Draft {
+                surface,
+                text: String::new(),
+                images: images.clone(),
+                updated_at: 1,
+                order: 1,
+            };
+            c.drafts.insert(id.into(), draft);
+        }
+        assert_eq!(c.take_sent("d-1", &base(&["a"])), None);
+        assert_eq!(keys_of(&c.drafts["d-1"].images), ["b"], "only the sent key goes");
+        assert_eq!(keys_of(&c.drafts["d-2"].images), ["a", "b"], "another draft is untouched");
+        assert!(c.take_sent("d-1", &base(&["b"])).is_some(), "an emptied draft stops composing");
+        assert!(!c.drafts.contains_key("d-1"));
+        assert_eq!(c.take_sent("gone", &base(&["a"])), None);
+        let meta = json!({"id": "d-2", "keys": ["a"]});
+        assert_eq!(sent_draft(Some(&meta)).unwrap(), Some(("d-2".into(), base(&["a"]))));
+        assert_eq!(sent_draft(None).unwrap(), None);
+        for bad in [json!({"id": "d"}), json!({"id": "d", "keys": [3]}), json!({"keys": []})] {
+            assert!(sent_draft(Some(&bad)).is_err(), "{bad}");
+        }
+        let long = json!({"id": "d", "keys": ["k".repeat(MAX_DRAFT_KEY_CHARS + 1)]});
+        assert!(sent_draft(Some(&long)).is_err());
+        let hidden_key = json!([{"type": "image", "mimeType": "image/png", "data": "iVBORw0KGgo=", "key": "a\u{202E}"}]);
+        assert!(draft_images(Some(&hidden_key), &[]).is_err());
+    }
+
+    #[test]
+    fn a_bundle_keeps_each_images_key_and_the_drafts_id() {
+        let bytes = png(6);
+        let images =
+            draft_images(Some(&json!([keyed_block(&bytes, "a"), keyed_block(&bytes, "b")])), &[])
+                .unwrap();
+        let mut c = Composers::default();
+        let id = "5f0c6a1e-0000-4000-8000-000000000001";
+        let surface = Surface { id: id.into(), name: "Mac".into(), kind: Some("app".into()) };
+        let draft = Draft {
+            surface: surface.clone(),
+            text: String::new(),
+            images,
+            updated_at: 1,
+            order: 1,
+        };
+        c.drafts.insert(id.into(), draft);
+        let mut back = Composers::default();
+        back.restore(&c.bundled());
+        assert_eq!(back.drafts[id].surface, surface, "the draft's id travels as its surface's");
+        assert_eq!(keys_of(&back.drafts[id].images), ["a", "b"]);
+        assert_eq!(
+            carried_image(&json!({"id": "a".repeat(64), "key": "k\u{0}"})).unwrap().get("key"),
+            None
+        );
     }
 }

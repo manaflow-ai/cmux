@@ -77,7 +77,8 @@ pub(super) async fn handle(
             .ok_or_else(|| RpcError::invalid_params("surface is required"))?;
         let text = str_param(params, "text")
             .ok_or_else(|| RpcError::invalid_params("text is required"))?;
-        return hub.composer_set(&s, surface, text, params.get("images"), &conn.label());
+        let (images, base) = (params.get("images"), params.get("base"));
+        return hub.composer_set(&s, surface, text, images, base, &conn.label());
     }
     if m == method::MUX_DRAFT_GET {
         return Ok(json!({"sessionId": s.id, "draft": s.meta().composer_draft}));
@@ -97,8 +98,10 @@ pub(super) async fn handle(
 }
 
 /// What `session/prompt` does once the hub took the prompt: tell the connection
-/// (`promptAccepted`), and when the prompt names its surface (`_meta.acpmux.surface`), label it
-/// with that surface (`hub/composers.rs`). A malformed surface refuses the prompt unrecorded.
+/// (`promptAccepted`), when the prompt names its surface (`_meta.acpmux.surface`), label it
+/// with that surface, and when it names the draft its images came from (`_meta.acpmux.draft`),
+/// take exactly those images out of it (`hub/composers.rs`). A malformed surface or draft
+/// refuses the prompt unrecorded.
 pub(super) fn on_accepted(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -106,8 +109,12 @@ pub(super) fn on_accepted(
     params: &Value,
 ) -> Result<Box<dyn FnOnce(Value) + Send>, RpcError> {
     let surface = crate::hub::composers::surface(mux_meta(params).and_then(|m| m.get("surface")))?;
+    let draft = crate::hub::composers::sent_draft(mux_meta(params).and_then(|m| m.get("draft")))?;
     let (notify, hub, s, client) = (conn.clone(), hub.clone(), s.clone(), conn.label());
     Ok(Box::new(move |v| {
+        if let Some(draft) = &draft {
+            hub.composer_draft_sent(&s, draft, &client, &v);
+        }
         if let Some(surface) = surface {
             hub.composer_accepted(&s, surface, &client, &v);
         }
