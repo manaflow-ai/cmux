@@ -680,7 +680,7 @@ fn delete_after(
 }
 
 /// Starts the share's host socket, or has the running one reconcile.
-fn host(mux: &Arc<Mux>, share_id: &str) {
+pub(super) fn host(mux: &Arc<Mux>, share_id: &str) {
     let bridge = &shares(mux).bridge;
     let mut hosts = bridge.hosts.lock().unwrap_or_else(|e| e.into_inner());
     if hosts.get(share_id).is_some_and(|(_, host)| host.send(Cmd::Reconcile).is_ok()) {
