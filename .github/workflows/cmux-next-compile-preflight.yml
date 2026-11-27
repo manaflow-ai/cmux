@@ -21,6 +21,14 @@
 # The verdict is never "skipped" for a change that reaches a web bundle: the lander (leo-workspace
 # tools/next_autoland.py COMPILES, "Web") holds a web change whose `compile preflight / web bundle build` did not
 # pass at its head, the same as a skipped one, and a head that changes no web source passes in seconds.
+#
+# A head whose every changed path no web bundle reads (pr-router.yml's route, pr_router.py preflight_web: Rust,
+# Cargo, Swift, Python, docs and plans prose, other workflows, never a path under a web input tree) calls this with
+# `web: false`, and the job skips before taking a runner. It used to take one to learn that: 756 of 1,237 no-op runs,
+# ~487 runner-min, in the 6 h to 2026-11-27 10Z (scripts/measure/ci140-head-minutes; Leo, 2026-11-21: "whatever we
+# need to cut, we cut. whatever we can reuse, we reuse."). On every head that reaches a web bundle the job checks that
+# no routed input is a path the router ignores (compile_preflight.py never-web-check), so a new import of such a file
+# fails here, at the head that adds it, instead of turning later heads' builds off.
 name: cmux-next compile preflight
 
 on:
@@ -29,6 +37,13 @@ on:
     branches: [feat-cmux-next]
     paths: [.github/workflows/cmux-next-compile-preflight.yml]
   workflow_call:
+    inputs:
+      web:
+        # `false`: the router found no changed path a web bundle can read (pr_router.py preflight_web).
+        description: "'false' skips the job (no changed path reaches a web bundle)"
+        type: string
+        required: false
+        default: 'true'
   workflow_dispatch:
 
 permissions:
@@ -37,6 +52,8 @@ permissions:
 jobs:
   web:
     name: web bundle build
+    # The router's answer (pr_router.py preflight_web); a push or a dispatch has no input and builds.
+    if: ${{ inputs.web != 'false' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     # Budget: a cache hit or an unchanged web source is under 30 s; a cold build on a warm runner about 2 min
     # (bun install from the runner's own package cache, then the four bundles).
@@ -51,10 +68,11 @@ jobs:
           fetch-depth: 2
           persist-credentials: false
 
-      # Its own test (no tier gate, no job-level if:, the build NIGHTLY runs) is the step table's
-      # compile-preflight-rules step (ci/steps.toml), routed by these files. It ran here on every head, 14-15 s of a
-      # 40 s no-op run (jobs 140303340556, 140303466828, 2026-11-27 04:00Z), about 300 runs an hour: ~1.8k
-      # runner-min/day (Leo, 2026-11-21: "de facto, im asking for 99% fewer minutes of ci time, period.").
+      # Before the caller's path admission, this job ran on every head: 14-15 s of a 40 s no-op run
+      # (jobs 140303340556, 140303466828, 2026-11-27 04:00Z), about 300 runs an hour: ~1.8k runner-min/day.
+      # The router now keeps this job for web-bundle inputs and unknown diffs; the callee still has no job-level
+      # if: for an admitted input, so the build verdict remains required (Leo: "de facto, im asking for 99% fewer
+      # minutes of ci time, period.").
 
       # Leo, 2026-11-27: "shouldn't a build check fail beforehand fast like fast-fail is useful ci all stuff".
       # cmux#51044 passed this job at 06:36Z and landed at 07:03Z, then broke feat-cmux-next: the merge commit above was
@@ -79,6 +97,14 @@ jobs:
             # A dispatch (or a head with no merge commit) builds: there is no base to compare with.
             echo "web=true" >> "$GITHUB_OUTPUT"
           fi
+
+      # The router skips this job on a change whose every path is in pr_router.json's compile preflight `paths-ignore`.
+      # A web bundle input among those paths (a webviews source that starts importing a .md, .py or .swift file) would
+      # turn this build off for a change to it, so a head that reaches a web bundle checks the list against
+      # web-bundle-key.py --routed here, in seconds, where such an import first appears.
+      - name: No web bundle input is a path the router skips
+        if: steps.touched.outputs.web == 'true'
+        run: python3 -I scripts/ci/compile_preflight.py never-web-check .
 
       # Only a head that builds needs the reset: a head that reaches no web bundle (about 60% of heads, a 43 s median
       # job) passes after the diff alone (scripts/measure/ci140-pr-segment).
@@ -160,10 +186,28 @@ jobs:
         with:
           node-version: "24.22.1"
 
+      # Why: docs/ci/cmux-next-workflow-notes/2026-11-26-bun-cache-warm.md, the check fast gates and cmux-next.yml's
+      # web-bundles job already run. A pool runner keeps its own Bun cache across jobs, and this job unpacked the
+      # 1.1 GB archive over it anyway: 30 s median of a 205 s build job (27 builds sampled 11-27 05:30-11:36Z), about
+      # 220 of the job's 2,041 runner-min in those 6 h. bun install fetches only what a warm cache lacks.
+      - name: Is this runner's own Bun package cache warm
+        id: bun-warm
+        timeout-minutes: 1
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          d="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+          if [[ "${RESTORE_ON_WARM:-}" != 1 && -n "$(find "$d" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]]; then
+            echo "warm=true" >> "$GITHUB_OUTPUT"
+            echo "$d is already filled from this runner's earlier jobs; the cache archive is not unpacked over it"
+          fi
+        env:
+          RESTORE_ON_WARM: ${{ vars.CI_BUN_CACHE_RESTORE_WARM }}
+
       # Restore only: a pull request never writes the shared Bun cache (cmux-next.yml's web-bundles job saves it on
       # the base branches).
       - name: Restore the webviews Bun package cache
-        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
+        if: steps.touched.outputs.web == 'true' && steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true' && steps.bun-warm.outputs.warm != 'true'
         timeout-minutes: 3
         continue-on-error: true
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
