@@ -283,9 +283,9 @@ mod permission_groups;
 pub(crate) mod permission_modes;
 mod permissions;
 pub mod person;
-pub(crate) mod team_send_queue;
 /// Four session states, never unknown (`hub/session_state.rs`).
 pub(crate) mod session_state;
+pub(crate) mod team_send_queue;
 // The person's prompts to a held chat wait to go in together (`person_hold.rs`).
 mod person_hold;
 mod person_prompt_at;
