@@ -104,6 +104,13 @@ FAILED, ERRORED, PASSED, AMBIGUOUS = "failed", "errored", "passed", "ambiguous"
 # the runner's exit line, so it is ERRORED: shown, never base evidence. Text that only reads like one (`expected:
 # Process completed with exit code 1.` from a passing negative case) is not (#40542's fourth Codex BLOCK, F1).
 SECTION_RED = re.compile(r"^##\[error\]")
+# The runner's own line for a step whose process failed. A step that passed may still print live `##[error]` lines
+# of its own: actions/checkout on a reused self-hosted workspace logs `##[error]fatal: could not read Username` while
+# "Cleaning the repository", then removes the folder, clones afresh and succeeds (cmuxterm-hq main run 44426812069,
+# jobs 135245902175 and 135263038974, 2026-11-19: every log of those jobs went unplaced, so no PR's red of them could
+# be excused). It never prints this line. _aligned_starts reads a passing step's section by it alone, a failed
+# step's by any SECTION_RED line.
+RUNNER_EXIT = re.compile(r"^##\[error\]Process completed with exit code \d+\.$")
 # Past this many lines a log is not placed: every line is AMBIGUOUS (kept for a comment, never evidence for an excuse).
 STEP_OWNERS_MAX_LINES = 2_000_000
 
@@ -157,7 +164,8 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
     `Run` lines and steps sharing a second are placed when exactly one choice of own headers fits the headers and every
     line's time; any other choice that fits places nothing. A placed section
     is FAILED when the jobs API says its step did not succeed, ERRORED when its step succeeded but it has a live
-    SECTION_RED line outside its script's echo, else PASSED. The last section is "Complete job"'s too: when that failed
+    SECTION_RED line outside its script's echo and STEP_NAMES does not prove it a step with no `continue-on-error`
+    (_strict: such a step's success says nothing it printed made the job red), else PASSED. The last section is "Complete job"'s too: when that failed
     and the step before it succeeded, which of the two its lines belong to is not proven, so they are AMBIGUOUS
     (#40542's fourth Codex BLOCK, F2)."""
     if step_names is not STEP_NAMES_UNKNOWN and not isinstance(step_names, dict):
@@ -195,13 +203,25 @@ def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | Non
             status = FAILED
         elif k == len(bounds) - 2 and steps[-1].get("conclusion") != "success":
             status = AMBIGUOUS
+        elif _strict(step_names, steps[k]):
+            # Its workflow step has no continue-on-error, and it succeeded: an `##[error]` line it printed (an
+            # action that recovered, RUNNER_EXIT's note) never made the job red, so it is no evidence either way.
+            status = PASSED
         else:
             status = ERRORED if _live_red(texts, heads[k], bounds[k + 1], opened=k > 0) else PASSED
         found += [(lines[n], k, status) for n in section]
     return found
 
 
-def _live_red(texts: list[str], low: int, high: int, *, opened: bool) -> bool:
+def _strict(step_names, step: dict) -> bool:
+    """Whether STEP_NAMES (StepNames, with HEADERS) proves STEP a workflow step with no `continue-on-error`, whose
+    success says nothing it printed made the job red. A runner's own step, a post step or an unproven one: False."""
+    headers = getattr(step_names, "headers", None)
+    want = headers.get(step.get("number")) if isinstance(headers, dict) else None
+    return isinstance(want, tuple) and len(want) == 3 and want[2] is True
+
+
+def _live_red(texts: list[str], low: int, high: int, *, opened: bool, pattern=None) -> bool:
     """Whether the section TEXTS[LOW:HIGH] (OPENED: by its step's own header) has a live SECTION_RED line. Every line
     is live but the runner's echo of the step's script and env: the group its own `##[group]Run ...` header opens, up
     to its `##[endgroup]` with no other group opened before it. A post step's `Post job cleanup.`, a group that is not
@@ -215,7 +235,8 @@ def _live_red(texts: list[str], low: int, high: int, *, opened: bool) -> bool:
             if texts[n] == "##[endgroup]":
                 live = n + 1
                 break
-    return any(SECTION_RED.match(texts[n]) for n in range(live, high))
+    pattern = SECTION_RED if pattern is None else pattern
+    return any(pattern.match(texts[n]) for n in range(live, high))
 
 
 def _line_time(line: str) -> datetime | None:
@@ -366,15 +387,18 @@ def _aligned_starts(steps: list[dict], lines: list[str], texts: list[str], windo
     chosen = [starts[s] for s in reversed(own)]
     # The one choice must also agree with what the jobs API says of each workflow step that cannot fail quietly (no
     # `continue-on-error`): failed, its section has a live `##[error]` line (the runner's exit line, an action's
-    # failure); passed, it has none. A step that printed no header of its own (a "silent" step, which the runner
-    # never makes of a step it ran) would take a composite's same-second inner line for its own and with it the
+    # failure); passed, it has no live runner exit line (RUNNER_EXIT: an action that recovers may log `##[error]`).
+    # A step that printed no header of its own (a "silent" step, which the runner never makes of a step it ran) would
+    # take a composite's same-second inner line for its own and with it the
     # composite's failure: the composite's section then has no `##[error]` line, and nothing is placed
     # (LocalCompositeCannotPose).
     edges = [*chosen, len(lines)]
     for i, step in enumerate(printing):
         if not expected[i][2] or step.get("conclusion") not in ("success", "failure"):
             continue
-        if (step.get("conclusion") == "failure") != _live_red(texts, edges[i], edges[i + 1], opened=True):
+        failed = step.get("conclusion") == "failure"
+        if failed != _live_red(texts, edges[i], edges[i + 1], opened=True,
+                               pattern=SECTION_RED if failed else RUNNER_EXIT):
             return None
     return chosen
 

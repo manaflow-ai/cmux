@@ -17288,6 +17288,52 @@ class RealShapesOfNovember11(WorkflowHeadersPlaceRealLogs):
         self.assertNotIn("lint-ios-package-conventions", str(said.exception))
 
 
+class RecoveredCheckoutOnAReusedRunner(WorkflowHeadersPlaceRealLogs):
+    """2026-11-19: cmuxterm-hq's Skills tests moved to persistent self-hosted runners (cmux-gcp-lane-x64). There
+    actions/checkout finds the previous job's partial clone, logs `##[error]fatal: could not read Username ...` while
+    "Cleaning the repository", removes it, clones afresh and succeeds. _aligned_starts read any live `##[error]` in a
+    passing step's section as a misplaced failure, so the one choice of headers that fits was refused, every log of
+    main run 44426812069's "Skill documentation tests" and "Fleet tests" was unplaced, and merge_hold refused every hq
+    PR's same red with "main run 44426812069's log does not map one to one onto its steps". A passing step is now read
+    by the runner's exit line alone (RUNNER_EXIT), and a passing step its workflow gives no continue-on-error is PASSED
+    whatever it printed (its success says none of it made the job red). The fixture is that job (run 44426812069, job
+    135263038974) whole, with its workflow job's steps at b51efadb4."""
+
+    CASE = "hq-44426812069-docs"
+    PATHS = {**WorkflowHeadersPlaceRealLogs.PATHS, CASE: ".github/workflows/skills-tests.yml"}
+    CHECKOUT_ERROR = "##[error]fatal: could not read Username for 'https://github.com': terminal prompts disabled"
+
+    def placed(self, log=None):
+        job, text = self.fixture(self.CASE, "base")
+        github = self.github(self.CASE, (job, text), (job, text))
+        job = copy.deepcopy(github.jobs[2])
+        names = excuse.workflow_step_names(REPO, job, self.PATHS[self.CASE], github, {})
+        self.assertIsInstance(names, excuse.StepNames)
+        return excuse.failed_view(job, text if log is None else log, step_names=names, base=True)
+
+    def test_the_recovered_checkout_is_placed_and_passes(self):
+        view = self.placed()
+        self.assertIsNot(view, excuse.UNPLACED)
+        self.assertEqual({str(view.steps[k]["name"]): status for k, status, _ in view.sections},
+                         {"All parallel skill shards passed": "failed",
+                          "Every shard's steps stay within 25% of the measured step table": "failed"})
+        self.assertNotIn(self.CHECKOUT_ERROR, "\n".join(line for _, _, lines in view.sections for line in lines))
+
+    def test_any_live_error_in_a_passing_section_left_it_unplaced(self):
+        # The known-bad reading: a passing step's section judged by every `##[error]` line, as before.
+        with unittest.mock.patch.object(excuse.steps_log, "RUNNER_EXIT", excuse.steps_log.SECTION_RED):
+            self.assertIs(self.placed(), excuse.UNPLACED)
+
+    def test_a_passing_section_with_the_runners_exit_line_still_places_nothing(self):
+        # The exit line is the runner's alone: in a passing step's section it is a failure placed in the wrong step.
+        _, text = self.fixture(self.CASE, "base")
+        anchor = "##[group]Determining the checkout info"
+        self.assertIn(anchor, text)
+        moved = "\n".join(raw + ("\n" + raw.split(" ", 1)[0] + " " + EXIT if raw.endswith(anchor) else "")
+                          for raw in text.splitlines())
+        self.assertIs(self.placed(moved), excuse.UNPLACED)
+
+
 class GeneratedFilesOfNovember14(RealShapesOfNovember11):
     """2026-11-14: every PR's "cmux-next generated files" red was refused with "its log does not map one to one onto
     its steps (step_owners ...); compared whole, its failing tests are not feat-cmux-next run 43606519098's", though it
