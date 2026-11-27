@@ -696,8 +696,7 @@ public final class DaemonTerminalSession: TerminalSession {
     /// A reply the terminal wrote by itself (a cursor or device report, a
     /// focus or mouse report): sent only while attached. Held through an
     /// outage it would be stale, and its drop is no key the person typed, so
-    /// it is never queued for a reattach, never refused and never makes the
-    /// "Keys typed while your Mac was unreachable" notice (Leo, 2026-11-12:
+    /// it is never queued for a reattach and never refused (Leo, 2026-11-12:
     /// "thjs chatters too often with connectivity").
     public func sendReply(_ bytes: Data) {
         guard !bytes.isEmpty, attached, !refusingInput else { return }
