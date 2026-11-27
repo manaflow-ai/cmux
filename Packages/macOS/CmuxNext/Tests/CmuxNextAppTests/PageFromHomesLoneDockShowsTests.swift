@@ -19,14 +19,22 @@ struct PageFromHomesLoneDockShowsTests {
             let selected = pane.stripModel.selectedID?.rawValue ?? "nil"
             return "\(pane.paneKey) hidden=\(pane.view.isHiddenOrHasHiddenAncestor) frame=\(frame) selected=\(selected)"
         } ?? []
-        let columns = home.screens.flatMap(\.columns).map { "\($0.id) dock=\($0.dock != nil) width=\($0.width) panes=\($0.layout.paneIDs)" }
+        let columns = home.screens.flatMap(\.columns).map { column in
+            let dock = column.dock.map { "\($0.edge.rawValue)/\($0.mode.rawValue)" } ?? "none"
+            return "\(column.id) dock=\(dock) width=\(column.width) panes=\(column.layout.paneIDs)"
+        }
         let bounds = window.window?.contentView?.bounds ?? .zero
         return "window \(bounds), page \(String(describing: window.state.page)), focused \(window.focusedPane?.paneKey ?? "nil"); "
             + "columns \(columns); panes \(panes)"
     }
 
-    @Test(arguments: ["settings", "macScreen.open"])
-    func aPageFromHomesLoneDockShowsBesideIt(_ via: String) async throws {
+    /// `overlay`: Home's dock floats (Settings > Layout > Dock columns: Floating). The strip under an overlay dock is
+    /// the whole window wide, so the daemon's neighbour width of 1.0 drew the page a full window wide from the dock's
+    /// inner edge, half past the window's right edge (the + chevron row's hover point x=1133.5 in an 1100-wide window).
+    @Test(arguments: ["settings", "macScreen.open", "settings overlay", "macScreen.open overlay"])
+    func aPageFromHomesLoneDockShowsBesideIt(_ argument: String) async throws {
+        let overlay = argument.hasSuffix(" overlay")
+        let via = overlay ? String(argument.dropLast(" overlay".count)) : argument
         try await PasswordManagerRouteTests.withApp { services, connection in
             let keyWindow = services.keyWindowSource
             defer { services.keyWindowSource = keyWindow }
@@ -34,6 +42,15 @@ struct PageFromHomesLoneDockShowsTests {
             services.keyWindowSource = { [weak window] in window?.window }
             let dock = try #require(HomeSplitKeysTests.panes(home).first)
             try #require(HomeSplitKeysTests.panes(home).count == 1, "Home is not a lone dock: \(Self.describe(window, home))")
+            if overlay {
+                let column = try #require(home.screens.flatMap(\.columns).first { $0.dock != nil })
+                var floating = try #require(column.dock)
+                floating.mode = .overlay
+                try await connection.setColumnDock(of: dock.handle, dock: floating)
+                try await PasswordManagerRouteTests.until({
+                    home.screens.flatMap(\.columns).first { $0.dock != nil }?.dock?.mode == .overlay
+                }, report: { "Home's dock did not float: \(Self.describe(window, home))" })
+            }
             let page: InternalPageID = via == "settings" ? .settings : .macScreen
             if via == "settings" {
                 #expect(services.pages.show(.settings, in: window, focus: true) != nil)
@@ -54,11 +71,11 @@ struct PageFromHomesLoneDockShowsTests {
                 }
             }
             try await PasswordManagerRouteTests.until({ shown() != nil && window.state.page == nil }, report: {
-                "\(via): no pane beside Home's dock draws the \(page.rawValue) page: \(Self.describe(window, home))"
+                "\(argument): no pane beside Home's dock draws the \(page.rawValue) page: \(Self.describe(window, home))"
             })
             let pane = try #require(shown())
             try await PasswordManagerRouteTests.until({ window.focusedPane === pane }, report: {
-                "\(via): the page's pane is not focused: \(Self.describe(window, home))"
+                "\(argument): the page's pane is not focused: \(Self.describe(window, home))"
             })
             // Its own column right of the dock, not a split inside the dock's column.
             let screen = try #require(home.screens.first { $0.panes.contains { $0 === dock } })

@@ -430,6 +430,40 @@ fn a_column_opened_beside_a_lone_pinned_dock_is_an_even_split() {
     assert_eq!(&after[..2], &[crate::model::LONE_DOCK_WIDTH, crate::mux::LONE_DOCK_NEIGHBOR_WIDTH]);
 }
 
+/// `pinned-dock-alone-v1` with Home's dock floating (overlay): the strip under
+/// an overlay dock is the whole viewport, so the column opened beside it takes
+/// the half the dock leaves (`1 - LONE_DOCK_WIDTH`), not the whole viewport,
+/// which put half of a page opened from Home past the window's right edge
+/// (goal screen-share-interaction-paths).
+#[test]
+fn a_column_opened_beside_a_lone_overlay_dock_fills_only_the_rest_of_the_window() {
+    let (mut wire, panes) = Wire::home();
+    wire.set_dock(panes[0], "left", "overlay");
+    let right = wire.tabs(panes[1])[0];
+    wire.ok(json!({"cmd": "close-surface", "surface": right}));
+    let columns = |wire: &Wire| {
+        wire.mux.with_state(|state| {
+            let screen = &state.workspaces[0].screens[0];
+            screen.layout_columns.iter().map(|c| (c.width, c.dock)).collect::<Vec<_>>()
+        })
+    };
+    let alone = columns(&wire);
+    assert_eq!(alone.len(), 1, "the dock is alone: {alone:?}");
+    let flag = alone[0].1.expect("the lone dock keeps its flag");
+    assert!(flag.pinned && flag.mode == crate::model::DockMode::Overlay, "{alone:?}");
+
+    let other = wire.mux.new_workspace(None, Some((80, 22))).unwrap().id;
+    wire.ok(json!({
+        "cmd": "move-tab-to-column", "surface": other, "pane": panes[0], "width": 0.3,
+    }));
+    let widths = columns(&wire).iter().map(|c| c.0).collect::<Vec<_>>();
+    assert_eq!(
+        widths,
+        vec![crate::model::LONE_DOCK_WIDTH, 1.0 - crate::model::LONE_DOCK_WIDTH],
+        "the overlay dock and its new neighbour each take half the viewport"
+    );
+}
+
 /// `pinned-dock-alone-v1`: the pinned dock alone still takes no tab. A
 /// browser tab made in it (an agent's page beside its chat, a conversation
 /// tab) opens in a new column right of it in the same commit, so nothing is
