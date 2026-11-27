@@ -7,8 +7,8 @@ name: cmux-next split table
 # in place). A row over 16 ms, with a blank frame or unmeasured is marked. REPORT-ONLY: no job here fails on a row
 # and no required check reads it (no new blocking gate without data; the pull request that added it proposes one).
 # Same-repo, non-draft pull requests only (a fork's head cannot run on an owned Mac). A fleet step is queued
-# as a measurement on the bench Mac alone, detached: the table arrives as the check run "split table (bench Mac,
-# report-only)" (success or neutral, never red) and the comment links it; no runner waits on the queue.
+# as a measurement on the bench Mac alone, detached: the table arrives as the check run "split table (bench Mac)
+# report-only" (success or neutral, never red) and the comment links it; no runner waits on the queue.
 # Leo: "we can't be letting important rfds like that take breaks unless I put in fleet wide pauses, esp when this is
 # stuff that materially improves the app".
 
@@ -67,7 +67,7 @@ jobs:
       # jobs 140592911793, 140625090551), so most runs returned no table anyway.
       # CI_SPLIT_TABLE_DETACH=0 waits here as before (a client without --detach waits too).
       DETACH: ${{ vars.CI_SPLIT_TABLE_DETACH || '1' }}
-      REPORT_CHECK: split table (bench Mac, report-only)
+      REPORT_CHECK: split table (bench Mac) report-only
     outputs:
       detached: ${{ steps.measure.outputs.detached }}
     steps:
@@ -110,7 +110,9 @@ jobs:
             exit 0
           fi
           [[ "$status" == 0 ]] || echo "::warning title=Split table::the fleet step did not finish (exit $status; report-only: nothing fails)"
-          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1)"
+          # `|| true`: the runner's shell is bash -e -o pipefail, so a log with no step id (the client refused the
+          # submit) failed this assignment and the job exited 1 (run 46066365682); report-only exits 0.
+          step="$(grep -o -E '\b[0-9a-f]{24}\b' "$log" | head -1 || true)"
           if [[ -n "$step" ]]; then
             "$client" artifact "$step" "$out/report.json" || "$client" artifact --failed "$step" "$out/report.json" || true
           fi
@@ -151,7 +153,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SERVER: ${{ github.server_url }}
           DETACHED: ${{ needs.measure-fleet.outputs.detached }}
-          REPORT_CHECK: split table (bench Mac, report-only)
+          REPORT_CHECK: split table (bench Mac) report-only
         run: |
           # Report-only: a failed comment read or write warns, never fails the job (a bare `id="$(gh ...)"` under bash -e and pipefail exited 1 silently on #61185).
           set -uo pipefail

@@ -923,6 +923,10 @@ path = "tests/test_ci_repo_variable_defaults.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_report_check_names.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_required_checks_are_bounded.py"
 lane = "linux-guard"
 

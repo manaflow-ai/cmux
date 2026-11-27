@@ -958,6 +958,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_actionlint_covers_every_workflow.py
 
+      - name: Check that every cmux-ci --report-check name is one the client accepts
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_report_check_names.py
+
       - name: Check that every workflow file is under GitHub's 500 KB limit, with room
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_file_size.py
