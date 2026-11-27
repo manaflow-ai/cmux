@@ -32,7 +32,8 @@
 //! --nocapture --test-threads 1`. Env: `PAIRMATRIX_PAIR` (mac-mac), `PAIRMATRIX_N` (5),
 //! `PAIRMATRIX_SEED_BASE` (0), `PAIRMATRIX_CONDITIONS`, `PAIRMATRIX_LOADS` (idle,duress),
 //! `PAIRMATRIX_PATHS` (direct,relay), `PAIRMATRIX_LONG_MINUTES` (60),
-//! `PAIRMATRIX_TRACE` (`1`: each cell's wire trace as `PAIRTRACE` lines).
+//! `PAIRMATRIX_TRACE` (`1`: each cell's wire trace as `PAIRTRACE` lines; `text`: each read's
+//! first bytes too).
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -53,6 +54,11 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
     "ACPMUX_PEER_REPLACE_SECS",
     // The peer link's send window (off by default), so a row can measure it.
     "ACPMUX_PEER_SEND_WINDOW_KB",
+    // The relay client's early Connect (off by default), so a row can measure it.
+    "CMUX_RELAY_EARLY_CONNECT",
+    // The dialer's standby socket and the relay's pre-attach hold it needs (both off by default).
+    "CMUX_RELAY_DIAL_STANDBY",
+    "CMUX_RELAY_PREATTACH_HOLD_SECONDS",
 ]);
 
 use acpmux::config::{Config, HarnessProfile, PermissionPolicy, StoreMode};
@@ -466,6 +472,7 @@ async fn world(load: &str) -> World {
     let relay_addr = relay_listener.local_addr().unwrap();
     let relay = cmux_relay::Relay::new(cmux_relay::RelayConfig {
         allow_open: true,
+        preattach_hold: Duration::from_secs(env_u64("CMUX_RELAY_PREATTACH_HOLD_SECONDS", 0)),
         ..cmux_relay::RelayConfig::default()
     })
     .unwrap();
@@ -577,7 +584,16 @@ fn profile(name: &str) -> LinkProfile {
 }
 
 fn wire_trace() -> bool {
-    std::env::var("PAIRMATRIX_TRACE").is_ok_and(|v| v == "1")
+    std::env::var("PAIRMATRIX_TRACE").is_ok_and(|v| v == "1" || v == "text")
+}
+
+/// `PAIRMATRIX_TRACE=1` traces the link's reads; `text` adds each read's first bytes.
+fn start_wire_trace(link: &Shaper) {
+    match std::env::var("PAIRMATRIX_TRACE").as_deref() {
+        Ok("text") => link.trace_wire_text(WIRE_TRACE_LINES),
+        Ok("1") => link.trace_wire(WIRE_TRACE_LINES),
+        _ => {}
+    }
 }
 
 fn condition_profile(condition: &str) -> &'static str {
@@ -652,17 +668,13 @@ async fn side(
         }
         ("direct", _) => {
             let link = Shaper::start(w.b_ws, shaped, seed, &trace).await.map_err(io)?;
-            if wire_trace() {
-                link.trace_wire(WIRE_TRACE_LINES);
-            }
+            start_wire_trace(&link);
             let url = format!("ws://{}", link.addr());
             (link, None, None, url)
         }
         ("relay", _) => {
             let link = Shaper::start(w.relay, shaped, seed, &trace).await.map_err(io)?;
-            if wire_trace() {
-                link.trace_wire(WIRE_TRACE_LINES);
-            }
+            start_wire_trace(&link);
             let kept = carrier(relay_route(&link));
             // A URL nothing listens on: the carrier is A's only way to B.
             let dead =
