@@ -7,7 +7,7 @@ public import Foundation
 /// owner_session splice to a paired server's daemon).
 public struct ChiefEngineReport: Decodable, Sendable, Equatable {
     /// The engine fields; nil is the brain's default.
-    public struct Engine: Decodable, Sendable, Equatable {
+    public struct Engine: Codable, Sendable, Equatable {
         public var harness: String?
         public var model: String?
         public var effort: String?
@@ -100,7 +100,7 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
 
     /// A model acpmux offers for the engine's harness, with the catalog metadata acpmux attached
     /// (nil from an older brain, or for a model the catalog does not describe).
-    public struct Model: Decodable, Sendable, Equatable {
+    public struct Model: Codable, Sendable, Equatable {
         public var id: String
         public var name: String
         /// The catalog family ("Opus", "Sol"), or the provider for a gateway's models.
