@@ -224,6 +224,29 @@ pub const SUSPECT_PROBE: Duration = Duration::from_secs(1);
 /// data is outstanding: a one-way stream with a live peer costs one ping
 /// round trip per this long, an idle link none.
 pub const OUTSTANDING_PROBE: Duration = Duration::from_secs(2);
+/// While data is outstanding, both detection waits scale with the link's
+/// smoothed round trip: [`BUSY_RTT_FACTOR`] round trips, at least the
+/// floor below and at most the fixed wait ([`OUTSTANDING_PROBE`], the
+/// link's `suspect_after`). On a phone link (lte, wifi to cell, 5G
+/// falling back to LTE) a busy link is then suspect in about 1.5 s instead
+/// of 5 s; a slow one (satellite, 2G) keeps the fixed waits. Without a
+/// round trip yet, the fixed waits. Idle pings keep `suspect_after`.
+pub const BUSY_RTT_FACTOR: u32 = 4;
+/// The shortest wait before unanswered data gets its ping.
+pub const BUSY_OUTSTANDING_FLOOR: Duration = Duration::from_millis(500);
+/// The shortest wait for that ping, with data outstanding, before the link
+/// is suspect: two of a lossy link's 500 ms datagram ping resends
+/// ([`DATAGRAM_PING_RESEND`]) and a TCP retransmit of an in-stream ping.
+pub const BUSY_SUSPECT_FLOOR: Duration = Duration::from_millis(1000);
+
+/// The detection waits while data is outstanding ([`BUSY_RTT_FACTOR`]):
+/// before the ping, and from the ping to suspect.
+fn busy_waits(srtt: Option<Duration>, suspect_after: Duration) -> (Duration, Duration) {
+    let Some(srtt) = srtt else { return (OUTSTANDING_PROBE, suspect_after) };
+    let scaled = srtt.saturating_mul(BUSY_RTT_FACTOR);
+    let bound = |floor: Duration, cap: Duration| scaled.max(floor.min(cap)).min(cap);
+    (bound(BUSY_OUTSTANDING_FLOOR, OUTSTANDING_PROBE), bound(BUSY_SUSPECT_FLOOR, suspect_after))
+}
 
 /// The lane both sides list when their pings and pongs can travel as
 /// datagrams beside the link's stream ([`LivenessDatagrams`]). A peer that
@@ -2744,6 +2767,10 @@ async fn watch_liveness(link: Link, after: Duration) {
         }
         let now = Instant::now();
         let unanswered = inner.unanswered();
+        let srtt = *inner.srtt.lock().unwrap_or_else(PoisonError::into_inner);
+        let (outstanding_wait, busy_after) = busy_waits(srtt, after);
+        // A ping with data outstanding waits `busy_after`; an idle one, `after`.
+        let ping_after = if unanswered.traffic.is_some() { busy_after } else { after };
         let next = if inner.suspect_flag.load(Ordering::Relaxed) {
             let due = last_probe.map_or(now, |at| at + SUSPECT_PROBE);
             if now >= due {
@@ -2754,7 +2781,7 @@ async fn watch_liveness(link: Link, after: Duration) {
                 Some(due)
             }
         } else if let Some(ping) = unanswered.ping {
-            if now >= ping + after {
+            if now >= ping + ping_after {
                 inner.raise_suspect(ping);
                 if inner.suspect_flag.load(Ordering::Relaxed) {
                     probe(&link);
@@ -2762,14 +2789,14 @@ async fn watch_liveness(link: Link, after: Duration) {
                 }
                 continue;
             }
-            Some(ping + after)
+            Some(ping + ping_after)
         } else if let Some(traffic) = unanswered.traffic {
-            if now >= traffic + OUTSTANDING_PROBE {
+            if now >= traffic + outstanding_wait {
                 // Its ping wakes this loop (`unanswered_changed`) once out.
                 probe(&link);
-                Some(now + after)
+                Some(now + busy_after)
             } else {
-                Some(traffic + OUTSTANDING_PROBE)
+                Some(traffic + outstanding_wait)
             }
         } else {
             None
