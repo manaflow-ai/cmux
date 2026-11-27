@@ -47,6 +47,7 @@
     {"id": "worktreeSetup", "note": "Settings > Agents > Worktree Setup: a project's worktree recipe (setup, run and teardown scripts, files to copy) over the repository's .worktreeinclude and .cmux/worktree.toml (design/worktree-setup.md); `cmux.project.list`, `cmux.project.update` and `cmux.git.worktree.setup` through the page relay."},
     {"id": "cloudModels", "note": "Settings > Cloud > Models for Cloud: whether Claude, ChatGPT and an API key are set up for Cloud chats (a connection with serves_cloud), each with its Set up way in (Settings > Models' Add a Connection steps) and a plain note when only a This Mac only login exists (cmux-tui/docs/model-connections.md Revision 2); deep links #/settings/cloud?focus=cloud.claude, cloud.chatgpt, cloud.apiKey."},
     {"id": "customizeChecklist", "note": "Settings > Customize: every customization one click away (Leo 2026-11-22: \"it should just be as easy as a click toggle\"): the experiments.* and labs.* switches, the Customization Library's entries (`cmux customize library`), the verified looks (examples/looks, `cmux setup install`), then every other switch the page shows, collapsed; one search over all of them. Rows come from the schema export, so a new toggle row shows with no edit. Deep link: #/settings/customize."},
+    {"id": "developerTokens", "note": "Settings > Developer: cmux API tokens (cmux platform /v1/tokens): personal tokens with New Token and Revoke, and for a person who manages the team, Team Tokens (CI, not tied to a person) and GitHub Actions (allowed repositories sign in with GitHub's identity token, no stored secret) with a copyable workflow. A new token is shown once with Copy and the lines to paste; `cmux.settings.tokens.*`, from the bundled `cmux token ... --json`. Deep link: #/settings/developer."},
     {"id": "integrationsHub", "note": "Settings > Integrations: the integrations hub (cmux platform /v1/hub): linked Stripe and GitHub accounts with Remove, Link Stripe (a pasted restricted key) and Link GitHub, the approvals waiting for the person with Allow, Deny and Don't ask again, the rules with Add and Remove, the pause switch and recent audit rows; `cmux.settings.hub.*`, from the bundled `cmux hub overview --json` (cmux-tui cli/hub.rs shapes every string). An approval is answered only here, never by the CLI. Deep link: #/settings/integrations."},
     {"id": "automationsCloud", "note": "Settings > Automations: cloud automations (cmux platform /v1/automations): the list with each trigger, last run and on/off switch, the form (a GitHub event on a repository, a webhook whose URL and secret show once, or a schedule; condition rows; the agent's repository, branch template, harness and prompt template with a preview against a sample event; limits), the run log and the template gallery; `cmux.settings.autocloud.*`, from the bundled `cmux autocloud overview --json` (cmux-tui cli/autocloud.rs shapes every string and checks every spec). Deep link: #/settings/automations."},
     {"id": "models", "note": "Settings > Models: the person's connections (Mac logins, ChatGPT plan, API keys) in the order a thread uses them, Spread usage, the organization's shared keys, and the members policy (cmux-tui/docs/model-connections.md); `cmux.settings.models.*`."},
@@ -462,6 +463,14 @@
           "note": "The integrations hub (Leo 2026-11-23: \"an aggregator of integrations. linking up things like e.g. stripe so that your agents can refund for you etc.\"): linked accounts, the approvals waiting for the person, the rules, the pause switch and the audit log.",
           "groups": [],
           "lead": ["integrationsHub"]
+        },
+        {
+          "id": "developer",
+          "title": {"key": "settings.category.developer", "text": "Developer"},
+          "symbol": "chevron.left.forwardslash.chevron.right",
+          "note": "API tokens for scripts, CI and GitHub Actions (Leo 2026-11-25: \"Should we be offering tokens/api keys for people to be accessing our stuff with?\" and \"Convienient beats all. Just make good ui for it so people flow.\").",
+          "groups": [],
+          "lead": ["developerTokens"]
         },
         {
           "id": "import",
