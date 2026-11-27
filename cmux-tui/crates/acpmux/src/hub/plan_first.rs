@@ -6,7 +6,7 @@
 //! person who is away.
 //!
 //! Why: in steering-lenses only 10% of Leo's steers reach a plan, the rest land on work already
-//! done; Devin does worse when requirements arrive mid-task. Cost: one short turn a task and at
+//! done, and agents do worse when requirements arrive mid-task. Cost: one short turn a task and at
 //! most the window's wait.
 //!
 //! Only a person's own prompt (`prompt_sender::person_turn`): never another agent's brief, an
