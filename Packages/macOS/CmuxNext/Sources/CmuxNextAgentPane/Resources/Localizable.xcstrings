@@ -12003,130 +12003,10 @@
     "agentPane.error.daemonStopped": {
       "extractionState": "manual",
       "localizations": {
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "توقفت خدمة الوكلاء."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Servis agenata je zaustavljen."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenttjenesten er stoppet."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Agentendienst wurde gestoppt."
-          }
-        },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent service stopped."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El servicio de agentes se detuvo."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le service d’agents s’est arrêté."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il servizio agenti si è arrestato."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントサービスが停止しました。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សេវាភ្នាក់ងារបានឈប់។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 서비스가 중지되었습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenttjenesten er stoppet."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usługa agentów została zatrzymana."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O serviço de agentes parou."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Служба агентов остановлена."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "บริการเอเจนต์หยุดทำงานแล้ว"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajan hizmeti durdu."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Службу агентів зупинено."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dịch vụ tác tử đã dừng."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理服务已停止。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理服務已停止。"
+            "value": "cmux couldn't start its agent service. Quit and reopen cmux to try again."
           }
         }
       }
@@ -37088,127 +36968,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent service is not running. Try again in a moment."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "خدمة الوكيل لا تعمل. حاول مرة أخرى بعد قليل."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usluga agenta nije pokrenuta. Pokušajte ponovo za trenutak."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenttjenesten kører ikke. Prøv igen om lidt."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Der Agentdienst läuft nicht. Versuche es gleich noch einmal."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "El servicio de agentes no se está ejecutando. Inténtalo de nuevo en un momento."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Le service d'agents n'est pas en cours d'exécution. Réessayez dans un instant."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Il servizio agenti non è in esecuzione. Riprova tra un momento."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "エージェントサービスが実行されていません。しばらくしてからもう一度お試しください。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "សេវាភ្នាក់ងារមិនកំពុងដំណើរការទេ។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "에이전트 서비스가 실행 중이 아닙니다. 잠시 후 다시 시도하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agenttjenesten kjører ikke. Prøv igjen om et øyeblikk."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Usługa agentów nie działa. Spróbuj ponownie za chwilę."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O serviço de agentes não está em execução. Tente novamente em instantes."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Служба агентов не запущена. Повторите попытку через мгновение."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "บริการเอเจนต์ไม่ได้ทำงานอยู่ ลองอีกครั้งในอีกสักครู่"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ajan hizmeti çalışmıyor. Birazdan yeniden deneyin."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Служба агентів не запущена. Спробуйте ще раз за мить."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Dịch vụ tác tử không chạy. Hãy thử lại sau giây lát."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理服务未运行。请稍后重试。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "代理程式服務未在執行。請稍後再試。"
+            "value": "cmux couldn't start its agent service to do this. Quit and reopen cmux, then try again."
           }
         }
       }
@@ -42880,7 +42640,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your GitHub login %1$@ can't reach %2$@. Sign in with GitHub to give Cloud access to it."
+            "value": "Your GitHub login %1$@ has no access to %2$@. Sign in with GitHub to give Cloud access to it."
           }
         },
         "ar": {
