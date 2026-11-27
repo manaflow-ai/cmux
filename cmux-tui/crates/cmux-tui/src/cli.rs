@@ -186,6 +186,8 @@ mod mcp_servers;
 #[cfg(unix)]
 mod ps_gc;
 #[cfg(unix)]
+mod repo_archive;
+#[cfg(unix)]
 mod repo_hold;
 #[cfg(unix)]
 mod repo_mcp_lazy;

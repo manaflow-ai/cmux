@@ -234,7 +234,7 @@ impl Drop for PixelBuffer {
 }
 
 /// Opens both halves of a synthetic desktop for one session.
-pub fn open(cfg: &SessionCfg, source: Synthetic) -> Res<Halves> {
+pub fn open(cfg: &SessionCfg, source: Synthetic, ltr: bool) -> Res<Halves> {
     if cfg.codec != "videotoolbox" {
         return Err(format!(
             "codec {} is not available on a macOS host (it encodes surfaces with videotoolbox)",
@@ -246,7 +246,8 @@ pub fn open(cfg: &SessionCfg, source: Synthetic) -> Res<Halves> {
     let (width, height) = synthetic::fit(source.size, cfg.max_width);
     let surface = PixelBuffer::new(width, height)?;
     let fps = super::encoder_fps(width, height, cfg.max_fps.max(1));
-    let encoder = VideoToolbox::new(width, height, fps, cfg.start_kbps, cfg.profile == "baseline")?;
+    let encoder =
+        VideoToolbox::with_ltr(width, height, fps, cfg.start_kbps, cfg.profile == "baseline", ltr)?;
     let name = format!("{} from synthetic iosurface", cmux_encode::H264Encoder::name(&encoder));
     let (wake_read, wake) = UnixStream::pair()?;
     wake_read.set_nonblocking(true)?;
