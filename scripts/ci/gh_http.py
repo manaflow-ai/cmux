@@ -11,9 +11,13 @@ This is the same policy for every reader under scripts/ci, in one place:
   rate limit), 500/502/503/504, a timeout and a network error;
 - answered at once: 401, 404, any other 4xx, and a 403 that names a permission, since asking again cannot
   change them;
-- each wait honors Retry-After, else x-ratelimit-reset, else 5, 15, 30 s; never over MAX_WAIT_S;
-- at most TRIES calls and BUDGET_S seconds in all: a wait that would pass the budget is not taken, and the
-  last answer (or error) is the caller's.
+- each wait honors Retry-After, else x-ratelimit-reset, else 5, 15, 30 s; never over MAX_WAIT_S, except a
+  rate limit that NAMES its end (Retry-After, or x-ratelimit-remaining 0 with x-ratelimit-reset): that wait
+  is taken to the end, up to RATE_MAX_WAIT_S, and any number of times inside RATE_BUDGET_S (an installation
+  limit lasts minutes; cmux run 46019347396 gave up after 2 tries and 60 s and went red);
+- otherwise at most TRIES calls and BUDGET_S seconds in all: a wait that would pass the budget is not taken,
+  and the last answer (or error) is the caller's. Giving up on a named rate limit logs
+  "rate-limited until HH:MMZ" (limited_until) so the red names when to retry.
 
 A write (POST, PATCH, PUT, DELETE) is never asked again: the first may have landed (deadline_http's rule).
 A refused write comes back as its answer. This is a bounded retry of one call, not a polling loop: it waits
@@ -37,6 +41,8 @@ import deadline_http  # noqa: E402
 TRIES = 4
 BUDGET_S = 110.0
 MAX_WAIT_S = 60.0
+RATE_MAX_WAIT_S = 900.0
+RATE_BUDGET_S = 1200.0
 BACKOFF_S = (5.0, 15.0, 30.0)
 CALL_S = 30.0
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
@@ -55,13 +61,30 @@ def refusal_wait(status: int, headers, body: bytes, attempt: int, now: float) ->
             return None
     elif status not in RETRY_STATUSES:
         return None
+    named = named_wait(headers, now)
+    if named is not None:
+        return min(RATE_MAX_WAIT_S, named)
+    return BACKOFF_S[min(attempt, len(BACKOFF_S) - 1)]
+
+
+def named_wait(headers, now: float) -> float | None:
+    """Seconds until the rate limit HEADERS name as over (Retry-After, else x-ratelimit-reset when the quota
+    is 0), or None when they name none."""
+    headers = headers or {}
     retry_after = str(headers.get("retry-after") or "").strip()
     if retry_after.isdigit():
-        return min(MAX_WAIT_S, max(1.0, float(retry_after)))
+        return max(1.0, float(retry_after))
     reset = str(headers.get("x-ratelimit-reset") or "").strip()
     if headers.get("x-ratelimit-remaining") == "0" and reset.isdigit():
-        return min(MAX_WAIT_S, max(1.0, int(reset) - now + 1))
-    return BACKOFF_S[min(attempt, len(BACKOFF_S) - 1)]
+        return max(1.0, int(reset) - now + 1)
+    return None
+
+
+def limited_until(headers, now: float | None = None) -> str | None:
+    """"HH:MMZ" when the rate limit in HEADERS ends, or None when they name none."""
+    now = time.time() if now is None else now
+    wait = named_wait(headers, now)
+    return None if wait is None else time.strftime("%H:%MZ", time.gmtime(now + wait))
 
 
 def request(req: urllib.request.Request | str, seconds: float = CALL_S, *, raise_errors: bool = False,
@@ -78,7 +101,9 @@ def request(req: urllib.request.Request | str, seconds: float = CALL_S, *, raise
     tries = tries if method in READS else 1
     log = log or (lambda line: print(line, file=sys.stderr))
     start = clock()
-    for attempt in range(tries):
+    attempt = -1
+    while True:
+        attempt += 1
         left = budget_s - (clock() - start)
         call_s = max(1.0, min(seconds, left)) if attempt else seconds
         error: BaseException | None = None
@@ -94,6 +119,9 @@ def request(req: urllib.request.Request | str, seconds: float = CALL_S, *, raise
             wait = refusal_wait(status, headers, body, attempt, now())
             if wait is None:
                 break
+            if method in READS and named_wait(headers, now()) is not None:
+                # a rate limit that names its end: wait it out, bounded by RATE_BUDGET_S, not by tries
+                tries, budget_s = max(tries, attempt + 2), max(budget_s, RATE_BUDGET_S)
         last = attempt + 1 >= tries
         if not last and clock() - start + wait > budget_s:
             last = True
@@ -101,7 +129,9 @@ def request(req: urllib.request.Request | str, seconds: float = CALL_S, *, raise
         if last:
             if error is not None:
                 raise error
-            log(f"gh_http: {what}; gave up after {attempt + 1} tries")
+            until = limited_until(headers, now())
+            log(f"gh_http: {what}; gave up after {attempt + 1} tries"
+                + (f"; rate-limited until {until}" if until else ""))
             break
         log(f"gh_http: {what}; asking again in {wait:.0f} s (try {attempt + 2} of {tries})")
         sleep(wait)
