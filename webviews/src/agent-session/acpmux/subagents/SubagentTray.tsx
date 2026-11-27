@@ -144,6 +144,7 @@ import { hatOpenLook } from "./hatOpen.experiment";
 import { SubagentCardBody, SubagentPreviewCard } from "./SubagentPreview";
 import "./hatOpen.css";
 import { deckOf, hatHeaderLook, hideOf } from "./hatHeader.experiment";
+import { type HatLineArm, hatLineLook } from "./hatLine.experiment";
 import { HatHeadDeck } from "./HatHeadDeck";
 import "./hatHeader.css";
 import { DoneMark } from "./DoneMark";
@@ -198,6 +199,7 @@ export const SubagentTray = memo(function SubagentTray({
   shown,
   stepLook,
   foldHeadLook,
+  lineDeckLook,
   enters = false,
   chat,
   onTuck,
@@ -246,6 +248,8 @@ export const SubagentTray = memo(function SubagentTray({
   stepLook?: HatStepArm;
   /// The folded header's arm a stage pins (trayFoldHead.experiment.ts), over the experiment's.
   foldHeadLook?: TrayFoldHeadArm;
+  /// The one-line hat's marks arm, pinned (a gallery stage or test about one arm). Else the experiment's.
+  lineDeckLook?: HatLineArm;
   /// The tray appears in a chat that showed without it: it eases in.
   enters?: boolean;
   /// The chat the tray belongs to: the person's open or fold holds for it (trayFoldMemory.ts).
@@ -329,6 +333,9 @@ export const SubagentTray = memo(function SubagentTray({
   // The top bar (hatHeader.experiment.ts; Leo, 2026-11-20: "thumb through them like a Rolodex or
   // whatever at the top"): a deck of marks to thumb through, and where the hide control sits.
   const [headerLook] = useState(() => experimentArm(hatHeaderLook));
+  // The one-line hat's marks (hatLine.experiment.ts, design pass c-fadfd55bc5): the same deck, on the
+  // line, and the hide control flush at the line's end.
+  const [lineLook] = useState(() => lineDeckLook ?? experimentArm(hatLineLook));
   // The line the header names while the pointer is on its mark (HatHeadDeck.tsx); a pointer event
   // sets it, never the clock.
   const [peeked, setPeeked] = useState<string | undefined>(undefined);
@@ -390,7 +397,10 @@ export const SubagentTray = memo(function SubagentTray({
   const hidesInHead = Boolean(onTuck) && headed && openLook === "hide";
   // The `eye`, `pill` and `bar` arms (hatHeader.experiment.ts): the hide control's own place in the top
   // bar, instead of today's tab on the top edge.
-  const hideAt = onTuck && headed && !hidesInHead ? hideOf(headerLook) : undefined;
+  // The one-line hat with marks (hatLine.experiment.ts) hides from an eye flush at the line's end: the
+  // top edge's tab sat over the middle of the line's words.
+  const lineHide = Boolean(onTuck) && headed && !hidesInHead && foldHead === "line" && lineLook !== "words";
+  const hideAt = onTuck && headed && !hidesInHead && !lineHide ? hideOf(headerLook) : undefined;
   // The list opens and folds on the shared fold, its height only (no fade in), from the header's
   // chevron.
   // A fold while the page is away (hidden, or in its first frames back) applies at once: the shared
@@ -652,8 +662,17 @@ export const SubagentTray = memo(function SubagentTray({
   // The `strip` and `cards` arms: the header's marks are one per running line, to thumb through. A lone
   // item's header already names it, so its one mark only opens it; with nothing running the header
   // keeps today's marks.
-  const deck = leading.length > 0 && !lineHead ? deckOf(headerLook) : undefined;
-  const peekItem = deck && !lone && peeked !== undefined ? leading.find((item) => itemKey(item) === peeked) : undefined;
+  // The one-line hat (hatLine.experiment.ts) draws its own deck: after the words (`trail`), or leading
+  // them (`lead`, `cards`). Its sentence never names a lone item, so a lone mark peeks too.
+  const lineDeck = lineHead && leading.length > 0 && lineLook !== "words" ? lineLook : undefined;
+  const deck =
+    leading.length > 0
+      ? lineHead
+        ? lineDeck && (lineDeck === "cards" ? "cards" : "strip")
+        : deckOf(headerLook)
+      : undefined;
+  const peeks = Boolean(deck) && (!lone || lineHead);
+  const peekItem = peeks && peeked !== undefined ? leading.find((item) => itemKey(item) === peeked) : undefined;
   // What the header says while a mark is pointed at: that line's name and latest step, as a lone
   // item's header says them. The bar keeps its height and its trailing columns; the words truncate.
   const peekHead = peekItem ? loneHeadOf(t, language, peekItem, waiting, true, connectionQuiet) : undefined;
@@ -708,6 +727,18 @@ export const SubagentTray = memo(function SubagentTray({
     setExpanded((current) => (current.has(key) ? current : new Set([...current, key])));
     if (!open) toggle();
   };
+  // The deck of marks to thumb through (HatHeadDeck.tsx), where the arm draws one.
+  const headDeck = deck ? (
+    <HatHeadDeck
+      items={leading}
+      chatHarness={chatHarness}
+      look={deck}
+      at={lineDeck === "trail" ? "trail" : "lead"}
+      peeked={peekItem ? peeked : undefined}
+      onPeek={peeks ? setPeeked : noPeek}
+      onOpenItem={openItem}
+    />
+  ) : null;
   // The top rim drags the list taller or shorter (trayResize.ts): it stays under the cursor, settles
   // on each line's edge, lands on a whole line, and folds below half the first. A press that never
   // moves does nothing; a double-click goes back to the default five lines.
@@ -887,15 +918,10 @@ export const SubagentTray = memo(function SubagentTray({
           {/* The `pill` arm: the hide pill's room, leading the bar (the pill lies over it, outside the
               header's own button). */}
           {hideAt === "pill" && <span className="acpmux-hat-hide-slot" data-at="pill" aria-hidden="true" />}
-          {lineHead ? null : deck ? (
-            <HatHeadDeck
-              items={leading}
-              chatHarness={chatHarness}
-              look={deck}
-              peeked={peekItem ? peeked : undefined}
-              onPeek={lone ? noPeek : setPeeked}
-              onOpenItem={openItem}
-            />
+          {lineHead ? (
+            deck && lineDeck !== "trail" && headDeck
+          ) : deck ? (
+            headDeck
           ) : summaryHead ? (
             <HeadSummary
               t={t}
@@ -996,6 +1022,9 @@ export const SubagentTray = memo(function SubagentTray({
               slide
             />
           )}
+          {/* The one line's `trail` marks, after its words (hatLine.experiment.ts). */}
+          {lineDeck === "trail" && headDeck}
+
           {loneHead?.agent && <LoneProgress agent={loneHead.agent} fallback={loneHead.progress} />}
           {/* Open (or in the counts arm), what ended failed, in the danger colour, and a subagent of
               another model family by its harness's mark, as its line draws it. */}
@@ -1066,6 +1095,9 @@ export const SubagentTray = memo(function SubagentTray({
           {opensPanel === "button" && (!lineHead || open) && (
             <span className="acpmux-running-tray__open-slot" aria-hidden="true" />
           )}
+          {/* The one line's hide eye's room, in the chevron column the line leaves empty (the eye lies over
+              it, outside this button). */}
+          {lineHide && <span className="acpmux-hat-hide-slot" data-at="line" aria-hidden="true" />}
           {/* The one trailing column every line's chevron ends in. */}
           {!lineHead && (
             <span className="acpmux-running-tray__status">
@@ -1131,6 +1163,21 @@ export const SubagentTray = memo(function SubagentTray({
           <Icon name="action.hide" size={ROW_ICON} row />
         </button>
       )}
+      {lineHide && (
+        // The one line's hide control (hatLine.experiment.ts): an eye-slash flush at the line's end, in
+        // muted ink at rest, never over the words; open, it rides the header's end the same way.
+        <button
+          type="button"
+          className="acpmux-hat-hide"
+          data-at="line"
+          data-open={open || undefined}
+          aria-label={t("tray.tuck")}
+          title={t("tray.tuck")}
+          onClick={onTuck}
+        >
+          <Icon name="action.hide" size={12} />
+        </button>
+      )}
       {(hideAt === "eye" || hideAt === "pill") && (
         // The `eye` arm: a small eye-slash circle in the bar's trailing controls, shown at rest in muted
         // ink (never a hover-only control). The `pill` arm: a glass pill leading the bar, attached to the
@@ -1147,7 +1194,7 @@ export const SubagentTray = memo(function SubagentTray({
           <Icon name="action.hide" size={hideAt === "eye" ? 12 : ROW_ICON} row={hideAt !== "eye"} />
         </button>
       )}
-      {onTuck && !hidesInHead && !hideAt && (
+      {onTuck && !hidesInHead && !hideAt && !lineHide && (
         <button
           type="button"
           className="acpmux-running-tray__tuck"
