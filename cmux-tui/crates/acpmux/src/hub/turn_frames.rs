@@ -7,7 +7,8 @@
 //! - `turn-start`: the turn began.
 //! - `edit`: a finished tool call named a UI file ([`ui_path`]); debounced [`DEBOUNCE`], so a burst
 //!   of edits is one frame.
-//! - `build`: a finished shell call (a build, a reload); debounced the same way.
+//! - `build`: a finished shell call (a build, a reload); debounced the same way. Also a `cmux live`
+//!   loop's build in place ([`built`], `acpmux frame @ --built SOURCE`), at once.
 //! - `turn-end`: the turn's result was written.
 //! - `look`: the agent asked (the `look` MCP tool), the one trigger that costs it tokens.
 //!
@@ -400,6 +401,36 @@ pub(super) fn record(session: &str, kind: &str, msg: &Value) {
             ask(&session, trigger);
         }
     });
+}
+
+/// Where a `built` ask may come from: a `cmux live` loop that just swapped in its build (RFD 0152).
+pub(crate) const BUILT_SOURCES: [&str; 4] = ["rust", "swift", "chromium", "web"];
+
+/// A frame after a `cmux live` loop's build is in place: the daemon swap, the live code injection or
+/// the engine restart finished, long after the save's own `edit` frame (a Rust build takes minutes).
+/// The loop runs in the chat's shell, so it names the chat (`ACPMUX_SESSION_ID`). A live build
+/// changes the app itself, so the app's window is the fallback when no agent-driven page shows. Its
+/// own `build` frame, at once (the build is already settled); none when the chat has no turn
+/// running. What happened, for the loop's log.
+pub(crate) fn built(session: &str, source: &str) -> Value {
+    let Some(source) = BUILT_SOURCES.iter().find(|s| **s == source) else {
+        return json!({"asked": false, "reason": format!("unknown source {source:?}: one of {}", BUILT_SOURCES.join(", "))});
+    };
+    let turn = {
+        let mut all = turns();
+        match all.get_mut(session).filter(|t| t.live) {
+            Some(turn) => {
+                turn.chrome = true;
+                turn.debounce += 1; // a pending edit frame of the same burst is this one
+                turn.id.clone()
+            }
+            None => {
+                return json!({"asked": false, "reason": "the chat has no turn running"});
+            }
+        }
+    };
+    ask(session, "build");
+    json!({"asked": true, "turnId": turn, "source": source})
 }
 
 /// The turn's result was written: its last frame.
