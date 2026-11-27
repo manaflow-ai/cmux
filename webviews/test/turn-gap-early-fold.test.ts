@@ -17,11 +17,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { layoutConversation, MESSAGE_RUN, type AcpmuxRow } from "../src/agent-session/acpmux/model";
-import {
-  TRANSCRIPT_BLOCK_GAP,
-  TRANSCRIPT_LIVE_STEP_GAP,
-  TRANSCRIPT_RUN_GAP,
-} from "../src/agent-session/acpmux/transcriptGrid";
+import { TRANSCRIPT_RUN_GAP, TRANSCRIPT_LIVE_STEP_GAP } from "../src/agent-session/acpmux/transcriptGrid";
 import { connect, fakeDaemon, record, type Step } from "./support/agentPairDaemon";
 
 afterEach(() => {
@@ -133,9 +129,17 @@ for (const fold of [undefined, "runs"] as const)
       expect(view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(0);
       expect(view.some((row) => row.kind === "activity")).toBe(true);
     }
-    // The agent's paragraph ends the run: it folds then, still mid-turn, as a run of calls does.
+    // The agent's paragraph ends the run. By default (live-turn-work `open`, #48766) nothing folds while
+    // the turn runs (Leo, 2026-11-21: "i thought we dont fold while you're still going"): every call
+    // stays in sight on its own line.
     const said = await after(steered, 8, true);
-    expect(said.view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
+    expect(said.view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(0);
+    expect(said.view.some((row) => row.kind === "activity")).toBe(true);
+    // Under `runs` (the Codex app's way) the paragraph folds the run then, still mid-turn.
+    globalThis.cmuxExperiments = { ...(fold && { "claude-turn-fold": fold }), "live-turn-work": "runs" };
+    const runs = await after(steered, 8, true);
+    expect(runs.view.filter((row) => row.kind === MESSAGE_RUN)).toHaveLength(1);
+    globalThis.cmuxExperiments = fold ? { "claude-turn-fold": fold } : undefined;
     // And at turn_result it is folded too.
     const done = await after(steered, steered.length, false);
     const rows: AcpmuxRow[] = done.view;

@@ -13,7 +13,18 @@
 // like, shrinks the thing, the circle into the Thinking... portion afterwards which is cute"), and
 // when an ask opens under a line already drawn, the dot grows in the same way (Leo, 2026-11-08: "I
 // mostly just meant the yellow circle thing. I thought that was cute").
-import { type RefObject, useContext, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  type RefObject,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  useEffect,
+  useReducer,
+} from "react";
+import { motionMode } from "../../../ui/motion/motionMode";
 import { experimentArm } from "../../../experiments/experiment";
 import { useT } from "../i18n";
 import { agentStartLook } from "./agentStart.experiment";
@@ -41,7 +52,8 @@ import { verbLeads } from "./toolVerbModel";
 import { statusVerbAt, statusVerbLabels, useStatusVerbConfig } from "../statusVerbs";
 import { thinkingVerb, ThinkingVerbsContext } from "./thinkingVerbs";
 import type { AcpmuxCompaction, AcpmuxTurnRetry } from "../model";
-import { retryParts, SILENT_MS, WRITING_MS, liveLead } from "./thinkingModel";
+import { retryParts, SILENT_MS, WRITING_MS, liveLead, retryBusy, retryShown } from "./thinkingModel";
+import { useConnectionQuietFrom } from "../../../ui/lasting";
 import { CACHE_EXPIRY_REASON } from "./cacheCompaction";
 import type { LiveLinePulse } from "./liveLinePulse";
 import { useAgentSignature } from "./agentSignatureModel";
@@ -150,6 +162,104 @@ type Roll = {
   tail?: string;
 };
 
+/// What the line says, from its props: a change of any of these rolls the line (`useRoll`). Its
+/// clocks, counts and pulse are not here; they go on under whichever words it shows.
+const SAYS = [
+  "starting",
+  "doing",
+  "doingAt",
+  "doingShell",
+  "sendTo",
+  "sendSession",
+  "draft",
+  "done",
+  "call",
+  "doneMs",
+  "liveState",
+  "liveAgents",
+  "liveAgentNames",
+  "liveCompaction",
+  "command",
+  "retry",
+] as const satisfies readonly (keyof ThinkingProps)[];
+type Says = Pick<ThinkingProps, (typeof SAYS)[number]>;
+type ThinkingProps = NonNullable<Parameters<typeof ThinkingLine>[0]>;
+
+/// The least time one set of words stays on the line before the next replaces it, in full motion.
+/// A turn that sends messages in quick succession flips the line from "Thinking" to "Sending message
+/// to X", to a call and back many times a second; each flip rolled at once, so the line flickered
+/// (Leo, 2026-11-25: "the sending messages in rapid succession is really bad looking. it's just your
+/// tool call/thinking glimmer text rapidly flickering up with very bad/nonexistent fade-in fade-out").
+/// Words that change sooner wait for the dwell's end and roll once to the latest; words that come
+/// back to what the line shows before then roll nothing. Three rolls (80 ms each) at most a second.
+export const LINE_DWELL_MS = 320;
+
+function saysKey(props: ThinkingProps): string {
+  return JSON.stringify([
+    props.starting ?? false,
+    props.doing,
+    props.doingShell ?? false,
+    props.sendTo,
+    props.sendSession,
+    props.draft ?? false,
+    props.done ?? false,
+    props.call,
+    props.liveState,
+    props.liveAgents ?? 0,
+    props.liveAgentNames,
+    props.command ?? false,
+    props.retry !== undefined,
+  ]);
+}
+
+function rollsNothing(says: Says): boolean {
+  return (says.starting ?? false) || says.retry !== undefined;
+}
+
+function pickSays(props: ThinkingProps): Says {
+  const says: Partial<Record<keyof Says, unknown>> = {};
+  for (const name of SAYS) says[name] = props[name];
+  return says as Says;
+}
+
+/// The line's words held for `LINE_DWELL_MS` since they last changed (one timeout per held change,
+/// cleared by the next; no loop). The timeout firing ends the dwell whatever the clock reads, so a
+/// clock that stands still (a frozen `now`) never holds the words for good. Reduced or no motion shows
+/// each change at once: nothing rolls there.
+function useLineDwell(props: ThinkingProps): ThinkingProps {
+  const key = saysKey(props);
+  const clock = props.now ?? Date.now;
+  // A wake since the shown words were set means their dwell ran out.
+  const [woken, wake] = useReducer((n: number) => n + 1, 0);
+  const [shown, setShown] = useState(() => ({ key, at: clock(), says: pickSays(props), woken }));
+  let hold = false;
+  if (shown.key !== key) {
+    const at = clock();
+    hold =
+      // Only words that roll into words wait: a start look or a retry, and the words back after one, show at once.
+      !rollsNothing(props) &&
+      !rollsNothing(shown.says) &&
+      at - shown.at < LINE_DWELL_MS &&
+      woken === shown.woken &&
+      motionMode() === "full" &&
+      // The line as it was before the dwell, for the gallery's before frames (agent-pane.status-swap `rapid-send-before`).
+      document.documentElement.dataset.liveDwell !== "off";
+    if (!hold) setShown({ key, at, says: pickSays(props), woken });
+  }
+  const since = shown.at;
+  useEffect(() => {
+    if (!hold) return undefined;
+    const id = setTimeout(wake, Math.max(0, LINE_DWELL_MS - (clock() - since)));
+    return () => clearTimeout(id);
+  }, [hold, since, woken, clock]);
+  return hold ? { ...props, ...shown.says } : props;
+}
+
+/// A running turn's live line (`ThinkingLine`), its words held a moment so quick changes never flash.
+export function Thinking(props: ThinkingProps = {}) {
+  return <ThinkingLine {...useLineDwell(props)} />;
+}
+
 /// The live line rolls its words when they change (Leo, 2026-11-05, on another app's status line:
 /// "this is quite good too how it animates the changing text!!! we need to have that!!! for
 /// changing tool calls at the bottom"): the old words roll up and out of the line as the new roll in
@@ -163,34 +273,33 @@ type Roll = {
 /// (`drawn`, the last commit's) rolls out with its words, and the new tail rolls in with the new
 /// words (`.cv-worked--live[data-roll]`), so no count pops off or on while the words roll.
 function useRoll(key: string | undefined, label: string, lead: Roll["lead"], tail: string): Roll {
-  const [roll, setRoll] = useState<Roll>({ key, label, lead, turns: 0 });
-  // The tail as last committed. Refs are read only in layout effects, never in render: a new roll's
-  // old tail is filled in below, before paint, so only a key change costs a second render and a tick
-  // costs none.
-  const drawn = useRef(tail);
-  // A new roll (its `turns` changed) takes the tail the last commit drew. Declared before the effect
-  // that records this commit's tail, so it still reads the one before.
-  const rolledOut = roll.out !== undefined;
-  useLayoutEffect(() => {
-    if (!rolledOut) return;
-    const before = drawn.current;
-    setRoll((now) => (now.out && now.turns === roll.turns ? { ...now, out: { ...now.out, tail: before } } : now));
-  }, [rolledOut, roll.turns]);
-  useLayoutEffect(() => {
-    drawn.current = tail;
-  });
+  // `drawn`: the tail these words were last drawn with, kept with them in the render that draws it,
+  // so a new roll takes the old words' tail in the render that rolls them. Filled in by a layout
+  // effect, each tool call's start or end cost the transcript a second commit (and the line its
+  // layout reads again) before the frame painted.
+  const [roll, setRoll] = useState<Roll & { drawn: string }>({ key, label, lead, turns: 0, drawn: tail });
   if (key !== roll.key) {
     const rolls = key !== undefined && roll.key !== undefined;
-    setRoll({
+    const next = {
       key,
       label,
       lead,
       // Away clears the count too: the words that come back draw no roll in.
       turns: key === undefined ? 0 : roll.turns + (rolls ? 1 : 0),
-      // Its tail is the one last drawn, filled in by the first layout effect above.
-      out: rolls ? { ...roll, out: undefined, tail: undefined } : undefined,
-    });
-  } else if (label !== roll.label) setRoll({ ...roll, label, lead });
+      // The old words roll out with the tail they were last drawn with.
+      out: rolls
+        ? { key: roll.key, label: roll.label, lead: roll.lead, turns: roll.turns, tail: roll.drawn }
+        : undefined,
+      drawn: tail,
+    };
+    setRoll(next);
+    return next;
+  }
+  if (label !== roll.label || tail !== roll.drawn) {
+    const next = { ...roll, label, lead, drawn: tail };
+    setRoll(next);
+    return next;
+  }
   return roll;
 }
 
@@ -215,6 +324,10 @@ class LineBoxes {
   /// were last drawn at, kept when a new words box replaces it until that one's first report, read
   /// with no forced layout (`useRollOutWidth`). Undefined until a first report.
   wordsWidth: number | undefined;
+  /// The counts' left offsets as last laid out, read in the observer's callback (layout is clean
+  /// there, so the read forces none) whenever a watched box reports (`useCountGlide`). Undefined
+  /// until a first report.
+  countLefts: number[] | undefined;
 
   /// Whether a ResizeObserver reports the boxes: then `wordsWidth` is theirs and nothing reads layout.
   get observing(): boolean {
@@ -237,6 +350,7 @@ class LineBoxes {
         // A box's first report is its size when observed, already read in that commit.
         if (before !== undefined && before !== size) this.resized = true;
       }
+      if (this.node) this.countLefts = readLefts(this.node);
     });
     this.observer = observer;
     return () => {
@@ -244,6 +358,7 @@ class LineBoxes {
       if (this.observer === observer) this.observer = undefined;
       this.boxes = new Map();
       this.wordsWidth = undefined;
+      this.countLefts = undefined;
       // A remount (Strict Mode's second pass) reads and observes again.
       this.drawn = undefined;
     };
@@ -351,11 +466,15 @@ function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number, mo
     if (!node) return;
     // Nothing drawn moved: the counts sit where they were read last, so none glides.
     if (turns === drawn.current.turns && !moved.moved) return;
-    const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
-    const lefts = counts.map((count) => count.offsetLeft);
-    const before = drawn.current;
+    // Observed, where the counts were drawn is the observer's last report, and only a glide reads
+    // where they land now: a roll or motion off reads no layout in its commit.
+    const reported = moved.observing ? moved.countLefts : undefined;
+    const before = reported ? { turns: drawn.current.turns, lefts: reported } : drawn.current;
+    const glides = before.turns === turns && motionAllowed(node) && countsMove(node);
+    const lefts = glides || !reported ? readLefts(node) : [];
     drawn.current = { turns, lefts };
-    if (before.turns !== turns || !motionAllowed(node) || !countsMove(node)) return;
+    if (!glides) return;
+    const counts = [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")];
     counts.forEach((count, index) => {
       const from = before.lefts[index];
       const dx = from === undefined ? 0 : from - lefts[index]!;
@@ -366,6 +485,11 @@ function useCountGlide(line: RefObject<HTMLDivElement | null>, turns: number, mo
       });
     });
   });
+}
+
+/// The live line's counts' left offsets, read from layout.
+function readLefts(node: HTMLDivElement): number[] {
+  return [...node.querySelectorAll<HTMLElement>(":scope > .cv-worked__count")].map((count) => count.offsetLeft);
 }
 
 /// The same gates as the roll (conversation.css `cv-roll-*`).
@@ -469,7 +593,7 @@ function LiveWords({
 /// on the person alike.
 export const SHIMMER_CLASS = "is-shimmer";
 
-export function Thinking({
+function ThinkingLine({
   starting = false,
   since,
   now = Date.now,
@@ -500,6 +624,7 @@ export function Thinking({
   below = false,
   command = false,
   retry,
+  retryAt,
   pulse,
   glyphTrigger = starting ? "turnStart" : "thinking",
 }: {
@@ -562,9 +687,12 @@ export function Thinking({
   /// The call in flight is a command: the line offers ⌃B, as the command's own row does
   /// (BackgroundHint.tsx), since the row is not drawn while it runs.
   command?: boolean;
-  /// The harness retries a failed model request (acpmux `turn_retrying`): the line says that,
-  /// never "Thinking" (`retryParts`).
+  /// The harness retries a failed model request (acpmux `turn_retrying`): the line says that
+  /// (`retryParts`), a model out of reach once it has lasted the shared bound (`retryShown`).
   retry?: AcpmuxTurnRetry;
+  /// When the retries began (the line's `retryAt`, conversation/turns.ts `withRetry`): the bound
+  /// counts from then; without it, from when the line first saw the retry.
+  retryAt?: number;
   /// The transcript's live line hears its chunks and events here without a draw (liveLinePulse.ts).
   pulse?: LiveLinePulse;
   /// What a look's thinking glyph plays (thinkingGlyphModel.ts `glyphTrigger`, from the row's activity).
@@ -673,8 +801,11 @@ export function Thinking({
                 : idleLabel
           : doing;
   const lead = doing === undefined ? undefined : liveLead(label, verbLeads(t), !doingShell && sendName === undefined);
+  // "Can't reach the model" waits out the shared bound; until then the line reads as it did.
+  const unreachableLasting = useConnectionQuietFrom(retry !== undefined && !retryBusy(retry), retryAt, now);
+  const retrying = retryShown(retry, unreachableLasting);
   // A retry or a start look draws other words in place of the line: coming back rolls nothing.
-  const away = waiting !== undefined || retry !== undefined || startLook !== "thinking";
+  const away = waiting !== undefined || retrying || startLook !== "thinking";
   const sameCall = call !== undefined && doing !== undefined && experimentArm(oneRowPerCall) === "morph";
   const turnTime = timed ? formatDuration(Math.max(0, time - from)) : undefined;
   // Past the first step a finished step's own time stands beside the label, and the turn's clock
@@ -792,7 +923,7 @@ export function Thinking({
   if (waiting === "question") return null;
   // A model the harness cannot reach: said calmly in the line's own box, so nothing moves when it
   // starts or ends (Leo, 2026-11-03). What the chat waits on the person for still comes first.
-  if (retry && !waiting) {
+  if (retry && !waiting && retrying) {
     const parts = retryParts(t, retry, retryNow);
     return (
       <div

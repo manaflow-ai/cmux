@@ -209,6 +209,11 @@ fn build_harness_command(
     let sr2_person = env.remove(crate::sr2_priority::PERSON_ENV).as_deref() == Some("1");
     // OpenCode asked to ask (`opencode_ask.rs`): its config is set below.
     let opencode_ask = env.remove(crate::opencode_ask::MARKER).is_some();
+    // The person's `agents.envExclude` (agent_env.rs): removed last, below.
+    let env_exclude = env
+        .remove(crate::agent_env::EXCLUDE_MARKER)
+        .map(|marker| crate::agent_env::patterns(&marker))
+        .unwrap_or_default();
     // The caller token and its socket are acpmux's own (`hub/person.rs` (a)):
     // this env is layered after `caller_env`, so a profile, preset or
     // request value would replace them.
@@ -333,6 +338,17 @@ fn build_harness_command(
         if let Some(bin) = crate::cli_caller::own_bin() {
             cmd.env(crate::cli_caller::BIN_ENV, bin);
         }
+        // Opt-in (off unless ACPMUX_HOOK_TOKEN_FILE names a file): a local Claude Code session
+        // gets that file's token as HOOK_DAEMON_TOKEN, so an http hook can send
+        // `${HOOK_DAEMON_TOKEN}` instead of a literal in settings.json. Read at each spawn, so a
+        // rotated token reaches the next session; a profile's own value wins.
+        if !remote_environment
+            && family_name == "claude"
+            && !env.contains_key(HOOK_DAEMON_TOKEN_ENV)
+            && let Some(token) = hook_daemon_token(|k| std::env::var_os(k))
+        {
+            cmd.env(HOOK_DAEMON_TOKEN_ENV, token);
+        }
         // Its own temporary folder (`session_tmp.rs`); a profile's TMPDIR
         // (applied below) still wins. A remote-origin chain keeps its base.
         #[cfg(unix)]
@@ -360,6 +376,21 @@ fn build_harness_command(
     cmd.env_remove("CMUX_HARNESS_SESSION_STORE_DIR");
     let launch =
         crate::harness_limits::launch_args(codex_launch, args, session.map(|_| (cwd, &env)));
+    // `agents.sandbox.network` `allow` (agent_sandbox.rs): a chat's Codex sandbox reaches the
+    // network. A remote chain's launch runs only what its plan checked.
+    let launch = if codex_launch && session.is_some() && !remote_environment {
+        let home = env.get("CODEX_HOME").map(std::path::PathBuf::from);
+        crate::agent_sandbox::codex_args(crate::agent_sandbox::Sandbox::current(), launch, || {
+            crate::harness_limits::codex_sets(
+                args,
+                cwd,
+                home,
+                crate::agent_sandbox::CODEX_NETWORK_KEY,
+            )
+        })
+    } else {
+        launch
+    };
     // A remote chain's sandboxed launch runs only what its plan checked: no hook.
     let codex = (!remote_environment && codex_launch).then(|| (program.clone(), launch.clone()));
     let (launch, codex) = match codex {
@@ -375,6 +406,19 @@ fn build_harness_command(
     // The profile's PATH first, never instead of the login PATH (login_env::with_agent_path).
     if !remote_environment && let Some(own) = env.get("PATH").filter(|p| !p.is_empty()) {
         cmd.env("PATH", crate::login_env::with_agent_path(own));
+    }
+    // The exec router's shims first (`placement/exec_router.rs`): on a Cloud machine with run
+    // VMs on, a heavy build any process of this session starts (a script's, `make`'s, a
+    // helper's) goes where the run VM placer sends it, not only Claude Code's own Bash calls.
+    if session.is_some() && !remote_environment {
+        let current = command_env_with(&cmd, true)
+            .into_iter()
+            .find(|(k, _)| k == "PATH")
+            .map(|(_, v)| v)
+            .unwrap_or_default();
+        if let Some(path) = crate::placement::exec_router::session_path(&current) {
+            cmd.env("PATH", path);
+        }
     }
     // A machine a Mac lends GitHub: git's helper and the gh shim ask the Mac for a short-lived
     // App token (`github_session_env.rs`). The person's own git and gh auth still answer first.
@@ -432,10 +476,16 @@ fn build_harness_command(
         if let Some(headers) = crate::subrouter_session::custom_headers(get) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
-        // Interactive or background (subrouter_priority.rs), after the lines already set.
+        // The sr and sr2 launchers reach their gateway with no base URL of their own.
+        let launcher = [Some(program.as_str()), Some(name), family]
+            .into_iter()
+            .flatten()
+            .any(|p| crate::sr2_priority::is_sr2_launcher(p) || is_sr_launcher(p));
+        // Interactive or background (subrouter_priority.rs), after the lines already set; only
+        // on a gateway's route, never on a direct Anthropic request.
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        if let Some(headers) = crate::subrouter_priority::custom_headers(get) {
+        if let Some(headers) = crate::subrouter_priority::custom_headers(get, launcher) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
         // sr2 cost labels (sr2_cost_labels.rs), over the lines set just above.
@@ -449,10 +499,10 @@ fn build_harness_command(
         cmd.env_remove(crate::sr2_priority::PERSON_ENV);
         let env = command_env_with(&cmd, !remote_environment);
         let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
-        let launcher = crate::sr2_priority::is_sr2_launcher(program)
+        let sr2_launcher = crate::sr2_priority::is_sr2_launcher(program)
             || crate::sr2_priority::is_sr2_launcher(name)
             || family.is_some_and(crate::sr2_priority::is_sr2_launcher);
-        if let Some(headers) = crate::sr2_priority::custom_headers(get, launcher, sr2_person) {
+        if let Some(headers) = crate::sr2_priority::custom_headers(get, sr2_launcher, sr2_person) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
     }
@@ -489,6 +539,15 @@ fn build_harness_command(
     if remote_environment {
         crate::linux_sandbox::scrub_loader_env(&mut cmd);
     }
+    // `agents.envExclude`, last: whoever set a name (the daemon, the login shell, a profile,
+    // `agents.env`, acpmux above), the agent never gets it; acpmux's session wiring stays.
+    if !env_exclude.is_empty() {
+        for (key, _) in command_env_with(&cmd, !remote_environment) {
+            if crate::agent_env::excluded(&key, &env_exclude) {
+                cmd.env_remove(&key);
+            }
+        }
+    }
     // The hosted and direct translators take the hook home from this launch. Only the
     // selected local plugin enables its callbacks, regardless of inherited or profile env.
     cmd.env_remove(crate::bg_hook::HOME_ENV);
@@ -519,11 +578,35 @@ fn ask_opencode(cmd: &mut Command, name: &str, inherit_ambient: bool) {
     }
 }
 
+/// Whether `program` (or a profile name) is the subrouter launcher: `sr` (`sr claude ...`) or
+/// the `claude-sr` profile named for it, which runs through the subrouter gateway.
+fn is_sr_launcher(program: &str) -> bool {
+    let base = std::path::Path::new(program.trim()).file_name().and_then(|n| n.to_str());
+    base.is_some_and(|b| b == "sr" || b == "claude-sr")
+}
+
 /// How Claude Code started from `profile` writes its question previews
 /// (`hub/questions.rs` `PreviewFormat`): its own
 /// `CLAUDE_CODE_QUESTION_PREVIEW_FORMAT`, a reference resolved as the launch
 /// resolves it. The hub labels the questions with it (`hub/tools.rs`) and
 /// `harness_command` pins the agent to it, so the two never disagree.
+pub(crate) const HOOK_DAEMON_TOKEN_ENV: &str = "HOOK_DAEMON_TOKEN";
+/// The setting that turns the token hand-off on: a path to a token file. Unset or empty, nothing
+/// is read and no session gets HOOK_DAEMON_TOKEN.
+pub(crate) const HOOK_TOKEN_FILE_ENV: &str = "ACPMUX_HOOK_TOKEN_FILE";
+
+/// The token in the file `ACPMUX_HOOK_TOKEN_FILE` names. None when the setting is unset, or the
+/// file is missing, unreadable or not 32-128 hex characters, so a stray file never becomes a header.
+pub(crate) fn hook_daemon_token(
+    getenv: impl Fn(&str) -> Option<std::ffi::OsString>,
+) -> Option<String> {
+    let path = getenv(HOOK_TOKEN_FILE_ENV).filter(|v| !v.is_empty())?;
+    let text = std::fs::read_to_string(std::path::PathBuf::from(path)).ok()?;
+    let token = text.trim();
+    (token.len() >= 32 && token.len() <= 128 && token.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| token.to_owned())
+}
+
 pub(crate) fn preview_format(profile: &HarnessProfile) -> crate::questions::PreviewFormat {
     use crate::questions::{PREVIEW_FORMAT_ENV, PreviewFormat};
     let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
@@ -703,6 +786,26 @@ mod tests {
 
     use super::*;
 
+    /// `agents.envExclude` (agent_env.rs) removes its names from the agent's whole env, the
+    /// profile's and the inherited ones, last; acpmux's own session wiring and the marker stay out.
+    #[test]
+    fn env_exclude_removes_names_last_but_keeps_acpmux_wiring() {
+        let p = serde_json::from_value(serde_json::json!({
+            "argv": ["/usr/bin/true"],
+            "env": {"SECRET_TOKEN": "x", "SECRET_OTHER": "y", "KEEP": "1", "PATH": "/usr/bin",
+                (crate::agent_env::EXCLUDE_MARKER): "SECRET_*,HOME,ACPMUX_*"}
+        }))
+        .unwrap();
+        let cmd =
+            harness_command("t", &p, &std::env::temp_dir(), None, Some(("s1", "n1"))).unwrap();
+        let env = command_env(&cmd);
+        let has = |k: &str| env.iter().any(|(n, _)| n == k);
+        assert!(!has("SECRET_TOKEN") && !has("SECRET_OTHER") && !has("HOME"));
+        assert!(has("KEEP"));
+        assert!(has("ACPMUX_SESSION_ID") && has("ACPMUX_SOCKET"));
+        assert!(!has(crate::agent_env::EXCLUDE_MARKER));
+    }
+
     /// A daemon started by a bounded command holds its `CMUX_DEADLINE`: an agent it starts
     /// must not, or the fleet's orphan reaper ends the agent once the bound passes.
     #[test]
@@ -723,6 +826,24 @@ mod tests {
 
     /// A Claude session is launched under its acpmux name (`--name`), so Claude
     /// Code's peer list says what `acpmux ls` says; with cmux's tools off too.
+    #[test]
+    fn the_hook_daemon_token_is_off_unless_its_setting_names_a_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("token");
+        let tok = "0123456789abcdef".repeat(3);
+        std::fs::write(&file, format!("{tok}\n")).unwrap();
+        let home = dir.path().to_path_buf();
+        let unset = |k: &str| (k == "HOME").then(|| home.clone().into_os_string());
+        assert_eq!(super::hook_daemon_token(unset), None, "off by default, whatever is on disk");
+        let set =
+            |k: &str| (k == super::HOOK_TOKEN_FILE_ENV).then(|| file.clone().into_os_string());
+        assert_eq!(super::hook_daemon_token(set).as_deref(), Some(tok.as_str()));
+        std::fs::write(&file, "not hex at all, not a token\n").unwrap();
+        assert_eq!(super::hook_daemon_token(set), None, "a stray file never becomes a header");
+        std::fs::remove_file(&file).unwrap();
+        assert_eq!(super::hook_daemon_token(set), None, "no file, no token");
+    }
+
     #[test]
     fn a_claude_session_is_launched_under_its_acpmux_name() {
         let mut profile: HarnessProfile = serde_json::from_value(serde_json::json!({

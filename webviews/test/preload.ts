@@ -34,10 +34,12 @@
 // after their imports have loaded Base UI, and bun shares one module cache across files, so the
 // first file to import src/ui would turn Base UI's layout effects off for every file after it
 // (popovers and dialogs that never open). Load that one module here with a stand-in document.
+import { resolveBaseUiDependency } from "./support/baseUiDependency";
+
 const scope = globalThis as Record<string, unknown>;
 const hadDocument = "document" in scope;
 if (!hadDocument) scope.document = {};
-await import("@base-ui/utils/useIsoLayoutEffect");
+await import(resolveBaseUiDependency("@base-ui/utils/useIsoLayoutEffect", import.meta.path));
 if (!hadDocument) delete scope.document;
 export {};
 
@@ -105,7 +107,7 @@ export {};
   // of the run. session-info-subagent-card-stays failed so behind session-info-motion in one
   // `bun test` process, and passed alone. Loaded here, after react-dom, which it imports: the copy
   // Base UI itself resolves (a dependency of @base-ui/react, not of this package).
-  await import(Bun.resolveSync("@floating-ui/react-dom", Bun.resolveSync("@base-ui/react/tooltip", import.meta.path)));
+  await import(resolveBaseUiDependency("@floating-ui/react-dom", import.meta.path));
   for (const [key, had, value] of saved)
     if (had) scope[key] = value;
     else delete scope[key];
@@ -168,7 +170,9 @@ if (!("Element" in scope)) {
 // chunk's modules (Base UI) read `navigator` once when they load, so they load after the file has
 // installed its window, as they did when they were the file's own imports. A file that imports none
 // of them fetches nothing.
-{
+// Outside `bun test` (scripts/cloud-ergonomics.ts, cmuxterm-hq's cloud-ergonomics-linux probe, runs this
+// preload as a plain script) there is no first test, beforeAll throws, and the script draws no lazy chunk.
+if (process.env.NODE_ENV === "test") {
   const { beforeAll } = await import("bun:test");
   const { loadLazyChunks } = await import("../src/lazyChunk");
   beforeAll(() => loadLazyChunks());

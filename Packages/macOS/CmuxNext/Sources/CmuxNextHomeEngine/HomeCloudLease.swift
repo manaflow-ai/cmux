@@ -1,4 +1,5 @@
 import CmuxNextCloud
+import CmuxNextHomeModel
 public import CmuxNextDaemon
 public import Foundation
 public import os
@@ -140,13 +141,13 @@ public final class HomeCloudLease {
             guard tokens.isSignedIn else { throw Refusal.signedOut }
             let token = try await tokens.accessToken(forceRefresh: forceRefresh)
             try Task.checkCancellation()
-            guard let origin = Self.origin(apiBaseURL) else { throw Refusal.noOrigin }
             // The token must be the account asked for: the user may have switched while it was read.
-            guard let subject = Self.subject(ofJWT: token),
-                  CloudIdentity.cloudID(stackUserID: subject) == CloudIdentity.cloudID(stackUserID: expectedUserID) else {
+            let check = try? HomeRules.call("cloud.lease_check", LeaseCheckRequest(
+                token: token, expectedUserId: expectedUserID, apiBaseUrl: apiBaseURL.absoluteString, nowMs: Self.nowMs(Date()))) as LeaseCheck
+            guard let check, check.kind != "noOrigin" else { throw Refusal.noOrigin }
+            guard check.kind == "lease", let origin = check.origin, let subject = check.subject, let expiresAt = check.expiresAt else {
                 throw Refusal.otherAccount
             }
-            let expiresAt = Self.expiry(ofJWT: token) ?? Self.fallbackExpiry(now: Date())
             _ = try await sessions.setSession(CloudSessionSetRequest(apiBaseURL: origin, accessToken: token, expiresAt: expiresAt,
                                                                      clientVersion: clientVersion))
             return .leased(subject: subject, expiresAt: expiresAt)
@@ -183,55 +184,47 @@ public final class HomeCloudLease {
 
     /// The API origin: scheme, host and port only (the daemon refuses a path).
     /// An IPv6 host (a tailnet `fd7a:115c:a1e0::/48` address) keeps its brackets.
+    /// The rule is cmux-home-rules' `cloud.origin`.
     public nonisolated static func origin(_ url: URL) -> String? {
-        guard let scheme = url.scheme, let host = url.host, !host.isEmpty else { return nil }
-        let bracketed = host.contains(":") && !host.hasPrefix("[") ? "[\(host)]" : host
-        let port = url.port.map { ":\($0)" } ?? ""
-        return "\(scheme)://\(bracketed)\(port)"
+        let reply = try? HomeRules.call("cloud.origin", ["url": url.absoluteString]) as OriginReply
+        return reply?.origin
     }
-
-    /// No access token lives longer than this; a later `exp` is not trusted.
-    nonisolated static let maxLifetime: TimeInterval = 30 * 24 * 3600
 
     /// The `exp` claim of a JWT access token, as Unix milliseconds. Read
     /// only to schedule the renewal; the daemon and the Worker verify it.
-    /// A claim that is not finite, or later than `maxLifetime` from `now`,
-    /// reads as missing (the lease then uses `fallbackExpiry`).
+    /// A claim that is not finite, or later than 30 days from `now`, reads
+    /// as missing (the lease then uses `fallbackExpiry`); `cloud.jwt_claims`.
     public nonisolated static func expiry(ofJWT token: String, now: Date = Date()) -> UInt64? {
-        guard let claims = claims(ofJWT: token),
-              let exp = (claims["exp"] as? NSNumber)?.doubleValue, exp.isFinite, exp > 0,
-              exp <= now.timeIntervalSince1970 + maxLifetime else { return nil }
-        return UInt64(exp * 1000)
-    }
-
-    /// The `sub` claim of a JWT access token: the Stack user id it was
-    /// issued for. Read only to check that a lease is for the account asked
-    /// for; the daemon and the Worker verify the token.
-    nonisolated static func subject(ofJWT token: String) -> String? {
-        guard let sub = claims(ofJWT: token)?["sub"] as? String, !sub.isEmpty else { return nil }
-        return sub
-    }
-
-    /// The `team` claim of an install token (read for consistency, never
-    /// trusted as a credential). Nil when the token is not a JWT with a team.
-    public nonisolated static func team(ofJWT token: String) -> String? {
-        guard let team = claims(ofJWT: token)?["team"] as? String, !team.isEmpty else { return nil }
-        return team
-    }
-
-    /// The decoded payload of a JWT, unverified.
-    nonisolated private static func claims(ofJWT token: String) -> [String: Any]? {
-        let segments = token.split(separator: ".", omittingEmptySubsequences: false)
-        guard segments.count == 3 else { return nil }
-        var payload = segments[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
-        guard let data = Data(base64Encoded: payload) else { return nil }
-        return try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let reply = try? HomeRules.call("cloud.jwt_claims", ClaimsRequest(token: token, nowMs: nowMs(now))) as ClaimsReply
+        return reply?.expiresAt
     }
 
     /// A token without a readable `exp` is leased for five minutes, so the
     /// daemon asks again soon instead of trusting it for long.
     public nonisolated static func fallbackExpiry(now: Date) -> UInt64 {
         UInt64((now.timeIntervalSince1970 + 300) * 1000)
+    }
+
+    nonisolated private static func nowMs(_ now: Date) -> Double { now.timeIntervalSince1970 * 1000 }
+
+    private nonisolated struct LeaseCheckRequest: Encodable {
+        let token: String, expectedUserId: String, apiBaseUrl: String, nowMs: Double
+    }
+
+    private nonisolated struct LeaseCheck: Decodable {
+        let kind: String
+        let origin: String?, subject: String?, expiresAt: UInt64?
+    }
+
+    private nonisolated struct ClaimsRequest: Encodable {
+        let token: String, nowMs: Double
+    }
+
+    private nonisolated struct ClaimsReply: Decodable {
+        let expiresAt: UInt64?
+    }
+
+    private nonisolated struct OriginReply: Decodable {
+        let origin: String?
     }
 }
