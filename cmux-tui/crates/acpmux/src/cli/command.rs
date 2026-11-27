@@ -755,8 +755,8 @@ pub enum Command {
     /// Forum rules: announce one, list the current ones, ack one.
     #[command(subcommand)]
     Forum(crate::cli::forum::ForumCmd),
-    /// The fleet memory mount (~/.cmux/memory): sync, put, get, ls, history, status, and link a
-    /// harness's memory folder into it.
+    /// The memory mount shared by your machines (~/.cmux/memory): sync, put, get, ls, history,
+    /// status, and link a harness's memory folder into it.
     #[command(subcommand)]
     Memory(crate::cli::memory::MemoryCmd),
     /// Bridge Claude Desktop, Codex Desktop and ChatGPT Desktop to each other and to cmux sessions:
