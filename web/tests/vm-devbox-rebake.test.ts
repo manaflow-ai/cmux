@@ -15,7 +15,7 @@ import {
   settledAwaiting,
   type SnapshotRow,
 } from "../scripts/devbox-rebake";
-import { isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
+import { FREESTYLE_START_MIN_ATTEMPTS, isFreestyleTransient, readDevboxAwaitingRebake, repoRoot, retryFreestyleOverload, type DevboxAwaitingRebake } from "../scripts/devbox-image-common";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Bun's YAML parser; web/tests are typed by tests/bun-test.d.ts, which has no Bun global.
@@ -176,7 +176,37 @@ describe("retryFreestyleOverload", () => {
   test("gives up with the overload once the budget is spent", async () => {
     let calls = 0;
     await expect(retryFreestyleOverload("t", async () => { calls += 1; throw overloaded; }, 30, 10)).rejects.toBe(overloaded);
-    expect(calls).toBeGreaterThan(1);
+    expect(calls).toBeGreaterThanOrEqual(FREESTYLE_START_MIN_ATTEMPTS);
+  });
+
+  test("asks again after a 409 VM_NON_RESPONSIVE start, and rethrows other 409s", async () => {
+    // Rebake run 46028301324 attempt 3: the verify's second vms.create answered 409 VM_NON_RESPONSIVE.
+    const nonResponsive = Object.assign(new Error("vm stopped responding: timed out reading from guest agent"), { status: 409, code: "VM_NON_RESPONSIVE" });
+    let calls = 0;
+    const vm = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      if (calls < 2) throw nonResponsive;
+      return "vm-2";
+    }, 1_000, 1);
+    expect(vm).toBe("vm-2");
+    expect(calls).toBe(2);
+    const conflict = Object.assign(new Error("name taken"), { status: 409, code: "CONFLICT" });
+    calls = 0;
+    await expect(retryFreestyleOverload("t", async () => { calls += 1; throw conflict; }, 1_000, 1)).rejects.toBe(conflict);
+    expect(calls).toBe(1);
+  });
+
+  test("still tries a start the minimum number of times when one try outlasts the budget", async () => {
+    // Rebake run 46028301324 attempt 2: one create sat 10 min in Freestyle's queue, then 429.
+    let calls = 0;
+    const vm = await retryFreestyleOverload("t", async () => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      if (calls < FREESTYLE_START_MIN_ATTEMPTS) throw overloaded;
+      return "vm-3";
+    }, 20, 1);
+    expect(vm).toBe("vm-3");
+    expect(calls).toBe(FREESTYLE_START_MIN_ATTEMPTS);
   });
 
   test("with isFreestyleTransient asks again after a 500, as a resize needs, and still rethrows a 4xx", async () => {

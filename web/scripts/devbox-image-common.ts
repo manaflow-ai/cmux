@@ -83,6 +83,21 @@ export function isFreestyleTransient(error: unknown): boolean {
 }
 
 /**
+ * A VM start Freestyle gave up on: the 429 overload, or 409 VM_NON_RESPONSIVE
+ * ("vm stopped responding: timed out reading from guest agent"), a fresh VM
+ * that never answered its guest agent. Either way no VM came back, so asking
+ * for a new one is safe. Rebake run 46028301324 attempt 3 (11-27) lost a
+ * verify whose first machine had passed to one 409 on the second start.
+ */
+export function isFreestyleStartRetryable(error: unknown): boolean {
+  const e = error as { status?: unknown; code?: unknown } | null;
+  return isFreestyleOverload(error) || (e?.status === 409 && e?.code === "VM_NON_RESPONSIVE");
+}
+
+/** Attempts a VM start always gets, however long Freestyle held each one. */
+export const FREESTYLE_START_MIN_ATTEMPTS = 3;
+
+/**
  * Freestyle answers a VM start it has no capacity for with 429
  * INFRASTRUCTURE_OVERLOADED ("VM start capacity queue wait expired"). The
  * size ladder starts up to twelve VMs at once and the largest shapes queue
@@ -90,14 +105,20 @@ export function isFreestyleTransient(error: unknown): boolean {
  * verify and md..lgx had passed. Every VM start on the rebake path goes
  * through this: back off and ask again for up to ten minutes, and rethrow any
  * other error at once.
+ *
+ * Freestyle may hold one start in its own queue for the whole budget before
+ * it answers 429 (rebake run 46028301324 attempt 2: one create, 10 min, then
+ * the overload, and no retry left), so the budget never cuts a start off
+ * before FREESTYLE_START_MIN_ATTEMPTS tries.
  */
-export async function retryFreestyleOverload<T>(label: string, start: () => Promise<T>, budgetMs = 10 * 60_000, firstWaitMs = 15_000, retryable: (error: unknown) => boolean = isFreestyleOverload): Promise<T> {
+export async function retryFreestyleOverload<T>(label: string, start: () => Promise<T>, budgetMs = 10 * 60_000, firstWaitMs = 15_000, retryable: (error: unknown) => boolean = isFreestyleStartRetryable): Promise<T> {
   const deadline = Date.now() + budgetMs;
   for (let attempt = 1, waitMs = firstWaitMs; ; attempt += 1, waitMs = Math.min(waitMs * 2, Math.max(firstWaitMs, 120_000))) {
     try {
       return await start();
     } catch (error) {
-      if (!retryable(error) || Date.now() + waitMs > deadline) throw error;
+      if (!retryable(error)) throw error;
+      if (attempt >= FREESTYLE_START_MIN_ATTEMPTS && Date.now() + waitMs > deadline) throw error;
       const e = error as { status?: unknown; code?: unknown; message?: unknown };
       const why = isFreestyleOverload(error) ? "Freestyle start capacity overloaded" : `Freestyle answered ${String(e?.status)} ${String(e?.code)}`;
       console.log(`${label}: ${why} (${String(e?.message ?? e?.code)}); retry ${attempt} in ${waitMs / 1000}s`);
