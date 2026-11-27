@@ -54,7 +54,7 @@ test("daemon statuses and facts reach the composer on attach, update and clear",
     };
     socket.changeSession(mockHost.sessionId!, { title: "status update", composerStatus: paused });
     await until(() => view.shown?.summary?.title === "status update");
-    expect(view.shown!.summary?.composerStatus).toEqual(paused);
+    expect(view.shown!.summary?.composerStatus).toEqual(paused as never);
     const changed = composerView(view.shown!);
     // Isolate the status field: the composer's memoization must notice it even without a title change.
     expect(
@@ -71,7 +71,7 @@ test("daemon statuses and facts reach the composer on attach, update and clear",
     ] as const) {
       socket.changeSession(mockHost.sessionId!, { title, composerStatus: status });
       await until(() => view.shown?.summary?.title === title);
-      expect(view.shown!.summary?.composerStatus).toEqual(title === "empty" ? status : undefined);
+      expect(view.shown!.summary?.composerStatus).toEqual((title === "empty" ? status : undefined) as never);
     }
   } finally {
     client.close();

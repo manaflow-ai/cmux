@@ -7536,7 +7536,14 @@ export class AcpmuxDirectClient {
     if (this.readAheadAt.has(session.sessionId)) this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     if (session.sessionId === this.selectedSessionId) {
       this.retryOwedLagRead();
-      this.summary = { ...this.summary, ...session, loopEpisode: session.loopEpisode ?? null };
+      // Session changes are complete summaries. Keep the projection in sync even when an older
+      // daemon omits composerStatus: omission means there are no status items to publish.
+      this.summary = {
+        ...this.summary,
+        ...session,
+        composerStatus: session.composerStatus,
+        loopEpisode: session.loopEpisode ?? null,
+      };
       // Built when sent, after the record it follows: it settles the turn the records folded.
       this.settleTurnWithHost();
       // The chat may run now (a prompt sent elsewhere), or rest: its quiet is watched while it runs.
