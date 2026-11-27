@@ -865,6 +865,10 @@ export type PaneSurfaceResult = {
   "workspace_id"?: string;
 };
 
+export type PhoneLinkOfferResult = {
+  "offered": boolean;
+};
+
 export type PingResult = {
   "build_commit"?: (string) | null;
   "ghostty_commit"?: (string) | null;
