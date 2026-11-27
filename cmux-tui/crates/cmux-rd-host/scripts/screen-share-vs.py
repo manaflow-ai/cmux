@@ -2707,6 +2707,10 @@ class Orchestrator:
                 elif msg.get("candidates_done"):
                     break
             rec["host_candidates"] = cands
+            if not host_key:
+                # Without the host's key the viewer reads a null peer_key and says only "answer
+                # line: invalid type: null"; the reason is in the host's stderr (11-27 try 9).
+                raise RuntimeError(f"host printed no key in 20 s: {self.host_failure(host)}")
             cands = [c for c in cands if self.a.host_ip in c] or cands
             t0 = time.time()
             viewer.stdin.write(json.dumps({"session": session, "peer_key": host_key, "stun": [],
@@ -2783,6 +2787,20 @@ class Orchestrator:
                         p.kill()
                         p.wait()
         return rec
+
+    def host_failure(self, host):
+        """Why the host side said nothing: its exit status and stderr tail (serve.err for a
+        synthetic serve, which sends stderr there; the pipe otherwise)."""
+        code = host.poll()
+        state = "running" if code is None else f"exit {code}"
+        try:
+            if self.synthetic:
+                tail = self.host.run(f"tail -c 600 {shlex.quote(self.root + '/state/serve.err')}", timeout=30)
+            else:
+                tail = host.stderr.read()[-600:] if code is not None else ""
+        except Exception as e:  # noqa: BLE001 - the reason is best effort
+            tail = f"(stderr unread: {e!r})"
+        return f"{state}; stderr: {tail.strip() or '(empty)'}"
 
     def first_frame_breakdown(self, rec, timing, offset_ns):
         """connect -> first decoded frame, split with the host's log (ms, viewer clock)."""
