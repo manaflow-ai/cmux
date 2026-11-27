@@ -120,7 +120,7 @@ impl PhoneGrid {
     /// The turns drawn: the newest [`KEEP_TURNS`] folded.
     fn turns(&self) -> &[PastTurn] {
         let turns = self.fold.held(false).1;
-        &turns[turns.len().saturating_sub(KEEP_TURNS)..]
+        turns.get(turns.len().saturating_sub(KEEP_TURNS)..).unwrap_or_default()
     }
 
     /// Folds what the transcript gained since the last read. Claude Code only appends to it; a
@@ -157,18 +157,21 @@ impl PhoneGrid {
         self.offset += bytes.len() as u64;
         let keep = self.seam.len().saturating_sub(SEAM_BYTES.saturating_sub(bytes.len()));
         self.seam.drain(..keep);
-        self.seam.extend_from_slice(&bytes[bytes.len().saturating_sub(SEAM_BYTES)..]);
+        self.seam.extend_from_slice(
+            bytes.get(bytes.len().saturating_sub(SEAM_BYTES)..).unwrap_or_default(),
+        );
         let mut rest = bytes.as_slice();
         while let Some(end) = rest.iter().position(|&b| b == b'\n') {
+            let Some((line, tail)) = rest.split_at_checked(end) else { break };
             if std::mem::take(&mut self.skipping) {
                 // The rest of a line dropped (cut by the first read, or too long): not a record.
             } else if self.partial.is_empty() {
-                self.fold.line(&rest[..end]);
+                self.fold.line(line);
             } else {
-                self.partial.extend_from_slice(&rest[..end]);
+                self.partial.extend_from_slice(line);
                 self.fold.line(&std::mem::take(&mut self.partial));
             }
-            rest = &rest[end + 1..];
+            rest = tail.get(1..).unwrap_or_default();
         }
         if !self.skipping {
             self.partial.extend_from_slice(rest);
@@ -243,13 +246,13 @@ pub(super) fn records(turns: &[PastTurn], open: bool) -> Vec<Value> {
         }
         for tool in &turn.tools {
             let mut call = tool.call.clone();
-            call["sessionUpdate"] = json!("tool_call");
-            call["toolCallId"] = json!(tool.id);
-            call["status"] = json!("in_progress");
+            set_key(&mut call, "sessionUpdate", json!("tool_call"));
+            set_key(&mut call, "toolCallId", json!(tool.id));
+            set_key(&mut call, "status", json!("in_progress"));
             out.push(record("tool_call", update(call), tool.started_at));
             let mut done = tool.done.clone();
-            done["sessionUpdate"] = json!("tool_call_update");
-            done["toolCallId"] = json!(tool.id);
+            set_key(&mut done, "sessionUpdate", json!("tool_call_update"));
+            set_key(&mut done, "toolCallId", json!(tool.id));
             out.push(record("tool_call_update", update(done), tool.ended_at.or(tool.started_at)));
         }
         if !turn.answer.is_empty() {
@@ -269,6 +272,17 @@ pub(super) fn records(turns: &[PastTurn], open: bool) -> Vec<Value> {
         }
     }
     out
+}
+
+/// Sets `key` on a JSON object, as `value[key] = v` would, without its panic on a non-object: a
+/// null becomes an object first, and anything else is left alone.
+fn set_key(value: &mut Value, key: &str, v: Value) {
+    if value.is_null() {
+        *value = Value::Object(serde_json::Map::new());
+    }
+    if let Some(object) = value.as_object_mut() {
+        object.insert(key.to_owned(), v);
+    }
 }
 
 #[cfg(test)]

@@ -64,7 +64,7 @@ impl ScreenFacts {
         let rows: Vec<String> = (0..grid.cells.len()).map(|y| grid.row_text(y)).collect();
         for (y, row) in rows.iter().enumerate() {
             if let Some(at) = row.find("Claude Code v") {
-                let version = &row[at + "Claude Code v".len()..];
+                let version = row.get(at + "Claude Code v".len()..).unwrap_or_default();
                 let version: String =
                     version.chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
                 if !version.is_empty() {
@@ -80,11 +80,12 @@ impl ScreenFacts {
             if let Some(rest) = trimmed.strip_prefix("⏵⏵ ") {
                 let end =
                     [" (", " ·"].iter().filter_map(|s| rest.find(s)).min().unwrap_or(rest.len());
-                facts.mode = Some(rest[..end].trim().to_owned());
+                facts.mode = Some(rest.get(..end).unwrap_or(rest).trim().to_owned());
                 facts.running = rest.contains("esc to interrupt");
             }
             if let Some(at) = row.find(" · /effort") {
-                let effort = row[..at].rsplit(' ').next().unwrap_or_default();
+                let effort =
+                    row.get(..at).unwrap_or_default().rsplit(' ').next().unwrap_or_default();
                 if !effort.is_empty() {
                     facts.effort = Some(effort.to_owned());
                 }
@@ -100,8 +101,10 @@ impl ScreenFacts {
         if rows.iter().any(|r| r.contains("esc to interrupt")) {
             facts.running = true;
         }
-        if let Some(y) = rows.iter().rposition(|r| is_spinner(r)) {
-            let mut cells = grid.cells[y].clone();
+        if let Some(y) = rows.iter().rposition(|r| is_spinner(r))
+            && let Some(cells) = grid.cells.get(y)
+        {
+            let mut cells = cells.clone();
             while cells.last().is_some_and(Cell::is_blank) {
                 cells.pop();
             }
@@ -123,15 +126,16 @@ impl ScreenFacts {
         }
         // The prompt: the last `❯` row with a rule above it, its draft running to the rule below.
         let prompt = (1..rows.len()).rev().find(|&y| {
-            (rows[y].starts_with("❯\u{a0}") || rows[y].starts_with("❯ ") || rows[y] == "❯")
-                && rows[y - 1].starts_with('─')
+            let row = rows.get(y).map_or("", String::as_str);
+            (row.starts_with("❯\u{a0}") || row.starts_with("❯ ") || row == "❯")
+                && rows.get(y - 1).is_some_and(|above| above.starts_with('─'))
         });
         if let Some(y) = prompt {
             facts.prompt_seen = true;
             let mut dim = String::new();
             let mut typed: Vec<String> = Vec::new();
-            for (i, row) in grid.cells[y..].iter().enumerate() {
-                if i > 0 && rows[y + i].starts_with('─') {
+            for (i, row) in grid.cells.get(y..).unwrap_or_default().iter().enumerate() {
+                if i > 0 && rows.get(y + i).is_some_and(|r| r.starts_with('─')) {
                     break;
                 }
                 let mut line = String::new();
