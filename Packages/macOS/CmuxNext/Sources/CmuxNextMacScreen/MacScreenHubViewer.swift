@@ -226,12 +226,11 @@ public final class MacScreenHubViewer {
 
     /// The scope Connect Again asks for: what the host allows now (Full
     /// re-granted asks for Full, View for View), else the last one asked.
+    /// cmux-rd-core's `rd_hub_scope_to_request` decides.
     static func scopeToRequest(last: SessionScope, access: DeviceScope?) -> SessionScope {
-        switch access {
-        case .full?: .full
-        case .view?: .view
-        default: last
-        }
+        var request: [String: Any] = ["last": last.rawValue]
+        if let access { request["access"] = access.rawValue }
+        return (MacScreenRules.rdHub("rd_hub_scope_to_request", request)?["scope"] as? String).flatMap(SessionScope.init(rawValue:)) ?? last
     }
 
     /// How long a request may wait for the host (PROTOCOL.md: requests expire after 5 min).
