@@ -40,7 +40,8 @@ pub struct Report {
     pub files: u64,
     pub skipped: u64,
     pub logical: u64,
-    /// Disk blocks the files use today, a hardlinked inode counted once.
+    /// Allocated bytes on platforms exposing disk blocks, with a hardlinked inode counted once;
+    /// apparent file bytes on platforms without portable allocation metadata (such as Windows).
     pub allocated: u64,
     pub chunks: u64,
     pub distinct_chunks: u64,
