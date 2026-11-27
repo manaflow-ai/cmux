@@ -9,7 +9,7 @@ import Testing
 struct AgentPaneStatusReplyShapeTests {
     static func reply(_ result: [String: Any]) throws -> [String: Any] {
         let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/status"])
-        let text = AcpmuxPaneMethods.filteredReply(["result": result], shape: shape, pageID: "7")
+        let text = try #require(AcpmuxPaneMethods.filteredReply(["result": result], shape: shape, pageID: "7"))
         return try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
     }
 
@@ -74,6 +74,33 @@ struct AgentPaneStatusReplyShapeTests {
         #expect(peers == [["name": "odd"], ["name": "bare"]])
     }
 
+    @Test func malformedURLsNeverExposeTransport() throws {
+        let peers = try Self.peers(Self.reply(["peers": [
+            ["name": "bad-port", "url": "ssh://host:abc"],
+            ["name": "bad-escape", "url": "ws://x/%zz"],
+            ["name": "bad-ip", "url": "wss://[zz]/"],
+            ["name": "bad-path", "url": "ssh://a/b[c]"],
+            ["name": "bad-user", "url": "ssh://a@b@c"],
+            ["name": "good", "url": "wss://[::1]:8443/acp?x=1#f"],
+        ]]))
+        #expect(peers.map { $0["name"] as? String } == ["bad-port", "bad-escape", "bad-ip", "bad-path", "bad-user", "good"])
+        #expect(peers.dropLast().allSatisfy { $0["transport"] == nil })
+        #expect(peers.last?["transport"] as? String == "wss")
+    }
+
+    @Test func errorCodesMatchJSONRPCIntegerCoercion() throws {
+        let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/status"])
+        func code(_ value: Any) throws -> Int {
+            let text = try #require(AcpmuxPaneMethods.filteredReply(
+                ["error": ["code": value, "message": "no"]], shape: shape, pageID: "7"))
+            let reply = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
+            return try #require((reply["error"] as? [String: Any])?["code"] as? Int)
+        }
+        #expect(try code(2.0) == 2)
+        #expect(try code(true) == 1)
+        #expect(try code(2.5) == -32603)
+    }
+
     @Test func cachedHealthKeepsOnlyWarningInputs() throws {
         let peers = try Self.peers(Self.reply(["peers": [[
             "name": "worker", "health": [
@@ -98,10 +125,10 @@ struct AgentPaneStatusReplyShapeTests {
 
     @Test func reconnectKeepsDoctorStateButDropsPeerEndpointsAndMetadata() throws {
         let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/peer_reconnect"])
-        let text = AcpmuxPaneMethods.filteredReply(["result": ["peers": [
+        let text = try #require(AcpmuxPaneMethods.filteredReply(["result": ["peers": [
             ["name": "cloud-1", "url": "wss://cloud-1.cmux.dev/?token=secret", "connected": false,
              "state": "offline", "error": "doctor refused", "health": ["host": "hidden"]],
-        ]]], shape: shape, pageID: "8")
+        ]]], shape: shape, pageID: "8"))
         let reply = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
         let result = try #require(reply["result"] as? [String: Any])
         let peers = try #require(result["peers"] as? [[String: Any]])

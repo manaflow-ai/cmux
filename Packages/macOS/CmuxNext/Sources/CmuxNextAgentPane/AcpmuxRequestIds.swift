@@ -298,7 +298,8 @@ nonisolated final class AcpmuxRequestIds: Sendable {
             return .complete(object: object, pageID: entry.pageID, subject: entry.subject)
         }
         if let shape = AcpmuxPaneMethods.replyShapes[entry.method] {
-            return .page(AcpmuxPaneMethods.filteredReply(object, shape: shape, pageID: entry.pageID), object: object, replyTo: entry.method)
+            guard let filtered = AcpmuxPaneMethods.filteredReply(object, shape: shape, pageID: entry.pageID) else { return .drop }
+            return .page(filtered, object: object, replyTo: entry.method)
         }
         guard let fresh = text ?? Self.encode(object) else { return .drop }
         return .page(fresh, object: object, replyTo: entry.method)
