@@ -1165,7 +1165,7 @@ class WorkflowTests(unittest.TestCase):
         # queue wait, sat to the 240-min timeout): every clip's step starts at once, then the job waits for all,
         # and the queue wait, cmux-ci's uncounted compile (5400 s) and the run fit the job with room to upload.
         self.assertIn('record_one "$id" "$roles" "$before" &', run)
-        self.assertLess(run.index("record_one \"$id\""), run.index("\n          wait\n"))
+        self.assertLess(run.index("record_one \"$id\""), run.index("\nwait\n"))
         self.assertIn('--queue-timeout "$QUEUE_S" --timeout "$RUN_S"', run)
         bounds = dict(re.findall(r"\b(QUEUE_S|RUN_S)=(\d+)", run))
         self.assertLessEqual(int(bounds["QUEUE_S"]) + 5400 + int(bounds["RUN_S"]),
