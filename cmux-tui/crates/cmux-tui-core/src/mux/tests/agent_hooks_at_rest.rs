@@ -898,13 +898,13 @@ fn agents_at_rest_a_waiting_row_that_is_no_helper_report_keeps_the_wait() {
     mux.note_no_agent_hook_projection_pending(&agent.terminal, notes);
     assert!(!mux.agent_hook_projection_is_pending(&agent.terminal), "setup: no wait is noted");
 
-    mux.append_agent_report_echo(
-        &agent.terminal,
+    mux.append_agent_report_echo(&crate::mux::agent_roster_fold::ReportEcho::new(
+        agent.terminal.clone(),
         AgentState::Working,
         AgentSource::Socket,
         None,
         1,
-    );
+    ));
     assert_eq!(
         waiting_projection(&mux, "failing-start").map(|(attempt, _)| attempt),
         Some(first + 1),
