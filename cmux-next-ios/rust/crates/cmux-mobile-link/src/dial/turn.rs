@@ -1810,12 +1810,19 @@ mod tests {
         let kept = TurnCarrier::allocate(&carrier_on(&live)).await.expect("an allocation");
         let lost = TurnCarrier::allocate(&carrier_on(&gone)).await.expect("an allocation");
         drop(gone);
-        let bound = Duration::from_millis(300);
+        // The bound is the product's: dead no earlier than `bound` after the
+        // check starts. The wait for it is wall clock on a runtime that
+        // shares a pool host with a parallel test binary, so it gets seconds
+        // of scheduling slack (the old 2x bound was a flaky false red,
+        // cmux job 140297613671); a regression to the 45 s keepalive still
+        // fails it. The bound itself is wide enough for the live server's
+        // one-datagram answer to land under that load.
+        let bound = Duration::from_millis(1000);
         let started = tokio::time::Instant::now();
         kept.check_server(bound);
         lost.check_server(bound);
         let mut dead = lost.dead();
-        tokio::time::timeout(bound * 2, dead.wait_for(|dead| *dead))
+        tokio::time::timeout(bound + Duration::from_secs(8), dead.wait_for(|dead| *dead))
             .await
             .expect("the silent server's allocation is declared dead")
             .expect("watch open");
