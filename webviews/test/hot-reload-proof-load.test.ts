@@ -2,7 +2,6 @@
 // optimizer bundled mid-load and the entry's import failed (the 2026-11-27 08:11Z probe run waited out
 // its 240 s on a page that never mounted). These check which errors count and that the wait ends.
 import { expect, test } from "bun:test";
-// @ts-expect-error: a plain .mjs script module
 import { isDynamicImportFailure, optimizerSettled } from "../scripts/hot-reload-proof-load.mjs";
 
 test("only a module the browser could not fetch counts as the optimizer's race", () => {
@@ -29,7 +28,7 @@ test("waits for the dependencies the optimizer is still bundling", async () => {
   };
   let settled = false;
   const waiting = optimizerSettled(server, () => 10_000).then(() => (settled = true));
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  for (let tick = 0; tick < 10; tick += 1) await Promise.resolve();
   expect(settled).toBe(false);
   release();
   await waiting;
