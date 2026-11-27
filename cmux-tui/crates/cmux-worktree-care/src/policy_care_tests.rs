@@ -194,6 +194,7 @@ fn headless_an_open_session_idle_past_the_recent_wait_does_not_keep_it() {
         cwd: "/w/a".into(),
         open: true,
         updated_ms: NOW - 1000 * HOUR_MS,
+        ids: Vec::new(),
     };
     let settings = Settings { headless: true, ..Settings::default() };
     let v = decide(
@@ -213,7 +214,7 @@ fn headless_an_open_session_idle_past_the_recent_wait_does_not_keep_it() {
 
 #[test]
 fn headless_an_idle_process_inside_does_not_keep_it() {
-    let processes = [Process { pid: 7, cwd: "/w/a/web".into() }];
+    let processes = [Process { pid: 7, cwd: "/w/a/web".into(), session_id: None }];
     let settings = Settings { headless: true, ..Settings::default() };
     let v = decide(&worktree(pushed(1000)), None, &[], &processes, Pressure::High, &settings, NOW);
     assert_eq!(v.action, Action::Reclaim);
