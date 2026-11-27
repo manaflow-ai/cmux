@@ -868,8 +868,9 @@ RERUN_ONLY_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "repair")}
 # chief-evals, cmux-mobile-ffi, cmux-next-terminal and cmux-rd-windows have no pull_request trigger since #54661
 # (advisory-only PR runs off), so no head of theirs is gated.
 NEVER_ON_PULL_REQUEST = {("cmux-next-pr-autofix.yml", "push")}
-# Runs on every head: deletes the pull request's preview when it closes.
-KEEP_ON_EVERY_HEAD = {("backend.yml", "preview-cleanup")}
+# Runs on every head: deletes the pull request's preview when it closes; ios-placeholder-bounds (seconds of Python)
+# records a pass on every pull request so land-judge's required list can name it.
+KEEP_ON_EVERY_HEAD = {("backend.yml", "preview-cleanup"), ("cmux-next-guards.yml", "ios-placeholder-bounds")}
 # The full-ci base merge carry job (head_tier.full_carry): runs only on the full-ci or ready-to-land label event the
 # land tier itself runs on, before that tier's jobs, so it carries the label condition instead of the land condition.
 FULL_CARRY_JOBS = {(name, "full-carry") for name in ("cmux-next-guards.yml", "ios-e2e.yml", "test-ios.yml",
