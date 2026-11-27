@@ -39,6 +39,8 @@ const START_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
 struct BgSpawn<'a> {
     fixed_id: Option<&'a str>,
     subagent: Option<Value>,
+    /// Its CPU class (`bg_start`'s `class`): a filler task's scope runs at `CPUWeight=idle`.
+    class: crate::session_budget::TaskClass,
 }
 
 /// Whose tasks a list or a stop acts on. Incident 2026-11-14: a Claude Code subagent listed
@@ -105,6 +107,7 @@ impl Hub {
     /// the Claude Code subagent whose MCP call starts it, `subagent_call.rs`), it runs as that
     /// subagent's Bash would (`cli::sender::SUBAGENT_ENV`), so an `acpmux send` in it names that
     /// subagent, and its end goes to that subagent while it runs (`bg_notify.rs`).
+    #[allow(clippy::too_many_arguments)]
     pub async fn bg_start(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -114,8 +117,9 @@ impl Hub {
         notify: bool,
         result_line: bool,
         subagent: Option<Value>,
+        class: crate::session_budget::TaskClass,
     ) -> Result<Value, RpcError> {
-        let spawn = BgSpawn { fixed_id: None, subagent };
+        let spawn = BgSpawn { fixed_id: None, subagent, class };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 
@@ -134,7 +138,7 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        let spawn = BgSpawn { fixed_id, subagent };
+        let spawn = BgSpawn { fixed_id, subagent, class: Default::default() };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 
@@ -148,7 +152,7 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        let BgSpawn { fixed_id, subagent } = spawn;
+        let BgSpawn { fixed_id, subagent, class } = spawn;
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
         }
@@ -237,7 +241,7 @@ impl Hub {
             result_line,
             subagent,
         };
-        bg_spawn(&runner, &spec).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        bg_spawn(&runner, &spec, class).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
         // A stop or purge that came meanwhile missed it: it ends here.
         if closing() {
             bg_run::request_stop(&dir, &id, &spec.generation);
@@ -308,6 +312,38 @@ impl Hub {
             .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
             .map(|t| (t.record.id.clone(), t.record.cwd.clone()))
             .collect()
+    }
+
+    /// The chat's running tasks that are re-armable waits (`rearm.rs`), as `bgWaits` rows:
+    /// `{id, kind, form, repo, number, sha, until, deadlineMs, description, notify, resultLine}`.
+    /// A session move starts each again at the destination (`server/bg_rearm.rs`).
+    pub(crate) fn bg_waits(&self, session: &Session) -> Vec<Value> {
+        let dir = self.bg_dir(session);
+        self.bg_records(&dir)
+            .tasks
+            .iter()
+            .filter(|t| t.record.ended_at.is_none() && !bg_gone(&dir, &t.record.id))
+            .filter_map(|t| {
+                let r = &t.record;
+                let mut row = crate::rearm::parse(&r.command, r.started_at)?.to_json();
+                row.set("id", json!(r.id));
+                row.set("description", json!(r.description));
+                row.set("notify", json!(r.notify));
+                row.set("resultLine", json!(r.result_line));
+                Some(row)
+            })
+            .collect()
+    }
+
+    /// The running task `id` of the chat, when it is a re-armable wait.
+    pub(crate) fn bg_wait(&self, session: &Session, id: &str) -> Option<crate::rearm::Wait> {
+        let dir = self.bg_dir(session);
+        let folder = self.bg_records(&dir);
+        let t = folder.tasks.iter().find(|t| t.record.id == id)?;
+        if t.record.ended_at.is_some() || bg_gone(&dir, id) {
+            return None;
+        }
+        crate::rearm::parse(&t.record.command, t.record.started_at)
     }
 
     /// One task's list view, when the chat's folder holds it.
@@ -819,7 +855,11 @@ pub(super) fn bg_view_at(
 }
 
 /// Starts the runner in a session of its own and waits for its one-line answer: the task runs.
-async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec) -> Result<()> {
+async fn bg_spawn(
+    runner: &crate::self_command::SelfCommand,
+    spec: &bg_run::Spec,
+    class: crate::session_budget::TaskClass,
+) -> Result<()> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     let mut cmd = tokio::process::Command::from(runner.command(&[bg_run::RUN_ARG]));
     cmd.stdin(std::process::Stdio::piped())
@@ -848,7 +888,7 @@ async fn bg_spawn(runner: &crate::self_command::SelfCommand, spec: &bg_run::Spec
         } else {
             None
         };
-        crate::agent_host::scope::place_in(pid, slice).await;
+        crate::agent_host::scope::place_in(pid, slice, class).await;
     }
     let mut stdin = child.stdin.take().context("runner stdin")?;
     let stdout = child.stdout.take().context("runner stdout")?;

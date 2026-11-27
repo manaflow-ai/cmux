@@ -1,5 +1,7 @@
 //! Families that are a command, not a folder: `docker image prune` (only
-//! when docker is installed and answers) and, on macOS, the iOS simulators
+//! when docker is installed, answers, and its daemon is this user's own: a
+//! unix socket the user owns, as Docker Desktop, OrbStack or rootless docker
+//! give; a shared system daemon's images belong to others too) and, on macOS, the iOS simulators
 //! that no installed runtime runs any more. Every command is bounded.
 
 use std::process::{Command, Stdio};
@@ -23,11 +25,44 @@ fn docker(args: &[&str], limit: Duration) -> Result<String, String> {
 /// Bytes `docker image prune -a` could free: the images' reclaimable size
 /// from `docker system df`. `None` when docker is absent or does not answer.
 pub fn docker_reclaimable() -> Option<u64> {
+    own_daemon().ok()?;
     let text = docker(&["system", "df", "--format", "{{.Type}}\t{{.Reclaimable}}"], QUICK).ok()?;
     text.lines().find_map(|line| {
         let (kind, size) = line.split_once('\t')?;
         (kind.trim() == "Images").then(|| parse_size(size))?
     })
+}
+
+/// `Ok` when the docker daemon the CLI talks to is this user's own; why not
+/// otherwise.
+fn own_daemon() -> Result<(), String> {
+    let host = docker(&["context", "inspect", "--format", "{{.Endpoints.docker.Host}}"], QUICK)?;
+    daemon_is_mine(host.trim())
+}
+
+/// Whether the daemon at `host` (`unix:///...`) listens on a socket this
+/// user owns.
+fn daemon_is_mine(host: &str) -> Result<(), String> {
+    let Some(socket) = host.strip_prefix("unix://") else {
+        return Err(format!("docker daemon at {host} is not a local socket of this user's"));
+    };
+    let meta = std::fs::metadata(socket).map_err(|e| format!("{socket}: {e}"))?;
+    if !owned_by_me(&meta) {
+        return Err(format!("docker daemon at {socket} is shared, not this user's"));
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn owned_by_me(meta: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: geteuid has no preconditions and cannot fail.
+    meta.uid() == unsafe { libc::geteuid() }
+}
+
+#[cfg(not(unix))]
+fn owned_by_me(_meta: &std::fs::Metadata) -> bool {
+    false
 }
 
 /// "1.5GB (45%)" -> bytes.
@@ -49,6 +84,7 @@ pub fn parse_size(text: &str) -> Option<u64> {
 
 /// Removes images no container uses and none made lately; the bytes freed.
 pub fn docker_prune(pressure: Pressure) -> Result<u64, String> {
+    own_daemon()?;
     let before = docker_reclaimable();
     let until = match pressure {
         Pressure::Normal => "until=168h",
@@ -85,6 +121,22 @@ pub fn simulators_prune() -> Result<u64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_daemon_on_a_socket_of_this_users_is_pruned() {
+        let mine = crate::store::care_tests::scratch("docker-own");
+        let socket = mine.join("docker.sock");
+        std::fs::write(&socket, b"").unwrap();
+        assert!(daemon_is_mine(&format!("unix://{}", socket.display())).is_ok());
+        assert!(daemon_is_mine("tcp://10.0.0.1:2375").is_err());
+        assert!(daemon_is_mine("unix:///nonexistent/docker.sock").is_err());
+        #[cfg(unix)]
+        if unsafe { libc::geteuid() } != 0 {
+            // Root's file, as a system daemon's socket is.
+            assert!(daemon_is_mine("unix:///etc/passwd").unwrap_err().contains("shared"));
+        }
+        let _ = std::fs::remove_dir_all(&mine);
+    }
 
     #[test]
     fn docker_sizes_parse() {

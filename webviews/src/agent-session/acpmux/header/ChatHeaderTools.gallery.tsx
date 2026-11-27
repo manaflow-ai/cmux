@@ -341,6 +341,13 @@ const worktreeApplied: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-worktree-apply output"));
 };
 
+// The pill's popover in a worktree mid-rebase: Apply is shown off.
+const worktreeApplyOff: Play = async (ctx) => {
+  await worktreePill(ctx);
+  await ctx.click({ selector: ".acpmux-header-worktree" });
+  await ctx.waitFor(() => ctx.document.querySelector<HTMLButtonElement>(".acpmux-worktree-apply button")?.disabled);
+};
+
 // The pill's popover after Remove (cx-lyqio.5): the worktree holds work found nowhere else, so it
 // stays, and only "Remove anyway" would discard it.
 const worktreeRemoveRefused: Play = async (ctx) => {
@@ -1101,6 +1108,24 @@ export default componentEntry<HeaderToolsProps>({
         }),
       },
       play: worktreeApplied,
+    },
+    "worktree-apply-mid-rebase": {
+      note: "A rebase stopped partway in the worktree: Apply is off, with no message to finish it elsewhere.",
+      props: {
+        ...base,
+        hasChanges: true,
+        onChanges: () => undefined,
+        folder: "/Users/me/.cmux/worktrees/cmux/fix-login",
+        onApplyWorktree: async () => ({ value: { main_root: "/Users/me/Projects/cmux", files: [] } }),
+        readStatus: async () => ({
+          branch: "cmux/fix-login",
+          base: "main",
+          detached: false,
+          worktree: { main_root: "/Users/me/Projects/cmux" },
+          in_progress: "rebase",
+        }),
+      },
+      play: worktreeApplyOff,
     },
     "worktree-remove": {
       note: "Remove keeps a worktree with uncommitted work and says so inline; only Remove anyway discards it (cx-lyqio.5).",

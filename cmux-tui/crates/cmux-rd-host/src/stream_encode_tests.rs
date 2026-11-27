@@ -546,6 +546,7 @@ fn opened_for_high(frames: Box<dyn FrameSource>) -> OpenedDesktop {
         frames,
         cursor: false,
         profile: "high".into(),
+        ltr: false,
         open_us: 0,
         ready_us: 0,
     }

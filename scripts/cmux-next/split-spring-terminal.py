@@ -86,6 +86,11 @@ if "--suite=chat-size" in sys.argv:
 if "--suite=chat-snappy" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "measure", "snappy-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=chat-snappy"])
+# `--suite=graceful-swap`: a webview .tsx save to the first changed frame of the focused pane, the unfocused pane and a
+# hidden tab, drafts kept (scripts/measure/graceful-swap-cron.py; the perf cron's hot-swap part, goal hot-swap-fast).
+if "--suite=graceful-swap" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "measure", "graceful-swap-cron.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=graceful-swap"])
 # `--suite=renderer-rest`: each Chromium renderer's footprint, pages and V8 heap every 5 s while the empty app rests,
 # then after a GC and a memory-pressure purge (scripts/cmux-next/renderer-rest.py, CMUX-571 ram-baseline).
 if "--suite=renderer-rest" in sys.argv:
