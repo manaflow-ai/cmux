@@ -405,8 +405,11 @@ def is_attribution(block):
 # forum's rules, a side question's chat and a message's attachments are cmux-*-context
 # blocks too, and the agent must read them, so their tests read them in the echo. The "where
 # you are" card (`agent_card.rs`) is hidden first-turn context the same way.
-GUIDANCE_TAGS = ("<cmux-default-context>", "<cmux-user-context>", "<cmux-project-context>", "<cmux-guidance-context>",
-                 "<cmux-card-context>")
+# The hidden cmux blocks' sources, shared with the product: `context_inventory::RULE_SOURCES`, whose
+# test fails when this file drifts from it. Each goes out as `<SOURCE-context>`.
+with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "guidance_sources.json")) as _f:
+    GUIDANCE_SOURCES = frozenset(json.load(_f))
+GUIDANCE_TAGS = tuple(sorted(f"<{s}-context>" for s in GUIDANCE_SOURCES))
 
 
 def guidance_text(text):
@@ -423,7 +426,7 @@ def is_cmux_guidance(block):
     if os.environ.get("FAKE_ECHO_PREFETCH") != "1" and str(block.get("text", "")).lstrip().startswith("<cmux-prefetch-context>"):
         return True
     source = (block.get("_meta") or {}).get("acpmux", {}).get("contextSource")
-    if source in {"cmux-default", "cmux-user", "cmux-project", "cmux-guidance", "cmux-card"}:
+    if source in GUIDANCE_SOURCES:
         return True
     return guidance_text(block.get("text", ""))
 
@@ -875,6 +878,14 @@ def handle_prompt(rid, params):
         return run_hostname(rid, sid)
     if text == "gh-pr-create":
         return run_gh_pr_create(rid, sid)
+    if text == "remote-repository-refused":
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "remote-git",
+                     "status": "failed", "content": [{"type": "content", "content": {
+                         "type": "text", "text": "cannot create .git/index.lock: Permission denied"}}]})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {
+            "type": "text", "text": "BLOCKED: cannot create .git/index.lock"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "stuck-loop":
         return run_stuck_loop(rid, sid)
     # Connection-loss simulation for auto-resume tests. "net-fail-once: X" fails that prompt
