@@ -98,16 +98,18 @@ function readView(node: HTMLElement): View & { clip?: HTMLElement } {
   return { top: top - listTop, height: bottom - top, clip };
 }
 
+/// The transcript row a list is drawn in (the list itself outside a transcript).
+const rowOf = (node: HTMLElement) => node.closest<HTMLElement>(".acpmux-row") ?? node;
+
 /// Whether a list whose view's top is `top` px into it (past its start) is this view's to hold: in the
-/// run's own box, always; in the transcript's scroller, when its row reached below the view's top
-/// before the list's steps changed by `grew` px. That is the row the transcript holds in place
+/// run's own box, always; in the transcript's scroller, when its row, `drawn` px high as its last
+/// draw left it, reached below the view's top. That is the row the transcript holds in place
 /// (`useStepWindow` measure), picked from the layout before the change: a row that shrinks off the
 /// view's top is still the list's to correct, and a row that grows onto it is still the transcript's.
 /// Reads two boxes after the steps' own reads and before any write, so it lays nothing out.
-function heldByView(node: HTMLElement, top: number, clip: HTMLElement | undefined, grew: number): boolean {
+function heldByView(node: HTMLElement, top: number, clip: HTMLElement | undefined, drawn: number): boolean {
   if (clip?.classList.contains("cv-run-scroll")) return true;
-  const row = node.closest<HTMLElement>(".acpmux-row") ?? node;
-  return row.getBoundingClientRect().bottom - grew > node.getBoundingClientRect().top + top;
+  return rowOf(node).getBoundingClientRect().top + drawn > node.getBoundingClientRect().top + top;
 }
 
 /// The first and last step a view mounts: itself and a view's height over and under it.
@@ -209,9 +211,10 @@ export function useStepWindow({
   const drawn = useRef({ first, last, pieces });
   drawn.current = { first, last, pieces };
 
-  /// Whether the list has drawn before: its first draw shows the steps at their real heights, never
-  /// at the guess (STEP_PX), so what that measure corrects moved nothing on screen.
-  const painted = useRef(false);
+  /// The list's row height as the last draw that changed no step left it (the row the transcript
+  /// placed), undefined before the list has drawn: its first draw shows the steps at their real
+  /// heights, never at the guess (STEP_PX), so what that measure corrects moved nothing on screen.
+  const rowDrawn = useRef<number | undefined>(undefined);
 
   /// Reads the drawn steps' heights; a change above the view's top moves its offset the same distance,
   /// so what the reader sees stays where it is. Returns whether a height changed.
@@ -227,8 +230,8 @@ export function useStepWindow({
     const now = built.current!;
     const { top, clip } = readView(node);
     // The step at the view's top and the list's height, as the last paint drew them.
-    const anchor = painted.current && top > 0 ? now.heights.at(top) : -1;
-    painted.current = true;
+    const drawnRow = rowDrawn.current;
+    const anchor = drawnRow !== undefined && top > 0 ? now.heights.at(top) : -1;
     const was = anchor >= 0 ? now.heights.before(anchor) : 0;
     const total = now.heights.total();
     let changed = false;
@@ -261,10 +264,18 @@ export function useStepWindow({
         changed = true;
       }
     }
-    if (!changed) return false;
+    if (!changed) {
+      rowDrawn.current = rowOf(node).getBoundingClientRect().height;
+      return false;
+    }
     const heights = built.current!.heights;
+    // A view's top past the list's end is under every step: the whole change is above it.
     const moved =
-      anchor >= 0 && heldByView(node, top, clip, heights.total() - total) ? heights.before(anchor) - was : 0;
+      anchor < 0 || !heldByView(node, top, clip, drawnRow!)
+        ? 0
+        : top >= total
+          ? heights.total() - total
+          : heights.before(anchor) - was;
     if (clip && Math.abs(moved) >= 0.5) writeScrollBy(clip, moved, "steps");
     // The transcript places the rows under this one before paint while its height settles.
     markHeightFold(node, SETTLE_MS);

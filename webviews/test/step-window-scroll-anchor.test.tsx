@@ -172,6 +172,12 @@ test("a row that shrinks off the view's top still moves the offset: the transcri
   expect(await draw([12, 32, 32])).toBe(4_932);
 });
 
+test("the last step shrinking above a view's top under the list, in the same row, moves the offset", async () => {
+  const draw = await drawList(-300, 200);
+  expect(await draw([32, 32, 80])).toBe(5_000);
+  expect(await draw([32, 32, 12])).toBe(4_932);
+});
+
 test("a row that grows onto the view's top moves no offset: the transcript corrects the row under it", async () => {
   // The row ends 4px above the view's top until step 0 grows by 30px.
   const draw = await drawList(-300, 200);
