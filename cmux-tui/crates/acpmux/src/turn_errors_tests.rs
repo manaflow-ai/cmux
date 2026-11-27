@@ -109,6 +109,7 @@ fn a_dead_agent_is_continued_unless_it_died_of_a_limit_or_sign_in() {
 /// The gateway's and the provider's "try again in a moment" (subsession-card, 2026-10-26:
 /// five helpers died on the first of these and sat failed until a person typed "continue").
 const CAPACITY: &[&str] = &[
+    "API Error: 429 no non-exhausted claude accounts available; retry after 60s",
     "API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary — try again in a moment. If it persists, check your inference gateway (sr2-gateway.tail137216.ts.net:4016). (error type server_error, HTTP 503 Service Unavailable)",
     "API Error: 503 no non-exhausted claude accounts available, next account frees up in 50m (retry after 2401s). This is a server-side issue, usually temporary. Try again in a moment.",
     "API Error: 503 no non-exhausted claude accounts available, next account frees up in 7m (retry after 429s).",
