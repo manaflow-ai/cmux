@@ -23,8 +23,11 @@ Read types (a family's `objects`): result and snapshot structs the app decodes, 
 name. The binding may set `conformances` (default Decodable, Sendable, Equatable), `order`, `init: false`,
 `omit` (schema fields the app does not read; never a required one of a type it encodes), `extra` (app-only
 properties with a type and default, not on the wire) and per field the request keys plus `default` (a
-Swift expression: the field decodes leniently, missing means the default) and `optional: true`. Encoding is
-always synthesized; decoding is synthesized unless a property has a default.
+Swift expression: the field decodes leniently, missing means the default), `optional: true`, `lenient: true`
+(a value of the wrong shape reads as missing, so a newer daemon's value never fails the parent), `when` (a
+Swift condition on properties read before it; false reads nil), `prefer` (a wire key read first, this field's
+own key the fallback; the preferred key is omitted from the struct). Encoding is always synthesized; decoding is synthesized unless a
+property uses one of these read options.
 """
 
 from __future__ import annotations
@@ -83,7 +86,7 @@ MUTATION = "mutation"
 _MUTATION_WIRE = ("origin", "mutation_id", "expected_generation", "expected_revision")
 # A read type's field may also take a Swift default (a lenient read: a missing key decodes as it) or be made
 # optional although the schema requires it (an app that still reads an older daemon that left it out).
-_READ_FIELD_KEYS = _FIELD_KEYS | {"default", "optional"}
+_READ_FIELD_KEYS = _FIELD_KEYS | {"default", "optional", "lenient", "when", "prefer"}
 _OBJECT_KEYS = frozenset({"$comment", "type", "result", "doc", "conformances", "order", "fields", "extra", "init", "omit"})
 _EXTRA_KEYS = frozenset({"type", "default", "doc"})
 DEFAULT_CONFORMANCES = ("Decodable", "Sendable", "Equatable")
@@ -202,6 +205,16 @@ class _Field:
     on_wire: bool = True
     update: bool = False
     mutation: bool = False
+    # A lenient read (`lenient`): a value of the wrong shape decodes as missing instead of failing the parent.
+    lenient: bool = False
+    # A Swift condition on properties decoded before this one (`when`); false reads nil.
+    when: str | None = None
+    # A wire key read first (`prefer`), this field's own key the fallback: a newer daemon's spelling.
+    prefer: str | None = None
+
+    @property
+    def custom_read(self) -> bool:
+        return self.default is not None or self.lenient or self.when is not None or self.prefer is not None
 
     @property
     def declared_type(self) -> str:
@@ -380,8 +393,16 @@ class _Renderer:
                 always_encoded=always,
                 doc=doc,
                 default=default,
+                lenient=bool(override.get("lenient")),
+                when=override.get("when"),
+                prefer=override.get("prefer"),
                 update=update,
             ))
+            made = result[-1]
+            if made.lenient and not made.optional and made.default is None:
+                raise BindingError(f"{where}.{wire}: lenient needs an optional field or a default")
+            if made.when is not None and not made.optional:
+                raise BindingError(f"{where}.{wire}: when needs an optional field (a false condition reads nil)")
         names = [_bare(item.name) for item in result]
         if len(set(names)) != len(names):
             raise BindingError(f"{where}: two fields become the same Swift name")
@@ -579,6 +600,15 @@ class _Renderer:
         if len(set(names)) != len(names):
             raise BindingError(f"{where}: two properties become the same Swift name")
         wire = [item for item in ordered if item.on_wire]
+        preferred: list[tuple[str, str]] = []
+        for item in wire:
+            if item.prefer is None:
+                continue
+            if item.prefer not in target["fields"]:
+                raise BindingError(f"{where}.{item.wire}: prefer names {item.prefer!r}, which the schema does not have")
+            if item.prefer in schema_fields:
+                raise BindingError(f"{where}.{item.wire}: prefer reads {item.prefer!r} into this field; omit it")
+            preferred.append((swift_name(item.prefer), item.prefer))
         conformances = binding.get("conformances", list(DEFAULT_CONFORMANCES))
         decodes = "Decodable" in conformances or "Codable" in conformances
 
@@ -596,31 +626,37 @@ class _Renderer:
         if wire:
             out += ["", "    enum CodingKeys: String, CodingKey {"]
             out += [f"        {item.coding_key()}" for item in wire]
+            out += [f"        case {key} = {json.dumps(value)}" for key, value in preferred]
             out.append("    }")
-        if decodes and any(item.default is not None for item in ordered):
+        if decodes and any(item.custom_read for item in ordered):
             # A lenient read: a key the daemon left out decodes as the property's default.
             out += ["", "    public init(from decoder: any Decoder) throws {"]
             out.append("        let container = try decoder.container(keyedBy: CodingKeys.self)")
             for item in ordered:
-                if not item.on_wire:
-                    out.append(f"        {item.name} = {item.default}")
-                elif item.default is not None:
-                    out.append(
-                        f"        {item.name} = try container.decodeIfPresent({item.swift_type}.self,"
-                        f" forKey: .{_bare(item.name)}) ?? {item.default}"
-                    )
-                elif item.optional:
-                    out.append(
-                        f"        {item.name} = try container.decodeIfPresent({item.swift_type}.self,"
-                        f" forKey: .{_bare(item.name)})"
-                    )
-                else:
-                    out.append(
-                        f"        {item.name} = try container.decode({item.swift_type}.self, forKey: .{_bare(item.name)})"
-                    )
+                out.append(f"        {item.name} = {_read_expression(item)}")
             out.append("    }")
         out.append("}")
         return out
+
+
+def _read_expression(item: _Field) -> str:
+    """The Swift expression `init(from:)` assigns to one read-type property."""
+    if not item.on_wire:
+        return str(item.default)
+    key = f".{_bare(item.name)}"
+    if not item.optional and item.default is None and item.prefer is None:
+        return f"try container.decode({item.swift_type}.self, forKey: {key})"
+    keys = ([f".{_bare(swift_name(item.prefer))}"] if item.prefer is not None else []) + [key]
+    reads = [f"container.decodeIfPresent({item.swift_type}.self, forKey: {each})" for each in keys]
+    if item.lenient:
+        expression = " ?? ".join(f"((try? {read}) ?? nil)" for read in reads)
+    else:
+        expression = "try " + " ?? ".join(reads)
+    if item.default is not None:
+        expression = f"({expression}) ?? {item.default}" if item.lenient else f"{expression} ?? {item.default}"
+    if item.when is not None:
+        expression = f"{item.when} ? ({expression}) : nil"
+    return expression
 
 
 def render(ir: SdkIR, bindings: Mapping[str, Any]) -> dict[str, str]:
