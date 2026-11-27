@@ -111,6 +111,15 @@ heads that only merged the base were about 46k runner-min/day in cmux-tui-spec, 
 alone. Anything unread runs everything. Leo, 2026-11-26: "de facto, im asking for 99% fewer minutes of ci time,
 period." CI_FULL_CI_BASE_MERGE_CARRY=0 turns this off.
 
+Ask rule (goal ask-to-nightly-under-2h): a ready pull request whose body names one of Leo's asks (`ask-` and ten hex
+digits, the id leo-asks gives it) is handed off to land from its first head, as if `ready-to-land` were on it: it runs
+the landing tier and `cmux/land-tier` is `success` at once. Agents waited for green before asking to land, so an ask's
+real CI started only at the label: on 11-25..26, cmux#57020 waited 137 min, #57341 121, #57515 55 and #57798 41 with no
+landing-tier CI before `ready-to-land`. Only the head GitHub sends with `opened`, `reopened` or `ready_for_review`
+gets it: a later push (`synchronize`) falls back to the usual rule (cheap until `ready-to-land`), so an ask PR pays one
+landing tier at open, the same minutes as asking to land at open (lane-9's CI-minutes goal: a push after open must not
+pay the tier again). About 12 ask PRs a day. A draft stays cheap. CI_ASK_LANDING=0 turns it off.
+
 Switches: the repository variable CI_LAND_TIER=0 turns the land rule off (every ready head is full again); the
 repository variable CI_DRAFT_CHEAP_TIER=0 (passed in as $CI_DRAFT_CHEAP_TIER) gives every draft head
 the full tier again; CI_IDLE_BASE_MERGE_SKIP=0 turns the idle rule off; CI_SYNC_MERGE_CHEAP=0 turns the sync rule
@@ -138,6 +147,10 @@ FULL_CI = "full-ci"
 RERUN_REASON = "rerun red only"
 LAND_LABEL = "ready-to-land"  # next_autoland.LABEL: the PR is handed off to land
 LAND_BASE = "feat-cmux-next"
+# A Leo ask's id (leo-asks): a pull request body naming one is handed off to land from its first head (the ask rule).
+ASK_ID = re.compile(r"\bask-[0-9a-f]{10}\b")
+# The pull_request actions whose head the ask rule hands off: the head at open or at ready, never a later push.
+ASK_ACTIONS = frozenset({"opened", "reopened", "ready_for_review"})
 LAND_STATUS = "cmux/land-tier"  # the commit status the land rule's heads carry (pr-router.yml posts it)
 # The start of the land carry rule's reason: pr_router.land_status posts success for a head whose reason starts so.
 CARRY_REASON = "land tier carried"
@@ -318,6 +331,16 @@ def labels_of(event: dict) -> set[str]:
     return labels
 
 
+def for_ask(event: dict, switch: str | None = None) -> bool:
+    """Whether EVENT is the head at open or ready (ASK_ACTIONS) of a pull request whose body names a Leo ask (ASK_ID),
+    with the ask rule on (CI_ASK_LANDING, default 1). A later push (synchronize) is never handed off by the ask rule."""
+    on = os.environ.get("CI_ASK_LANDING", "1") if switch is None else switch
+    if (on or "1").strip() == "0" or event.get("action") not in ASK_ACTIONS:
+        return False
+    body = (event.get("pull_request") or {}).get("body")
+    return isinstance(body, str) and bool(ASK_ID.search(body))
+
+
 def carry_rule_applies(event: dict, carry_switch: str = "1", land_switch: str = "0") -> bool:
     """Whether the land carry rule can apply to EVENT (before reading any fact): a synchronize of a `ready-to-land`
     head into feat-cmux-next (land_rule_applies), without `full-ci`, with both switches on."""
@@ -446,7 +469,7 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
     if FULL_CI in labels:
         return "full", "full-ci label"
     land_on = (land_switch or "0").strip() not in ("0", "") and land_rule_applies(event)
-    landing = LAND_LABEL in labels and pr.get("draft") is not True
+    landing = (LAND_LABEL in labels or for_ask(event)) and pr.get("draft") is not True
     if (idle_switch or "1").strip() != "0" and not landing and event.get("action") == "synchronize" and idle(
             facts, time.time() if now is None else now):
         return "none", (f"this head only merges the base into a pull request with no commit of its own for "
@@ -491,7 +514,7 @@ def tier(event_name: str, event: dict, switch: str = "1", facts: dict | None = N
                          f"CI_LAND_FULL_PER_PR=1 restores it for every landing head; {LAND_STATUS} is success, so "
                          f"land waits on this tier's checks")
     if landing:
-        return "full", f"{LAND_LABEL} label"
+        return "full", (f"{LAND_LABEL} label" if LAND_LABEL in labels else "names a Leo ask: handed off to land")
     return "full", "ready for review"
 
 

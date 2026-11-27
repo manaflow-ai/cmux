@@ -148,6 +148,69 @@ class LandTierTests(unittest.TestCase):
         self.assertEqual(self.tier(land_event(base="main")), "full")
         self.assertEqual(head_tier.tier("pull_request", land_event())[0], "full")  # land_switch defaults off
 
+    def test_a_ready_pr_naming_a_leo_ask_is_handed_off_from_its_first_head(self) -> None:
+        # The ask rule: an ask PR runs the landing tier at open, not only once ready-to-land is added.
+        ev = land_event(action="opened")
+        ev["pull_request"]["body"] = "Leo asked for this (ask-dccba52b6f)."
+        decided = head_tier.tier("pull_request", ev, land_switch="1")
+        self.assertEqual(decided[0], "full")
+        self.assertIn("Leo ask", decided[1])
+        # With the hourly full tier rule (production: CI_LAND_FULL_PER_PR=0) it lands on the affected tier, as a
+        # ready-to-land head does, and cmux/land-tier is success at once.
+        decided = head_tier.tier("pull_request", ev, land_switch="1", land_full_switch="0")
+        labelled = head_tier.tier("pull_request", land_event(labels=("ready-to-land",)), land_switch="1",
+                                  land_full_switch="0")
+        self.assertEqual(decided[0], labelled[0])
+        self.assertTrue(head_tier.land_affected(decided))
+        old = os.environ.get("CI_LAND_TIER")
+        try:
+            os.environ["CI_LAND_TIER"] = "1"
+            self.assertEqual(pr_router.land_status(ev, decided), "success")
+        finally:
+            if old is None:
+                os.environ.pop("CI_LAND_TIER", None)
+            else:
+                os.environ["CI_LAND_TIER"] = old
+
+    def test_the_ask_rule_needs_an_ask_id_a_ready_pr_and_its_switch(self) -> None:
+        def ev(body: object, draft: bool = False) -> dict:
+            e = land_event(draft=draft, action="opened")
+            e["pull_request"]["body"] = body
+            return e
+        self.assertEqual(self.tier(ev("no ask here; task-0123456789; ask-xyz")), "cheap")
+        self.assertEqual(self.tier(ev(None)), "cheap")
+        self.assertEqual(self.tier(ev("mask-0123456789")), "cheap")  # a word that only ends in ask- is not an id
+        self.assertEqual(self.tier(ev("ask-0123456789", draft=True)), "cheap")
+        self.assertFalse(head_tier.for_ask(ev("ask-0123456789"), switch="0"))
+        self.assertTrue(head_tier.for_ask(ev("ask-0123456789"), switch="1"))
+        old = os.environ.get("CI_ASK_LANDING")
+        try:
+            os.environ["CI_ASK_LANDING"] = "0"
+            self.assertEqual(self.tier(ev("ask-0123456789")), "cheap")
+        finally:
+            if old is None:
+                os.environ.pop("CI_ASK_LANDING", None)
+            else:
+                os.environ["CI_ASK_LANDING"] = old
+
+    def test_the_ask_rule_hands_off_only_the_head_at_open_or_ready_never_a_later_push(self) -> None:
+        # lane-9's CI-minutes goal: a push after open must not pay the landing tier again; it waits for ready-to-land.
+        for action in ("opened", "reopened", "ready_for_review"):
+            e = land_event(action=action)
+            e["pull_request"]["body"] = "ask-dccba52b6f"
+            self.assertTrue(head_tier.for_ask(e, switch="1"), action)
+            self.assertEqual(self.tier(e), "full", action)
+        for action in ("synchronize", "edited", "labeled"):
+            e = land_event(action=action)
+            e["pull_request"]["body"] = "ask-dccba52b6f"
+            self.assertFalse(head_tier.for_ask(e, switch="1"), action)
+        e = land_event(action="synchronize")
+        e["pull_request"]["body"] = "ask-dccba52b6f"
+        self.assertEqual(self.tier(e), "cheap")
+        e = land_event(action="synchronize", labels=("ready-to-land",))
+        e["pull_request"]["body"] = "ask-dccba52b6f"
+        self.assertEqual(self.tier(e), "full")  # the label still hands a later push off, as for any PR
+
     def test_decide_reads_the_switch_from_the_environment(self) -> None:
         old = os.environ.get("CI_LAND_TIER")
         try:
@@ -1016,10 +1079,35 @@ class LandHandoffOnlyTests(unittest.TestCase):
         decided = head_tier.tier("pull_request", ev, land_switch="1")
         return pr_router.route(ev, self.CALLEES, ["cmux-tui/src/a.rs"], decided=decided, land_update=land_update)[0]
 
-    def test_the_land_handoff_starts_it(self) -> None:
+    def test_the_land_handoff_skips_it_by_default(self) -> None:
+        """72 of 112 PR head builds (13-17Z 2026-11-26) were label handoffs no merge took: the train tip builds."""
         for label in ("ready-to-land", "full-ci"):
             with self.subTest(label=label):
-                self.assertEqual(self.route(land_event(labels=(label,), action="labeled", added=label)), ["mc.yml"])
+                with unittest.mock.patch.dict(os.environ, {}, clear=False):
+                    os.environ.pop("CI_MC_HANDOFF_LABEL_SKIP", None)
+                    self.assertEqual(self.route(land_event(labels=(label,), action="labeled", added=label)), [])
+                with unittest.mock.patch.dict(os.environ, {"CI_MC_HANDOFF_LABEL_SKIP": "1"}):
+                    self.assertEqual(self.route(land_event(labels=(label,), action="labeled", added=label)), [])
+
+    def test_the_land_handoff_starts_it_when_the_skip_is_off(self) -> None:
+        with unittest.mock.patch.dict(os.environ, {"CI_MC_HANDOFF_LABEL_SKIP": "0"}):
+            for label in ("ready-to-land", "full-ci"):
+                with self.subTest(label=label):
+                    self.assertEqual(self.route(land_event(labels=(label,), action="labeled", added=label)),
+                                     ["mc.yml"])
+
+    def test_the_skip_leaves_other_callees_on_the_handoff(self) -> None:
+        callees = dict(self.CALLEES, **{"other.yml": {"types": ["opened", "synchronize", "reopened",
+                                                               "ready_for_review"]}})
+        ev = land_event(labels=("ready-to-land",), action="labeled", added="ready-to-land")
+        decided = head_tier.tier("pull_request", ev, land_switch="1")
+        start, why = pr_router.route(ev, callees, ["cmux-tui/src/a.rs"], decided=decided)
+        self.assertEqual(start, ["other.yml"])
+        self.assertIn("merge train", why["mc.yml"])
+
+    def test_pr_router_passes_the_switch(self) -> None:
+        text = (ROOT / ".github" / "workflows" / "pr-router.yml").read_text()
+        self.assertIn("CI_MC_HANDOFF_LABEL_SKIP: ${{ vars.CI_MC_HANDOFF_LABEL_SKIP || '1' }}", text)
 
     def test_a_push_to_a_labeled_pr_does_not(self) -> None:
         for labels in (("ready-to-land",), ("full-ci",), ()):
@@ -1245,6 +1333,54 @@ class RouterRerunPlanTests(unittest.TestCase):
             pr_router.router_jobs_at = real
         self.assertIsNone(pr_router.router_jobs_at([_run(1, "ci.yml", "failure")], "manaflow-ai/cmux", "t"))
         self.assertIsNone(pr_router.router_jobs_at(runs, "manaflow-ai/cmux", ""))
+
+
+class RustWorkspacesTierTests(unittest.TestCase):
+    """rust-workspaces.yml's plan job plans no workspace on a head head_tier gives `none` (goal
+    ci-runner-min-per-day-500k): its own run only, never a caller's, and `cheap` still plans (the land carry head
+    gets no label pulse, and next_autoland needs `rust workspaces / <root>` on the head it lands)."""
+
+    def setUp(self) -> None:
+        import yaml
+        text = (ROOT / ".github" / "workflows" / "rust-workspaces.yml").read_text()
+        self.plan = yaml.safe_load(text)["jobs"]["plan"]
+        self.steps = {step.get("name"): step for step in self.plan["steps"]}
+
+    def test_the_tier_step_reads_head_tier_in_its_own_pull_request_run_and_fails_open(self) -> None:
+        step = self.steps["CI tier of this head"]
+        self.assertEqual(step.get("id"), "tier")
+        self.assertTrue(step.get("continue-on-error"))
+        self.assertIn("head_tier.py tier", step["run"])
+        for term in ("github.event_name == 'pull_request'", "base.ref == 'feat-cmux-next'", "inputs.sha == ''",
+                     "contains(github.workflow_ref, '/.github/workflows/rust-workspaces.yml@')"):
+            self.assertIn(term, step["if"])
+        self.assertEqual(self.plan["permissions"], {"actions": "read", "contents": "read"},
+                         "callers grant no more: a wider callee permission fails their run at startup")
+        names = list(self.steps)
+        self.assertLess(names.index("CI tier of this head"), names.index("Plan the workspaces this change reaches"))
+
+    def test_only_none_skips_the_lock_check_and_the_plan(self) -> None:
+        for name in ("Set up pinned Rust (lock check)", "Every Cargo.lock matches its manifests"):
+            self.assertEqual(self.steps[name].get("if"), "${{ steps.tier.outputs.tier != 'none' }}", name)
+        plan = self.steps["Plan the workspaces this change reaches"]
+        self.assertEqual(plan["env"]["TIER"], "${{ steps.tier.outputs.tier }}")
+        self.assertIn('if [[ "$TIER" == none ]]; then\n  echo "jobs=[]" >> "$GITHUB_OUTPUT"', plan["run"])
+        self.assertNotIn("cheap", plan["run"])
+
+    def test_the_skip_runs_the_plan_script_on_an_empty_tier(self) -> None:
+        """The plan step's shell: `none` writes jobs=[] and exits before the planner; an empty tier (the step
+        skipped or failed) reaches the planner."""
+        run = self.steps["Plan the workspaces this change reaches"]["run"]
+        for tier, planned in (("none", False), ("", True), ("cheap", True), ("full", True)):
+            with tempfile.TemporaryDirectory() as tmp:
+                out = Path(tmp) / "out"
+                script = re.sub(r"\$\(python3 \.github/scripts/rust-workspaces\.py plan [^)]*\)",
+                                """$(echo '[{"root": "x"}]')""", run)
+                self.assertNotEqual(script, run)
+                script = script.replace("python3 -c", ": ")
+                env = {**os.environ, "TIER": tier, "GITHUB_OUTPUT": str(out), "BASE_SHA": "", "OWN_ONLY": ""}
+                subprocess.run(["bash", "-c", script], env=env, check=True, capture_output=True)
+                self.assertEqual(out.read_text().strip(), 'jobs=[{"root": "x"}]' if planned else "jobs=[]", tier)
 
 
 if __name__ == "__main__":
