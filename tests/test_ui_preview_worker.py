@@ -276,7 +276,10 @@ class FollowTests(unittest.TestCase):
                       for n in (7614, 7615, 7616)]
             in_flight = dict(request(head_sha=f"{7617:040x}", ui_files=web, pushed_at=ago(30)), seq=7617)
             jobs = w.queue.Queue()
-            _, call = self.broker({"seq": 7617, "requests": [*posted, in_flight]})
+            a_doc = {"schema": w.SCHEMA_RECEIPT, "host": "preview-a",
+                     "receipts": [dict(repo=r["repo"], head_sha=r["head_sha"], pushed_at=r["pushed_at"],
+                                       posted_at=w.utc_now()) for r in posted]}
+            calls, call = self.census({"seq": 7617, "requests": [*posted, in_flight]}, {"preview-a.json": a_doc})
             lines, real = [], w.log
             w.log = lines.append
             try:
@@ -287,7 +290,67 @@ class FollowTests(unittest.TestCase):
             self.assertEqual(req["head_sha"], f"{7617:040x}")  # pushed as A stopped: may never have been posted
             self.assertTrue(jobs.empty())
             self.assertFalse(b.receipts_path.exists())  # A's receipts stand: B writes none for A's pushes
-            self.assertEqual(sum("before this worker took the role" in x for x in lines), 3, lines)
+            self.assertEqual(sum("its predecessor's, not posted again" in x for x in lines), 3, lines)
+            self.assertEqual(sum(c[0] == "get" for c in calls), 2)  # one listing, one blob: once per takeover
+
+    def census(self, answer, files):
+        """A broker answering ui_preview_requests with ANSWER and `get` with the census folder holding FILES."""
+        import base64
+        calls, blobs = [], {}
+        listing = []
+        for name, doc in files.items():
+            text = json.dumps(doc)
+            sha = f"{len(blobs):040x}"
+            blobs[sha] = base64.b64encode(text.encode()).decode()
+            listing.append({"name": name, "sha": sha, "size": len(text)})
+        listing.append({"name": "trigger-host.json", "sha": "f" * 40, "size": w.PUBLISH_MAX + 1})
+
+        def call(tool, args, timeout, repo=None, whole=False):
+            calls.append((tool, args))
+            if tool == "get" and args["path"] == "contents/ui-preview":
+                return listing
+            if tool == "get":
+                return {"content": blobs[args["path"].rsplit("/", 1)[1]], "encoding": "base64"}
+            return answer
+
+        return calls, call
+
+    def test_a_host_taking_the_lease_over_posts_what_its_predecessor_never_answered(self):
+        # 2026-11-27 03:48-04:19Z: A was restarted mid-backlog, so B took over requests A never posted; the time
+        # cutoff alone dropped them all as "its predecessor's". Only the ones a poster answered are skipped now.
+        with tempfile.TemporaryDirectory() as tmp:
+            b = FakeWorker(Path(tmp))
+            b.host = "preview-b"
+            ago = lambda s: (b.started_at - w.dt.timedelta(seconds=s)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+            web = ["webviews/src/a.tsx"]
+            reqs = [dict(request(head_sha=f"{n:040x}", ui_files=web, pushed_at=ago(600)), seq=n)
+                    for n in (7710, 7711, 7712, 7713)]
+            a_doc = {"schema": w.SCHEMA_RECEIPT, "host": "preview-a", "receipts": [
+                dict(repo=reqs[0]["repo"], head_sha=reqs[0]["head_sha"], posted_at=w.utc_now()),
+                dict(repo=reqs[1]["repo"], head_sha=reqs[1]["head_sha"], posted_at=None, error="no scene"),
+                dict(repo=reqs[2]["repo"], head_sha=reqs[2]["head_sha"], posted_at=None)]}  # started, never ended
+            jobs = w.queue.Queue()
+            _, call = self.census({"seq": 7713, "requests": reqs}, {"preview-a.json": a_doc})
+            self.assertEqual(w.follow_once(b, jobs, 7709, call), 7713)
+            taken = []
+            while not jobs.empty():
+                taken.append(jobs.get_nowait()[0]["head_sha"])
+            self.assertEqual(taken, [f"{7712:040x}", f"{7713:040x}"])
+
+    def test_an_unreadable_census_falls_back_to_the_time_cutoff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            b = FakeWorker(Path(tmp))
+            ago = lambda s: (b.started_at - w.dt.timedelta(seconds=s)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+            old = dict(request(ui_files=["webviews/src/a.tsx"], pushed_at=ago(600)), seq=7710)
+
+            def call(tool, args, timeout, repo=None, whole=False):
+                if tool == "get":
+                    raise w.LookError("lane-gh call get exited 1: refused")
+                return {"seq": 7710, "requests": [old]}
+
+            jobs = w.queue.Queue()
+            self.assertEqual(w.follow_once(b, jobs, 7709, call), 7710)
+            self.assertTrue(jobs.empty())
 
     def test_state_put_carries_its_json_on_stdin_not_argv(self):
         # 2026-11-27: a 768 KiB census copy in one argv string failed E2BIG (128 KiB per string on Linux).

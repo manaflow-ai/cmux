@@ -60,6 +60,7 @@ send) and `push_to_post_s`. Exit 0 posted, 1 failed, 2 usage.
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import fnmatch
 import hashlib
@@ -1302,9 +1303,11 @@ FOLLOW_RETRY_S = 10  # after a failed call
 # ttl_s 60 and probe_s 10 (leo-workspace machines/role-leases.json ui-preview-web), role_lease's STOP_S 15 and
 # RESTART_S 5.
 TAKEOVER_S = 90
+# Where every worker's census copy is (answered_keys reads the predecessor's answers from it).
+CENSUS_REPO, CENSUS_REF, CENSUS_FOLDER = "manaflow-ai/cmuxterm-hq", "reconciler-state/now-census", "ui-preview"
 
 
-def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None) -> dict:
+def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None, whole: bool = False):
     """One `lane-gh call TOOL [REPO] JSON` through the broker: the answer's data (status 200), or LookError. With a
     REPO the JSON goes on stdin (`lane-gh call TOOL REPO -`): one argv string holds at most 128 KiB on Linux
     (MAX_ARG_STRLEN), and the census copy state_put carries runs to PUBLISH_MAX, so in argv every publish of a
@@ -1325,6 +1328,8 @@ def lane_gh_call(tool: str, args: dict, timeout: float, repo: str | None = None)
     if not isinstance(answer, dict) or answer.get("status") != 200:
         raise LookError(f"lane-gh call {tool}: not answered 200: {tail(json.dumps(answer))}")
     data = answer.get("data")
+    if whole:
+        return data  # a list answer too (a contents folder listing)
     return data if isinstance(data, dict) else {}
 
 
@@ -1370,13 +1375,54 @@ def replayed(worker: "Worker", req: dict) -> bool:
     every request pushed since: 2026-11-27 the second host took over at 01:18:28 and posted ten pushes the first had
     already handled, one of them 1,000 s after its push, and NOW keeps the later posted_at of a key, so a replay
     also turns a covered 25 s post into a 1,000 s one. A request pushed more than TAKEOVER_S before this worker
-    started was its predecessor's to post, which had longer than the whole 60 s goal to do it; within TAKEOVER_S it
-    may have been in flight when the predecessor stopped (the lease's TTL plus its probe, role_lease's stop and
-    restart), so it is taken. A replayed request gets no receipt here: the poster's receipt, or the trigger's
-    posted_at null one, stands."""
+    started was its predecessor's term; within TAKEOVER_S it may have been in flight when the predecessor stopped
+    (the lease's TTL plus its probe, role_lease's stop and restart), so it is taken. Whether a replayed request is
+    then skipped is handled_elsewhere's: only one a poster already answered."""
     pushed = parse_ts(req.get("pushed_at"))
     since = getattr(worker, "started_at", None)
     return pushed is not None and since is not None and (since - pushed).total_seconds() > TAKEOVER_S
+
+
+def answered(receipt) -> bool:
+    """A poster's receipt: the look reached its recipient (posted_at) or ended with why it did not (error). The
+    trigger's posted_at null receipt, and a look's own started one, are neither."""
+    return isinstance(receipt, dict) and bool(receipt.get("posted_at") or receipt.get("error"))
+
+
+def answered_keys(worker: "Worker", call=lane_gh_call) -> set | None:
+    """(repo, head_sha) of every request a poster already answered: this host's receipts file and every other
+    host's census copy (ui-preview/HOST.json on cmuxterm-hq reconciler-state/now-census, through the broker). None
+    when the census could not be read: the caller falls back to the time cutoff alone.
+
+    2026-11-27 03:48-04:19Z the worker was restarted every few minutes mid-backlog, and each new leader dropped
+    every request pushed more than TAKEOVER_S before it started as "its predecessor's", though the predecessor
+    had been stopped before posting them: they stayed uncovered. The skip has to ask whether the predecessor
+    answered, not only when the push was. A file over PUBLISH_MAX is a trigger's (the broker host's), whose
+    receipts are never answers, so it is not read; the rest are read by blob (a contents read of a file over 1 MB
+    has no body)."""
+    keys: set = set()
+    try:
+        own = json.loads(worker.receipts_path.read_text())
+        keys |= {(r.get("repo"), r.get("head_sha")) for r in own.get("receipts") or [] if answered(r)}
+    except (OSError, ValueError, AttributeError):
+        pass
+    try:
+        listing = call("get", {"path": f"contents/{CENSUS_FOLDER}", "query": {"ref": CENSUS_REF}},
+                       SEND_SECONDS, repo=CENSUS_REPO, whole=True)
+        if not isinstance(listing, list):
+            raise LookError(f"the census folder listing is not a list: {tail(json.dumps(listing))}")
+        for item in listing:
+            if not isinstance(item, dict) or item.get("name") == f"{worker.host}.json" \
+                    or not str(item.get("name", "")).endswith(".json") or (item.get("size") or 0) > PUBLISH_MAX:
+                continue
+            blob = call("get", {"path": f"git/blobs/{item['sha']}"}, SEND_SECONDS, repo=CENSUS_REPO)
+            doc = json.loads(base64.b64decode(blob.get("content") or ""))
+            keys |= {(r.get("repo"), r.get("head_sha")) for r in doc.get("receipts") or [] if answered(r)}
+    except (LookError, ValueError, KeyError, TypeError, AttributeError) as err:
+        log(f"follow: the census copies could not be read ({err}): a request pushed before this worker took the "
+            "role is skipped by its push time alone")
+        return None
+    return keys
 
 
 def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=lane_gh_call) -> int:
@@ -1388,6 +1434,7 @@ def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=l
     newest = answer.get("seq") if isinstance(answer.get("seq"), int) else 0
     if after is None:
         return newest
+    answers: set | None = getattr(worker, "takeover_answers", None)
     for raw in answer.get("requests") or []:
         seq = raw.get("seq") if isinstance(raw, dict) else None
         if isinstance(seq, int):
@@ -1398,9 +1445,15 @@ def follow_once(worker: "Worker", jobs: "queue.Queue", after: int | None, call=l
             log(f"follow: request {seq} not taken: {err}")
             continue
         if replayed(worker, req):
+            if answers is None and not getattr(worker, "takeover_read", False):
+                worker.takeover_read = True  # once per takeover: the first batch that has replayed requests
+                answers = worker.takeover_answers = answered_keys(worker, call)
+            if answers is None or (req["repo"], req["head_sha"]) in answers:
+                log(f"follow: request {seq} {req['head_sha'][:12]} pushed {req.get('pushed_at')}, before this worker "
+                    f"took the role: its predecessor's, not posted again")
+                continue
             log(f"follow: request {seq} {req['head_sha'][:12]} pushed {req.get('pushed_at')}, before this worker "
-                f"took the role: its predecessor's, not posted again")
-            continue
+                f"took the role, and no worker answered it: taken late")
         planned = plan(req["ui_files"])
         if not worker.swift_on and not planned["web"] and not skip_reason(planned):
             continue  # Swift scenes only: the display Mac's
