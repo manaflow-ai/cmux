@@ -3438,3 +3438,44 @@ fn safaris_autocorrection_bubble_is_watched_dismissed_or_reported() {
     assert_eq!(autocorrection(true, false), Autocorrection::Dismissed);
     assert_eq!(autocorrection(true, true), Autocorrection::StillOffered);
 }
+
+/// The takeover watch reads the newest deliberate input: the smallest
+/// seconds-since among the types, ignoring what the window server could not
+/// answer (NaN, negative).
+#[test]
+fn hid_idle_is_the_newest_deliberate_input() {
+    assert_eq!(idle::newest_ms([3.0, 0.25, 9.0]), Some(250));
+    assert_eq!(idle::newest_ms([f64::NAN, -1.0, 2.0]), Some(2000));
+    assert_eq!(idle::newest_ms([f64::NAN]), None);
+    // Pointer movement (CGEventType 5) is not a takeover.
+    assert!(!idle::DELIBERATE.contains(&5));
+}
+
+/// Our own post is marked for the takeover watch, so input right after it is
+/// not taken for the person's. (No HID read here: on a fleet guest with no
+/// window-server session the HID counters do not answer.)
+#[test]
+fn our_posts_are_marked_for_the_takeover_watch() {
+    use crate::takeover::IdleClock;
+    idle::mark_injection();
+    let clock = idle::HidIdle;
+    let marked = clock.last_injection_ms();
+    assert!(marked > 0 && marked <= clock.now_ms());
+}
+
+/// The panel sits so the arrow's tip is on the event's point: global (100, 50)
+/// on a 900-point-high primary screen is AppKit (99, 900 - 50 - 23).
+#[test]
+fn the_cursor_panel_puts_the_tip_on_the_point() {
+    assert_eq!(overlay::tip_origin_for_tests(Point { x: 100.0, y: 50.0 }, 900.0), (99.0, 827.0));
+}
+
+/// Off AppKit's main thread (a test thread) the worker runs without a
+/// cursor rather than touching AppKit off the main thread.
+#[test]
+fn no_app_no_cursor_and_the_work_still_runs() {
+    assert_eq!(run_with_app(|| 7), 7);
+    // No app was started by this test thread, so nothing draws.
+    let sink = crate::platform::cursor_overlay();
+    sink.show(crate::cursor::CursorEvent::Hide { session: "s".into() });
+}
