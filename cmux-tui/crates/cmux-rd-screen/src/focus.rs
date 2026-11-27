@@ -212,7 +212,8 @@ impl FocusDamage {
         let mut merged = rect;
         let mut index = 0;
         while index < self.regions.len() {
-            let grown = self.regions[index].inset(-Self::GAP, -Self::GAP);
+            let Some(region) = self.regions.get(index).copied() else { break };
+            let grown = region.inset(-Self::GAP, -Self::GAP);
             if grown.is_some_and(|g| g.intersects(&merged)) {
                 merged = merged.union(&self.regions.remove(index));
                 index = 0;

@@ -67,7 +67,7 @@ pub fn newest_picture(entries: &[Entry<'_>]) -> Option<usize> {
         if item_kind(entry, &rule).is_none() {
             continue;
         }
-        if newest.is_none_or(|n| entries[n].modified < entry.modified) {
+        if newest.is_none_or(|n| entries.get(n).is_some_and(|old| old.modified < entry.modified)) {
             newest = Some(index);
         }
     }
