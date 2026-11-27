@@ -452,20 +452,35 @@ pub fn mcp_list() -> Value {
 }
 
 /// The instructions an agent gets with the server (MCP `instructions`).
-pub const INSTRUCTIONS: &str = "cmux Computer Use is built in (nothing to install; `machine` \
-reaches your other machines). Each call is a model turn: use the fewest. A window_id can be the \
-window's title or app name; each action returns what changed and a screenshot, so never look to \
-check one. When the task names the window and its controls, your first call is one batch whose \
-steps name elements by target {role, label}, not get_ui_tree; look first only when you cannot name \
-a control. Menu commands are in the tree's menu bar. \"No change\" means it did nothing: try \
-another way. Act in the background; use delivery foreground only when status says the person \
-allowed it, and only for a system-wide shortcut or to bring a window to them. If a call is \
-refused, take the setup step it names, else call status and tell the person which Settings > \
-Computer Use setting would allow it; never change those settings yourself.";
+pub const INSTRUCTIONS: &str = "cmux Computer Use is built in (nothing to install; `machine` reaches \
+your other machines). Tool names here are short: call the listed tool ending in that name. Each call \
+is a model turn: use the fewest. A window_id can be the window's title or app name; each action \
+returns what changed and a screenshot, so never look to check one. When the task names the window \
+and its controls, your first call is one batch whose steps name elements by target {role, label}, \
+not get_ui_tree; look first only when you cannot name a control. \"No change\" means it did nothing: \
+try another way. Act in the background; use delivery foreground only when status says the person \
+allowed it, for a system-wide shortcut or to bring a window to them. If refused, take the setup step \
+it names, else call status and tell the person which Settings > Computer Use setting would allow it; \
+never change it yourself.";
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A client lists these tools under its own prefix (Claude Code: `mcp__<server>__batch`), so a
+    /// bare name in the instructions was copied into the first call and refused as no such tool:
+    /// 24 and 30 of 60 trials in two suite runs (2026-11-26/27) spent a model turn on it. The
+    /// instructions may name tools only while they say the names are short.
+    #[test]
+    fn instructions_that_name_tools_say_the_names_are_short() {
+        let named = TOOLS.iter().filter(|t| INSTRUCTIONS.contains(t.name)).count();
+        assert!(named > 0, "the instructions name no tool; drop this test's premise");
+        assert!(
+            INSTRUCTIONS
+                .contains("Tool names here are short: call the listed tool ending in that name."),
+            "{INSTRUCTIONS}"
+        );
+    }
 
     #[test]
     fn every_tool_has_an_object_schema_with_machine() {
