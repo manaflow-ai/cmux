@@ -8,7 +8,7 @@
    "test": "cmux-tui/crates/acpmux/src/happy_dial_tests.rs::seeded_keys_ride_only_in_the_providers_auth_header"
   },
   "acpmux::hub::forum_hosted": {
-   "test": "cmux-tui/crates/acpmux/src/hub/forum_hosted.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
+   "test": "cmux-tui/crates/acpmux/src/hub/forum_hosted_tests.rs::seeded_secrets_ride_only_where_the_forum_needs_them"
   },
   "acpmux::range_fetch": {
    "none": "GETs with only a Range header and the acpmux user-agent: a public release archive (managed Codex install) or the URL the person typed (acpmux fetch URL); no auth, cookie or person data"
