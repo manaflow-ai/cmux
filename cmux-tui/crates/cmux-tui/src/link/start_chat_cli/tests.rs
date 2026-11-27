@@ -454,15 +454,17 @@ fn plan_pins_a_machine_that_exists_and_names_a_new_one_otherwise() {
 
 #[test]
 fn an_explicit_provider_never_reuses_the_default_machine() {
-    let dir = scratch();
-    let path = ledger_in(dir.path());
-    let request = json!({"key": key(), "account": ACCOUNT, "user": ME, "loaded": true,
-        "provider": "gcp", "machines": [{"id": "vm-free", "title": "cloud-chats", "created_by": ME,
+    for provider in ["gcp", "own-host", "freestyle"] {
+        let dir = scratch();
+        let path = ledger_in(dir.path());
+        let request = json!({"key": key(), "account": ACCOUNT, "user": ME, "loaded": true,
+        "provider": provider, "machines": [{"id": "vm-free", "title": "cloud-chats", "created_by": ME,
         "status": "running", "connected": true}]})
     .to_string();
-    let answer = plan(&path, &request);
-    assert_eq!(answer["ok"], true, "{answer}");
-    assert_eq!(answer["machine"], Value::Null, "explicit provider must cold-create");
+        let answer = plan(&path, &request);
+        assert_eq!(answer["ok"], true, "{answer}");
+        assert_eq!(answer["machine"], Value::Null, "explicit provider must cold-create");
+    }
 }
 
 #[test]
