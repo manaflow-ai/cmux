@@ -708,7 +708,7 @@ fn a_url_index_is_asked_once_a_minute() {
 
 /// Sets `file`'s modified time to `ago` before now.
 fn age_file(file: &Path, ago: Duration) {
-    let when = std::time::SystemTime::now() - ago;
+    let when = SystemTime::now() - ago;
     std::fs::File::options().write(true).open(file).unwrap().set_modified(when).unwrap();
 }
 
