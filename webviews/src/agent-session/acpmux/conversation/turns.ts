@@ -1820,7 +1820,9 @@ function sentHeader(sent: AcpmuxRow, line: AcpmuxRow, expanded: Folds): AcpmuxRo
   if (experimentArm(liveTurnClock) !== "top" || !headsOwnTurn(sent)) return [];
   line.untimed = true;
   const header: AcpmuxRow = { id: turnHeaderId(sent.id), version: 1, at: sent.at, kind: WORKED, turnPhase: "running" };
-  if (experimentArm(liveTurnWork) === "folded") header.foldOpen = expanded.has(turnHeaderId(sent.id));
+  // No turn yet, so no work under it to open.
+  if (experimentArm(liveTurnWork) === "folded")
+    Object.assign(header, { foldOpen: expanded.has(turnHeaderId(sent.id)), foldEmpty: true });
   return [header];
 }
 
@@ -3827,7 +3829,10 @@ function shapeLiveRows(
     turnPhase: "running",
     ...(clock.durationMs !== undefined && clock.answered && { durationMs: clock.durationMs }),
   };
-  if (folds) header.foldOpen = workOpen;
+  if (folds) {
+    header.foldOpen = workOpen;
+    if (!liveFoldHidesWork(drawn, named?.tool.id)) header.foldEmpty = true;
+  }
   // A /compact the person steered into: the stretch before the steer is the compaction alone, which
   // the ended turn draws with no fold (`compactOnly`, shapedTurn), so the line stands under the
   // steer, where that turn's one "Worked for" lands, one row from the start: it never stands over
@@ -4555,6 +4560,15 @@ function earlierRun(row: AcpmuxRow, named: string | undefined, fold = true): Acp
   });
   earlierRuns.set(row, { named: own, fold, out });
   return out;
+}
+
+/// Whether the `folded` arm's "Working for" has work to open: rows `open` draws of the running
+/// stretch that `line` leaves out. None before the turn's first step, or while its only step is the
+/// call in flight, which the live line names: the header then shows no chevron that opens nothing.
+function liveFoldHidesWork(drawn: AcpmuxRow[], named: string | undefined): boolean {
+  return (
+    codexRuns(drawn, named, false, runningBeforeLastRun(drawn), true).length > codexRuns(drawn, named, true).length
+  );
 }
 
 function codexRuns(
