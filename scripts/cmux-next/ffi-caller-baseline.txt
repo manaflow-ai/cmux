@@ -81,6 +81,10 @@ cmux-tui/crates/cmux-app-ffi/include/cmux_settings.h	cmux_settings_abi_version
 cmux-tui/crates/cmux-app-ffi/include/cmux_sign_clone_sweep.h	cmux_sign_clone_sweep
 # Held until its Swift caller lands (step B): cmux#50601 added the export; the re-pin to cmux-app-ffi-dd9b5117 made it count.
 cmux-tui/crates/cmux-app-ffi/include/cmux_system_calendar.h	cmux_system_calendar_abi_version
+# Held until its Swift caller lands (step B): cmux#57333 added the export; the re-pin to cmux-app-ffi-18791d28 made it count.
+cmux-tui/crates/cmux-app-ffi/include/cmux_updater.h	cmux_updater_abi_version
+cmux-tui/crates/cmux-app-ffi/include/cmux_updater.h	cmux_updater_bytes_free
+cmux-tui/crates/cmux-app-ffi/include/cmux_updater.h	cmux_updater_call
 # Held until its Swift caller lands (step B): cmux#51861 added the export; the re-pin to cmux-app-ffi-dd9b5117 made it count.
 cmux-tui/crates/cmux-app-ffi/include/cmux_wallpaper_ffi.h	cmux_wallpaper_activity_advance
 cmux-tui/crates/cmux-app-ffi/include/cmux_wallpaper_ffi.h	cmux_wallpaper_activity_event
@@ -182,6 +186,15 @@ cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_f
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_focus_set_close_focus
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_focus_set_topology
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_layout_reducer_ffi_abi_version
+# Held until its Swift caller lands (step B): cmux#57153 added the export; the re-pin to cmux-app-ffi-18791d28 made it count.
+cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_classic_highlight
+cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_dock
+cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_rects
+cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_screen_free
+cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_screen_new
+cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_target
+cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_target_in_content
+cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_zone
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_drop_zone_edge
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_edge_drop_zone
 cmux-tui/crates/cmux-layout-reducer-ffi/include/cmux_layout_reducer_ffi.h	cmux_pane_edge_opposite
@@ -269,12 +282,24 @@ cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_receiver_note_frame_de
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_clock
 # Held until its Swift caller lands (step B): cmux#58370 added the export; the re-pin to cmux-app-ffi-dd9b5117 made it count.
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_note_connect_started
-cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_report
 # Held until its Swift caller lands (step B): cmux#47310 added the export; the re-pin to cmux-app-ffi-dd9b5117 made it count.
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_note_frame_decode
+cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_report
 # Held until its Swift caller lands (step B): cmux#47236 added the export; the re-pin to cmux-app-ffi-dd9b5117 made it count.
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_session_stalled
 cmux-tui/crates/cmux-rd-ffi/include/cmux_rd_ffi.h	cmux_rd_upstream_target_bps
+# Held until its Swift caller lands (step B): cmux#60347 added the export; the re-pin to cmux-app-ffi-18791d28 made it count.
+cmux-tui/crates/cmux-screenshots/include/cmux_screenshots.h	cmux_screenshots_pane_change
+cmux-tui/crates/cmux-screenshots/include/cmux_screenshots.h	cmux_screenshots_pane_drop_source
+cmux-tui/crates/cmux-screenshots/include/cmux_screenshots.h	cmux_screenshots_pane_entry_action
+cmux-tui/crates/cmux-screenshots/include/cmux_screenshots.h	cmux_screenshots_pane_free
+cmux-tui/crates/cmux-screenshots/include/cmux_screenshots.h	cmux_screenshots_pane_new
+cmux-tui/crates/cmux-screenshots/include/cmux_screenshots.h	cmux_screenshots_pane_pause
+cmux-tui/crates/cmux-screenshots/include/cmux_screenshots.h	cmux_screenshots_pane_read_done
+cmux-tui/crates/cmux-screenshots/include/cmux_screenshots.h	cmux_screenshots_pane_set_sources
+cmux-tui/crates/cmux-screenshots/include/cmux_screenshots.h	cmux_screenshots_pane_source_containing
+cmux-tui/crates/cmux-screenshots/include/cmux_screenshots.h	cmux_screenshots_pane_start
+cmux-tui/crates/cmux-screenshots/include/cmux_screenshots.h	cmux_screenshots_pane_state
 cmux-tui/crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h	cmux_sdk_bytes_free
 cmux-tui/crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h	cmux_sdk_call
 cmux-tui/crates/cmux-sdk-ffi/include/cmux_sdk_ffi.h	cmux_sdk_cancel
@@ -324,11 +349,6 @@ cmux-tui/crates/cmux-terminal-prediction/include/cmux_terminal_prediction.h	cmux
 # Held until its Swift caller lands (step B): cmux#56550 added the export; the re-pin to cmux-app-ffi-dd9b5117 made it count.
 cmux-tui/crates/cmux-update-prewarm-core/include/cmux_update_prewarm.h	cmux_update_prewarm_abi_version
 cmux-tui/crates/cmux-url-input/include/cmux_url_input.h	cmux_url_input_abi_version
-cmux-tui/crates/cmux-url-input/include/cmux_url_input.h	cmux_url_input_chromium_internal_url
-cmux-tui/crates/cmux-url-input/include/cmux_url_input.h	cmux_url_input_chromium_page_route
-cmux-tui/crates/cmux-url-input/include/cmux_url_input.h	cmux_url_input_contains_pairing_link
-cmux-tui/crates/cmux-url-input/include/cmux_url_input.h	cmux_url_input_is_loopback_host
-cmux-tui/crates/cmux-url-input/include/cmux_url_input.h	cmux_url_input_resolve_typed
 cmux-tui/crates/cmux-wg-tun/include/cmux_wg_tun.h	cmux_wg_tun_find_utun_fd
 cmux-tui/crates/cmux-wg-tun/include/cmux_wg_tun.h	cmux_wg_tun_network_changed
 cmux-tui/crates/cmux-wg-tun/include/cmux_wg_tun.h	cmux_wg_tun_start
