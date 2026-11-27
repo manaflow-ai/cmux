@@ -913,10 +913,44 @@ def terminal_host_pids(root: Path) -> list[int]:
     return pids
 
 
+def executable_path(pid: int) -> str | None:
+    """The executable a process of this Mac runs (libproc's proc_pidpath), or None when it cannot be read."""
+    try:
+        import ctypes
+        import ctypes.util
+        libproc = ctypes.CDLL(ctypes.util.find_library("proc") or "/usr/lib/libproc.dylib", use_errno=True)
+        buf = ctypes.create_string_buffer(4096)
+        size = libproc.proc_pidpath(ctypes.c_int(pid), buf, ctypes.c_uint32(len(buf)))
+    except (OSError, AttributeError):
+        return None
+    return buf.value.decode(errors="replace") if size > 0 else None
+
+
+def holder_pids(root: Path) -> list[int]:
+    """The terminal holders this run's app started: this user's `cmux-holder` processes whose executable sits under
+    ROOT (the daemon copies it to <home>/Library/Application Support/cmux-tui/host-exe/<hash>/cmux-holder). A holder's
+    command line is `cmux-holder --socket /tmp/cmux-hd-<uid>/... --owner ...`, which never names the root, so
+    pids_under and terminal_host_pids miss it, and a NIGHTLY holder keeps its terminals for a week once its daemon is
+    gone (cmux_holder::ABANDONED_GRACE). On a CI Mac, 2026-11-26, five holders left by earlier runs held 510 shells and
+    every PTY of the Mac (kern.tty.ptmx_max 511), so the next launch's workspace.create failed "Device not configured
+    (os error 6)" and launch-tti measured nothing. Matched by the executable's real path, so /tmp vs /private/tmp
+    cannot hide one (cmux#59530)."""
+    real = os.path.realpath(root) + os.sep
+    pids = []
+    for pid, args in user_processes():
+        if os.path.basename(args.split(None, 1)[0] if args else "") != "cmux-holder":
+            continue
+        path = executable_path(pid)
+        if path and os.path.realpath(path).startswith(real):
+            pids.append(pid)
+    return pids
+
+
 def own_pids(root: Path) -> list[int]:
-    """Everything this run started that may still run: processes naming its root, and its terminal hosts (those
-    of the seeded arm too, whose home is under ROOT/SEEDED)."""
-    return sorted(set(pids_under(root)) | set(terminal_host_pids(root)) | set(terminal_host_pids(root / SEEDED)))
+    """Everything this run started that may still run: processes naming its root, its terminal hosts (those of the
+    seeded arm too, whose home is under ROOT/SEEDED) and its terminal holders (the seeded arm's are under ROOT too)."""
+    return sorted(set(pids_under(root)) | set(terminal_host_pids(root)) | set(terminal_host_pids(root / SEEDED))
+                  | set(holder_pids(root)))
 
 
 LOCK_NOTE = "smoke.lock"  # under a run's root: the lock path the run held, so a later run reaps only its own kind

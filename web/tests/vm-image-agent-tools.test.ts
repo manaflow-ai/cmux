@@ -263,6 +263,32 @@ describe("cmux VM agent tools (bead cx-h8n)", () => {
     }
   });
 
+  test("probe: a model listing that acpmux starts after the chat's launch is not read as the chat's (roll 45890407908)", () => {
+    const chat = `-p\n--session-id\ns-1\n--mcp-config\n${JSON.stringify({ mcpServers: { cmux: { type: "stdio", command: `${AGENT_TOOLS_BIN}/cmux`, args: ["mcp", "serve"] } } })}\n\x1e\n`;
+    const listing = `-p\n--no-session-persistence\n--strict-mcp-config\n--mcp-config\n{"mcpServers":{}}\n--settings\n{"disableAllHooks":true}\n\x1e\n`;
+    expect(parseRecordedLaunch(`--version\n\x1e\n${listing}${chat}${listing}`).servers.map((s) => s.name)).toEqual(["cmux"]);
+    expect(parseRecordedLaunch(listing).servers).toEqual([]);
+  });
+
+  test("probe: launches recorded at once never interleave their lines (roll 45906244147 attempt 2)", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cmux-agent-tools-rec-"));
+    try {
+      const out = path.join(dir, "launches.txt");
+      writeFileSync(path.join(dir, "claude"), recorderScript(out));
+      chmodSync(path.join(dir, "claude"), 0o755);
+      const many = (tag: string) => Array.from({ length: 200 }, (_, i) => `${tag}-${i}`);
+      await Promise.all(Array.from({ length: 8 }, (_, n) => runChild(path.join(dir, "claude"), many(`launch${n}`), { timeout: 20_000 })));
+      const records = readFileSync(out, "utf8").split("\x1e\n").filter((b) => b.trim());
+      expect(records).toHaveLength(8);
+      for (const record of records) {
+        const tag = record.split("\n")[0].split("-")[0];
+        expect(record.trim().split("\n")).toEqual(many(tag));
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test("probe: acpmux's gateway (#48374) attaches cmux as loopback HTTP with no command; the parser keeps its url", () => {
     // Bake run 44875111659: the launch's cmux entry was {type: http, url} and the probe threw on its missing command.
     const url = "http://127.0.0.1:41733/mcp/s-1f2e/tools";

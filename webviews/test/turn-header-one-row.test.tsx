@@ -241,6 +241,40 @@ test("the header's clock never decreases, tick by tick, across the answer and th
   expect(header(live(continued, 22_000), "cu")!.id).toBe(header(ended(continuedEnded), "cu")!.id);
 });
 
+// claude-97, 2026-11-25: a 6m 44s turn read "Worked for 7s". The agent said where it was ("Typecheck:
+// 5 errors ... Starting a tagged build"), ran more commands, and acpmux who-else steered a notice
+// into the turn 7 s before the answer. The notice came while the agent was at work, so it set
+// nothing going again: the clock keeps the prompt's start, running and ended.
+const steered = [
+  row("sw", "user", 0, { text: "Hide Reply over the image viewer" }),
+  call("sw-read", 1_000, [run("sw-read-1", "rg SelectionReply")]),
+  commentary("sw-note", 300_000, "Typecheck: 5 errors, all in base files. Starting a tagged build."),
+  call("sw-build", 301_000, [run("sw-build-1", "scripts/next-dogfood.sh")]),
+  received("sw-who", 397_000, "acpmux who-else", "claude-98 also edits conversation.css"),
+  call("sw-review", 398_000, [run("sw-review-1", "codex exec -s read-only")]),
+  finalAnswer("sw-answer", 404_000, "The build and review are running."),
+];
+
+test("a notice steered in while the agent works keeps the turn's clock at the prompt", () => {
+  for (const agentFamily of ["claude", "codex"]) {
+    const view = (rows: AcpmuxRow[], working: boolean) =>
+      shown(turnView(rows, new Set(), { now: 402_000, agentFamily, working }));
+    expect(header(view(steered.slice(0, -1), true), "sw")!.at, agentFamily).toBe(0);
+    const done = header(view([...steered, summary(404_500, 404_500)], false), "sw");
+    expect(done!.durationMs, agentFamily).toBe(404_000);
+  }
+  // A notice after the agent's reply, with no call between, still starts a stretch of its own.
+  const woke = [...steered.slice(0, 3), steered[4]!, steered[5]!, steered[6]!];
+  expect(header(ended([...woke, summary(404_500, 404_500)]), "sw")!.durationMs).toBe(404_000 - 397_000);
+  // So does one after a call a history page placed after the reply, though it started before it.
+  const paged = [...steered.slice(0, 3), call("sw-early", 299_000, [run("sw-early-1", "rg Reply")]), ...woke.slice(3)];
+  expect(header(ended([...paged, summary(404_500, 404_500)]), "sw")!.durationMs).toBe(404_000 - 397_000);
+  // Reopened mid-turn, the calls already read fold away (`readAtOpen`), yet the clock still counts
+  // from the prompt: they were the agent at work.
+  const reopened = steered.slice(0, -1).map((each) => (each.kind === "activity" ? { ...each, readAtOpen: 1 } : each));
+  expect(header(live(reopened, 402_000), "sw")!.at).toBe(0);
+});
+
 test("a run's summary line keeps its phrases in the order they came as the run grows", () => {
   // A command first, then a message sent, then one received: each phrase keeps its place as the next
   // comes in, and the ended line reads in that same order.
