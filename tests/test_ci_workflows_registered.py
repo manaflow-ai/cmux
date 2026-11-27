@@ -26,7 +26,7 @@ DISPATCH_ONLY = {"workflow_dispatch", "workflow_call"}
 
 REGISTERED = frozenset({
     "acpmux-sim-sweep.yml", "auto-journey.yml", "billing-e2e.yml", "billing-nightly.yml",
-    "build-ghosttykit.yml", "ci-artifact-canary.yml", "cloud-capture-provision.yml", "cloud-chat-proof.yml",
+    "build-ghosttykit.yml", "cloud-capture-provision.yml", "cloud-chat-proof.yml",
     "cloud-composer-journey.yml", "cloud-rd-link-readback.yml", "cloud-vm-dogfood.yml", "cloud-vm-image-bake.yml",
     "cloud-vm-image-promote.yml", "cloud-vm-migrate.yml", "cmux-actions.yml",
     "cmux-api-prod-logs.yml", "cmux-next-daemon-macos-shadow.yml", "cmux-next-dev-daily.yml",
