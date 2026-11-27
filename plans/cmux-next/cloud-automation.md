@@ -200,7 +200,7 @@ Every number is a setting under `cloud.automation.*` (default = this table), wit
 
 ## 9. Hosted Linux CI job (proposal; not written as a workflow in this run)
 
-Name `cloud-automation-linux.yml`, "Cloud automation (Linux, not a gate)". Non-required (not in the ruleset list in scripts/ci/required_status_checks.py). Path filter: `cmux-tui/crates/cmux-browser-host/**`, `images/cmux-vm/**`, `web/scripts/cmux-vm-image/**`, the workflow file. Triggers: pull_request and push to feat-cmux-next with those paths, plus dispatch. `timeout-minutes: 5`. Template: `automation-bench.yml`.
+Name `cloud-automation-linux.yml`, "Cloud automation (Linux, not a gate)". Non-required (not in the ruleset list in scripts/ci/required_status_checks.py). Path filter: `cmux-tui/crates/cmux-browser-host/**`, `images/cmux-vm/**`, `web/scripts/cmux-vm-image/**`, the workflow file. Triggers: pull_request and push to feat-cmux-next with those paths, plus dispatch. `timeout-minutes: 5`. Use the `automation-bench` step in `ci/steps.toml` as the test pattern.
 
 Steps:
 1. apt install `xvfb xauth openbox at-spi2-core dbus-user-session xterm` (about 30 s on the Blacksmith runner, estimate).
@@ -268,7 +268,7 @@ Not migrated: remote-tab.md:16 and :156 already state the RT8 rule.
 
 ## 14. Decisions recorded (CLOUD-AUTOMATION, coordinator 2026-10-04)
 
-D-A1 the fork's Chrome-style build is the engine; Chrome for Testing x86_64 is the interim. D-A2 CJK fonts in the image; ffmpeg and heavy tools are first-use role packages. D-A3 per-session display API on one shared display until cmux-cua has one X11 connection per display. D-A4 per-user SSH CA for personal machines, team CA for team machines. D-A5 ffmpeg on first use. D-A6 x264 with openh264 fallback. D-A7 the rotation lead creates environment `cmux-next-vm-image-dev` with only the cmux-next dev key; no bake before the coordinator confirms it. Bakes stay `workflow_dispatch` only; `cloud-vm-image-lock.yml` runs the lock and sshd tests on path changes.
+D-A1 the fork's Chrome-style build is the engine; Chrome for Testing x86_64 is the interim. D-A2 CJK fonts in the image; ffmpeg and heavy tools are first-use role packages. D-A3 per-session display API on one shared display until cmux-cua has one X11 connection per display. D-A4 per-user SSH CA for personal machines, team CA for team machines. D-A5 ffmpeg on first use. D-A6 x264 with openh264 fallback. D-A7 the rotation lead creates environment `cmux-next-vm-image-dev` with only the cmux-next dev key; no bake before the coordinator confirms it. Bakes stay `workflow_dispatch` only; the `cloud-vm-image-lock` step in `ci/steps.toml` runs the lock and sshd tests on path changes.
 
 ## 15. Image changes landed (no bake yet)
 
