@@ -10,7 +10,7 @@
 //   bottom stack's order, #20521), never under either; the list is named "Queued prompts" (its rows
 //   carry no header or number, Leo 2026-10-21), and a long one opens whole
 //   (acpmux lists only a 200-character preview; the pane keeps the text its `queued` record had).
-// - A prompt sent now to an agent that cannot steer reads "Steering" in the queue, apart from the
+// - A prompt sent now to an agent that cannot steer waits first in the queue with no "Steering" label, apart from the
 //   queued ones, and its bubble's read receipt reads read once it runs.
 // - A steer's read receipt (in its bubble's hover row, Claude Code desktop's ✓ / ✓✓) is one check
 //   while the reply it went into still streams, and two once the agent's next message starts; a
@@ -394,12 +394,15 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await page.close();
     });
 
-    test("a prompt sent now to an agent that cannot steer reads Steering, then read under its bubble", async () => {
+    test("a prompt sent now to an agent that cannot steer waits as a queued row, then read under its bubble", async () => {
       const page = await openChat(false);
       send(["mux", "queued", { text: "stop and fix the space thing first", promptId: "q-now", turnId: "turn-4" }]);
       send(["mux", "queue_order", { promptId: "q-now", order: ["q-now", "q-1", "q-2"], next: true }]);
       const now = page.locator(".acpmux-queued", { hasText: "fix the space thing first" });
-      await now.locator(".acpmux-queued-kind", { hasText: "Steering" }).waitFor({ timeout: 10_000 });
+      // No "Steering" state: it waits as an ordinary queued row, first in line, with no Steer button.
+      await now.waitFor({ timeout: 10_000 });
+      expect(await page.locator(".acpmux-queued-kind").count()).toBe(0);
+      expect(await now.getByRole("button", { name: "Steer", exact: true }).count()).toBe(0);
       // The queued prompts carry no number (Leo, 2026-10-21).
       expect(await page.locator(".acpmux-queued-mark").count()).toBe(0);
       send(["mux", "turn_result", { status: "cancelled", turnId: "turn-1" }]);
@@ -414,7 +417,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await page.close();
     });
 
-    test("Steer on a queued prompt keeps its row, reading Steering, until it runs (live run, 2026-10-14)", async () => {
+    test("Steer on a queued prompt keeps its row, with no Steering label, until it runs (live run, 2026-10-14)", async () => {
       // A live run: after Send now (now Steer) the row went at once and nothing showed until the stopped turn
       // ended, because the queue hid the row as if it were leaving.
       const page = await openChat(false);
@@ -422,7 +425,8 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await row.hover();
       // A queued row shows Steer, Delete and ⋯ (ChatGPT's order, 2026-10-21): click Steer by its name.
       await row.getByRole("button", { name: "Steer", exact: true }).click();
-      await row.locator(".acpmux-queued-kind", { hasText: "Steering" }).waitFor({ timeout: 10_000 });
+      await row.getByRole("button", { name: "Steer", exact: true }).waitFor({ state: "detached", timeout: 10_000 });
+      expect(await page.locator(".acpmux-queued-kind").count()).toBe(0);
       // The stopped turn has not ended yet: once the page has handled what came after Steer, the
       // row still shows.
       await caughtUp(page, "queue order.");
