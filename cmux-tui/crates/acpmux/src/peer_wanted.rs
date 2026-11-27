@@ -263,8 +263,14 @@ impl Peer {
     /// (`server/requests.rs` `new_on_peer`) waits for the link only then; a machine long gone is
     /// refused at once, as before.
     pub(crate) fn reconnects_soon(&self) -> bool {
-        !self.login_refused.load(std::sync::atomic::Ordering::SeqCst)
-            && self.asks_shorten(crate::store::now_ms())
+        !self.ssh_refused() && self.asks_shorten(crate::store::now_ms())
+    }
+
+    /// Whether the last attempt ended in ssh refusing the login or the host key: its next
+    /// attempts wait their own backoff, which no ask cuts.
+    fn ssh_refused(&self) -> bool {
+        use std::sync::atomic::Ordering::SeqCst;
+        self.login_refused.load(SeqCst) || self.host_key_refused.load(SeqCst)
     }
 
     /// Waits out one backoff delay, or its `Backoff::wanted` bound while the peer is wanted
@@ -277,7 +283,8 @@ impl Peer {
         let wanted = Backoff::wanted(delay, crate::peer_link::jitter());
         // After a refused ssh login no ask shortens the wait: a chat that keeps asking would
         // otherwise send the remote one refused login a second (`Backoff::login_refused`).
-        let heed_asks = !self.login_refused.load(std::sync::atomic::Ordering::SeqCst);
+        // A refused host key likewise waits its own short backoff (`Backoff::host_key_refused`).
+        let heed_asks = !self.ssh_refused();
         let mut watch = SleepWatch::now();
         loop {
             // Listening before the read: an ask between the two still wakes this wait.
@@ -349,6 +356,9 @@ mod tests {
         assert!(peer.reconnects_soon(), "a 150 s outage still reconnects within a second");
         peer.login_refused.store(true, std::sync::atomic::Ordering::SeqCst);
         assert!(!peer.reconnects_soon(), "a refused login holds its attempts back");
+        peer.login_refused.store(false, std::sync::atomic::Ordering::SeqCst);
+        peer.host_key_refused.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert!(!peer.reconnects_soon(), "a refused host key holds its attempts back");
         let gone = self::peer();
         gone.with_link(|l| {
             l.down(now - 2 * WANTED_OUTAGE_FOR.as_millis() as u64, Duration::from_secs(60));
