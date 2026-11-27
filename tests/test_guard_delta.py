@@ -9,6 +9,7 @@ Run it: python3 tests/test_guard_delta.py
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -18,6 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import guard_delta  # noqa: E402
+import test_egress_gate as egress  # noqa: E402
 import test_ci_noclobber_sweep as noclobber  # noqa: E402
 import test_outbound_hosts as outbound  # noqa: E402
 
@@ -170,6 +172,53 @@ class OutboundHosts(Case):
     def test_a_problem_the_base_had_in_an_untouched_file_is_not_reported(self):
         self.check({DOC: doc("api.cmux.dev", "stale.cmux.dev"), A: swift("api.cmux.dev"), B: swift("old.cmux.dev")},
                    {A: swift("api.cmux.dev") + "// edit\n"}, 0)
+
+
+LIST = "tests/egress_ungated.json"
+R = "cmux-tui/crates/x/src/a.rs"
+S = "cmux-tui/crates/x/src/b.rs"
+NEW = "let c = reqwest::Client::new();\n"
+
+
+def listed(entries: dict[str, dict[str, int]]) -> str:
+    return json.dumps({"files": entries})
+
+
+class EgressGate(Case):
+    def check(self, base: dict[str, str], head: dict[str, str | None], n: int) -> list[str]:
+        repo = self.repo(base)
+        before = set(egress.problems(egress.scan(repo.root), egress.load(repo.root / LIST)))
+        repo.write(head)
+        paths = guard_delta.changed(egress.RULES, repo.root, repo.base)
+        self.assertIsNotNone(paths)
+        now = egress.load(repo.root / LIST)
+        got = egress.change_problems(repo.base, paths, now, repo.root)
+        whole = [p for p in egress.problems(egress.scan(repo.root), now) if p not in before]
+        self.assertEqual(got, whole)
+        self.assertEqual(len(got), n, got)
+        self.assertEqual(egress.check(repo.root, now), egress.problems(egress.scan(repo.root), now))  # no base set
+        return got
+
+    def test_a_new_site_fails(self):
+        got = self.check({LIST: listed({}), R: "fn f() {}\n"}, {R: NEW}, 1)
+        self.assertIn(f"{R}: 1 new reqwest-client", got[0])
+
+    def test_a_listed_site_moved_to_the_gate_needs_the_entry_removed(self):
+        self.check({LIST: listed({R: {"reqwest-client": 1}}), R: NEW}, {R: "fn f() {}\n"}, 1)
+        self.check({LIST: listed({R: {"reqwest-client": 1}}), R: NEW}, {R: "fn f() {}\n", LIST: listed({})}, 0)
+
+    def test_an_entry_edited_for_an_untouched_file_is_checked(self):
+        self.check({LIST: listed({R: {"reqwest-client": 1}}), R: NEW}, {LIST: listed({})}, 1)
+        self.check({LIST: listed({R: {"reqwest-client": 1}}), R: NEW, S: NEW},
+                   {LIST: listed({R: {"reqwest-client": 1}, S: {"reqwest-client": 1}})}, 0)
+
+    def test_a_deleted_file_with_an_entry_fails_until_the_entry_goes(self):
+        self.check({LIST: listed({R: {"reqwest-client": 1}}), R: NEW}, {R: None}, 1)
+
+    def test_a_problem_the_base_had_in_an_untouched_or_touched_file_is_not_reported(self):
+        self.check({LIST: listed({}), R: NEW, S: "fn f() {}\n"}, {S: "fn g() {}\n"}, 0)
+        self.check({LIST: listed({}), R: NEW}, {R: NEW + "// edit\n"}, 0)
+        self.check({LIST: listed({}), R: NEW}, {R: NEW + NEW}, 1)  # one more site is new
 
 
 SH = "#!/bin/bash\n"
