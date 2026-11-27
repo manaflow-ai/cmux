@@ -1685,7 +1685,7 @@ jobs:
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_gh_app_token.py
 
-      - name: Validate app-token-spread reads on the quota-goblin pool before minting the routing App
+      - name: Validate the token-spread action reads on the quota-goblin pool before minting the routing App
         if: ${{ matrix.group == 'release-notary' }}
         run: python3 tests/test_app_token_spread_pool.py
 
