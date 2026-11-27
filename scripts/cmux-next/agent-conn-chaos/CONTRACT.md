@@ -74,3 +74,22 @@ launchd agent. The daemon it starts is the DEV build's own, under a scratch `ACP
 
 A marked case still runs and is judged in full. A failure prints `XFAIL` with the PR and does not fail the suite. A
 pass prints `XPASS` and fails it, so the mark comes off the day its PR lands.
+
+## The daemon-only half (Linux, no app)
+
+`linux_daemon.py` runs the cases that need no page on a machine with no app: a real acpmux daemon in a private home,
+the same scripted agent, and the acpmux CLI as the only client. It checks that a client is served again within the
+same bound with nothing done by the script to bring the daemon back, that each prompt reaches the agent exactly once,
+and that the store holds the whole reply once. It does not judge the page, so it proves nothing about "What the
+person may see"; that is suite.py's alone.
+
+| case | fault | what recovers it |
+|---|---|---|
+| daemon-sigterm, daemon-sigkill | the signal to the daemon | the next client command starts a daemon, which adopts the running agent |
+| daemon-hung | SIGSTOP of the daemon, left stopped | a client must be served while it stays stopped |
+| sleep-wake-sim | SIGSTOP of the daemon, agent hosts and agent for 35 s, then SIGCONT | simulated, as above |
+| socket-gone | the socket file moved away for 20 s, then back | the client's send during the gap |
+| update-swap | a new binary renamed over the daemon's path, then `acpmux daemon restart` from it | the successor runs the new file and adopts the agent; no download or signature check |
+
+app-sigkill, update-midturn and ws-port-block have no daemon-only form (no app, and no WebSocket client without it).
+The expected-failure marks above are about the app; this half has none.

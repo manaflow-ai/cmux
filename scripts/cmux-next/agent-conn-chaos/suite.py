@@ -359,7 +359,8 @@ def run_case(run: Run, case: str) -> dict:
         result["failures"].append(f"page showed {sorted({s['pattern'] for s in late})}: {late[0]['text']!r}")
     result["forbidden_seen"] = late[:5]
     entries = run.agent_entries()
-    streams = [e for e in entries if e.get("session") == session and str(e.get("text", "")).startswith(f"chaos-stream: {tag} ")]
+    # By tag (one per case): the agent logs its own session id, not the chat's.
+    streams = [e for e in entries if str(e.get("text", "")).startswith(f"chaos-stream: {tag} ")]
     pings = [e for e in entries if e.get("text") == ping]
     ends = [e for e in entries if e.get("tag") == tag and "end" in e]
     result["deliveries"] = {"stream": len(streams), "ping": len(pings)}
