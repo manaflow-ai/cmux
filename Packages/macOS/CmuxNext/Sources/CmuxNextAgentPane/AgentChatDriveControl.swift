@@ -281,6 +281,7 @@ public struct AgentChatDriveControl: Sendable {
                 "delivered": report?["totals"]?["wheel_trusted"] ?? .null,
                 "scrolled": run.scrolled.map { .number($0) } ?? .null,
                 "expected": .number(Double(run.sent * (params.wheel?.delta ?? 0))),
+                "per_tick": .array(run.perTick),
             ],
             "interrupted": (run.interrupted ?? release.triggered).map(JSONValue.string) ?? .null,
             "released": .bool(release.released),
