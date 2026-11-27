@@ -38,6 +38,7 @@ mod scheduler;
 mod start_wait;
 mod state;
 mod terminal;
+mod turn_fold;
 mod usage_reset;
 pub use run::run;
 
@@ -155,6 +156,8 @@ impl Reread {
 
 /// Screen rects from the last frame, for mouse hit testing.
 pub struct App {
+    /// Requests started by this terminal UI end when it closes.
+    pub(crate) scope: cmux_scope::Scope,
     pub(crate) client: Arc<Client>,
     pub(crate) tx: mpsc::UnboundedSender<AppMsg>,
     pub sessions: Vec<Value>,

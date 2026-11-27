@@ -36,6 +36,13 @@ pub(crate) struct MeshBook {
     /// (`mesh_book_route_machines`).
     #[cfg(feature = "hub-carrier")]
     machines: BTreeMap<String, String>,
+    /// Whether a hub read has filled `machines` since this daemon started: before it, an empty
+    /// list means "not read yet", not "the hub lists none" (`mesh_book_machines_once_read`).
+    #[cfg(feature = "hub-carrier")]
+    machines_read: bool,
+    /// Woken by each read of `machines` (`apply_mesh_book`).
+    #[cfg(feature = "hub-carrier")]
+    machines_changed: Arc<tokio::sync::Notify>,
 }
 
 /// Whether `book` lists daemon `d` as one of this person's other machines (`mine`).
@@ -284,7 +291,12 @@ impl Hub {
         // every fleet lane VM an ssh peer of the controller `machine.unknown` on the carrier
         // (2026-11-22). Only the session rows below leave ssh peers out, so none is listed twice.
         #[cfg(feature = "hub-carrier")]
-        self.set_mesh_book_machines(mine_by_key(&book, own_user, own_daemon, &|_| false));
+        {
+            self.set_mesh_book_machines(mine_by_key(&book, own_user, own_daemon, &|_| false));
+            let mut book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+            book.machines_read = true;
+            book.machines_changed.notify_waiters();
+        }
         let (hosts, sessions) = mine(book, own_user, own_daemon, &skip);
         self.set_mesh_book(hosts, sessions);
     }
@@ -308,6 +320,39 @@ impl Hub {
     pub(crate) fn mesh_book_machines(&self) -> Vec<(String, String)> {
         let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
         book.machines.iter().map(|(key, host)| (key.clone(), host.clone())).collect()
+    }
+
+    /// [`Self::mesh_book_machines`] once a hub read has filled them, waiting up to `wait` for the
+    /// first read after this daemon starts; `None` when none came in time. A `session move` run
+    /// 3 s after a restart found the list still empty and called its target unlisted
+    /// (session-move-gcp, 2026-11-27 00:52Z).
+    #[cfg(feature = "hub-carrier")]
+    pub(crate) async fn mesh_book_machines_once_read(
+        &self,
+        wait: std::time::Duration,
+    ) -> Option<Vec<(String, String)>> {
+        let deadline = tokio::time::Instant::now() + wait;
+        loop {
+            let changed = {
+                let book = self.mesh_book.lock().unwrap_or_else(|e| e.into_inner());
+                if book.machines_read {
+                    return Some(
+                        book.machines.iter().map(|(k, h)| (k.clone(), h.clone())).collect(),
+                    );
+                }
+                book.machines_changed.clone()
+            };
+            let notified = changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            // A read between the check and `enable` would be missed: look once more.
+            if self.mesh_book.lock().unwrap_or_else(|e| e.into_inner()).machines_read {
+                continue;
+            }
+            if tokio::time::timeout_at(deadline, notified).await.is_err() {
+                return None;
+            }
+        }
     }
 
     /// The machines of [`Self::mesh_book_machines`] no ssh peer of this daemon already names:
