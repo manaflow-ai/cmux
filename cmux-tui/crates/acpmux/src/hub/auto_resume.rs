@@ -121,6 +121,7 @@ mod first_send;
 mod compact_first;
 // A chat a full disk cut waits for free space (`disk_wait.rs`).
 mod disk_wait;
+pub(super) use disk_wait::RefusedRules;
 
 /// A dead agent's unread steers go into its continuation.
 mod unread_steers;
@@ -1492,10 +1493,11 @@ impl Hub {
         }
         match (session.turn().map(|t| t.turn_id), ending) {
             (Some(t), _) => pending.replace(Mark::Stopped(t)),
-            (None, Some(t)) if let Some(fired_gen) = fired => {
-                pending.replace(Mark::stopping(t, fired_gen))
-            }
-            (None, Some(t)) => pending.replace(Mark::Stopped(t)),
+            // A nested match, not an `if let` guard: those need Rust 1.95, past the 1.91 MSRV.
+            (None, Some(t)) => match fired {
+                Some(fired_gen) => pending.replace(Mark::stopping(t, fired_gen)),
+                None => pending.replace(Mark::Stopped(t)),
+            },
             (None, None) => pending.take(),
         };
         drop(pending);
