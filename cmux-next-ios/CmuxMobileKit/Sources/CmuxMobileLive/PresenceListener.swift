@@ -54,6 +54,10 @@ public final class PresenceListener {
     static let pingInterval: Duration = .seconds(15)
     static let pingTimeout: Duration = .seconds(5)
     static let helloTimeout: Duration = .seconds(10)
+    /// Presence down at least this long before its return redials the links
+    /// (`LiveCoordinator.presenceReturned`). Kept here, not on the iOS-only
+    /// coordinator, so the macOS kit tests that model it compile.
+    static let outageMin: Duration = .seconds(3)
 
     /// The socket's retry after `failures` failures in a row: 2 s, 3 s, then every 5 s
     /// for about five minutes, then the poll interval. Its hello after an outage is what
