@@ -1,4 +1,4 @@
-import CmuxEgress; import CmuxNextCloud
+import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextSettings
 import Foundation
@@ -18,23 +18,11 @@ extension AppControl {
                 let issuer = try await Self.vmIssuer(services)
                 let planned = try Self.vmAgentKeyRequest(backend: issuer.backend, params: call.params)
                 // A runtime selection names its own VM API; else the one Rust names for the backend.
-                guard let baseURL = issuer.vmOrigin ?? URL(string: planned.baseUrl),
-                      let url = issuer.vmOrigin.map({ $0.appendingPathComponent(planned.path) }) ?? URL(string: planned.url)
-                else {
+                guard let baseURL = issuer.vmOrigin ?? URL(string: planned.baseUrl) else {
                     throw ControlError(code: "internal", message: "the cmux VM API address is invalid")
                 }
-                // timeout: a VM API that never answers; the CLI waits on this call (Rust's 20 s, as before).
-                var request = URLRequest(url: url, timeoutInterval: TimeInterval(planned.timeoutSeconds))
-                request.httpMethod = "POST"
-                request.setValue("application/json", forHTTPHeaderField: "content-type")
-                request.setValue("Bearer \(issuer.accessToken)", forHTTPHeaderField: "authorization")
-                request.setValue(issuer.teamID, forHTTPHeaderField: "x-cmux-team-id")
-                for (name, value) in issuer.buildSpaceHeaders { request.setValue(value, forHTTPHeaderField: name) }
-                request.httpBody = try JSONEncoder().encode(planned.body)
-                // No answer at all is status 0, which Rust reads as unreachable.
-                let answer = try? await CmuxEgress.shared(site: "CmuxNextApp.AppControl+VMAgentKey").data(for: request)
-                let status = (answer?.1 as? HTTPURLResponse)?.statusCode ?? 0
-                return try Self.vmAgentKeyAnswer(status: status, body: answer?.0 ?? Data(), baseURL: baseURL, teamID: issuer.teamID)
+                let answer = await Self.vmAgentKeyMint(issuer, baseURL: baseURL, body: planned.body)
+                return try Self.vmAgentKeyAnswer(status: answer.status, body: answer.body, baseURL: baseURL, teamID: issuer.teamID)
             }.withDeadline(.fixed(.seconds(25))),
         ])
     }
@@ -45,17 +33,31 @@ extension AppControl {
         var vmOrigin: URL?
         var teamID: String
         var accessToken: String
-        var buildSpaceHeaders: [String: String] // a tagged dev build's X-Cmux-Build-Space (CloudConfiguration.buildSpace)
+        var machineIO: CloudMachineIO? // the bundled cmux that runs `cmux cloud api`
+    }
+
+    /// The mint over cmux-cloud-api `vm.agent_key_create` (owner auth: the session and team, no Stack refresh token):
+    /// the VM API's status and body, or status 0 for no answer (no cmux, a refusal, a timeout), which Rust reads as unreachable.
+    nonisolated static func vmAgentKeyMint(_ issuer: VMIssuer, baseURL: URL, body: JSONValue,
+                                          run: (@Sendable (Data, Duration) async throws -> Data)? = nil) async -> (status: Int, body: Data) {
+        struct Reply: Decodable { var status: Int; var body: String }
+        let (access, team) = (issuer.accessToken, issuer.teamID)
+        let daemon = CloudDaemon.owner(baseURL: baseURL, credential: { access }, teamID: { team }, machineIO: issuer.machineIO, run: run)
+        guard let text = try? JSONEncoder().encode(body),
+              let data = try? await daemon.daemon("vm.agent_key_create", ["body_json": String(decoding: text, as: UTF8.self)], timeout: .seconds(24)),
+              let reply = try? JSONDecoder().decode(Reply.self, from: data) else { return (0, Data()) }
+        return (reply.status, Data(reply.body.utf8))
     }
 
     /// The signed-in session and its team, behind the Cloud policy (not Labs, Leo 2026-10-30).
     nonisolated static func vmIssuer(_ services: AppServices) async throws -> VMIssuer {
-        let (cloud, backend, vmOrigin, buildSpaceHeaders) = try await MainActor.run { () throws -> (CloudService, CloudConfiguration.Backend, URL?, [String: String]) in
+        let (cloud, backend, vmOrigin, machineIO) = try await MainActor.run { () throws -> (CloudService, CloudConfiguration.Backend, URL?, CloudMachineIO?) in
             if let refusal = ControlError.policyRefusal("vm.agent_key.create", disabled: services.registry.disabledFeatures) { throw refusal }
             guard services.cloud.mayCallCloud else { throw ControlError(code: "cloud_disabled", message: Self.vmText(.cloudUnavailable)) }
             guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: Self.vmText(.notSignedIn)) }
             let configuration = services.cloud.configuration
-            return (services.cloud, configuration.backend, configuration.runtimeSelection?.vmOrigin, try configuration.buildSpace.headers())
+            try configuration.buildSpace.check() // a misconfigured dev build refuses before any call
+            return (services.cloud, configuration.backend, configuration.runtimeSelection?.vmOrigin, services.cloud.auth.machineIO)
         }
         guard let teamID = await MainActor.run(body: { cloud.auth.teamID }), !teamID.isEmpty else {
             throw ControlError(code: "no_team", message: Self.vmText(.noTeam))
@@ -63,7 +65,7 @@ extension AppControl {
         guard let access = try? await cloud.auth.tokens().access else {
             throw ControlError(code: "not_signed_in", message: Self.vmText(.notSignedIn))
         }
-        return VMIssuer(backend: backend, vmOrigin: vmOrigin, teamID: teamID, accessToken: access, buildSpaceHeaders: buildSpaceHeaders)
+        return VMIssuer(backend: backend, vmOrigin: vmOrigin, teamID: teamID, accessToken: access, machineIO: machineIO)
     }
 
     // The mint's rules are Rust's (cmux-cloud-config agent_key, the same ones `cmux vm token
@@ -76,9 +78,7 @@ extension AppControl {
         var body: JSONValue
         var timeoutSeconds: Int
 
-        /// The mint's path under a VM API: `url` past `baseUrl`.
-        var path: String { String(url.dropFirst(baseUrl.count + 1)) }
-    }
+        }
 
     nonisolated struct VMAgentKeyRefusal: Decodable, Sendable {
         var code: String
