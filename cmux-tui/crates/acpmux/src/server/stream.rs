@@ -159,7 +159,7 @@ impl<R: AsyncRead + Unpin> Upgrade<R> {
         let reply = Message::ok(
             self.id,
             json!({
-                "protocol": 2, "surfaces": self.surfaces, "upgrade": true,
+                "protocol": 2, "abi": crate::protocol::ABI, "surfaces": self.surfaces, "upgrade": true,
             }),
         );
         writer.write_all(reply.to_line().as_bytes()).await?;
