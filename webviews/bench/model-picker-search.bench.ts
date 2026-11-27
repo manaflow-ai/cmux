@@ -50,7 +50,11 @@ function measure(routerModels: number) {
   const full: number[] = [];
   let found = 0;
   for (let r = 0; r < RUNS; r++) {
-    const index = new ModelSearchIndex(entries as never[], (e: Entry) => e.models as never[], (e: Entry) => e.name);
+    const index = new ModelSearchIndex(
+      entries as never[],
+      (e: Entry) => e.models as never[],
+      (e: Entry) => e.name,
+    );
     for (let i = 1; i <= TYPED.length; i++) {
       const q = parseQuery(TYPED.slice(0, i), efforts);
       const t = performance.now();
@@ -70,7 +74,10 @@ function measure(routerModels: number) {
 
 const small = measure(500);
 const big = measure(5000);
-for (const [label, m] of [["500", small], ["5000", big]] as const) {
+for (const [label, m] of [
+  ["500", small],
+  ["5000", big],
+] as const) {
   console.log(
     `dsa-bench name=modelPicker.keystroke router_models=${label} models=${m.total} found=${m.found} ` +
       `key_p50_ms=${m.keyP50.toFixed(4)} key_max_ms=${m.keyMax.toFixed(3)} full_pass_p50_ms=${m.fullP50.toFixed(3)}`,
@@ -80,8 +87,10 @@ const ratio = big.keyP50 / Math.max(small.keyP50, 1e-6);
 console.log(`dsa-bench name=modelPicker.keystroke_growth ratio=${ratio.toFixed(2)} max_ratio=${MAX_RATIO}`);
 
 const misses: string[] = [];
-if (big.keyP50 > KEY_BUDGET_MS) misses.push(`keystroke p50 ${big.keyP50.toFixed(3)} ms > ${KEY_BUDGET_MS} ms at 5,000 models`);
-if (big.keyP50 > FLOOR_MS && ratio > MAX_RATIO) misses.push(`p50 at 5,000 is ${ratio.toFixed(2)}x the p50 at 500 (> ${MAX_RATIO}x)`);
+if (big.keyP50 > KEY_BUDGET_MS)
+  misses.push(`keystroke p50 ${big.keyP50.toFixed(3)} ms > ${KEY_BUDGET_MS} ms at 5,000 models`);
+if (big.keyP50 > FLOOR_MS && ratio > MAX_RATIO)
+  misses.push(`p50 at 5,000 is ${ratio.toFixed(2)}x the p50 at 500 (> ${MAX_RATIO}x)`);
 console.log(`bench_seconds=${((performance.now() - started) / 1000).toFixed(3)}`);
 if (misses.length) {
   const load = contentionFactor(probe());

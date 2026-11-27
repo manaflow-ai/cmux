@@ -49,7 +49,26 @@ function randomPatch(g: Gen, files: number): string {
   return s;
 }
 
-const QUERIES = ["n", "ne", "nee", "needle", "e", "x", "xx", "xxx", "i", "in", "ind", "compute", "computen", "zz", "a", "al", "État", "_"];
+const QUERIES = [
+  "n",
+  "ne",
+  "nee",
+  "needle",
+  "e",
+  "x",
+  "xx",
+  "xxx",
+  "i",
+  "in",
+  "ind",
+  "compute",
+  "computen",
+  "zz",
+  "a",
+  "al",
+  "État",
+  "_",
+];
 
 /** Lines a full pass looks at: what `collectFindMatches` visits for a query that never matches. */
 function lineCount(items: DiffItem[]): number {
