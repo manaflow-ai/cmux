@@ -16,10 +16,15 @@ for a build that is still running, one that predates the reaper, or a Mac full o
         its force exit), then end every process whose command line names `cmux DEV TAG.app/`,
         every terminal holder or host owned by the tag's app (`--owner <bundle id>:`), and their
         descendants: SIGTERM, a grace period, SIGKILL. Exits 1 when any process survives.
-    dev-build.py stop --all-idle [--dry-run]
+    dev-build.py stop --all-idle [--dry-run] [--except TAG]
         `stop` every tag that nobody uses: its app is gone and only helpers are left, or the agent
-        chat that claimed it has finished (closed, or acpmux no longer lists it). A running app
-        that no chat claimed is left alone and listed.
+        chat that owns it has finished: closed, gone from acpmux, or idle (no turn, background task
+        or command) for CMUX_DEV_BUILD_IDLE_HOURS (default 12). The owner is the chat that claimed
+        the tag, else the chat whose shell launched the app (ACPMUX_SESSION_ID in the app's own
+        environment), so a build an agent started with `open` or from a fleet artifact has one
+        too. A running app no chat owns (the person's Tag Opener launch) is left alone and listed.
+        `reload.sh --launch` runs this in the background for every other tag (issue 63351: one
+        Mac held a build for 42 hours after its chat's last turn, 83 processes).
     dev-build.py claim --tag TAG [--session ID]
         Record the agent chat that uses the tag (default: this chat, ACPMUX_SESSION_ID).
         `reload.sh --tag TAG --launch` claims for the chat that runs it.
@@ -47,6 +52,12 @@ DAILY_TAG = "next"
 TAG_IN_COMMAND = re.compile(r"(?<!/Contents/Frameworks)/cmux DEV ([a-z0-9._-]+?)\.app/Contents/")
 CLAIMS_DIR = Path(os.environ.get("CMUX_DEV_BUILD_CLAIMS_DIR")
                   or Path.home() / ".local/state/cmux/dev-builds")
+# A chat that has done nothing for this long is done with its build (issue 63351). Chats are
+# rarely closed: an agent's chat sits idle after its last turn, so "closed" alone kept builds for days.
+IDLE_HOURS = float(os.environ.get("CMUX_DEV_BUILD_IDLE_HOURS") or 12)
+# The chat states that mean the chat is between turns with nothing waiting on the person.
+QUIET_STATES = {"idle", "ready"}
+SESSION_IN_ENV = re.compile(r"(?:^| )ACPMUX_SESSION_ID=([0-9A-Za-z_-]+)(?= |$)")
 QUIT_TIMEOUT = float(os.environ.get("CMUX_STOP_APP_QUIT_TIMEOUT_SECONDS") or 30)
 FORCE_EXIT_TIMEOUT = float(os.environ.get("CMUX_STOP_APP_FORCE_EXIT_TIMEOUT_SECONDS") or 5)
 HELPER_GRACE = float(os.environ.get("CMUX_DEV_BUILD_HELPER_GRACE_SECONDS") or 5)
@@ -161,6 +172,15 @@ class System:
     def snapshot(self) -> List[Process]:
         return snapshot()
 
+    def launch_env(self, pid: int) -> str:
+        """The process's command line followed by its environment (`ps -E`), or "" when unreadable."""
+        try:
+            return subprocess.run(["/bin/ps", "-E", "-ww", "-o", "command=", "-p", str(pid)],
+                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True,
+                                  timeout=10).stdout.strip()
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+
     def signal(self, pid: int, sig: int) -> None:
         try:
             os.kill(pid, sig)
@@ -250,8 +270,36 @@ def read_claim(tag: str) -> Optional[dict]:
     return data if isinstance(data, dict) and data.get("session") else None
 
 
-def acpmux_states() -> Optional[Dict[str, str]]:
-    """Session id to state for this Mac's agent chats, or None when acpmux cannot be asked."""
+def launch_session(env: str) -> Optional[str]:
+    """The agent chat whose shell launched a process: the last ACPMUX_SESSION_ID in its `ps -E`
+    line (the environment follows the arguments, so the last one is the environment's)."""
+    found = SESSION_IN_ENV.findall(env)
+    return found[-1] if found else None
+
+
+def owner(tag: str, processes: List[Process], system: Optional["System"] = None) -> Optional[dict]:
+    """The chat that owns the tag: its claim, else the chat that launched the running app."""
+    claimed = read_claim(tag)
+    if claimed is not None or system is None:
+        return claimed
+    for pid in app_pids(tag, processes):
+        session = launch_session(system.launch_env(pid))
+        if session:
+            return {"tag": tag, "session": session, "source": "launch"}
+    return None
+
+
+def chat_row(row: dict) -> dict:
+    """What the idle rule needs of one `acpmux ls --json` session."""
+    turn = row.get("lastTurn") if isinstance(row.get("lastTurn"), dict) else {}
+    stamps = [v for v in (turn.get("endedAt"), row.get("updatedAt"), row.get("createdAt"))
+              if isinstance(v, (int, float)) and v > 0]
+    busy = any(row.get(k) for k in ("bgTasksRunning", "commandsRunning", "subagentsRunning", "pendingPermissions"))
+    return {"state": row.get("state") or "", "quietSinceMs": max(stamps) if stamps else None, "busy": bool(busy)}
+
+
+def acpmux_states() -> Optional[Dict[str, dict]]:
+    """Session id to state for this Mac's agent chats (`chat_row`), or None when acpmux cannot be asked."""
     binary = os.environ.get("ACPMUX_BIN") or "acpmux"
     try:
         result = subprocess.run([binary, "ls", "--json", "--machine", "local"], stdout=subprocess.PIPE,
@@ -264,24 +312,34 @@ def acpmux_states() -> Optional[Dict[str, str]]:
         rows = json.loads(result.stdout).get("sessions", [])
     except (ValueError, AttributeError):
         return None
-    return {row.get("sessionId"): row.get("state") or "" for row in rows if row.get("sessionId")}
+    return {row.get("sessionId"): chat_row(row) for row in rows if isinstance(row, dict) and row.get("sessionId")}
 
 
-def verdict(tag: str, processes: List[Process], states: Optional[Dict[str, str]]) -> str:
+def verdict(tag: str, processes: List[Process], states: Optional[Dict[str, object]],
+            system: Optional["System"] = None, now: Optional[float] = None) -> str:
     """Why a tag is idle (`idle: …`) or kept (`keep: …`)."""
     if not app_pids(tag, processes):
         return "idle: app not running, helpers left"
-    owner = read_claim(tag)
-    if owner is None:
-        return "keep: app running, no chat claimed it"
+    chat = owner(tag, processes, system)
+    if chat is None:
+        return "keep: app running, no chat owns it"
+    session = chat["session"]
     if states is None:
         return "keep: app running, acpmux not reachable"
-    state = states.get(owner["session"])
-    if state is None:
-        return f"idle: its chat {owner['session']} is gone"
+    row = states.get(session)
+    if row is None:
+        return f"idle: its chat {session} is gone"
+    if isinstance(row, str):
+        row = {"state": row, "quietSinceMs": None, "busy": False}
+    state = row.get("state") or ""
     if state == "closed":
-        return f"idle: its chat {owner['session']} is closed"
-    return f"keep: its chat {owner['session']} is {state}"
+        return f"idle: its chat {session} is closed"
+    quiet = row.get("quietSinceMs")
+    if state in QUIET_STATES and not row.get("busy") and isinstance(quiet, (int, float)):
+        hours = ((time.time() if now is None else now) - quiet / 1000) / 3600
+        if hours >= IDLE_HOURS:
+            return f"idle: its chat {session} has been {state} for {hours:.0f}h (limit {IDLE_HOURS:g}h)"
+    return f"keep: its chat {session} is {state}"
 
 
 def main(argv: Optional[List[str]] = None) -> int:
@@ -294,6 +352,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     which.add_argument("--tag")
     which.add_argument("--all-idle", action="store_true")
     stopping.add_argument("--dry-run", action="store_true")
+    stopping.add_argument("--except", dest="spare", action="append", default=[],
+                          help="with --all-idle: a tag to leave alone (the one being launched)")
     claiming = sub.add_parser("claim")
     claiming.add_argument("--tag", required=True)
     claiming.add_argument("--session", default=os.environ.get("ACPMUX_SESSION_ID", ""))
@@ -319,10 +379,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         states = acpmux_states()
         rows = []
         for tag in sorted(tags_in(processes)):
-            owner = read_claim(tag) or {}
+            chat = owner(tag, processes, system) or {}
             rows.append({"tag": tag, "app": app_pids(tag, processes),
                          "processes": len(tree(tag, processes, {os.getpid()})),
-                         "chat": owner.get("session"), "verdict": verdict(tag, processes, states)})
+                         "chat": chat.get("session"), "verdict": verdict(tag, processes, states, system)})
         if args.json:
             print(json.dumps(rows, indent=2))
         else:
@@ -338,8 +398,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     states = acpmux_states()
     failed = False
-    for tag in sorted(tags_in(processes)):
-        why = verdict(tag, processes, states)
+    for tag in sorted(tags_in(processes) - set(args.spare)):
+        why = verdict(tag, processes, states, system)
         print(f"{tag}: {why}")
         if why.startswith("idle"):
             survivors = stop(tag, system, dry_run=args.dry_run)

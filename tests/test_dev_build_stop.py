@@ -74,6 +74,9 @@ class Fake(dev_build.System):
     def alive(self, pid):
         return pid in self.processes
 
+    def launch_env(self, pid):
+        return ""
+
     def wait(self, pids, timeout):
         return [pid for pid in pids if pid in self.processes]
 
@@ -126,9 +129,59 @@ class DevBuildStopTests(unittest.TestCase):
         dev_build.claim("t", "s-1")
         self.assertTrue(dev_build.verdict("t", with_app, None).startswith("keep"), "acpmux unreachable")
         self.assertTrue(dev_build.verdict("t", with_app, {"s-1": "running"}).startswith("keep"))
-        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": "idle"}).startswith("keep"))
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": "idle"}).startswith("keep"), "idle, no time known")
         self.assertTrue(dev_build.verdict("t", with_app, {"s-1": "closed"}).startswith("idle"))
         self.assertTrue(dev_build.verdict("t", with_app, {"other": "running"}).startswith("idle"))
+
+    def test_a_chat_idle_past_the_limit_is_done_with_its_build(self):
+        # Issue 63351: the owning chat's last turn ended 42 hours ago and its build kept 83 processes.
+        with_app = LEFT_BEHIND + [APP]
+        dev_build.claim("t", "s-1")
+        now = 1_795_821_955.0
+        hours_ago = lambda h: (now - h * 3600) * 1000  # noqa: E731
+        row = dev_build.chat_row({"state": "idle", "lastTurn": {"endedAt": hours_ago(42)}, "updatedAt": hours_ago(42),
+                                  "bgTasksRunning": 0, "commandsRunning": 0})
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": row}, now=now).startswith("idle: its chat s-1 has been idle for 42h"))
+        # Recent, busy, running or waiting on the person: kept.
+        recent = dev_build.chat_row({"state": "idle", "lastTurn": {"endedAt": hours_ago(1)}})
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": recent}, now=now).startswith("keep"))
+        touched = dev_build.chat_row({"state": "idle", "lastTurn": {"endedAt": hours_ago(42)}, "updatedAt": hours_ago(1)})
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": touched}, now=now).startswith("keep"), "newest stamp wins")
+        busy = dev_build.chat_row({"state": "idle", "lastTurn": {"endedAt": hours_ago(42)}, "bgTasksRunning": 1})
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-1": busy}, now=now).startswith("keep"), "a background task runs")
+        for state in ("running", "waiting", "stuck"):
+            row = dev_build.chat_row({"state": state, "lastTurn": {"endedAt": hours_ago(42)}})
+            self.assertTrue(dev_build.verdict("t", with_app, {"s-1": row}, now=now).startswith("keep"), state)
+
+    def test_the_chat_that_launched_an_unclaimed_app_owns_it(self):
+        # A build opened with `open` or unzipped from a fleet artifact never ran `claim`; the app's
+        # own environment still names the chat whose shell launched it.
+        class Launched(Fake):
+            def launch_env(self, pid):
+                assert pid == APP.pid
+                return f"{APP.command} ACPMUX_SESSION_ID=fake-arg TERM=xterm ACPMUX_SESSION_ID=s-9 CMUX_TAG=t"
+        with_app = LEFT_BEHIND + [APP]
+        system = Launched(with_app)
+        self.assertEqual(dev_build.owner("t", with_app, system)["session"], "s-9")
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-9": "closed"}, system).startswith("idle: its chat s-9"))
+        self.assertTrue(dev_build.verdict("t", with_app, {"s-9": "running"}, system).startswith("keep"))
+        # A claim wins over the launch environment; no session anywhere (the Tag Opener) is kept.
+        dev_build.claim("t", "s-1")
+        self.assertEqual(dev_build.owner("t", with_app, system)["session"], "s-1")
+        (dev_build.CLAIMS_DIR / "t.json").unlink()
+        self.assertTrue(dev_build.verdict("t", with_app, {}, Fake(with_app)).startswith("keep: app running, no chat owns it"))
+
+    def test_all_idle_ends_finished_tags_but_spares_the_one_being_launched(self):
+        fake = Fake(LEFT_BEHIND)
+        original_system, original_states = dev_build.System, dev_build.acpmux_states
+        dev_build.System, dev_build.acpmux_states = (lambda: fake), (lambda: {})
+        try:
+            self.assertEqual(dev_build.main(["stop", "--all-idle", "--except", "t"]), 0)
+            self.assertIn(103, fake.processes, "the spared tag's helpers")
+            self.assertEqual(dev_build.main(["stop", "--all-idle"]), 0)
+            self.assertNotIn(103, fake.processes)
+        finally:
+            dev_build.System, dev_build.acpmux_states = original_system, original_states
 
     def test_parse_ps_keeps_spaces_in_commands(self):
         rows = dev_build.parse_ps("  1     0 /sbin/launchd\n 42 1 /a b/cmux DEV t.app/Contents/MacOS/cmux DEV -psn\n 7 1 gone\nbad\n",
@@ -140,6 +193,7 @@ class DevBuildStopTests(unittest.TestCase):
         reload = (ROOT / "scripts/reload.sh").read_text()
         self.assertIn('python3 "$SCRIPT_DIR/dev-build.py" stop --tag "$TAG_SLUG"', reload)
         self.assertIn('python3 "$SCRIPT_DIR/dev-build.py" claim --tag "$TAG_SLUG" --quiet', reload)
+        self.assertIn('python3 "$SCRIPT_DIR/dev-build.py" stop --all-idle --except "$TAG_SLUG"', reload)
 
 
 if __name__ == "__main__":
