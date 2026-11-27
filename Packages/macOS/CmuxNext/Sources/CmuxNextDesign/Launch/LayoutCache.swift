@@ -244,10 +244,10 @@ public struct LayoutCacheDocument: Codable, Hashable, Sendable {
         self.displays = displays; self.windows = windows
     }
 
-    /// `windows` (front first) on this build and the displays now, as JSON for `LayoutCacheWriter`.
-    @MainActor public static func json(_ windows: [LayoutCacheWindow]) -> String? {
-        LayoutCacheFFI.json(LayoutCacheDocument(buildKey: LaunchShellPaths.build(info: Bundle.main.infoDictionary ?? [:]),
-                                                displays: LayoutCacheDisplay.current(), windows: windows))
+    /// `windows` (front first) on this build and the displays now, for `LayoutCacheWriter` to encode off the main actor.
+    @MainActor public static func current(_ windows: [LayoutCacheWindow]) -> LayoutCacheDocument {
+        LayoutCacheDocument(buildKey: LaunchShellPaths.build(info: Bundle.main.infoDictionary ?? [:]),
+                            displays: LayoutCacheDisplay.current(), windows: windows)
     }
 }
 
@@ -329,17 +329,17 @@ public struct LayoutCacheStripApplied: Codable, Sendable {
 }
 
 /// The C ABI's calls (include/cmux_layout_cache.h), JSON in and out, snake_case on the wire.
-public struct LayoutCacheFFI {
+/// Nonisolated: `LayoutCacheWriter` encodes on its files lane; the launch read (`LayoutCacheLaunch`)
+/// and the drift mark run where their caller does, the main actor before the first window commits.
+public nonisolated struct LayoutCacheFFI {
     public init() {}
     public static func encoder() -> JSONEncoder {
-        // main-actor-ok: the launch layout cache, one file Rust caps at 512 KiB, read once before the first window commits.
         let encoder = JSONEncoder()
         encoder.keyEncodingStrategy = .convertToSnakeCase
         return encoder
     }
 
     public static func decoder() -> JSONDecoder {
-        // main-actor-ok: the launch layout cache, one file Rust caps at 512 KiB, read once before the first window commits.
         let decoder = JSONDecoder()
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         return decoder
@@ -367,12 +367,22 @@ public struct LayoutCacheFFI {
 
     /// The cache at `path`, or nil (missing, too large, another version, garbage).
     public static func read(path: String) -> LayoutCacheDocument? {
-        decode(LayoutCacheDocument.self, cmux_layout_cache_read(path))
+        readJSON(path: path).flatMap { try? decoder().decode(LayoutCacheDocument.self, from: Data($0.utf8)) }
+    }
+
+    /// The cache at `path` as Rust's JSON, or nil (`read`).
+    public static func readJSON(path: String) -> String? {
+        take(cmux_layout_cache_read(path))
     }
 
     public static func usable(_ cache: LayoutCacheDocument, build: String, displays: [LayoutCacheDisplay], nowMs: UInt64) -> LayoutCacheUsable? {
+        json(cache).flatMap { usable(json: $0, build: build, displays: displays, nowMs: nowMs) }
+    }
+
+    /// `usable` of the cache as Rust gave it (`readJSON`): no encode of it again.
+    public static func usable(json cacheJSON: String, build: String, displays: [LayoutCacheDisplay], nowMs: UInt64) -> LayoutCacheUsable? {
         struct Now: Encodable { var buildKey: String; var displays: [LayoutCacheDisplay]; var nowMs: UInt64 }
-        guard let cacheJSON = json(cache), let nowJSON = json(Now(buildKey: build, displays: displays, nowMs: nowMs)) else { return nil }
+        guard let nowJSON = json(Now(buildKey: build, displays: displays, nowMs: nowMs)) else { return nil }
         return decode(LayoutCacheUsable.self, cmux_layout_cache_usable(cacheJSON, nowJSON))
     }
 
@@ -399,8 +409,11 @@ public struct LayoutCacheLaunch: Sendable {
     /// Reads and gates the cache in the app's support folder; nil when there is none or nothing applies.
     /// One ≤512 KiB file, before the first commit (`LaunchShell.prepare`).
     @MainActor public static func read(support: URL, build: String) -> LayoutCacheLaunch? {
-        guard let path = LayoutCacheFFI.path(support: support), let document = LayoutCacheFFI.read(path: path),
-              let usable = LayoutCacheFFI.usable(document, build: build, displays: LayoutCacheDisplay.current(),
+        // main-actor-ok: launch-critical: the first frame is placed from it, so the main thread waits for it on
+        // any thread; one file Rust caps at 512 KiB, read once, decoded once (Rust's JSON goes to `usable` as is).
+        guard let path = LayoutCacheFFI.path(support: support), let json = LayoutCacheFFI.readJSON(path: path),
+              let document = try? LayoutCacheFFI.decoder().decode(LayoutCacheDocument.self, from: Data(json.utf8)),
+              let usable = LayoutCacheFFI.usable(json: json, build: build, displays: LayoutCacheDisplay.current(),
                                                  nowMs: LayoutCacheFFI.wallClockMs()),
               !usable.windows.isEmpty else { return nil }
         return LayoutCacheLaunch(document: document, usable: usable)

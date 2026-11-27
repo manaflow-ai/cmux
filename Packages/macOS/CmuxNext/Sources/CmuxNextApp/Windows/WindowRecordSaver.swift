@@ -292,9 +292,9 @@ extension AppServices {
         return LaunchRecordSnapshot(windows: windows, sidebarRows: sidebars, sessionSocketPath: socketPath)
     }
 
-    /// The layout cache's JSON for every window but incognito ones, front first (LayoutCacheWriter), from values
-    /// already computed. TODO: each pane's kind, scroll, terminal grid and chat anchor; the sidebar's scroll; pictures.
-    func layoutCacheJSON() -> String? {
+    /// The layout cache for every window but incognito ones, front first (LayoutCacheWriter): gathered on main, encoded off it.
+    /// TODO: each pane's kind, scroll, terminal grid and chat anchor; the sidebar's scroll; pictures.
+    func layoutCacheJSON() -> (@Sendable () -> String?)? {
         let manager = windows, front = manager.active
         let controllers = manager.controllers.filter { !manager.isIncognito(window: $0.state.id) }
         let layouts = (controllers.filter { $0 === front } + controllers.filter { $0 !== front }).compactMap { controller -> LayoutCacheWindow? in
@@ -307,6 +307,6 @@ extension AppServices {
                            sidebarWidth: controller.state.sidebarWidth ?? Double(controller.sidebar.model.width),
                            sidebarCollapsed: controller.sidebar.model.isHidden, workspaceId: controller.state.workspaceID ?? "", panes: panes)
         }
-        return LayoutCacheDocument.json(layouts)
+        let document = LayoutCacheDocument.current(layouts); return { LayoutCacheFFI.json(document) }
     }
 }

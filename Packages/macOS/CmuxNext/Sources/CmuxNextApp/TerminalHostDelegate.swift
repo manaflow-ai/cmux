@@ -53,7 +53,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
     func linkMenu(_ session: TerminalSession, text: String? = nil, services: AppServices) -> (rows: [LinkMenuRow], items: [NSMenuItem]) {
         let target = target(of: session, in: services)
         let canOpenLocalFiles = allowsLocalFiles(session, services: services)
-        // main-actor-ok: a right-click resolves one path (a few stat calls), as the click does.
+        // main-actor-ok: UI: AppKit asks for the right-click NSMenu synchronously; one path's few stat calls, as the click does.
         switch (text ?? session.model.hoveredLink).flatMap({ TerminalLinkResolver().resolve($0, cwd: cwd(of: session), allowsLocalFiles: canOpenLocalFiles) }) {
         case .url(let link)?:
             let menu = LinkMenu { [weak services] url in

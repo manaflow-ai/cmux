@@ -72,24 +72,28 @@ public final class AppLaunchRecord {
 /// thing to say "ok this loads faster and settles without jostling" and it's another to say "ok
 /// it's already loaded""). When to write is Rust's coalescer (250 ms after the last change, at
 /// most 2 s after the first): Swift notes changes, arms one DemandTimer at its next due time (no
-/// polling), takes the snapshot on the main actor and writes it on BackgroundWork's files lane.
+/// polling), gathers the windows' values on the main actor, and encodes, compares and writes the
+/// JSON on BackgroundWork's files lane (the main thread neither encodes nor parses it).
 /// The quit and the update's relaunch flush it (`flush`, `flushNow`).
 @MainActor
 public final class LayoutCacheWriter {
     private let path: String?
     private let work: BackgroundWork
     private let restored: @MainActor () -> Bool
-    /// The cache's JSON (cmux-layout-cache `LayoutCache`) for every window now; nil writes nothing.
-    private let snapshot: @MainActor () -> String?
+    /// Every window's values now, gathered on the main actor, as the encode of the cache's JSON
+    /// (cmux-layout-cache `LayoutCache`) that runs off it; nil writes nothing.
+    public typealias Snapshot = @MainActor () -> (@Sendable () -> String?)?
+    private let snapshot: Snapshot
     /// The coalescer's address (0: none), a plain value, so the nonisolated deinit can free it; it
     /// is used on the main actor only (the coalescer is single-threaded).
     private let coalescerAddress: UInt
     private var coalescer: OpaquePointer? { OpaquePointer(bitPattern: coalescerAddress) }
     private let timer = DemandTimer(owner: "layout-cache.write")
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "layout-cache")
-    /// The JSON last on disk: an unchanged snapshot writes nothing. (Rust's coalescer has the same
-    /// check, `needs_write`, but its C ABI joins it to the write; TODO: call it once it is exported.)
-    private var lastWritten: String?
+    /// The JSON last on disk and its coalescer key (`cmux_layout_cache_write_keyed`): an unchanged
+    /// snapshot writes nothing, compared off the main actor. (Rust's coalescer has the same check,
+    /// `needs_write`, but its C ABI joins it to the write.)
+    private var lastWritten: (json: String, key: UInt64)?
     /// Counts notes, so one that lands during a write is noted again after `wrote` clears it.
     private var generation: UInt64 = 0
     private var requested = false
@@ -97,7 +101,7 @@ public final class LayoutCacheWriter {
 
     public init(bundleID: String?, work: BackgroundWork,
                 restored: @escaping @MainActor () -> Bool,
-                snapshot: @escaping @MainActor () -> String?) {
+                snapshot: @escaping Snapshot) {
         path = bundleID.flatMap { bundleID in
             let support = LaunchTimesFile.supportDirectory(bundleID: bundleID).path
             guard let raw = cmux_layout_cache_path(support) else { return nil }
@@ -158,11 +162,22 @@ public final class LayoutCacheWriter {
         guard restored(), let coalescer, let path,
               cmux_layout_cache_coalescer_flush_now(coalescer) || lastWritten == nil else { return }
         guard drain == nil else { requested = true; return }
-        guard let json = snapshot() else { return }
-        switch cmux_layout_cache_coalescer_write(coalescer, path, json) {
-        case 1, 0: lastWritten = json
-        default: logger.error("layout cache write failed at quit")
+        guard let json = snapshot()?() else { return }
+        var key: UInt64 = 0
+        if cmux_layout_cache_write_keyed(path, json, &key) == 0 {
+            lastWritten = (json, key)
+            _ = cmux_layout_cache_coalescer_wrote_key(coalescer, key)
+        } else {
+            logger.error("layout cache write failed at quit")
         }
+    }
+
+    /// What one off-main write did (`request`).
+    private enum Write: Sendable {
+        case nothing
+        case unchanged(key: UInt64)
+        case wrote(json: String, key: UInt64)
+        case failed(Int32)
     }
 
     private func request() {
@@ -172,23 +187,26 @@ public final class LayoutCacheWriter {
         drain = Task { [self] in
             while requested {
                 requested = false
-                guard let path, let coalescer, let json = snapshot() else { continue }
-                if json == lastWritten {
-                    _ = cmux_layout_cache_coalescer_wrote(coalescer, json)
-                    continue
-                }
-                let noted = generation
+                guard let path, let coalescer, let encode = snapshot() else { continue }
+                let last = lastWritten, noted = generation
                 do {
-                    let result = try await work.run(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) {
-                        cmux_layout_cache_write(path, json)
+                    let outcome = try await work.run(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { () -> Write in
+                        guard let json = encode() else { return .nothing }
+                        if let last, json == last.json { return .unchanged(key: last.key) }
+                        var key: UInt64 = 0
+                        let result = cmux_layout_cache_write_keyed(path, json, &key)
+                        return result == 0 ? .wrote(json: json, key: key) : .failed(result)
                     }
-                    if result == 0 {
-                        lastWritten = json
-                        _ = cmux_layout_cache_coalescer_wrote(coalescer, json)
+                    switch outcome {
+                    case .nothing: continue
+                    case .unchanged(let key): _ = cmux_layout_cache_coalescer_wrote_key(coalescer, key)
+                    case .wrote(let json, let key):
+                        lastWritten = (json, key)
+                        _ = cmux_layout_cache_coalescer_wrote_key(coalescer, key)
                         // A change noted while the file was written is not in it: note it again.
                         if generation != noted { cmux_layout_cache_coalescer_note(coalescer, Self.nowMs()) }
                         arm()
-                    } else {
+                    case .failed(let result):
                         // Still pending: the next change's note writes it again (no retry timer on a disk that refuses).
                         logger.error("layout cache write failed: \(result, privacy: .public)")
                     }

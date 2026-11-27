@@ -33,7 +33,7 @@ enum InstalledBuildRelaunch {
 
     /// Starts the helper; false when it could not start (the app then stays).
     static func start(bundle: URL) -> Bool {
-        // main-actor-ok: one spawn of /bin/sh on the person's Restart click, right before the app quits.
+        // main-actor-ok: one spawn of /bin/sh on the person's Restart click; the app quits next, so nothing is left to stall.
         let process = Process()
         let args = arguments(bundle: bundle, pid: getpid())
         process.executableURL = URL(fileURLWithPath: args[0])
