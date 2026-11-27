@@ -910,6 +910,65 @@ pub(super) fn leave_before_delete(vm_id: &str, env: &dyn Fn(&str) -> Option<Stri
     write_record(env, &record);
 }
 
+/// `vm resume|start` succeeded: a VM paused while it ran the node comes back from its memory
+/// snapshot with `tailscaled` still up. When the vault's lease moved to another VM meanwhile, stop
+/// the node here so two VMs never run one node. Best effort: any failure is a warning and the
+/// resume's own result stands.
+pub(super) fn stand_down_if_moved(vm_id: &str, env: &dyn Fn(&str) -> Option<String>) {
+    let Some(name) = read_record(env).get(vm_id).cloned() else {
+        return;
+    };
+    let signed = vault::signed_in(env);
+    let signed = signed.as_ref().map(|signed| signed.as_ref().map(|v| v as &dyn vault::NodeVault));
+    let (note, stood_down) =
+        settle_resumed(signed, vm_id, &name, |vm| with_guest(vm, env, vault::stand_down));
+    if let Some(note) = note {
+        eprintln!("cmux: {note}");
+    }
+    if stood_down {
+        let mut record = read_record(env);
+        record.remove(vm_id);
+        write_record(env, &record);
+    }
+}
+
+/// The note to print and whether `vm_id` stopped running the node `name`.
+fn settle_resumed(
+    vault: Result<Option<&dyn vault::NodeVault>, &String>,
+    vm_id: &str,
+    name: &str,
+    stand_down: impl FnOnce(&str) -> Result<(), String>,
+) -> (Option<String>, bool) {
+    let checked = match vault {
+        Ok(Some(vault)) => vault::moved_away(vault, vm_id, name),
+        Ok(None) => return (None, false),
+        Err(why) => Err(why.clone()),
+    };
+    match checked {
+        Ok(None) => (None, false),
+        Ok(Some(holder)) => match stand_down(vm_id) {
+            Ok(()) => (
+                Some(format!(
+                    "{holder} holds your tailnet node now (your vault's lease); {vm_id} resumed still running it, so its node was stopped"
+                )),
+                true,
+            ),
+            Err(why) => (
+                Some(format!(
+                    "{holder} holds your tailnet node now, but {vm_id} resumed still running it and did not stop ({why}); run `cmux vm tailnet leave {vm_id}` only if {holder} is gone"
+                )),
+                false,
+            ),
+        },
+        Err(why) => (
+            Some(format!(
+                "could not check your vault's tailnet lease after resuming {vm_id} ({why})"
+            )),
+            false,
+        ),
+    }
+}
+
 // MARK: The vault keeps the node (RFD 0169)
 
 const NOT_SIGNED_IN: &str =

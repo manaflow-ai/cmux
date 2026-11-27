@@ -648,6 +648,12 @@ impl Hub {
         // drain). Checked again as the steer is written (`steer_end.rs`).
         let prompt_held =
             from_agent && running.is_some() && super::inbox::persons_prompt_waits(session);
+        // Nor before a Codex turn's model answered its prompt: codex-acp takes that steer as a new
+        // prompt and cancels the running one (`inbox_admit.rs` `codex_unanswered`). It queues
+        // behind the turn; the person's own steer still goes in.
+        let codex_held = from_agent
+            && running.is_some()
+            && session.read_meta(|m| super::inbox::codex_unanswered(session, m));
         // Other agents wait until the person's own turn ends; family replies, and the reports
         // of the chat's own lanes (`lane_reports.rs`), still enter it.
         let persons_held = from_agent
@@ -675,6 +681,7 @@ impl Hub {
             && !notice_held
             && !review_held
             && !prompt_held
+            && !codex_held
             && !persons_held;
         if steer && opts.steer_only && !steer_now {
             if review_held && running.is_some() {
@@ -1650,6 +1657,10 @@ impl Hub {
                     (Ok(child2), None) => {
                         // The turn ends on the fallback's agent: `finish_turn` reads its life.
                         child = child2.clone();
+                        // A fallback is still the same person's turn. Keep the static
+                        // background harness lifted for the retry too; otherwise a capacity or
+                        // auth failover silently regresses the original turn's tool priority.
+                        let lifted_fallback = person && child2.person_turn(true).await;
                         // A fallback that could not resume (another store)
                         // starts fresh: it gets the restored transcript first.
                         let mut blocks = blocks;
@@ -1736,6 +1747,9 @@ impl Hub {
                                     .await
                                 }
                             };
+                        }
+                        if lifted_fallback {
+                            child2.person_turn(false).await;
                         }
                     }
                     // It could not start after all: the chat goes back to the profile it was
