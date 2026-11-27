@@ -1763,10 +1763,22 @@ function HeadKind({
 function KindMark({ part, chatHarness }: { part: TrayHeadPart; chatHarness: string | undefined }) {
   const lead = part.items[0];
   const agent = part.key.startsWith("agents") && lead?.kind === "agent" ? lead.agent : undefined;
+  const harness = part.harness ?? agent?.harness ?? chatHarness;
+  // At chat load the harness is not known until the session hydrates: the slot stays, blank, rather than
+  // drawing the generic fallback glyph for a moment and swapping it for the real mark (Leo, ask-ae0163978a:
+  // "a really dumb looking symbol in the top left of the composer hat when i loaded into this chat").
+  if (agent && harness === undefined)
+    return (
+      <span
+        className="acpmux-running-tray__stack-mark"
+        style={{ width: ROW_ICON, height: ROW_ICON }}
+        aria-hidden="true"
+      />
+    );
   return agent ? (
     <AgentIdentity
       className="acpmux-running-tray__stack-mark"
-      harness={part.harness ?? agent.harness ?? chatHarness}
+      harness={harness}
       tone={agentTone(agent.id)}
       size={ROW_ICON}
       fallback={part.icon}
