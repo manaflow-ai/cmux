@@ -207,6 +207,7 @@ on:
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - scripts/cmux-next/**/*connection*notices*
+      - scripts/cmux-next/**/*retry*prompts*
       - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/check-ui-font.py
       - tests/test_ui_font.py
@@ -595,6 +596,7 @@ on:
       - scripts/cmux-next/check-perf-source-guard.py
       - scripts/cmux-next/check-overlay-glass.py
       - scripts/cmux-next/**/*connection*notices*
+      - scripts/cmux-next/**/*retry*prompts*
       - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/check-ui-font.py
       - tests/test_ui_font.py
@@ -1810,6 +1812,11 @@ jobs:
         continue-on-error: true
         run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" conn-notices
 
+      - name: Retry prompts
+        id: retry-prompts
+        continue-on-error: true
+        run: scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" retry-prompts
+
       # Why: note-434
       - name: Type scale
         id: type-scale
@@ -2182,6 +2189,7 @@ jobs:
             ${{ steps.motion.outcome }}|Motion tokens
             ${{ steps.overlay-glass.outcome }}|Overlays are glass, never solid
             ${{ steps.conn-notices.outcome }}|Connection notices
+            ${{ steps.retry-prompts.outcome }}|Retry prompts (the app retries by itself)
             ${{ steps.type-scale.outcome }}|Type scale
             ${{ steps.layout-grid.outcome }}|Layout grid
             ${{ steps.instrument-tokens.outcome }}|Instrument tokens
@@ -2289,6 +2297,12 @@ jobs:
           bun-version: "1.4.4"
           no-cache: ${{ !startsWith(github.workspace, '/home/runner/work/') || !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
 
+      - name: Use the VM runner guest Bun cache
+        id: fsr-bun-cache
+        timeout-minutes: 2
+        if: ${{ startsWith(runner.name, 'fsr-') }}
+        run: bash scripts/ci/fsr-bun-cache.sh check bun-webviews webviews/bun.lock
+
       # Why: note-174
       - name: Give this job its own bun
         if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
@@ -2327,18 +2341,20 @@ jobs:
       - name: Cache the webviews Bun package cache
         timeout-minutes: 3
         continue-on-error: true
-        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.bun-warm.outputs.warm != 'true' && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
+        if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && steps.bun-warm.outputs.warm != 'true' && (github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) && steps.fsr-bun-cache.outputs.hit != 'true' }}
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Cache the webviews Bun package cache (restore only off base branches)
         if: ${{ (steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true') && !(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && github.event_name != 'merge_group' && contains(fromJSON('["refs/heads/main","refs/heads/feat-cmux-next","refs/heads/nightly-next"]'), github.ref)) }}
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
+          key: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock', 'webviews/bun.lock', 'cmux-tui/frontends/web/bun.lock', 'scripts/react-doctor/bun.lock', 'agent-chat/bun.lock', 'backend/bun.lock') }}
+          restore-keys: bun-web-shared-v1-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Build the web bundles for this source key
         if: steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-cache.outputs.cache-hit != 'true'
@@ -7782,6 +7798,12 @@ jobs:
               post pending "[overflow] Results service down ($down); the overflow compile of this head posts the verdict" "$RUN_URL" \
                 || { echo "::error title=Compile check::could not post the overflow handoff status"; exit 1; }
               echo "::warning title=Compile check::results service down ($down); the overflow compile posts cmux-next/compile for $SHA"
+              exit 0
+            fi
+            # Why: 2026-11-24-compile-status-down-superseded.md
+            if tip_moved; then
+              post error "[no-verdict] [superseded] Results service down ($down); the branch moved on and its newer tip check covers this commit" "$RUN_URL" || true
+              echo "::notice title=Compile check::results service down ($down) for superseded push $SHA; the branch moved on"
               exit 0
             fi
             # Why: note-84 ([no-verdict])
