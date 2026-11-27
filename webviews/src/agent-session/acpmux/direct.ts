@@ -11305,7 +11305,12 @@ export class AcpmuxDirectClient {
       // that steer: the note never lands over the steer and pushes it down (Leo, 2026-11-25: "the
       // animation for compaction and a message sent/steered during compaction is weird ... layout
       // shifts and awkward looking animations"). One look over the rows since it started (a few).
-      else if (compaction.state !== "running" && running && this.ownSteerBelow(running.id))
+      // A late result updates an inferred note in place, even if another steer has since arrived.
+      else if (
+        compaction.state !== "running" &&
+        running?.compaction?.state === "running" &&
+        this.ownSteerBelow(running.id)
+      )
         this.rows.placeAfterCurrent(id);
     }
   }
