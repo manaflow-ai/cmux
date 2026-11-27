@@ -302,10 +302,10 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
         return opacity;
       };
       /// The y span inside every ancestor (up to the row) that clips what overflows it.
-      const shownSpan = (node: HTMLElement, row: HTMLElement) => {
+      const shownSpan = (node: HTMLElement | null, row: HTMLElement) => {
         let top = -Infinity;
         let bottom = Infinity;
-        for (let at: HTMLElement | null = node.parentElement; at && at !== row.parentElement; at = at.parentElement) {
+        for (let at = node; at && at !== row.parentElement; at = at.parentElement) {
           const style = getComputedStyle(at);
           if (style.overflowY === "visible" && style.overflow === "visible") continue;
           const rect = at.getBoundingClientRect();
@@ -353,7 +353,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
           const rect = ghost.getBoundingClientRect();
           if (rect.height <= 0) continue;
           // Only what its clipping ancestors let through (the live line clips its roll to its box).
-          const shown = shownSpan(ghost, row);
+          const shown = shownSpan(ghost.parentElement, row);
           const ghostTop = Math.max(rect.top, shown.top);
           const ghostBottom = Math.min(rect.bottom, shown.bottom);
           if (ghostBottom <= ghostTop) continue;
@@ -386,7 +386,12 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
           const box = upper.rect.bottom - lower.rect.top;
           const upperInk = ink(upper.row);
           const lowerInk = ink(lower.row);
-          const inked = upperInk && lowerInk ? upperInk.bottom - lowerInk.top : 0;
+          // A clipped ghost's box may start above the next row while its visible words are below it.
+          // Compare the visible intervals, not their ordering by unclipped row boxes.
+          const inked =
+            upperInk && lowerInk
+              ? Math.min(upperInk.bottom, lowerInk.bottom) - Math.max(upperInk.top, lowerInk.top)
+              : 0;
           if (box > 1 || inked > 0.5)
             w.__overlaps.push({
               t: Math.round(frame),
@@ -397,7 +402,7 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
               // What moved them: each row's running animations (property and progress) and clip.
               why: [upper.row, lower.row]
                 .map(
-                  (row) =>
+                  (row, pairIndex) =>
                     row
                       .getAnimations()
                       .map((animation) => {
@@ -411,7 +416,8 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
                           );
                         return `${[...new Set(props)].join("+")}@${Math.round((effect?.getComputedTiming().progress ?? 0) * 100)}`;
                       })
-                      .join(",") + `|tr=${getComputedStyle(row).translate}|top=${row.style.top}`,
+                      .join(",") +
+                    `|tr=${getComputedStyle(row).translate}|top=${row.style.top}|clip=${getComputedStyle(row).clipPath}|ink=${JSON.stringify(pairIndex === 0 ? upperInk : lowerInk)}`,
                 )
                 .join(" ; "),
             });
@@ -461,6 +467,44 @@ await requireBrowserLane("agent-pane-stream-row-overlap.test.ts", async () => {
             .values(),
         ].slice(0, 8),
       };
+    });
+
+  for (const [name] of engines)
+    test(`${name}: overlap detector respects text clipping and visible band ordering`, async () => {
+      const page = await browsers.get(name)!.newPage();
+      await installPaintedFrames(page);
+      const readFixture = async (rows: string) => {
+        await page.setContent(`<style>
+          body { margin: 0; }
+          .acpmux-scroll { height: 300px; }
+          .acpmux-row { position: absolute; left: 0; width: 200px; font: 20px/24px Arial; }
+        </style><div class="acpmux-scroll"><div class="acpmux-thread">${rows}</div></div>`);
+        await sample(page);
+        return stop(page);
+      };
+      try {
+        for (const overflow of ["hidden", "visible"]) {
+          const report = await readFixture(`
+            <div class="acpmux-row" style="top:0;height:24px">
+              <span style="display:block;height:24px;overflow:${overflow}">First line<br>Clipped line</span>
+            </div>
+            <div class="acpmux-row" style="top:24px;height:24px">Next row</div>`);
+          if (overflow === "hidden") expect(report.rest).toEqual([]);
+          else expect(report.rest[0]!.ink).toBeGreaterThan(10);
+        }
+        // The first row's box starts earlier but its clipped words draw below the second row.
+        for (const top of [30, 84]) {
+          const report = await readFixture(`
+            <div class="acpmux-row" style="top:0;height:100px;clip-path:inset(80px 0 0)">
+              <span style="display:block;padding-top:80px">Lower words</span>
+            </div>
+            <div class="acpmux-row" style="top:${top}px;height:24px">Other words</div>`);
+          if (top === 30) expect(report.rest).toEqual([]);
+          else expect(report.rest[0]!.ink).toBeGreaterThan(10);
+        }
+      } finally {
+        await page.close();
+      }
     });
 
   /// A busy main thread, as a loaded Mac's is: a long task of `busy` ms every `every` ms.
