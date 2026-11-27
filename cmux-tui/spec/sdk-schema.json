@@ -2528,6 +2528,18 @@
      "default": true,
      "since": 12
     },
+    "restore": {
+     "type": {
+      "kind": "ref",
+      "name": "IdentifyRestore"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "constraints": [
+      "Only with identify {restore_progress: true}, and only while the owner restores its session (lifecycle_ready false): what the restore does now. A restore that advances moves last_advance_ms; one that hangs keeps it while elapsed_ms grows."
+     ]
+    },
     "launch_snapshot_path": {
      "type": {
       "kind": "scalar",
@@ -2609,6 +2621,67 @@
      "capability": "machine-identity-v1",
      "constraints": [
       "The authenticated cmux Remote worker's independently generated screen UUID; present only with identify {machine_metadata: true}, and null when no worker screen identity is currently available."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "IdentifyRestore": {
+   "kind": "object",
+   "fields": {
+    "phase": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The restore step running now: registry_open, schema, migrations, integrity, snapshot, agent_roster, mux_build, browsers, host_adoption, reconcile or finish. Clients show an unknown name as is."
+     ]
+    },
+    "done": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "Units of the phase done (agent_roster: journal rows folded); null when the phase does not count."
+     ]
+    },
+    "total": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "Units of the phase in all; null when unknown."
+     ]
+    },
+    "elapsed_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Milliseconds since the owner bound its socket and began the restore."
+     ]
+    },
+    "last_advance_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "When the restore last advanced (a new phase or a new done count), in milliseconds since it began."
      ]
     }
    },
@@ -12012,6 +12085,19 @@
       "constraints": [
        "Adds api_revision, min_api_revision, api_version, min_api_version, crate_version, install and update_command to the reply. Off by default so strict older SDK decoders keep reading the reply."
       ]
+     },
+     "restore_progress": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "constraints": [
+       "Answered while the owner restores its session too, at once, with lifecycle_ready false, placeholder session fields (registry_id and generation empty, revisions 0) and restore. Without it a restoring owner holds the request until the restore ends. A ready owner ignores it."
+      ]
      }
     },
     "additional_properties": false
@@ -19816,6 +19902,19 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "restore_progress": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "since": 12,
+      "constraints": [
+       "While the owner restores its session: refused at once with error_code server.restoring and error_details {lifecycle_ready: false, restore}, instead of held until the restore ends. A ready owner ignores it."
+      ]
      }
     },
     "additional_properties": false
@@ -22476,6 +22575,17 @@
       "default": null,
       "since": 12,
       "capability": "notification-mark-unread-v1"
+     },
+     "keep_awake": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "workspace-keep-awake-v1"
      },
      "origin": {
       "type": {

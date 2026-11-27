@@ -108,6 +108,8 @@ impl MeshRelay {
         let (daemon, own) = watch::channel(None);
         let refusals = Arc::new(Refusals::default());
         let beat = Arc::new(Beat::new());
+        // A chat moved here lists itself before its move answers (`Hub::list_on_mesh_now`).
+        *hub.mesh_beat.lock_or_recover() = Arc::downgrade(&beat);
         let beats = heartbeats(
             Arc::downgrade(hub),
             client.clone(),
@@ -282,6 +284,15 @@ async fn read_book(
         return;
     };
     if let Some(hub) = hub.upgrade() {
+        // RFD 0170: the same read feeds the team directory; an unchanged book keeps its snapshot.
+        if let Some(team) = crate::machine_record::machine_credential()
+            .ok()
+            .flatten()
+            .map(|c| c.team_id)
+            .filter(|t| !t.is_empty())
+        {
+            hub.apply_team_book(&team, Some(&own_user), &book);
+        }
         hub.apply_mesh_book(book, &own_user, own_daemon);
     }
 }
@@ -294,7 +305,7 @@ const START_LISTED_WAIT: Duration = Duration::from_secs(5);
 /// session was taken, so the sender's next message to it finds it in the hub's address book
 /// (the hub routes a name only to a session a heartbeat listed, `mesh.unknown_recipient`
 /// otherwise); waiting for the timer left a send right after the start refused for up to 30 s.
-struct Beat {
+pub(crate) struct Beat {
     nudge: tokio::sync::Notify,
     /// Requests made; a heartbeat covers every request made before it read the sessions.
     asked: std::sync::atomic::AtomicU64,
@@ -313,7 +324,7 @@ impl Beat {
 
     /// A heartbeat now (no sooner than the floor after the last one), and its taking, waited
     /// for at most `within`.
-    async fn now(&self, within: Duration) {
+    pub(crate) async fn now(&self, within: Duration) {
         let want = self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
         let mut listed = self.listed.subscribe();
         self.nudge.notify_one();
@@ -1342,6 +1353,8 @@ pub async fn deliver(
             "steer": !team && message.mode == Mode::Now,
             "promptId": prompt_id,
             "resend": true,
+            // Only a lease after the first waited (`prompt_provenance::resend_waited`).
+            (crate::prompt_provenance::LEASE_ATTEMPT): message.attempt,
             "fromAgent": from_name,
             "teamMessage": team,
             "startWork": message.start_work,

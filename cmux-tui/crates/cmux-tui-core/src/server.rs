@@ -600,6 +600,9 @@ pub const WORKSPACE_PIN_CAPABILITY: &str = "workspace-pin-v1";
 /// The manual workspace unread mark: `marked_unread` on
 /// `set-workspace-metadata` and the `marked_unread` workspace field.
 pub const NOTIFICATION_MARK_UNREAD_CAPABILITY: &str = "notification-mark-unread-v1";
+/// Keep Workspace Awake mirrored from a Mac: `keep_awake` on `set-workspace-metadata` and the
+/// `keep_awake` workspace field. The freeing timer never ends a kept-awake workspace's shells.
+pub const WORKSPACE_KEEP_AWAKE_CAPABILITY: &str = "workspace-keep-awake-v1";
 /// The manual tab unread mark: `marked_unread` on `tab.update` and the tab
 /// resource's `extra.marked_unread`. It needs no notification; clients clear
 /// it when the person views the tab.
@@ -923,6 +926,13 @@ enum Command {
         /// `install` and `update_command` (server/api_revision_wire.rs).
         #[serde(default)]
         revisions: bool,
+        /// Answered while the owner restores its session too, with
+        /// `lifecycle_ready: false` and `restore` (server/restoring.rs);
+        /// without it, held until the restore ends. A ready owner ignores it.
+        #[serde(default)]
+        // Read from the raw line by server/restoring.rs.
+        #[allow(dead_code)]
+        restore_progress: bool,
     },
     BrowserHostProvider,
     /// cmux Remote (`remote-host-v1`, server/remote_host_command.rs).
@@ -1016,6 +1026,12 @@ enum Command {
     /// optional sections (`resource_projection`); unknown names are ignored.
     ServerStats {
         include: Option<Vec<String>>,
+        /// While the owner restores: refused with `server.restoring` and the
+        /// restore's progress at once, instead of held until it ends.
+        #[serde(default)]
+        // Read from the raw line by server/restoring.rs.
+        #[allow(dead_code)]
+        restore_progress: bool,
     },
     /// The terminal hosts this daemon holds and every record root it can
     /// read, each host classified from records, leases and session guards,
@@ -2074,7 +2090,8 @@ enum Command {
         mutation: MutationRequest,
     },
     /// Set, clear (`null`), or keep (absent) a workspace's shared color,
-    /// SF Symbol icon, and custom title, and set or keep its sidebar pin and manual unread mark.
+    /// SF Symbol icon, and custom title, and set or keep its sidebar pin, manual unread mark
+    /// and Keep Awake.
     SetWorkspaceMetadata {
         #[serde(default)]
         workspace: Option<WorkspaceId>,
@@ -2090,6 +2107,9 @@ enum Command {
         pinned: Option<bool>,
         #[serde(default)]
         marked_unread: Option<bool>,
+        /// Keep Workspace Awake (`workspace-keep-awake-v1`).
+        #[serde(default)]
+        keep_awake: Option<bool>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -3353,6 +3373,9 @@ mod starter_exit_tests;
 #[path = "server/terminal_resume_tests.rs"]
 mod terminal_resume_tests;
 
+#[cfg(test)]
+#[path = "server/new_workspace_room_pin_tests.rs"]
+mod new_workspace_room_pin_tests;
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
