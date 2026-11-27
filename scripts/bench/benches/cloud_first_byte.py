@@ -8,7 +8,7 @@ from pathlib import Path
 
 from benchlib.bench import Bench, BenchError, Context
 
-HARNESS = "scripts/measure/cloud-first-byte.py"
+HARNESS = "scripts/measure/cloud-first-byte.sh"
 MARK = "CLOUD-FIRST-BYTE "
 
 

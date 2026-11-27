@@ -11,7 +11,7 @@ from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HARNESS = ROOT / "scripts" / "measure" / "cloud-first-byte.py"
+HARNESS = ROOT / "scripts" / "measure" / "cloud-first-byte.sh"
 
 
 def py_command(source: str) -> str:
@@ -21,7 +21,7 @@ def py_command(source: str) -> str:
 class CloudFirstByteHarnessTest(unittest.TestCase):
     def run_harness(self, chat: str, git: str, *extra: str) -> tuple[int, dict]:
         proc = subprocess.run(
-            [sys.executable, str(HARNESS), "--samples", "3", "--timeout", "2",
+            ["bash", str(HARNESS), "--samples", "3", "--timeout", "2",
              "--chat-command", chat, "--git-command", git, "--completion-marker", "ok", *extra],
             cwd=ROOT, capture_output=True, text=True, check=False,
         )

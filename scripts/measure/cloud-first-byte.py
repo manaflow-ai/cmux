@@ -14,7 +14,7 @@ both commands must succeed, and the stream's completion marker must arrive.
 
 Fleet invocation (supply the quoted argv strings and exact pushed SHA)::
 
-    cmux-ci run --class exclusive --measurement --script scripts/measure/cloud-first-byte.py \
+    cmux-ci run --class exclusive --measurement --script scripts/measure/cloud-first-byte.sh \
       --ref SHA --arg=--chat-command=STREAM --arg=--git-command=GIT \
       --arg=--completion-marker=END --arg=--json=artifacts/cloud-first-byte.json \
       --artifact artifacts/cloud-first-byte.json --timeout 600 --key UNIQUE
