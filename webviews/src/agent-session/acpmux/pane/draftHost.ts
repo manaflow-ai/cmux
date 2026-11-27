@@ -1,6 +1,8 @@
 import { type ComposerAttachment } from "../attachments";
 import { type KeptAttachments } from "../composer/keptAttachments";
 import { callNative } from "../callNative";
+import { draftAttachmentsStore } from "../composer/draftAttachmentsStore";
+import { onDraftActionsChanged } from "../composerDraft";
 import { composerFilledReporter } from "../conversation/toggleDraft";
 
 /// Hands the host a new chat's typed text, kept with its tab across a relaunch (cx-z5vd).
@@ -20,9 +22,9 @@ export const postNewChatDraft = () =>
   postUnsentDraft(
     [...newChatDraft.kept, ...newChatDraft.held, newChatDraft.typed].filter((part) => part.trim()).join("\n\n"),
   );
-/// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
-/// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
-export const keptAttachments: KeptAttachments = {
+/// The host's store of each chat's unsent chips (AgentPaneDraftAttachments.swift), where they lived
+/// before acpmux kept them. A host without the store (the gallery, an older app) keeps none.
+const hostKeptAttachments: KeptAttachments = {
   read: (sessionId) =>
     callNative<unknown>("chat.draftAttachments.get", { sessionId }).then(
       (kept) => (Array.isArray(kept) ? (kept as ComposerAttachment[]) : []),
@@ -31,3 +33,19 @@ export const keptAttachments: KeptAttachments = {
   write: (sessionId, attachments) =>
     callNative<{ held?: unknown } | null>("chat.draftAttachments", { sessionId, attachments }),
 };
+/// Each chat's unsent chips, kept by acpmux with the chat's session so reopening, restoring, a
+/// restart or another client brings them back; an older daemon's page keeps them with the host
+/// (composer/draftAttachmentsStore.ts).
+export const keptAttachments: KeptAttachments = draftAttachmentsStore(
+  () => {
+    const actions = window.cmuxAcpmuxActions;
+    const read = actions?.["chat.readDraftAttachments"];
+    const write = actions?.["chat.writeDraftAttachments"];
+    return {
+      read: read && ((sessionId) => read({ sessionId })),
+      write: write && ((sessionId, attachments) => write({ sessionId, attachments })),
+    };
+  },
+  hostKeptAttachments,
+  { actionsChanged: onDraftActionsChanged },
+);
