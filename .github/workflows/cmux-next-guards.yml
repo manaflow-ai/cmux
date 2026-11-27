@@ -101,8 +101,12 @@ env:
 # still pending. Per commit, at about 20 landings an hour, 53 of 60 base runs sat unstarted at once
 # (2026-11-18 06:57Z), about 15 Linux jobs each, ahead of every pull request's light jobs. The base-red
 # excuse and the feed watch read the newest base run at or before a commit, not one per commit.
+# ready_for_review gets a group of its own too: every job that judges the head skips that event (the draft's
+# run already judges the same head), so in the PR's shared group it cancelled the draft's run and left the
+# head with no guard verdict (4 of the 10 heads marked ready while their run was going, 03:34Z-04:40Z
+# 2026-11-27; tests/test_cmux_next_guards_route.py).
 concurrency:
-  group: cmux-next-guards-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}
+  group: cmux-next-guards-${{ github.event.pull_request.number || github.ref }}${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled') && format('-label-{0}', github.run_id) || '' }}${{ github.event_name == 'pull_request' && github.event.action == 'ready_for_review' && format('-ready-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -113,7 +117,9 @@ jobs:
   # '0' turns it off.
   full-carry:
     name: full-ci base merge carry
-    if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    # Only where a root job below would run on this event: with full-ci (or CI_LAND_FULL_PER_PR, which runs the full
+    # tier on ready-to-land); otherwise those jobs skip anyway and this job's runner decides nothing.
+    if: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) && (contains(github.event.pull_request.labels.*.name, 'full-ci') || vars.CI_LAND_FULL_PER_PR == '1') && github.event.pull_request.base.ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true) && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     continue-on-error: true
@@ -159,7 +165,7 @@ jobs:
       # The guard ownership reads ci-guards.yml and the tests' imports.
       - name: Checkout the merge commit's router (trees only)
         if: ${{ !startsWith(runner.name, 'cmux-runner-pool-') }}
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -262,7 +268,7 @@ jobs:
         id: checkout
         timeout-minutes: 5
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # A pull request's merge commit and its first parent (the base).
@@ -287,7 +293,7 @@ jobs:
         if: steps.checkout.outcome == 'failure'
         timeout-minutes: 5
         continue-on-error: true
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -379,7 +385,7 @@ jobs:
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -474,7 +480,7 @@ jobs:
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -557,7 +563,7 @@ jobs:
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # A pull request's merge commit and its first parent (the base) for the changed files.
@@ -676,7 +682,7 @@ jobs:
       # (scripts/ci/guards_new_reds.py). The base's steps run with this checkout's runner (--root).
       - name: Checkout the base
         if: (steps.changes.outputs.base || '') != '' && (steps.changes.outputs.base) != '0000000000000000000000000000000000000000' && steps.changes.outputs.tip != 'true'
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           ref: ${{ steps.changes.outputs.base }}
           path: .guard-base
@@ -850,7 +856,7 @@ jobs:
 
       - name: Checkout
         timeout-minutes: 5
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # HEAD^1: the base tip of a pull request's merge commit, or the
@@ -970,7 +976,7 @@ jobs:
           INPUT_KEY: ${{ steps.step-keys.outputs.defaults-snapshot }}
         run: python3 scripts/ci/receipt_input_key.py record static-checks-defaults-snapshot --input-key "$INPUT_KEY" --out "$RUNNER_TEMP/ci-step-receipt/defaults-snapshot/receipt.json"
       - name: Save the defaults snapshot step's receipt (shadow)
-        if: ${{ !cancelled() && steps.defaults-snapshot-record.outcome == 'success' }}
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.defaults-snapshot-record.outcome == 'success' }}
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -997,7 +1003,7 @@ jobs:
           INPUT_KEY: ${{ steps.step-keys.outputs.group-menus }}
         run: python3 scripts/ci/receipt_input_key.py record static-checks-group-menus --input-key "$INPUT_KEY" --out "$RUNNER_TEMP/ci-step-receipt/group-menus/receipt.json"
       - name: Save the group menus step's receipt (shadow)
-        if: ${{ !cancelled() && steps.group-menus-record.outcome == 'success' }}
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.group-menus-record.outcome == 'success' }}
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1045,7 +1051,7 @@ jobs:
           INPUT_KEY: ${{ steps.step-keys.outputs.page-strings }}
         run: python3 scripts/ci/receipt_input_key.py record static-checks-page-strings --input-key "$INPUT_KEY" --out "$RUNNER_TEMP/ci-step-receipt/page-strings/receipt.json"
       - name: Save the page strings step's receipt (shadow)
-        if: ${{ !cancelled() && steps.page-strings-record.outcome == 'success' }}
+        if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && steps.page-strings-record.outcome == 'success' }}
         continue-on-error: true
         uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
@@ -1109,7 +1115,7 @@ jobs:
     steps:
       - name: Checkout
         timeout-minutes: 5
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           fetch-depth: 2
@@ -1193,7 +1199,7 @@ jobs:
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
 
@@ -1219,6 +1225,58 @@ jobs:
         run: |
           ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
             --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
+
+  # ios-placeholder-bounds (Leo, 2026-11-24): every placeholder the iOS app draws sits under
+  # `.placeholderBound` and is listed with its bound in cmux-next-ios/design/placeholders.json.
+  # The simulator half is cmux-next-ios/UITests/PlaceholderBoundUITests.swift. Its own job, not a tooling-tests
+  # step, so the check run is named and land-judge's required list can name it (a step of tooling-tests had 0
+  # recorded passes over 12 feat-cmux-next pushes: skipped 4 times, absent 8). It runs on every pull request into
+  # feat-cmux-next, draft or ready, without the land tier's skip (tests/test_head_tier.py KEEP_ON_EVERY_HEAD), and on
+  # the feat-cmux-next push's coalesced run (coalesce is skipped on a pull request; `!cancelled()` runs this anyway).
+  # A draft's run already recorded its pass at the head, so `ready_for_review` does not run it again. Pure Python
+  # on Linux, seconds of work.
+  ios-placeholder-bounds:
+    needs: coalesce
+    name: ios-placeholder-bounds
+    if: ${{ github.event.action != 'ready_for_review' && !cancelled() && needs.coalesce.outputs.run != 'false' && !(github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' && (github.event.action == 'labeled' && !contains(fromJSON('["full-ci","ready-to-land"]'), github.event.label.name) || github.event.action == 'unlabeled')) }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # A persistent pool VM keeps the last job's checkout as a git cache. One left sparse (patterns, skip-worktree
+      # bits) or with a ref to a missing object makes actions/checkout leave files out or fail (runs 44739498261 and
+      # 44733869883, 2026-11-20); remove it so checkout clones fresh. Its manual test: test_ci_reused_sparse_checkout.py.
+      - name: Remove a reused workspace left sparse or broken (self-hosted Linux)
+        working-directory: ${{ github.workspace }}
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          [ "${RUNNER_ENVIRONMENT:-}" = self-hosted ] && [ -e "$GITHUB_WORKSPACE/.git" ] || exit 0
+          cd "$GITHUB_WORKSPACE"
+          why=""
+          if [ "$(git config --get core.sparseCheckout 2>/dev/null)" = true ] || [ -e .git/info/sparse-checkout ]; then
+            why="sparse"
+          elif git ls-files -v 2>/dev/null | grep -q '^S'; then
+            why="skip-worktree entries"
+          elif ! git rev-parse --verify -q 'HEAD^{commit}' >/dev/null; then
+            why="HEAD does not resolve"
+          elif git for-each-ref --format='%(objectname)' 2>/dev/null | git cat-file --batch-check 2>/dev/null | grep -q ' missing$'; then
+            why="a ref names a missing object"
+          else
+            exit 0
+          fi
+          echo "reused workspace on ${RUNNER_NAME:-this runner}: $why; removing it so checkout starts clean"
+          find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - name: Every iOS placeholder has a listed bound (ios-placeholder-bounds)
+        timeout-minutes: 5
+        run: python3 -I tests/test_ios_placeholder_bounds.py
 
   # The checks that judge a change against its base, in one runner session and one checkout: red only for the
   # change's own regression, so a base red never excuses them (next_autoland's NEVER_BASE matches "size cap" and
@@ -1262,7 +1320,7 @@ jobs:
     name: workflow start lint (a change that stops a workflow starting)
     if: ${{ github.event.action != 'ready_for_review' }}
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && (vars.CI_FORK_LINUX_RUNNER || 'ubuntu-24.04') || 'cmux-linux' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'ubuntu-24.04' || 'cmux-linux' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -1374,7 +1432,7 @@ jobs:
 
       - name: Checkout
         timeout-minutes: 5
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # A pull request's merge commit and its first parent (the base).
@@ -1431,6 +1489,15 @@ jobs:
             base=(--base-ref "$BEFORE")
           fi
           python3 -I scripts/cmux-next/check-spawn-owner.py "$GITHUB_WORKSPACE" ${base[@]+"${base[@]}"}
+
+      # A module whose doc says it is sans-IO takes time, sockets and tasks from its caller: no
+      # Instant::now(), sleep, socket or spawn in its product code (check-sans-io.py, its rules tested here).
+      - name: cmux-next sans-IO guard
+        if: ${{ !cancelled() }}
+        timeout-minutes: 5
+        run: |
+          python3 -I scripts/cmux-next/check-sans-io.py "$GITHUB_WORKSPACE"
+          python3 tests/test_sans_io_guard.py
 
       - name: cmux-next localization debt ratchet
         if: ${{ !cancelled() }}
@@ -1525,7 +1592,7 @@ jobs:
     outputs:
       base_red: ${{ steps.decide.outputs.base_red }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # Only the script, into its own folder: a full checkout took past 3 minutes on a cold runner (run
@@ -1598,7 +1665,7 @@ jobs:
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           persist-credentials: false
           # HEAD^1: a pull request's base for the registry check.
@@ -1762,14 +1829,6 @@ jobs:
         id: tt-tooling-tests-batch
         if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-tooling-tests-batch ')) }}
         run: python3 tests/test_ci_tooling_tests_batch.py
-
-      # ios-placeholder-bounds (Leo, 2026-11-24): every placeholder the iOS app draws sits under
-      # `.placeholderBound` and is listed with its bound in cmux-next-ios/design/placeholders.json.
-      # The simulator half is cmux-next-ios/UITests/PlaceholderBoundUITests.swift.
-      - name: Every iOS placeholder has a listed bound (ios-placeholder-bounds)
-        id: tt-ios-placeholder-bounds
-        if: ${{ success() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-ios-placeholder-bounds ')) }}
-        run: python3 -I tests/test_ios_placeholder_bounds.py
 
       - name: A rebuilt cmux-tui commit reuses its earlier publication
         id: tt-cmux-tui-republish
@@ -2128,6 +2187,14 @@ jobs:
         id: tt-tip-test-compile
         if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-tip-test-compile ')) }}
         run: python3 tests/test_ci_tip_test_compile.py
+
+      # The step table's rules (ci/steps.toml against the workflows it carries, pr-pipeline.yml, web_subareas.py). It ran
+      # only in ci-guards.yml's `ci` group, which a feat-cmux-next pull request skips (ci-guard-group runs on the push), so
+      # a tt- step with no shard line (#56816) and subarea paths with no step glob (#49458) landed and turned the base red.
+      - name: The step table's rules (test_ci_step_table.py)
+        id: tt-ci-step-table
+        if: ${{ !cancelled() && steps.setup-tooling-run.outputs.ran != 'true' && (steps.setup-tooling-route.outputs.tooling_all != 'false' || contains(steps.setup-tooling-route.outputs.tooling_steps, ' tt-ci-step-table ')) }}
+        run: python3 tests/test_ci_step_table.py
 
       # What a later head of this pull request reuses (scripts/ci/tooling_reuse.py): the merge tree and the steps that
       # ran and passed here, failed run or not. Reused and skipped steps' outcome is skipped, so a pass never chains.
