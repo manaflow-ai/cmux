@@ -578,7 +578,7 @@ pub struct Sending {
 }
 
 impl TransactionReplies {
-    pub fn expect(&mut self, transaction: &str) {
+    pub fn await_reply(&mut self, transaction: &str) {
         *self.unanswered.entry(transaction.to_owned()).or_insert(0) += 1;
     }
 
@@ -833,7 +833,7 @@ impl Model {
     /// `expectReply`.
     pub fn expect_reply(&mut self, transaction: &str) {
         if self.has_handler {
-            self.replies.expect(transaction);
+            self.replies.await_reply(transaction);
         }
     }
 

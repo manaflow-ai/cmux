@@ -387,8 +387,8 @@ fn supersede_drops_only_ended_overrides_of_the_set() {
 #[test]
 fn replies_count_down_and_forget_marks_the_sending_refused() {
     let mut replies = TransactionReplies::default();
-    replies.expect("t");
-    replies.expect("t");
+    replies.await_reply("t");
+    replies.await_reply("t");
     assert!(!replies.answered("t"));
     assert!(replies.answered("t"));
     assert!(replies.answered("never"));
