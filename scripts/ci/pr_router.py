@@ -37,12 +37,18 @@ pr_router.json lists each routed workflow ("callee") with what used to start it:
              full tier or not, skips it;
   land_affected
              true to consider the callee's paths on the affected landing tier as well as the full tier;
+  land_ask_only
+             with land_affected: on the affected landing tier it starts only on the land handoff (the `labeled`
+             event adding ready-to-land or full-ci, which land-judge pulses at the head it lands) and the merge
+             train's tip, not on each push or base merge of a labelled PR. $CI_NIGHTLY_PR_BUILD_AT_LAND=0 starts
+             it on every landing head again (land_ask_only_on);
   draft      true for a workflow that also runs on a draft head (scripts/ci/head_tier.py's cheap tier);
              any other callee starts on a draft only with full-ci, and runs when the PR is marked ready
              for review, so every callee must listen to `ready_for_review` (`check` says so).
 A `full-ci` label makes the head full tier (as ready-to-land does) and beats fast-track; its callees still
 start only when a changed file reaches them, or when the changed files are unknown. A lane VM's land handoff
-adds full-ci to every PR, and starting every callee for it repeated the base's push run (cmux#58044).
+adds full-ci to every PR, and starting every callee for it repeated the base's push run (cmux#58044). Into feat-cmux-next
+`full-ci` applies only on its own `labeled` event (head_tier.full_ci_applies; CI_FULL_CI_ONE_SHOT=0 makes it sticky).
 
 Whatever the router cannot read (no merge commit, a git error) starts every callee the event's type allows:
 it routes more, never less. Stdlib only, plus workflow_paths_cover_inputs (the one GitHub paths-glob
@@ -102,6 +108,19 @@ def full_ci_only_jobs() -> tuple[str, ...]:
 def handoff_label_skip() -> bool:
     """Whether a land_handoff_only callee skips the label handoff ($CI_MC_HANDOFF_LABEL_SKIP, on unless 0)."""
     return os.environ.get("CI_MC_HANDOFF_LABEL_SKIP", "1").strip() != "0"
+
+
+# A land_ask_only callee (nightly-pr-build.yml, the two "nightly app compile" Mac stubs) runs on the affected
+# landing tier only when land asks: the handoff label and the merge train's tip. 15-21Z 2026-11-27 they were the
+# 2nd and 3rd largest jobs (arm64 17.9, x86_64 17.5 runner-min per merged PR); 80% of their 11,896 runner-min was on
+# PRs that had not merged by 21Z, 56% on base-merge heads of labelled PRs, 25% on pushes after the label, and 31%
+# repeated an input key already compiled. Leo, 2026-11-27: "whatever we need to cut, we cut. whatever we can
+# reuse, we reuse." The repository variable CI_NIGHTLY_PR_BUILD_AT_LAND=0 turns this off (passed in by pr-router.yml).
+
+
+def land_ask_only_on() -> bool:
+    """Whether a land_ask_only callee waits for land's ask ($CI_NIGHTLY_PR_BUILD_AT_LAND, on unless 0)."""
+    return os.environ.get("CI_NIGHTLY_PR_BUILD_AT_LAND", "1").strip() != "0"
 
 
 def full_ci_kept(event: dict) -> bool:
@@ -210,11 +229,11 @@ def route(event: dict, callees: dict, files: list[str] | None,
     cheap = tier == "cheap"
     landing_affected = head_tier.land_affected((tier, tier_reason))
     pr = event.get("pull_request") or {}
-    labels = head_tier.labels_of(event)
     # Fast-track (scripts/ci/fast_track.py): a docs, plans, skills, copy or tests-only change gets the cheap tier.
     # full-ci asks for the full tier, so it beats fast-track.
     fast = False
-    if not cheap and tier != "none" and files is not None and fast_track.enabled() and FULL_CI not in labels:
+    if (not cheap and tier != "none" and files is not None and fast_track.enabled()
+            and not head_tier.full_ci_applies(event)):
         fast, fast_reason = fast_track.classify(files)
         cheap = fast
     action = str(event.get("action") or "")
@@ -249,6 +268,12 @@ def route(event: dict, callees: dict, files: list[str] | None,
         if config.get("land_handoff_only") and handoff and not land_update and handoff_label_skip():
             why[name] = (f"label handoff: the merge train's tip ({TRAIN_TIP}) and land's update-branch head build the "
                          f"tree a merge takes; $CI_MC_HANDOFF_LABEL_SKIP=0 builds here too")
+            continue
+        if (config.get("land_ask_only") and landing_affected and not handoff and not train_tip
+                and land_ask_only_on()):
+            why[name] = (f"{head_tier.LAND_AFFECTED_REASON}: starts when land asks ({head_tier.LAND_LABEL} or "
+                         f"{FULL_CI} added at this head) or on the merge train's tip ({TRAIN_TIP}), not on each push; "
+                         f"$CI_NIGHTLY_PR_BUILD_AT_LAND=0 starts it here too")
             continue
         if added and added in config.get("labels", []):
             start.append(name)
@@ -304,8 +329,8 @@ def route(event: dict, callees: dict, files: list[str] | None,
             why[name] = "no changed file is one of its inputs"
             continue
         if "table_jobs" in config:
-            steps = table_steps(config, files, full=tier == "full" or FULL_CI in labels,
-                                full_ci=full_ci_kept(event))
+            full_ci = head_tier.full_ci_applies(event) and full_ci_kept(event)
+            steps = table_steps(config, files, full=tier == "full" or full_ci, full_ci=full_ci)
             if steps == []:
                 why[name] = "the change routes no step of " + ", ".join(config["table_jobs"])
                 continue
@@ -411,8 +436,8 @@ RERUN_SHORT_SECONDS = 60
 GREEN_JOB = frozenset({"success", "skipped"})
 
 
-def caller_names(text: str) -> dict[str, str]:
-    """{callee file: its caller job's `name:`} from pr-router.yml: the prefix of the callee's job names in a run."""
+def caller_names(text: str) -> dict[str, list[str]]:
+    """All caller prefixes per callee; split invocations must not overwrite one another's receipts."""
     names, current, name = {}, None, ""
     for line in text.splitlines():
         if m := re.match(r"^  ([A-Za-z0-9_-]+):\s*$", line):
@@ -420,7 +445,7 @@ def caller_names(text: str) -> dict[str, str]:
         elif current and (m := re.match(r"^    name:\s*(.+?)\s*$", line)):
             name = m.group(1).strip("'\"")
         elif current and name and (m := re.match(r"^    uses: \./\.github/workflows/([^\s@]+)\s*$", line)):
-            names[m.group(1)] = name
+            names.setdefault(m.group(1), []).append(name)
     return names
 
 
@@ -447,7 +472,7 @@ def proved(jobs: list) -> bool:
     return all(t is not None for t in took) and sum(took) >= RERUN_SHORT_SECONDS
 
 
-def rerun_plan(jobs: list | None, names: dict[str, str], table: list[str]) -> tuple[set[str], set[str]]:
+def rerun_plan(jobs: list | None, names: dict[str, list[str]], table: list[str]) -> tuple[set[str], set[str]]:
     """(callee files, table jobs) the red-head base merge rule keeps off: those whose every job passed at the
     previous head's router run (proved). JOBS: that run's jobs (the jobs API); None (unread) keeps nothing off."""
     if not isinstance(jobs, list):
@@ -458,9 +483,11 @@ def rerun_plan(jobs: list | None, names: dict[str, str], table: list[str]) -> tu
                 or str(j.get("name") or "").startswith(prefix + " / ")
                 or str(j.get("name") or "").startswith(prefix + " ("))]
 
-    carried = {callee for callee, name in names.items() if proved(under(name))}
-    pipeline = names.get("pr-pipeline.yml", "")
-    rows = {job for job in table if pipeline and proved(under(f"{pipeline} / {job}"))}
+    carried = {callee for callee, prefixes in names.items()
+               if proved([job for prefix in prefixes for job in under(prefix)])}
+    pipeline = names.get("pr-pipeline.yml", [])
+    rows = {job for job in table if pipeline
+            and proved([row for prefix in pipeline for row in under(f"{prefix} / {job}")])}
     return carried, rows
 
 
