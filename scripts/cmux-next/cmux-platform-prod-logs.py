@@ -583,6 +583,10 @@ HTTP_CODE = re.compile(r"(?:^|\s)http=(\d{3})(?:\s|$)")
 AGENT_LAST = frozenset({
     "bind_line", "install_key_failed", "wireguard_key_failed", "waiting_bind_file", "bound_file_unreadable",
     "updater", "no_line", "cloud_other",
+    # cmux-platform NeverBoundProbe updaterClasses: which updater line it was.
+    "updater_flipped", "updater_channel_timeout", "updater_gate_refused", "updater_gate_unreadable",
+    "updater_failed", "updater_updating", "updater_current", "updater_connect_hold", "updater_busy", "updater_off",
+    "updater_exec_failed", "updater_first_ready", "updater_other",
 })
 AGENT_BIND = re.compile(r"^(no_line|none|noise_key_wait|noise_key_gave_up|restart_gate|daemon_info_failed|"
                         r"retry_http_\d{3}|retry_other|refused_[a-z._]{1,40}|invalid|bound|other)$")
@@ -634,6 +638,11 @@ def probe_facts(out):
             facts["agent_bind_lines"] = min(999_999, int(ln.split("=", 1)[1]))
         elif ln.startswith("agent_journal_lines=") and ln.split("=", 1)[1].isdigit():
             facts["agent_journal_lines"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_flips=") and ln.split("=", 1)[1].isdigit():
+            facts["agent_flips"] = min(999_999, int(ln.split("=", 1)[1]))
+        elif ln.startswith("agent_cloud_last="):
+            v = ln.split("=", 1)[1]
+            facts["agent_cloud_last"] = v if v in AGENT_LAST else "other"
         elif ln.startswith("agent_last="):
             v = ln.split("=", 1)[1]
             facts["agent_last"] = v if v in AGENT_LAST else "other"
