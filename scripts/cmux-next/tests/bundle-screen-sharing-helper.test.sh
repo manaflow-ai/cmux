@@ -8,6 +8,10 @@
 # (another name and id) left in the app, --app with no Info.plist, and --stamp refusing a name that is
 # not one, and an app built before the rename (a legacy "<name> Screen Sharing.app") migrating on a rebuild and
 # on --stamp while another app's " Helper.app" stays. Each run must leave exactly one helper, named from this build, and no staging directory.
+# The helper also carries the app's icon (CFBundleIconFile and its .icns in Contents/Resources) after the Xcode
+# phase, --app and --stamp: without one, the Computer Use onboarding's drag row, System Settings' privacy lists and
+# the permission prompt show the blank generic app icon (Austin, 2026-11-27: "We need to show the icon instead of
+# the blank white icon").
 # Runs on Linux and macOS (python3 and file(1)).
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -54,7 +58,8 @@ plist_value() { python3 -I -c 'import plistlib, sys; print(plistlib.load(open(sy
 run() { # [args...] -> out, rc; the Xcode phase's settings unless --app/--stamp
   local settings=(TARGET_BUILD_DIR="$build" TARGET_TEMP_DIR="$build/tmp"
     UNLOCALIZED_RESOURCES_FOLDER_PATH="$NAME.app/Contents/Resources"
-    PRODUCT_NAME="$NAME" PRODUCT_BUNDLE_IDENTIFIER="$ID" CURRENT_PROJECT_VERSION=7)
+    PRODUCT_NAME="$NAME" PRODUCT_BUNDLE_IDENTIFIER="$ID" CURRENT_PROJECT_VERSION=7
+    ${ASSETCATALOG_COMPILER_APPICON_NAME:+ASSETCATALOG_COMPILER_APPICON_NAME="$ASSETCATALOG_COMPILER_APPICON_NAME"})
   [[ $# == 0 ]] || settings=()
   set +e
   out=$(env -i PATH=/usr/bin:/bin HOME="$TMP" TMPDIR="$TMP" CONFIGURATION=Debug SRCROOT="$ROOT" \
@@ -141,5 +146,44 @@ for dev_id in com.cmuxterm.app.debug.my-tag com.cmuxterm.app.debug.other.tag com
   run --stamp "$app"
   expect_one_helper "--stamp of $dev_id" "$NAME" com.cmuxterm.app.debug.screen-sharing
 done
+
+# 10. The helper carries the app's own icon: CFBundleIconFile names an .icns in its Contents/Resources with the
+# app icon's bytes. Each channel names its icon differently (AppIcon, AppIcon-Debug), so the helper follows the app.
+write_icon_info() { # <icon name>: an app Info.plist naming its icon, and that icon in Resources
+  python3 -I -c 'import plistlib, sys; plistlib.dump({"CFBundleName": sys.argv[2], "CFBundleIdentifier": sys.argv[3], "CFBundleVersion": "7", "CFBundleIconFile": sys.argv[4]}, open(sys.argv[1], "wb"))' \
+    "$app/Contents/Info.plist" "$NAME" "$ID" "$1"
+  rm -f "$app/Contents/Resources/"*.icns
+  printf 'icns-%s' "$1" > "$app/Contents/Resources/$1.icns"
+}
+expect_icon() { # <case> <app icon name>
+  local helper="$library/$NAME Helper.app" file
+  file=$(plist_value "$helper/Contents/Info.plist" CFBundleIconFile)
+  [[ -n "$file" ]] || fail "$1: the helper's Info.plist has no CFBundleIconFile (the blank app icon)" "$out"
+  [[ "$file" == *.icns ]] || file="$file.icns"
+  [[ -s "$helper/Contents/Resources/$file" ]] \
+    || fail "$1: the helper's CFBundleIconFile names Contents/Resources/$file, which is not there" "$out"
+  cmp -s "$helper/Contents/Resources/$file" "$app/Contents/Resources/$2.icns" \
+    || fail "$1: the helper's icon is not the app's $2.icns" "$out"
+}
+rm -rf "$library"/* "$build/tmp/bundle-screen-sharing-helper.stamp"
+for icon in AppIcon AppIcon-Debug; do
+  write_icon_info "$icon"
+  rm -f "$build/tmp/bundle-screen-sharing-helper.stamp"
+  ASSETCATALOG_COMPILER_APPICON_NAME="$icon" run
+  expect_one_helper "Xcode phase, icon $icon" "$NAME" "$ID.screen-sharing"
+  expect_icon "Xcode phase, icon $icon" "$icon"
+  run --app "$app"
+  expect_one_helper "--app, icon $icon" "$NAME" "$ID.screen-sharing"
+  expect_icon "--app, icon $icon" "$icon"
+  run --stamp "$app"
+  expect_one_helper "--stamp, icon $icon" "$NAME" "$ID.screen-sharing"
+  expect_icon "--stamp, icon $icon" "$icon"
+done
+# --stamp of a helper bundled before the icon (no Contents/Resources): the release signer's path gives it one.
+legacy "$NAME"
+write_icon_info AppIcon
+run --stamp "$app"
+expect_one_helper "--stamp of a helper with no icon" "$NAME" "$ID.screen-sharing"
+expect_icon "--stamp of a helper with no icon" AppIcon
 
 echo "PASS: bundle-screen-sharing-helper.sh reruns over the same app"
