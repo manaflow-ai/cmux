@@ -49,20 +49,29 @@ def summarize(samples: list[dict[str, float]]) -> dict[str, Any]:
 
 
 class GPUSampler(threading.Thread):
-    def __init__(self, interval: float = 0.1) -> None:
+    def __init__(self, interval: float = 1.0) -> None:
         super().__init__(daemon=True)
-        self.interval = max(0.05, interval)
+        self.interval = max(1.0, interval)
         self.samples: list[dict[str, float]] = []
         self.stop_event = threading.Event()
 
     def run(self) -> None:
         while not self.stop_event.is_set():
             stats = read_gpu_stats()
-            if stats:
+            if stats and not self.stop_event.is_set():
                 self.samples.append(stats)
             self.stop_event.wait(self.interval)
 
     def finish(self) -> dict[str, Any]:
         self.stop_event.set()
-        self.join(timeout=max(2.0, self.interval * 2))
+        # read_gpu_stats has a 10-second subprocess timeout. Join fully so
+        # no sampling thread or subprocess can outlive the measurement.
+        self.join()
         return summarize(self.samples)
+
+    def __enter__(self) -> GPUSampler:
+        self.start()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        self.result = self.finish()

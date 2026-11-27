@@ -37,6 +37,26 @@ class WindowServerTest(unittest.TestCase):
         self.assertEqual([row["phase"] for row in rows], ["static"])
         self.assertEqual(rows[0]["gpu"]["device_utilization_percent"], 4.0)
 
+    def test_typing_report_cpu_keys_and_gpu(self) -> None:
+        for key in ("cpu_pct", "cpu_percent"):
+            with self.subTest(key=key):
+                gpu = {"available": True, "device_utilization_percent": 4.0}
+                row = _harness.extract_runs("typing", {"runs": [{
+                    key: {"app": 2.0, "window_server": 3.0}, "gpu": gpu,
+                }]})[0]
+                self.assertEqual(row["window_server_cpu_percent"], 3.0)
+                self.assertEqual(row["app_cpu_percent"], 2.0)
+                self.assertEqual(row["gpu"], gpu)
+
+    def test_spinner_labels_only_loading_as_background(self) -> None:
+        report = {"phases": [{"phase": phase} for phase in ("static", "loading")]}
+        idle = _harness.extract_runs("idle", report)
+        spinner = _harness.extract_runs("spinner", report)
+        self.assertEqual([(r["surface"], r["visibility"]) for r in idle],
+                         [("browser-tabs", "shown"), ("browser-tabs", "shown")])
+        self.assertEqual([(r["surface"], r["visibility"]) for r in spinner],
+                         [("browser-tabs", "shown"), ("tab-strip", "background-loading-tab")])
+
     def test_gpu_stats_accept_numeric_plist_values(self) -> None:
         payload = plist_bytes = b'''<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><array><dict><key>PerformanceStatistics</key><dict><key>Device Utilization %</key><real>12.5</real><key>Renderer Utilization %</key><integer>9</integer><key>In use system memory</key><integer>1048576</integer></dict></dict></array></plist>'''
         import subprocess

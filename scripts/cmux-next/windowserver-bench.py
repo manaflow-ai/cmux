@@ -64,7 +64,7 @@ def extract_runs(scenario: str, report: dict[str, Any]) -> list[dict[str, Any]]:
                 continue
             phase_name = phase.get("phase")
             row = {"scenario": scenario, "phase": phase_name,
-                   "surface": "tab-strip" if scenario == "spinner" else "browser-tabs",
+                   "surface": "tab-strip" if scenario == "spinner" and phase_name == "loading" else "browser-tabs",
                    "visibility": "background-loading-tab" if scenario == "spinner" and phase_name == "loading" else "shown",
                    "window_server_cpu_percent": phase.get("window_server_cpu_percent"),
                    "app_cpu_percent": (phase.get("classes", {}).get("app", {}) or {}).get("cpu_percent"),
@@ -121,6 +121,8 @@ def main() -> int:
     parser.add_argument("--idle-s", type=float, default=20.0)
     parser.add_argument("--tabs", type=int, default=5)
     parser.add_argument("--samples", type=int, default=40)
+    parser.add_argument("--transport-envelope", action="store_true",
+                        help="return success after writing a report, even when its validation verdict is failed")
     opts = parser.parse_args()
     scenarios = [item.strip() for item in opts.scenarios.split(",") if item.strip()]
     if not scenarios:
@@ -143,13 +145,15 @@ def main() -> int:
             except RuntimeError as error:
                 failures.append({"scenario": scenario, "round": str(_round + 1), "error": str(error)})
                 print(f"WINDOWSERVER-FAIL {error}", file=sys.stderr, flush=True)
-    result = {"schema": SCHEMA, "app": os.path.abspath(opts.app), "host": os.uname().nodename,
+    failed = bool(failures or not rows)
+    result = {"verdict": "failed" if failed else "passed", "harness_exit_code": int(failed),
+              "schema": SCHEMA, "app": os.path.abspath(opts.app), "host": os.uname().nodename,
               "scenarios": scenarios, "rounds": opts.rounds, "runs": rows, "failures": failures,
               "attribution": {"window_server_cpu": "process CPU delta from the WindowServer process",
                               "gpu": "whole-device IOAccelerator utilization; no per-process attribution is available",
                               "spinner": "background loading tab in the shown workspace; parked-strip workspace-switch coverage is excluded"}}
     Path(opts.json).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
-    return 1 if failures or not rows else 0
+    return 0 if opts.transport_envelope else int(failed)
 
 
 if __name__ == "__main__":
