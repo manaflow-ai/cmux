@@ -229,6 +229,22 @@
       "root_fix": "1b"
     },
     {
+      "id": "settings.trypr.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileSettings/TryPullRequestPages.swift",
+      "line": 57,
+      "bound_ms": 2000,
+      "waits_for": "Try a Pull Request's open iPhone pull requests, listed by the Mac",
+      "root_fix": "1c"
+    },
+    {
+      "id": "vault.loading",
+      "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/VaultScreen.swift",
+      "line": 77,
+      "bound_ms": 2000,
+      "waits_for": "the vault's status from the cmux server",
+      "root_fix": "1c"
+    },
+    {
       "id": "tabgrid.terminal.unavailable",
       "file": "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileWorkspaces/TerminalTabContent.swift",
       "line": 142,

@@ -46,6 +46,15 @@ sys.path.insert(0, str(REPO_ROOT / "cmux-next-ios" / "FlowSuite"))
 import proof_record  # noqa: E402
 import select_flows  # noqa: E402
 
+# The loop runs from the PR's checkout, so a head older than a fix to the loop runs the old loop. Merging the base
+# into the head (merge_base_first) brings the fix, but only onto disk; the old code is still the one running and
+# posting. cmux#57582's head predated #62103, so its proof named a fleet host and public-body-guard refused it.
+# TOOL holds the loop's files as this process loaded them; when the merge changes one, main() re-executes the merged
+# loop, which then verifies and posts.
+TOOL = (HERE / "ios_verify.py", HERE / "proof_record.py", Path(select_flows.__file__).resolve())
+TOOL_LOADED = {f: f.read_bytes() for f in TOOL}
+REEXEC_HEAD = "CMUX_IOS_VERIFY_MERGED_HEAD"
+
 SUITE = "ios-flows"
 SIM_SCRIPT = "scripts/ci/cmux-next-ios-sim.sh"
 ARTIFACT = "artifacts/ios-sim/evidence.zip"
@@ -111,9 +120,17 @@ def delegated(selection: dict) -> list[dict]:
 
 # ---------- run ----------
 
-def run_step(step: dict, head: str, pr: int, strict: bool) -> dict:
+def step_key(step: dict, head: str, pr: int, strict: bool = False, attempt: str = "1") -> str:
+    """Identify one simulator submission, keeping its head, shard and worker visible in fleet logs."""
+    shard = step["name"].split(":", 1)[0].replace(" ", "").replace("/", "of")
+    workload = json.dumps([head, SIM_SCRIPT, ARTIFACT, step["args"], strict, attempt], separators=(",", ":"))
+    digest = hashlib.sha256(workload.encode()).hexdigest()[:32]
+    return f"ios-verify-{pr}-{head[:12]}-{step['mode']}-{shard}-{step['worker']}-{digest}"
+
+
+def run_step(step: dict, head: str, pr: int, strict: bool, attempt: str = "1") -> dict:
     cmd = ["cmux-ci", "run", "--class", "simulator", "--script", SIM_SCRIPT, "--ref", head,
-           "--key", f"ios-verify-{pr}-{step['mode']}-{step['worker']}", "--target-worker", step["worker"],
+           "--key", step_key(step, head, pr, strict, attempt), "--target-worker", step["worker"],
            "--sim-features", "none", "--artifact", ARTIFACT, "--priority", "agent",
            "--reason", f"cmux ios verify #{pr}"]
     if strict:
@@ -312,13 +329,20 @@ def rerun_gate(repo: str, sha: str) -> str:
     return "gate job has not run yet: it reads the proof when it does"
 
 
+def public_runs(runs: list[dict]) -> list[dict]:
+    """RUNS as the posted record holds them: no output tail and no worker. The record is PR text, and a public repo's
+    PR text names no fleet host (public-body-guard refused the proof on cmux#61688 for naming two); no gate reads the
+    worker, and the step id still leads to it. The worker stays in this run's stderr."""
+    return [{k: v for k, v in r.items() if k not in ("tail", "worker")} for r in runs]
+
+
 def summary_md(record: dict) -> str:
     t = record["timing"]
     lines = [f"**`cmux ios verify`** at `{record['head_sha'][:10]}`: **{record['verdict']}**"
              f" ({len(record['selection']['flows'])} flows, push to proof {t.get('push_to_proof_s')} s)", "",
-             "| run | worker | result | s |", "|---|---|---|---|"]
+             "| run | result | s |", "|---|---|---|"]
     for r in record["runs"]:
-        lines.append(f"| {r['name']} | {r.get('worker', '')} | {r['result']} | {r.get('seconds', '')} |")
+        lines.append(f"| {r['name']} | {r['result']} | {r.get('seconds', '')} |")
     changed = [c["name"] for c in record.get("captures", []) if c["verdict"] in ("changed", "new", "missing")]
     b = record.get("baseline")
     lines += ["", f"Screens: {len(record.get('captures', []))}, " +
@@ -327,6 +351,18 @@ def summary_md(record: dict) -> str:
     if record.get("merged_base"):
         lines.append(f"The base was merged into the head first ({record['base_sha'][:10]}).")
     return "\n".join(lines)
+
+
+def tool_changed() -> bool:
+    """Whether the loop's files on disk differ from the ones this process loaded."""
+    return any(not f.exists() or f.read_bytes() != TOOL_LOADED[f] for f in TOOL)
+
+
+def reexec(head: str, argv: list[str]) -> None:
+    """Run the merged loop in place of this one, at HEAD (already merged and pushed), so the merged code posts."""
+    print(f"ios verify: merging the base changed the loop; running the merged loop at {head[:10]}", file=sys.stderr)
+    os.execve(sys.executable, [sys.executable, "-I", str(HERE / "ios_verify.py"), *argv],
+              {**os.environ, REEXEC_HEAD: head})
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -338,6 +374,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--pair-e2e", choices=("auto", "always", "never"), default="auto")
     ap.add_argument("--no-merge-base", action="store_true")
     ap.add_argument("--pin-strict", action="store_true", help="never fall back off the named workers")
+    ap.add_argument("--attempt", default="1", help="use a new attempt ID to rerun an identical failed simulator step")
     ap.add_argument("--plan", action="store_true")
     ap.add_argument("--no-post", action="store_true")
     ap.add_argument("--out", help="write the record here too")
@@ -347,11 +384,15 @@ def main(argv: list[str] | None = None) -> int:
     view = pr_view(a.pr, a.repo)
     repo = a.repo or view["url"].split("github.com/")[1].rsplit("/pull/", 1)[0]
     merged = False
-    if a.no_merge_base or a.plan:
+    if os.environ.get(REEXEC_HEAD):
+        head, merged = os.environ[REEXEC_HEAD], True
+    elif a.no_merge_base or a.plan:
         git("fetch", "-q", "origin", view["baseRefName"], check=False)
         head = view["headRefOid"]
     else:
         head, merged = merge_base_first(view)
+        if merged and tool_changed():
+            reexec(head, sys.argv[1:] if argv is None else argv)
     base_sha = git("merge-base", f"origin/{view['baseRefName']}", head)
     manifest = json.loads(select_flows.MANIFEST.read_text())
     changed = select_flows.changed_from_git(base_sha, head)
@@ -364,7 +405,7 @@ def main(argv: list[str] | None = None) -> int:
             print("not iOS-affecting: cmux/ios-fast passes without a proof", file=sys.stderr)
         return 0
     with cf.ThreadPoolExecutor(max_workers=len(steps) + len(selection["scripts"]) or 1) as pool:
-        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict) for s in steps]
+        futs = [pool.submit(run_step, s, head, int(view["number"]), a.pin_strict, a.attempt) for s in steps]
         futs += [pool.submit(run_script, s) for s in selection["scripts"]]
         runs = [f.result() for f in futs]
     runs += delegated(selection)
@@ -386,7 +427,7 @@ def main(argv: list[str] | None = None) -> int:
         "pr": int(view["number"]), "head_sha": head, "base_ref": view["baseRefName"], "base_sha": base_sha,
         "merged_base": merged,
         "selection": {k: selection[k] for k in ("flows", "kit", "ui", "swift", "scripts", "compile")},
-        "runs": [{k: v for k, v in r.items() if k != "tail"} for r in runs],
+        "runs": public_runs(runs),
         "captures": captures, "baseline": base_meta, "video": video,
         "visual": visual(captures, base_meta, video),
         "verdict": "fail" if any(r["result"] in ("fail", "error") for r in runs) else "pass",
@@ -396,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
     }
     for r in runs:
         if r["result"] in ("fail", "error"):
-            print(f"FAIL {r['name']}:\n{r.get('tail', '')}\n", file=sys.stderr)
+            print(f"FAIL {r['name']} on {r.get('worker', '?')}:\n{r.get('tail', '')}\n", file=sys.stderr)
     body = proof_record.render(record, summary_md(record))
     if a.out:
         Path(a.out).write_text(json.dumps(record, indent=1))

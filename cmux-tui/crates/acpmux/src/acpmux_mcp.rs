@@ -1055,7 +1055,8 @@ fn ls_result(all: &Value, args: &Value) -> Value {
     ok(lines.join("\n"), json!({"sessions": slim, "more": more}))
 }
 
-#[cfg(test)]
+// The proxy stands in front of the daemon on a unix socket.
+#[cfg(all(test, unix))]
 #[path = "acpmux_mcp_restart_tests.rs"]
 mod restart_tests;
 #[cfg(test)]
